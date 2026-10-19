@@ -246,7 +246,17 @@ impl Printer {
                 } else {
                     (p, p + 1)
                 };
-                self.expr(l, lp);
+                // `x as i32 < y` is rejected by the parser (like rustc): the `<` after a
+                // type path is taken as the start of generic arguments. If the left
+                // operand would end in a bare `as <type>`, parenthesise it.
+                let lt_like = matches!(op, BinOp::Lt | BinOp::Le | BinOp::Shl);
+                if lt_like && rightmost_is_cast_at(l, lp) {
+                    self.out.push('(');
+                    self.expr(l, 0);
+                    self.out.push(')');
+                } else {
+                    self.expr(l, lp);
+                }
                 let _ = write!(self.out, " {} ", op.as_str());
                 self.expr(r, rp);
             }
@@ -376,6 +386,9 @@ impl Printer {
 fn needs_cond_parens(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Struct { .. } => true,
+        // The index operand of `Index`, call arguments and struct field values are
+        // deliberately not inspected: inside `[...]`, `(...)` or `{...}` the parser
+        // allows struct literals again, so `if a[Foo { x: 1 }] {}` prints bare.
         ExprKind::Unary(_, x)
         | ExprKind::Deref(x)
         | ExprKind::Ref { expr: x, .. }
@@ -390,6 +403,31 @@ fn needs_cond_parens(e: &Expr) -> bool {
         ExprKind::Break(Some(x)) | ExprKind::Return(Some(x)) => {
             leftmost_is_block(x) || needs_cond_parens(x)
         }
+        _ => false,
+    }
+}
+
+/// Whether the last tokens printed for `e` (at top level, with no enclosing precedence
+/// context) are a bare `as <type>`: `e` is a cast, or its right spine ends in one.
+#[must_use]
+pub fn rightmost_is_cast(e: &Expr) -> bool {
+    rightmost_is_cast_at(e, 0)
+}
+
+/// [`rightmost_is_cast`] for `e` printed with `min_prec`: a node that precedence wraps
+/// in parentheses ends in `)` and so never exposes a trailing cast.
+fn rightmost_is_cast_at(e: &Expr, min_prec: u8) -> bool {
+    if precedence(e) < min_prec {
+        return false;
+    }
+    match &e.kind {
+        ExprKind::Cast(..) => true,
+        ExprKind::Binary(op, _, r) => rightmost_is_cast_at(r, op.precedence() + 1),
+        ExprKind::Assign(_, r) | ExprKind::AssignOp(_, _, r) => rightmost_is_cast_at(r, 0),
+        ExprKind::Unary(_, x) | ExprKind::Ref { expr: x, .. } | ExprKind::Deref(x) => {
+            rightmost_is_cast_at(x, UNARY_PRECEDENCE)
+        }
+        ExprKind::Break(Some(x)) | ExprKind::Return(Some(x)) => rightmost_is_cast_at(x, 0),
         _ => false,
     }
 }
@@ -457,5 +495,128 @@ fn precedence(e: &Expr) -> u8 {
         | ExprKind::Break(_)
         | ExprKind::Return(_)
         | ExprKind::Continue => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sabiko_span::{FileId, Span};
+
+    use super::*;
+
+    const SP: Span = Span {
+        file: FileId(0),
+        start: 0,
+        end: 0,
+    };
+
+    fn ident(name: &str) -> Ident {
+        Ident {
+            name: name.to_owned(),
+            span: SP,
+        }
+    }
+
+    fn path(name: &str) -> Path {
+        Path {
+            segments: vec![ident(name)],
+            span: SP,
+        }
+    }
+
+    fn mk(kind: ExprKind) -> Expr {
+        Expr {
+            id: NodeId::DUMMY,
+            kind,
+            span: SP,
+        }
+    }
+
+    fn var(name: &str) -> Expr {
+        mk(ExprKind::Path(path(name)))
+    }
+
+    fn cast(e: Expr, ty: &str) -> Expr {
+        mk(ExprKind::Cast(
+            Box::new(e),
+            Type {
+                id: NodeId::DUMMY,
+                kind: TypeKind::Path(path(ty)),
+                span: SP,
+            },
+        ))
+    }
+
+    fn bin(op: BinOp, l: Expr, r: Expr) -> Expr {
+        mk(ExprKind::Binary(op, Box::new(l), Box::new(r)))
+    }
+
+    #[test]
+    fn cast_before_lt_is_parenthesised() {
+        let e = bin(BinOp::Lt, cast(var("x"), "i32"), var("y"));
+        assert_eq!(pretty_expr(&e), "(x as i32) < y");
+        let e = bin(BinOp::Le, cast(var("x"), "i32"), var("y"));
+        assert_eq!(pretty_expr(&e), "(x as i32) <= y");
+        let e = bin(BinOp::Shl, cast(var("x"), "u32"), var("y"));
+        assert_eq!(pretty_expr(&e), "(x as u32) << y");
+    }
+
+    #[test]
+    fn cast_on_right_spine_before_lt_is_parenthesised() {
+        // `a * b as i32 < c`: the cast binds tighter than `*`, so it is the rightmost
+        // token of the left operand without any parentheses of its own.
+        let e = bin(
+            BinOp::Lt,
+            bin(BinOp::Mul, var("a"), cast(var("b"), "i32")),
+            var("c"),
+        );
+        assert_eq!(pretty_expr(&e), "(a * b as i32) < c");
+    }
+
+    #[test]
+    fn cast_not_exposed_needs_no_extra_parens() {
+        // Other operators are unaffected.
+        let e = bin(BinOp::Gt, cast(var("x"), "i32"), var("y"));
+        assert_eq!(pretty_expr(&e), "x as i32 > y");
+        // A cast on the right operand is harmless.
+        let e = bin(BinOp::Lt, var("x"), cast(var("y"), "i32"));
+        assert_eq!(pretty_expr(&e), "x < y as i32");
+        // Precedence already wraps the cast under a unary operator, so it ends in `)`.
+        let e = bin(
+            BinOp::Lt,
+            mk(ExprKind::Unary(UnOp::Neg, Box::new(cast(var("x"), "i32")))),
+            var("y"),
+        );
+        assert_eq!(pretty_expr(&e), "-(x as i32) < y");
+        // A nested comparison is parenthesised anyway.
+        let e = bin(
+            BinOp::Lt,
+            bin(BinOp::Eq, var("a"), cast(var("b"), "i32")),
+            var("c"),
+        );
+        assert_eq!(pretty_expr(&e), "(a == b as i32) < c");
+    }
+
+    #[test]
+    fn rightmost_is_cast_walks_right_spine() {
+        assert!(rightmost_is_cast(&cast(var("x"), "i32")));
+        assert!(rightmost_is_cast(&bin(
+            BinOp::Add,
+            var("a"),
+            cast(var("b"), "i32")
+        )));
+        assert!(rightmost_is_cast(&mk(ExprKind::Return(Some(Box::new(
+            cast(var("x"), "i32")
+        ))))));
+        assert!(!rightmost_is_cast(&var("x")));
+        assert!(!rightmost_is_cast(&bin(
+            BinOp::Add,
+            cast(var("a"), "i32"),
+            var("b")
+        )));
+        assert!(!rightmost_is_cast(&mk(ExprKind::Paren(Box::new(cast(
+            var("x"),
+            "i32"
+        ))))));
     }
 }

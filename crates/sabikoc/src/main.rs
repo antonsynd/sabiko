@@ -77,7 +77,7 @@ fn main() -> ExitCode {
     let _ = std::io::stderr().write_all(rendered.as_bytes());
     let _ = std::io::stdout().write_all(compilation.output.as_bytes());
     if compilation.has_errors() {
-        let n = compilation.diagnostics.len();
+        let n = compilation.error_count();
         if format != Format::Json {
             eprintln!(
                 "error: could not compile `{}` due to {n} previous error{}",

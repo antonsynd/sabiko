@@ -18,7 +18,7 @@ if (-not $dotnet) { throw 'dotnet not found on PATH; install the .NET 10 runtime
 if (-not ((& $dotnet.Source --list-runtimes) -match '^Microsoft.NETCore.App 10\.')) { throw 'a .NET 10 runtime is required' }
 
 function Fetch($Id, $Ver) {
-  $out = Join-Path $Cache "$Id.zip"
+  $out = Join-Path $Cache "$Id.$Ver.zip"
   if ($Force -or -not (Test-Path $out)) {
     Write-Host "[setup-dotnet] downloading $Id $Ver"
     Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/$Id/$Ver/$Id.$Ver.nupkg" -OutFile $out

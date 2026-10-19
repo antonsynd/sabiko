@@ -5,7 +5,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use sabiko_diagnostics::{Diagnostic, Format, SourceMap};
+use sabiko_diagnostics::{Diagnostic, Format, Severity, SourceMap};
 
 /// What the driver should print after running the pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -41,7 +41,16 @@ impl Compilation {
     pub fn has_errors(&self) -> bool {
         self.diagnostics
             .iter()
-            .any(|d| d.severity == sabiko_diagnostics::Severity::Error)
+            .any(|d| d.severity == Severity::Error)
+    }
+
+    /// The number of error-severity diagnostics (warnings are not counted).
+    #[must_use]
+    pub fn error_count(&self) -> usize {
+        self.diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .count()
     }
 
     #[must_use]
@@ -95,4 +104,35 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
 pub fn compile_file(path: &Path, options: Options) -> std::io::Result<Compilation> {
     let src = std::fs::read_to_string(path)?;
     Ok(compile_str(&path.display().to_string(), &src, options))
+}
+
+#[cfg(test)]
+mod tests {
+    use sabiko_diagnostics::ErrorCode;
+
+    use super::*;
+
+    #[test]
+    fn error_count_ignores_warnings() {
+        let c = Compilation {
+            source_map: SourceMap::new(),
+            diagnostics: vec![
+                Diagnostic::warning(ErrorCode::UNSUPPORTED_SYNTAX, "w1"),
+                Diagnostic::error(ErrorCode::UNEXPECTED_TOKEN, "e"),
+                Diagnostic::warning(ErrorCode::UNSUPPORTED_SYNTAX, "w2"),
+            ],
+            output: String::new(),
+        };
+        assert_eq!(c.diagnostics.len(), 3);
+        assert_eq!(c.error_count(), 1);
+        assert!(c.has_errors());
+
+        let clean = Compilation {
+            source_map: SourceMap::new(),
+            diagnostics: vec![Diagnostic::warning(ErrorCode::UNSUPPORTED_SYNTAX, "w")],
+            output: String::new(),
+        };
+        assert_eq!(clean.error_count(), 0);
+        assert!(!clean.has_errors());
+    }
 }

@@ -490,3 +490,84 @@ proptest! {
         prop_assert_eq!(pretty(&parsed), src);
     }
 }
+
+/// Regression: `x as i32 < y` is rejected by the parser (the `<` reads as the start of
+/// generic arguments on the type path), so the printer must parenthesise the cast.
+#[test]
+fn cast_before_lt_roundtrips() {
+    fn var(name: &str) -> Box<Expr> {
+        Box::new(mk(ExprKind::Path(path(name))))
+    }
+    fn ty_path(name: &str) -> Type {
+        Type {
+            id: ID,
+            kind: TypeKind::Path(path(name)),
+            span: SP,
+        }
+    }
+    let cases: Vec<Expr> = vec![
+        // x as i32 < y
+        mk(ExprKind::Binary(
+            BinOp::Lt,
+            Box::new(mk(ExprKind::Cast(var("x"), ty_path("i32")))),
+            var("y"),
+        )),
+        // a * b as i32 < c
+        mk(ExprKind::Binary(
+            BinOp::Lt,
+            Box::new(mk(ExprKind::Binary(
+                BinOp::Mul,
+                var("a"),
+                Box::new(mk(ExprKind::Cast(var("b"), ty_path("i32")))),
+            ))),
+            var("c"),
+        )),
+        // x as u32 <= y
+        mk(ExprKind::Binary(
+            BinOp::Le,
+            Box::new(mk(ExprKind::Cast(var("x"), ty_path("u32")))),
+            var("y"),
+        )),
+        // x as u32 << y
+        mk(ExprKind::Binary(
+            BinOp::Shl,
+            Box::new(mk(ExprKind::Cast(var("x"), ty_path("u32")))),
+            var("y"),
+        )),
+    ];
+    for tail in cases {
+        let file = SourceFile {
+            docs: vec![],
+            items: vec![Item {
+                id: ID,
+                attrs: vec![],
+                docs: vec![],
+                vis: Visibility::Private,
+                kind: ItemKind::Fn(FnDecl {
+                    name: ident("f"),
+                    params: vec![],
+                    ret: None,
+                    body: Block {
+                        id: ID,
+                        stmts: vec![],
+                        tail: Some(Box::new(tail)),
+                        span: SP,
+                    },
+                }),
+                span: SP,
+            }],
+            span: SP,
+        };
+        let src = pretty(&file);
+        let mut sink = DiagnosticSink::new();
+        let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
+        assert!(
+            !sink.has_errors(),
+            "diagnostics on printed source:\n{src}\n{:#?}",
+            sink.diagnostics()
+        );
+        strip_parens_file(&mut parsed);
+        assert_eq!(dump(&parsed), dump(&file), "source:\n{src}");
+        assert_eq!(pretty(&parsed), src, "printer is not a fixpoint");
+    }
+}

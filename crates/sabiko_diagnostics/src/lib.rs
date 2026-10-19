@@ -208,46 +208,61 @@ struct JsonDiagnostic<'a> {
 #[must_use]
 pub fn render(diagnostics: &[Diagnostic], sm: &SourceMap, format: Format) -> String {
     let mut out = String::new();
-    for d in diagnostics {
-        match format {
-            Format::Json => {
-                let labels = d
-                    .labels
-                    .iter()
-                    .map(|l| {
-                        let f = sm.get(l.span.file);
-                        let s = f.line_col(l.span.start);
-                        let e = f.line_col(l.span.end);
-                        JsonLabel {
-                            file: &f.name,
-                            line: s.line,
-                            col: s.col,
-                            end_line: e.line,
-                            end_col: e.col,
-                            message: &l.message,
-                            primary: l.primary,
-                        }
-                    })
-                    .collect();
-                let j = JsonDiagnostic {
-                    severity: d.severity,
-                    code: d.code,
-                    message: &d.message,
-                    labels,
-                    notes: &d.notes,
-                };
-                out.push_str(&serde_json::to_string(&j).expect("diagnostic serialises"));
-                out.push('\n');
+    match format {
+        Format::Json => {
+            for d in diagnostics {
+                render_json(d, sm, &mut out);
             }
-            Format::Human | Format::HumanPlain => {
-                render_human(d, sm, format == Format::Human, &mut out);
+        }
+        Format::Human | Format::HumanPlain => {
+            // ariadne wants a cache of `Source`s it can borrow from; build one per render
+            // call, keyed by file name, borrowing the text from the source map.
+            let mut cache = ariadne::sources(sm.files().map(|f| (f.name.clone(), f.src.as_str())));
+            for d in diagnostics {
+                render_human(d, sm, &mut cache, format == Format::Human, &mut out);
             }
         }
     }
     out
 }
 
-fn render_human(d: &Diagnostic, sm: &SourceMap, color: bool, out: &mut String) {
+fn render_json(d: &Diagnostic, sm: &SourceMap, out: &mut String) {
+    let labels = d
+        .labels
+        .iter()
+        .map(|l| {
+            let f = sm.get(l.span.file);
+            let s = f.line_col(l.span.start);
+            let e = f.line_col(l.span.end);
+            JsonLabel {
+                file: &f.name,
+                line: s.line,
+                col: s.col,
+                end_line: e.line,
+                end_col: e.col,
+                message: &l.message,
+                primary: l.primary,
+            }
+        })
+        .collect();
+    let j = JsonDiagnostic {
+        severity: d.severity,
+        code: d.code,
+        message: &d.message,
+        labels,
+        notes: &d.notes,
+    };
+    out.push_str(&serde_json::to_string(&j).expect("diagnostic serialises"));
+    out.push('\n');
+}
+
+fn render_human(
+    d: &Diagnostic,
+    sm: &SourceMap,
+    cache: &mut impl ariadne::Cache<String>,
+    color: bool,
+    out: &mut String,
+) {
     use ariadne::{Color, Config, Report, ReportKind};
 
     let kind = match d.severity {
@@ -285,50 +300,12 @@ fn render_human(d: &Diagnostic, sm: &SourceMap, color: bool, out: &mut String) {
     for n in &d.notes {
         report = report.with_note(n);
     }
-    let cache = SourceCache(sm);
     let mut buf = Vec::new();
     report
         .finish()
-        .write(cache, &mut buf)
+        .write(&mut *cache, &mut buf)
         .expect("writing to a Vec cannot fail");
     out.push_str(&String::from_utf8(buf).expect("ariadne emits UTF-8"));
-}
-
-/// Adapts a [`SourceMap`] to ariadne's cache interface, keyed by file name.
-struct SourceCache<'a>(&'a SourceMap);
-
-impl ariadne::Cache<String> for SourceCache<'_> {
-    type Storage = String;
-
-    fn fetch(&mut self, id: &String) -> Result<&ariadne::Source<String>, impl fmt::Debug> {
-        // ariadne wants a `Source` it can borrow; we build one per file lazily and leak it
-        // into a per-render arena. Rendering is cold, so the allocation is acceptable.
-        thread_local! {
-            static SOURCES: std::cell::RefCell<Vec<(String, &'static ariadne::Source<String>)>> =
-                const { std::cell::RefCell::new(Vec::new()) };
-        }
-        let file = self.0.files().find(|f| &f.name == id);
-        match file {
-            Some(f) => {
-                let src = SOURCES.with(|cell| {
-                    let mut v = cell.borrow_mut();
-                    if let Some((_, s)) = v.iter().find(|(n, s)| n == id && s.text() == f.src) {
-                        return *s;
-                    }
-                    let leaked: &'static ariadne::Source<String> =
-                        Box::leak(Box::new(ariadne::Source::from(f.src.clone())));
-                    v.push((id.clone(), leaked));
-                    leaked
-                });
-                Ok::<_, String>(src)
-            }
-            None => Err(format!("unknown file {id}")),
-        }
-    }
-
-    fn display<'b>(&self, id: &'b String) -> Option<impl fmt::Display + 'b> {
-        Some(id.clone())
-    }
 }
 
 #[cfg(test)]

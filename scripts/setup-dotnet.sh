@@ -45,7 +45,7 @@ log() { printf '\033[1;34m[setup-dotnet]\033[0m %s\n' "$*" >&2; }
 
 # fetch_pkg <id> <version>  -> prints path of the .nupkg in the cache
 fetch_pkg() {
-  local id="$1" ver="$2" out="$CACHE/$1.nupkg"
+  local id="$1" ver="$2" out="$CACHE/$1.$2.nupkg"
   if [[ ! -s "$out" || $FORCE == 1 ]]; then
     log "downloading $id $ver"
     curl -sSfL --retry 3 --max-time 600 -o "$out" "$NUGET/$id/$ver/$id.$ver.nupkg"
