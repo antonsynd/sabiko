@@ -148,6 +148,21 @@ Verification
   generated programs.
 - UI tests for syntax errors with expected `.stderr`.
 
+Status (2026-10-19): **complete.** Crates `sabiko_span`, `sabiko_diagnostics`,
+`sabiko_lexer`, `sabiko_ast`, `sabiko_parser`, `sabiko_driver` and the `sabikoc` CLI
+(`--emit=tokens|ast|pretty`, `--error-format=human|json`). Test layers in place: lexer and
+parser unit tests, `insta` snapshots over `crates/sabiko_parser/tests/fixtures`, the
+pretty-print/parse round-trip property (strips `Paren` nodes; normalises the two
+rustc rules below), a no-panic property over random text and token soup, the UI harness
+with `//~ ERROR` annotations and golden `.stderr` files under `tests/ui/parse`, and a
+libFuzzer target in `fuzz/` (needs nightly; not yet in CI). Decisions made while
+implementing, all matching rustc: a block-like expression at statement start ends the
+statement (so `{ a } - 1` is two statements, `{ a }.Foo()` one); a block-like statement
+absorbs a following lone `;`; `break`/`return` do not take a `{` operand inside
+conditions; an unterminated string or block comment is fatal for the file. Everything
+rustc accepts that Sabiko does not yet implement is a dedicated `E0107` diagnostic naming
+the phase that will add it. Identifiers are ASCII-only for now.
+
 ### Phase 2: Semantic analysis and MIR
 
 Work

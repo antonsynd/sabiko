@@ -5,7 +5,8 @@
 compile time, frees Sabiko-owned memory deterministically without the garbage collector,
 and interoperates with C# with zero marshalling.
 
-Status: **Phase 0 complete** (toolchain bootstrap); Phase 1 (front end) is next. See [`docs/PLAN.md`](docs/PLAN.md) for the
+Status: **Phase 1 complete** (front end: lexer, parser, diagnostics); Phase 2 (name
+resolution, type checking, MIR) is next. See [`docs/PLAN.md`](docs/PLAN.md) for the
 roadmap and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the design decisions.
 
 ```rust
@@ -35,7 +36,12 @@ scripts/setup-dotnet.sh        # installs the .NET toolchain into ./tools (see -
 source tools/env.sh
 cargo build
 scripts/check-spike.sh         # assembles, verifies and runs the hand-written IL spike
+cargo run -p sabikoc -- examples/hello.sabi --emit=ast   # parse a file, dump the tree
 ```
+
+Testing: `cargo test` runs everything, including the UI golden tests under `tests/ui`
+(see `tests/ui/README.md`; `BLESS=1` regenerates expectations) and the snapshot tests
+(`INSTA_UPDATE=always` or `cargo insta review` to accept changes).
 
 On Windows use `scripts/setup-dotnet.ps1` instead.
 

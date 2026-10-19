@@ -1,0 +1,21 @@
+[package]
+name = "sabiko_parser"
+description = "Parser for the Sabiko language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabiko_span = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+sabiko_lexer = { workspace = true }
+sabiko_ast = { workspace = true }
+
+[dev-dependencies]
+insta = { version = "1", features = ["glob"] }
+proptest = "1"
+
+[lints]
+workspace = true

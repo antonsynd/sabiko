@@ -1,0 +1,17 @@
+// Three independent mistakes in three functions: all must be reported.
+fn First(a: i32, b) -> i32 { //~ ERROR E0100 expected `:`, found `)`
+    a + b
+}
+
+fn Second() {
+    let fn = 3; //~ ERROR E0100 expected identifier, found keyword `fn`
+}
+
+struct Broken {
+    X: i32
+    Y: i32, //~ ERROR E0100 expected `}`, found identifier `Y`
+}
+
+fn Third() {
+    PrintLine("reached");
+}

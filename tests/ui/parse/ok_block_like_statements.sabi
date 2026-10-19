@@ -1,0 +1,8 @@
+fn F(a: bool, b: i32) -> i32 {
+    if a { } - 1;
+    { b }.Abs();
+    loop { break; }
+    while a { }
+    ({ b } + 1);
+    if a { 1 } else { 2 }
+}

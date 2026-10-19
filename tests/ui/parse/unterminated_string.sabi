@@ -1,0 +1,4 @@
+fn Main() {
+    let ok = "closed";
+    let a = "never closed; //~ ERROR E0002 unterminated string literal
+}

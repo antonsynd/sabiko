@@ -1,0 +1,76 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/items.sabi
+---
+SourceFile
+  pub Struct Vector
+    Attr derive(Copy, Clone)
+    Doc " A documented struct."
+    pub Field X
+      Doc " Horizontal component."
+      Type f64
+    pub Field Y
+      Type f64
+    Field Hidden
+      Type bool
+  Struct Marker
+    Unit
+  pub Const Limit
+    Type i32
+    Binary *
+      Lit 10
+      Lit 2
+  pub Fn Normalize
+    Attr dotnet(name = "normalize")
+    Param
+      Pat v
+      RefMut
+        Type Vector
+    Ret
+      Type f64
+    Block
+      Let
+        Pat len
+        Type f64
+        Init
+          MethodCall Sqrt
+            Paren
+              Binary +
+                Binary *
+                  Field X
+                    Path v
+                  Field X
+                    Path v
+                Binary *
+                  Field Y
+                    Path v
+                  Field Y
+                    Path v
+      Semi
+        Assign
+          Field X
+            Path v
+          Binary /
+            Field X
+              Path v
+            Path len
+      Semi
+        Assign
+          Field Y
+            Path v
+          Binary /
+            Field Y
+              Path v
+            Path len
+      Tail
+        Path len
+  Fn Unit
+    Ret
+      Type ()
+    Block
+  Fn Infer
+    Param
+      Pat x
+      Type _
+    Block

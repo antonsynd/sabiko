@@ -1,0 +1,26 @@
+fn First() {
+    let x = 1
+    let y = 2;
+}
+
+fn Second(a: i32, b) -> i32 {
+    a + b
+}
+
+struct Broken {
+    X: i32
+    Y: i32,
+}
+
+fn Third() {
+    if x == Point { X: 1 } { }
+    a < b < c;
+    let fn = 3;
+    PrintLine("ok");
+}
+
+fn Fourth() { let s = "bad \q escape"; let c = 'ab'; let big = 340282366920938463463374607431768211456; }
+
+enum Later { A, B }
+
+fn Fifth(self) {}

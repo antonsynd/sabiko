@@ -25,3 +25,8 @@ rustc-ice-*.txt
 
 # Sabiko: local .NET toolchain installed by scripts/setup-dotnet.sh
 /tools/
+
+# fuzzing
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/

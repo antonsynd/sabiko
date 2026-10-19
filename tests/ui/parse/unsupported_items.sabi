@@ -1,0 +1,8 @@
+enum Shape { Circle, Square } //~ ERROR E0107 not yet supported: `enum` items
+
+impl Shape { } //~ ERROR E0107 not yet supported: `impl` blocks
+
+fn Main() {
+    match 1 { } //~ ERROR E0107 not yet supported: `match` expressions
+    PrintLine("still parsed");
+}

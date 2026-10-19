@@ -1,0 +1,20 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/eof.sabi
+---
+SourceFile
+  Fn Unfinished
+    Block
+      Let
+        Pat x
+        Init
+          Lit 1
+--- diagnostics ---
+[E0105] Error: expected `}`, found end of file
+   ╭─[ eof.sabi:2:16 ]
+   │
+ 2 │     let x = 1;
+   │                │ 
+   │                ╰─ expected `}` here
+───╯

@@ -1,0 +1,5 @@
+fn Main() {
+    let a = 1;
+    let ok = a < 2 && 2 < 3;
+    let bad = a < 2 < 3; //~ ERROR E0104 comparison operators cannot be chained
+}

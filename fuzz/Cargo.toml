@@ -1,0 +1,24 @@
+[package]
+name = "sabiko-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sabiko_parser = { path = "../crates/sabiko_parser" }
+sabiko_diagnostics = { path = "../crates/sabiko_diagnostics" }
+sabiko_span = { path = "../crates/sabiko_span" }
+sabiko_ast = { path = "../crates/sabiko_ast" }
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

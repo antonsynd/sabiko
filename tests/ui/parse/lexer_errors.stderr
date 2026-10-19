@@ -1,0 +1,39 @@
+[E0005] Error: character literal must contain exactly one character
+   ╭─[ tests/ui/parse/lexer_errors.sabi:2:13 ]
+   │
+ 2 │     let b = 'ab'; //~ ERROR E0005 character literal must contain exactly one character
+   │             ──┬─  
+   │               ╰─── contains zero or several characters
+───╯
+[E0006] Error: unknown escape sequence
+   ╭─[ tests/ui/parse/lexer_errors.sabi:3:18 ]
+   │
+ 3 │     let c = "bad \q escape"; //~ ERROR E0006 unknown escape sequence
+   │                  ─┬  
+   │                   ╰── this escape is not valid
+   │ 
+   │ Note: valid escapes: `\n` `\r` `\t` `\\` `\0` `\'` `\"` `\xNN` `\u{NNNN}`
+───╯
+[E0004] Error: integer literal is too large
+   ╭─[ tests/ui/parse/lexer_errors.sabi:4:13 ]
+   │
+ 4 │     let d = 340282366920938463463374607431768211456; //~ ERROR E0004 integer literal is too large
+   │             ───────────────────┬───────────────────  
+   │                                ╰───────────────────── does not fit in 128 bits
+───╯
+[E0100] Error: expected `;`, found integer literal `2`
+   ╭─[ tests/ui/parse/lexer_errors.sabi:5:14 ]
+   │
+ 5 │     let e = 1 § 2; //~ ERROR E0001 unexpected character `§`
+   │              │  ┬  
+   │              ╰───── expected `;` here
+   │                 │  
+   │                 ╰── unexpected token
+───╯
+[E0001] Error: unexpected character `§`
+   ╭─[ tests/ui/parse/lexer_errors.sabi:5:15 ]
+   │
+ 5 │     let e = 1 § 2; //~ ERROR E0001 unexpected character `§`
+   │               ┬  
+   │               ╰── not valid in Sabiko source
+───╯

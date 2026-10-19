@@ -1,58 +1,92 @@
-//! `sabikoc`: the Sabiko compiler driver.
-//!
-//! Phase 0 skeleton. The pipeline crates (lexer, parser, resolver, type checker,
-//! MIR, borrow checker, CIL codegen) are added in later phases; see `docs/PLAN.md`.
+//! `sabikoc`: command-line front door to the Sabiko compiler.
 
+use std::io::{IsTerminal as _, Write as _};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use clap::{Parser, ValueEnum};
+use sabiko_diagnostics::Format;
+use sabiko_driver::{Emit, Options};
+
+#[derive(Parser, Debug)]
+#[command(name = "sabikoc", version, about = "The Sabiko compiler", long_about = None)]
+struct Cli {
+    /// Source file to compile (`.sabi`).
+    input: PathBuf,
+
+    /// What to print after compiling.
+    #[arg(long, value_enum, default_value_t = EmitArg::None)]
+    emit: EmitArg,
+
+    /// How to print diagnostics.
+    #[arg(long, value_enum, default_value_t = ErrorFormat::Human)]
+    error_format: ErrorFormat,
+
+    /// Colour output.
+    #[arg(long, value_enum, default_value_t = Color::Auto)]
+    color: Color,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum EmitArg {
+    None,
+    Tokens,
+    Ast,
+    Pretty,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ErrorFormat {
+    Human,
+    Json,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum Color {
+    Auto,
+    Always,
+    Never,
+}
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match run(&args) {
-        Ok(output) => {
-            print!("{output}");
-            ExitCode::SUCCESS
+    let cli = Cli::parse();
+    let emit = match cli.emit {
+        EmitArg::None => Emit::None,
+        EmitArg::Tokens => Emit::Tokens,
+        EmitArg::Ast => Emit::Ast,
+        EmitArg::Pretty => Emit::Pretty,
+    };
+    let compilation = match sabiko_driver::compile_file(&cli.input, Options { emit }) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: cannot read `{}`: {e}", cli.input.display());
+            return ExitCode::from(2);
         }
-        Err(message) => {
-            eprintln!("error: {message}");
-            ExitCode::from(2)
+    };
+    let color = match cli.color {
+        Color::Always => true,
+        Color::Never => false,
+        Color::Auto => std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
+    };
+    let format = match (cli.error_format, color) {
+        (ErrorFormat::Json, _) => Format::Json,
+        (ErrorFormat::Human, true) => Format::Human,
+        (ErrorFormat::Human, false) => Format::HumanPlain,
+    };
+    let rendered = compilation.render_diagnostics(format);
+    let _ = std::io::stderr().write_all(rendered.as_bytes());
+    let _ = std::io::stdout().write_all(compilation.output.as_bytes());
+    if compilation.has_errors() {
+        let n = compilation.diagnostics.len();
+        if format != Format::Json {
+            eprintln!(
+                "error: could not compile `{}` due to {n} previous error{}",
+                cli.input.display(),
+                if n == 1 { "" } else { "s" }
+            );
         }
-    }
-}
-
-/// Dispatches on the command line and returns what should be printed to stdout.
-fn run(args: &[String]) -> Result<String, String> {
-    match args.first().map(String::as_str) {
-        Some("--version" | "-V") => Ok(format!("sabikoc {VERSION}\n")),
-        Some("--help" | "-h") | None => Ok(usage()),
-        Some(other) => Err(format!("unrecognised argument `{other}`\n\n{}", usage())),
-    }
-}
-
-fn usage() -> String {
-    format!(
-        "sabikoc {VERSION}\n\
-         Usage: sabikoc [OPTIONS] <INPUT.sabi>\n\n\
-         Options:\n  \
-           -h, --help       Print this help\n  \
-           -V, --version    Print version\n"
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_flag_prints_version() {
-        let out = run(&["--version".to_owned()]).unwrap();
-        assert_eq!(out, format!("sabikoc {VERSION}\n"));
-    }
-
-    #[test]
-    fn unknown_argument_is_an_error() {
-        let err = run(&["--bogus".to_owned()]).unwrap_err();
-        assert!(err.contains("--bogus"));
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
     }
 }

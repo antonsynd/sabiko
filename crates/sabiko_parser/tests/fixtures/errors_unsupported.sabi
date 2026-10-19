@@ -1,0 +1,29 @@
+fn F() {
+    match x { }
+    for i in xs { }
+    let (a, b) = t;
+    let r = x?;
+    let t = x.0;
+    let v = [1, 2];
+    let range = 1..2;
+    let c = |x| x;
+    'outer: loop { break 'outer; }
+    if let Some(x) = y { }
+    while let Some(x) = y { }
+    unsafe { }
+    println!("hi");
+    let g = Vec::<i32>::New();
+}
+fn G<T>(x: T) {}
+fn H(x: Vec<i32>) {}
+fn I(x: (i32, i32)) {}
+fn J(x: [i32; 3]) {}
+fn K() -> i32;
+impl Foo { }
+trait Bar { }
+mod baz;
+use std::Foo;
+extern "dotnet" Sys { }
+static S: i32 = 1;
+type Alias = i32;
+struct Tuple(i32);

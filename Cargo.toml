@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.0.1"
@@ -8,6 +9,14 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/antonsynd/sabiko"
 rust-version = "1.85"
+
+[workspace.dependencies]
+sabiko_span = { path = "crates/sabiko_span" }
+sabiko_diagnostics = { path = "crates/sabiko_diagnostics" }
+sabiko_lexer = { path = "crates/sabiko_lexer" }
+sabiko_ast = { path = "crates/sabiko_ast" }
+sabiko_parser = { path = "crates/sabiko_parser" }
+sabiko_driver = { path = "crates/sabiko_driver" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

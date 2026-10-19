@@ -1,0 +1,252 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/errors_unsupported.sabi
+---
+SourceFile
+  Fn F
+    Block
+--- diagnostics ---
+[E0107] Error: not yet supported: `match` expressions
+   ╭─[ errors_unsupported.sabi:2:5 ]
+   │
+ 2 │     match x { }
+   │     ──┬──  
+   │       ╰──── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: `for` loops
+   ╭─[ errors_unsupported.sabi:3:5 ]
+   │
+ 3 │     for i in xs { }
+   │     ─┬─  
+   │      ╰─── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: tuple patterns
+   ╭─[ errors_unsupported.sabi:4:9 ]
+   │
+ 4 │     let (a, b) = t;
+   │         ┬  
+   │         ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: the `?` operator
+   ╭─[ errors_unsupported.sabi:5:14 ]
+   │
+ 5 │     let r = x?;
+   │              ┬  
+   │              ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: tuple field access (`.0`)
+   ╭─[ errors_unsupported.sabi:6:15 ]
+   │
+ 6 │     let t = x.0;
+   │               ┬  
+   │               ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: array expressions
+   ╭─[ errors_unsupported.sabi:7:13 ]
+   │
+ 7 │     let v = [1, 2];
+   │             ┬  
+   │             ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: range expressions
+   ╭─[ errors_unsupported.sabi:8:18 ]
+   │
+ 8 │     let range = 1..2;
+   │                  ─┬  
+   │                   ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: closures
+   ╭─[ errors_unsupported.sabi:9:13 ]
+   │
+ 9 │     let c = |x| x;
+   │             ┬  
+   │             ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: not planned; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: loop labels
+    ╭─[ errors_unsupported.sabi:10:5 ]
+    │
+ 10 │     'outer: loop { break 'outer; }
+    │     ───┬──  
+    │        ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `if let`
+    ╭─[ errors_unsupported.sabi:11:8 ]
+    │
+ 11 │     if let Some(x) = y { }
+    │        ─┬─  
+    │         ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `while let`
+    ╭─[ errors_unsupported.sabi:12:11 ]
+    │
+ 12 │     while let Some(x) = y { }
+    │           ─┬─  
+    │            ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `unsafe` blocks
+    ╭─[ errors_unsupported.sabi:13:5 ]
+    │
+ 13 │     unsafe { }
+    │     ───┬──  
+    │        ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: not planned (see docs/DECISIONS.md #13); see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: macro invocations
+    ╭─[ errors_unsupported.sabi:14:12 ]
+    │
+ 14 │     println!("hi");
+    │            ┬  
+    │            ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: not planned (use `Print`/`PrintLine`); see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: turbofish generic arguments (`::<`)
+    ╭─[ errors_unsupported.sabi:15:16 ]
+    │
+ 15 │     let g = Vec::<i32>::New();
+    │                ─┬─  
+    │                 ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: generic parameters
+    ╭─[ errors_unsupported.sabi:17:5 ]
+    │
+ 17 │ fn G<T>(x: T) {}
+    │     ┬  
+    │     ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: generic type arguments
+    ╭─[ errors_unsupported.sabi:18:12 ]
+    │
+ 18 │ fn H(x: Vec<i32>) {}
+    │            ┬  
+    │            ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: tuple types
+    ╭─[ errors_unsupported.sabi:19:9 ]
+    │
+ 19 │ fn I(x: (i32, i32)) {}
+    │         ┬  
+    │         ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: array and slice types
+    ╭─[ errors_unsupported.sabi:20:9 ]
+    │
+ 20 │ fn J(x: [i32; 3]) {}
+    │         ┬  
+    │         ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: functions without a body
+    ╭─[ errors_unsupported.sabi:21:14 ]
+    │
+ 21 │ fn K() -> i32;
+    │              ┬  
+    │              ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6 (traits) and Phase 8 (extern); see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `impl` blocks
+    ╭─[ errors_unsupported.sabi:22:1 ]
+    │
+ 22 │ impl Foo { }
+    │ ──┬─  
+    │   ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `trait` items
+    ╭─[ errors_unsupported.sabi:23:1 ]
+    │
+ 23 │ trait Bar { }
+    │ ──┬──  
+    │   ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: modules and `use`
+    ╭─[ errors_unsupported.sabi:24:1 ]
+    │
+ 24 │ mod baz;
+    │ ─┬─  
+    │  ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 9; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: modules and `use`
+    ╭─[ errors_unsupported.sabi:25:1 ]
+    │
+ 25 │ use std::Foo;
+    │ ─┬─  
+    │  ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 9; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `extern` blocks
+    ╭─[ errors_unsupported.sabi:26:1 ]
+    │
+ 26 │ extern "dotnet" Sys { }
+    │ ───┬──  
+    │    ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 8; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `static` items
+    ╭─[ errors_unsupported.sabi:27:1 ]
+    │
+ 27 │ static S: i32 = 1;
+    │ ───┬──  
+    │    ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 7; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: type aliases
+    ╭─[ errors_unsupported.sabi:28:1 ]
+    │
+ 28 │ type Alias = i32;
+    │ ──┬─  
+    │   ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: tuple structs
+    ╭─[ errors_unsupported.sabi:29:13 ]
+    │
+ 29 │ struct Tuple(i32);
+    │             ┬  
+    │             ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯

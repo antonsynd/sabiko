@@ -1,0 +1,20 @@
+fn Expressions() {
+    let a = 1 + 2 * 3 - 4 / 5 % 6;
+    let b = (1 + 2) * 3;
+    let c = a << 2 | b >> 1 & 3 ^ 4;
+    let d = !x && y || z == 1 && w != 2;
+    let e = a < b;
+    let f = -x as u32 as i64;
+    let g = &mut p.X;
+    let h = &&q;
+    *r = 5;
+    s.T.U = v[0][1];
+    t.Method(1, 2).Other().Field;
+    u = Call(a, b)(c);
+    w += 1; w -= 1; w *= 1; w /= 1; w %= 1; w &= 1; w |= 1; w ^= 1; w <<= 1; w >>= 1;
+    let p = Point { X: 1, Y };
+    let z = Geometry::Origin {};
+    if x == (Point { X: 1, Y: 2 }) { }
+    let lits = 0xFF + 0o7 + 0b1 + 1_000u64 + 1.5 + 2e3f32 + 'c' + '\n' + "s\t\"q\"" + true + false + ();
+    return;
+}

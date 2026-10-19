@@ -1,0 +1,5 @@
+fn Main() {
+    let x = 1 //~ ERROR E0100 expected `;`, found `let`
+    let y = 2;
+    PrintLine(y);
+}

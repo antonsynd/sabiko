@@ -12,6 +12,12 @@ name = "sabikoc"
 path = "src/main.rs"
 
 [dependencies]
+sabiko_driver = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
 
 [lints]
 workspace = true

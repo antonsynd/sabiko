@@ -1,0 +1,7 @@
+[E0002] Error: unterminated string literal
+   ╭─[ tests/ui/parse/unterminated_string.sabi:3:13 ]
+   │
+ 3 │     let a = "never closed; //~ ERROR E0002 unterminated string literal
+   │             ┬  
+   │             ╰── string opened here
+───╯

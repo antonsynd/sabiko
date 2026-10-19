@@ -1,0 +1,6 @@
+struct Point { X: i32 }
+
+fn Main(p: Point) {
+    if p == (Point { X: 1 }) { }
+    if p == Point { X: 1 } { } //~ ERROR E0108 struct literals are not allowed here
+}
