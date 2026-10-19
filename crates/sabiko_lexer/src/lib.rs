@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn lexes_a_function() {
         let (k, d) = kinds("fn Main() -> i32 { let mut x: i32 = 42; x }");
-        assert!(d.is_empty());
+        assert_eq!(d, Vec::new());
         assert_eq!(
             k,
             vec![
