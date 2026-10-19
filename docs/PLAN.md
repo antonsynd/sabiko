@@ -25,7 +25,7 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | Structs holding references | Emitted as `ref struct` (`IsByRefLikeAttribute`) | CLR then guarantees they never escape to the heap. |
 | Heap ownership | `Box<T>` over `NativeMemory.Alloc/Free`, requires `T: unmanaged` | Deterministic free, no GC tracking. |
 | .NET reference types | Opaque `Gc<T>` handle, borrow-checked at the handle level | Explicit opt-in to GC-managed memory for interop only. |
-| Strings | `string` = `System.String`, `&str` = `ReadOnlySpan<char>` | Interop pragmatism; `string` is the one GC-managed built-in. |
+| Strings | `&str` = `ReadOnlySpan<char>` (Phase 5); owned `String` = native UTF-16 buffer freed deterministically (Phase 7); `System.String` only as `Gc<System::String>` with zero-copy `.as_str()` | Keeps every struct `unmanaged`; C# passes `string` to `&str` implicitly; one copy, no transcoding, to produce a .NET string. *Recommended, pending confirmation.* |
 | Slices | `&[T]` = `ReadOnlySpan<T>`, `&mut [T]` = `Span<T>`; `[T; N]` = inline array | Bounds checks provided by the CLR. |
 | Traits | .NET interfaces; `impl Trait for S` = `S : ITrait`; bounds = generic constraints | Reified generics shared with C#; static dispatch via `constrained. callvirt`. |
 | Dynamic dispatch | Only through explicit `Gc<dyn Trait>` | Boxing is never implicit. |
@@ -35,8 +35,12 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | Generics | Reified .NET generics, no monomorphisation in the compiler | C# can instantiate Sabiko generics. |
 | Runtime borrow checking | `Cell<T>` / `RefCell<T>` in the runtime library | For cases static checking cannot prove (async, callbacks from C#). |
 | Macros | None in v1; `print`/`println` are built-in functions | Barebones first. |
-| Source extension | `.sabi` | Readable and unambiguous. (`.sbk` is the alternative if preferred.) |
-| Licence | MIT (existing). Code adapted from `rust-lang/rust` or its crates is taken under MIT with attribution in `THIRDPARTY.md` | Compatible with the dual MIT/Apache-2.0 upstream. |
+| Source extension | `.sabi` | Short, pronounceable, no known collisions. `.sabiko` is the fallback. *Recommended, pending confirmation.* |
+| Licence | Dual MIT / Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). Code adapted from `rust-lang/rust` or its crates is attributed in `THIRDPARTY.md` | Mirrors the Rust ecosystem; upstream is dual-licensed the same way. |
+| Export naming | Names emitted as written. `#[dotnet(name = "...")]` per item; crate-level `#![dotnet(naming = "pascal")]` applies a deterministic mapping and records the Sabiko name for re-import. Imported .NET names are kept as-is | One name per symbol in stack traces, reflection and re-import; F# precedent. *Recommended, pending confirmation.* |
+| Minimum .NET | .NET 10 (current LTS) | Managed pointers cannot be generic arguments, so `&T` in generic position lowers to a `ref struct` with a `ref T` field and generic types need `allows ref struct` (.NET 9+). *Recommended, pending confirmation.* |
+| `unsafe` | None in v1. Pointer-touching primitives (`Box`, `Vec`, `Arena`) live in the C# runtime assembly | Every Sabiko-emitted assembly stays fully verifiable, so the `ilverify` gate stays meaningful. *Recommended, pending confirmation.* |
+| Integer overflow | Panic in debug, wrap in release; explicit `wrapping_*` / `checked_*` | Rust semantics. Differs from C#'s unchecked default. *Recommended, pending confirmation.* |
 
 Open questions to settle with the owner before Phase 5 (see §6).
 
@@ -101,6 +105,7 @@ Work
   ubuntu/windows/macos.
 - Spike: a hand-written `.il` hello world assembled with `ilasm`, verified with `ilverify`,
   executed with `dotnet`. Proves the whole output side before any compiler code exists.
+- Dual licensing: rename `LICENSE` to `LICENSE-MIT`, add `LICENSE-APACHE`, update `README.md`.
 - `docs/SPEC.md` skeleton, `docs/DECISIONS.md` with the table from §1, `THIRDPARTY.md`.
 
 Exit criteria
@@ -218,8 +223,10 @@ Work
   checking (usefulness algorithm, as in rustc).
 - Tuples, `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing,
   `.len()`, `.get(i) -> Option<&T>` lowered to a length check.
-- `string` and `&str` (`ReadOnlySpan<char>`), string literals as `ldstr`, basic
-  slicing.
+- `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
+  basic slicing; `Gc<System::String>` with zero-copy `.as_str()`. No owned string yet.
+- `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
+  generic types that may hold it are emitted with `allows ref struct`.
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref.
 - `core` prelude written in Sabiko: `Option`, `Result`, `?` operator, `unwrap`, `expect`.
@@ -258,6 +265,9 @@ Verification
 Work
 - `Box<T>` (`T: unmanaged`): `NativeMemory.Alloc`, deterministic free in `drop`,
   `Deref`/`DerefMut`. Compile-time `unmanaged` check (no GC references inside).
+- Owned `String` (native UTF-16 buffer) and `Vec<T>` (`T: unmanaged`) with
+  `.to_dotnet()` conversions; both implemented over runtime primitives so Sabiko IL
+  stays verifiable.
 - `Gc<T>` for .NET classes: handle wrapper, methods callable through `&`/`&mut`
   borrows; no deterministic free (GC owns it) and the type system says so.
 - `Cell<T>` and `RefCell<T>` in the runtime: borrow counter, atomic ops, `BorrowError`
@@ -383,13 +393,31 @@ mutation testing, benchmarks with trend tracking.
 
 ---
 
-## 6. Open questions for the owner
+## 6. Decisions log and open questions
 
-1. **GC policy for strings.** `string` as `System.String` is GC-managed, which is a
-   pragmatic exception to "no GC". Alternative: a native `String` (`Box<[u8]>` UTF-8)
-   with `System.String` only at the interop boundary. Plan assumes the pragmatic choice.
-2. **`ilasm` first vs direct emission first.** Plan assumes `ilasm` first for speed of
-   bring-up; direct emission in Phase 10.
-3. **Source extension** `.sabi` vs `.sbk`.
-4. **Naming on export**: PascalCase conversion by default (C# idiom) vs keep snake_case.
-5. **Licence**: stay MIT-only, or dual MIT/Apache-2.0 to mirror the Rust ecosystem.
+Settled by the owner
+- `ilasm` first; direct PE emission in Phase 10.
+- Dual MIT / Apache-2.0 licensing.
+
+Recommended, awaiting confirmation (see the `*Recommended*` rows in §1)
+- Strings: `&str` = `ReadOnlySpan<char>` first, native UTF-16 owned `String` later,
+  `System.String` only behind `Gc`. UTF-16 vs UTF-8 is a one-way door; decide before
+  Phase 5.
+- Export naming: as written, with opt-in PascalCase. One-way for published APIs.
+- Source extension `.sabi`.
+- .NET 10 floor (needed for `allows ref struct`).
+- No `unsafe` in v1; unverifiable code confined to the C# runtime assembly.
+- Integer overflow: Rust semantics.
+
+Open, to decide before the phase that needs them
+1. .NET exceptions crossing into Sabiko (Phase 8). Proposal: propagate as panics;
+   opt-in `#[dotnet(catch)]` on extern declarations converts to `Result<T, Gc<Exception>>`.
+2. Nullability of `Gc<T>` (Phase 7/8). Proposal: non-null; `Option<Gc<T>>` lowers to a
+   nullable reference; imports read nullable annotations.
+3. Module to assembly mapping (Phase 9). Proposal: crate = assembly, module = namespace,
+   free functions in a static class named after the module.
+4. Collections (Phase 7). Proposal: `Vec<T>` native for `T: unmanaged`; GC collections
+   only via `Gc<List<T>>`.
+5. Syntax fidelity. Proposal: strict syntactic subset of Rust wherever possible so the
+   differential tests against `rustc` keep paying off.
+6. Threads, `Send`, `Sync`. Proposal: out of scope for 0.1.
