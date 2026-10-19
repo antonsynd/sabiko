@@ -5,10 +5,22 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{ItemKind, SourceFile, StructKind, Type, TypeKind};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{DefId, DefKind, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::ty::{Mutability, Ty};
+
+/// Whether `Print`/`PrintLine` accept a value of type `ty`: every integer and float
+/// primitive, `bool`, `char` and `&str` (either mutability). The runtime library has one
+/// overload per printable type.
+#[must_use]
+pub fn is_printable(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(p) => *p != PrimTy::Str,
+        Ty::Ref(_, inner) => **inner == Ty::Prim(PrimTy::Str),
+        _ => false,
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnSig {
@@ -45,18 +57,39 @@ impl AdtDef {
     }
 }
 
-/// Signatures of every item in the file.
+/// Signatures of every item in the file, plus the compiler builtins.
 #[derive(Clone, Debug, Default)]
 pub struct ItemTypes {
     fn_sigs: HashMap<DefId, FnSig>,
     adts: HashMap<DefId, AdtDef>,
     const_tys: HashMap<DefId, Ty>,
+    /// The builtins that were not shadowed by a user item (see
+    /// [`sabiko_resolve::ResolveResults::builtin`]).
+    builtins: HashMap<DefId, Builtin>,
 }
 
 impl ItemTypes {
+    /// The signature of a user function or of `Panic`. `Print` and `PrintLine` are
+    /// overloaded over every printable type and have no signature: check
+    /// [`ItemTypes::builtin`] first and use [`is_printable`] for their argument.
     #[must_use]
     pub fn fn_sig(&self, def: DefId) -> &FnSig {
-        &self.fn_sigs[&def]
+        self.fn_sigs
+            .get(&def)
+            .unwrap_or_else(|| match self.builtins.get(&def) {
+                Some(b) => panic!(
+                "builtin `{}` is overloaded and has no `FnSig`; check `ItemTypes::builtin` first",
+                b.name()
+            ),
+                None => panic!("no signature recorded for {def:?}"),
+            })
+    }
+
+    /// `Some` when `def` is a compiler builtin. Same answer as
+    /// `ResolveResults::builtin`, available to the phases that only hold the type tables.
+    #[must_use]
+    pub fn builtin(&self, def: DefId) -> Option<Builtin> {
+        self.builtins.get(&def).copied()
     }
 
     #[must_use]
@@ -238,6 +271,28 @@ pub(crate) fn collect(
                 let ty = lower_sig_type(&c.ty, resolve);
                 check_sized(&ty, c.ty.span, sink);
                 items.const_tys.insert(def, ty);
+            }
+        }
+    }
+    for def in resolve.defs_of_kind(DefKind::Fn) {
+        let Some(builtin) = resolve.builtin(def) else {
+            continue;
+        };
+        items.builtins.insert(def, builtin);
+        match builtin {
+            // Overloaded over every printable type; `check_call` handles them without a
+            // signature.
+            Builtin::Print | Builtin::PrintLine => {}
+            Builtin::Panic => {
+                items.fn_sigs.insert(
+                    def,
+                    FnSig {
+                        inputs: vec![Ty::shared_ref(Ty::Prim(PrimTy::Str))],
+                        output: Ty::Never,
+                        name_span: Span::dummy(),
+                        param_spans: vec![Span::dummy()],
+                    },
+                );
             }
         }
     }

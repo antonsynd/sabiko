@@ -579,12 +579,19 @@ impl<'a> Builder<'a> {
                 };
                 let args: Vec<Operand> = args.iter().map(|a| self.coerced_operand(a)).collect();
                 let next = self.new_block();
+                // A callee returning `!` (`Panic`) has no return edge; what follows lands
+                // in an unreachable block, as after `return`.
+                let target = if self.ty(expr).is_never() {
+                    None
+                } else {
+                    Some(next)
+                };
                 self.terminate(
                     TerminatorKind::Call {
                         func,
                         args,
                         destination: dest.clone(),
-                        target: Some(next),
+                        target,
                     },
                     span,
                 );

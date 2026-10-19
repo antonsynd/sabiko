@@ -1,0 +1,21 @@
+// Builtin calls: `Print`/`PrintLine` over the printable types (a string literal, an
+// unsuffixed int literal, locals of several types), and `Panic` in a diverging branch.
+fn Checked(x: i32) -> i32 {
+    if x >= 0 { x } else { Panic("negative") }
+}
+
+fn Main() {
+    let s: &str = "text";
+    let b: u8 = 7;
+    let f: f32 = 1.5;
+    let flag = true;
+    let c = 'c';
+    PrintLine("hello");
+    Print(1);
+    PrintLine(s);
+    Print(b);
+    PrintLine(f);
+    Print(flag);
+    PrintLine(c);
+    PrintLine(Checked(3));
+}

@@ -1,0 +1,15 @@
+//@ release
+// Release builds wrap on overflow, as Rust does.
+fn Main() {
+    let mut x: i32 = 2147483600;
+    let mut i = 0;
+    while i < 100 {
+        x = x + 1;
+        i += 1;
+    }
+    PrintLine(x);
+    let b: u8 = 250;
+    PrintLine(b + 10);
+    let n: i8 = -128;
+    PrintLine(-n);
+}

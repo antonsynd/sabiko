@@ -88,6 +88,12 @@ impl ErrorCode {
     pub const MISSING_LIFETIME_SPECIFIER: Self = Self(416);
     pub const COPY_NOT_IMPLEMENTABLE: Self = Self(417);
 
+    // Code generation (E05xx)
+    /// A construct the CIL backend cannot lower yet.
+    pub const UNSUPPORTED_CODEGEN: Self = Self(500);
+    /// `Main` has parameters or a non-`()` return type, or an executable has no `Main`.
+    pub const INVALID_MAIN: Self = Self(501);
+
     // Internal errors (E09xx)
     pub const INTERNAL_ERROR: Self = Self(900);
 }

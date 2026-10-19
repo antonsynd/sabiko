@@ -5,6 +5,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
+pub use sabiko_codegen::OutputKind;
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode, Format, Severity, SourceMap};
 
 /// What the driver should print after running the pipeline.
@@ -22,6 +23,8 @@ pub enum Emit {
     /// The MIR of every function, after simplification. Empty when an earlier stage
     /// reported errors or the pipeline stopped before MIR building.
     Mir,
+    /// The textual CIL module (`ilasm` input). Empty when any stage reported errors.
+    Il,
 }
 
 /// How far down the pipeline to run. Diagnostics from later stages are never reported
@@ -35,10 +38,25 @@ pub enum Stage {
     Full,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Options {
     pub emit: Emit,
     pub stop_after: Stage,
+    /// Library or executable (`Emit::Il` only). An executable needs `fn Main()`.
+    pub output_kind: OutputKind,
+    /// Checked integer arithmetic (debug) or wrapping (release).
+    pub overflow_checks: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            emit: Emit::None,
+            stop_after: Stage::Full,
+            output_kind: OutputKind::Library,
+            overflow_checks: true,
+        }
+    }
 }
 
 /// The result of running the pipeline on one source file.
@@ -97,7 +115,7 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
             }
             out
         }
-        Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir => {
+        Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir | Emit::Il => {
             let ast = sabiko_parser::parse_file(file, src, &mut sink);
             match options.emit {
                 Emit::Ast => sabiko_ast::dump::dump(&ast),
@@ -124,6 +142,17 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
                                         &bodies, &resolve, &typeck,
                                     );
                                 }
+                                if options.emit == Emit::Il && !sink.has_errors() {
+                                    let codegen = sabiko_codegen::Options {
+                                        assembly_name: assembly_name(name),
+                                        kind: options.output_kind,
+                                        overflow_checks: options.overflow_checks,
+                                    };
+                                    output = sabiko_codegen::emit_il(
+                                        &bodies, &resolve, &typeck, &codegen, &mut sink,
+                                    )
+                                    .unwrap_or_default();
+                                }
                             }
                         }
                     }
@@ -138,6 +167,20 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
         source_map,
         diagnostics,
         output,
+    }
+}
+
+/// The assembly name for a source file: its file stem (`dir/hello.sabi` gives `hello`).
+#[must_use]
+pub fn assembly_name(file_name: &str) -> String {
+    let stem = Path::new(file_name).file_stem().map_or_else(
+        || file_name.to_owned(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+    if stem.is_empty() {
+        "Sabiko".to_owned()
+    } else {
+        stem
     }
 }
 

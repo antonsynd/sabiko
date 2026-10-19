@@ -15,7 +15,7 @@ pub mod ty;
 use std::collections::HashMap;
 
 pub use check::{BodyTypes, FieldAccess};
-pub use collect::{AdtDef, FieldDef, FnSig, ItemTypes};
+pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes};
 pub use consts::ConstValue;
 use sabiko_ast::{ItemKind, SourceFile};
 use sabiko_diagnostics::DiagnosticSink;
@@ -326,6 +326,59 @@ const M: i32 = { 1 };
         assert_eq!(value("J"), Some(ConstValue::Int(510)));
         assert_eq!(value("K"), Some(ConstValue::Char('A')));
         assert_eq!(value("L"), Some(ConstValue::Uint(44)));
+    }
+
+    #[test]
+    fn builtins() {
+        let src = r#"
+struct S { a: i32 }
+fn Ok(s: &str, b: u8, f: f32, c: char) -> i32 {
+    Print(1);
+    PrintLine(2.5);
+    PrintLine("text");
+    Print(s);
+    PrintLine(b);
+    Print(f);
+    PrintLine(c);
+    PrintLine(true);
+    if b > 0 { 1 } else { Panic("negative") }
+}
+fn Diverges() -> i32 { Panic("x"); }
+fn Bad(s: S) {
+    PrintLine(s);
+    PrintLine(1, 2);
+    PrintLine();
+    Panic(1);
+    Panic("a", "b");
+    let x: i32 = PrintLine(1);
+    let y;
+    PrintLine(y);
+    PrintLine(S { a: 1 });
+}"#;
+        let (r, resolve, msgs) = run(src);
+        assert_eq!(
+            msgs,
+            [
+                "E0300 `PrintLine` cannot print a value of type `S` [expected a printable value, found `S`]",
+                "E0304 this function takes 1 argument but 2 arguments were supplied [expected 1 argument]",
+                "E0304 this function takes 1 argument but 0 arguments were supplied [expected 1 argument]",
+                "E0300 mismatched types [expected `&str`, found `{integer}`]",
+                "E0304 this function takes 1 argument but 2 arguments were supplied [expected 1 argument]",
+                "E0300 mismatched types [expected `i32`, found `()`]",
+                "E0313 type annotations needed [cannot infer the type of this argument to `PrintLine`]",
+                "E0300 `PrintLine` cannot print a value of type `S` [expected a printable value, found `S`]",
+            ]
+        );
+        let panic = resolve
+            .defs_of_kind(DefKind::Fn)
+            .find(|d| resolve.builtin(*d) == Some(sabiko_resolve::Builtin::Panic))
+            .unwrap();
+        assert_eq!(r.items.fn_sig(panic).output, Ty::Never);
+        assert_eq!(r.items.builtin(panic), Some(sabiko_resolve::Builtin::Panic));
+        assert!(
+            !r.body(resolve.defs_of_kind(DefKind::Fn).next().unwrap())
+                .has_errors
+        );
     }
 
     #[test]

@@ -1,0 +1,11 @@
+//@ exit-code: 101
+// `Panic` ends the program with exit code 101 after flushing earlier output.
+fn Check(n: i32) -> i32 {
+    if n > 10 { Panic("too large") } else { n * 2 }
+}
+
+fn Main() {
+    PrintLine(Check(3));
+    PrintLine(Check(30));
+    PrintLine("not reached");
+}

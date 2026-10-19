@@ -3,13 +3,18 @@
 #   - a .NET 10 runtime (`dotnet` muxer + shared framework)
 #   - ilasm / ildasm native binaries
 #   - ILVerify (dotnet-ilverify) and the net10.0 reference assemblies it needs
+#   - the Roslyn C# compiler (csc.dll from microsoft.net.compilers.toolset), which
+#     runs on the bare runtime, so no .NET SDK is needed
+# and then builds the Sabiko runtime library (runtime/Sabiko.Runtime -> tools/runtime/
+# Sabiko.Runtime.dll) with scripts/build-runtime.sh.
 #
 # Usage: scripts/setup-dotnet.sh [--from-nuget] [--force]
 #
 # By default an existing `dotnet` with a 10.x runtime on PATH is reused and only
-# ilasm/ildasm/ILVerify are fetched. Otherwise the official dotnet-install script
+# ilasm/ildasm/ILVerify/csc are fetched. Otherwise the official dotnet-install script
 # is tried, and if that host is unreachable (some sandboxes block dot.net) the
 # runtime is assembled from NuGet packages instead (--from-nuget forces this).
+# Versions: SABIKO_DOTNET_VERSION (default 10.0.13), SABIKO_CSC_VERSION (default 5.9.0).
 #
 # Afterwards: `source tools/env.sh`
 set -euo pipefail
@@ -19,6 +24,7 @@ TOOLS="$ROOT/tools"
 CACHE="$TOOLS/.cache"
 DOTNET_VERSION="${SABIKO_DOTNET_VERSION:-10.0.13}"   # runtime / ilasm / ildasm / ilverify / ref pack
 MUXER_VERSION="${SABIKO_MUXER_VERSION:-8.0.32}"      # last version of the standalone muxer package; it is version-agnostic
+CSC_VERSION="${SABIKO_CSC_VERSION:-5.9.0}"           # microsoft.net.compilers.toolset (Roslyn)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 FROM_NUGET=0; FORCE=0
@@ -26,7 +32,7 @@ for a in "$@"; do
   case "$a" in
     --from-nuget) FROM_NUGET=1 ;;
     --force) FORCE=1 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -126,7 +132,19 @@ exec "$DOTNET_BIN" "$TOOLS/ilverify/ILVerify.dll" -r "$TOOLS/ref/*.dll" "\$@"
 SH
 chmod +x "$TOOLS/bin/ilverify"
 
-# 4. env file ------------------------------------------------------------------
+# 4. C# compiler (Roslyn csc.dll, runs on the runtime; no SDK needed) ---------
+p="$(fetch_pkg microsoft.net.compilers.toolset "$CSC_VERSION")"
+# Only the top-level files: the per-language resource subfolders would collide when flattened.
+rm -rf "$TOOLS/csc"; mkdir -p "$TOOLS/csc"
+unzip -qo -j "$p" "tasks/netcore/bincore/*" -x "tasks/netcore/bincore/*/*" -d "$TOOLS/csc"
+cat > "$TOOLS/bin/csc" <<SH
+#!/usr/bin/env bash
+# Roslyn C# compiler wrapper (microsoft.net.compilers.toolset $CSC_VERSION on the local runtime).
+exec "$DOTNET_BIN" "$TOOLS/csc/csc.dll" "\$@"
+SH
+chmod +x "$TOOLS/bin/csc"
+
+# 5. env file ------------------------------------------------------------------
 cat > "$TOOLS/env.sh" <<SH
 # source this file: sets up the Sabiko .NET toolchain
 export DOTNET_ROOT="$DOTNET_ROOT_DIR"
@@ -134,10 +152,15 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_NOLOGO=1
 export SABIKO_DOTNET="$DOTNET_BIN"
 export SABIKO_REF_DIR="$TOOLS/ref"
+export SABIKO_RUNTIME_DIR="$TOOLS/runtime"
 export PATH="$TOOLS/bin:$DOTNET_ROOT_DIR:\$PATH"
 SH
+
+# 6. Sabiko runtime library ---------------------------------------------------
+"$ROOT/scripts/build-runtime.sh"
 
 log "done"
 "$DOTNET_BIN" --list-runtimes
 "$TOOLS/bin/ilasm" 2>&1 | head -1 || true
+"$TOOLS/bin/csc" -version
 log "run: source tools/env.sh"

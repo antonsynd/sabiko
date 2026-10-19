@@ -1,0 +1,49 @@
+// Arithmetic on every integer width: checked opcodes in debug builds, re-narrowing of
+// small types, division, remainder, shifts with amount checks, negation and complement.
+fn Narrow(a: i8, b: u8, c: i16, d: u16) -> i32 {
+    let s1 = a + a;
+    let s2 = b * b;
+    let s3 = c - c;
+    let s4 = d + d;
+    let n = -a;
+    let inv = !b;
+    let q = a / 3;
+    let r = d % 7;
+    let sh = b << 2;
+    let sr = a >> 1u8;
+    s1 as i32 + s2 as i32 + s3 as i32 + s4 as i32 + n as i32 + inv as i32 + q as i32
+        + r as i32 + sh as i32 + sr as i32
+}
+
+fn Wide(a: i64, b: u64, c: isize, d: usize, e: u32) -> i64 {
+    let s1 = a * 3;
+    let s2 = b + 1;
+    let s3 = c - 2;
+    let s4 = d * d;
+    let s5 = e + e;
+    let n = -a;
+    let q = b / 2;
+    let r = c % 3;
+    let sh = a << c;
+    let sr = b >> 1;
+    let sr2 = a >> e;
+    s1 + s2 as i64 + s3 as i64 + s4 as i64 + s5 as i64 + n + q as i64 + r as i64 + sh + sr as i64 + sr2
+}
+
+fn Compare(a: i32, b: u32, c: f64, d: bool, e: char) -> bool {
+    let c1 = a < 3;
+    let c2 = b >= 3;
+    let c3 = c <= 1.5;
+    let c4 = c > 0.0;
+    let c5 = d == true;
+    let c6 = e != 'x';
+    let c7 = a >= 0;
+    let c8 = b < 5;
+    c1 & c2 | c3 ^ c4 & c5 | c6 & c7 & c8
+}
+
+fn FloatOps(a: f64, b: f32) -> f64 {
+    let s = a + a * 2.0 - a / 3.0 % 1.5;
+    let n = -b;
+    s + n as f64
+}

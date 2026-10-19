@@ -615,6 +615,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sabiko_codegen"
+version = "0.0.1"
+dependencies = [
+ "insta",
+ "sabiko_ast",
+ "sabiko_borrowck",
+ "sabiko_diagnostics",
+ "sabiko_mir",
+ "sabiko_parser",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
+]
+
+[[package]]
 name = "sabiko_diagnostics"
 version = "0.0.1"
 dependencies = [
@@ -630,6 +645,7 @@ version = "0.0.1"
 dependencies = [
  "sabiko_ast",
  "sabiko_borrowck",
+ "sabiko_codegen",
  "sabiko_diagnostics",
  "sabiko_lexer",
  "sabiko_mir",

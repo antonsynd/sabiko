@@ -19,6 +19,12 @@
 //! Sabiko has a single namespace for items: a struct and a function may not share a
 //! name. Rust separates type and value namespaces; the restriction is deliberate (one
 //! name, one meaning) and recorded in `docs/DECISIONS.md`.
+//!
+//! A few functions are built into the compiler ([`Builtin`]): `Print`, `PrintLine` and
+//! `Panic`, which code generation lowers to calls into the runtime library. Each gets a
+//! [`DefInfo`] with `builtin: Some(_)` and no AST item, appended after every user item so
+//! user [`DefId`]s are unaffected. A user item of the same name shadows the builtin
+//! silently.
 
 use std::collections::HashMap;
 
@@ -172,17 +178,46 @@ impl DefKind {
     }
 }
 
+/// A function built into the compiler. Code generation lowers calls to these into the
+/// runtime library; earlier phases treat them as ordinary function definitions whose
+/// [`DefInfo::builtin`] is `Some`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Builtin {
+    /// `Print(x)`: prints a printable value without a trailing newline; returns `()`.
+    Print,
+    /// `PrintLine(x)`: prints a printable value followed by a newline; returns `()`.
+    PrintLine,
+    /// `Panic(msg: &str) -> !`: aborts with the message.
+    Panic,
+}
+
+impl Builtin {
+    pub const ALL: [Builtin; 3] = [Self::Print, Self::PrintLine, Self::Panic];
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Print => "Print",
+            Self::PrintLine => "PrintLine",
+            Self::Panic => "Panic",
+        }
+    }
+}
+
 /// An item definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefInfo {
     pub kind: DefKind,
     pub name: String,
-    /// Span of the item's name.
+    /// Span of the item's name. [`Span::dummy`] for a builtin, which has no source text;
+    /// never put it in a diagnostic label.
     pub span: Span,
-    /// The `Item` node.
+    /// The `Item` node. [`NodeId::DUMMY`] for a builtin.
     pub node: NodeId,
-    /// Index into `SourceFile::items`.
+    /// Index into `SourceFile::items`. `usize::MAX` for a builtin.
     pub item_index: usize,
+    /// `Some` for a compiler builtin, `None` for every user item.
+    pub builtin: Option<Builtin>,
 }
 
 /// A local binding.
@@ -234,9 +269,23 @@ impl ResolveResults {
         self.item_defs[&item]
     }
 
+    /// The AST item of a user definition. Must not be called for a builtin (see
+    /// [`ResolveResults::builtin`]): builtins have no item.
     #[must_use]
     pub fn item<'a>(&self, file: &'a SourceFile, id: DefId) -> &'a Item {
-        &file.items[self.def(id).item_index]
+        let info = self.def(id);
+        assert!(
+            info.builtin.is_none(),
+            "builtin `{}` has no AST item",
+            info.name
+        );
+        &file.items[info.item_index]
+    }
+
+    /// `Some` when `def` is a compiler builtin rather than a user item.
+    #[must_use]
+    pub fn builtin(&self, def: DefId) -> Option<Builtin> {
+        self.def(def).builtin
     }
 
     /// The resolution recorded for a type, path expression or struct literal node.
@@ -261,7 +310,8 @@ impl ResolveResults {
         self.pat_locals.get(&pat).copied()
     }
 
-    /// All definitions of a kind, in source order.
+    /// All definitions of a kind, in source order, with the builtins (if `kind` is
+    /// `DefKind::Fn`) after every user item.
     pub fn defs_of_kind(&self, kind: DefKind) -> impl Iterator<Item = DefId> + '_ {
         self.defs
             .iter()
@@ -314,6 +364,7 @@ impl Resolver<'_> {
                 span: name.span,
                 node: item.id,
                 item_index: index,
+                builtin: None,
             });
             self.results.item_defs.insert(item.id, id);
             if let Some(&first) = self.items.get(&name.name) {
@@ -333,6 +384,23 @@ impl Resolver<'_> {
             } else {
                 self.items.insert(name.name.clone(), id);
             }
+        }
+        // Builtins come last so user items keep the `DefId`s they would have without
+        // them. A user item of the same name shadows the builtin without a diagnostic.
+        for builtin in Builtin::ALL {
+            if self.items.contains_key(builtin.name()) {
+                continue;
+            }
+            let id = DefId(u32::try_from(self.results.defs.len()).expect("too many items"));
+            self.results.defs.push(DefInfo {
+                kind: DefKind::Fn,
+                name: builtin.name().to_owned(),
+                span: Span::dummy(),
+                node: NodeId::DUMMY,
+                item_index: usize::MAX,
+                builtin: Some(builtin),
+            });
+            self.items.insert(builtin.name().to_owned(), id);
         }
     }
 
@@ -466,6 +534,16 @@ impl Resolver<'_> {
         }
     }
 
+    /// Adds a "`name` defined here" label unless the definition is a builtin, which has
+    /// no source to point at.
+    fn with_definition_label(d: Diagnostic, info: &DefInfo, name: &str) -> Diagnostic {
+        if info.span.is_dummy() {
+            d.with_note(format!("`{name}` is a built-in function"))
+        } else {
+            d.with_label(info.span, format!("`{name}` defined here"))
+        }
+    }
+
     fn unsupported_path(&mut self, path: &Path) -> Res {
         self.sink.emit(
             Diagnostic::error(
@@ -488,14 +566,13 @@ impl Resolver<'_> {
             return match info.kind {
                 DefKind::Struct => Res::Def(def),
                 kind => {
-                    self.sink.emit(
-                        Diagnostic::error(
-                            ErrorCode::WRONG_NAMESPACE,
-                            format!("expected type, found {} `{}`", kind.describe(), name.name),
-                        )
-                        .with_label(name.span, "not a type")
-                        .with_label(info.span, format!("`{}` defined here", name.name)),
-                    );
+                    let d = Diagnostic::error(
+                        ErrorCode::WRONG_NAMESPACE,
+                        format!("expected type, found {} `{}`", kind.describe(), name.name),
+                    )
+                    .with_label(name.span, "not a type");
+                    self.sink
+                        .emit(Self::with_definition_label(d, info, &name.name));
                     Res::Err
                 }
             };
@@ -551,14 +628,13 @@ impl Resolver<'_> {
             return match info.kind {
                 DefKind::Struct => Res::Def(def),
                 kind => {
-                    self.sink.emit(
-                        Diagnostic::error(
-                            ErrorCode::WRONG_NAMESPACE,
-                            format!("expected struct, found {} `{}`", kind.describe(), name.name),
-                        )
-                        .with_label(name.span, "not a struct")
-                        .with_label(info.span, format!("`{}` defined here", name.name)),
-                    );
+                    let d = Diagnostic::error(
+                        ErrorCode::WRONG_NAMESPACE,
+                        format!("expected struct, found {} `{}`", kind.describe(), name.name),
+                    )
+                    .with_label(name.span, "not a struct");
+                    self.sink
+                        .emit(Self::with_definition_label(d, info, &name.name));
                     Res::Err
                 }
             };
@@ -779,6 +855,28 @@ mod tests {
                 "E0201 cannot find type `Q` in this scope",
             ]
         );
+    }
+
+    #[test]
+    fn builtins_resolve_and_are_shadowed_by_user_items() {
+        let (ast, r, msgs) = run(
+            "fn PrintLine(x: i32) {}\nfn F() { PrintLine(1); Print(2); Panic(\"x\"); }\nfn G() -> Print {}",
+        );
+        assert_eq!(msgs, ["E0203 expected type, found function `Print`"]);
+        // User items first, then the builtins the user did not define.
+        let names: Vec<&str> = r.defs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["PrintLine", "F", "G", "Print", "Panic"]);
+        assert_eq!(r.builtin(DefId(0)), None);
+        assert_eq!(r.builtin(DefId(3)), Some(Builtin::Print));
+        assert_eq!(r.builtin(DefId(4)), Some(Builtin::Panic));
+        assert!(r.def(DefId(3)).span.is_dummy());
+        let paths = fn_paths(&ast, "F");
+        let res: Vec<Res> = paths.iter().map(|(_, id)| r.res(*id)).collect();
+        assert_eq!(
+            res,
+            [Res::Def(DefId(0)), Res::Def(DefId(3)), Res::Def(DefId(4))]
+        );
+        assert_eq!(r.defs_of_kind(DefKind::Fn).count(), 5);
     }
 
     #[test]

@@ -17,6 +17,7 @@ sabiko_resolve = { workspace = true }
 sabiko_types = { workspace = true }
 sabiko_mir = { workspace = true }
 sabiko_borrowck = { workspace = true }
+sabiko_codegen = { workspace = true }
 
 [lints]
 workspace = true

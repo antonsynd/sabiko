@@ -20,6 +20,7 @@ sabiko_resolve = { path = "crates/sabiko_resolve" }
 sabiko_types = { path = "crates/sabiko_types" }
 sabiko_mir = { path = "crates/sabiko_mir" }
 sabiko_borrowck = { path = "crates/sabiko_borrowck" }
+sabiko_codegen = { path = "crates/sabiko_codegen" }
 sabiko_driver = { path = "crates/sabiko_driver" }
 
 [workspace.lints.rust]

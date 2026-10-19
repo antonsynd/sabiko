@@ -5,8 +5,8 @@
 //! a complete list rather than the first symptom. The driver turns a non-empty list into
 //! an internal compiler error.
 
-use sabiko_resolve::PrimTy;
-use sabiko_types::{ConstValue, Mutability, Ty, TypeckResults};
+use sabiko_resolve::{Builtin, PrimTy};
+use sabiko_types::{is_printable, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
     BasicBlock, BinOp, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue, Statement,
@@ -285,6 +285,12 @@ impl Validator<'_> {
                 destination,
                 target,
             } => {
+                if let Some(builtin @ (Builtin::Print | Builtin::PrintLine)) =
+                    self.typeck.items.builtin(*func)
+                {
+                    self.print_call(bb, builtin, args, destination, *target);
+                    return;
+                }
                 let sig = self.typeck.items.fn_sig(*func).clone();
                 if sig.inputs.len() != args.len() {
                     self.err(
@@ -322,6 +328,55 @@ impl Validator<'_> {
                 }
             }
             TerminatorKind::Return | TerminatorKind::Unreachable => {}
+        }
+    }
+
+    /// `Print`/`PrintLine`: overloaded over the printable types, so there is no signature
+    /// to compare with; one printable argument, a `()` destination.
+    fn print_call(
+        &mut self,
+        bb: BasicBlock,
+        builtin: Builtin,
+        args: &[Operand],
+        destination: &Place,
+        target: Option<BasicBlock>,
+    ) {
+        if args.len() != 1 {
+            self.err(
+                bb,
+                format!(
+                    "call passes {} arguments to `{}`, which takes 1",
+                    args.len(),
+                    builtin.name()
+                ),
+            );
+        }
+        for arg in args {
+            if let Some(ty) = self.operand_ty(bb, arg) {
+                if !(is_printable(&ty) || ty.is_error() || ty.is_never()) {
+                    self.err(
+                        bb,
+                        format!(
+                            "`{}` called with a non-printable argument of type {ty:?}",
+                            builtin.name()
+                        ),
+                    );
+                }
+            }
+        }
+        if let Some(dest_ty) = self.place_ty(bb, destination) {
+            if !compatible(&Ty::Unit, &dest_ty) {
+                self.err(
+                    bb,
+                    format!(
+                        "`{}` returning () into a place of type {dest_ty:?}",
+                        builtin.name()
+                    ),
+                );
+            }
+        }
+        if let Some(target) = target {
+            self.check_target(bb, target);
         }
     }
 }

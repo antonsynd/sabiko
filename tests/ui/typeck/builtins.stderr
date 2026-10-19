@@ -1,0 +1,37 @@
+[E0300] Error: `PrintLine` cannot print a value of type `S`
+   ╭─[ tests/ui/typeck/builtins.sabi:4:15 ]
+   │
+ 4 │     PrintLine(s); //~ ERROR E0300 `PrintLine` cannot print a value of type `S`
+   │               ┬  
+   │               ╰── expected a printable value, found `S`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+───╯
+[E0304] Error: this function takes 1 argument but 2 arguments were supplied
+   ╭─[ tests/ui/typeck/builtins.sabi:5:5 ]
+   │
+ 5 │     PrintLine(1, 2); //~ ERROR E0304 this function takes 1 argument but 2 arguments were supplied
+   │     ───────┬───────  
+   │            ╰───────── expected 1 argument
+───╯
+[E0304] Error: this function takes 1 argument but 0 arguments were supplied
+   ╭─[ tests/ui/typeck/builtins.sabi:6:5 ]
+   │
+ 6 │     PrintLine(); //~ ERROR E0304 this function takes 1 argument but 0 arguments were supplied
+   │     ─────┬─────  
+   │          ╰─────── expected 1 argument
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/builtins.sabi:7:11 ]
+   │
+ 7 │     Panic(1); //~ ERROR E0300 mismatched types
+   │           ┬  
+   │           ╰── expected `&str`, found `{integer}`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/builtins.sabi:8:18 ]
+   │
+ 8 │     let x: i32 = PrintLine(1); //~ ERROR E0300 mismatched types
+   │                  ──────┬─────  
+   │                        ╰─────── expected `i32`, found `()`
+───╯

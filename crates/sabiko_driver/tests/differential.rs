@@ -11,10 +11,17 @@ use std::sync::Mutex;
 use sabiko_diagnostics::Severity;
 use sabiko_driver::{compile_str, Options};
 
-/// Prepended to every program before handing it to `rustc`: Sabiko uses .NET casing and the
-/// corpus consists of library functions nothing calls. Two lines, so rustc line numbers are
-/// shifted by two (the harness never compares positions).
-const RUSTC_PRELUDE: &str = "#![allow(nonstandard_style, unused, dead_code)]\n\n";
+/// Prepended to every program before handing it to `rustc`: Sabiko uses .NET casing, the
+/// corpus consists of library functions nothing calls, and Sabiko's builtin functions
+/// (`Print`, `PrintLine`, `Panic`) must exist for rustc too. Five lines, so rustc line
+/// numbers are shifted by five (the harness never compares positions). A corpus program
+/// may not define its own `Print`/`PrintLine`/`Panic`: Sabiko would shadow the builtin
+/// silently while rustc reports a duplicate definition.
+const RUSTC_PRELUDE: &str = "#![allow(nonstandard_style, unused, dead_code)]\n\
+    fn Print<T: std::fmt::Display>(x: T) { print!(\"{x}\") }\n\
+    fn PrintLine<T: std::fmt::Display>(x: T) { println!(\"{x}\") }\n\
+    fn Panic(msg: &str) -> ! { panic!(\"{msg}\") }\n\
+    \n";
 
 /// rustc error codes that belong to borrow checking (moves, loans, mutability,
 /// initialisation, lifetimes and elision). Anything else means the program is not the
@@ -182,6 +189,11 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
+            // `run/` holds the run-time differential programs (`sabikoc`'s
+            // `differential_run` test); they are compared by output, not by verdict.
+            if path.file_name().is_some_and(|n| n == "run") {
+                continue;
+            }
             collect(&path, out);
         } else if path.extension().is_some_and(|e| e == "sabi") {
             out.push(path);

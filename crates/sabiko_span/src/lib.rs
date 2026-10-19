@@ -35,6 +35,19 @@ impl Span {
         }
     }
 
+    /// A span for definitions that have no source text, such as compiler builtins. It
+    /// belongs to no registered file, so it must never reach a diagnostic label; check
+    /// [`Span::is_dummy`] before pointing at a definition that might be a builtin.
+    #[must_use]
+    pub const fn dummy() -> Self {
+        Self::point(FileId(u32::MAX), 0)
+    }
+
+    #[must_use]
+    pub const fn is_dummy(self) -> bool {
+        self.file.0 == u32::MAX
+    }
+
     /// The smallest span covering both `self` and `other`. Both must be in the same file.
     #[must_use]
     pub fn to(self, other: Span) -> Span {

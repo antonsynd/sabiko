@@ -1,0 +1,129 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/builtins.sabi
+---
+fn Checked(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: bool;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = Ge(copy _1, const 0_i32);
+        switchInt(copy _2) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _0 = copy _1;
+        goto -> bb3;
+    }
+
+    bb2: {
+        _0 = Panic(const "negative") -> unreachable;
+    }
+
+    bb3: {
+        StorageDead(_2);
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn Main() {
+    let mut _0: ();
+    let _1: &str;                        // s
+    let _2: u8;                          // b
+    let _3: f32;                         // f
+    let _4: bool;                        // flag
+    let _5: char;                        // c
+    let mut _6: ();
+    let mut _7: ();
+    let mut _8: ();
+    let mut _9: ();
+    let mut _10: ();
+    let mut _11: ();
+    let mut _12: ();
+    let mut _13: ();
+    let mut _14: i32;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = const "text";
+        StorageLive(_2);
+        _2 = const 7_u8;
+        StorageLive(_3);
+        _3 = const 1.5_f32;
+        StorageLive(_4);
+        _4 = const true;
+        StorageLive(_5);
+        _5 = const 'c';
+        StorageLive(_6);
+        _6 = PrintLine(const "hello") -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_6);
+        StorageLive(_7);
+        _7 = Print(const 1_i32) -> bb2;
+    }
+
+    bb2: {
+        StorageDead(_7);
+        StorageLive(_8);
+        _8 = PrintLine(copy _1) -> bb3;
+    }
+
+    bb3: {
+        StorageDead(_8);
+        StorageLive(_9);
+        _9 = Print(copy _2) -> bb4;
+    }
+
+    bb4: {
+        StorageDead(_9);
+        StorageLive(_10);
+        _10 = PrintLine(copy _3) -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_10);
+        StorageLive(_11);
+        _11 = Print(copy _4) -> bb6;
+    }
+
+    bb6: {
+        StorageDead(_11);
+        StorageLive(_12);
+        _12 = PrintLine(copy _5) -> bb7;
+    }
+
+    bb7: {
+        StorageDead(_12);
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = Checked(const 3_i32) -> bb8;
+    }
+
+    bb8: {
+        _13 = PrintLine(copy _14) -> bb9;
+    }
+
+    bb9: {
+        StorageDead(_14);
+        StorageDead(_13);
+        _0 = const ();
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageDead(_2);
+        StorageDead(_1);
+        goto -> bb10;
+    }
+
+    bb10: {
+        return;
+    }
+}

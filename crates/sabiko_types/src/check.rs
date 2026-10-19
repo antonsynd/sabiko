@@ -12,7 +12,7 @@ use sabiko_ast::{
     UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::collect::{self, ItemTypes};
@@ -839,47 +839,104 @@ impl<'a> FnCtxt<'a> {
                 return Ty::Error;
             }
         };
+        if let Some(builtin @ (Builtin::Print | Builtin::PrintLine)) = self.items.builtin(def) {
+            return self.check_print_call(builtin, args, span);
+        }
         let sig = self.items.fn_sig(def).clone();
         if sig.inputs.len() != args.len() {
+            let d = Self::wrong_arg_count(sig.inputs.len(), args.len(), span);
             let name = self.resolve.def(def).name.clone();
-            let plural = |n: usize, s: &str| {
-                if n == 1 {
-                    s.to_owned()
-                } else {
-                    format!("{s}s")
-                }
+            // A builtin has no source to point at.
+            let d = if sig.name_span.is_dummy() {
+                d
+            } else {
+                d.with_label(sig.name_span, format!("function `{name}` defined here"))
             };
-            self.error(
-                Diagnostic::error(
-                    ErrorCode::WRONG_ARG_COUNT,
-                    format!(
-                        "this function takes {} {} but {} {} supplied",
-                        sig.inputs.len(),
-                        plural(sig.inputs.len(), "argument"),
-                        args.len(),
-                        if args.len() == 1 {
-                            "argument was"
-                        } else {
-                            "arguments were"
-                        }
-                    ),
-                )
-                .with_label(
-                    span,
-                    format!(
-                        "expected {} {}",
-                        sig.inputs.len(),
-                        plural(sig.inputs.len(), "argument")
-                    ),
-                )
-                .with_label(sig.name_span, format!("function `{name}` defined here")),
-            );
+            self.error(d);
         }
         for (i, a) in args.iter().enumerate() {
             let expected = sig.inputs.get(i).cloned();
             self.check_expr(a, expected.as_ref());
         }
+        if sig.output.is_never() {
+            self.diverges = true;
+        }
         sig.output
+    }
+
+    fn wrong_arg_count(expected: usize, found: usize, span: Span) -> Diagnostic {
+        let plural = |n: usize, s: &str| {
+            if n == 1 {
+                s.to_owned()
+            } else {
+                format!("{s}s")
+            }
+        };
+        Diagnostic::error(
+            ErrorCode::WRONG_ARG_COUNT,
+            format!(
+                "this function takes {expected} {} but {found} {} supplied",
+                plural(expected, "argument"),
+                if found == 1 {
+                    "argument was"
+                } else {
+                    "arguments were"
+                }
+            ),
+        )
+        .with_label(
+            span,
+            format!("expected {expected} {}", plural(expected, "argument")),
+        )
+    }
+
+    /// `Print(x)` / `PrintLine(x)`: one argument of any printable type (see
+    /// [`collect::is_printable`]); an unsuffixed literal takes its default later. Both
+    /// return `()`.
+    fn check_print_call(&mut self, builtin: Builtin, args: &[Expr], span: Span) -> Ty {
+        if args.len() != 1 {
+            let d = Self::wrong_arg_count(1, args.len(), span);
+            self.error(d);
+        }
+        for arg in args {
+            let ty = self.check_expr(arg, None);
+            let ty = self.infer.resolve(&ty);
+            let known = match &ty {
+                Ty::Infer(v) => self.infer.kind(*v) != VarKind::General,
+                other => !other.has_infer(),
+            };
+            if !known {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(
+                        arg.span,
+                        format!(
+                            "cannot infer the type of this argument to `{}`",
+                            builtin.name()
+                        ),
+                    ),
+                );
+                // The local behind it is the same problem, not a new one.
+                self.infer.bind_error(&ty);
+                continue;
+            }
+            if matches!(ty, Ty::Infer(_) | Ty::Error | Ty::Never) || collect::is_printable(&ty) {
+                continue;
+            }
+            let s = self.ty_str(&ty);
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::TYPE_MISMATCH,
+                    format!("`{}` cannot print a value of type `{s}`", builtin.name()),
+                )
+                .with_label(arg.span, format!("expected a printable value, found `{s}`"))
+                .with_note("printable types are integers, floats, `bool`, `char` and `&str`"),
+            );
+        }
+        Ty::Unit
     }
 
     fn check_field(&mut self, expr: &Expr, base_ty: &Ty, name: &str, name_span: Span) -> Ty {

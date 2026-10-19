@@ -1,0 +1,8 @@
+// Printing a field while it is mutably borrowed is a use during a live loan.
+struct Point { X: i32, Y: i32 }
+
+fn Show(p: &mut Point) {
+    let r = &mut p.X;
+    PrintLine(p.X);
+    *r = 1;
+}

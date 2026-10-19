@@ -27,6 +27,7 @@ use sabiko_mir::{
     BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue,
     StatementKind, TerminatorKind,
 };
+use sabiko_resolve::Builtin;
 use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
@@ -376,6 +377,15 @@ impl Generator<'_> {
             } => {
                 let arg_tys: Vec<RegionTy> =
                     args.iter().map(|arg| self.operand(arg, location)).collect();
+                if matches!(
+                    self.typeck.items.builtin(*func),
+                    Some(Builtin::Print | Builtin::PrintLine)
+                ) {
+                    // Overloaded builtins have no signature; their output is `()`, so
+                    // nothing flows from the argument to the destination.
+                    self.write_dest(destination, location);
+                    return;
+                }
                 let callee = signature_regions(self.typeck.items.fn_sig(*func), &mut self.supply);
                 let mid = self.table.mid(location);
                 for (arg, param) in arg_tys.iter().zip(&callee.inputs) {
