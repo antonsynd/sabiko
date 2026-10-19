@@ -158,14 +158,14 @@ impl Validator<'_> {
         match operand {
             Operand::Copy(place) => {
                 let ty = self.place_ty(bb, place)?;
-                if !ty.is_copy() {
+                if !self.typeck.items.is_copy(&ty) {
                     self.err(bb, format!("copy of non-Copy type {ty:?}"));
                 }
                 Some(ty)
             }
             Operand::Move(place) => {
                 let ty = self.place_ty(bb, place)?;
-                if ty.is_copy() {
+                if self.typeck.items.is_copy(&ty) {
                     self.err(bb, format!("move of Copy type {ty:?}"));
                 }
                 Some(ty)

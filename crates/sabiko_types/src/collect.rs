@@ -33,6 +33,8 @@ pub struct AdtDef {
     pub fields: Vec<FieldDef>,
     /// `struct S;`
     pub is_unit: bool,
+    /// `#[derive(Copy)]`: values are copied, not moved.
+    pub is_copy: bool,
     pub span: Span,
 }
 
@@ -65,6 +67,64 @@ impl ItemTypes {
     #[must_use]
     pub fn const_ty(&self, def: DefId) -> &Ty {
         &self.const_tys[&def]
+    }
+
+    /// Whether values of `ty` are copied rather than moved. Like [`Ty::is_copy`] but
+    /// aware of `#[derive(Copy)]` on structs.
+    #[must_use]
+    pub fn is_copy(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Adt(def) => self.adts.get(def).is_some_and(|a| a.is_copy),
+            _ => ty.is_copy(),
+        }
+    }
+}
+
+/// Reads `#[derive(...)]` attributes. `Copy` is understood, `Clone` is accepted as its
+/// companion (every `Copy` type clones trivially); everything else waits for traits.
+fn derives_copy(item: &sabiko_ast::Item, sink: &mut DiagnosticSink) -> bool {
+    let mut is_copy = false;
+    for attr in &item.attrs {
+        if !attr.path.is_single() || attr.path.segments[0].name != "derive" {
+            continue;
+        }
+        let list = attr
+            .args
+            .trim()
+            .trim_start_matches('(')
+            .trim_end_matches(')');
+        for name in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            match name {
+                "Copy" => is_copy = true,
+                "Clone" => {}
+                other => sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::UNSUPPORTED_SYNTAX,
+                        format!("not yet supported: `#[derive({other})]`"),
+                    )
+                    .with_label(attr.span, "only `Copy` and `Clone` can be derived for now")
+                    .with_note("derived traits arrive with traits in Phase 5; see docs/PLAN.md"),
+                ),
+            }
+        }
+    }
+    is_copy
+}
+
+/// References inside struct fields need lifetime parameters, which arrive in Phase 9.
+fn check_no_reference(ty: &Ty, span: Span, sink: &mut DiagnosticSink) {
+    if matches!(ty, Ty::Ref(..)) {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNSUPPORTED_SYNTAX,
+                "not yet supported: references in struct fields",
+            )
+            .with_label(
+                span,
+                "a struct holding a reference needs a lifetime parameter",
+            )
+            .with_note("planned for Phase 9; see docs/PLAN.md"),
+        );
     }
 }
 
@@ -151,6 +211,7 @@ pub(crate) fn collect(
                             }
                             let ty = lower_sig_type(&f.ty, resolve);
                             check_sized(&ty, f.ty.span, sink);
+                            check_no_reference(&ty, f.ty.span, sink);
                             out.push(FieldDef {
                                 name: f.name.name.clone(),
                                 ty,
@@ -161,12 +222,14 @@ pub(crate) fn collect(
                     }
                     StructKind::Unit => (Vec::new(), true),
                 };
+                let is_copy = derives_copy(item, sink);
                 items.adts.insert(
                     def,
                     AdtDef {
                         name: s.name.name.clone(),
                         fields,
                         is_unit,
+                        is_copy,
                         span: s.name.span,
                     },
                 );
@@ -179,7 +242,39 @@ pub(crate) fn collect(
         }
     }
     check_recursive_structs(resolve, &items, sink);
+    check_copy_derives(resolve, &items, sink);
     items
+}
+
+/// `#[derive(Copy)]` requires every field to be `Copy`.
+fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    for def in resolve.defs_of_kind(DefKind::Struct) {
+        let adt = items.adt(def);
+        if !adt.is_copy {
+            continue;
+        }
+        for field in &adt.fields {
+            if !items.is_copy(&field.ty) {
+                sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::COPY_NOT_IMPLEMENTABLE,
+                        format!(
+                            "the trait `Copy` cannot be implemented for type `{}`",
+                            adt.name
+                        ),
+                    )
+                    .with_label(
+                        field.span,
+                        format!(
+                            "this field does not implement `Copy`: `{}`",
+                            field.ty.display(resolve)
+                        ),
+                    )
+                    .with_label(adt.span, "`Copy` derived here"),
+                );
+            }
+        }
+    }
 }
 
 /// A struct that contains itself by value has infinite size. Mutually recursive structs

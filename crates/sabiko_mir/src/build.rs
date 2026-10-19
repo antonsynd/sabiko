@@ -310,11 +310,38 @@ impl<'a> Builder<'a> {
 
     /// `copy` for `Copy` types, `move` otherwise.
     fn place_operand(&self, place: Place) -> Operand {
-        if place.ty(&self.body).is_copy() {
+        if self.typeck.items.is_copy(&place.ty(&self.body)) {
             Operand::Copy(place)
         } else {
             Operand::Move(place)
         }
+    }
+
+    /// An operand for a coercion site: a call argument, struct field initialiser, assignment
+    /// right-hand side, annotated `let` initialiser or return value. Like rustc, a `&mut T`
+    /// place is reborrowed (`&mut *p`) instead of moved there, so passing a mutable
+    /// reference to a function does not consume it.
+    fn coerced_operand(&mut self, expr: &Expr) -> Operand {
+        let is_place_expr = matches!(
+            strip_parens(expr).kind,
+            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+        );
+        if is_place_expr {
+            if let Ty::Ref(Mutability::Mut, _) = self.ty(expr) {
+                let ty = self.ty(expr).clone();
+                let place = self.as_place(expr);
+                if place.local != Local::RETURN || !place.projection.is_empty() {
+                    let temp = self.new_temp(ty, expr.span);
+                    self.assign(
+                        Place::local(temp),
+                        Rvalue::Ref(Mutability::Mut, place.deref()),
+                        expr.span,
+                    );
+                    return Operand::Move(Place::local(temp));
+                }
+            }
+        }
+        self.as_operand(expr)
     }
 
     fn unit_rvalue(span: Span) -> Rvalue {
@@ -379,6 +406,14 @@ impl<'a> Builder<'a> {
     }
 
     /// What a path expression names, through parentheses.
+    /// A place expression of type `&mut T`, which coercion sites reborrow.
+    fn is_mut_ref_place_expr(&self, expr: &Expr) -> bool {
+        matches!(
+            strip_parens(expr).kind,
+            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+        ) && matches!(self.ty(expr), Ty::Ref(Mutability::Mut, _))
+    }
+
     fn path_res(&self, expr: &Expr) -> Option<Res> {
         match &expr.kind {
             ExprKind::Path(_) => Some(self.resolve.res(expr.id)),
@@ -507,7 +542,7 @@ impl<'a> Builder<'a> {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
                     unreachable!("callees are function paths in a checked body")
                 };
-                let args: Vec<Operand> = args.iter().map(|a| self.as_operand(a)).collect();
+                let args: Vec<Operand> = args.iter().map(|a| self.coerced_operand(a)).collect();
                 let next = self.new_block();
                 self.terminate(
                     TerminatorKind::Call {
@@ -563,7 +598,7 @@ impl<'a> Builder<'a> {
                     })
                     .collect();
                 for (field, index) in fields.iter().zip(indices) {
-                    operands[index] = Some(self.as_operand(&field.value));
+                    operands[index] = Some(self.coerced_operand(&field.value));
                 }
                 let operands = operands
                     .into_iter()
@@ -606,7 +641,7 @@ impl<'a> Builder<'a> {
         let span = expr.span;
         match &expr.kind {
             ExprKind::Assign(lhs, rhs) => {
-                let rhs = self.as_operand(rhs);
+                let rhs = self.coerced_operand(rhs);
                 let place = self.as_place(lhs);
                 self.assign(place, Rvalue::Use(rhs), span);
             }
@@ -786,6 +821,10 @@ impl<'a> Builder<'a> {
     fn lower_return(&mut self, value: Option<&Expr>, span: Span) {
         let ret = Place::local(Local::RETURN);
         match value {
+            Some(value) if self.is_mut_ref_place_expr(value) => {
+                let op = self.coerced_operand(value);
+                self.assign(ret, Rvalue::Use(op), span);
+            }
             Some(value) => self.expr_into_dest(&ret, value),
             None => self.assign(ret, Self::unit_rvalue(span), span),
         }
@@ -838,7 +877,13 @@ impl<'a> Builder<'a> {
                         .expect("identifier patterns introduce locals");
                     let local = self.declare_user_local(id, l.pat.span);
                     if let Some(init) = &l.init {
-                        self.expr_into_dest(&Place::local(local), init);
+                        if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
+                            // `let r: &mut T = p;` reborrows; `let r = p;` moves.
+                            let op = self.coerced_operand(init);
+                            self.assign(Place::local(local), Rvalue::Use(op), init.span);
+                        } else {
+                            self.expr_into_dest(&Place::local(local), init);
+                        }
                     }
                 }
                 PatKind::Wild => {
@@ -852,4 +897,11 @@ impl<'a> Builder<'a> {
         }
         self.pop_scope(stmt.span);
     }
+}
+
+fn strip_parens(mut e: &Expr) -> &Expr {
+    while let ExprKind::Paren(inner) = &e.kind {
+        e = inner;
+    }
+    e
 }

@@ -116,9 +116,10 @@ impl Ty {
         matches!(self, Ty::Prim(PrimTy::Bool))
     }
 
-    /// Whether values of this type are copied rather than moved. Primitives, `()`, shared
-    /// references and function items are `Copy`; structs and `&mut T` are not (Phase 3
-    /// adds `#[derive(Copy)]`).
+    /// Whether values of this type are copied rather than moved, ignoring
+    /// `#[derive(Copy)]`: primitives, `()`, shared references and function items are
+    /// `Copy`; `&mut T` is not, and structs are reported as not `Copy` here. Use
+    /// `ItemTypes::is_copy` for the item-aware answer.
     #[must_use]
     pub fn is_copy(&self) -> bool {
         match self {

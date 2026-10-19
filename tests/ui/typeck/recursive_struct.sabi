@@ -23,7 +23,9 @@ struct Deepest {
     Back: Outer,
 }
 
+// Indirection through a reference breaks the cycle for sizing, but reference fields
+// themselves wait for lifetime parameters (Phase 9).
 struct Linked {
-    Next: &Linked,
-    Other: &mut Outer,
+    Next: &Linked, //~ ERROR E0107 not yet supported: references in struct fields
+    Other: &mut Outer, //~ ERROR E0107 not yet supported: references in struct fields
 }

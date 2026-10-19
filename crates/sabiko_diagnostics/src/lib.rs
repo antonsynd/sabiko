@@ -75,6 +75,18 @@ impl ErrorCode {
     pub const ASSIGN_THROUGH_SHARED_REF: Self = Self(403);
     pub const BORROW_MUT_THROUGH_SHARED_REF: Self = Self(404);
     pub const USE_OF_UNINITIALIZED: Self = Self(405);
+    pub const USE_OF_MOVED_VALUE: Self = Self(406);
+    pub const MOVE_OUT_OF_BORROW: Self = Self(407);
+    pub const BORROW_CONFLICT: Self = Self(408);
+    pub const MULTIPLE_MUT_BORROWS: Self = Self(409);
+    pub const ASSIGN_TO_BORROWED: Self = Self(410);
+    pub const USE_WHILE_MUTABLY_BORROWED: Self = Self(411);
+    pub const MOVE_WHILE_BORROWED: Self = Self(412);
+    pub const DOES_NOT_LIVE_LONG_ENOUGH: Self = Self(413);
+    pub const RETURN_REF_TO_LOCAL: Self = Self(414);
+    pub const LIFETIME_TOO_SHORT: Self = Self(415);
+    pub const MISSING_LIFETIME_SPECIFIER: Self = Self(416);
+    pub const COPY_NOT_IMPLEMENTABLE: Self = Self(417);
 
     // Internal errors (E09xx)
     pub const INTERNAL_ERROR: Self = Self(900);
