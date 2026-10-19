@@ -25,7 +25,7 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | Structs holding references | Emitted as `ref struct` (`IsByRefLikeAttribute`) | CLR then guarantees they never escape to the heap. |
 | Heap ownership | `Box<T>` over `NativeMemory.Alloc/Free`, requires `T: unmanaged` | Deterministic free, no GC tracking. |
 | .NET reference types | Opaque `Gc<T>` handle, borrow-checked at the handle level | Explicit opt-in to GC-managed memory for interop only. |
-| Strings | `&str` = `ReadOnlySpan<char>` (Phase 5); owned `String` = native UTF-16 buffer freed deterministically (Phase 7); `System.String` only as `Gc<System::String>` with zero-copy `.as_str()` | Keeps every struct `unmanaged`; C# passes `string` to `&str` implicitly; one copy, no transcoding, to produce a .NET string. *Recommended, pending confirmation.* |
+| Strings | `&str` = `ReadOnlySpan<char>` (Phase 5); owned `String` = native UTF-16 buffer freed deterministically (Phase 7); `System.String` only as `Gc<System::String>` with zero-copy `.as_str()` | Keeps every struct `unmanaged`; C# passes `string` to `&str` implicitly; one copy, no transcoding, to produce a .NET string. |
 | Slices | `&[T]` = `ReadOnlySpan<T>`, `&mut [T]` = `Span<T>`; `[T; N]` = inline array | Bounds checks provided by the CLR. |
 | Traits | .NET interfaces; `impl Trait for S` = `S : ITrait`; bounds = generic constraints | Reified generics shared with C#; static dispatch via `constrained. callvirt`. |
 | Dynamic dispatch | Only through explicit `Gc<dyn Trait>` | Boxing is never implicit. |
@@ -34,13 +34,13 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | Panics | `throw Sabiko.Runtime.PanicException` | Maps onto CLR exceptions; C# can catch it. |
 | Generics | Reified .NET generics, no monomorphisation in the compiler | C# can instantiate Sabiko generics. |
 | Runtime borrow checking | `Cell<T>` / `RefCell<T>` in the runtime library | For cases static checking cannot prove (async, callbacks from C#). |
-| Macros | None in v1; `print`/`println` are built-in functions | Barebones first. |
-| Source extension | `.sabi` | Short, pronounceable, no known collisions. `.sabiko` is the fallback. *Recommended, pending confirmation.* |
+| Macros | None in v1; `Print`/`PrintLine` are prelude functions | Barebones first. |
+| Source extension | `.sabi` | Short, pronounceable, no known collisions. `.sabiko` is the fallback. |
 | Licence | Dual MIT / Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`). Code adapted from `rust-lang/rust` or its crates is attributed in `THIRDPARTY.md` | Mirrors the Rust ecosystem; upstream is dual-licensed the same way. |
-| Export naming | Names emitted as written. `#[dotnet(name = "...")]` per item; crate-level `#![dotnet(naming = "pascal")]` applies a deterministic mapping and records the Sabiko name for re-import. Imported .NET names are kept as-is | One name per symbol in stack traces, reflection and re-import; F# precedent. *Recommended, pending confirmation.* |
-| Minimum .NET | .NET 10 (current LTS) | Managed pointers cannot be generic arguments, so `&T` in generic position lowers to a `ref struct` with a `ref T` field and generic types need `allows ref struct` (.NET 9+). *Recommended, pending confirmation.* |
-| `unsafe` | None in v1. Pointer-touching primitives (`Box`, `Vec`, `Arena`) live in the C# runtime assembly | Every Sabiko-emitted assembly stays fully verifiable, so the `ilverify` gate stays meaningful. *Recommended, pending confirmation.* |
-| Integer overflow | Panic in debug, wrap in release; explicit `wrapping_*` / `checked_*` | Rust semantics. Differs from C#'s unchecked default. *Recommended, pending confirmation.* |
+| Naming | Sabiko follows .NET conventions: PascalCase for types, traits, functions, methods, fields, variants and consts; camelCase for locals and parameters. Names are emitted exactly as written; `#[dotnet(name = "...")]` overrides per item. Imported .NET names are kept as-is | No mangling, no reverse mapping, one name everywhere. Most .NET-hosted languages end up here. |
+| Minimum .NET | .NET 10 (`net10.0`), current LTS | Managed pointers cannot be generic arguments, so `&T` in generic position lowers to a `ref struct` with a `ref T` field and generic types need `allows ref struct` (.NET 9+). |
+| `unsafe` | None in v1. Pointer-touching primitives (`Box`, `Vec`, `Arena`) live in the C# runtime assembly | Every Sabiko-emitted assembly stays fully verifiable, so the `ilverify` gate stays meaningful. |
+| Integer overflow | Panic in debug, wrap in release; explicit `wrapping_*` / `checked_*` | Rust semantics. Differs from C#'s unchecked default. |
 
 Open questions to settle with the owner before Phase 5 (see §6).
 
@@ -181,7 +181,8 @@ Verification
   the "must reject" and the adjacent "must accept" form (e.g. two shared borrows OK,
   mutable after last use of shared OK, disjoint fields OK).
 - Differential testing against `rustc`: every `.sabi` program in `tests/differential/`
-  is also valid Rust syntax. A harness runs `rustc --emit=metadata` on each and asserts
+  is also valid Rust syntax (the harness prepends `#![allow(nonstandard_style)]` since
+  Sabiko uses .NET casing). A harness runs `rustc --emit=metadata` on each and asserts
   "rustc rejects with a borrow error" iff "sabiko rejects with a borrow error". Phase 3
   is not done while this disagrees on the subset.
 - Property: borrowck is deterministic and idempotent (same diagnostics across two runs,
@@ -195,8 +196,8 @@ Work
   computation, `.entrypoint`.
 - One static class per module for functions; structs as `sequential sealed`
   `System.ValueType`s; `Drop` scopes as `try/finally`.
-- Runtime library `Sabiko.Runtime.dll` (C#): `PanicException`, `Sabiko.Print` helpers
-  bridging to `System.Console`.
+- Runtime library `Sabiko.Runtime.dll` (C#): `PanicException`, `Print`/`PrintLine`
+  helpers bridging to `System.Console`.
 - `sabikoc` CLI: `--emit=il|dll|exe|mir`, `-o`, `--runtime-path`, calls `ilasm`.
 - Panic on integer overflow in debug builds (`add.ovf`), wrap in release.
 
@@ -298,8 +299,7 @@ Work
   real assembly.
 - Export shape: `IsReadOnlyAttribute` on `in` params, `IsByRefLikeAttribute` on
   ref structs, `StructLayout(Sequential)`, `Drop` also implemented as `IDisposable`,
-  XML doc comments from `///`, PascalCase-friendly names by default with an attribute to
-  keep snake_case.
+  XML doc comments from `///`, names emitted as written.
 - Trust boundary: extern calls are marked `unsafe`-like in diagnostics (C# can alias
   `ref` parameters internally; Sabiko trusts the signature).
 
@@ -395,19 +395,16 @@ mutation testing, benchmarks with trend tracking.
 
 ## 6. Decisions log and open questions
 
-Settled by the owner
+Settled by the owner (2026-10-19)
 - `ilasm` first; direct PE emission in Phase 10.
 - Dual MIT / Apache-2.0 licensing.
-
-Recommended, awaiting confirmation (see the `*Recommended*` rows in §1)
 - Strings: `&str` = `ReadOnlySpan<char>` first, native UTF-16 owned `String` later,
-  `System.String` only behind `Gc`. UTF-16 vs UTF-8 is a one-way door; decide before
-  Phase 5.
-- Export naming: as written, with opt-in PascalCase. One-way for published APIs.
+  `System.String` only behind `Gc`.
+- Naming: Sabiko itself uses .NET conventions (PascalCase); names export as written.
 - Source extension `.sabi`.
-- .NET 10 floor (needed for `allows ref struct`).
+- .NET 10 floor.
 - No `unsafe` in v1; unverifiable code confined to the C# runtime assembly.
-- Integer overflow: Rust semantics.
+- Integer overflow: Rust semantics (panic in debug, wrap in release).
 
 Open, to decide before the phase that needs them
 1. .NET exceptions crossing into Sabiko (Phase 8). Proposal: propagate as panics;
@@ -418,6 +415,6 @@ Open, to decide before the phase that needs them
    free functions in a static class named after the module.
 4. Collections (Phase 7). Proposal: `Vec<T>` native for `T: unmanaged`; GC collections
    only via `Gc<List<T>>`.
-5. Syntax fidelity. Proposal: strict syntactic subset of Rust wherever possible so the
-   differential tests against `rustc` keep paying off.
+5. Syntax fidelity. Proposal: strict syntactic subset of Rust wherever possible (casing
+   aside) so the differential tests against `rustc` keep paying off.
 6. Threads, `Send`, `Sync`. Proposal: out of scope for 0.1.
