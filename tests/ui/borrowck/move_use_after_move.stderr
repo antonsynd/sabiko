@@ -1,0 +1,103 @@
+[E0406] Error: use of moved value: `p`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:15:13 ]
+    │
+ 14 │     let q = p;
+    │             ┬  
+    │             ╰── value moved here
+ 15 │     let r = p; //~ ERROR E0406 use of moved value: `p`
+    │             ┬  
+    │             ╰── value used here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `p.X`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:23:10 ]
+    │
+ 21 │         Take(p);
+    │              ┬  
+    │              ╰── value moved here
+    │ 
+ 23 │     Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+    │          ─┬─  
+    │           ╰─── value used here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `p`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:33:10 ]
+    │
+ 29 │         Take(p);
+    │              ┬  
+    │              ╰── value moved here
+    │ 
+ 31 │         let q = p;
+    │                 ┬  
+    │                 ╰── value moved here
+    │ 
+ 33 │     Take(p); //~ ERROR E0406 use of moved value: `p`
+    │          ┬  
+    │          ╰── value used here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `p`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:40:14 ]
+    │
+ 40 │         Take(p); //~ ERROR E0406 use of moved value: `p`
+    │              ┬  
+    │              ╰── value used here after move
+    │              │  
+    │              ╰── value moved here, in previous iteration of loop
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `p`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:48:13 ]
+    │
+ 47 │     Take(p);
+    │          ┬  
+    │          ╰── value moved here
+ 48 │     let r = &p; //~ ERROR E0406 borrow of moved value: `p`
+    │             ─┬  
+    │              ╰── value borrowed here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: assign to part of moved value: `p`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:54:5 ]
+    │
+ 53 │     Take(p);
+    │          ┬  
+    │          ╰── value moved here
+ 54 │     p.X = 2; //~ ERROR E0406 assign to part of moved value: `p`
+    │     ───┬───  
+    │        ╰───── value partially assigned here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `r`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:59:10 ]
+    │
+ 58 │     let s = r;
+    │             ┬  
+    │             ╰── value moved here
+ 59 │     Read(r.X); //~ ERROR E0406 use of moved value: `r`
+    │          ─┬─  
+    │           ╰─── value used here after move
+    │ 
+    │ Note 1: move occurs because `r` has type `&mut P`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *r`
+────╯
+[E0406] Error: use of moved value: `p.X`
+    ╭─[ tests/ui/borrowck/move_use_after_move.sabi:65:10 ]
+    │
+ 64 │     Take(p);
+    │          ┬  
+    │          ╰── value moved here
+ 65 │     Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+    │          ─┬─  
+    │           ╰─── value used here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯

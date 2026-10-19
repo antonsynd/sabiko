@@ -1,0 +1,53 @@
+[E0102] Error: expected an expression, found `)`
+   ╭─[ tests/ui/parse/recovery_stray_closers.sabi:4:13 ]
+   │
+ 4 │     let x = ); //~ ERROR E0102 expected an expression, found `)`
+   │             ┬  
+   │             ╰── expected an expression here
+───╯
+[E0100] Error: expected `;`, found `]`
+   ╭─[ tests/ui/parse/recovery_stray_closers.sabi:5:14 ]
+   │
+ 5 │     let y = 1 ]; //~ ERROR E0100 expected `;`, found `]`
+   │              │┬  
+   │              ╰─── expected `;` here
+   │               │  
+   │               ╰── unexpected token
+───╯
+[E0100] Error: expected `;`, found `)`
+   ╭─[ tests/ui/parse/recovery_stray_closers.sabi:6:6 ]
+   │
+ 6 │     a); //~ ERROR E0100 expected `;`, found `)`
+   │      ┬  
+   │      ╰── expected `;` here
+   │      │  
+   │      ╰── unexpected token
+───╯
+[E0102] Error: expected an expression, found `,`
+    ╭─[ tests/ui/parse/recovery_stray_closers.sabi:12:12 ]
+    │
+ 12 │     Foo(1, , 2); //~ ERROR E0102 expected an expression, found `,`
+    │            ┬  
+    │            ╰── expected an expression here
+────╯
+[E0102] Error: expected an expression, found `,`
+    ╭─[ tests/ui/parse/recovery_stray_closers.sabi:13:24 ]
+    │
+ 13 │     let p = Point { X: , }; //~ ERROR E0102 expected an expression, found `,`
+    │                        ┬  
+    │                        ╰── expected an expression here
+────╯
+[E0100] Error: expected `)`, found integer literal `2`
+    ╭─[ tests/ui/parse/recovery_stray_closers.sabi:14:11 ]
+    │
+ 14 │     foo(1 2); //~ ERROR E0100 expected `)`, found integer literal `2`
+    │           ┬  
+    │           ╰── expected `)` here
+────╯
+[E0100] Error: expected `)`, found integer literal `2`
+    ╭─[ tests/ui/parse/recovery_stray_closers.sabi:15:16 ]
+    │
+ 15 │     let q = (1 2; //~ ERROR E0100 expected `)`, found integer literal `2`
+    │                ┬  
+    │                ╰── expected `)` here
+────╯

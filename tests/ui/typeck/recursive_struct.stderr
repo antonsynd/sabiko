@@ -1,0 +1,57 @@
+[E0206] Error: recursive type `Node` has infinite size
+   ╭─[ tests/ui/typeck/recursive_struct.sabi:2:8 ]
+   │
+ 2 │ struct Node { //~ ERROR E0206 recursive type `Node` has infinite size
+   │        ──┬─  
+   │          ╰─── recursive type has infinite size
+   │ 
+   │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+───╯
+[E0206] Error: recursive types `A` and `B` have infinite size
+    ╭─[ tests/ui/typeck/recursive_struct.sabi:6:8 ]
+    │
+  6 │ struct A { //~ ERROR E0206 recursive types `A` and `B` have infinite size
+    │        ┬  
+    │        ╰── recursive type has infinite size
+    │ 
+ 10 │ struct B {
+    │        ┬  
+    │        ╰── recursive type has infinite size
+    │ 
+    │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+────╯
+[E0206] Error: recursive types `Outer`, `Inner` and `Deepest` have infinite size
+    ╭─[ tests/ui/typeck/recursive_struct.sabi:14:8 ]
+    │
+ 14 │ struct Outer { //~ ERROR E0206 recursive types `Outer`, `Inner` and `Deepest` have infinite size
+    │        ──┬──  
+    │          ╰──── recursive type has infinite size
+    │ 
+ 18 │ struct Inner {
+    │        ──┬──  
+    │          ╰──── recursive type has infinite size
+    │ 
+ 22 │ struct Deepest {
+    │        ───┬───  
+    │           ╰───── recursive type has infinite size
+    │ 
+    │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+────╯
+[E0107] Error: not yet supported: references in struct fields
+    ╭─[ tests/ui/typeck/recursive_struct.sabi:29:11 ]
+    │
+ 29 │     Next: &Linked, //~ ERROR E0107 not yet supported: references in struct fields
+    │           ───┬───  
+    │              ╰───── a struct holding a reference needs a lifetime parameter
+    │ 
+    │ Note: planned for Phase 9; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: references in struct fields
+    ╭─[ tests/ui/typeck/recursive_struct.sabi:30:12 ]
+    │
+ 30 │     Other: &mut Outer, //~ ERROR E0107 not yet supported: references in struct fields
+    │            ─────┬────  
+    │                 ╰────── a struct holding a reference needs a lifetime parameter
+    │ 
+    │ Note: planned for Phase 9; see docs/PLAN.md
+────╯

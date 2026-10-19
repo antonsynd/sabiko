@@ -1,0 +1,17 @@
+// Diverging calls and unreachable code: nothing may fall through after `Panic`, and a
+// `loop` without `break` never reaches its `return`.
+fn Checked(code: i32) -> i32 {
+    if code < 0 {
+        Panic("negative code");
+    }
+    code
+}
+
+fn Forever() -> i32 {
+    loop {}
+}
+
+fn Main() {
+    let n = Checked(1);
+    let _ = n;
+}

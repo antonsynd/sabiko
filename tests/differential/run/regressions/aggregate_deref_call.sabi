@@ -1,0 +1,12 @@
+// Minimal reproducer: a struct literal whose first field copies out of a `&mut` returned by
+// a call, then reads the borrowed local in a later field.
+struct Node { Weight: f64, Left: i32 }
+
+fn Weigh(n: &mut Node) -> &mut f64 { &mut n.Weight }
+
+fn Main() {
+    let mut next = Node { Weight: 1.5, Left: 3 };
+    let copy = Node { Weight: *Weigh(&mut next), Left: next.Left };
+    PrintLine(copy.Weight);
+    PrintLine(copy.Left);
+}

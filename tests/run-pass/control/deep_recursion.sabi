@@ -1,0 +1,25 @@
+// Recursion about a thousand frames deep, with by-value structs and `&mut` state along the way.
+#[derive(Copy, Clone)]
+struct Acc { Sum: i64, Depth: i32 }
+
+fn Down(n: i32) -> i32 { if n == 0 { 0 } else { 1 + Down(n - 1) } }
+
+fn Fold(n: i32, acc: Acc) -> Acc {
+    if n == 0 { acc } else { Fold(n - 1, Acc { Sum: acc.Sum + n as i64, Depth: acc.Depth + 1 }) }
+}
+
+fn Count(n: i32, hits: &mut i32) {
+    if n == 0 { return; }
+    *hits += 1;
+    Count(n - 1, hits);
+}
+
+fn Main() {
+    PrintLine(Down(1000));
+    let r = Fold(1000, Acc { Sum: 0, Depth: 0 });
+    PrintLine(r.Sum);
+    PrintLine(r.Depth);
+    let mut hits = 0;
+    Count(1200, &mut hits);
+    PrintLine(hits);
+}

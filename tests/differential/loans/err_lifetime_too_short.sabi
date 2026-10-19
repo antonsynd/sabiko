@@ -1,0 +1,4 @@
+// Storing a reference of one elided lifetime into a place of another.
+fn Store(x: &mut &i32, y: &i32) {
+    *x = y;
+}

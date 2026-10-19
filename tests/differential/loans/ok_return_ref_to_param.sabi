@@ -1,0 +1,16 @@
+// Returning a reference derived from the single reference parameter (elided lifetime).
+struct P { X: i32, Y: i32 }
+
+fn Larger(p: &P) -> &i32 {
+    if p.X > p.Y { &p.X } else { &p.Y }
+}
+
+fn FirstMut(p: &mut P) -> &mut i32 {
+    &mut p.X
+}
+
+fn Main(p: &mut P) {
+    *FirstMut(p) += 1;
+    let n = *Larger(p);
+    p.Y = n;
+}

@@ -1,0 +1,9 @@
+// `x as i32 < y` reads as the start of generic arguments, exactly as in rustc.
+fn Main(x: i64, y: i32) {
+    let a = x as i32 < y; //~ ERROR E0100 `<` is interpreted as a start of generic arguments for `i32`, not a comparison
+    let b = x as i32 << 2; //~ ERROR E0100 `<<` is interpreted as a start of generic arguments for `i32`, not a shift
+    let c = (x as i32) < y;
+    let d = x as i32 <= y;
+    let e = x as i32 > y;
+    let f = x as Vec<i32>; //~ ERROR E0107 not yet supported: generic type arguments
+}

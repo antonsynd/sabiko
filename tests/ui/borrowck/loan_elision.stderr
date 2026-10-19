@@ -1,0 +1,62 @@
+[E0416] Error: missing lifetime specifier
+   ╭─[ tests/ui/borrowck/loan_elision.sabi:4:4 ]
+   │
+ 4 │ fn TwoInputs(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+   │    ────┬────  
+   │        ╰────── expected named lifetime parameter
+   │ 
+   │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+   │ 
+   │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+───╯
+[E0416] Error: missing lifetime specifier
+   ╭─[ tests/ui/borrowck/loan_elision.sabi:9:4 ]
+   │
+ 9 │ fn NoInputs() -> &i32 { //~ ERROR E0416 missing lifetime specifier
+   │    ────┬───  
+   │        ╰───── expected named lifetime parameter
+   │ 
+   │ Note 1: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
+   │ 
+   │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+───╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision.sabi:13:4 ]
+    │
+ 13 │ fn NestedInput(x: &mut &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ─────┬─────  
+    │         ╰─────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision.sabi:17:4 ]
+    │
+ 17 │ fn ValueInput(n: i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ─────┬────  
+    │         ╰────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0415] Error: lifetime may not live long enough
+    ╭─[ tests/ui/borrowck/loan_elision.sabi:23:5 ]
+    │
+ 23 │     *x = y; //~ ERROR E0415 lifetime may not live long enough
+    │     ───┬──  
+    │        ╰──── requires that the data `y` points to outlives the data `*x` points to
+    │ 
+    │ Note: the reference assigned here must not outlive the data it points to; explicit lifetimes are planned for Phase 9
+────╯
+[E0415] Error: lifetime may not live long enough
+    ╭─[ tests/ui/borrowck/loan_elision.sabi:28:5 ]
+    │
+ 28 │     *x = z; //~ ERROR E0415 lifetime may not live long enough
+    │     ───┬──  
+    │        ╰──── requires that the data `y` points to outlives the data `*x` points to
+    │ 
+    │ Note: the reference assigned here must not outlive the data it points to; explicit lifetimes are planned for Phase 9
+────╯

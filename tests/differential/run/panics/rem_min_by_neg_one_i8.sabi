@@ -1,0 +1,11 @@
+// `i8::MIN % -1` overflows the narrow type and panics in debug builds.
+fn Rem(a: i8, b: i8) -> i8 { a % b }
+
+fn Main() {
+    let min: i8 = -128;
+    PrintLine(Rem(min, 3));
+    PrintLine(Rem(min + 1, -1));
+    PrintLine("about to overflow");
+    PrintLine(Rem(min, -1));
+    PrintLine("not reached");
+}

@@ -1,0 +1,11 @@
+// A reference to an inner-block local used after the block ends.
+fn Read(n: i32) {}
+
+fn Main() {
+    let r;
+    {
+        let x = 1;
+        r = &x;
+    }
+    Read(*r);
+}

@@ -1,0 +1,7 @@
+[E0105] Error: expected `}`, found end of file
+   ╭─[ tests/ui/parse/unexpected_eof.sabi:3:48 ]
+   │
+ 3 │ //~ ERROR E0105 expected `}`, found end of file
+   │                                                │ 
+   │                                                ╰─ expected `}` here
+───╯

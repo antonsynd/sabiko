@@ -1,0 +1,9 @@
+// Paths with `::` are not supported yet; they are rejected with E0107 in type, value, call and struct-literal position.
+fn Param(p: Mod::Point) {} //~ ERROR E0107 not yet supported: paths with `::`
+
+fn Main() {
+    let a: std::i32 = 1; //~ ERROR E0107 not yet supported: paths with `::`
+    let b = Mod::Value; //~ ERROR E0107 not yet supported: paths with `::`
+    let c = Mod::Point { X: 1 }; //~ ERROR E0107 not yet supported: paths with `::`
+    let d = Mod::Func(1); //~ ERROR E0107 not yet supported: paths with `::`
+}

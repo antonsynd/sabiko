@@ -1,0 +1,10 @@
+// Negating `i8::MIN` panics in debug builds even though 128 fits the wider stack type.
+fn Neg(x: i8) -> i8 { -x }
+
+fn Main() {
+    PrintLine(Neg(127));
+    PrintLine(Neg(-127));
+    PrintLine("about to negate the minimum");
+    PrintLine(Neg(-128));
+    PrintLine("not reached");
+}

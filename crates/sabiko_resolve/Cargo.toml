@@ -1,0 +1,19 @@
+[package]
+name = "sabiko_resolve"
+description = "Name resolution for the Sabiko compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabiko_span = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+sabiko_ast = { workspace = true }
+
+[dev-dependencies]
+sabiko_parser = { workspace = true }
+
+[lints]
+workspace = true

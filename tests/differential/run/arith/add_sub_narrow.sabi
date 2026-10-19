@@ -1,0 +1,43 @@
+// `i8`/`i16`/`u8`/`u16` add, sub, mul, div and rem right at the edges that do not overflow.
+fn I8(a: i8, b: i8) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn I16(a: i16, b: i16) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn U8(a: u8, b: u8) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn U16(a: u16, b: u16) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn Main() {
+    I8(126, 1);
+    I8(-127, 1);
+    I8(-64, 2);
+    I8(-127, -1);
+    I16(32766, 1);
+    I16(-32767, 1);
+    I16(181, 181);
+    I16(-32767, -1);
+    I16(-16384, 2);
+    U8(254, 1);
+    U8(17, 15);
+    U16(65534, 1);
+    U16(257, 255);
+    let m8: u8 = 255;
+    let m16: u16 = 65535;
+    Print(m8 - m8); Print(' '); Print(m8 / m8); Print(' '); PrintLine(m8 % m8);
+    Print(m16 - m16); Print(' '); Print(m16 / m16); Print(' '); PrintLine(m16 % m16);
+    PrintLine(255u8 * 1);
+    PrintLine(16u8 * 15);
+    PrintLine(65535u16 / 3);
+}

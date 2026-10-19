@@ -1,0 +1,22 @@
+// `Print` and `PrintLine` interleaved with every printable type; the last line has no newline.
+struct Item { Name: char, Qty: u16, Price: f64, Taxed: bool }
+
+fn Show(it: &Item) {
+    Print(it.Name); Print(": "); Print(it.Qty); Print(" x "); Print(it.Price);
+    Print(" taxed="); PrintLine(it.Taxed);
+}
+
+fn Main() {
+    Print(1); Print(-2i8); Print(3u64); Print(4.5); Print(true); Print('c'); Print("s"); PrintLine("");
+    PrintLine(""); 
+    Show(&Item { Name: 'a', Qty: 3, Price: 9.99, Taxed: true });
+    Show(&Item { Name: 'b', Qty: 65535, Price: 0.1 + 0.2, Taxed: false });
+    Print("no newline between"); Print(" these"); PrintLine(" words");
+    PrintLine(1.0f32 / 3.0);
+    PrintLine(1.0 / 3.0);
+    PrintLine(-0.0);
+    PrintLine(1e21);
+    PrintLine(255u8 as char);
+    PrintLine('\u{3042}');
+    Print("tail without newline");
+}

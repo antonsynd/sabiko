@@ -1,0 +1,58 @@
+[E0201] Error: cannot find type `Missing` in this scope
+   ╭─[ tests/ui/resolve/unresolved_names.sabi:3:12 ]
+   │
+ 3 │     Value: Missing, //~ ERROR E0201 cannot find type `Missing` in this scope
+   │            ───┬───  
+   │               ╰───── not found in this scope
+───╯
+[E0201] Error: cannot find type `Nope` in this scope
+   ╭─[ tests/ui/resolve/unresolved_names.sabi:6:14 ]
+   │
+ 6 │ const Limit: Nope = 1; //~ ERROR E0201 cannot find type `Nope` in this scope
+   │              ──┬─  
+   │                ╰─── not found in this scope
+───╯
+[E0201] Error: cannot find type `Unknown` in this scope
+   ╭─[ tests/ui/resolve/unresolved_names.sabi:8:14 ]
+   │
+ 8 │ fn Param(p: &Unknown) {} //~ ERROR E0201 cannot find type `Unknown` in this scope
+   │              ───┬───  
+   │                 ╰───── not found in this scope
+───╯
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/resolve/unresolved_names.sabi:11:12 ]
+    │
+ 11 │     let a: Missing = 1; //~ ERROR E0201 cannot find type `Missing` in this scope
+    │            ───┬───  
+    │               ╰───── not found in this scope
+────╯
+[E0202] Error: cannot find value `undefinedValue` in this scope
+    ╭─[ tests/ui/resolve/unresolved_names.sabi:12:13 ]
+    │
+ 12 │     let b = undefinedValue; //~ ERROR E0202 cannot find value `undefinedValue` in this scope
+    │             ───────┬──────  
+    │                    ╰──────── not found in this scope
+────╯
+[E0202] Error: cannot find value `i32` in this scope
+    ╭─[ tests/ui/resolve/unresolved_names.sabi:13:13 ]
+    │
+ 13 │     let c = i32; //~ ERROR E0202 cannot find value `i32` in this scope
+    │             ─┬─  
+    │              ╰─── not found in this scope
+    │ 
+    │ Note: `i32` is a type, not a value
+────╯
+[E0202] Error: cannot find value `later` in this scope
+    ╭─[ tests/ui/resolve/unresolved_names.sabi:14:13 ]
+    │
+ 14 │     let d = later; //~ ERROR E0202 cannot find value `later` in this scope
+    │             ──┬──  
+    │               ╰──── not found in this scope
+────╯
+[E0202] Error: cannot find value `inner` in this scope
+    ╭─[ tests/ui/resolve/unresolved_names.sabi:19:13 ]
+    │
+ 19 │     let e = inner; //~ ERROR E0202 cannot find value `inner` in this scope
+    │             ──┬──  
+    │               ╰──── not found in this scope
+────╯

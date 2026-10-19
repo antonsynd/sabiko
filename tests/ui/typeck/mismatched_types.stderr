@@ -1,0 +1,105 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:10:18 ]
+    │
+ 10 │     let a: i32 = true; //~ ERROR E0300 mismatched types
+    │                  ──┬─  
+    │                    ╰─── expected `i32`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:11:19 ]
+    │
+ 11 │     let b: bool = 1; //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:12:18 ]
+    │
+ 12 │     let c: f64 = 1; //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `f64`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:13:17 ]
+    │
+ 13 │     let d: u8 = 1i32; //~ ERROR E0300 mismatched types
+    │                 ──┬─  
+    │                   ╰─── expected `u8`, found `i32`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:14:23 ]
+    │
+ 14 │     let f: &mut i32 = &a; //~ ERROR E0300 mismatched types
+    │                       ─┬  
+    │                        ╰── expected `&mut i32`, found `&i32`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:15:19 ]
+    │
+ 15 │     let g: char = "c"; //~ ERROR E0300 mismatched types
+    │                   ─┬─  
+    │                    ╰─── expected `char`, found `&str`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:17:18 ]
+    │
+ 17 │     let i: f32 = h; //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `f32`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:18:15 ]
+    │
+ 18 │     TakesBool(1); //~ ERROR E0300 mismatched types
+    │               ┬  
+    │               ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:20:12 ]
+    │
+ 20 │         X: 1.0, //~ ERROR E0300 mismatched types
+    │            ─┬─  
+    │             ╰─── expected `i32`, found `{float}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:21:12 ]
+    │
+ 21 │         Y: 2, //~ ERROR E0300 mismatched types
+    │            ┬  
+    │            ╰── expected `f64`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:23:17 ]
+    │
+ 23 │     let q = a + 1.5; //~ ERROR E0300 mismatched types
+    │                 ─┬─  
+    │                  ╰─── expected `i32`, found `{float}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:24:19 ]
+    │
+ 24 │     let r = 1u8 + 2u16; //~ ERROR E0300 mismatched types
+    │                   ──┬─  
+    │                     ╰─── expected `u8`, found `u16`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:25:20 ]
+    │
+ 25 │     let s: Point = a; //~ ERROR E0300 mismatched types
+    │                    ┬  
+    │                    ╰── expected `Point`, found `i32`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:26:18 ]
+    │
+ 26 │     let t = a == true; //~ ERROR E0300 mismatched types
+    │                  ──┬─  
+    │                    ╰─── expected `i32`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/mismatched_types.sabi:27:5 ]
+    │
+ 27 │     true //~ ERROR E0300 mismatched types
+    │     ──┬─  
+    │       ╰─── expected `i32`, found `bool`
+────╯

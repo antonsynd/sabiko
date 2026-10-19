@@ -1,0 +1,70 @@
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_str.sabi:3:11 ]
+   │
+ 3 │     Text: str, //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+   │           ─┬─  
+   │            ╰─── doesn't have a size known at compile-time
+   │ 
+   │ Note: string values are used behind a reference: `&str`
+───╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_str.sabi:6:13 ]
+   │
+ 6 │ fn Param(s: str) {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+   │             ─┬─  
+   │              ╰─── doesn't have a size known at compile-time
+   │ 
+   │ Note: string values are used behind a reference: `&str`
+───╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_str.sabi:8:20 ]
+   │
+ 8 │ fn Ret(s: &str) -> str { //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+   │                    ─┬─  
+   │                     ╰─── doesn't have a size known at compile-time
+   │ 
+   │ Note: string values are used behind a reference: `&str`
+───╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_str.sabi:9:5 ]
+   │
+ 9 │     *s //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+   │     ─┬  
+   │      ╰── doesn't have a size known at compile-time
+   │ 
+   │ Note: string values are used behind a reference: `&str`
+───╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_str.sabi:12:13 ]
+    │
+ 12 │ const Name: str = //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │             ─┬─  
+    │              ╰─── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/unsized_str.sabi:13:5 ]
+    │
+ 13 │     "x"; //~ ERROR E0300 mismatched types
+    │     ─┬─  
+    │      ╰─── expected `str`, found `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_str.sabi:16:12 ]
+    │
+ 16 │     let a: str = //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │            ─┬─  
+    │             ╰─── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_str.sabi:17:9 ]
+    │
+ 17 │         *s; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │         ─┬  
+    │          ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯

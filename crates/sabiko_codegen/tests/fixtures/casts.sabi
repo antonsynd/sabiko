@@ -1,0 +1,51 @@
+// Every cast shape: widening and narrowing integers, signed and unsigned sources, floats
+// to and from integers (saturating), `bool`/`char` sources, same-type casts.
+fn Ints(a: i32, b: u8, c: i64, d: u64, e: isize, f: usize) -> i64 {
+    let x1 = a as i8;
+    let x2 = a as u16;
+    let x3 = a as i64;
+    let x4 = a as u64;
+    let x5 = a as usize;
+    let x6 = b as i32;
+    let x7 = b as i64;
+    let x8 = b as isize;
+    let x9 = c as i32;
+    let x10 = c as u8;
+    let x11 = d as i64;
+    let x12 = d as u32;
+    let x13 = e as i32;
+    let x14 = f as u64;
+    let x15 = a as i32;
+    x1 as i64 + x2 as i64 + x3 + x4 as i64 + x5 as i64 + x6 as i64 + x7 + x8 as i64
+        + x9 as i64 + x10 as i64 + x11 + x12 as i64 + x13 as i64 + x14 as i64 + x15 as i64
+}
+
+fn Floats(a: i32, b: u32, c: i64, d: f32, e: f64) -> f64 {
+    let f1 = a as f64;
+    let f2 = b as f64;
+    let f3 = c as f32;
+    let f4 = d as f64;
+    let f5 = e as f32;
+    let i1 = e as i8;
+    let i2 = e as u8;
+    let i3 = e as i16;
+    let i4 = e as u16;
+    let i5 = e as i32;
+    let i6 = e as u32;
+    let i7 = e as i64;
+    let i8 = e as u64;
+    let i9 = d as isize;
+    let i10 = d as usize;
+    f1 + f2 + f3 as f64 + f4 + f5 as f64 + i1 as f64 + i2 as f64 + i3 as f64 + i4 as f64
+        + i5 as f64 + i6 as f64 + i7 as f64 + i8 as f64 + i9 as f64 + i10 as f64
+}
+
+fn Small(flag: bool, ch: char, byte: u8) -> u32 {
+    let a = flag as i32;
+    let b = flag as u8;
+    let c = ch as u32;
+    let d = ch as u8;
+    let e = byte as char;
+    let f = ch as i64;
+    a as u32 + b as u32 + c + d as u32 + e as u32 + f as u32
+}

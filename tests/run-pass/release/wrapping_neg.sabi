@@ -1,0 +1,18 @@
+//@ release
+// Negating the minimum value of a signed type wraps to itself in release builds.
+fn Neg8(x: i8) -> i8 { -x }
+fn Neg16(x: i16) -> i16 { -x }
+fn Neg32(x: i32) -> i32 { -x }
+fn Neg64(x: i64) -> i64 { -x }
+fn NegSize(x: isize) -> isize { -x }
+
+fn Main() {
+    PrintLine(Neg8(-128));
+    PrintLine(Neg16(-32768));
+    PrintLine(Neg32(-2147483648));
+    PrintLine(Neg64(-9223372036854775808));
+    PrintLine(NegSize(-9223372036854775808));
+    PrintLine(Neg8(127));
+    PrintLine(Neg32(1));
+    PrintLine(-Neg8(-128) == Neg8(-128));
+}

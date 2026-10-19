@@ -1,0 +1,40 @@
+// Reading a place while a `&mut` loan of it is live.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Read() {
+    let mut x = 1;
+    let r = &mut x;
+    let y = x; //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    *r = y;
+}
+
+fn InCondition() {
+    let mut z = 1;
+    let m = &mut z;
+    if z == 1 { //~ ERROR E0411 cannot use `z` because it was mutably borrowed
+        *m = 2;
+    }
+}
+
+fn FieldOfBorrowedStruct() {
+    let mut p = Point { X: 1, Y: 2 };
+    let m = &mut p;
+    let x = p.X; //~ ERROR E0411 cannot use `p.X` because it was mutably borrowed
+    m.Y = x;
+}
+
+fn ThroughCall(r: &mut i32) -> i32 {
+    *r
+}
+
+fn ResultKeepsTheLoan() {
+    let mut x = 1;
+    let m = &mut x;
+    let n = ThroughCall(m);
+    let _ = n;
+    let y = x; //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    *m = y;
+}

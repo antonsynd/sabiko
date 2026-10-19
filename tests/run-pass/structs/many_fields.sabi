@@ -1,0 +1,27 @@
+// A struct with many fields of different widths: construction, copying, field-by-field updates.
+#[derive(Copy, Clone)]
+struct Wide {
+    A: i8, B: u8, C: i16, D: u16, E: i32, F: u32, G: i64, H: u64,
+    I: isize, J: usize, K: f32, L: f64, M: bool, N: char,
+    O: i32, P: i32, Q: i32, R: i32, S: i32, T: i32, U: i32, V: i32, W: i32, X: i32,
+}
+
+fn Sum(w: &Wide) -> i64 {
+    w.A as i64 + w.B as i64 + w.C as i64 + w.D as i64 + w.E as i64 + w.F as i64 + w.G + w.H as i64
+        + w.I as i64 + w.J as i64 + w.O as i64 + w.P as i64 + w.Q as i64 + w.R as i64 + w.S as i64
+        + w.T as i64 + w.U as i64 + w.V as i64 + w.W as i64 + w.X as i64
+}
+
+fn Main() {
+    let mut w = Wide {
+        A: -1, B: 2, C: -3, D: 4, E: -5, F: 6, G: -7, H: 8, I: -9, J: 10, K: 1.5, L: 2.5, M: true, N: 'n',
+        O: 15, P: 16, Q: 17, R: 18, S: 19, T: 20, U: 21, V: 22, W: 23, X: 24,
+    };
+    PrintLine(Sum(&w));
+    let copy = w;
+    w.A = 100; w.H = 18446744073709551615; w.X = -24; w.N = 'z'; w.M = false; w.K = w.K * 2.0;
+    PrintLine(Sum(&w));
+    PrintLine(Sum(&copy));
+    Print(w.K); Print(' '); Print(w.L); Print(' '); Print(w.M); Print(' '); PrintLine(w.N);
+    Print(copy.K); Print(' '); Print(copy.M); Print(' '); PrintLine(copy.N);
+}

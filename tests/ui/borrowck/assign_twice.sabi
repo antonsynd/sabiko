@@ -1,0 +1,29 @@
+// Assigning to an immutable binding that may already hold a value.
+fn Twice() {
+    let x = 1;
+    x = 2; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+}
+
+fn Param(n: i32) {
+    n = 3; //~ ERROR E0400 cannot assign twice to immutable variable `n`
+}
+
+fn InLoop() {
+    let x;
+    loop {
+        x = 1; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+    }
+}
+
+fn MaybeTwice(flag: bool) {
+    let x;
+    if flag {
+        x = 1;
+    }
+    x = 2; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+}
+
+fn Compound() {
+    let x = 1;
+    x += 1; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+}

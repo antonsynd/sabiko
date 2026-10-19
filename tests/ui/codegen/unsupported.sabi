@@ -1,0 +1,31 @@
+// Constructs that pass type and borrow checking but the IL backend does not lower yet.
+// Each must be reported as E0500: the backend never compiles them to placeholder IL.
+
+struct Wrapper {
+    Unit: (), //~ ERROR E0500 a struct field of type `()` is not yet supported by code generation
+}
+
+fn Nested(r: &&i32) -> i32 { //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    **r
+}
+
+fn Main() {
+    let w = Wrapper { Unit: () };
+    let _ = w;
+    let a = 1;
+    let r = &a;
+    let rr = &r; //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    //~^ ERROR E0500 a reference to a reference is not yet supported by code generation
+    let big = n as i128; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    //~^ ERROR E0500 a cast involving 128-bit integers is not yet supported by code generation
+    Print(big); //~ ERROR E0500 printing a value of this type is not yet supported by code generation
+    //~^ ERROR E0500 the type `i128` is not yet supported by code generation
+    let literal: i128 = 5; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    //~^ ERROR E0500 the type `i128` is not yet supported by code generation
+    let _ = literal; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    let unit = ();
+    let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    //~^ ERROR E0500 a reference to `()` is not yet supported by code generation
+    let _ = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+}

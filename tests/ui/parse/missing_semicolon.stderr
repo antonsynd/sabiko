@@ -1,0 +1,10 @@
+[E0100] Error: expected `;`, found `let`
+   ╭─[ tests/ui/parse/missing_semicolon.sabi:2:14 ]
+   │
+ 2 │     let x = 1 //~ ERROR E0100 expected `;`, found `let`
+   │              │ 
+   │              ╰─ expected `;` here
+ 3 │     let y = 2;
+   │     ─┬─  
+   │      ╰─── unexpected token
+───╯

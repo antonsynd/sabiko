@@ -1,0 +1,11 @@
+//@ release
+//@ exit-code: 101
+// A zero divisor panics in release builds too; the check is explicit for every width.
+fn Rem(a: u8, b: u8) -> u8 { a % b }
+
+fn Main() {
+    PrintLine(Rem(200, 7));
+    PrintLine("about to divide by zero");
+    PrintLine(Rem(200, 0));
+    PrintLine("not reached");
+}

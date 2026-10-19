@@ -1,0 +1,11 @@
+// Formatting of floats whose shortest round-trip representation is an exact decimal tie:
+// Rust rounds the last digit up (away from zero), the Sabiko runtime rounds it to even.
+fn Main() {
+    PrintLine(1233.28125f32);
+    PrintLine(-1233.28125f32);
+    PrintLine(1500.03125f32);
+    PrintLine(2052.03125f32);
+    PrintLine(1233.28125f32 as f64);
+    PrintLine(0.28125f32);
+    PrintLine(1233.28125f64);
+}

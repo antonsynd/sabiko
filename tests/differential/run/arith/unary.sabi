@@ -1,0 +1,31 @@
+// Unary minus on every signed integer width and on floats; `!` on bools from comparisons.
+fn Neg8(x: i8) -> i8 { -x }
+fn Neg16(x: i16) -> i16 { -x }
+fn Neg32(x: i32) -> i32 { -x }
+fn Neg64(x: i64) -> i64 { -x }
+fn NegSize(x: isize) -> isize { -x }
+fn NegF32(x: f32) -> f32 { -x }
+fn NegF64(x: f64) -> f64 { -x }
+
+fn Main() {
+    PrintLine(Neg8(127)); PrintLine(Neg8(-127)); PrintLine(Neg8(0));
+    PrintLine(Neg16(32767)); PrintLine(Neg16(-32767));
+    PrintLine(Neg32(2147483647)); PrintLine(Neg32(-2147483647));
+    PrintLine(Neg64(9223372036854775807)); PrintLine(Neg64(-9223372036854775807));
+    PrintLine(NegSize(42)); PrintLine(NegSize(-42));
+    PrintLine(NegF32(1.5)); PrintLine(NegF32(0.0)); PrintLine(NegF32(-0.0));
+    PrintLine(NegF64(2.25)); PrintLine(NegF64(0.0)); PrintLine(NegF64(1.0 / 0.0));
+    PrintLine(-Neg32(-5));
+    PrintLine(- -7);
+    PrintLine(-(3 - 10));
+    PrintLine(-2147483648i32);
+    PrintLine(-128i8);
+    PrintLine(-9223372036854775808i64);
+    let a = 3;
+    let b = 4;
+    PrintLine(!(a < b));
+    PrintLine(!(a == b));
+    PrintLine(!!(a != b));
+    PrintLine(!true);
+    PrintLine(!false);
+}

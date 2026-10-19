@@ -1,0 +1,33 @@
+// Unary and binary operators applied to the wrong type family.
+struct P {
+    X: i32,
+}
+
+fn Main(p: P, q: P, s: &str, b: bool) {
+    let a = -1u8; //~ ERROR E0307 cannot apply unary operator `-` to type `u8`
+    let c = -b; //~ ERROR E0307 cannot apply unary operator `-` to type `bool`
+    let d = !1.0; //~ ERROR E0307 cannot apply unary operator `!` to type `{float}`
+    let e = !p; //~ ERROR E0307 cannot apply unary operator `!` to type `P`
+    let f = !s; //~ ERROR E0307 cannot apply unary operator `!` to type `&str`
+    let g = -'c'; //~ ERROR E0307 cannot apply unary operator `-` to type `char`
+    let h = p == q; //~ ERROR E0306 binary operation `==` cannot be applied to type `P`
+    let i = p < q; //~ ERROR E0306 binary operation `<` cannot be applied to type `P`
+    let j = s < s; //~ ERROR E0306 binary operation `<` cannot be applied to type `&str`
+    let k = b && 2; //~ ERROR E0300 mismatched types
+    let l = 1 || b; //~ ERROR E0300 mismatched types
+    let m = 1.5 % true; //~ ERROR E0300 mismatched types
+    let n = p + q; //~ ERROR E0306 binary operation `+` cannot be applied to type `P`
+    let o = b * b; //~ ERROR E0306 binary operation `*` cannot be applied to type `bool`
+    let r = 1.0 & 2.0; //~ ERROR E0306 binary operation `&` cannot be applied to type `{float}`
+    let t = b << 1; //~ ERROR E0306 binary operation `<<` cannot be applied to type `bool`
+    let u = 1 << 2.0; //~ ERROR E0306 binary operation `<<` cannot be applied to type `{float}`
+    let v = s + s; //~ ERROR E0306 binary operation `+` cannot be applied to type `&str`
+    let w = 'a' - 'b'; //~ ERROR E0306 binary operation `-` cannot be applied to type `char`
+    let x = () / (); //~ ERROR E0306 binary operation `/` cannot be applied to type `()`
+    let mut y = 1;
+    y += true; //~ ERROR E0300 mismatched types
+    let mut z = true;
+    z -= z; //~ ERROR E0306 binary operation `-` cannot be applied to type `bool`
+    let fine = -1i8 + !2i8 + (b as i8) * 3 % 4 & 5 | 6 ^ 7 << 1u8 >> 2;
+    let alsoFine = b & !b | b ^ b && 'a' < 'b' || 1.5 >= 2.5 && 'a' == 'a';
+}

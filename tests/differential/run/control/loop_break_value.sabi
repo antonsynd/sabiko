@@ -1,0 +1,39 @@
+// `loop` with `break`, `break value`, `continue`, and breaking an inner loop only.
+fn FirstSquareAbove(limit: i32) -> i32 {
+    let mut n = 0;
+    loop {
+        n += 1;
+        if n * n > limit { break n; }
+    }
+}
+
+fn Main() {
+    let mut i = 0;
+    let found = loop {
+        i += 1;
+        if i % 7 == 0 && i % 5 == 0 { break i; }
+    };
+    PrintLine(found);
+    PrintLine(FirstSquareAbove(50));
+    PrintLine(FirstSquareAbove(0));
+    let mut outer = 0;
+    let mut total = 0;
+    loop {
+        outer += 1;
+        if outer > 3 { break; }
+        let mut inner = 0;
+        loop {
+            inner += 1;
+            if inner > outer { break; }
+            if inner == 2 { continue; }
+            total += outer * 10 + inner;
+        }
+    }
+    PrintLine(total);
+    let mut x: i64 = 1;
+    let doubled = loop { x *= 2; if x > 1000 { break x * 2; } };
+    PrintLine(doubled);
+    let mut tries = 0;
+    loop { tries += 1; if tries == 3 { break; } }
+    PrintLine(tries);
+}

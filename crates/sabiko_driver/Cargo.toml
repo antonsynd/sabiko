@@ -1,0 +1,26 @@
+[package]
+name = "sabiko_driver"
+description = "Compilation pipeline orchestration for the Sabiko compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabiko_span = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+sabiko_lexer = { workspace = true }
+sabiko_ast = { workspace = true }
+sabiko_parser = { workspace = true }
+sabiko_resolve = { workspace = true }
+sabiko_types = { workspace = true }
+sabiko_mir = { workspace = true }
+sabiko_borrowck = { workspace = true }
+sabiko_codegen = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true

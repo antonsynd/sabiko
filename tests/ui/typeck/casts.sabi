@@ -1,0 +1,24 @@
+// Invalid `as` casts: bool and char targets, non-primitive operands, references and `()`.
+struct P {
+    X: i32,
+}
+
+fn Main(p: P, r: &i32, s: &str, u: ()) {
+    let a = true as f32; //~ ERROR E0308 casting `bool` as `f32` is invalid
+    let b = 1 as bool; //~ ERROR E0308 casting `i32` as `bool` is invalid
+    let c = 'a' as f64; //~ ERROR E0308 casting `char` as `f64` is invalid
+    let d = 65i32 as char; //~ ERROR E0308 only `u8` can be cast as `char`, not `i32`
+    let e = 1.0 as char; //~ ERROR E0308 casting `f64` as `char` is invalid
+    let f = p as i32; //~ ERROR E0308 non-primitive cast: `P` as `i32`
+    let g = r as i32; //~ ERROR E0308 non-primitive cast: `&i32` as `i32`
+    let h = 1 as P; //~ ERROR E0308 non-primitive cast: `i32` as `P`
+    let i = s as u8; //~ ERROR E0308 non-primitive cast: `&str` as `u8`
+    let j = u as i32; //~ ERROR E0308 non-primitive cast: `()` as `i32`
+    let k = 1.5 as bool; //~ ERROR E0308 casting `f64` as `bool` is invalid
+    let l = 'a' as bool; //~ ERROR E0308 casting `char` as `bool` is invalid
+    let m = false as bool;
+    let n = 'a' as u8;
+    let o = 300 as u8; //~ ERROR E0314 literal out of range for `u8`
+    let p = -1 as u32; //~ ERROR E0307 cannot apply unary operator `-` to type `u32`
+    let q = -1 as i64;
+}

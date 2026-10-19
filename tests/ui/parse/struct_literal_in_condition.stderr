@@ -1,0 +1,9 @@
+[E0108] Error: struct literals are not allowed here
+   ╭─[ tests/ui/parse/struct_literal_in_condition.sabi:5:13 ]
+   │
+ 5 │     if p == Point { X: 1 } { } //~ ERROR E0108 struct literals are not allowed here
+   │             ───┬───  
+   │                ╰───── this looks like a struct literal
+   │ 
+   │ Note: surround the struct literal with parentheses: `(Point { ... })`
+───╯

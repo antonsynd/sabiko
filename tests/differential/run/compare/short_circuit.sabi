@@ -1,0 +1,31 @@
+// `&&` and `||` evaluate their right operand only when needed; the calls print to show it.
+fn T(tag: i32) -> bool {
+    Print("T"); PrintLine(tag);
+    true
+}
+
+fn F(tag: i32) -> bool {
+    Print("F"); PrintLine(tag);
+    false
+}
+
+fn Main() {
+    PrintLine(T(1) && T(2));
+    PrintLine(F(3) && T(4));
+    PrintLine(T(5) || T(6));
+    PrintLine(F(7) || T(8));
+    PrintLine(F(9) || F(10));
+    PrintLine(T(11) && F(12) || T(13));
+    PrintLine(F(14) && T(15) || F(16) && T(17));
+    PrintLine(T(18) || F(19) && T(20));
+    PrintLine(!(F(21) || F(22)) && T(23));
+    let mut n = 0;
+    while n < 3 && T(100 + n) {
+        n += 1;
+    }
+    PrintLine(n);
+    if F(30) && Panic("never") { PrintLine("no"); }
+    if T(31) || Panic("never") { PrintLine("yes"); }
+    let x = 5;
+    PrintLine(x > 3 && x < 10 || F(32));
+}

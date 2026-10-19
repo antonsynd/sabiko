@@ -1,0 +1,10 @@
+// Two mutable borrows of the same field conflict like two of the whole struct.
+struct P { X: i32, Y: i32 }
+
+fn Main() {
+    let mut p = P { X: 1, Y: 2 };
+    let a = &mut p.X;
+    let b = &mut p.X;
+    *a += 1;
+    *b += 1;
+}

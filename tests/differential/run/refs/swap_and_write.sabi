@@ -1,0 +1,48 @@
+// Swapping and rotating values through `&mut` references, for integers and structs.
+#[derive(Copy, Clone)]
+struct Pair { L: u8, R: u8 }
+
+fn Swap(a: &mut i32, b: &mut i32) {
+    let t = *a;
+    *a = *b;
+    *b = t;
+}
+
+fn SwapPairs(a: &mut Pair, b: &mut Pair) {
+    let t = *a;
+    *a = *b;
+    *b = t;
+}
+
+fn Rotate(a: &mut i64, b: &mut i64, c: &mut i64) {
+    let t = *a;
+    *a = *b;
+    *b = *c;
+    *c = t;
+}
+
+fn Flip(p: &mut Pair) { let t = p.L; p.L = p.R; p.R = t; }
+
+fn Main() {
+    let mut x = 1;
+    let mut y = 2;
+    Swap(&mut x, &mut y);
+    Print(x); Print(' '); PrintLine(y);
+    let mut p = Pair { L: 1, R: 2 };
+    let mut q = Pair { L: 3, R: 4 };
+    SwapPairs(&mut p, &mut q);
+    Print(p.L); Print(p.R); Print(q.L); PrintLine(q.R);
+    Flip(&mut p);
+    Flip(&mut q);
+    Print(p.L); Print(p.R); Print(q.L); PrintLine(q.R);
+    let mut a: i64 = 10; let mut b: i64 = 20; let mut c: i64 = 30;
+    Rotate(&mut a, &mut b, &mut c);
+    Rotate(&mut a, &mut b, &mut c);
+    Print(a); Print(' '); Print(b); Print(' '); PrintLine(c);
+    let mut n = 0;
+    let r = &mut n;
+    *r = 5;
+    *r += 10;
+    *r *= 3;
+    PrintLine(n);
+}

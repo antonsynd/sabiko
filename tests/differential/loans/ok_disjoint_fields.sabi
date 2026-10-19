@@ -1,0 +1,15 @@
+// Mutable borrows of different fields of one struct do not conflict.
+struct P { X: i32, Y: i32 }
+
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut p = P { X: 1, Y: 2 };
+    let a = &mut p.X;
+    let b = &mut p.Y;
+    *a += 1;
+    *b += 1;
+    let c = &p.X;
+    let d = &mut p.Y;
+    *d = *c;
+}

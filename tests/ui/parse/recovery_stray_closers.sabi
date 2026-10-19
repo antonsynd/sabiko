@@ -1,0 +1,21 @@
+// A closer that matches nothing must not derail recovery: each statement reports one
+// error and the function that follows is still parsed.
+fn First() {
+    let x = ); //~ ERROR E0102 expected an expression, found `)`
+    let y = 1 ]; //~ ERROR E0100 expected `;`, found `]`
+    a); //~ ERROR E0100 expected `;`, found `)`
+}
+
+// An error inside call arguments or a struct literal must not end the enclosing block
+// at the construct's own closer.
+fn Second() {
+    Foo(1, , 2); //~ ERROR E0102 expected an expression, found `,`
+    let p = Point { X: , }; //~ ERROR E0102 expected an expression, found `,`
+    foo(1 2); //~ ERROR E0100 expected `)`, found integer literal `2`
+    let q = (1 2; //~ ERROR E0100 expected `)`, found integer literal `2`
+    PrintLine("still inside Second");
+}
+
+fn Third() {
+    PrintLine("reached");
+}

@@ -1,0 +1,27 @@
+// Mixed-width arithmetic, casts and comparisons printed by both compilers.
+fn Main() {
+    let a: i8 = -100;
+    let b: u8 = 200;
+    let c: i64 = 9007199254740993;
+    let d: f64 = 0.1 + 0.2;
+    PrintLine(a as i32 + b as i32);
+    PrintLine(a as u8);
+    PrintLine(b as i8);
+    PrintLine(c as f64);
+    PrintLine(d);
+    PrintLine(300.5 as u8);
+    PrintLine(-1.5 as u32);
+    PrintLine(1e300 as i64);
+    PrintLine((b >> 3) << 1);
+    PrintLine(7 / -2);
+    PrintLine(7 % -2);
+    PrintLine(-7.5 % 2.0);
+    PrintLine(2.0 < 1.0 / 0.0);
+    PrintLine(1u32 << 31);
+    PrintLine((1i64 << 40) as i32);
+    PrintLine(!0u16);
+    PrintLine(-(-128i8 as i32));
+    PrintLine('a' as u32 + 1);
+    PrintLine(97u8 as char);
+    PrintLine(true as i32 + false as i32);
+}

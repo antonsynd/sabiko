@@ -1,0 +1,51 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/return_mismatch.sabi:4:1 ]
+   │
+ 4 │ } //~ ERROR E0300 mismatched types
+   │ ┬  
+   │ ╰── expected `i32`, found `()`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/return_mismatch.sabi:8:1 ]
+   │
+ 8 │ } //~ ERROR E0300 mismatched types
+   │ ┬  
+   │ ╰── expected `i32`, found `()`
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/return_mismatch.sabi:10:21 ]
+    │
+ 10 │ fn Empty() -> bool {} //~ ERROR E0300 mismatched types
+    │                     ┬  
+    │                     ╰── expected `bool`, found `()`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/return_mismatch.sabi:13:5 ]
+    │
+ 13 │     return; //~ ERROR E0300 mismatched types
+    │     ───┬──  
+    │        ╰──── expected `i32`, found `()`
+    │ 
+    │ Note: `return;` in a function whose return type is not `()`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/return_mismatch.sabi:17:12 ]
+    │
+ 17 │     return 1; //~ ERROR E0300 mismatched types
+    │            ┬  
+    │            ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/return_mismatch.sabi:21:12 ]
+    │
+ 21 │     return 1; //~ ERROR E0300 mismatched types
+    │            ┬  
+    │            ╰── expected `()`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/return_mismatch.sabi:25:5 ]
+    │
+ 25 │     2 //~ ERROR E0300 mismatched types
+    │     ┬  
+    │     ╰── expected `()`, found `{integer}`
+────╯

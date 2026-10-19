@@ -1,0 +1,17 @@
+//@ exit-code: 101
+// A constant `MIN` dividend with a variable divisor keeps the overflow check: only a
+// divisor of `-1` panics, and the constant operand is not folded into "cannot overflow".
+const MIN: i8 = -128;
+
+fn FromMin(b: i8) -> i8 {
+    MIN / b
+}
+
+fn Main() {
+    PrintLine(FromMin(1));
+    PrintLine(FromMin(2));
+    PrintLine(FromMin(-2));
+    PrintLine("about to overflow");
+    PrintLine(FromMin(-1));
+    PrintLine("not reached");
+}

@@ -1,0 +1,128 @@
+// Programs the loan check accepts: borrows end at their last use (NLL), disjoint fields,
+// reborrows, several shared borrows, loans in loops that end before the next iteration
+// writes, and references returned from parameter data.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Touch(n: &mut i32) {
+    *n += 1;
+}
+
+fn First(p: &Point) -> &i32 {
+    &p.X
+}
+
+fn Second(p: &mut Point) -> &mut i32 {
+    &mut p.Y
+}
+
+fn Pass(r: &mut i32) -> &mut i32 {
+    r
+}
+
+fn Longest(a: &str) -> &str {
+    a
+}
+
+fn LastUseEndsTheBorrow() {
+    let mut x = 1;
+    let r = &mut x;
+    *r = 1;
+    x = 2;
+    let s = &x;
+    let _ = *s;
+    x = 3;
+    let _ = x;
+}
+
+fn TwoSharedBorrows() {
+    let x = 1;
+    let s = &x;
+    let t = &x;
+    let _ = *s + *t;
+}
+
+fn DisjointFields() {
+    let mut p = Point { X: 1, Y: 2 };
+    let a = &mut p.X;
+    let b = &mut p.Y;
+    *a = 1;
+    *b = 2;
+    let c = &p.X;
+    p.Y = 3;
+    let _ = *c;
+}
+
+fn Reborrows() {
+    let mut x = 1;
+    let m = &mut x;
+    let m2 = &mut *m;
+    *m2 = 3;
+    *m = 4;
+    Touch(m);
+    Touch(m);
+    let y = Pass(m);
+    *y = 5;
+    *m = 6;
+}
+
+fn ReturnedReferencesEndTheirLoans() {
+    let mut p = Point { X: 1, Y: 2 };
+    let first = First(&p);
+    let _ = *first;
+    p.X = 5;
+    let second = Second(&mut p);
+    *second = 7;
+    let _ = p.Y;
+}
+
+fn LoopBorrowsEndBeforeTheWrite() {
+    let mut x = 0;
+    let mut i = 0;
+    while i < 3 {
+        let w = &mut x;
+        *w += 1;
+        x = i;
+        let r = &x;
+        let _ = *r;
+        i += 1;
+    }
+    let _ = x;
+}
+
+fn ReassignmentEndsTheOldLoan() {
+    let mut x = 1;
+    let other = 5;
+    let mut q = &x;
+    let _ = *q;
+    q = &other;
+    x = 9;
+    let _ = *q + x;
+}
+
+fn ParameterData(p: &Point) -> &i32 {
+    let q = p;
+    &q.X
+}
+
+fn StringLiterals() -> i32 {
+    let a = "a";
+    let b = Longest(a);
+    let _ = b;
+    0
+}
+
+fn Main() {
+    LastUseEndsTheBorrow();
+    TwoSharedBorrows();
+    DisjointFields();
+    Reborrows();
+    ReturnedReferencesEndTheirLoans();
+    LoopBorrowsEndBeforeTheWrite();
+    ReassignmentEndsTheOldLoan();
+    let p = Point { X: 1, Y: 2 };
+    let _ = *ParameterData(&p);
+    let _ = StringLiterals();
+}

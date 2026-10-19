@@ -1,0 +1,20 @@
+// `Panic` exits with 101 after the output already written; it can be the value of an `if` branch.
+struct Stack { Depth: u32 }
+
+fn Pop(s: &mut Stack) -> u32 {
+    if s.Depth == 0 { Panic("pop from empty stack") }
+    s.Depth -= 1;
+    s.Depth
+}
+
+fn Checked(x: i32) -> i32 { if x >= 0 { x } else { Panic("negative") } }
+
+fn Main() {
+    let mut s = Stack { Depth: 2 };
+    PrintLine(Pop(&mut s));
+    PrintLine(Checked(5));
+    Print("last: ");
+    PrintLine(Pop(&mut s));
+    PrintLine(Pop(&mut s));
+    PrintLine("not reached");
+}

@@ -1,0 +1,10 @@
+// Same shape as call arguments.
+struct Node { Weight: f64, Left: i32 }
+
+fn Weigh(n: &mut Node) -> &mut f64 { &mut n.Weight }
+fn Add(a: f64, b: f64) -> f64 { a + b }
+
+fn Main() {
+    let mut next = Node { Weight: 1.5, Left: 3 };
+    PrintLine(Add(*Weigh(&mut next), next.Weight));
+}

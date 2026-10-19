@@ -1,0 +1,105 @@
+[E0500] Error: a struct field of type `()` is not yet supported by code generation
+   ╭─[ tests/ui/codegen/unsupported.sabi:5:5 ]
+   │
+ 5 │     Unit: (), //~ ERROR E0500 a struct field of type `()` is not yet supported by code generation
+   │     ────┬───  
+   │         ╰───── cannot be compiled yet
+───╯
+[E0500] Error: a reference to a reference is not yet supported by code generation
+   ╭─[ tests/ui/codegen/unsupported.sabi:8:11 ]
+   │
+ 8 │ fn Nested(r: &&i32) -> i32 { //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+   │           ────┬───  
+   │               ╰───── cannot be compiled yet
+───╯
+[E0500] Error: a reference to a reference is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:17:9 ]
+    │
+ 17 │     let rr = &r; //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    │         ─┬  
+    │          ╰── cannot be compiled yet
+────╯
+[E0500] Error: a reference to a reference is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:18:13 ]
+    │
+ 18 │     let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    │             ─────┬────  
+    │                  ╰────── cannot be compiled yet
+────╯
+[E0500] Error: a reference to a reference is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:18:20 ]
+    │
+ 18 │     let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    │                    ─┬  
+    │                     ╰── cannot be compiled yet
+────╯
+[E0500] Error: the type `i128` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:20:9 ]
+    │
+ 20 │     let big = n as i128; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    │         ─┬─  
+    │          ╰─── cannot be compiled yet
+────╯
+[E0500] Error: a cast involving 128-bit integers is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:20:15 ]
+    │
+ 20 │     let big = n as i128; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    │               ────┬────  
+    │                   ╰────── cannot be compiled yet
+────╯
+[E0500] Error: printing a value of this type is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:22:5 ]
+    │
+ 22 │     Print(big); //~ ERROR E0500 printing a value of this type is not yet supported by code generation
+    │     ─────┬────  
+    │          ╰────── cannot be compiled yet
+────╯
+[E0500] Error: the type `i128` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:22:11 ]
+    │
+ 22 │     Print(big); //~ ERROR E0500 printing a value of this type is not yet supported by code generation
+    │           ─┬─  
+    │            ╰─── cannot be compiled yet
+────╯
+[E0500] Error: the type `i128` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:24:9 ]
+    │
+ 24 │     let literal: i128 = 5; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    │         ───┬───  
+    │            ╰───── cannot be compiled yet
+────╯
+[E0500] Error: the type `i128` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:24:25 ]
+    │
+ 24 │     let literal: i128 = 5; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    │                         ┬  
+    │                         ╰── cannot be compiled yet
+────╯
+[E0500] Error: the type `i128` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:26:13 ]
+    │
+ 26 │     let _ = literal; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    │             ───┬───  
+    │                ╰───── cannot be compiled yet
+────╯
+[E0500] Error: a reference to `()` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:28:9 ]
+    │
+ 28 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    │         ────┬───  
+    │             ╰───── cannot be compiled yet
+────╯
+[E0500] Error: a reference to `()` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:28:20 ]
+    │
+ 28 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    │                    ──┬──  
+    │                      ╰──── cannot be compiled yet
+────╯
+[E0500] Error: a reference to `()` is not yet supported by code generation
+    ╭─[ tests/ui/codegen/unsupported.sabi:30:13 ]
+    │
+ 30 │     let _ = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    │             ────┬───  
+    │                 ╰───── cannot be compiled yet
+────╯

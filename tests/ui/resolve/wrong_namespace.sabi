@@ -1,0 +1,20 @@
+// A function or constant used where a type or struct is expected, and a struct literal of an unknown struct.
+fn Helper() {}
+
+const Limit: i32 = 3;
+
+struct Point {
+    X: i32,
+}
+
+fn UsesFnAsType(p: Helper) {} //~ ERROR E0203 expected type, found function `Helper`
+
+fn ReturnsConst() -> Limit {} //~ ERROR E0203 expected type, found constant `Limit`
+
+fn Main() {
+    let a: &Helper = &1; //~ ERROR E0203 expected type, found function `Helper`
+    let b = Helper { X: 1 }; //~ ERROR E0203 expected struct, found function `Helper`
+    let c = Limit { X: 1 }; //~ ERROR E0203 expected struct, found constant `Limit`
+    let d = Missing { X: 1 }; //~ ERROR E0201 cannot find struct `Missing` in this scope
+    let e = Point { X: 1 };
+}

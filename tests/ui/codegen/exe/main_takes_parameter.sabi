@@ -1,0 +1,5 @@
+// An executable's entry point must take no parameters.
+
+fn Main(code: i32) { //~ ERROR E0501 `Main` must take no parameters and return `()`
+    let _ = code;
+}

@@ -1,0 +1,13 @@
+// Moving a value while a borrow of it is live.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Read(n: i32) {}
+
+fn Main() {
+    let p = P { X: 1 };
+    let r = &p;
+    Take(p);
+    Read(r.X);
+}

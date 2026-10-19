@@ -1,0 +1,28 @@
+// Type mismatches between annotations, initialisers, arguments, struct fields, operands and return values.
+struct Point {
+    X: i32,
+    Y: f64,
+}
+
+fn TakesBool(b: bool) {}
+
+fn Main() -> i32 {
+    let a: i32 = true; //~ ERROR E0300 mismatched types
+    let b: bool = 1; //~ ERROR E0300 mismatched types
+    let c: f64 = 1; //~ ERROR E0300 mismatched types
+    let d: u8 = 1i32; //~ ERROR E0300 mismatched types
+    let f: &mut i32 = &a; //~ ERROR E0300 mismatched types
+    let g: char = "c"; //~ ERROR E0300 mismatched types
+    let h = 1;
+    let i: f32 = h; //~ ERROR E0300 mismatched types
+    TakesBool(1); //~ ERROR E0300 mismatched types
+    let p = Point {
+        X: 1.0, //~ ERROR E0300 mismatched types
+        Y: 2, //~ ERROR E0300 mismatched types
+    };
+    let q = a + 1.5; //~ ERROR E0300 mismatched types
+    let r = 1u8 + 2u16; //~ ERROR E0300 mismatched types
+    let s: Point = a; //~ ERROR E0300 mismatched types
+    let t = a == true; //~ ERROR E0300 mismatched types
+    true //~ ERROR E0300 mismatched types
+}

@@ -1,0 +1,79 @@
+// `if`/`else` as expression and statement, `while` with `break`/`continue`, `loop` with a
+// break value, nested loops, early return, short-circuiting `&&`/`||`.
+fn IfExpr(c: bool, a: i32, b: i32) -> i32 {
+    let x = if c { a } else { b };
+    if x > 10 {
+        return x;
+    }
+    if c && a > 0 || b < 0 { x + 1 } else { x - 1 }
+}
+
+fn IfStmt(c: bool) -> i32 {
+    let mut n = 0;
+    if c {
+        n = 1;
+    }
+    if !c {
+        n += 2;
+    } else if n == 1 {
+        n += 3;
+    } else {
+        n += 4;
+    }
+    n
+}
+
+fn WhileLoop(n: i32) -> i32 {
+    let mut i = 0;
+    let mut acc = 0;
+    while i < n {
+        i += 1;
+        if i % 2 == 0 { continue; }
+        if acc > 100 { break; }
+        acc += i;
+    }
+    acc
+}
+
+fn LoopValue(limit: i32) -> i32 {
+    let mut n = 1;
+    let found = loop {
+        if n > limit { break n; }
+        n = n * 2;
+    };
+    found
+}
+
+fn Nested(n: i32) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < n {
+        let mut j = 0;
+        loop {
+            if j == i { break; }
+            let step = j * 2;
+            total += step;
+            j += 1;
+        }
+        i += 1;
+    }
+    total
+}
+
+fn Forever() -> i32 {
+    loop { }
+}
+
+fn EarlyReturn(flag: bool) {
+    if flag {
+        return;
+    }
+    let x = 1;
+    let _ = x;
+}
+
+fn Logical(a: bool, b: bool, c: bool) -> bool {
+    let both = a && b;
+    let either = a || b;
+    both || !either && c
+}

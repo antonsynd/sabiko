@@ -1,0 +1,11 @@
+//@ exit-code: 101
+// Debug builds panic on integer overflow; the process exits with Rust's panic code.
+fn Main() {
+    let mut x: i32 = 2147483600;
+    let mut i = 0;
+    while i < 100 {
+        x = x + 1;
+        i += 1;
+    }
+    PrintLine(x);
+}

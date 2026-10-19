@@ -1,0 +1,11 @@
+// NLL: a shared borrow ends at its last use, so a mutable borrow may follow in the same block.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let r = &x;
+    Read(*r);
+    let m = &mut x;
+    *m = 2;
+    Read(x);
+}

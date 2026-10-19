@@ -1,0 +1,15 @@
+// Copying a Copy field or value out from behind a reference is fine.
+struct P { X: i32 }
+
+fn Read(n: i32) {}
+
+fn Shared(r: &P) {
+    let n = r.X;
+    Read(n);
+    Read(r.X);
+}
+
+fn Mutable(r: &mut i32) {
+    let n = *r;
+    Read(n);
+}

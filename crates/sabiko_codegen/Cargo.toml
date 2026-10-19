@@ -1,0 +1,24 @@
+[package]
+name = "sabiko_codegen"
+description = "CIL code generation for the Sabiko compiler: MIR to textual IL for ilasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabiko_span = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+sabiko_ast = { workspace = true }
+sabiko_resolve = { workspace = true }
+sabiko_types = { workspace = true }
+sabiko_mir = { workspace = true }
+
+[dev-dependencies]
+sabiko_parser = { workspace = true }
+sabiko_borrowck = { workspace = true }
+insta = { version = "1", features = ["glob"] }
+
+[lints]
+workspace = true

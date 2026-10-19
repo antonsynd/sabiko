@@ -1,0 +1,9 @@
+struct S { a: i32 }
+
+fn F(s: S) {
+    PrintLine(s); //~ ERROR E0300 `PrintLine` cannot print a value of type `S`
+    PrintLine(1, 2); //~ ERROR E0304 this function takes 1 argument but 2 arguments were supplied
+    PrintLine(); //~ ERROR E0304 this function takes 1 argument but 0 arguments were supplied
+    Panic(1); //~ ERROR E0300 mismatched types
+    let x: i32 = PrintLine(1); //~ ERROR E0300 mismatched types
+}

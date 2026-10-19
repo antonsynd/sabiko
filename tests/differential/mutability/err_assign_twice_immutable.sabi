@@ -1,0 +1,8 @@
+// Assigning to an immutable binding that already holds a value.
+fn Read(n: i32) {}
+
+fn Main() {
+    let x = 1;
+    x = 2;
+    Read(x);
+}

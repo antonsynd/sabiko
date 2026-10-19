@@ -1,0 +1,5 @@
+﻿// This file starts with a UTF-8 byte-order mark, which must be skipped.
+fn Main() {
+    let x = 1;
+    PrintLine(x);
+}

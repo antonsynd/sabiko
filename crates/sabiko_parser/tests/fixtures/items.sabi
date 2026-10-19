@@ -1,0 +1,23 @@
+/// A documented struct.
+#[derive(Copy, Clone)]
+pub struct Vector {
+    /// Horizontal component.
+    pub X: f64,
+    pub Y: f64,
+    Hidden: bool,
+}
+
+struct Marker;
+
+pub const Limit: i32 = 10 * 2;
+
+#[dotnet(name = "normalize")]
+pub fn Normalize(v: &mut Vector) -> f64 {
+    let len: f64 = (v.X * v.X + v.Y * v.Y).Sqrt();
+    v.X = v.X / len;
+    v.Y = v.Y / len;
+    len
+}
+
+fn Unit() -> () {}
+fn Infer(x: _) {}

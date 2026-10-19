@@ -1,0 +1,117 @@
+[E0314] Error: literal out of range for `u8`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:3:13 ]
+   │
+ 3 │     let a = 256u8; //~ ERROR E0314 literal out of range for `u8`
+   │             ──┬──  
+   │               ╰──── does not fit in `u8`
+   │ 
+   │ Note: the literal `256` does not fit into the type `u8` whose range is `0..=255`
+───╯
+[E0314] Error: literal out of range for `i8`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:4:18 ]
+   │
+ 4 │     let b: i8 = -129; //~ ERROR E0314 literal out of range for `i8`
+   │                  ─┬─  
+   │                   ╰─── does not fit in `i8`
+   │ 
+   │ Note: the literal `-129` does not fit into the type `i8` whose range is `-128..=127`
+───╯
+[E0314] Error: literal out of range for `i8`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:5:17 ]
+   │
+ 5 │     let c: i8 = 128; //~ ERROR E0314 literal out of range for `i8`
+   │                 ─┬─  
+   │                  ╰─── does not fit in `i8`
+   │ 
+   │ Note: the literal `128` does not fit into the type `i8` whose range is `-128..=127`
+───╯
+[E0314] Error: literal out of range for `u16`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:6:18 ]
+   │
+ 6 │     let d: u16 = 65536; //~ ERROR E0314 literal out of range for `u16`
+   │                  ──┬──  
+   │                    ╰──── does not fit in `u16`
+   │ 
+   │ Note: the literal `65536` does not fit into the type `u16` whose range is `0..=65535`
+───╯
+[E0314] Error: literal out of range for `i32`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:7:13 ]
+   │
+ 7 │     let e = 2147483648; //~ ERROR E0314 literal out of range for `i32`
+   │             ─────┬────  
+   │                  ╰────── does not fit in `i32`
+   │ 
+   │ Note: the literal `2147483648` does not fit into the type `i32` whose range is `-2147483648..=2147483647`
+───╯
+[E0314] Error: literal out of range for `i32`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:8:14 ]
+   │
+ 8 │     let f = -2147483649; //~ ERROR E0314 literal out of range for `i32`
+   │              ─────┬────  
+   │                   ╰────── does not fit in `i32`
+   │ 
+   │ Note: the literal `-2147483649` does not fit into the type `i32` whose range is `-2147483648..=2147483647`
+───╯
+[E0314] Error: literal out of range for `i64`
+   ╭─[ tests/ui/typeck/literal_ranges.sabi:9:18 ]
+   │
+ 9 │     let g: i64 = 9223372036854775808; //~ ERROR E0314 literal out of range for `i64`
+   │                  ─────────┬─────────  
+   │                           ╰─────────── does not fit in `i64`
+   │ 
+   │ Note: the literal `9223372036854775808` does not fit into the type `i64` whose range is `-9223372036854775808..=9223372036854775807`
+───╯
+[E0314] Error: literal out of range for `u32`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:10:18 ]
+    │
+ 10 │     let h: u32 = 4294967296; //~ ERROR E0314 literal out of range for `u32`
+    │                  ─────┬────  
+    │                       ╰────── does not fit in `u32`
+    │ 
+    │ Note: the literal `4294967296` does not fit into the type `u32` whose range is `0..=4294967295`
+────╯
+[E0314] Error: literal out of range for `u8`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:11:13 ]
+    │
+ 11 │     let i = 0x1FFu8; //~ ERROR E0314 literal out of range for `u8`
+    │             ───┬───  
+    │                ╰───── does not fit in `u8`
+    │ 
+    │ Note: the literal `511` does not fit into the type `u8` whose range is `0..=255`
+────╯
+[E0314] Error: literal out of range for `i128`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:12:19 ]
+    │
+ 12 │     let j: i128 = 170141183460469231731687303715884105728; //~ ERROR E0314 literal out of range for `i128`
+    │                   ───────────────────┬───────────────────  
+    │                                      ╰───────────────────── does not fit in `i128`
+    │ 
+    │ Note: the literal `170141183460469231731687303715884105728` does not fit into the type `i128` whose range is `-170141183460469231731687303715884105728..=170141183460469231731687303715884105727`
+────╯
+[E0314] Error: literal out of range for `usize`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:13:20 ]
+    │
+ 13 │     let k: usize = 18446744073709551616; //~ ERROR E0314 literal out of range for `usize`
+    │                    ──────────┬─────────  
+    │                              ╰─────────── does not fit in `usize`
+    │ 
+    │ Note: the literal `18446744073709551616` does not fit into the type `usize` whose range is `0..=18446744073709551615`
+────╯
+[E0314] Error: literal out of range for `i16`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:14:20 ]
+    │
+ 14 │     let l: i16 = -(32769); //~ ERROR E0314 literal out of range for `i16`
+    │                    ──┬──  
+    │                      ╰──── does not fit in `i16`
+    │ 
+    │ Note: the literal `-32769` does not fit into the type `i16` whose range is `-32768..=32767`
+────╯
+[E0314] Error: literal out of range for `u8`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:16:21 ]
+    │
+ 16 │     let n: u8 = m + 256; //~ ERROR E0314 literal out of range for `u8`
+    │                     ─┬─  
+    │                      ╰─── does not fit in `u8`
+    │ 
+    │ Note: the literal `256` does not fit into the type `u8` whose range is `0..=255`
+────╯

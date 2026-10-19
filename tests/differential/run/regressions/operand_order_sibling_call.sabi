@@ -1,0 +1,15 @@
+// Evaluation order: a place operand must be copied when its argument position is reached,
+// before a later sibling argument (or operand) calls a function that mutates the place.
+struct P { A: i32 }
+
+fn Bump(p: &mut P) -> i32 { p.A += 10; p.A }
+fn Show(a: i32, b: i32) { Print(a); Print(' '); PrintLine(b); }
+
+fn Main() {
+    let mut p = P { A: 1 };
+    Show(p.A, Bump(&mut p));
+    PrintLine(p.A + Bump(&mut p));
+    let q = P { A: p.A * Bump(&mut p) };
+    PrintLine(q.A);
+    PrintLine(p.A < Bump(&mut p));
+}

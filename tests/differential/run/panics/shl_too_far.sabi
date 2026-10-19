@@ -1,0 +1,10 @@
+// Shifting left by the bit width or more panics in debug builds (`u8` by 8).
+fn Shl(x: u8, n: u32) -> u8 { x << n }
+
+fn Main() {
+    PrintLine(Shl(1, 7));
+    PrintLine(Shl(255, 1));
+    PrintLine("about to shift too far");
+    PrintLine(Shl(1, 8));
+    PrintLine("not reached");
+}

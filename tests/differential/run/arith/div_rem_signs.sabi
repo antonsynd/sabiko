@@ -1,0 +1,20 @@
+// Division truncates toward zero and the remainder takes the dividend's sign, for every signed width.
+fn Show8(a: i8, b: i8) { Print(a / b); Print(' '); PrintLine(a % b); }
+fn Show16(a: i16, b: i16) { Print(a / b); Print(' '); PrintLine(a % b); }
+fn Show32(a: i32, b: i32) { Print(a / b); Print(' '); PrintLine(a % b); }
+fn Show64(a: i64, b: i64) { Print(a / b); Print(' '); PrintLine(a % b); }
+fn ShowSize(a: isize, b: isize) { Print(a / b); Print(' '); PrintLine(a % b); }
+
+fn Main() {
+    Show8(7, 2); Show8(-7, 2); Show8(7, -2); Show8(-7, -2);
+    Show8(-128, 3); Show8(-128, -3); Show8(127, -128);
+    Show16(7, 2); Show16(-7, 2); Show16(7, -2); Show16(-7, -2);
+    Show16(-32768, 7); Show16(-32768, -7); Show16(-1, 32767);
+    Show32(7, 2); Show32(-7, 2); Show32(7, -2); Show32(-7, -2);
+    Show32(-2147483648, 3); Show32(-2147483648, -3); Show32(1, -2147483648);
+    Show64(7, 2); Show64(-7, 2); Show64(7, -2); Show64(-7, -2);
+    Show64(-9223372036854775808, 3); Show64(-9223372036854775808, -3);
+    Show64(-9223372036854775808, 9223372036854775807);
+    ShowSize(-9, 4); ShowSize(9, -4); ShowSize(-9223372036854775808, -2);
+    Show32(-6, 3); Show32(6, -3); Show32(0, -5);
+}

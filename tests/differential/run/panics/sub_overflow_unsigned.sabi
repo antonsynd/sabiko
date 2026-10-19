@@ -1,0 +1,17 @@
+// Unsigned subtraction below zero panics in debug builds (shown for `u8` after a few safe steps).
+fn Down(x: u8, by: u8) -> u8 { x - by }
+
+fn Main() {
+    let mut x: u8 = 3;
+    while x > 0 {
+        x = Down(x, 1);
+        Print(x); Print(' ');
+    }
+    PrintLine("");
+    let y: u32 = 0;
+    let z: u32 = 1;
+    PrintLine(z - y);
+    PrintLine("about to underflow");
+    PrintLine(Down(x, 1));
+    PrintLine("not reached");
+}

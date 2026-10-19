@@ -1,0 +1,21 @@
+[E0100] Error: expected `:`, found `)`
+   ╭─[ tests/ui/parse/recovery.sabi:2:19 ]
+   │
+ 2 │ fn First(a: i32, b) -> i32 { //~ ERROR E0100 expected `:`, found `)`
+   │                   ┬  
+   │                   ╰── expected `:` here
+───╯
+[E0100] Error: expected identifier, found keyword `fn`
+   ╭─[ tests/ui/parse/recovery.sabi:7:9 ]
+   │
+ 7 │     let fn = 3; //~ ERROR E0100 expected identifier, found keyword `fn`
+   │         ─┬  
+   │          ╰── keywords cannot be used as names
+───╯
+[E0100] Error: expected `}`, found identifier `Y`
+    ╭─[ tests/ui/parse/recovery.sabi:12:5 ]
+    │
+ 12 │     Y: i32, //~ ERROR E0100 expected `}`, found identifier `Y`
+    │     ┬  
+    │     ╰── expected `}` here
+────╯

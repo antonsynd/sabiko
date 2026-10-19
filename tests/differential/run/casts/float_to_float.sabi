@@ -1,0 +1,21 @@
+// `f64 as f32` rounds to the nearest single (overflowing to infinity, underflowing to zero); `f32 as f64` is exact.
+fn Narrow(x: f64) -> f32 { x as f32 }
+fn Widen(x: f32) -> f64 { x as f64 }
+
+fn Main() {
+    PrintLine(Narrow(0.1)); PrintLine(Widen(Narrow(0.1)));
+    PrintLine(Narrow(1.0 / 3.0)); PrintLine(Widen(Narrow(1.0 / 3.0)));
+    PrintLine(Narrow(16777217.0)); PrintLine(Narrow(16777219.0));
+    PrintLine(Narrow(1e40)); PrintLine(Narrow(-1e40));
+    PrintLine(Narrow(1e-50)); PrintLine(Narrow(-1e-50));
+    PrintLine(Narrow(3.4028235e38)); PrintLine(Narrow(3.4028236e38));
+    PrintLine(Narrow(1e-45)); PrintLine(Narrow(1e-46));
+    PrintLine(Widen(1e-45)); PrintLine(Widen(3.4028235e38));
+    PrintLine(Widen(0.1f32 + 0.2f32)); PrintLine(Widen(1.0f32 / 3.0));
+    let zero: f64 = 0.0;
+    PrintLine(Narrow(zero / zero)); PrintLine(Narrow(1.0 / zero)); PrintLine(Narrow(-1.0 / zero));
+    PrintLine(Narrow(-zero)); PrintLine(Widen(-0.0f32));
+    PrintLine(Widen(Narrow(123456789.0)));
+    PrintLine(Narrow(0.3) == 0.3f32);
+    PrintLine(Widen(0.3f32) == 0.3);
+}

@@ -1,0 +1,17 @@
+// The builtins: printing every printable type is fine, and `Panic` diverges in a branch.
+struct Point { X: i32, Y: f64 }
+
+fn Checked(x: i32) -> i32 {
+    if x >= 0 { x } else { Panic("negative") }
+}
+
+fn Show(p: &Point, name: &str, flag: bool, c: char, b: u8) {
+    Print(name);
+    PrintLine(p.X);
+    PrintLine(p.Y);
+    Print(flag);
+    PrintLine(c);
+    PrintLine(b);
+    PrintLine(1);
+    PrintLine(Checked(p.X));
+}

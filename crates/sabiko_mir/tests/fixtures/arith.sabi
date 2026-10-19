@@ -1,0 +1,32 @@
+// Locals, arithmetic, compound assignment, casts and unary operators.
+fn Arith(a: i32, b: i32) -> i32 {
+    let mut x = a + b * 2;
+    x -= 1;
+    x *= a;
+    let y = (x - b) / 3 % 2;
+    let z = -y;
+    let neg = !(a == b);
+    let w = x as i64 + ((b as i64) << 2);
+    let f = a as f64 * 1.5;
+    let u = 7u8 as u32;
+    let bits = (a & b) | (a ^ b);
+    let same = a as i32;
+    if neg { z + w as i32 + u as i32 } else { x + bits + same + f as i32 }
+}
+
+fn Unary(flag: bool, n: u32) -> u32 {
+    let inverted = !n;
+    let shifted = inverted >> 3u8;
+    if !flag { shifted } else { 0 }
+}
+
+fn Literals() -> f64 {
+    let c = 'x';
+    let s = "text";
+    let big = 1_000_000u64;
+    let half = 0.5f32;
+    let _ = c;
+    let _ = s;
+    let _ = big;
+    half as f64 + 2.0
+}

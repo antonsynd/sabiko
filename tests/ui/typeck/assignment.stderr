@@ -1,0 +1,84 @@
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:13:5 ]
+    │
+ 13 │     1 = 2; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ┬  
+    │     ╰── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:14:5 ]
+    │
+ 14 │     Get() = 3; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ──┬──  
+    │       ╰──── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:15:5 ]
+    │
+ 15 │     K = 4; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ┬  
+    │     ╰── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:16:5 ]
+    │
+ 16 │     p.X + 1 = 5; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ───┬───  
+    │        ╰───── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:17:5 ]
+    │
+ 17 │     (p.X + 1) = 5; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ────┬────  
+    │         ╰────── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:18:5 ]
+    │
+ 18 │     P { X: 1 } = p; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ─────┬────  
+    │          ╰────── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:19:5 ]
+    │
+ 19 │     &p = &p; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ─┬  
+    │      ╰── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/assignment.sabi:20:5 ]
+    │
+ 20 │     1 += 2; //~ ERROR E0310 invalid left-hand side of assignment
+    │     ┬  
+    │     ╰── cannot assign to this expression
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/assignment.sabi:25:9 ]
+    │
+ 25 │     x = 1.5; //~ ERROR E0300 mismatched types
+    │         ─┬─  
+    │          ╰─── expected `{integer}`, found `{float}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/assignment.sabi:26:10 ]
+    │
+ 26 │     x = (x = 2); //~ ERROR E0300 mismatched types
+    │          ──┬──  
+    │            ╰──── expected `{integer}`, found `()`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/assignment.sabi:27:10 ]
+    │
+ 27 │     x += true; //~ ERROR E0300 mismatched types
+    │          ──┬─  
+    │            ╰─── expected `{integer}`, found `bool`
+────╯
+[E0306] Error: binary operation `-` cannot be applied to type `bool`
+    ╭─[ tests/ui/typeck/assignment.sabi:29:5 ]
+    │
+ 29 │     b -= b; //~ ERROR E0306 binary operation `-` cannot be applied to type `bool`
+    │     ───┬──  
+    │        ╰──── no implementation for `bool - bool`
+────╯

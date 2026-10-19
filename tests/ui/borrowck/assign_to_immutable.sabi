@@ -1,0 +1,24 @@
+// Field mutability follows the binding: writing a field of an immutable local.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+struct Line {
+    A: Point,
+    B: Point,
+}
+
+fn Field() {
+    let p = Point { X: 1, Y: 2 };
+    p.X = 3; //~ ERROR E0401 cannot assign to `p.X`, as `p` is not declared as mutable
+}
+
+fn Nested(l: Line) {
+    l.A.Y = 0; //~ ERROR E0401 cannot assign to `l.A.Y`, as `l` is not declared as mutable
+}
+
+fn CompoundField() {
+    let p = Point { X: 1, Y: 2 };
+    p.Y += 1; //~ ERROR E0401 cannot assign to `p.Y`, as `p` is not declared as mutable
+}

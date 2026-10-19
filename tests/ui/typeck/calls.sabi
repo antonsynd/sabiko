@@ -1,0 +1,27 @@
+// Calls: wrong argument count, calling something that is not a function, and a function item used as a value.
+const K: i32 = 1;
+
+fn Zero() -> i32 {
+    0
+}
+
+fn Two(a: i32, b: bool) -> i32 {
+    a
+}
+
+fn Main() {
+    let a = Two(1); //~ ERROR E0304 this function takes 2 arguments but 1 argument was supplied
+    let b = Two(1, true, 3); //~ ERROR E0304 this function takes 2 arguments but 3 arguments were supplied
+    let c = Zero(1); //~ ERROR E0304 this function takes 0 arguments but 1 argument was supplied
+    let d = 5;
+    let e = d(); //~ ERROR E0305 expected function, found `{integer}`
+    let f = true(); //~ ERROR E0305 expected function, found `bool`
+    let g = K(); //~ ERROR E0305 expected function, found `i32`
+    let h = Zero()(); //~ ERROR E0305 expected function, found `i32`
+    let i = Two; //~ ERROR E0317 function `Two` cannot be used as a value yet
+    let j = &Zero; //~ ERROR E0317 function `Zero` cannot be used as a value yet
+    Two(1, 2); //~ ERROR E0300 mismatched types
+    Two(true, false); //~ ERROR E0300 mismatched types
+    let k = (Two)(1, true);
+    let l: i32 = Zero();
+}

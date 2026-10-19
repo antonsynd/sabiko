@@ -1,0 +1,110 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/errors_recovery.sabi
+---
+SourceFile
+  Fn First
+    Block
+  Fn Third
+    Block
+      Expr
+        Block
+      Semi
+        Call
+          Path PrintLine
+          Args
+            Lit "ok"
+  Fn Fourth
+    Block
+--- diagnostics ---
+[E0100] Error: expected `;`, found `let`
+   ╭─[ errors_recovery.sabi:2:14 ]
+   │
+ 2 │     let x = 1
+   │              │ 
+   │              ╰─ expected `;` here
+ 3 │     let y = 2;
+   │     ─┬─  
+   │      ╰─── unexpected token
+───╯
+[E0100] Error: expected `:`, found `)`
+   ╭─[ errors_recovery.sabi:6:20 ]
+   │
+ 6 │ fn Second(a: i32, b) -> i32 {
+   │                    ┬  
+   │                    ╰── expected `:` here
+───╯
+[E0100] Error: expected `}`, found identifier `Y`
+    ╭─[ errors_recovery.sabi:12:5 ]
+    │
+ 12 │     Y: i32,
+    │     ┬  
+    │     ╰── expected `}` here
+────╯
+[E0108] Error: struct literals are not allowed here
+    ╭─[ errors_recovery.sabi:16:13 ]
+    │
+ 16 │     if x == Point { X: 1 } { }
+    │             ───┬───  
+    │                ╰───── this looks like a struct literal
+    │ 
+    │ Note: surround the struct literal with parentheses: `(Point { ... })`
+────╯
+[E0104] Error: comparison operators cannot be chained
+    ╭─[ errors_recovery.sabi:17:11 ]
+    │
+ 17 │     a < b < c;
+    │           ┬  
+    │           ╰── second comparison here
+    │ 
+    │ Note: split the comparison into two and join them with `&&`, or add parentheses
+────╯
+[E0100] Error: expected identifier, found keyword `fn`
+    ╭─[ errors_recovery.sabi:18:9 ]
+    │
+ 18 │     let fn = 3;
+    │         ─┬  
+    │          ╰── keywords cannot be used as names
+────╯
+[E0006] Error: unknown escape sequence
+    ╭─[ errors_recovery.sabi:22:28 ]
+    │
+ 22 │ fn Fourth() { let s = "bad \q escape"; let c = 'ab'; let big = 340282366920938463463374607431768211456; }
+    │                            ─┬  
+    │                             ╰── this escape is not valid
+    │ 
+    │ Note: valid escapes: `\n` `\r` `\t` `\\` `\0` `\'` `\"` `\xNN` `\u{NNNN}`
+────╯
+[E0005] Error: character literal must contain exactly one character
+    ╭─[ errors_recovery.sabi:22:48 ]
+    │
+ 22 │ fn Fourth() { let s = "bad \q escape"; let c = 'ab'; let big = 340282366920938463463374607431768211456; }
+    │                                                ──┬─  
+    │                                                  ╰─── contains zero or several characters
+────╯
+[E0004] Error: integer literal is too large
+    ╭─[ errors_recovery.sabi:22:64 ]
+    │
+ 22 │ fn Fourth() { let s = "bad \q escape"; let c = 'ab'; let big = 340282366920938463463374607431768211456; }
+    │                                                                ───────────────────┬───────────────────  
+    │                                                                                   ╰───────────────────── does not fit in 128 bits
+────╯
+[E0107] Error: not yet supported: `enum` items
+    ╭─[ errors_recovery.sabi:24:1 ]
+    │
+ 24 │ enum Later { A, B }
+    │ ──┬─  
+    │   ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: `self` parameters (methods)
+    ╭─[ errors_recovery.sabi:26:10 ]
+    │
+ 26 │ fn Fifth(self) {}
+    │          ──┬─  
+    │            ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯

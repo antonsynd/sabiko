@@ -1,0 +1,30 @@
+// Integer-to-float casts: exact for small values, rounded to the nearest float for large ones.
+fn Main() {
+    let a: i32 = -7;
+    let b: u8 = 255;
+    let c: i64 = 9007199254740993;
+    let d: u64 = 18446744073709551615;
+    let e: i16 = -32768;
+    let f: u32 = 4294967295;
+    PrintLine(a as f64); PrintLine(a as f32);
+    PrintLine(b as f64); PrintLine(b as f32);
+    PrintLine(c as f64); PrintLine(c as f32);
+    PrintLine(d as f64); PrintLine(d as f32);
+    PrintLine(e as f64); PrintLine(e as f32);
+    PrintLine(f as f64); PrintLine(f as f32);
+    let g: i64 = -9223372036854775808;
+    PrintLine(g as f64); PrintLine(g as f32);
+    let h: i32 = 16777217;
+    PrintLine(h as f32); PrintLine(h as f64);
+    let i: u64 = 9223372036854775808;
+    PrintLine(i as f64);
+    let j: usize = 123456789012345;
+    PrintLine(j as f64); PrintLine(j as f32);
+    let k: isize = -1;
+    PrintLine(k as f32);
+    PrintLine(0i8 as f32); PrintLine(1u16 as f64);
+    PrintLine(true as i32 as f64);
+    PrintLine('A' as u32 as f32);
+    PrintLine((a as f64) / 2.0);
+    PrintLine((b as f32) / 2.0);
+}

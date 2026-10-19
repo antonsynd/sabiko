@@ -1,0 +1,3 @@
+fn Unfinished() {
+    let x = 1;
+//~ ERROR E0105 expected `}`, found end of file

@@ -1,0 +1,16 @@
+// `*e` requires a reference operand.
+struct P {
+    X: i32,
+}
+
+fn Main(p: P, r: &i32, m: &mut P) {
+    let a = *5; //~ ERROR E0309 type `{integer}` cannot be dereferenced
+    let b = *p; //~ ERROR E0309 type `P` cannot be dereferenced
+    let c = *true; //~ ERROR E0309 type `bool` cannot be dereferenced
+    let d = **r; //~ ERROR E0309 type `i32` cannot be dereferenced
+    let e = *(*m).X; //~ ERROR E0309 type `i32` cannot be dereferenced
+    let f = *m.X; //~ ERROR E0309 type `i32` cannot be dereferenced
+    let rr = &r;
+    let g = *r + **rr + (*m).X;
+    let h = *a; // no second error: `a` already has the error type
+}

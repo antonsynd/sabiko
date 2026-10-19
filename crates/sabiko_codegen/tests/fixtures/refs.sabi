@@ -1,0 +1,56 @@
+// References: `in` parameters, `ref` parameters, reads and writes through them, reborrows,
+// references stored in locals, returned references, nested struct fields through a pointer.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+struct Line {
+    A: Point,
+    B: Point,
+}
+
+fn Read(p: &Point) -> i32 {
+    p.X + p.Y
+}
+
+fn Bump(p: &mut Point) {
+    p.X += 1;
+    (*p).Y = (*p).Y * 2;
+}
+
+fn First(l: &Line) -> &Point {
+    &l.A
+}
+
+fn FirstMut(l: &mut Line) -> &mut Point {
+    &mut l.A
+}
+
+fn Deref(r: &i32) -> i32 {
+    *r
+}
+
+fn Swap(a: &mut i32, b: &mut i32) {
+    let t = *a;
+    *a = *b;
+    *b = t;
+}
+
+fn Main() {
+    let mut p = Point { X: 1, Y: 2 };
+    Bump(&mut p);
+    let n = Read(&p);
+    let mut line = Line { A: p, B: Point { X: n, Y: 0 } };
+    let first = First(&line);
+    let fx = first.X;
+    let fm = FirstMut(&mut line);
+    fm.Y = fx;
+    Bump(fm);
+    let mut a = 1;
+    let mut b = 2;
+    Swap(&mut a, &mut b);
+    let r = &a;
+    let v = Deref(r) + line.B.X;
+    let _ = v;
+}

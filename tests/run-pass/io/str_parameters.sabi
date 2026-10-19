@@ -1,0 +1,17 @@
+// `&str` values travel through parameters and locals, not only literals.
+fn Shout(message: &str) {
+    Print(message);
+    PrintLine("!");
+}
+
+fn Echo(message: &str) -> &str {
+    message
+}
+
+fn Main() {
+    let greeting = "hello, \"world\"";
+    Shout(greeting);
+    Shout(Echo("second line"));
+    let copy = greeting;
+    Shout(copy);
+}

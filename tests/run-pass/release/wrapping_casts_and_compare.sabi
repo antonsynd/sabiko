@@ -1,0 +1,21 @@
+//@ release
+// Wrapped results still cast, compare and print like any other value.
+fn Wrap(x: u8, add: u8) -> u8 { x + add }
+
+fn Main() {
+    let w = Wrap(200, 100);
+    PrintLine(w);
+    PrintLine(w as i8);
+    PrintLine(w as i32 - 300);
+    PrintLine(w < 200);
+    PrintLine(w as f32);
+    let mut h: u32 = 2166136261;
+    let mut i: u32 = 0;
+    while i < 8 {
+        h = (h ^ (i + 97)) * 16777619;
+        i += 1;
+    }
+    PrintLine(h);
+    PrintLine(h as u16);
+    PrintLine(h as i64);
+}

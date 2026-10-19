@@ -1,0 +1,38 @@
+// `return` from inside loops and nested `if`s, in functions returning values and `()`.
+fn Sign(x: i32) -> i32 {
+    if x < 0 { return -1; }
+    if x == 0 { return 0; }
+    1
+}
+
+fn FirstDivisor(n: i32) -> i32 {
+    let mut d = 2;
+    while d * d <= n {
+        if n % d == 0 { return d; }
+        d += 1;
+    }
+    return n;
+}
+
+fn Report(n: i32) {
+    if n > 100 {
+        PrintLine("big");
+        return;
+    }
+    Print("small: ");
+    PrintLine(n);
+}
+
+fn Classify(x: f64) -> i32 {
+    if x != x { return 0; }
+    if x > 0.0 { if x > 1e100 { return 3; } else { return 2; } }
+    return 1;
+}
+
+fn Main() {
+    PrintLine(Sign(-5)); PrintLine(Sign(0)); PrintLine(Sign(9));
+    PrintLine(FirstDivisor(91)); PrintLine(FirstDivisor(97)); PrintLine(FirstDivisor(100));
+    Report(7); Report(700);
+    let zero: f64 = 0.0;
+    PrintLine(Classify(zero / zero)); PrintLine(Classify(1.0)); PrintLine(Classify(1e200)); PrintLine(Classify(-1.0));
+}

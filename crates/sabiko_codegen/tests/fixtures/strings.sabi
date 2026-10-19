@@ -1,0 +1,12 @@
+// `&str` is a `ReadOnlySpan<char>`, not a managed pointer: as a parameter it takes no `in`
+// modreq, as a local it is a value, and string literals escape spaces and quotes.
+fn Shout(message: &str) {
+    Print(message);
+    PrintLine("!");
+}
+
+fn Main() {
+    let greeting = "hello, \"world\"";
+    Shout(greeting);
+    Shout("second line");
+}

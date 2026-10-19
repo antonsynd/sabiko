@@ -1,0 +1,28 @@
+// Two live `&mut` borrows of the same place, directly and through a reborrow.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Twice() {
+    let mut x = 1;
+    let a = &mut x;
+    let b = &mut x; //~ ERROR E0409 cannot borrow `x` as mutable more than once at a time
+    *a = 1;
+    *b = 2;
+}
+
+fn FieldAndWhole() {
+    let mut p = Point { X: 1, Y: 2 };
+    let x = &mut p.X;
+    let whole = &mut p; //~ ERROR E0409 cannot borrow `p` as mutable more than once at a time
+    *x = 3;
+    whole.Y = 4;
+}
+
+fn ReborrowTwice(r: &mut i32) {
+    let a = &mut *r;
+    let b = &mut *r; //~ ERROR E0409 cannot borrow `*r` as mutable more than once at a time
+    *a = 1;
+    *b = 2;
+}

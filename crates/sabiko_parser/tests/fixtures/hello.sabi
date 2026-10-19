@@ -1,0 +1,17 @@
+//! The README example.
+
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn MovePoint(p: &mut Point, dx: i32, dy: i32) {
+    p.X = p.X + dx;
+    p.Y = p.Y + dy;
+}
+
+fn Main() {
+    let mut cursor = Point { X: 10, Y: 10 };
+    MovePoint(&mut cursor, 5, -2);
+    PrintLine(cursor.X);
+}

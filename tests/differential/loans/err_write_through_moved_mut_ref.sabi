@@ -1,0 +1,5 @@
+// Writing through a moved `&mut &i32` is a write through the original: the lifetime check follows it.
+fn Store(x: &mut &i32, y: &i32) {
+    let z = x;
+    *z = y;
+}

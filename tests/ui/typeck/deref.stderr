@@ -1,0 +1,42 @@
+[E0309] Error: type `{integer}` cannot be dereferenced
+   ╭─[ tests/ui/typeck/deref.sabi:7:13 ]
+   │
+ 7 │     let a = *5; //~ ERROR E0309 type `{integer}` cannot be dereferenced
+   │             ─┬  
+   │              ╰── can't be dereferenced
+───╯
+[E0309] Error: type `P` cannot be dereferenced
+   ╭─[ tests/ui/typeck/deref.sabi:8:13 ]
+   │
+ 8 │     let b = *p; //~ ERROR E0309 type `P` cannot be dereferenced
+   │             ─┬  
+   │              ╰── can't be dereferenced
+───╯
+[E0309] Error: type `bool` cannot be dereferenced
+   ╭─[ tests/ui/typeck/deref.sabi:9:13 ]
+   │
+ 9 │     let c = *true; //~ ERROR E0309 type `bool` cannot be dereferenced
+   │             ──┬──  
+   │               ╰──── can't be dereferenced
+───╯
+[E0309] Error: type `i32` cannot be dereferenced
+    ╭─[ tests/ui/typeck/deref.sabi:10:13 ]
+    │
+ 10 │     let d = **r; //~ ERROR E0309 type `i32` cannot be dereferenced
+    │             ─┬─  
+    │              ╰─── can't be dereferenced
+────╯
+[E0309] Error: type `i32` cannot be dereferenced
+    ╭─[ tests/ui/typeck/deref.sabi:11:13 ]
+    │
+ 11 │     let e = *(*m).X; //~ ERROR E0309 type `i32` cannot be dereferenced
+    │             ───┬───  
+    │                ╰───── can't be dereferenced
+────╯
+[E0309] Error: type `i32` cannot be dereferenced
+    ╭─[ tests/ui/typeck/deref.sabi:12:13 ]
+    │
+ 12 │     let f = *m.X; //~ ERROR E0309 type `i32` cannot be dereferenced
+    │             ──┬─  
+    │               ╰─── can't be dereferenced
+────╯

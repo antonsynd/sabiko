@@ -1,0 +1,212 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/expressions.sabi
+---
+SourceFile
+  Fn Expressions
+    Block
+      Let
+        Pat a
+        Init
+          Binary -
+            Binary +
+              Lit 1
+              Binary *
+                Lit 2
+                Lit 3
+            Binary %
+              Binary /
+                Lit 4
+                Lit 5
+              Lit 6
+      Let
+        Pat b
+        Init
+          Binary *
+            Paren
+              Binary +
+                Lit 1
+                Lit 2
+            Lit 3
+      Let
+        Pat c
+        Init
+          Binary |
+            Binary <<
+              Path a
+              Lit 2
+            Binary ^
+              Binary &
+                Binary >>
+                  Path b
+                  Lit 1
+                Lit 3
+              Lit 4
+      Let
+        Pat d
+        Init
+          Binary ||
+            Binary &&
+              Unary !
+                Path x
+              Path y
+            Binary &&
+              Binary ==
+                Path z
+                Lit 1
+              Binary !=
+                Path w
+                Lit 2
+      Let
+        Pat e
+        Init
+          Binary <
+            Path a
+            Path b
+      Let
+        Pat f
+        Init
+          Cast
+            Cast
+              Unary -
+                Path x
+              Type u32
+            Type i64
+      Let
+        Pat g
+        Init
+          RefMut
+            Field X
+              Path p
+      Let
+        Pat h
+        Init
+          Ref
+            Ref
+              Path q
+      Semi
+        Assign
+          Deref
+            Path r
+          Lit 5
+      Semi
+        Assign
+          Field U
+            Field T
+              Path s
+          Index
+            Index
+              Path v
+              Lit 0
+            Lit 1
+      Semi
+        Field Field
+          MethodCall Other
+            MethodCall Method
+              Path t
+              Args
+                Lit 1
+                Lit 2
+      Semi
+        Assign
+          Path u
+          Call
+            Call
+              Path Call
+              Args
+                Path a
+                Path b
+            Args
+              Path c
+      Semi
+        AssignOp +=
+          Path w
+          Lit 1
+      Semi
+        AssignOp -=
+          Path w
+          Lit 1
+      Semi
+        AssignOp *=
+          Path w
+          Lit 1
+      Semi
+        AssignOp /=
+          Path w
+          Lit 1
+      Semi
+        AssignOp %=
+          Path w
+          Lit 1
+      Semi
+        AssignOp &=
+          Path w
+          Lit 1
+      Semi
+        AssignOp |=
+          Path w
+          Lit 1
+      Semi
+        AssignOp ^=
+          Path w
+          Lit 1
+      Semi
+        AssignOp <<=
+          Path w
+          Lit 1
+      Semi
+        AssignOp >>=
+          Path w
+          Lit 1
+      Let
+        Pat p
+        Init
+          Struct Point
+            FieldInit X
+              Lit 1
+            FieldInit Y
+              Path Y
+      Let
+        Pat z
+        Init
+          Struct Geometry::Origin
+      Expr
+        If
+          Binary ==
+            Path x
+            Paren
+              Struct Point
+                FieldInit X
+                  Lit 1
+                FieldInit Y
+                  Lit 2
+          Block
+      Let
+        Pat lits
+        Init
+          Binary +
+            Binary +
+              Binary +
+                Binary +
+                  Binary +
+                    Binary +
+                      Binary +
+                        Binary +
+                          Binary +
+                            Binary +
+                              Binary +
+                                Lit 255
+                                Lit 7
+                              Lit 1
+                            Lit 1000u64
+                          Lit 1.5
+                        Lit 2e3f32
+                      Lit 'c'
+                    Lit '\n'
+                  Lit "s\t\"q\""
+                Lit true
+              Lit false
+            Unit
+      Semi
+        Return

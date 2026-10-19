@@ -1,0 +1,37 @@
+// Shared XOR mutable: a `&mut` while a `&` is live, and the other way round. The borrow
+// is live until its last use, so the error points at that use as well.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn MutWhileShared() {
+    let mut x = 1;
+    let r = &x;
+    let m = &mut x; //~ ERROR E0408 cannot borrow `x` as mutable because it is also borrowed as immutable
+    *m = 2;
+    let _ = *r;
+}
+
+fn SharedWhileMut() {
+    let mut x = 1;
+    let m = &mut x;
+    let r = &x; //~ ERROR E0408 cannot borrow `x` as immutable because it is also borrowed as mutable
+    *m = 2;
+    let _ = *r;
+}
+
+fn FieldWhileWhole(p: &mut Point) {
+    let whole = &mut *p;
+    let x = &p.X; //~ ERROR E0408 cannot borrow `p.X` as immutable because it is also borrowed as mutable
+    whole.Y = 2;
+    let _ = *x;
+}
+
+fn WholeWhileField() {
+    let mut p = Point { X: 1, Y: 2 };
+    let x = &p.X;
+    let whole = &mut p; //~ ERROR E0408 cannot borrow `p` as mutable because it is also borrowed as immutable
+    whole.Y = 2;
+    let _ = *x;
+}

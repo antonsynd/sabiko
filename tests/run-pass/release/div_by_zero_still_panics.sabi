@@ -1,0 +1,11 @@
+//@ release
+//@ exit-code: 101
+// Division by zero panics in release builds too.
+fn Rem(a: u64, b: u64) -> u64 { a % b }
+
+fn Main() {
+    PrintLine(Rem(18446744073709551615, 1000));
+    PrintLine("about to divide by zero");
+    PrintLine(Rem(1, 0));
+    PrintLine("not reached");
+}

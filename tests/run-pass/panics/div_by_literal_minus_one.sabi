@@ -1,0 +1,17 @@
+//@ exit-code: 101
+// A constant `-1` divisor (a `const` item reaches the backend as a constant, `-1` written
+// inline is a negation) keeps Rust's overflow check: `i8::MIN / -1` panics even though the
+// CLR computes the quotient at `int32` width without complaint.
+const NEG: i8 = -1;
+
+fn Negate(a: i8) -> i8 {
+    a / NEG
+}
+
+fn Main() {
+    PrintLine(Negate(5));
+    PrintLine(Negate(-127));
+    PrintLine("about to overflow");
+    PrintLine(Negate(-128));
+    PrintLine("not reached");
+}

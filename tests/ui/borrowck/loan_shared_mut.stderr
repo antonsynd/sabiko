@@ -1,0 +1,54 @@
+[E0408] Error: cannot borrow `x` as mutable because it is also borrowed as immutable
+    ╭─[ tests/ui/borrowck/loan_shared_mut.sabi:11:13 ]
+    │
+ 10 │     let r = &x;
+    │             ─┬  
+    │              ╰── immutable borrow occurs here
+ 11 │     let m = &mut x; //~ ERROR E0408 cannot borrow `x` as mutable because it is also borrowed as immutable
+    │             ───┬──  
+    │                ╰──── mutable borrow occurs here
+    │ 
+ 13 │     let _ = *r;
+    │             ─┬  
+    │              ╰── borrow later used here
+────╯
+[E0408] Error: cannot borrow `x` as immutable because it is also borrowed as mutable
+    ╭─[ tests/ui/borrowck/loan_shared_mut.sabi:19:13 ]
+    │
+ 18 │     let m = &mut x;
+    │             ───┬──  
+    │                ╰──── mutable borrow occurs here
+ 19 │     let r = &x; //~ ERROR E0408 cannot borrow `x` as immutable because it is also borrowed as mutable
+    │             ─┬  
+    │              ╰── immutable borrow occurs here
+ 20 │     *m = 2;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0408] Error: cannot borrow `p.X` as immutable because it is also borrowed as mutable
+    ╭─[ tests/ui/borrowck/loan_shared_mut.sabi:26:13 ]
+    │
+ 25 │     let whole = &mut *p;
+    │                 ───┬───  
+    │                    ╰───── mutable borrow occurs here
+ 26 │     let x = &p.X; //~ ERROR E0408 cannot borrow `p.X` as immutable because it is also borrowed as mutable
+    │             ──┬─  
+    │               ╰─── immutable borrow occurs here
+ 27 │     whole.Y = 2;
+    │     ─────┬─────  
+    │          ╰─────── borrow later used here
+────╯
+[E0408] Error: cannot borrow `p` as mutable because it is also borrowed as immutable
+    ╭─[ tests/ui/borrowck/loan_shared_mut.sabi:34:17 ]
+    │
+ 33 │     let x = &p.X;
+    │             ──┬─  
+    │               ╰─── immutable borrow occurs here
+ 34 │     let whole = &mut p; //~ ERROR E0408 cannot borrow `p` as mutable because it is also borrowed as immutable
+    │                 ───┬──  
+    │                    ╰──── mutable borrow occurs here
+    │ 
+ 36 │     let _ = *x;
+    │             ─┬  
+    │              ╰── borrow later used here
+────╯

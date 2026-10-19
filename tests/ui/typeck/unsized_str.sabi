@@ -1,0 +1,21 @@
+// `str` is only usable behind a reference.
+struct Holder {
+    Text: str, //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+}
+
+fn Param(s: str) {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+
+fn Ret(s: &str) -> str { //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    *s //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+}
+
+const Name: str = //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    "x"; //~ ERROR E0300 mismatched types
+
+fn Main(s: &str) {
+    let a: str = //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+        *s; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    let b = s;
+    let t: &str = b;
+    let c = "literal";
+}

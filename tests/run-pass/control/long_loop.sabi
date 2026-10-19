@@ -1,0 +1,22 @@
+// A million iterations with mixed-width accumulators and a `loop` that breaks on a computed value.
+fn Main() {
+    let mut i: u32 = 0;
+    let mut sum: u64 = 0;
+    let mut xor: u32 = 0;
+    let mut f: f64 = 0.0;
+    while i < 1000000 {
+        sum += i as u64;
+        xor ^= i;
+        f += 0.5;
+        i += 1;
+    }
+    PrintLine(sum);
+    PrintLine(xor);
+    PrintLine(f);
+    let mut n: u64 = 1;
+    let steps = loop {
+        if n > 1000000000000 { break n; }
+        n = n * 3 + 1;
+    };
+    PrintLine(steps);
+}

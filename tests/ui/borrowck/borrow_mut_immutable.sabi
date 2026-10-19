@@ -1,0 +1,26 @@
+// Taking `&mut` of an immutable binding or of one of its fields.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Touch(n: &mut i32) {
+    *n += 1;
+}
+
+fn Local() {
+    let x = 1;
+    Touch(&mut x); //~ ERROR E0402 cannot borrow `x` as mutable, as `x` is not declared as mutable
+}
+
+fn Field(p: Point) {
+    let r = &mut p.X; //~ ERROR E0402 cannot borrow `p.X` as mutable, as `p` is not declared as mutable
+    *r = 2;
+}
+
+fn Fine() {
+    let mut x = 1;
+    Touch(&mut x);
+    let mut p = Point { X: 1, Y: 2 };
+    Touch(&mut p.Y);
+}

@@ -1,0 +1,969 @@
+//! AST to MIR lowering.
+//!
+//! One [`Body`] is built per function whose type check succeeded. The structure follows
+//! rustc's `mir_build`: an expression is lowered in one of three ways depending on what
+//! the context needs from it.
+//!
+//! - [`Builder::as_operand`] produces an [`Operand`]: a constant, or a `copy`/`move` of a
+//!   place, introducing a temporary for anything else.
+//! - [`Builder::as_place`] produces a [`Place`] for place expressions (locals, field
+//!   accesses with their autoderefs, `*e`); any other expression is evaluated into a
+//!   temporary first.
+//! - [`Builder::expr_into_dest`] writes the expression's value into a destination place.
+//!   Control flow lives here: `if`, loops, `&&`/`||` and blocks all branch and finally
+//!   write their value into the destination.
+//!
+//! Storage markers follow rustc too: a `StorageLive` when a user local or temporary comes
+//! into existence, `StorageDead` at the end of its scope (the enclosing block for `let`
+//! bindings, the enclosing statement for temporaries) in reverse declaration order, and
+//! on every early exit (`break`, `continue`, `return`) for all scopes being left.
+//!
+//! Lowering itself never reports diagnostics: the type checker already rejected every
+//! invalid program, and bodies with type errors are skipped.
+
+use std::collections::HashMap;
+
+use sabiko_ast::{
+    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, PatKind, SourceFile, Stmt, StmtKind,
+};
+use sabiko_diagnostics::DiagnosticSink;
+use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_span::Span;
+use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
+
+use crate::{
+    BasicBlock, BasicBlockData, Body, Constant, Local, LocalDecl, LocalKind, Operand, Place,
+    Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
+};
+
+/// Lowers every function in `file` whose body type-checked without errors, in source
+/// order. Constants have no bodies. A function that refers to a constant whose evaluation
+/// failed is skipped as well: its errors were reported with the constant.
+///
+/// `_sink` is unused for now: lowering never reports; the validator does.
+#[must_use]
+pub fn build_bodies(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    _sink: &mut DiagnosticSink,
+) -> Vec<Body> {
+    let mut bodies = Vec::new();
+    for item in &file.items {
+        let ItemKind::Fn(f) = &item.kind else {
+            continue;
+        };
+        let def = resolve.def_of_item(item.id);
+        let types = typeck.body(def);
+        if types.has_errors {
+            continue;
+        }
+        if let Some(body) = Builder::new(resolve, typeck, types, def, item, f).build(f) {
+            bodies.push(body);
+        }
+    }
+    bodies
+}
+
+/// A loop being lowered: where `continue` and `break` go, and where `break value`
+/// writes.
+struct LoopScope {
+    header: BasicBlock,
+    /// Created on the first `break`; a loop nobody breaks out of has no exit.
+    exit: Option<BasicBlock>,
+    /// `None` when the loop's value is discarded.
+    dest: Option<Place>,
+    /// `scopes.len()` when the loop was entered; `break`/`continue` leave every scope
+    /// above it.
+    scope_depth: usize,
+}
+
+struct Builder<'a> {
+    resolve: &'a ResolveResults,
+    typeck: &'a TypeckResults,
+    types: &'a BodyTypes,
+    body: Body,
+    /// Resolver bindings to MIR locals.
+    local_map: HashMap<LocalId, Local>,
+    /// Locals to `StorageDead` when each open scope ends, innermost last. Blocks and
+    /// statements (for their temporaries) each open one.
+    scopes: Vec<Vec<Local>>,
+    loops: Vec<LoopScope>,
+    /// The block holding the single `return`, created on first use.
+    return_block: Option<BasicBlock>,
+    /// The block statements are currently appended to.
+    current: BasicBlock,
+    /// Set when a constant without a value was referenced; the body is discarded.
+    failed: bool,
+}
+
+impl<'a> Builder<'a> {
+    fn new(
+        resolve: &'a ResolveResults,
+        typeck: &'a TypeckResults,
+        types: &'a BodyTypes,
+        def: DefId,
+        item: &Item,
+        f: &FnDecl,
+    ) -> Self {
+        let sig = typeck.items.fn_sig(def);
+        let mut locals = vec![LocalDecl {
+            ty: sig.output.clone(),
+            mutability: Mutability::Mut,
+            kind: LocalKind::Return,
+            name: None,
+            span: f.ret.as_ref().map_or(f.name.span, |t| t.span),
+            source: None,
+        }];
+        let mut local_map = HashMap::new();
+        for (param, ty) in f.params.iter().zip(&sig.inputs) {
+            let (name, mutability, source) = match &param.pat.kind {
+                PatKind::Ident { mutable, name } => (
+                    Some(name.name.clone()),
+                    Mutability::from_bool(*mutable),
+                    resolve.local_of_pat(param.pat.id),
+                ),
+                PatKind::Wild => (None, Mutability::Not, None),
+            };
+            let local = Local(u32::try_from(locals.len()).expect("fewer than 2^32 locals"));
+            if let Some(id) = source {
+                local_map.insert(id, local);
+            }
+            locals.push(LocalDecl {
+                ty: ty.clone(),
+                mutability,
+                kind: LocalKind::Arg,
+                name,
+                span: param.span,
+                source,
+            });
+        }
+        let body = Body {
+            def,
+            name: f.name.name.clone(),
+            locals,
+            arg_count: f.params.len(),
+            blocks: vec![BasicBlockData::default()],
+            span: item.span,
+        };
+        Self {
+            resolve,
+            typeck,
+            types,
+            body,
+            local_map,
+            scopes: Vec::new(),
+            loops: Vec::new(),
+            return_block: None,
+            current: BasicBlock::START,
+            failed: false,
+        }
+    }
+
+    fn build(mut self, f: &FnDecl) -> Option<Body> {
+        let span = f.body.span;
+        self.lower_block_into(&Place::local(Local::RETURN), &f.body);
+        let ret = self.return_block();
+        self.terminate(TerminatorKind::Goto { target: ret }, span);
+        self.current = ret;
+        self.terminate(TerminatorKind::Return, span);
+        debug_assert!(self.scopes.is_empty() && self.loops.is_empty());
+        if self.failed {
+            None
+        } else {
+            Some(self.body)
+        }
+    }
+
+    // ----- CFG plumbing -----
+
+    fn new_block(&mut self) -> BasicBlock {
+        let bb = BasicBlock(u32::try_from(self.body.blocks.len()).expect("fewer than 2^32 blocks"));
+        self.body.blocks.push(BasicBlockData::default());
+        bb
+    }
+
+    fn return_block(&mut self) -> BasicBlock {
+        if let Some(bb) = self.return_block {
+            return bb;
+        }
+        let bb = self.new_block();
+        self.return_block = Some(bb);
+        bb
+    }
+
+    fn push_stmt(&mut self, kind: StatementKind, span: Span) {
+        self.body.blocks[self.current.index()]
+            .statements
+            .push(Statement { kind, span });
+    }
+
+    fn assign(&mut self, place: Place, rvalue: Rvalue, span: Span) {
+        self.push_stmt(StatementKind::Assign(place, rvalue), span);
+    }
+
+    /// Ends `bb` with `kind`. Every block is terminated exactly once.
+    fn terminate_block(&mut self, bb: BasicBlock, kind: TerminatorKind, span: Span) {
+        let data = &mut self.body.blocks[bb.index()];
+        debug_assert!(data.terminator.is_none(), "bb{} terminated twice", bb.0);
+        data.terminator = Some(Terminator { kind, span });
+    }
+
+    /// Ends the current block with `kind`.
+    fn terminate(&mut self, kind: TerminatorKind, span: Span) {
+        let bb = self.current;
+        self.terminate_block(bb, kind, span);
+    }
+
+    /// Ends the current block with a `switchInt` on `discr`. A discriminant of type `!`
+    /// (`if loop {} {}`, `if return {}`) never produces a value: the block is unreachable
+    /// instead, and the branches lowered after it are dead code `simplify` removes.
+    fn switch_int(
+        &mut self,
+        discr: Operand,
+        targets: Vec<(u128, BasicBlock)>,
+        otherwise: BasicBlock,
+        span: Span,
+    ) {
+        if discr.ty(&self.body).is_never() {
+            self.terminate(TerminatorKind::Unreachable, span);
+        } else {
+            self.terminate(
+                TerminatorKind::SwitchInt {
+                    discr,
+                    targets,
+                    otherwise,
+                },
+                span,
+            );
+        }
+    }
+
+    /// Ends the current block with a jump and continues in a fresh block, which is only
+    /// reachable if something else jumps to it. Code after `return`, `break` and
+    /// `continue` lands in such a block; `simplify` removes it.
+    fn jump_away(&mut self, kind: TerminatorKind, span: Span) {
+        self.terminate(kind, span);
+        self.current = self.new_block();
+    }
+
+    // ----- locals and scopes -----
+
+    fn new_local(&mut self, decl: LocalDecl) -> Local {
+        let local = Local(u32::try_from(self.body.locals.len()).expect("fewer than 2^32 locals"));
+        self.body.locals.push(decl);
+        local
+    }
+
+    /// Declares a temporary in the enclosing block's scope (not the statement's), so it
+    /// outlives the statement that creates it.
+    fn new_temp_in_block_scope(&mut self, ty: Ty, span: Span) -> Local {
+        let local = self.new_local(LocalDecl {
+            ty,
+            mutability: Mutability::Mut,
+            kind: LocalKind::Temp,
+            name: None,
+            span,
+            source: None,
+        });
+        let block_scope = self.scopes.len() - 2;
+        self.scopes[block_scope].push(local);
+        self.push_stmt(StatementKind::StorageLive(local), span);
+        local
+    }
+
+    /// Declares a temporary in the innermost scope and marks it live.
+    fn new_temp(&mut self, ty: Ty, span: Span) -> Local {
+        let local = self.new_local(LocalDecl {
+            ty,
+            mutability: Mutability::Mut,
+            kind: LocalKind::Temp,
+            name: None,
+            span,
+            source: None,
+        });
+        self.scopes
+            .last_mut()
+            .expect("temporaries are created inside a scope")
+            .push(local);
+        self.push_stmt(StatementKind::StorageLive(local), span);
+        local
+    }
+
+    /// Declares the local of a `let` binding in the enclosing block scope (the innermost
+    /// scope is the statement's own) and marks it live.
+    fn declare_user_local(&mut self, id: LocalId, span: Span) -> Local {
+        let info = self.resolve.local(id);
+        let local = self.new_local(LocalDecl {
+            ty: self.types.local_ty(id).clone(),
+            mutability: Mutability::from_bool(info.mutable),
+            kind: LocalKind::User,
+            name: Some(info.name.clone()),
+            span: info.span,
+            source: Some(id),
+        });
+        self.local_map.insert(id, local);
+        let block_scope = self.scopes.len() - 2;
+        self.scopes[block_scope].push(local);
+        self.push_stmt(StatementKind::StorageLive(local), span);
+        local
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(Vec::new());
+    }
+
+    /// Closes the innermost scope, ending the storage of its locals in reverse order.
+    fn pop_scope(&mut self, span: Span) {
+        let locals = self.scopes.pop().expect("a scope is open");
+        self.storage_dead(&locals, span);
+    }
+
+    fn storage_dead(&mut self, locals: &[Local], span: Span) {
+        for &local in locals.iter().rev() {
+            self.push_stmt(StatementKind::StorageDead(local), span);
+        }
+    }
+
+    /// Ends the storage of every local in the scopes at `depth` and above, innermost
+    /// first, without closing them: the code that follows an early exit is unreachable
+    /// but is still lowered in the scopes it is written in.
+    fn exit_scopes(&mut self, depth: usize, span: Span) {
+        let locals: Vec<Local> = self.scopes[depth..]
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev().copied())
+            .collect();
+        for local in locals {
+            self.push_stmt(StatementKind::StorageDead(local), span);
+        }
+    }
+
+    // ----- helpers -----
+
+    fn ty(&self, expr: &Expr) -> &Ty {
+        self.types.expr_ty(expr.id)
+    }
+
+    fn mir_local(&self, id: LocalId) -> Local {
+        self.local_map[&id]
+    }
+
+    /// `copy` for `Copy` types, `move` otherwise.
+    fn place_operand(&self, place: Place) -> Operand {
+        if self.typeck.items.is_copy(&place.ty(&self.body)) {
+            Operand::Copy(place)
+        } else {
+            Operand::Move(place)
+        }
+    }
+
+    /// An operand for a coercion site: a call argument, struct field initialiser, assignment
+    /// right-hand side, annotated `let` initialiser or return value. Like rustc, a `&mut T`
+    /// place is reborrowed (`&mut *p`) instead of moved there, so passing a mutable
+    /// reference to a function does not consume it.
+    fn coerced_operand(&mut self, expr: &Expr) -> Operand {
+        let is_place_expr = matches!(
+            strip_parens(expr).kind,
+            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+        );
+        if is_place_expr {
+            if let Ty::Ref(Mutability::Mut, _) = self.ty(expr) {
+                let ty = self.ty(expr).clone();
+                let place = self.as_place(expr);
+                if place.local != Local::RETURN || !place.projection.is_empty() {
+                    let temp = self.new_temp(ty, expr.span);
+                    self.assign(
+                        Place::local(temp),
+                        Rvalue::Ref(Mutability::Mut, place.deref()),
+                        expr.span,
+                    );
+                    return Operand::Move(Place::local(temp));
+                }
+            }
+        }
+        self.as_operand(expr)
+    }
+
+    fn unit_rvalue(span: Span) -> Rvalue {
+        Rvalue::Use(Operand::Constant(Constant {
+            ty: Ty::Unit,
+            value: ConstValue::Unit,
+            span,
+        }))
+    }
+
+    fn bool_constant(value: bool, span: Span) -> Operand {
+        Operand::Constant(Constant {
+            ty: Ty::BOOL,
+            value: ConstValue::Bool(value),
+            span,
+        })
+    }
+
+    fn lit_constant(&mut self, lit: &Lit, ty: &Ty, span: Span) -> Constant {
+        let value = match lit {
+            Lit::Int { value, .. } => {
+                if ty.as_prim().is_some_and(PrimTy::is_signed_int) {
+                    ConstValue::Int(i128::try_from(*value).unwrap_or(i128::MAX))
+                } else {
+                    ConstValue::Uint(*value)
+                }
+            }
+            Lit::Float { text, .. } => {
+                if let Ok(f) = sabiko_lexer::literal::parse_float(text) {
+                    ConstValue::Float(f.value)
+                } else {
+                    // The lexer validated the literal; this cannot happen.
+                    self.failed = true;
+                    ConstValue::Float(0.0)
+                }
+            }
+            Lit::Bool(b) => ConstValue::Bool(*b),
+            Lit::Char(c) => ConstValue::Char(*c),
+            Lit::Str(s) => ConstValue::Str(s.clone()),
+        };
+        Constant {
+            ty: ty.clone(),
+            value,
+            span,
+        }
+    }
+
+    /// The value of a `const` item. One that failed to evaluate (its errors were reported
+    /// with the item) poisons this body.
+    fn const_constant(&mut self, def: DefId, ty: &Ty, span: Span) -> Constant {
+        let value = if let Some(v) = self.typeck.const_value(def) {
+            v.clone()
+        } else {
+            self.failed = true;
+            ConstValue::Unit
+        };
+        Constant {
+            ty: ty.clone(),
+            value,
+            span,
+        }
+    }
+
+    /// What a path expression names, through parentheses.
+    /// `&e` / `&mut e` where `e` is not a place: the borrow of a temporary.
+    fn ref_of_temporary(expr: &Expr) -> Option<(bool, &Expr)> {
+        if let ExprKind::Ref {
+            mutable,
+            expr: inner,
+        } = &strip_parens(expr).kind
+        {
+            let is_place = matches!(
+                strip_parens(inner).kind,
+                ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+            );
+            if !is_place {
+                return Some((*mutable, inner));
+            }
+        }
+        None
+    }
+
+    /// A place expression of type `&mut T`, which coercion sites reborrow.
+    fn is_mut_ref_place_expr(&self, expr: &Expr) -> bool {
+        matches!(
+            strip_parens(expr).kind,
+            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+        ) && matches!(self.ty(expr), Ty::Ref(Mutability::Mut, _))
+    }
+
+    fn path_res(&self, expr: &Expr) -> Option<Res> {
+        match &expr.kind {
+            ExprKind::Path(_) => Some(self.resolve.res(expr.id)),
+            ExprKind::Paren(inner) => self.path_res(inner),
+            _ => None,
+        }
+    }
+
+    fn def_kind(&self, def: DefId) -> DefKind {
+        self.resolve.def(def).kind
+    }
+
+    // ----- expressions -----
+
+    /// Lowers `expr` to an operand: a constant, or a fresh temporary holding its value.
+    ///
+    /// Place expressions are copied (or moved) into the temporary at this point rather
+    /// than read lazily by the consuming statement, exactly as rustc's `as_operand` does.
+    /// The order matters: in `F(p.A, Bump(&mut p))` the first argument must see `p.A`
+    /// before `Bump` runs, and a reference temporary such as the result of `Weigh(&mut n)`
+    /// in `*Weigh(&mut n) + n.W` must die once its referent is copied, so the sibling
+    /// operand can read `n`.
+    fn as_operand(&mut self, expr: &Expr) -> Operand {
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.as_operand(inner),
+            ExprKind::Lit(lit) => {
+                let ty = self.ty(expr).clone();
+                Operand::Constant(self.lit_constant(lit, &ty, expr.span))
+            }
+            ExprKind::Unit => Operand::Constant(Constant {
+                ty: Ty::Unit,
+                value: ConstValue::Unit,
+                span: expr.span,
+            }),
+            ExprKind::Path(_) if matches!(self.resolve.res(expr.id), Res::Def(def) if self.def_kind(def) == DefKind::Const) =>
+            {
+                let Res::Def(def) = self.resolve.res(expr.id) else {
+                    unreachable!()
+                };
+                let ty = self.ty(expr).clone();
+                Operand::Constant(self.const_constant(def, &ty, expr.span))
+            }
+            _ => {
+                let temp = self.as_temp(expr);
+                self.place_operand(Place::local(temp))
+            }
+        }
+    }
+
+    /// Lowers `expr` to a place. Non-place expressions are evaluated into a temporary.
+    fn as_place(&mut self, expr: &Expr) -> Place {
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.as_place(inner),
+            ExprKind::Path(_) => match self.resolve.res(expr.id) {
+                Res::Local(id) => Place::local(self.mir_local(id)),
+                _ => Place::local(self.as_temp(expr)),
+            },
+            ExprKind::Field(base, _) => {
+                let access = self.types.field_accesses[&expr.id];
+                let field_ty = self.ty(expr).clone();
+                let mut place = self.as_place(base);
+                for _ in 0..access.autoderefs {
+                    place = place.deref();
+                }
+                place.field(access.index, field_ty)
+            }
+            ExprKind::Deref(inner) => self.as_place(inner).deref(),
+            _ => Place::local(self.as_temp(expr)),
+        }
+    }
+
+    /// Evaluates `expr` into a fresh temporary.
+    fn as_temp(&mut self, expr: &Expr) -> Local {
+        let ty = self.ty(expr).clone();
+        let temp = self.new_temp(ty, expr.span);
+        self.expr_into_dest(&Place::local(temp), expr);
+        temp
+    }
+
+    /// Lowers `expr` and writes its value into `dest`. Diverging expressions write
+    /// nothing and leave the builder in an unreachable block.
+    #[allow(clippy::too_many_lines)]
+    fn expr_into_dest(&mut self, dest: &Place, expr: &Expr) {
+        let span = expr.span;
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.expr_into_dest(dest, inner),
+            ExprKind::Lit(_) | ExprKind::Unit => {
+                let op = self.as_operand(expr);
+                self.assign(dest.clone(), Rvalue::Use(op), span);
+            }
+            // A place read straight into the destination (`let x = p.A;`), as rustc does:
+            // only operands of a larger expression go through a temporary.
+            ExprKind::Field(..) | ExprKind::Deref(_) => {
+                let place = self.as_place(expr);
+                let op = self.place_operand(place);
+                self.assign(dest.clone(), Rvalue::Use(op), span);
+            }
+            ExprKind::Path(_) => match self.resolve.res(expr.id) {
+                Res::Local(id) => {
+                    let op = self.place_operand(Place::local(self.mir_local(id)));
+                    self.assign(dest.clone(), Rvalue::Use(op), span);
+                }
+                Res::Def(def) => match self.def_kind(def) {
+                    DefKind::Const => {
+                        let op = self.as_operand(expr);
+                        self.assign(dest.clone(), Rvalue::Use(op), span);
+                    }
+                    DefKind::Struct => {
+                        self.assign(dest.clone(), Rvalue::Aggregate(def, Vec::new()), span);
+                    }
+                    DefKind::Fn => unreachable!("function items as values are rejected"),
+                },
+                Res::Prim(_) | Res::Err => unreachable!("unresolved path in a checked body"),
+            },
+            ExprKind::Unary(op, operand) => {
+                let operand = self.as_operand(operand);
+                self.assign(dest.clone(), Rvalue::UnaryOp(*op, operand), span);
+            }
+            ExprKind::Binary(op @ (BinOp::And | BinOp::Or), lhs, rhs) => {
+                self.lower_logical(dest, *op, lhs, rhs, span);
+            }
+            ExprKind::Binary(op, lhs, rhs) => {
+                let lhs = self.as_operand(lhs);
+                let rhs = self.as_operand(rhs);
+                self.assign(dest.clone(), Rvalue::BinaryOp(*op, lhs, rhs), span);
+            }
+            ExprKind::Assign(..) | ExprKind::AssignOp(..) => {
+                self.lower_assign(expr);
+                self.assign(dest.clone(), Self::unit_rvalue(span), span);
+            }
+            ExprKind::Call { callee, args } => {
+                let Some(Res::Def(func)) = self.path_res(callee) else {
+                    unreachable!("callees are function paths in a checked body")
+                };
+                let args: Vec<Operand> = args.iter().map(|a| self.coerced_operand(a)).collect();
+                let next = self.new_block();
+                // A callee returning `!` (`Panic`) has no return edge; what follows lands
+                // in an unreachable block, as after `return`.
+                let target = if self.ty(expr).is_never() {
+                    None
+                } else {
+                    Some(next)
+                };
+                self.terminate(
+                    TerminatorKind::Call {
+                        func,
+                        args,
+                        destination: dest.clone(),
+                        target,
+                    },
+                    span,
+                );
+                self.current = next;
+            }
+            ExprKind::Ref {
+                mutable,
+                expr: inner,
+            } => {
+                let place = self.as_place(inner);
+                self.assign(
+                    dest.clone(),
+                    Rvalue::Ref(Mutability::from_bool(*mutable), place),
+                    span,
+                );
+            }
+            ExprKind::Cast(inner, _) => {
+                let target = self.ty(expr).clone();
+                let operand = self.as_operand(inner);
+                self.assign(dest.clone(), Rvalue::Cast(operand, target), span);
+            }
+            ExprKind::Block(block) => self.lower_block_into(dest, block),
+            ExprKind::If { cond, then, els } => {
+                self.lower_if(Some(dest), cond, then, els.as_deref(), span);
+            }
+            ExprKind::While { cond, body } => {
+                self.lower_while(cond, body, span);
+                self.assign(dest.clone(), Self::unit_rvalue(span), span);
+            }
+            ExprKind::Loop { body } => self.lower_loop(Some(dest.clone()), body, span),
+            ExprKind::Break(value) => self.lower_break(value.as_deref(), span),
+            ExprKind::Continue => self.lower_continue(span),
+            ExprKind::Return(value) => self.lower_return(value.as_deref(), span),
+            ExprKind::Struct { fields, .. } => {
+                let Res::Def(def) = self.resolve.res(expr.id) else {
+                    unreachable!("unresolved struct literal in a checked body")
+                };
+                let adt = self.typeck.items.adt(def);
+                // Initialisers run in source order; the aggregate lists declaration order.
+                let mut operands: Vec<Option<Operand>> = vec![None; adt.fields.len()];
+                let indices: Vec<usize> = fields
+                    .iter()
+                    .map(|f| {
+                        adt.field_index(&f.name.name)
+                            .expect("struct literal fields exist in a checked body")
+                    })
+                    .collect();
+                for (field, index) in fields.iter().zip(indices) {
+                    operands[index] = Some(self.coerced_operand(&field.value));
+                }
+                let operands = operands
+                    .into_iter()
+                    .map(|op| op.expect("every field is initialised in a checked body"))
+                    .collect();
+                self.assign(dest.clone(), Rvalue::Aggregate(def, operands), span);
+            }
+            ExprKind::MethodCall { .. } | ExprKind::Index(..) => {
+                unreachable!("method calls and indexing are rejected by the type checker")
+            }
+        }
+    }
+
+    /// Lowers an expression whose value is not needed (an expression statement). The
+    /// statement-like forms need no destination; anything else goes into a temporary that
+    /// dies with the statement.
+    fn lower_expr_discard(&mut self, expr: &Expr) {
+        let span = expr.span;
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.lower_expr_discard(inner),
+            ExprKind::Assign(..) | ExprKind::AssignOp(..) => self.lower_assign(expr),
+            ExprKind::Block(block) => self.lower_block_discard(block),
+            ExprKind::If { cond, then, els } => {
+                self.lower_if(None, cond, then, els.as_deref(), span);
+            }
+            ExprKind::While { cond, body } => self.lower_while(cond, body, span),
+            ExprKind::Loop { body } => self.lower_loop(None, body, span),
+            ExprKind::Break(value) => self.lower_break(value.as_deref(), span),
+            ExprKind::Continue => self.lower_continue(span),
+            ExprKind::Return(value) => self.lower_return(value.as_deref(), span),
+            _ => {
+                self.as_temp(expr);
+            }
+        }
+    }
+
+    /// `p = e` and `p op= e`. The right-hand side is evaluated first, then the place, as
+    /// in rustc.
+    fn lower_assign(&mut self, expr: &Expr) {
+        let span = expr.span;
+        match &expr.kind {
+            ExprKind::Assign(lhs, rhs) => {
+                let rhs = self.coerced_operand(rhs);
+                let place = self.as_place(lhs);
+                self.assign(place, Rvalue::Use(rhs), span);
+            }
+            ExprKind::AssignOp(op, lhs, rhs) => {
+                let rhs = self.as_operand(rhs);
+                let place = self.as_place(lhs);
+                let current = self.place_operand(place.clone());
+                self.assign(place, Rvalue::BinaryOp(*op, current, rhs), span);
+            }
+            _ => unreachable!("not an assignment"),
+        }
+    }
+
+    /// `a && b` / `a || b`: the right operand only runs when the left one does not decide
+    /// the result.
+    fn lower_logical(&mut self, dest: &Place, op: BinOp, lhs: &Expr, rhs: &Expr, span: Span) {
+        let lhs = self.as_operand(lhs);
+        let rhs_block = self.new_block();
+        let short_block = self.new_block();
+        let (targets, otherwise, short_value) = match op {
+            // `false && _` is false; `true || _` is true.
+            BinOp::And => (vec![(0, short_block)], rhs_block, false),
+            BinOp::Or => (vec![(0, rhs_block)], short_block, true),
+            _ => unreachable!("not a logical operator"),
+        };
+        self.switch_int(lhs, targets, otherwise, span);
+        self.current = rhs_block;
+        let rhs = self.as_operand(rhs);
+        self.assign(dest.clone(), Rvalue::Use(rhs), span);
+        let rhs_end = self.current;
+        self.current = short_block;
+        self.assign(
+            dest.clone(),
+            Rvalue::Use(Self::bool_constant(short_value, span)),
+            span,
+        );
+        let join = self.new_block();
+        self.terminate_block(rhs_end, TerminatorKind::Goto { target: join }, span);
+        self.terminate_block(short_block, TerminatorKind::Goto { target: join }, span);
+        self.current = join;
+    }
+
+    /// `if cond { then } else { els }`. `bool` is `0`/`1`, so `0` selects the else
+    /// branch. Without `else`, the value is `()`.
+    fn lower_if(
+        &mut self,
+        dest: Option<&Place>,
+        cond: &Expr,
+        then: &Block,
+        els: Option<&Expr>,
+        span: Span,
+    ) {
+        let discr = self.as_operand(cond);
+        let then_block = self.new_block();
+        let else_block = self.new_block();
+        self.switch_int(discr, vec![(0, else_block)], then_block, span);
+        self.current = then_block;
+        match dest {
+            Some(dest) => self.lower_block_into(dest, then),
+            None => self.lower_block_discard(then),
+        }
+        let then_end = self.current;
+        self.current = else_block;
+        match (els, dest) {
+            (Some(els), Some(dest)) => self.expr_into_dest(dest, els),
+            (Some(els), None) => self.lower_expr_discard(els),
+            (None, Some(dest)) => self.assign(dest.clone(), Self::unit_rvalue(span), span),
+            (None, None) => {}
+        }
+        let else_end = self.current;
+        let join = self.new_block();
+        self.terminate_block(then_end, TerminatorKind::Goto { target: join }, span);
+        self.terminate_block(else_end, TerminatorKind::Goto { target: join }, span);
+        self.current = join;
+    }
+
+    /// `while cond { body }`. The condition's temporaries die at the start of both
+    /// successors, so each iteration starts from the same storage state.
+    fn lower_while(&mut self, cond: &Expr, body: &Block, span: Span) {
+        let header = self.new_block();
+        self.terminate(TerminatorKind::Goto { target: header }, span);
+        self.current = header;
+        self.push_scope();
+        let discr = self.as_operand(cond);
+        let cond_temps = self.scopes.pop().expect("condition scope");
+        let body_block = self.new_block();
+        let false_block = self.new_block();
+        self.switch_int(discr, vec![(0, false_block)], body_block, span);
+        self.loops.push(LoopScope {
+            header,
+            exit: None,
+            dest: None,
+            scope_depth: self.scopes.len(),
+        });
+        self.current = body_block;
+        self.storage_dead(&cond_temps, span);
+        self.lower_block_discard(body);
+        self.terminate(TerminatorKind::Goto { target: header }, span);
+        let scope = self.loops.pop().expect("loop scope pushed above");
+        self.current = false_block;
+        self.storage_dead(&cond_temps, span);
+        let exit = scope.exit.unwrap_or_else(|| self.new_block());
+        self.terminate(TerminatorKind::Goto { target: exit }, span);
+        self.current = exit;
+    }
+
+    /// `loop { body }`. Only `break` leaves it; without one nothing after the loop is
+    /// reachable.
+    fn lower_loop(&mut self, dest: Option<Place>, body: &Block, span: Span) {
+        let header = self.new_block();
+        self.terminate(TerminatorKind::Goto { target: header }, span);
+        self.current = header;
+        self.loops.push(LoopScope {
+            header,
+            exit: None,
+            dest,
+            scope_depth: self.scopes.len(),
+        });
+        self.lower_block_discard(body);
+        self.terminate(TerminatorKind::Goto { target: header }, span);
+        let scope = self.loops.pop().expect("loop scope pushed above");
+        self.current = scope.exit.unwrap_or_else(|| self.new_block());
+    }
+
+    fn lower_break(&mut self, value: Option<&Expr>, span: Span) {
+        let depth = self.loops.len() - 1;
+        let dest = self.loops[depth].dest.clone();
+        match (value, dest) {
+            (Some(value), Some(dest)) => self.expr_into_dest(&dest, value),
+            (Some(value), None) => self.lower_expr_discard(value),
+            (None, Some(dest)) => {
+                if dest.ty(&self.body).is_unit() {
+                    self.assign(dest, Self::unit_rvalue(span), span);
+                }
+            }
+            (None, None) => {}
+        }
+        self.exit_scopes(self.loops[depth].scope_depth, span);
+        let exit = if let Some(bb) = self.loops[depth].exit {
+            bb
+        } else {
+            let bb = self.new_block();
+            self.loops[depth].exit = Some(bb);
+            bb
+        };
+        self.jump_away(TerminatorKind::Goto { target: exit }, span);
+    }
+
+    fn lower_continue(&mut self, span: Span) {
+        let scope = self.loops.last().expect("`continue` inside a loop");
+        let (header, depth) = (scope.header, scope.scope_depth);
+        self.exit_scopes(depth, span);
+        self.jump_away(TerminatorKind::Goto { target: header }, span);
+    }
+
+    fn lower_return(&mut self, value: Option<&Expr>, span: Span) {
+        let ret = Place::local(Local::RETURN);
+        match value {
+            Some(value) if self.is_mut_ref_place_expr(value) => {
+                let op = self.coerced_operand(value);
+                self.assign(ret, Rvalue::Use(op), span);
+            }
+            Some(value) => self.expr_into_dest(&ret, value),
+            None => self.assign(ret, Self::unit_rvalue(span), span),
+        }
+        self.exit_scopes(0, span);
+        let target = self.return_block();
+        self.jump_away(TerminatorKind::Goto { target }, span);
+    }
+
+    // ----- blocks and statements -----
+
+    /// Lowers a block, writing its tail into `dest`. A block without a tail yields `()`
+    /// when the destination is a unit place; a diverging one yields nothing.
+    fn lower_block_into(&mut self, dest: &Place, block: &Block) {
+        self.push_scope();
+        for stmt in &block.stmts {
+            self.lower_stmt(stmt);
+        }
+        match &block.tail {
+            Some(tail) => self.expr_into_dest(dest, tail),
+            None => {
+                if dest.ty(&self.body).is_unit() {
+                    self.assign(dest.clone(), Self::unit_rvalue(block.span), block.span);
+                }
+            }
+        }
+        self.pop_scope(block.span);
+    }
+
+    /// Lowers a block whose value is not needed.
+    fn lower_block_discard(&mut self, block: &Block) {
+        self.push_scope();
+        for stmt in &block.stmts {
+            self.lower_stmt(stmt);
+        }
+        if let Some(tail) = &block.tail {
+            self.lower_expr_discard(tail);
+        }
+        self.pop_scope(block.span);
+    }
+
+    /// Lowers one statement. Temporaries it creates die when it ends.
+    fn lower_stmt(&mut self, stmt: &Stmt) {
+        self.push_scope();
+        match &stmt.kind {
+            StmtKind::Let(l) => match &l.pat.kind {
+                PatKind::Ident { .. } => {
+                    let id = self
+                        .resolve
+                        .local_of_pat(l.pat.id)
+                        .expect("identifier patterns introduce locals");
+                    let local = self.declare_user_local(id, l.pat.span);
+                    if let Some(init) = &l.init {
+                        if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
+                            // `let r: &mut T = p;` reborrows; `let r = p;` moves.
+                            let op = self.coerced_operand(init);
+                            self.assign(Place::local(local), Rvalue::Use(op), init.span);
+                        } else if let Some((mutable, inner)) = Self::ref_of_temporary(init) {
+                            // Temporary lifetime extension: in `let r = &<rvalue>;` the
+                            // temporary lives as long as `r`'s block, as in Rust.
+                            let ty = self.ty(inner).clone();
+                            let temp = self.new_temp_in_block_scope(ty, inner.span);
+                            self.expr_into_dest(&Place::local(temp), inner);
+                            self.assign(
+                                Place::local(local),
+                                Rvalue::Ref(Mutability::from_bool(mutable), Place::local(temp)),
+                                init.span,
+                            );
+                        } else {
+                            self.expr_into_dest(&Place::local(local), init);
+                        }
+                    }
+                }
+                PatKind::Wild => {
+                    if let Some(init) = &l.init {
+                        self.as_temp(init);
+                    }
+                }
+            },
+            StmtKind::Expr { expr, .. } => self.lower_expr_discard(expr),
+            StmtKind::Empty => {}
+        }
+        self.pop_scope(stmt.span);
+    }
+}
+
+fn strip_parens(mut e: &Expr) -> &Expr {
+    while let ExprKind::Paren(inner) = &e.kind {
+        e = inner;
+    }
+    e
+}

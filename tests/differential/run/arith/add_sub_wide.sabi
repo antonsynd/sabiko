@@ -1,0 +1,42 @@
+// `i32`/`i64`/`u32`/`u64` arithmetic at the extremes that stay in range.
+fn I32(a: i32, b: i32) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn I64(a: i64, b: i64) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn U32(a: u32, b: u32) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn U64(a: u64, b: u64) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn Main() {
+    I32(2147483646, 1);
+    I32(-2147483647, 1);
+    I32(46340, 46340);
+    I32(-2147483647, -1);
+    I32(-1073741824, 2);
+    I64(9223372036854775806, 1);
+    I64(-9223372036854775807, 1);
+    I64(3037000499, 3037000499);
+    I64(-9223372036854775807, -1);
+    I64(-4611686018427387904, 2);
+    U32(4294967294, 1);
+    U32(65537, 65535);
+    U64(18446744073709551614, 1);
+    U64(4294967297, 4294967295);
+    let m32: u32 = 4294967295;
+    let m64: u64 = 18446744073709551615;
+    Print(m32 - m32); Print(' '); Print(m32 / m32); Print(' '); PrintLine(m32 % m32);
+    Print(m64 - m64); Print(' '); Print(m64 / m64); Print(' '); PrintLine(m64 % m64);
+    PrintLine(2147483647u32 * 2 + 1);
+}

@@ -1,0 +1,62 @@
+[E0203] Error: expected type, found function `Helper`
+    ╭─[ tests/ui/resolve/wrong_namespace.sabi:10:20 ]
+    │
+  2 │ fn Helper() {}
+    │    ───┬──  
+    │       ╰──── `Helper` defined here
+    │ 
+ 10 │ fn UsesFnAsType(p: Helper) {} //~ ERROR E0203 expected type, found function `Helper`
+    │                    ───┬──  
+    │                       ╰──── not a type
+────╯
+[E0203] Error: expected type, found constant `Limit`
+    ╭─[ tests/ui/resolve/wrong_namespace.sabi:12:22 ]
+    │
+  4 │ const Limit: i32 = 3;
+    │       ──┬──  
+    │         ╰──── `Limit` defined here
+    │ 
+ 12 │ fn ReturnsConst() -> Limit {} //~ ERROR E0203 expected type, found constant `Limit`
+    │                      ──┬──  
+    │                        ╰──── not a type
+────╯
+[E0203] Error: expected type, found function `Helper`
+    ╭─[ tests/ui/resolve/wrong_namespace.sabi:15:13 ]
+    │
+  2 │ fn Helper() {}
+    │    ───┬──  
+    │       ╰──── `Helper` defined here
+    │ 
+ 15 │     let a: &Helper = &1; //~ ERROR E0203 expected type, found function `Helper`
+    │             ───┬──  
+    │                ╰──── not a type
+────╯
+[E0203] Error: expected struct, found function `Helper`
+    ╭─[ tests/ui/resolve/wrong_namespace.sabi:16:13 ]
+    │
+  2 │ fn Helper() {}
+    │    ───┬──  
+    │       ╰──── `Helper` defined here
+    │ 
+ 16 │     let b = Helper { X: 1 }; //~ ERROR E0203 expected struct, found function `Helper`
+    │             ───┬──  
+    │                ╰──── not a struct
+────╯
+[E0203] Error: expected struct, found constant `Limit`
+    ╭─[ tests/ui/resolve/wrong_namespace.sabi:17:13 ]
+    │
+  4 │ const Limit: i32 = 3;
+    │       ──┬──  
+    │         ╰──── `Limit` defined here
+    │ 
+ 17 │     let c = Limit { X: 1 }; //~ ERROR E0203 expected struct, found constant `Limit`
+    │             ──┬──  
+    │               ╰──── not a struct
+────╯
+[E0201] Error: cannot find struct `Missing` in this scope
+    ╭─[ tests/ui/resolve/wrong_namespace.sabi:18:13 ]
+    │
+ 18 │     let d = Missing { X: 1 }; //~ ERROR E0201 cannot find struct `Missing` in this scope
+    │             ───┬───  
+    │                ╰───── not found in this scope
+────╯

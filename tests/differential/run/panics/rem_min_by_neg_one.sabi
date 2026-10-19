@@ -1,0 +1,12 @@
+// `i32::MIN % -1` overflows and panics in debug builds, although the mathematical result is 0.
+fn Rem(a: i32, b: i32) -> i32 { a % b }
+
+fn Main() {
+    let min: i32 = -2147483648;
+    PrintLine(Rem(min, 2));
+    PrintLine(Rem(min + 1, -1));
+    PrintLine(Rem(min, 2147483647));
+    PrintLine("about to overflow");
+    PrintLine(Rem(min, -1));
+    PrintLine("not reached");
+}

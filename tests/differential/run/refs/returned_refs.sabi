@@ -1,0 +1,35 @@
+// Functions returning references into their argument, used for reading and (through `&mut`) writing.
+#[derive(Copy, Clone)]
+struct Point { X: i32, Y: i32 }
+
+struct Line { A: Point, B: Point }
+
+fn First(l: &Line) -> &Point { &l.A }
+fn Second(l: &Line) -> &Point { &l.B }
+fn FirstMut(l: &mut Line) -> &mut Point { &mut l.A }
+fn Larger(l: &Line) -> &Point { if l.A.X > l.B.X { &l.A } else { &l.B } }
+fn XOf(p: &mut Point) -> &mut i32 { &mut p.X }
+fn Identity(x: &i32) -> &i32 { x }
+
+fn Main() {
+    let mut line = Line { A: Point { X: 1, Y: 2 }, B: Point { X: 30, Y: 40 } };
+    PrintLine(First(&line).X);
+    PrintLine(Second(&line).Y);
+    PrintLine(Larger(&line).X);
+    FirstMut(&mut line).X = 100;
+    PrintLine(Larger(&line).X);
+    *XOf(FirstMut(&mut line)) += 1;
+    PrintLine(line.A.X);
+    let p = First(&line);
+    let q = Second(&line);
+    PrintLine(p.X + q.X);
+    let copy = *Larger(&line);
+    line.A.X = 0;
+    PrintLine(copy.X);
+    PrintLine(Larger(&line).X);
+    let v = 7;
+    PrintLine(*Identity(&v) + *Identity(&v));
+    let m = XOf(&mut line.B);
+    *m = -5;
+    PrintLine(line.B.X);
+}

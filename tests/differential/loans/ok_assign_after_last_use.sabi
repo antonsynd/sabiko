@@ -1,0 +1,11 @@
+// Assigning after the borrow's last use is fine.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let r = &x;
+    Read(*r);
+    x = 2;
+    x += 1;
+    Read(x);
+}

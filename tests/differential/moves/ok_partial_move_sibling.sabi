@@ -1,0 +1,15 @@
+// After moving one field, the sibling field is still usable.
+struct Inner { V: i32 }
+
+struct Outer { A: Inner, B: Inner }
+
+fn TakeInner(i: Inner) {}
+
+fn Read(n: i32) {}
+
+fn Main() {
+    let o = Outer { A: Inner { V: 1 }, B: Inner { V: 2 } };
+    TakeInner(o.A);
+    Read(o.B.V);
+    TakeInner(o.B);
+}

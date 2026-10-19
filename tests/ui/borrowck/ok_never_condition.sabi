@@ -1,0 +1,27 @@
+// A `!`-typed condition or operand of `&&`/`||` never reaches the branch: the lowering
+// ends the block as unreachable instead of switching on a value that does not exist.
+fn LoopCondition() {
+    if loop {} {}
+}
+
+fn ReturnCondition(x: i32) -> i32 {
+    if return x {} else {};
+    0
+}
+
+fn WhileCondition() {
+    while return {}
+}
+
+fn Logical(flag: bool) -> bool {
+    flag && return false
+}
+
+fn Nested(n: i32) -> i32 {
+    let v = if n > 0 { n } else { return -1 };
+    if loop { break v > 2 } { 1 } else { 2 }
+}
+
+fn Main() {
+    let _ = Nested(3);
+}

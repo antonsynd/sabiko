@@ -1,0 +1,39 @@
+// A struct with a field of every primitive family, built from expressions and printed back.
+struct Record {
+    Small: i8,
+    Big: u64,
+    Ratio: f32,
+    Precise: f64,
+    Flag: bool,
+    Tag: char,
+    Count: usize,
+}
+
+fn Build(n: i32) -> Record {
+    Record {
+        Small: (n - 200) as i8,
+        Big: (n as u64) << 40,
+        Ratio: n as f32 / 3.0,
+        Precise: n as f64 / 3.0,
+        Flag: n % 2 == 0,
+        Tag: (65 + n % 26) as u8 as char,
+        Count: (n * n) as usize,
+    }
+}
+
+fn Show(r: &Record) {
+    Print(r.Small); Print(' '); Print(r.Big); Print(' '); Print(r.Ratio); Print(' ');
+    Print(r.Precise); Print(' '); Print(r.Flag); Print(' '); Print(r.Tag); Print(' '); PrintLine(r.Count);
+}
+
+fn Main() {
+    let a = Build(1);
+    let b = Build(100);
+    let c = Build(255);
+    Show(&a); Show(&b); Show(&c);
+    let mut d = Build(0);
+    d.Small = -128;
+    d.Big = d.Big + 18446744073709551615;
+    d.Tag = 'z';
+    Show(&d);
+}

@@ -1,0 +1,25 @@
+// `bool` and `char` support every comparison operator; chars order by code point.
+fn CmpBool(a: bool, b: bool) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpChar(a: char, b: char) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Main() {
+    CmpBool(false, false); CmpBool(false, true); CmpBool(true, false); CmpBool(true, true);
+    CmpChar('a', 'b'); CmpChar('b', 'a'); CmpChar('z', 'z');
+    CmpChar('A', 'a'); CmpChar('0', '9'); CmpChar(' ', '~');
+    CmpChar('é', 'e'); CmpChar('\u{FFFD}', 'a'); CmpChar('\n', ' ');
+    let c = 'q';
+    PrintLine(c >= 'a' && c <= 'z');
+    PrintLine(c >= 'A' && c <= 'Z');
+    PrintLine('é');
+    PrintLine('\u{3042}');
+    Print('x'); Print('\t'); PrintLine('y');
+    PrintLine('\'' == '\u{27}');
+    PrintLine('\\' as u32);
+}

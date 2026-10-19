@@ -1,0 +1,112 @@
+[E0308] Error: casting `bool` as `f32` is invalid
+   ╭─[ tests/ui/typeck/casts.sabi:7:13 ]
+   │
+ 7 │     let a = true as f32; //~ ERROR E0308 casting `bool` as `f32` is invalid
+   │             ─────┬─────  
+   │                  ╰─────── invalid cast
+───╯
+[E0308] Error: casting `i32` as `bool` is invalid
+   ╭─[ tests/ui/typeck/casts.sabi:8:13 ]
+   │
+ 8 │     let b = 1 as bool; //~ ERROR E0308 casting `i32` as `bool` is invalid
+   │             ────┬────  
+   │                 ╰────── invalid cast
+───╯
+[E0308] Error: casting `char` as `f64` is invalid
+   ╭─[ tests/ui/typeck/casts.sabi:9:13 ]
+   │
+ 9 │     let c = 'a' as f64; //~ ERROR E0308 casting `char` as `f64` is invalid
+   │             ─────┬────  
+   │                  ╰────── invalid cast
+───╯
+[E0308] Error: only `u8` can be cast as `char`, not `i32`
+    ╭─[ tests/ui/typeck/casts.sabi:10:13 ]
+    │
+ 10 │     let d = 65i32 as char; //~ ERROR E0308 only `u8` can be cast as `char`, not `i32`
+    │             ──────┬──────  
+    │                   ╰──────── invalid cast
+────╯
+[E0308] Error: casting `f64` as `char` is invalid
+    ╭─[ tests/ui/typeck/casts.sabi:11:13 ]
+    │
+ 11 │     let e = 1.0 as char; //~ ERROR E0308 casting `f64` as `char` is invalid
+    │             ─────┬─────  
+    │                  ╰─────── invalid cast
+────╯
+[E0308] Error: non-primitive cast: `P` as `i32`
+    ╭─[ tests/ui/typeck/casts.sabi:12:13 ]
+    │
+ 12 │     let f = p as i32; //~ ERROR E0308 non-primitive cast: `P` as `i32`
+    │             ────┬───  
+    │                 ╰───── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: non-primitive cast: `&i32` as `i32`
+    ╭─[ tests/ui/typeck/casts.sabi:13:13 ]
+    │
+ 13 │     let g = r as i32; //~ ERROR E0308 non-primitive cast: `&i32` as `i32`
+    │             ────┬───  
+    │                 ╰───── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: non-primitive cast: `i32` as `P`
+    ╭─[ tests/ui/typeck/casts.sabi:14:13 ]
+    │
+ 14 │     let h = 1 as P; //~ ERROR E0308 non-primitive cast: `i32` as `P`
+    │             ───┬──  
+    │                ╰──── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: non-primitive cast: `&str` as `u8`
+    ╭─[ tests/ui/typeck/casts.sabi:15:13 ]
+    │
+ 15 │     let i = s as u8; //~ ERROR E0308 non-primitive cast: `&str` as `u8`
+    │             ───┬───  
+    │                ╰───── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: non-primitive cast: `()` as `i32`
+    ╭─[ tests/ui/typeck/casts.sabi:16:13 ]
+    │
+ 16 │     let j = u as i32; //~ ERROR E0308 non-primitive cast: `()` as `i32`
+    │             ────┬───  
+    │                 ╰───── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: casting `f64` as `bool` is invalid
+    ╭─[ tests/ui/typeck/casts.sabi:17:13 ]
+    │
+ 17 │     let k = 1.5 as bool; //~ ERROR E0308 casting `f64` as `bool` is invalid
+    │             ─────┬─────  
+    │                  ╰─────── invalid cast
+────╯
+[E0308] Error: casting `char` as `bool` is invalid
+    ╭─[ tests/ui/typeck/casts.sabi:18:13 ]
+    │
+ 18 │     let l = 'a' as bool; //~ ERROR E0308 casting `char` as `bool` is invalid
+    │             ─────┬─────  
+    │                  ╰─────── invalid cast
+────╯
+[E0314] Error: literal out of range for `u8`
+    ╭─[ tests/ui/typeck/casts.sabi:21:13 ]
+    │
+ 21 │     let o = 300 as u8; //~ ERROR E0314 literal out of range for `u8`
+    │             ─┬─  
+    │              ╰─── does not fit in `u8`
+    │ 
+    │ Note: the literal `300` does not fit into the type `u8` whose range is `0..=255`
+────╯
+[E0307] Error: cannot apply unary operator `-` to type `u32`
+    ╭─[ tests/ui/typeck/casts.sabi:22:14 ]
+    │
+ 22 │     let p = -1 as u32; //~ ERROR E0307 cannot apply unary operator `-` to type `u32`
+    │              ┬  
+    │              ╰── cannot apply unary operator `-`
+    │ 
+    │ Note: unsigned values cannot be negated
+────╯

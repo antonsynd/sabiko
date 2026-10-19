@@ -1,0 +1,5 @@
+// An executable's entry point must return `()`.
+
+fn Main() -> i32 { //~ ERROR E0501 `Main` must take no parameters and return `()`
+    1
+}

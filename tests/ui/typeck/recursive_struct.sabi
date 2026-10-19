@@ -1,0 +1,31 @@
+// A struct that contains itself by value, directly or through other structs, has infinite size; references break the cycle.
+struct Node { //~ ERROR E0206 recursive type `Node` has infinite size
+    Next: Node,
+}
+
+struct A { //~ ERROR E0206 recursive types `A` and `B` have infinite size
+    B: B,
+}
+
+struct B {
+    A: A,
+}
+
+struct Outer { //~ ERROR E0206 recursive types `Outer`, `Inner` and `Deepest` have infinite size
+    In: Inner,
+}
+
+struct Inner {
+    Deep: Deepest,
+}
+
+struct Deepest {
+    Back: Outer,
+}
+
+// Indirection through a reference breaks the cycle for sizing, but reference fields
+// themselves wait for lifetime parameters (Phase 9).
+struct Linked {
+    Next: &Linked, //~ ERROR E0107 not yet supported: references in struct fields
+    Other: &mut Outer, //~ ERROR E0107 not yet supported: references in struct fields
+}

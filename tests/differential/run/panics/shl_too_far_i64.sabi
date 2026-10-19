@@ -1,0 +1,10 @@
+// Shifting an `i64` left by 64 panics in debug builds.
+fn Shl(x: i64, n: u64) -> i64 { x << n }
+
+fn Main() {
+    PrintLine(Shl(1, 63));
+    PrintLine(Shl(-1, 32));
+    PrintLine("about to shift too far");
+    PrintLine(Shl(1, 64));
+    PrintLine("not reached");
+}

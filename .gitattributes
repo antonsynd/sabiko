@@ -1,0 +1,11 @@
+# Normalise line endings: LF in the repo and on checkout, on every platform.
+# rustfmt (newline_style = "Unix") and the golden-file test suites depend on it.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.dll binary
+
+# Fixtures whose byte content is the point of the test
+tests/ui/parse/ok_crlf_continuation.sabi -text
+tests/ui/parse/ok_bom.sabi -text

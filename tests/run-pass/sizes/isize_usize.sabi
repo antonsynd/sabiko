@@ -1,0 +1,32 @@
+// `isize`/`usize` are 64-bit: limits, casts to and from other widths, and `!0usize`.
+const WORD: usize = 8;
+const BITS: usize = WORD * 8;
+
+fn Index(base: usize, offset: isize) -> usize {
+    if offset < 0 { base - ((-offset) as usize) } else { base + offset as usize }
+}
+
+fn Main() {
+    PrintLine(!0usize);
+    PrintLine(!0isize);
+    PrintLine((!0usize) >> 1);
+    PrintLine((((!0usize) >> 1) + 1) as isize == -9223372036854775808);
+    PrintLine(BITS);
+    PrintLine(1usize << (BITS - 1));
+    PrintLine(Index(100, -30));
+    PrintLine(Index(100, 30));
+    PrintLine(Index(0, 9223372036854775807));
+    let a: isize = -1;
+    PrintLine(a as usize);
+    PrintLine(a as u8);
+    let b: u32 = 4294967295;
+    PrintLine(b as usize + 1);
+    PrintLine(b as isize);
+    let c: i8 = -5;
+    PrintLine(c as isize);
+    PrintLine(c as usize);
+    PrintLine(18446744073709551615usize as f64);
+    PrintLine(-9223372036854775808isize as f64);
+    PrintLine(1e19 as usize);
+    PrintLine(-1e19 as isize);
+}

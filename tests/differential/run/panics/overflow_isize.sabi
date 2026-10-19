@@ -1,0 +1,11 @@
+// `isize` overflow panics in debug builds like every other integer type.
+fn Add(a: isize, b: isize) -> isize { a + b }
+
+fn Main() {
+    let max: isize = 9223372036854775807;
+    PrintLine(Add(max, 0));
+    PrintLine(Add(max - 5, 5));
+    PrintLine("about to overflow");
+    PrintLine(Add(max, 1));
+    PrintLine("not reached");
+}

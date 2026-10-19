@@ -1,0 +1,15 @@
+// Multiplication overflow panics in debug builds: `i16` here, after products that fit.
+fn Mul(a: i16, b: i16) -> i16 { a * b }
+
+fn Main() {
+    PrintLine(Mul(181, 181));
+    PrintLine(Mul(-182, 180));
+    PrintLine(Mul(-1, -32767));
+    let mut x: i16 = 1;
+    let mut i = 0;
+    while i < 14 { x = Mul(x, 2); i += 1; }
+    PrintLine(x);
+    PrintLine("about to overflow");
+    PrintLine(Mul(x, 2));
+    PrintLine("not reached");
+}

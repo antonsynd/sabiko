@@ -1,0 +1,19 @@
+// A user-defined `PrintLine(i32)` shadows the builtin for every call in the file; `Print` stays builtin.
+fn PrintLine(x: i32) {
+    Print("[");
+    Print(x);
+    Print("]");
+    Print('\n');
+}
+
+fn Twice(x: i32) { PrintLine(x); PrintLine(x); }
+
+fn Main() {
+    PrintLine(5);
+    PrintLine(-7);
+    Twice(42);
+    let mut i = 0;
+    while i < 3 { PrintLine(i * i); i += 1; }
+    Print("done");
+    Print('\n');
+}

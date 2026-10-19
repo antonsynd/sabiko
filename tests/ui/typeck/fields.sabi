@@ -1,0 +1,26 @@
+// Field access and struct literals: unknown, missing and duplicated fields; fields on non-structs; a struct name used as a value.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+struct Empty;
+
+fn Main(p: Point, r: &Point) {
+    let a = p.Z; //~ ERROR E0301 no field `Z` on type `Point`
+    let b = r.W; //~ ERROR E0301 no field `W` on type `Point`
+    let c = Point { X: 1 }; //~ ERROR E0302 missing field `Y` in initializer of `Point`
+    let d = Point {}; //~ ERROR E0302 missing fields `X` and `Y` in initializer of `Point`
+    let e = Point { X: 1, Y: 2, Z: 3 }; //~ ERROR E0301 struct `Point` has no field named `Z`
+    let f = Point { X: 1, X: 2, Y: 3 }; //~ ERROR E0303 field `X` specified more than once
+    let g = Empty { Z: 1 }; //~ ERROR E0301 struct `Empty` has no field named `Z`
+    let n = 5;
+    let h = n.X; //~ ERROR E0301 no field `X` on type `{integer}`
+    let i = true.X; //~ ERROR E0301 no field `X` on type `bool`
+    let typed: i32 = 5;
+    let j = (&typed).X; //~ ERROR E0301 no field `X` on type `i32`
+    let k = Point; //~ ERROR E0203 expected value, found struct `Point`
+    let l = Empty;
+    let m = (&p).X + r.Y;
+    let o = a.Nope; // no second error: `a` already has the error type
+}

@@ -1,0 +1,10 @@
+// User items shadow the builtin functions of the same name without a diagnostic.
+fn PrintLine(x: i32) {}
+
+fn Print(x: i32) -> i32 { x }
+
+fn Main() {
+    PrintLine(1);
+    let y = Print(2);
+    PrintLine(y);
+}

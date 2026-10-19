@@ -1,0 +1,114 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/control_flow.sabi
+---
+SourceFile
+  Fn Classify
+    Param
+      Pat n
+      Type i32
+    Ret
+      Type i32
+    Block
+      Tail
+        If
+          Binary <
+            Path n
+            Lit 0
+          Block
+            Semi
+              Return
+                Unary -
+                  Lit 1
+          Else
+            If
+              Binary ==
+                Path n
+                Lit 0
+              Block
+                Tail
+                  Lit 0
+              Else
+                Block
+                  Let
+                    Pat mut acc
+                    Init
+                      Lit 0
+                  Let
+                    Pat mut i
+                    Init
+                      Lit 0
+                  Expr
+                    While
+                      Binary <
+                        Path i
+                        Path n
+                      Block
+                        Expr
+                          If
+                            Binary ==
+                              Binary %
+                                Path i
+                                Lit 2
+                              Lit 0
+                            Block
+                              Semi
+                                Continue
+                        Semi
+                          AssignOp +=
+                            Path acc
+                            Path i
+                        Semi
+                          AssignOp +=
+                            Path i
+                            Lit 1
+                  Let
+                    Pat found
+                    Init
+                      Loop
+                        Block
+                          Expr
+                            If
+                              Binary >
+                                Path acc
+                                Lit 10
+                              Block
+                                Semi
+                                  Break
+                                    Path acc
+                          Semi
+                            Assign
+                              Path acc
+                              Binary *
+                                Path acc
+                                Lit 2
+                  Tail
+                    Block
+                      Tail
+                        Path found
+  Fn Statements
+    Block
+      Expr
+        If
+          Path a
+          Block
+      Semi
+        Unary -
+          Lit 1
+      Semi
+        MethodCall Foo
+          Block
+            Tail
+              Path b
+      Semi
+        Loop
+          Block
+            Semi
+              Break
+      Expr
+        While
+          Path x
+          Block
+      Tail
+        Block

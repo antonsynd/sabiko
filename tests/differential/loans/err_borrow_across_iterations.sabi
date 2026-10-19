@@ -1,0 +1,15 @@
+// A borrow created in one iteration is still live at the write in the next (back edge).
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let y = 0;
+    let mut r = &y;
+    let mut i = 0;
+    while i < 3 {
+        x += 1;
+        Read(*r);
+        r = &x;
+        i += 1;
+    }
+}

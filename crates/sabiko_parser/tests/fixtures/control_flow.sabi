@@ -1,0 +1,29 @@
+fn Classify(n: i32) -> i32 {
+    if n < 0 {
+        return -1;
+    } else if n == 0 {
+        0
+    } else {
+        let mut acc = 0;
+        let mut i = 0;
+        while i < n {
+            if i % 2 == 0 { continue; }
+            acc += i;
+            i += 1;
+        }
+        let found = loop {
+            if acc > 10 { break acc; }
+            acc = acc * 2;
+        };
+        { found }
+    }
+}
+
+fn Statements() {
+    if a { } - 1;
+    { b }.Foo();
+    loop { break; }
+    ;
+    while x { }
+    { }
+}

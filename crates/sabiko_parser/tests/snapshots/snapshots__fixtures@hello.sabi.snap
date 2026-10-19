@@ -1,0 +1,65 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/hello.sabi
+---
+SourceFile
+  InnerDoc " The README example."
+  Struct Point
+    Field X
+      Type i32
+    Field Y
+      Type i32
+  Fn MovePoint
+    Param
+      Pat p
+      RefMut
+        Type Point
+    Param
+      Pat dx
+      Type i32
+    Param
+      Pat dy
+      Type i32
+    Block
+      Semi
+        Assign
+          Field X
+            Path p
+          Binary +
+            Field X
+              Path p
+            Path dx
+      Semi
+        Assign
+          Field Y
+            Path p
+          Binary +
+            Field Y
+              Path p
+            Path dy
+  Fn Main
+    Block
+      Let
+        Pat mut cursor
+        Init
+          Struct Point
+            FieldInit X
+              Lit 10
+            FieldInit Y
+              Lit 10
+      Semi
+        Call
+          Path MovePoint
+          Args
+            RefMut
+              Path cursor
+            Lit 5
+            Unary -
+              Lit 2
+      Semi
+        Call
+          Path PrintLine
+          Args
+            Field X
+              Path cursor

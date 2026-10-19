@@ -1,0 +1,21 @@
+// `isize`/`usize` literals around the `int32` boundaries: a value in `2^31..2^32` must
+// not be sign-extended on its way to a 64-bit word.
+fn Main() {
+    let small: usize = 7;
+    let limit: usize = 2147483647;
+    let big: usize = 2147483648;
+    let top32: usize = 4294967295;
+    let huge: usize = 5000000000;
+    let neg: isize = -5;
+    let min32: isize = -2147483648;
+    let below: isize = -2147483649;
+    PrintLine(small);
+    PrintLine(limit);
+    PrintLine(big);
+    PrintLine(top32);
+    PrintLine(huge);
+    PrintLine(neg);
+    PrintLine(min32);
+    PrintLine(below);
+    PrintLine(big + top32);
+}

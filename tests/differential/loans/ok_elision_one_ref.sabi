@@ -1,0 +1,4 @@
+// Elision resolves when exactly one parameter is a reference; by-value parameters do not count.
+fn Pick(a: &i32, limit: i32, flag: bool) -> &i32 {
+    if flag && *a > limit { a } else { a }
+}

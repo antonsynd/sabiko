@@ -1,0 +1,18 @@
+// Integer literals must fit the type they get; this is a hard error, not a lint.
+fn Main() {
+    let a = 256u8; //~ ERROR E0314 literal out of range for `u8`
+    let b: i8 = -129; //~ ERROR E0314 literal out of range for `i8`
+    let c: i8 = 128; //~ ERROR E0314 literal out of range for `i8`
+    let d: u16 = 65536; //~ ERROR E0314 literal out of range for `u16`
+    let e = 2147483648; //~ ERROR E0314 literal out of range for `i32`
+    let f = -2147483649; //~ ERROR E0314 literal out of range for `i32`
+    let g: i64 = 9223372036854775808; //~ ERROR E0314 literal out of range for `i64`
+    let h: u32 = 4294967296; //~ ERROR E0314 literal out of range for `u32`
+    let i = 0x1FFu8; //~ ERROR E0314 literal out of range for `u8`
+    let j: i128 = 170141183460469231731687303715884105728; //~ ERROR E0314 literal out of range for `i128`
+    let k: usize = 18446744073709551616; //~ ERROR E0314 literal out of range for `usize`
+    let l: i16 = -(32769); //~ ERROR E0314 literal out of range for `i16`
+    let m = 1;
+    let n: u8 = m + 256; //~ ERROR E0314 literal out of range for `u8`
+    let o = 255u8 + 1; // not a literal error: arithmetic is not folded in bodies
+}

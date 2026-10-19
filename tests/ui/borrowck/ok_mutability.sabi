@@ -1,0 +1,39 @@
+// Mutation that the mutability rules accept: `mut` bindings, writes through `&mut`
+// regardless of the binding's own mutability, deferred initialisation, reborrows.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Shift(p: &mut Point, dx: i32) {
+    p.X = p.X + dx;
+    (*p).Y = 0;
+    let q = &mut *p;
+    q.X += 1;
+}
+
+fn Deferred(flag: bool) -> i32 {
+    let x;
+    if flag {
+        x = 1;
+    } else {
+        x = 2;
+    }
+    let y;
+    y = x + 1;
+    y
+}
+
+fn Main() {
+    let mut p = Point { X: 1, Y: 2 };
+    p.X = 3;
+    Shift(&mut p, 4);
+    let r = &mut p;
+    r.Y = 5;
+    let mut n = 0;
+    while n < 3 {
+        n += 1;
+    }
+    let s = &p;
+    let _ = s.X + Deferred(true);
+}

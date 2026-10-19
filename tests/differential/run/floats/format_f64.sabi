@@ -1,0 +1,19 @@
+// Display of `f64` values: integral floats, tiny and huge magnitudes, negative zero, special values.
+fn Show(x: f64) { PrintLine(x); }
+
+fn Main() {
+    Show(0.0); Show(-0.0); Show(1.0); Show(-1.0); Show(100.0); Show(1234567.0);
+    Show(0.5); Show(0.25); Show(0.125); Show(0.1); Show(0.2); Show(0.3); Show(0.1 + 0.2);
+    Show(1.0 / 3.0); Show(2.0 / 3.0); Show(10.0 / 3.0);
+    Show(1e15); Show(1e16); Show(1e17); Show(1e21); Show(1e22); Show(1e100); Show(1e300);
+    Show(1e-5); Show(1e-7); Show(1e-10); Show(1.5e-10); Show(1e-300); Show(5e-324);
+    Show(123456789.123456789); Show(0.000123456789); Show(9007199254740992.0); Show(9007199254740993.0);
+    Show(1.7976931348623157e308); Show(2.2250738585072014e-308);
+    Show(3.141592653589793); Show(2.718281828459045); Show(-273.15);
+    Show(100.0 / 7.0); Show(-100.0 / 7.0);
+    Show(0.1 * 3.0); Show(1.1 * 1.1); Show(4.35 * 100.0);
+    Show(1e23); Show(8.41e21); Show(5e-7); Show(123e-20);
+    let zero: f64 = 0.0;
+    Show(1.0 / zero); Show(-1.0 / zero); Show(zero / zero); Show(-(zero / zero));
+    Show(2.5 - 2.5); Show(-2.5 + 2.5);
+}

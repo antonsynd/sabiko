@@ -1,0 +1,7 @@
+// A plain `let` moves a `&mut`; it is not Copy and cannot be bound twice.
+fn Main(r: &mut i32) {
+    let s = r;
+    let t = r;
+    *s = 1;
+    *t = 2;
+}

@@ -1,0 +1,26 @@
+// Integer-to-integer casts: widening sign- or zero-extends, narrowing truncates.
+fn Main() {
+    let neg: i8 = -1;
+    let big: u8 = 200;
+    PrintLine(neg as i16); PrintLine(neg as i32); PrintLine(neg as i64); PrintLine(neg as isize);
+    PrintLine(neg as u8); PrintLine(neg as u16); PrintLine(neg as u32); PrintLine(neg as u64);
+    PrintLine(neg as usize);
+    PrintLine(big as i8); PrintLine(big as i16); PrintLine(big as u16); PrintLine(big as i64);
+    let wide: i64 = -9223372036854775808;
+    PrintLine(wide as i8); PrintLine(wide as i32); PrintLine(wide as u64); PrintLine(wide as u32);
+    let pattern: i64 = 0x0123456789ABCDEF;
+    PrintLine(pattern as i8); PrintLine(pattern as u8); PrintLine(pattern as i16); PrintLine(pattern as u16);
+    PrintLine(pattern as i32); PrintLine(pattern as u32); PrintLine(pattern as usize);
+    let u: u64 = 18446744073709551615;
+    PrintLine(u as i64); PrintLine(u as i32); PrintLine(u as u8); PrintLine(u as isize);
+    let m: i32 = -2147483648;
+    PrintLine(m as u32); PrintLine(m as i64); PrintLine(m as u64); PrintLine(m as i16);
+    let s: i16 = -32768;
+    PrintLine(s as u16); PrintLine(s as i8); PrintLine(s as u8); PrintLine(s as u64);
+    let us: usize = 4294967296;
+    PrintLine(us as u32); PrintLine(us as i32); PrintLine(us as i64);
+    let ns: isize = -2;
+    PrintLine(ns as u16); PrintLine(ns as usize); PrintLine(ns as i8);
+    PrintLine(300i32 as u8 as i32);
+    PrintLine(-129i32 as i8 as i32);
+}

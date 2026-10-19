@@ -1,0 +1,53 @@
+// `return;` in a function that returns a value, a body without a tail expression, and returning a value from a `()` function.
+fn NoTail() -> i32 {
+    let x = 1;
+} //~ ERROR E0300 mismatched types
+
+fn TailSemicolon() -> i32 {
+    1;
+} //~ ERROR E0300 mismatched types
+
+fn Empty() -> bool {} //~ ERROR E0300 mismatched types
+
+fn BareReturn() -> i32 {
+    return; //~ ERROR E0300 mismatched types
+}
+
+fn WrongReturn() -> bool {
+    return 1; //~ ERROR E0300 mismatched types
+}
+
+fn UnitReturnsValue() {
+    return 1; //~ ERROR E0300 mismatched types
+}
+
+fn UnitTail() -> () {
+    2 //~ ERROR E0300 mismatched types
+}
+
+fn Ok1() -> i32 {
+    return 1;
+}
+
+fn Ok2() -> i32 {
+    loop {}
+}
+
+fn Ok3(flag: bool) -> i32 {
+    if flag {
+        return 1;
+    }
+    2
+}
+
+fn Ok4(flag: bool) -> i32 {
+    if flag {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+fn Ok5() {
+    return;
+}

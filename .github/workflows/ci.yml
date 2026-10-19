@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      # The run-pass tests need the .NET toolchain under tools/; fail instead of skipping without it.
+      SABIKO_REQUIRE_DOTNET: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
+        if: runner.os != 'Windows'
+        run: scripts/setup-dotnet.sh
+      - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
+        if: runner.os == 'Windows'
+        run: scripts/setup-dotnet.ps1
+      - name: Assemble, verify and run the IL spike and the runtime probes
+        if: runner.os != 'Windows'
+        run: |
+          scripts/check-spike.sh
+          scripts/check-runtime.sh
+      - name: Assemble, verify and run the IL spike and the runtime probes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          . tools\env.ps1
+          New-Item -ItemType Directory -Force target\il\hello | Out-Null
+          ilasm -quiet -exe -output:target\il\hello\hello.dll spike\hello.il
+          ilverify target\il\hello\hello.dll
+          Copy-Item spike\hello.runtimeconfig.json target\il\hello\hello.runtimeconfig.json
+          $actual = dotnet target\il\hello\hello.dll
+          $expected = Get-Content spike\expected.txt
+          if (Compare-Object $actual $expected) { Write-Error 'spike output mismatch'; exit 1 }
+          Write-Host 'spike: ok'
+          scripts\check-runtime.ps1
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo build --workspace
+      - run: cargo test --workspace
+

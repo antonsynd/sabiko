@@ -1,0 +1,22 @@
+[package]
+name = "sabiko_borrowck"
+description = "Mutability, initialisation and (later) borrow checking on Sabiko MIR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabiko_span = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+sabiko_resolve = { workspace = true }
+sabiko_types = { workspace = true }
+sabiko_mir = { workspace = true }
+polonius-engine = "0.13.0"
+
+[dev-dependencies]
+sabiko_parser = { workspace = true }
+
+[lints]
+workspace = true

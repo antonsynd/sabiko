@@ -1,0 +1,9 @@
+[E0104] Error: comparison operators cannot be chained
+   ╭─[ tests/ui/parse/chained_comparison.sabi:4:21 ]
+   │
+ 4 │     let bad = a < 2 < 3; //~ ERROR E0104 comparison operators cannot be chained
+   │                     ┬  
+   │                     ╰── second comparison here
+   │ 
+   │ Note: split the comparison into two and join them with `&&`, or add parentheses
+───╯

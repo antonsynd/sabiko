@@ -1,0 +1,7 @@
+fn Main() {
+    let b = 'ab'; //~ ERROR E0005 character literal must contain exactly one character
+    let c = "bad \q escape"; //~ ERROR E0006 unknown escape sequence
+    let d = 340282366920938463463374607431768211456; //~ ERROR E0004 integer literal is too large
+    let e = 1 § 2; //~ ERROR E0001 unexpected character `§`
+    //~^ ERROR E0100 expected `;`, found integer literal `2`
+}
