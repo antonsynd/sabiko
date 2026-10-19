@@ -1,0 +1,10 @@
+// Same shape with a binary operator instead of a struct literal, for comparison.
+struct Node { Weight: f64, Left: i32 }
+
+fn Weigh(n: &mut Node) -> &mut f64 { &mut n.Weight }
+
+fn Main() {
+    let mut next = Node { Weight: 1.5, Left: 3 };
+    let v = *Weigh(&mut next) + next.Weight;
+    PrintLine(v);
+}

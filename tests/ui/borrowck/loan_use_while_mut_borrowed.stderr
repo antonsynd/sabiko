@@ -18,8 +18,8 @@
     │             ───┬──  
     │                ╰──── `z` is borrowed here
  17 │     if z == 1 { //~ ERROR E0411 cannot use `z` because it was mutably borrowed
-    │        ───┬──  
-    │           ╰──── use of borrowed `z`
+    │        ┬  
+    │        ╰── use of borrowed `z`
  18 │         *m = 2;
     │         ───┬──  
     │            ╰──── borrow later used here

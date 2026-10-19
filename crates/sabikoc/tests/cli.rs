@@ -49,7 +49,7 @@ fn emits_mir_for_valid_file() {
         stdout.starts_with("fn Add(_1: i32, _2: i32) -> i32 {"),
         "{stdout}"
     );
-    assert!(stdout.contains("_0 = Add(copy _1, copy _2);"), "{stdout}");
+    assert!(stdout.contains("_0 = Add(copy _3, copy _4);"), "{stdout}");
     assert!(stdout.contains("return;"), "{stdout}");
 }
 

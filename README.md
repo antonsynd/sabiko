@@ -70,7 +70,11 @@ Testing: `cargo test` runs everything: the UI golden tests under `tests/ui` (see
 exit codes), and the differential tests against `rustc` under `tests/differential`
 (compile-time verdicts, and identical output for the programs under `run/`). The tests
 that need the .NET toolchain or `rustc` print a notice and skip when they are missing;
-CI sets `SABIKO_REQUIRE_DOTNET=1` so they must run there.
+CI sets `SABIKO_REQUIRE_DOTNET=1` so they must run there. Beyond the hand-written corpora,
+a seeded program generator is checked against rustc on every run, a proptest suite asserts
+the pipeline never panics on mutated programs, and a nightly workflow adds libFuzzer
+targets, thousands of generated seeds and mutation testing with enforced scores. See
+`docs/TESTING.md`.
 
 On Windows use `scripts/setup-dotnet.ps1` instead.
 

@@ -37,7 +37,6 @@ struct Var {
     stmt_locks: u32,
     /// Read in the current statement (see `apply`): no `&mut` borrow or write of it may
     /// follow in the same statement, violation knob or not.
-    stmt_read_locks: u32,
     /// Loop counters are never touched by generated statements.
     hidden: bool,
     /// A reference local whose region ended: never used again.
@@ -113,8 +112,6 @@ pub struct BodyGen<'a> {
     budget: usize,
     /// Variables whose `stmt_locks` must be released when the statement ends.
     stmt_locked: Vec<usize>,
-    /// Variables whose `stmt_read_locks` must be released when the statement ends.
-    stmt_read_locked: Vec<usize>,
 }
 
 const INDENT: &str = "    ";
@@ -145,7 +142,6 @@ impl<'a> BodyGen<'a> {
             used_names: Vec::new(),
             budget,
             stmt_locked: Vec::new(),
-            stmt_read_locked: Vec::new(),
         };
         for p in &sig.params {
             gen.used_names.push(p.name.clone());
@@ -159,7 +155,6 @@ impl<'a> BodyGen<'a> {
                 shared_locks: 0,
                 mut_locks: 0,
                 stmt_locks: 0,
-                stmt_read_locks: 0,
                 hidden: false,
                 dead: false,
                 borrows: Vec::new(),
@@ -243,7 +238,6 @@ impl<'a> BodyGen<'a> {
             shared_locks: 0,
             mut_locks: 0,
             stmt_locks: 0,
-            stmt_read_locks: 0,
             hidden,
             dead: false,
             borrows: Vec::new(),
@@ -339,7 +333,6 @@ impl<'a> BodyGen<'a> {
             self.kill(v);
         }
         self.stmt_locked.retain(|&v| v < block.first_var);
-        self.stmt_read_locked.retain(|&v| v < block.first_var);
         self.vars.truncate(block.first_var);
         self.indent -= 1;
     }
@@ -418,44 +411,14 @@ impl<'a> BodyGen<'a> {
         }
     }
 
-    /// TODO(gen-bugs/README.md #2): `sabiko_codegen` emits `stind.u1`/`stind.u2`/`stind.u4`
-    /// for a store through `&mut` to a `u8`/`bool`, `u16`/`char` or `u32` referent, which
-    /// ilasm rejects (CIL stores only have signed widths). Until that is fixed no program
-    /// writes `*r = v` for those types, whatever the violation knob says; field stores
-    /// through a reference (`stfld`) and every other referent type are fine.
-    fn store_unsupported(place: &Place) -> bool {
-        place.whole
-            && place.via_ref.is_some()
-            && matches!(
-                place.ty,
-                ValTy::Prim(
-                    Prim::Int(IntTy::U8 | IntTy::U16 | IntTy::U32) | Prim::Bool | Prim::Char
-                )
-            )
-    }
-
-    /// Accesses that are never generated, violation knob or not: see the TODOs on
-    /// `store_unsupported`, `deref_call`, `call` and `apply`.
-    fn hard_blocked(&self, place: &Place, access: Access) -> bool {
-        let root = &self.vars[place.root];
-        root.stmt_locks > 0
-            || (matches!(access, Access::Write | Access::Borrow(true))
-                && (root.stmt_read_locks > 0
-                    || (access == Access::Write && Self::store_unsupported(place))))
+    /// Accesses that are never generated, violation knob or not: see the TODO in `call`.
+    fn hard_blocked(&self, place: &Place, _access: Access) -> bool {
+        self.vars[place.root].stmt_locks > 0
     }
 
     /// Records the effect of an access: a move, or a re-initialisation.
     fn apply(&mut self, place: &Place, access: Access) {
         let copy = self.prog.is_copy(Ty::Val(place.ty));
-        if access == Access::Read {
-            // TODO(gen-bugs/README.md #5): Sabiko reads a place operand at the consuming
-            // instruction, after later sibling operands ran, so `F(x.A, Bump(&mut x))`
-            // passes the bumped value (rustc copies `x.A` first). Until that is fixed no
-            // `&mut` borrow or write of a variable follows a read of it in the same
-            // statement, whatever the violation knob says.
-            self.vars[place.root].stmt_read_locks += 1;
-            self.stmt_read_locked.push(place.root);
-        }
         match access {
             Access::Read if !copy => self.vars[place.root].moved = true,
             Access::Write if place.whole && place.via_ref.is_none() => {
@@ -623,14 +586,6 @@ impl<'a> BodyGen<'a> {
         }
         let callee = *self.rng.pick(&fns);
         let call = self.call(callee, depth)?;
-        // TODO(gen-bugs/README.md #1): Sabiko lowers `*F(&mut x)` as a lazy place read
-        // inside the consuming statement, so the loan on `x` is still live when a later
-        // sibling operand reads `x` and the program is rejected (rustc accepts it). Until
-        // that is fixed, everything the call borrowed stays unusable for the rest of the
-        // statement, whatever the violation knob says.
-        for &(root, _) in &call.roots {
-            self.hold_for_stmt(root);
-        }
         Some(Expr::value(format!("(*{})", call.text)))
     }
 
@@ -872,13 +827,7 @@ impl<'a> BodyGen<'a> {
             else {
                 continue;
             };
-            if v.hidden
-                || v.dead
-                || v.stmt_locks > 0
-                || (mutable && v.stmt_read_locks > 0)
-                || t != inner
-                || (mutable && !m)
-            {
+            if v.hidden || v.dead || v.stmt_locks > 0 || t != inner || (mutable && !m) {
                 continue;
             }
             let free = !v.moved && v.mut_locks == 0 && (!mutable || v.shared_locks == 0);
@@ -1001,9 +950,6 @@ impl<'a> BodyGen<'a> {
     fn release_stmt_locks(&mut self) {
         for v in std::mem::take(&mut self.stmt_locked) {
             self.vars[v].stmt_locks -= 1;
-        }
-        for v in std::mem::take(&mut self.stmt_read_locked) {
-            self.vars[v].stmt_read_locks -= 1;
         }
     }
 
@@ -1130,7 +1076,6 @@ impl<'a> BodyGen<'a> {
         // Rust evaluates the right-hand side first.
         let e = self.val_expr(place.ty, depth);
         if !self.hard_blocked(&place, Access::Write)
-            && !self.rhs_uses_locker(&place, &e.text)
             && (violation || self.permitted(&place, Access::Write))
         {
             self.apply(&place, Access::Write);
@@ -1173,7 +1118,6 @@ impl<'a> BodyGen<'a> {
         };
         let moved = self.vars[place.root].moved;
         if !self.hard_blocked(&place, Access::Write)
-            && !self.rhs_uses_locker(&place, &e.text)
             && (violation || (!moved && self.permitted(&place, Access::Write)))
         {
             self.line(&format!("{} {op} {};", place.text, e.text));
@@ -1183,32 +1127,6 @@ impl<'a> BodyGen<'a> {
             self.declare(name, Ty::Val(place.ty), false, false);
         }
         true
-    }
-
-    /// TODO(gen-bugs/README.md #3): Sabiko rejects `*val = *delta;` when `delta` borrows
-    /// `*val` and this is its last use (rustc accepts: the loan dies with the read, before
-    /// the write). Until that is fixed a write whose right-hand side names a live reference
-    /// local that borrows the destination's root is never emitted.
-    fn rhs_uses_locker(&self, place: &Place, rhs: &str) -> bool {
-        self.vars.iter().any(|v| {
-            !v.dead
-                && v.borrows.iter().any(|&(root, _)| root == place.root)
-                && mentions(rhs, &v.name)
-        })
-    }
-
-    /// The text passed to `Print`/`PrintLine` for a value of type `p`.
-    ///
-    /// TODO(gen-bugs/README.md #6): the runtime formats an `f32` whose shortest representation
-    /// is an exact decimal tie differently from Rust (`1233.28125f32` prints as `1233.2812`
-    /// instead of `1233.2813`). Until that is fixed every `f32` is printed as `(x as f64)`,
-    /// which is exact (no tie) and still exercises the `f32` arithmetic that produced it.
-    fn print_text(text: &str, p: Prim) -> String {
-        if p == Prim::F32 {
-            format!("({text} as f64)")
-        } else {
-            text.to_owned()
-        }
     }
 
     fn stmt_print(&mut self, depth: u32) -> bool {
@@ -1224,7 +1142,7 @@ impl<'a> BodyGen<'a> {
         } else {
             "Print"
         };
-        self.line(&format!("{f}({});", Self::print_text(&e.text, p)));
+        self.line(&format!("{f}({});", e.text));
         true
     }
 
@@ -1244,7 +1162,7 @@ impl<'a> BodyGen<'a> {
         let leaves = self.prog.leaves(ty);
         let mut out = String::new();
         let last = leaves.len() - 1;
-        for (i, (path, p)) in leaves.iter().enumerate() {
+        for (i, (path, _)) in leaves.iter().enumerate() {
             let text = if path.is_empty() {
                 base.to_owned()
             } else if let Some(stripped) = base.strip_prefix('*') {
@@ -1252,7 +1170,6 @@ impl<'a> BodyGen<'a> {
             } else {
                 format!("{base}{path}")
             };
-            let text = Self::print_text(&text, *p);
             if i == last {
                 let _ = write!(out, "PrintLine({text});");
             } else {
@@ -1457,23 +1374,7 @@ impl<'a> BodyGen<'a> {
         let RetTy::Ref { inner, .. } = self.prog.fns[callee].ret else {
             return false;
         };
-        let subs: Vec<(String, ValTy)> = self
-            .prog
-            .sub_places(inner)
-            .into_iter()
-            .filter(|(path, ty)| {
-                // See `store_unsupported`: `*F(..) = v` is a store through a reference.
-                !path.is_empty()
-                    || !matches!(
-                        ty,
-                        ValTy::Prim(
-                            Prim::Int(IntTy::U8 | IntTy::U16 | IntTy::U32)
-                                | Prim::Bool
-                                | Prim::Char
-                        )
-                    )
-            })
-            .collect();
+        let subs: Vec<(String, ValTy)> = self.prog.sub_places(inner).into_iter().collect();
         if subs.is_empty() {
             return false;
         }
@@ -1537,14 +1438,4 @@ impl<'a> BodyGen<'a> {
             printed += 1;
         }
     }
-}
-
-/// Whether `text` contains `name` as a whole identifier.
-fn mentions(text: &str, name: &str) -> bool {
-    text.match_indices(name).any(|(i, _)| {
-        let before = text[..i].chars().next_back();
-        let after = text[i + name.len()..].chars().next();
-        let is_ident = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-        !is_ident(before) && !is_ident(after)
-    })
 }

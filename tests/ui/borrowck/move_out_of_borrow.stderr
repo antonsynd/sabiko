@@ -6,11 +6,11 @@
     │              ╰── move occurs because `*r` has type `P`, which does not implement the `Copy` trait
 ────╯
 [E0407] Error: cannot move out of `*r` which is behind a mutable reference
-    ╭─[ tests/ui/borrowck/move_out_of_borrow.sabi:22:5 ]
+    ╭─[ tests/ui/borrowck/move_out_of_borrow.sabi:22:10 ]
     │
  22 │     Take(*r); //~ ERROR E0407 cannot move out of `*r` which is behind a mutable reference
-    │     ────┬───  
-    │         ╰───── move occurs because `*r` has type `P`, which does not implement the `Copy` trait
+    │          ─┬  
+    │           ╰── move occurs because `*r` has type `P`, which does not implement the `Copy` trait
 ────╯
 [E0407] Error: cannot move out of `pair.A` which is behind a shared reference
     ╭─[ tests/ui/borrowck/move_out_of_borrow.sabi:26:13 ]
@@ -20,9 +20,9 @@
     │                ╰──── move occurs because `pair.A` has type `P`, which does not implement the `Copy` trait
 ────╯
 [E0407] Error: cannot move out of `pair.B` which is behind a mutable reference
-    ╭─[ tests/ui/borrowck/move_out_of_borrow.sabi:31:5 ]
+    ╭─[ tests/ui/borrowck/move_out_of_borrow.sabi:31:10 ]
     │
  31 │     Take(pair.B); //~ ERROR E0407 cannot move out of `pair.B` which is behind a mutable reference
-    │     ──────┬─────  
-    │           ╰─────── move occurs because `pair.B` has type `P`, which does not implement the `Copy` trait
+    │          ───┬──  
+    │             ╰──── move occurs because `pair.B` has type `P`, which does not implement the `Copy` trait
 ────╯

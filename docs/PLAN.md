@@ -342,6 +342,34 @@ their representations are decided; ref-to-ref and panic messages lack source pos
 rejected with the intended diagnostics. Reached: `tests/run-pass/basics/hello.sabi` runs
 both examples; `tests/ui/borrowck` holds the rejections.
 
+### Hardening pass (between Phases 4 and 5)
+
+Pulled forward from Phase 10 once the pipeline ran end to end: the hand-written corpora
+were the only thing constraining four stages, and the next phase doubles the language
+surface. Work and verification are the same thing here; see `docs/TESTING.md`.
+- Random program generator for the Phase 4 subset (`crates/sabiko_testgen`), applied to
+  both rustc oracles (compile-time verdicts, run-time output and exit codes) for a seed
+  range per CI run and thousands of seeds nightly.
+- Determinism and idempotence properties of the pipeline over generated programs.
+- Panic messages compared against rustc in the run-time differential tests.
+- Whole-pipeline fuzzing: libFuzzer targets over arbitrary text and token soup, a nightly
+  budget, and a stable-Rust no-panic property over corpus mutations on every CI run.
+- IL snapshots assembled and verified, not just compared.
+- Mutation testing with `cargo mutants` on the borrow checker, type checker and backend;
+  survivors triaged, tests added for the real gaps, scores recorded with thresholds.
+
+Status (2026-10-19): **complete.** Generator (`sabiko_testgen`): 800 seeds across two
+ranges agree with rustc on verdicts, output, exit codes and panic messages; the only
+construct it still avoids is the implicit two-phase reborrow of a `&mut` local in argument
+position (`Use(m, m.Field)`), which Sabiko rejects and rustc accepts (known gap since Phase
+3, waits for methods). Fuzzing: three libFuzzer targets, no crashes after the three
+never-type fixes it found; the proptest no-panic suite runs 256 cases per property on every
+CI job and 4096 nightly. Mutation scores: borrowck 90.5%, codegen 95.5%, types 100%, with
+thresholds enforced nightly. Nine compiler bugs were found and fixed in total (see
+`docs/TESTING.md`); the largest fix makes MIR building copy place operands into temporaries
+at operand-evaluation time, as rustc does (decision 36), which repaired a miscompile and
+three false rejections at once.
+
 ### Phase 5: Data types
 
 Work
@@ -479,11 +507,10 @@ Work
 Verification
 - Byte-for-byte: assemblies from the PE writer and from `ilasm` round-trip through
   `ildasm` to identical text.
-- Full corpus green on both borrow checkers; `ilverify` clean; mutation testing with
-  `cargo mutants` on `sabiko_borrowck` and `sabiko_types` with a target mutation score
-  recorded in CI.
-- Soak: fuzz the whole pipeline (not just the parser) for a fixed CI budget per run,
-  asserting no compiler panic and `ilverify`-clean output for every accepted program.
+- Full corpus green on both borrow checkers; `ilverify` clean; mutation scores from the
+  hardening pass maintained or raised, with the direct PE writer added to the mutated set.
+- Soak: the nightly fuzzing budget (hardening pass) extended to the PE writer, asserting
+  `ilverify`-clean output for every accepted program.
 
 ---
 
@@ -499,12 +526,14 @@ Verification
 | Runtime behaviour | Run-pass stdout comparison; panic exit codes; drop order; leak counters | `tests/run-pass/` |
 | Memory model | Live-allocation counters, no-GC-region runs, RSS bounds | `tests/run-pass/memory/` |
 | Interop | xunit projects in both directions; IL inspection for zero marshalling; layout equality; BenchmarkDotNet | `tests/interop/` |
-| Compiler robustness | Whole-pipeline fuzzing; `cargo mutants` on checker crates | `fuzz/`, CI nightly |
+| Compiler robustness | Whole-pipeline fuzzing (libFuzzer nightly, proptest on every run); generated-program differential and determinism properties; `cargo mutants` on checker and backend crates | `fuzz/`, `crates/sabiko_testgen`, `crates/sabiko_driver/tests/no_panic.rs`, nightly |
 | Regressions | Every fixed bug adds a test in the matching layer | all |
 
 CI gates (every PR): fmt, clippy, unit tests, UI/codegen/run-pass suites on Linux,
-Windows and macOS, `ilverify` clean, differential suite. Nightly: fuzzing budget,
-mutation testing, benchmarks with trend tracking.
+Windows and macOS, `ilverify` clean, differential suite, a small generated-program seed
+range. Nightly (`.github/workflows/nightly.yml`): fuzzing budget, thousands of generated
+seeds, mutation testing; benchmarks with trend tracking from Phase 8. `docs/TESTING.md`
+describes every layer and how to update its expectations.
 
 ---
 

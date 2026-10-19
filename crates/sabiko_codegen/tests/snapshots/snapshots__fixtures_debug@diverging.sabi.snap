@@ -16,10 +16,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/diverging.sabi
     .maxstack 2
     .locals init (
       [0] int32 '_0',
-      [1] bool '_2'
+      [1] bool '_2',
+      [2] int32 '_3'
     )
   BB0:
     ldarg.0
+    stloc.2
+    ldloc.2
     ldc.i4.0
     clt
     stloc.1

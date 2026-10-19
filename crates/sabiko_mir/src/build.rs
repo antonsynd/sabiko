@@ -487,8 +487,14 @@ impl<'a> Builder<'a> {
 
     // ----- expressions -----
 
-    /// Lowers `expr` to an operand, creating a temporary unless it is a constant or a
-    /// place.
+    /// Lowers `expr` to an operand: a constant, or a fresh temporary holding its value.
+    ///
+    /// Place expressions are copied (or moved) into the temporary at this point rather
+    /// than read lazily by the consuming statement, exactly as rustc's `as_operand` does.
+    /// The order matters: in `F(p.A, Bump(&mut p))` the first argument must see `p.A`
+    /// before `Bump` runs, and a reference temporary such as the result of `Weigh(&mut n)`
+    /// in `*Weigh(&mut n) + n.W` must die once its referent is copied, so the sibling
+    /// operand can read `n`.
     fn as_operand(&mut self, expr: &Expr) -> Operand {
         match &expr.kind {
             ExprKind::Paren(inner) => self.as_operand(inner),
@@ -501,20 +507,13 @@ impl<'a> Builder<'a> {
                 value: ConstValue::Unit,
                 span: expr.span,
             }),
-            ExprKind::Path(_) => match self.resolve.res(expr.id) {
-                Res::Local(id) => self.place_operand(Place::local(self.mir_local(id))),
-                Res::Def(def) if self.def_kind(def) == DefKind::Const => {
-                    let ty = self.ty(expr).clone();
-                    Operand::Constant(self.const_constant(def, &ty, expr.span))
-                }
-                _ => {
-                    let temp = self.as_temp(expr);
-                    self.place_operand(Place::local(temp))
-                }
-            },
-            ExprKind::Field(..) | ExprKind::Deref(_) => {
-                let place = self.as_place(expr);
-                self.place_operand(place)
+            ExprKind::Path(_) if matches!(self.resolve.res(expr.id), Res::Def(def) if self.def_kind(def) == DefKind::Const) =>
+            {
+                let Res::Def(def) = self.resolve.res(expr.id) else {
+                    unreachable!()
+                };
+                let ty = self.ty(expr).clone();
+                Operand::Constant(self.const_constant(def, &ty, expr.span))
             }
             _ => {
                 let temp = self.as_temp(expr);
@@ -560,13 +559,20 @@ impl<'a> Builder<'a> {
         let span = expr.span;
         match &expr.kind {
             ExprKind::Paren(inner) => self.expr_into_dest(dest, inner),
-            ExprKind::Lit(_) | ExprKind::Unit | ExprKind::Field(..) | ExprKind::Deref(_) => {
+            ExprKind::Lit(_) | ExprKind::Unit => {
                 let op = self.as_operand(expr);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
             }
+            // A place read straight into the destination (`let x = p.A;`), as rustc does:
+            // only operands of a larger expression go through a temporary.
+            ExprKind::Field(..) | ExprKind::Deref(_) => {
+                let place = self.as_place(expr);
+                let op = self.place_operand(place);
+                self.assign(dest.clone(), Rvalue::Use(op), span);
+            }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
-                Res::Local(_) => {
-                    let op = self.as_operand(expr);
+                Res::Local(id) => {
+                    let op = self.place_operand(Place::local(self.mir_local(id)));
                     self.assign(dest.clone(), Rvalue::Use(op), span);
                 }
                 Res::Def(def) => match self.def_kind(def) {

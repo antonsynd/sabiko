@@ -14,8 +14,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/strings.sabi
   .method public hidebysig static void 'Shout'(valuetype [System.Runtime]System.ReadOnlySpan`1<char> 'message') cil managed
   {
     .maxstack 1
+    .locals init (
+      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_3'
+    )
   BB0:
     ldarg.0
+    stloc.0
+    ldloc.0
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.ReadOnlySpan`1<char>)
   BB1:
     ldstr "!"
@@ -30,13 +35,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/strings.sabi
   {
     .maxstack 1
     .locals init (
-      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 'greeting'
+      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 'greeting',
+      [1] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_3'
     )
   BB0:
     ldstr "hello, \"world\""
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     stloc.0
     ldloc.0
+    stloc.1
+    ldloc.1
     call void 'Strings'::'Shout'(valuetype [System.Runtime]System.ReadOnlySpan`1<char>)
   BB1:
     ldstr "second line"

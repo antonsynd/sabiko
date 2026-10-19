@@ -428,6 +428,13 @@ impl FnCx<'_, '_> {
 
     fn store_indirect(&mut self, ty: &Ty, span: Span) {
         if let Some(s) = types::ind_suffix(ty) {
+            // CIL stores come in signed widths only (`stind.i1`, never `stind.u1`).
+            let s = match s {
+                "u1" => "i1",
+                "u2" => "i2",
+                "u4" => "i4",
+                other => other,
+            };
             self.op(format!("stind.{s}"), 2, 0);
         } else {
             let cil = types::cil_type(self.cx, ty, span);

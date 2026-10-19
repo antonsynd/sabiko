@@ -1,12 +1,12 @@
 [E0406] Error: use of partially moved value: `pair`
-    ╭─[ tests/ui/borrowck/move_partial.sabi:29:5 ]
+    ╭─[ tests/ui/borrowck/move_partial.sabi:29:14 ]
     │
  28 │     let a = pair.A;
     │             ───┬──  
     │                ╰──── value partially moved here
  29 │     TakePair(pair); //~ ERROR E0406 use of partially moved value: `pair`
-    │     ───────┬──────  
-    │            ╰──────── value used here after partial move
+    │              ──┬─  
+    │                ╰─── value used here after partial move
     │ 
     │ Note: partial move occurs because `pair.A` has type `P`, which does not implement the `Copy` trait
 ────╯
@@ -14,8 +14,8 @@
     ╭─[ tests/ui/borrowck/move_partial.sabi:35:13 ]
     │
  34 │     Take(pair.B);
-    │     ──────┬─────  
-    │           ╰─────── value partially moved here
+    │          ───┬──  
+    │             ╰──── value partially moved here
  35 │     let r = &pair; //~ ERROR E0406 borrow of partially moved value: `pair`
     │             ──┬──  
     │               ╰──── value borrowed here after partial move
@@ -35,15 +35,15 @@
     │ Note: move occurs because `pair.A` has type `P`, which does not implement the `Copy` trait
 ────╯
 [E0406] Error: use of partially moved value: `pair`
-    ╭─[ tests/ui/borrowck/move_partial.sabi:62:5 ]
+    ╭─[ tests/ui/borrowck/move_partial.sabi:62:14 ]
     │
  60 │     let a = pair.A;
     │             ───┬──  
     │                ╰──── value partially moved here
     │ 
  62 │     TakePair(pair); //~ ERROR E0406 use of partially moved value: `pair`
-    │     ───────┬──────  
-    │            ╰──────── value used here after partial move
+    │              ──┬─  
+    │                ╰─── value used here after partial move
     │ 
     │ Note: partial move occurs because `pair.A` has type `P`, which does not implement the `Copy` trait
 ────╯

@@ -160,9 +160,6 @@ impl Location {
 /// Implementations supply the lattice (`bottom_value`, `join`) and the transfer
 /// functions. Transfer functions must be monotone for the fixpoint to terminate.
 pub trait Analysis {
-    /// Number of bits in the domain; the same for every state of this analysis.
-    fn domain_size(&self, body: &Body) -> usize;
-
     /// The state of a block no predecessor has flowed into yet: the lattice's bottom
     /// (empty for a "maybe" analysis, full for a "definitely" analysis).
     fn bottom_value(&self, body: &Body) -> BitSet;

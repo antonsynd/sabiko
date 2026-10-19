@@ -12,17 +12,17 @@
     │              ╰─── borrow later used here
 ────╯
 [E0412] Error: cannot move out of `p` because it is borrowed
-    ╭─[ tests/ui/borrowck/loan_move_while_borrowed.sabi:22:13 ]
+    ╭─[ tests/ui/borrowck/loan_move_while_borrowed.sabi:22:18 ]
     │
  21 │     let r = &p.Y;
     │             ──┬─  
     │               ╰─── borrow of `p.Y` occurs here
  22 │     let n = Take(p); //~ ERROR E0412 cannot move out of `p` because it is borrowed
-    │             ───┬───  
-    │                ╰───── move out of `p` occurs here
+    │                  ┬  
+    │                  ╰── move out of `p` occurs here
  23 │     let _ = *r + n;
-    │             ───┬──  
-    │                ╰──── borrow later used here
+    │             ─┬  
+    │              ╰── borrow later used here
 ────╯
 [E0412] Error: cannot move out of `m` because it is borrowed
     ╭─[ tests/ui/borrowck/loan_move_while_borrowed.sabi:30:14 ]

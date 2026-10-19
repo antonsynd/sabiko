@@ -83,12 +83,6 @@ impl OriginSupply {
         self.next += 1;
         origin
     }
-
-    /// The number of origins created so far (every origin is below this).
-    #[must_use]
-    pub fn count(&self) -> usize {
-        self.next
-    }
 }
 
 /// A type with an origin on every reference.
@@ -173,11 +167,6 @@ pub struct SigRegions {
 }
 
 impl SigRegions {
-    /// Every origin of the parameters, outermost first within each parameter.
-    pub fn input_origins(&self) -> impl Iterator<Item = Origin> + '_ {
-        self.inputs.iter().flat_map(RegionTy::origins)
-    }
-
     /// `(origin, parameter index, depth)` for every parameter origin: `depth` is how
     /// many references enclose the one with this origin (`0` for `x: &T`, `1` for the
     /// inner reference of `x: &mut &T`).

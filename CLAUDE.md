@@ -39,7 +39,16 @@ run-time differential tests must run there, not skip. Run all four checks before
   names) and `tests/differential/run/` (both compilers build and run the program; stdout and
   exit code must match). Every program must be valid Rust too; the harness prepends a
   prelude defining `Print`, `PrintLine`, `Panic` and `fn main() { Main() }`.
+- Generated programs: `crates/sabiko_testgen` + `crates/sabikoc/tests/generated.rs`;
+  `SABIKO_GENERATED_SEEDS=400 SABIKO_GENERATED_BASE_SEED=<n>` scales a run; a failure prints
+  the seed and the program. A construct the generator must avoid gets a TODO naming the bug.
+- Property tests: `PROPTEST_CASES=4096 cargo test -p sabiko_driver --test no_panic`.
+- Fuzzing (nightly Rust): `scripts/fuzz.sh pipeline 600`; crashes land in `fuzz/artifacts`.
+- Mutation testing: `scripts/mutants.sh sabiko_borrowck` (slow; thresholds inside);
+  triage survivors into tests or the equivalent-mutant list in `docs/TESTING.md`.
 - Hand-built MIR unit tests for the borrow checker live in `crates/sabiko_borrowck/tests`.
+- `docs/TESTING.md` describes every layer; CI runs the fast parts on every push, the
+  nightly workflow runs fuzzing, thousands of generated seeds and mutation testing.
 
 ## Architecture (one crate per stage)
 

@@ -59,10 +59,6 @@ impl InitAnalysis {
 }
 
 impl Analysis for InitAnalysis {
-    fn domain_size(&self, body: &Body) -> usize {
-        body.locals.len()
-    }
-
     fn bottom_value(&self, body: &Body) -> BitSet {
         match self.kind {
             InitKind::Maybe => BitSet::new_empty(body.locals.len()),

@@ -1,0 +1,20 @@
+// Minimal reproducer: writing through `&mut` to an unsigned, `bool` or `char` referent emits
+// `stind.u1`/`stind.u2`/`stind.u4`, which are not CIL opcodes (stores only have the signed
+// widths `stind.i1`..`stind.i8`), so ilasm rejects the module.
+fn SetU8(r: &mut u8) { *r = 200u8; }
+fn SetU16(r: &mut u16) { *r = 60000u16; }
+fn SetU32(r: &mut u32) { *r = 4000000000u32; }
+fn SetU64(r: &mut u64) { *r = 18000000000000000000u64; }
+fn SetUsize(r: &mut usize) { *r = 7usize; }
+fn SetBool(r: &mut bool) { *r = true; }
+fn SetChar(r: &mut char) { *r = 'z'; }
+
+fn Main() {
+    let mut a: u8 = 0; SetU8(&mut a); PrintLine(a);
+    let mut b: u16 = 0; SetU16(&mut b); PrintLine(b);
+    let mut c: u32 = 0; SetU32(&mut c); PrintLine(c);
+    let mut d: u64 = 0; SetU64(&mut d); PrintLine(d);
+    let mut e: usize = 0; SetUsize(&mut e); PrintLine(e);
+    let mut f: bool = false; SetBool(&mut f); PrintLine(f);
+    let mut g: char = 'a'; SetChar(&mut g); PrintLine(g);
+}

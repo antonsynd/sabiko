@@ -78,6 +78,15 @@
     ldc.r4 3.0
     div
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(float32)
+    // exact decimal ties between two shortest representations round away from zero
+    ldc.r4 1233.28125
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(float32)
+    ldc.r4 -1233.28125
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(float32)
+    ldc.r4 1500.03125
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(float32)
+    ldc.r4 0.28125
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(float32)
     ldc.r4 float32(0x7FC00000)
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(float32)
     ldc.r4 float32(0x7F800000)

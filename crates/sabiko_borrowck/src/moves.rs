@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{
-    BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue, Statement,
+    BasicBlock, Body, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue, Statement,
     StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::ResolveResults;
@@ -119,12 +119,6 @@ impl MovePaths {
     #[must_use]
     pub fn closest(&self, place: &Place) -> Option<MovePathIndex> {
         self.lookup.get(&deref_free_prefix(place)).copied()
-    }
-
-    /// The path of a bare local, if the body mentions it.
-    #[must_use]
-    pub fn of_local(&self, local: Local) -> Option<MovePathIndex> {
-        self.lookup.get(&Place::local(local)).copied()
     }
 
     /// Strict descendants of `index`, in pre-order.
@@ -271,17 +265,6 @@ impl<'a> MaybeMovedAnalysis<'a> {
         Self { paths }
     }
 
-    #[must_use]
-    pub fn paths(&self) -> &'a MovePaths {
-        self.paths
-    }
-
-    /// Whether `index` is maybe-moved in `state`.
-    #[must_use]
-    pub fn is_moved(state: &BitSet, index: MovePathIndex) -> bool {
-        state.contains(index.0)
-    }
-
     /// Sets or clears the bits of `index` and all its descendants.
     fn set_subtree(&self, state: &mut BitSet, index: MovePathIndex, moved: bool) {
         for path in std::iter::once(index).chain(self.paths.descendants(index)) {
@@ -313,10 +296,6 @@ impl<'a> MaybeMovedAnalysis<'a> {
 }
 
 impl Analysis for MaybeMovedAnalysis<'_> {
-    fn domain_size(&self, _: &Body) -> usize {
-        self.paths.len()
-    }
-
     fn bottom_value(&self, _: &Body) -> BitSet {
         BitSet::new_empty(self.paths.len())
     }

@@ -1,0 +1,31 @@
+// The right-hand side is the last use of a reference into the destination: the loan ends
+// with that read, before the write (rustc accepts both functions).
+struct Node { Left: i8, Right: i8 }
+
+fn Refine(n: &mut Node) -> &mut i8 { &mut n.Right }
+
+fn Through(val: &mut usize) {
+    let delta: &mut usize = &mut *val;
+    *val = *delta;
+}
+
+fn FieldFromCall(m: &mut Node) {
+    m.Left = *Refine(m);
+}
+
+fn Local() {
+    let mut x: i32 = 1;
+    let r = &mut x;
+    x = *r + 1;
+    PrintLine(x);
+}
+
+fn Main() {
+    let mut v: usize = 3;
+    Through(&mut v);
+    PrintLine(v);
+    let mut n = Node { Left: 1, Right: 2 };
+    FieldFromCall(&mut n);
+    PrintLine(n.Left);
+    Local();
+}
