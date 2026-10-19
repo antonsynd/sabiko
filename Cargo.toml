@@ -33,6 +33,9 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+# `assert!(x.is_empty())` reads better than the `assert_eq!(x, [])` the lint wants; tests
+# that need the contents on failure add a message instead.
+assert_is_empty = "allow"
 
 [profile.dev]
 debug = 1

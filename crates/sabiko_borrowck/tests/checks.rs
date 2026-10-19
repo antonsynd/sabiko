@@ -105,6 +105,12 @@ impl Fixture {
     fn messages(&self, body: &Body) -> Vec<String> {
         self.check(body).iter().map(render).collect()
     }
+
+    /// Asserts the checker accepts `body`, showing any diagnostics on failure.
+    fn assert_clean(&self, body: &Body) {
+        let messages = self.messages(body);
+        assert!(messages.is_empty(), "unexpected diagnostics: {messages:#?}");
+    }
 }
 
 fn render(d: &Diagnostic) -> String {
@@ -352,7 +358,7 @@ fn deferred_init_is_accepted() {
     b.dead(bb0, y);
     b.dead(bb0, x);
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]
@@ -372,7 +378,7 @@ fn deferred_init_in_both_arms_is_accepted() {
     b.assign(join, local(Local::RETURN), use_copy(x));
     b.dead(join, x);
     b.ret(join);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]
@@ -436,7 +442,7 @@ fn assign_to_mutable_argument_and_local_is_fine() {
     b.assign(bb0, local(x), use_int(1));
     b.assign(bb0, local(x), use_copy(n));
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]
@@ -451,7 +457,7 @@ fn storage_live_in_loop_resets_initialisation() {
     b.assign(bb1, local(x), use_int(1));
     b.dead(bb1, x);
     b.goto(bb1, bb1);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 // ----------------------------------------------------------------------------------------
@@ -515,7 +521,7 @@ fn field_assign_on_mutable_local_is_fine() {
     b.assign(bb0, local(p), point_aggregate(&fx));
     b.assign(bb0, local(p).field(0, Ty::I32), use_int(3));
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]
@@ -539,7 +545,7 @@ fn writes_through_mut_ref_with_immutable_binding_are_fine() {
     b.assign(bb0, local(n).deref(), use_int(1));
     b.dead(bb0, q);
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]
@@ -698,7 +704,7 @@ fn borrow_mut_of_mutable_places_is_fine() {
         Rvalue::Ref(Mutability::Not, local(other)),
     );
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]
@@ -768,7 +774,7 @@ fn reborrow_mut_through_mut_ref_is_fine() {
         Rvalue::Ref(Mutability::Mut, local(p).deref().field(1, Ty::I32)),
     );
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 // ----------------------------------------------------------------------------------------
@@ -1050,7 +1056,7 @@ fn temps_and_return_place_are_never_reported() {
     );
     b.dead(bb0, t);
     b.ret(bb0);
-    assert_eq!(fx.messages(&b.finish()), Vec::<String>::new());
+    fx.assert_clean(&b.finish());
 }
 
 #[test]

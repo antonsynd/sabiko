@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn bitset_basics() {
         let mut a = BitSet::new_empty(70);
-        assert!(a.is_empty());
+        assert!(a.is_empty(), "expected an empty set, got {a:?}");
         assert!(a.insert(3));
         assert!(!a.insert(3));
         assert!(a.insert(69));
