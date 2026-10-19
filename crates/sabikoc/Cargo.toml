@@ -1,0 +1,17 @@
+[package]
+name = "sabikoc"
+description = "The Sabiko compiler: a Rust-inspired, borrow-checked language for .NET"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "sabikoc"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

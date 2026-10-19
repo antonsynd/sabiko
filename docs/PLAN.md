@@ -111,6 +111,13 @@ Work
 Exit criteria
 - CI green on all three OSes, including the hand-written IL spike running under `dotnet`.
 
+Status (2026-10-19): scaffolding, scripts, spike, hook and CI are in place. Findings:
+- Claude Code cloud containers block `dot.net` / `builds.dotnet.microsoft.com` but allow
+  `api.nuget.org`, so `setup-dotnet.sh` falls back to assembling the runtime from the
+  `Microsoft.NETCore.App.Runtime.<rid>` pack plus the standalone muxer package.
+- ILVerify caught a `.maxstack` bug in the first draft of the spike before the CLR did,
+  which is exactly the role it will play in the codegen test suite.
+
 ### Phase 1: Front end (lexer, parser, AST, diagnostics)
 
 Language subset
