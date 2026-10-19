@@ -127,7 +127,7 @@ proptest! {
 
     #[test]
     fn token_soup_never_panics(parts in prop::collection::vec(prop::sample::select(LEXEMES), 0..40)) {
-        let src: String = parts.into_iter().map(|p| format!("{p} ")).collect();
+        let src = parts.join(" ");
         check(&src);
     }
 }
