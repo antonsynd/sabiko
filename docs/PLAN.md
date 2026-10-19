@@ -314,9 +314,29 @@ Verification
 - Differential run-pass: programs in `tests/differential/` compiled with both `rustc`
   and `sabikoc` must print identical output.
 
+Status (2026-10-19): **complete**, with drop scopes deferred. `sabiko_codegen` lowers
+the MIR to textual IL (SPEC §10): structs as `sequential` value types, functions as static
+methods of a class named after the module, `in`/`ref` signatures, a stack-machine walk per
+statement with Rust arithmetic semantics (checked in debug, wrapping in release; saturating
+float casts; shift-amount checks), `.maxstack` computed exactly, and an entry-point wrapper
+that reports an escaping exception Rust-style and exits with 101. `Print`, `PrintLine` and
+`Panic` are builtins lowered to `Sabiko.Runtime`, a C# library compiled with `csc` from the
+compilers-toolset package on the bare runtime (no SDK). `sabikoc --emit=il|dll|exe`, `-o`,
+`--release`, `--runtime-path`, `--ilasm`. Verification: IL snapshot tests per construct
+(`crates/sabiko_codegen/tests`), run-pass tests that compile, ILVerify and run every program
+under `tests/run-pass` (stdout and exit codes), and run-time differential tests under
+`tests/differential/run` whose output and exit codes must match the rustc-compiled program;
+CI runs all of it on Linux, macOS and Windows. ILVerify is the gate with one documented
+exception, `ReturnPtrToStack` (decision 30: ECMA-335 rejects every function returning a
+reference; the borrow checker covers it). Deferred: `Drop` scopes as `try/finally` and the
+drop-order tests go with drop elaboration to Phase 5 (nothing has drop glue yet, decision
+26); `i128`/`u128`, `&&T` and `()`-typed parameters/fields are hard errors (E0500) until
+their representations are decided; ref-to-ref and panic messages lack source positions.
+
 **Milestone A** (end of Phase 4): the examples from both design notes (`add_one`,
 `move_point`, partial borrows) compile, verify, run, and the rejection examples are
-rejected with the intended diagnostics.
+rejected with the intended diagnostics. Reached: `tests/run-pass/basics/hello.sabi` runs
+both examples; `tests/ui/borrowck` holds the rejections.
 
 ### Phase 5: Data types
 

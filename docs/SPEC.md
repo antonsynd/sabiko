@@ -36,6 +36,21 @@ names which phase owns which section.
 
 ## 7. Drop and panics (Phase 4)
 
+Panics (Phase 4): a panic is a `Sabiko.Runtime.PanicException`. `Panic(msg)` throws one;
+integer overflow in a debug build, division or remainder by zero, `MIN / -1`, and a shift
+by an amount outside `0..bits` (negative amounts included) panic too, the first three as the
+CLR's own `OverflowException`/`DivideByZeroException`, which the runtime reports as panics.
+An executable's entry point runs `Main` inside a `try`: an exception that escapes is
+reported on standard error as `thread 'main' panicked:` followed by the message, and the
+process exits with code 101 (Rust's). Standard output written before the panic is kept.
+Release builds (`--release`) wrap integer arithmetic instead of panicking; division, shift
+and explicit panics behave the same in both.
+
+Drop: user `Drop` implementations need `impl` blocks and arrive with drop elaboration in
+Phase 5. The lowering is fixed (decision 12): a scope owning droppable values becomes a
+`try`/`finally` whose `finally` drops in reverse declaration order, so drops run during
+unwinding for free.
+
 ## 8. Memory model (Phase 7)
 - `Box<T>`, `Gc<T>`, `Cell<T>`, `RefCell<T>`, `Arena`
 - Strings and collections
@@ -45,9 +60,73 @@ names which phase owns which section.
 - Export shape (attributes, `IDisposable`, naming)
 
 ## 10. Lowering to CIL (Phase 4 onward)
-- Assembly and module layout
-- Statement and expression lowering
-- Verifiability guarantee
+
+Implemented by `sabiko_codegen` (textual IL assembled by `ilasm`; decision 3).
+
+Assembly and module layout. One source file is one assembly and one module, named after
+the file stem; the assembly references `System.Runtime` and `Sabiko.Runtime`. Each `struct`
+is a top-level `public sequential ansi sealed` value type extending `System.ValueType`
+with one public field per Sabiko field in declaration order (an empty struct gets
+`.size 1`). Functions are `public static` methods of one `public abstract sealed` class
+named after the module in PascalCase (`hello.sabi` gives `Hello`; `Module` is appended if a
+struct has that name). `const` items have no representation: their values are inlined.
+Every user identifier is quoted in the IL. An executable additionally has a private
+`<EntryPoint>` method (§7) that calls `Main`, which must take no parameters and return
+`()` (E0501).
+
+Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u32 u64
+usize` are `uint8 uint16 uint32 uint64 native uint`; `f32`/`f64` are `float32`/`float64`;
+`bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
+`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
+`modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
+value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
+`&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
+`void` as a return type; locals and temporaries of type `()` or `!` have no storage, and
+assignments to them are dropped. Not lowered yet (E0500): `i128`/`u128`, `&&T`, `()`-typed
+parameters and fields.
+
+Statements and expressions. The backend walks the MIR (§11); every statement and
+terminator becomes an instruction sequence that leaves the evaluation stack empty, so basic
+blocks are plain labels. MIR locals become IL locals (`.locals init`) and MIR arguments IL
+arguments. A place is accessed through its address: `ldloca`/`ldarga` for a local or
+argument, `ldflda` for a field, the pointer value itself for `*r`; the final load or store
+is `ldloc`/`stloc`, `ldfld`/`stfld` or `ldind.*`/`stind.*` (`ldobj`/`stobj` for structs).
+`&place` is that address; `&mut *r` is `r` itself. A struct literal is built in its
+destination local with `initobj` and one `stfld` per field, or staged through a temporary
+when the destination is a projection or is read by one of the fields. Calls are `call`
+with the callee's full signature; `Print`/`PrintLine` select the runtime overload by the
+argument's type and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cannot return,
+and `unreachable`, are followed by a throw. `if` is `brfalse`, other `switchInt`s a `beq`
+chain; `return` loads the return local and `ret`.
+
+Arithmetic follows Rust. Values narrower than `int32` (`i8 i16 u8 u16`) compute at `int32`
+width and are re-narrowed after every arithmetic operation: `conv.ovf.*` in debug builds
+(trapping on overflow), `conv.*` in release builds (wrapping). `i32`/`i64`/`isize` and the
+unsigned widths use `add.ovf`/`sub.ovf`/`mul.ovf` (`.un` for unsigned) in debug builds and
+the plain opcodes in release builds. Negation is `0 - x` in debug builds so `-MIN` traps,
+`neg` otherwise. Division is `div`/`div.un` (the CLR traps zero divisors and `MIN / -1`);
+remainder is `rem`/`rem.un`. `!` on `bool` is `ceq 0`, on integers `not` followed by
+re-narrowing for unsigned types. Shifts convert the amount to `int32`; debug builds first
+compare it unsigned against the left operand's bit width and throw a `PanicException`
+("attempt to shift left with overflow") when it is not smaller, release builds mask it with
+`bits - 1`; `>>` is `shr` for signed and `shr.un` for unsigned left operands, and `<<` on a
+narrow type truncates. Comparisons are `ceq`/`clt`/`cgt` with the `.un` forms for unsigned
+integers, `bool` and `char`; `!=`, `<=` and `>=` negate the opposite comparison, using the
+unordered forms on floats so that any comparison with NaN but `!=` is false. Casts: integer
+to integer `conv.*` chosen by the target, with sign extension decided by the source
+(`conv.i8` from signed, `conv.u8` from unsigned sources); integer to float `conv.r4`/`conv.r8`
+preceded by `conv.r.un` for unsigned sources; float to `i32`/`i64`/`isize` and their
+unsigned counterparts rely on the CLR's saturating conversions (NaN gives 0); float to a
+narrow type clamps with `System.Math.Clamp` first, because the CLR only saturates to 32
+bits. Constants are `ldc.i4`/`ldc.i8` (with `conv.i`/`conv.u` for the native widths),
+`ldc.r4`/`ldc.r8` (non-finite values by bit pattern), and `ldstr` converted with
+`String::op_Implicit` for `&str`. `.maxstack` is computed exactly.
+
+Verifiability. Every emitted assembly passes ILVerify with `ReturnPtrToStack` ignored
+(decision 30): ECMA-335 has no rule that lets a function return a managed pointer it
+received, so that error fires for every `fn ... -> &T`; the borrow checker (§11.4) ensures
+such a function only returns a pointer into its parameter's referent. The run-pass tests
+verify every assembly they run; a verification error is a compiler bug.
 
 ## 11. Static semantics (Phase 2 subset)
 
