@@ -1,0 +1,7 @@
+// Brackets, like parentheses, lift the struct-literal restriction of a condition.
+struct Key { X: i32 }
+
+fn Main(a: Table, p: Key) {
+    if a[Key { X: 1 }] { }
+    while a[Key { X: 2 }] { }
+}

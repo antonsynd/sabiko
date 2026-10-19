@@ -162,6 +162,13 @@ absorbs a following lone `;`; `break`/`return` do not take a `{` operand inside
 conditions; an unterminated string or block comment is fatal for the file. Everything
 rustc accepts that Sabiko does not yet implement is a dedicated `E0107` diagnostic naming
 the phase that will add it. Identifiers are ASCII-only for now.
+A post-implementation code review found ten issues, all fixed with regression tests:
+a parser hang on stray `)`/`]` (recovery now always makes progress and skips a broken
+construct to its own closer), struct literals wrongly rejected inside `[]` in conditions,
+`x as i32 < y` (rustc-style diagnostic; the printer parenthesises the cast), `t.0.1`
+tokenisation, a leading BOM, CRLF line continuations in strings, sign-prefixed hex
+escapes, a leaking diagnostics source cache, the CLI counting warnings as errors, and
+an unversioned toolchain download cache.
 
 ### Phase 2: Semantic analysis and MIR
 

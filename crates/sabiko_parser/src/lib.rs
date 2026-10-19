@@ -308,4 +308,51 @@ mod tests {
     fn double_ampersand_in_prefix_position_is_two_borrows() {
         assert_eq!(expr("&&x"), "Ref\n  Ref\n    Path x\n");
     }
+
+    /// Statement recovery used to stop at an unmatched `)`/`]` without consuming it, and
+    /// the block loop then re-parsed the same (deduplicated) error forever.
+    #[test]
+    fn recovery_always_makes_progress_on_stray_closers() {
+        let inputs = [
+            "fn F() { let x = ); }",
+            "fn F() { Foo(1, , 2); }",
+            "fn F() { let x = 1 ]; }",
+            "fn F() { foo(1 2); }",
+            "fn F() { a); }",
+            "fn F() { x = ]; }",
+            "fn F() { ) ] ) }",
+            "fn F() { let p = P { x: , }; let y = 1; } fn G() {}",
+            "fn F() { Foo(P { x: , }, ); let y = 1; }",
+            "fn F() { (1 2; let y = 1; }",
+        ];
+        for src in inputs {
+            let mut sink = DiagnosticSink::new();
+            let file = parse_file(FileId(0), src, &mut sink);
+            assert!(sink.has_errors(), "no error reported for {src:?}");
+            let has_f = file
+                .items
+                .iter()
+                .any(|i| matches!(&i.kind, sabiko_ast::ItemKind::Fn(f) if f.name.name == "F"));
+            assert!(has_f, "`fn F` missing from the AST of {src:?}");
+            // Errors inside a nested delimiter must not end the enclosing block early.
+            assert_eq!(
+                sink.diagnostics().len(),
+                1,
+                "exactly one error expected for {src:?}: {:?}",
+                sink.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn source_file_span_covers_the_whole_text() {
+        for src in ["", "  \n", "fn F() {}", "fn F() { \"unterminated"] {
+            let mut sink = DiagnosticSink::new();
+            let file = parse_file(FileId(0), src, &mut sink);
+            assert_eq!(
+                file.span,
+                Span::new(FileId(0), 0, u32::try_from(src.len()).unwrap())
+            );
+        }
+    }
 }

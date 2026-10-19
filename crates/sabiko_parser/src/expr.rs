@@ -1,6 +1,6 @@
 //! Expressions: a Pratt loop for binary operators over a recursive descent core.
 
-use sabiko_ast::{BinOp, Expr, ExprKind, FieldInit, Lit, UnOp, CAST_PRECEDENCE};
+use sabiko_ast::{BinOp, Expr, ExprKind, FieldInit, Lit, Type, TypeKind, UnOp, CAST_PRECEDENCE};
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::literal::{self, LiteralError};
 use sabiko_lexer::TokenKind;
@@ -125,11 +125,79 @@ impl Parser<'_, '_> {
             return Ok(e);
         }
         while self.eat(TokenKind::As).is_some() {
-            let ty = self.parse_type()?;
+            let ty = self.parse_type_no_generics()?;
+            if matches!(ty.kind, TypeKind::Path(_))
+                && matches!(self.peek_kind(), TokenKind::Lt | TokenKind::Shl)
+            {
+                return Err(self.error_cast_followed_by_lt(start, &ty));
+            }
             e = self.mk(ExprKind::Cast(Box::new(e), ty), start);
         }
         debug_assert!(CAST_PRECEDENCE > BinOp::Mul.precedence());
         Ok(e)
+    }
+
+    /// `x as i32 < y`: as in rustc, the `<` after a cast's type path starts generic
+    /// arguments, not a comparison. When what follows really looks like `<T, U>`, the
+    /// usual "generic arguments are not yet supported" diagnostic is more helpful.
+    fn error_cast_followed_by_lt(&mut self, cast_start: Span, ty: &Type) -> crate::ParseError {
+        let op = self.peek();
+        if self.looks_like_generic_args() {
+            return self.error_unsupported(
+                "generic type arguments",
+                op.span,
+                "planned for Phase 6",
+            );
+        }
+        let (op_text, meaning, verb) = if op.kind == TokenKind::Lt {
+            ("<", "comparison", "comparing")
+        } else {
+            ("<<", "shift", "shifting")
+        };
+        let ty_text = &self.src[ty.span.range()];
+        let cast_text = &self.src[cast_start.to(ty.span).range()];
+        let d = Diagnostic::error(
+            ErrorCode::UNEXPECTED_TOKEN,
+            format!(
+                "`{op_text}` is interpreted as a start of generic arguments for `{ty_text}`, not a {meaning}"
+            ),
+        )
+        .with_label(op.span, format!("not interpreted as {meaning}"))
+        .with_label(ty.span, "the type of the cast")
+        .with_note(format!(
+            "try {verb} the cast value: `({cast_text}) {op_text} ...`"
+        ));
+        self.emit(d)
+    }
+
+    /// Whether the tokens from the current `<` form a balanced `<...>` made only of tokens
+    /// that can appear in type arguments (`Vec<Option<&mut T>>`, `Map<K, V>`).
+    fn looks_like_generic_args(&self) -> bool {
+        let mut depth = 0i32;
+        let mut n = 0;
+        loop {
+            match self.nth_kind(n) {
+                TokenKind::Lt => depth += 1,
+                TokenKind::Shl => depth += 2,
+                TokenKind::Gt => depth -= 1,
+                TokenKind::Shr => depth -= 2,
+                TokenKind::Ident
+                | TokenKind::PathSep
+                | TokenKind::Comma
+                | TokenKind::Amp
+                | TokenKind::AndAnd
+                | TokenKind::Mut
+                | TokenKind::Underscore
+                | TokenKind::LParen
+                | TokenKind::RParen
+                | TokenKind::Lifetime => {}
+                _ => return false,
+            }
+            if depth <= 0 {
+                return depth == 0;
+            }
+            n += 1;
+        }
     }
 
     fn parse_unary(&mut self) -> PResult<Expr> {
@@ -222,13 +290,20 @@ impl Parser<'_, '_> {
                 }
                 TokenKind::LBracket => {
                     self.bump();
-                    let index = self.parse_expr()?;
-                    self.expect(TokenKind::RBracket)?;
+                    // Like parentheses, brackets lift the `if`/`while` condition restriction:
+                    // `if a[P { x: 1 }] {}` is fine.
+                    let index = self.in_delimited(TokenKind::RBracket, |p| {
+                        let index = p.parse_expr()?;
+                        p.expect(TokenKind::RBracket)?;
+                        Ok(index)
+                    })?;
                     e = self.mk(ExprKind::Index(Box::new(e), Box::new(index)), start);
                 }
                 TokenKind::Dot => {
                     self.bump();
-                    if self.at(TokenKind::Int) {
+                    // `t.0.1` lexes as a float literal `0.1`; report it as the tuple access
+                    // it is meant to be.
+                    if matches!(self.peek_kind(), TokenKind::Int | TokenKind::Float) {
                         let span = self.peek().span;
                         return Err(self.error_unsupported(
                             "tuple field access (`.0`)",
@@ -274,24 +349,37 @@ impl Parser<'_, '_> {
 
     /// Parses `args)` after the opening parenthesis has been consumed.
     fn parse_call_args(&mut self) -> PResult<Vec<Expr>> {
-        let saved = self.no_struct_literal;
-        self.no_struct_literal = false;
-        let mut args = Vec::new();
-        while !self.at(TokenKind::RParen) && !self.at_eof() {
-            match self.parse_expr() {
-                Ok(a) => args.push(a),
-                Err(e) => {
-                    self.no_struct_literal = saved;
-                    return Err(e);
+        self.in_delimited(TokenKind::RParen, |p| {
+            let mut args = Vec::new();
+            while !p.at(TokenKind::RParen) && !p.at_eof() {
+                args.push(p.parse_expr()?);
+                if p.eat(TokenKind::Comma).is_none() {
+                    break;
                 }
             }
-            if self.eat(TokenKind::Comma).is_none() {
-                break;
-            }
-        }
+            p.expect(TokenKind::RParen)?;
+            Ok(args)
+        })
+    }
+
+    /// Runs `f` for the inside of a bracketed construct whose closing token is `close`.
+    /// Brackets lift the struct-literal restriction of `if`/`while` conditions, and on an
+    /// error the rest of the construct is skipped (up to and including `close`) before the
+    /// error propagates, so that the enclosing statement's recovery does not stop at a
+    /// closer that is not its own (`let p = P { x: , }; ...` must not end the block).
+    fn in_delimited<T>(
+        &mut self,
+        close: TokenKind,
+        f: impl FnOnce(&mut Self) -> PResult<T>,
+    ) -> PResult<T> {
+        let saved = self.no_struct_literal;
+        self.no_struct_literal = false;
+        let r = f(self);
         self.no_struct_literal = saved;
-        self.expect(TokenKind::RParen)?;
-        Ok(args)
+        if r.is_err() {
+            self.skip_to_closer(close);
+        }
+        r
     }
 
     #[allow(clippy::too_many_lines)]
@@ -314,20 +402,19 @@ impl Parser<'_, '_> {
                 if self.eat(TokenKind::RParen).is_some() {
                     return Ok(self.mk(ExprKind::Unit, start));
                 }
-                let saved = self.no_struct_literal;
-                self.no_struct_literal = false;
-                let inner = self.parse_expr();
-                self.no_struct_literal = saved;
-                let inner = inner?;
-                if self.at(TokenKind::Comma) {
-                    let span = self.peek().span;
-                    return Err(self.error_unsupported(
-                        "tuple expressions",
-                        span,
-                        "planned for Phase 5",
-                    ));
-                }
-                self.expect(TokenKind::RParen)?;
+                let inner = self.in_delimited(TokenKind::RParen, |p| {
+                    let inner = p.parse_expr()?;
+                    if p.at(TokenKind::Comma) {
+                        let span = p.peek().span;
+                        return Err(p.error_unsupported(
+                            "tuple expressions",
+                            span,
+                            "planned for Phase 5",
+                        ));
+                    }
+                    p.expect(TokenKind::RParen)?;
+                    Ok(inner)
+                })?;
                 Ok(self.mk(ExprKind::Paren(Box::new(inner)), start))
             }
             TokenKind::LBrace => {
@@ -492,45 +579,41 @@ impl Parser<'_, '_> {
 
     fn parse_struct_literal(&mut self, path: sabiko_ast::Path, start: Span) -> PResult<Expr> {
         self.expect(TokenKind::LBrace)?;
-        let mut fields = Vec::new();
-        let saved = self.no_struct_literal;
-        self.no_struct_literal = false;
-        let result = (|| {
-            while !self.at(TokenKind::RBrace) && !self.at_eof() {
-                if self.at(TokenKind::DotDot) {
-                    let span = self.peek().span;
-                    return Err(self.error_unsupported(
+        let fields = self.in_delimited(TokenKind::RBrace, |p| {
+            let mut fields = Vec::new();
+            while !p.at(TokenKind::RBrace) && !p.at_eof() {
+                if p.at(TokenKind::DotDot) {
+                    let span = p.peek().span;
+                    return Err(p.error_unsupported(
                         "struct update syntax (`..base`)",
                         span,
                         "planned for Phase 5",
                     ));
                 }
-                let fstart = self.peek().span;
-                let name = self.parse_ident()?;
-                let value = if self.eat(TokenKind::Colon).is_some() {
-                    self.parse_expr()?
+                let fstart = p.peek().span;
+                let name = p.parse_ident()?;
+                let value = if p.eat(TokenKind::Colon).is_some() {
+                    p.parse_expr()?
                 } else {
                     // Shorthand `Point { X, Y }` means `X: X`.
                     let path = sabiko_ast::Path {
                         segments: vec![name.clone()],
                         span: name.span,
                     };
-                    self.mk(ExprKind::Path(path), fstart)
+                    p.mk(ExprKind::Path(path), fstart)
                 };
                 fields.push(FieldInit {
                     name,
                     value,
-                    span: self.span_from(fstart),
+                    span: p.span_from(fstart),
                 });
-                if self.eat(TokenKind::Comma).is_none() {
+                if p.eat(TokenKind::Comma).is_none() {
                     break;
                 }
             }
-            self.expect(TokenKind::RBrace)?;
-            Ok(())
-        })();
-        self.no_struct_literal = saved;
-        result?;
+            p.expect(TokenKind::RBrace)?;
+            Ok(fields)
+        })?;
         Ok(self.mk(ExprKind::Struct { path, fields }, start))
     }
 
@@ -581,24 +664,19 @@ impl Parser<'_, '_> {
                 }
             },
             TokenKind::Float => {
-                let (body, suffix) = if let Some(b) = text.strip_suffix("f32") {
-                    (b, Some(sabiko_ast::FloatSuffix::F32))
-                } else if let Some(b) = text.strip_suffix("f64") {
-                    (b, Some(sabiko_ast::FloatSuffix::F64))
-                } else {
-                    (text, None)
-                };
-                if literal::parse_float(text).is_err() {
+                let Ok(l) = literal::parse_float(text) else {
                     let d = Diagnostic::error(
                         ErrorCode::INVALID_FLOAT_LITERAL,
                         "invalid float literal",
                     )
                     .with_label(tok.span, "cannot be parsed as a number");
                     return Err(self.emit_at(d, tok.span));
-                }
+                };
+                // The suffix (`f32`/`f64`) is always three characters long.
+                let body = &text[..text.len() - if l.suffix.is_some() { 3 } else { 0 }];
                 Ok(Lit::Float {
                     text: body.replace('_', ""),
-                    suffix,
+                    suffix: l.suffix,
                 })
             }
             TokenKind::Str => {

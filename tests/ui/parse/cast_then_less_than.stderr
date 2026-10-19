@@ -1,0 +1,31 @@
+[E0100] Error: `<` is interpreted as a start of generic arguments for `i32`, not a comparison
+   ╭─[ tests/ui/parse/cast_then_less_than.sabi:3:22 ]
+   │
+ 3 │     let a = x as i32 < y; //~ ERROR E0100 `<` is interpreted as a start of generic arguments for `i32`, not a comparison
+   │                  ─┬─ ┬  
+   │                   │  ╰── not interpreted as comparison
+   │                   │     
+   │                   ╰───── the type of the cast
+   │ 
+   │ Note: try comparing the cast value: `(x as i32) < ...`
+───╯
+[E0100] Error: `<<` is interpreted as a start of generic arguments for `i32`, not a shift
+   ╭─[ tests/ui/parse/cast_then_less_than.sabi:4:22 ]
+   │
+ 4 │     let b = x as i32 << 2; //~ ERROR E0100 `<<` is interpreted as a start of generic arguments for `i32`, not a shift
+   │                  ─┬─ ─┬  
+   │                   │   ╰── not interpreted as shift
+   │                   │      
+   │                   ╰────── the type of the cast
+   │ 
+   │ Note: try shifting the cast value: `(x as i32) << ...`
+───╯
+[E0107] Error: not yet supported: generic type arguments
+   ╭─[ tests/ui/parse/cast_then_less_than.sabi:8:21 ]
+   │
+ 8 │     let f = x as Vec<i32>; //~ ERROR E0107 not yet supported: generic type arguments
+   │                     ┬  
+   │                     ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 6; see docs/PLAN.md
+───╯

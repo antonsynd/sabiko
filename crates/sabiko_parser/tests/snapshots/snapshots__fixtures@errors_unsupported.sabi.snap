@@ -6,6 +6,14 @@ input_file: crates/sabiko_parser/tests/fixtures/errors_unsupported.sabi
 SourceFile
   Fn F
     Block
+  Fn L
+    Param
+      Pat t
+      Type Pair
+    Param
+      Pat x
+      Type i64
+    Block
 --- diagnostics ---
 [E0107] Error: not yet supported: `match` expressions
    ╭─[ errors_unsupported.sabi:2:5 ]
@@ -249,4 +257,44 @@ SourceFile
     │             ╰── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: tuple field access (`.0`)
+    ╭─[ errors_unsupported.sabi:30:35 ]
+    │
+ 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
+    │                                   ─┬─  
+    │                                    ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 5; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: generic type arguments
+    ╭─[ errors_unsupported.sabi:30:56 ]
+    │
+ 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
+    │                                                        ┬  
+    │                                                        ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0100] Error: `<` is interpreted as a start of generic arguments for `i32`, not a comparison
+    ╭─[ errors_unsupported.sabi:30:80 ]
+    │
+ 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
+    │                                                                            ─┬─ ┬  
+    │                                                                             │  ╰── not interpreted as comparison
+    │                                                                             │     
+    │                                                                             ╰───── the type of the cast
+    │ 
+    │ Note: try comparing the cast value: `(x as i32) < ...`
+────╯
+[E0100] Error: `<<` is interpreted as a start of generic arguments for `i32`, not a shift
+    ╭─[ errors_unsupported.sabi:30:102 ]
+    │
+ 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
+    │                                                                                                  ─┬─ ─┬  
+    │                                                                                                   │   ╰── not interpreted as shift
+    │                                                                                                   │      
+    │                                                                                                   ╰────── the type of the cast
+    │ 
+    │ Note: try shifting the cast value: `(x as i32) << ...`
 ────╯

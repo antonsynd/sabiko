@@ -12,7 +12,6 @@ use crate::{PResult, Parser};
 
 impl Parser<'_, '_> {
     pub(crate) fn parse_source_file(&mut self) -> SourceFile {
-        let start = self.peek().span;
         let mut docs = Vec::new();
         while self.at(TokenKind::InnerDocComment) {
             let t = self.bump();
@@ -36,7 +35,10 @@ impl Parser<'_, '_> {
                 Err(_) => self.recover_to_item_start(),
             }
         }
-        let span = Span::new(self.file, start.start, self.peek().span.end);
+        // The file's span covers the whole source text (also when it is empty), matching
+        // the fatal-lexer-error path in `parse_file`.
+        let end = u32::try_from(self.src.len()).expect("source file larger than 4 GiB");
+        let span = Span::new(self.file, 0, end);
         SourceFile { docs, items, span }
     }
 
@@ -350,8 +352,19 @@ impl Parser<'_, '_> {
 
     // ---- types ----------------------------------------------------------------------------
 
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn parse_type(&mut self) -> PResult<Type> {
+        self.parse_type_inner(true)
+    }
+
+    /// Like [`Self::parse_type`], but a `<` after a type path is left unconsumed instead
+    /// of being reported as (unsupported) generic arguments. Used for the type of a cast,
+    /// where `x as i32 < y` needs its own diagnostic (see `parse_cast`).
+    pub(crate) fn parse_type_no_generics(&mut self) -> PResult<Type> {
+        self.parse_type_inner(false)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn parse_type_inner(&mut self, generics: bool) -> PResult<Type> {
         let start = self.peek().span;
         let id = self.new_id();
         let kind = match self.peek_kind() {
@@ -444,7 +457,7 @@ impl Parser<'_, '_> {
             }
             TokenKind::Ident => {
                 let path = self.parse_path()?;
-                if self.at(TokenKind::Lt) {
+                if generics && self.at(TokenKind::Lt) {
                     let span = self.peek().span;
                     return Err(self.error_unsupported(
                         "generic type arguments",
@@ -569,16 +582,20 @@ impl Parser<'_, '_> {
                     span: self.span_from(start),
                 });
             }
+            let before = self.pos;
             match self.parse_stmt() {
                 Ok(StmtOrTail::Stmt(s)) => stmts.push(s),
-                Ok(StmtOrTail::Tail(e)) => {
-                    tail = Some(Box::new(e));
-                    if !self.at(TokenKind::RBrace) {
-                        let _ = self.error_expected("`;` or `}`");
-                        self.recover_to_statement_end();
+                // `parse_stmt` only returns `Tail` when the next token is `}`.
+                Ok(StmtOrTail::Tail(e)) => tail = Some(Box::new(e)),
+                Err(_) => {
+                    self.recover_to_statement_end();
+                    // Recovery must always make progress, or this loop would re-parse the
+                    // same statement forever (its error is deduplicated, so nothing would
+                    // be reported either). `}` is left to the loop condition.
+                    if self.pos == before && !self.at(TokenKind::RBrace) && !self.at_eof() {
+                        self.bump();
                     }
                 }
-                Err(_) => self.recover_to_statement_end(),
             }
         }
         self.expect(TokenKind::RBrace)?;

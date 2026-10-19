@@ -27,3 +27,4 @@ extern "dotnet" Sys { }
 static S: i32 = 1;
 type Alias = i32;
 struct Tuple(i32);
+fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }

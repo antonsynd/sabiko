@@ -495,8 +495,8 @@ proptest! {
 /// generic arguments on the type path), so the printer must parenthesise the cast.
 #[test]
 fn cast_before_lt_roundtrips() {
-    fn var(name: &str) -> Box<Expr> {
-        Box::new(mk(ExprKind::Path(path(name))))
+    fn var(name: &str) -> Expr {
+        mk(ExprKind::Path(path(name)))
     }
     fn ty_path(name: &str) -> Type {
         Type {
@@ -509,30 +509,30 @@ fn cast_before_lt_roundtrips() {
         // x as i32 < y
         mk(ExprKind::Binary(
             BinOp::Lt,
-            Box::new(mk(ExprKind::Cast(var("x"), ty_path("i32")))),
-            var("y"),
+            Box::new(mk(ExprKind::Cast(Box::new(var("x")), ty_path("i32")))),
+            Box::new(var("y")),
         )),
         // a * b as i32 < c
         mk(ExprKind::Binary(
             BinOp::Lt,
             Box::new(mk(ExprKind::Binary(
                 BinOp::Mul,
-                var("a"),
-                Box::new(mk(ExprKind::Cast(var("b"), ty_path("i32")))),
+                Box::new(var("a")),
+                Box::new(mk(ExprKind::Cast(Box::new(var("b")), ty_path("i32")))),
             ))),
-            var("c"),
+            Box::new(var("c")),
         )),
         // x as u32 <= y
         mk(ExprKind::Binary(
             BinOp::Le,
-            Box::new(mk(ExprKind::Cast(var("x"), ty_path("u32")))),
-            var("y"),
+            Box::new(mk(ExprKind::Cast(Box::new(var("x")), ty_path("u32")))),
+            Box::new(var("y")),
         )),
         // x as u32 << y
         mk(ExprKind::Binary(
             BinOp::Shl,
-            Box::new(mk(ExprKind::Cast(var("x"), ty_path("u32")))),
-            var("y"),
+            Box::new(mk(ExprKind::Cast(Box::new(var("x")), ty_path("u32")))),
+            Box::new(var("y")),
         )),
     ];
     for tail in cases {
