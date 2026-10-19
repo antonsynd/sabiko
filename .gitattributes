@@ -5,3 +5,7 @@
 *.cmd text eol=crlf
 *.png binary
 *.dll binary
+
+# Fixtures whose byte content is the point of the test
+tests/ui/parse/ok_crlf_continuation.sabi -text
+tests/ui/parse/ok_bom.sabi -text
