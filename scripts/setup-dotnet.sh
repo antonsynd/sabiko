@@ -41,7 +41,7 @@ esac
 
 mkdir -p "$TOOLS/bin" "$CACHE"
 
-log() { printf '\033[1;34m[setup-dotnet]\033[0m %s\n' "$*"; }
+log() { printf '\033[1;34m[setup-dotnet]\033[0m %s\n' "$*" >&2; }
 
 # fetch_pkg <id> <version>  -> prints path of the .nupkg in the cache
 fetch_pkg() {
