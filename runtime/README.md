@@ -46,7 +46,7 @@ the user's `Main`. It writes `thread 'main' panicked:\n<message>\n` to stderr an
 | `PanicException` | its `Message` |
 | `System.OverflowException` | `attempt to perform arithmetic with overflow` |
 | `System.DivideByZeroException` | `attempt to divide by zero` |
-| any other `System.ArithmeticException` | `attempt to divide with overflow` |
+| any other `System.ArithmeticException` | `arithmetic error: <message>` |
 | anything else | `<full type name>: <message>` |
 
 IL signatures, as the code generator emits them (`[Sabiko.Runtime]` is the

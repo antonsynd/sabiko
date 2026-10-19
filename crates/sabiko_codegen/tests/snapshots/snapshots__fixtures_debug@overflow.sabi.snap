@@ -24,15 +24,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
       [6] uint8 'inv',
       [7] int8 'q',
       [8] uint16 'r',
-      [9] uint8 'sh',
-      [10] int8 'sr',
-      [11] int32 '_15',
-      [12] int32 '_16',
-      [13] int32 '_17',
-      [14] int32 '_18',
-      [15] int32 '_19',
-      [16] int32 '_20',
-      [17] int32 '_21',
+      [9] int8 'r2',
+      [10] int8 '_14',
+      [11] int16 'r3',
+      [12] int16 '_16',
+      [13] int16 'q2',
+      [14] int16 '_18',
+      [15] uint8 'q3',
+      [16] uint8 'sh',
+      [17] int8 'sr',
       [18] int32 '_22',
       [19] int32 '_23',
       [20] int32 '_24',
@@ -43,7 +43,22 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
       [25] int32 '_29',
       [26] int32 '_30',
       [27] int32 '_31',
-      [28] int32 '_32'
+      [28] int32 '_32',
+      [29] int32 '_33',
+      [30] int32 '_34',
+      [31] int32 '_35',
+      [32] int32 '_36',
+      [33] int32 '_37',
+      [34] int32 '_38',
+      [35] int32 '_39',
+      [36] int32 '_40',
+      [37] int32 '_41',
+      [38] int32 '_42',
+      [39] int32 '_43',
+      [40] int32 '_44',
+      [41] int32 '_45',
+      [42] int32 '_46',
+      [43] int32 '_47'
     )
   BB0:
     ldarg.0
@@ -78,99 +93,206 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldarg.0
     ldc.i4.3
     div
-    conv.ovf.i1
     stloc.s 7
     ldarg.3
     ldc.i4.7
     rem.un
     stloc.s 8
+    ldc.i4.s -3
+    stloc.s 10
+    ldloc.s 10
+    brtrue L1
+    ldstr "attempt to calculate the remainder with a divisor of zero"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L1:
+    ldloc.s 10
+    ldc.i4.m1
+    bne.un L2
+    ldarg.0
+    ldc.i4.s -128
+    bne.un L2
+    ldstr "attempt to calculate the remainder with overflow"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L2:
+    ldarg.0
+    ldloc.s 10
+    rem
+    stloc.s 9
+    ldarg.2
+    ldc.i4.1
+    add
+    conv.ovf.i2
+    stloc.s 12
+    ldloc.s 12
+    brtrue L3
+    ldstr "attempt to calculate the remainder with a divisor of zero"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L3:
+    ldloc.s 12
+    ldc.i4.m1
+    bne.un L4
+    ldarg.2
+    ldc.i4 -32768
+    bne.un L4
+    ldstr "attempt to calculate the remainder with overflow"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L4:
+    ldarg.2
+    ldloc.s 12
+    rem
+    stloc.s 11
+    ldarg.0
+    conv.i2
+    stloc.s 14
+    ldloc.s 14
+    brtrue L5
+    ldstr "attempt to divide by zero"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L5:
+    ldloc.s 14
+    ldc.i4.m1
+    bne.un L6
+    ldarg.2
+    ldc.i4 -32768
+    bne.un L6
+    ldstr "attempt to divide with overflow"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L6:
+    ldarg.2
+    ldloc.s 14
+    div
+    stloc.s 13
+    ldarg.1
+    brtrue L7
+    ldstr "attempt to divide by zero"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    throw
+  L7:
+    ldarg.1
+    ldarg.1
+    div.un
+    stloc.s 15
     ldarg.1
     ldc.i4.2
     dup
     ldc.i4.8
-    blt.un L1
+    blt.un L8
     ldstr "attempt to shift left with overflow"
     newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
     throw
-  L1:
+  L8:
     shl
     conv.u1
-    stloc.s 9
+    stloc.s 16
     ldarg.0
     ldc.i4.1
     dup
     ldc.i4.8
-    blt.un L2
+    blt.un L9
     ldstr "attempt to shift right with overflow"
     newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
     throw
-  L2:
+  L9:
     shr
-    stloc.s 10
+    stloc.s 17
     ldloc.1
     conv.i4
-    stloc.s 19
+    stloc.s 30
     ldloc.2
     conv.i4
-    stloc.s 20
-    ldloc.s 19
-    ldloc.s 20
+    stloc.s 31
+    ldloc.s 30
+    ldloc.s 31
     add.ovf
-    stloc.s 18
+    stloc.s 29
     ldloc.3
     conv.i4
-    stloc.s 21
-    ldloc.s 18
-    ldloc.s 21
+    stloc.s 32
+    ldloc.s 29
+    ldloc.s 32
     add.ovf
-    stloc.s 17
+    stloc.s 28
     ldloc.s 4
     conv.i4
-    stloc.s 22
-    ldloc.s 17
-    ldloc.s 22
+    stloc.s 33
+    ldloc.s 28
+    ldloc.s 33
     add.ovf
-    stloc.s 16
+    stloc.s 27
     ldloc.s 5
     conv.i4
-    stloc.s 23
-    ldloc.s 16
-    ldloc.s 23
+    stloc.s 34
+    ldloc.s 27
+    ldloc.s 34
     add.ovf
-    stloc.s 15
+    stloc.s 26
     ldloc.s 6
     conv.i4
-    stloc.s 24
-    ldloc.s 15
-    ldloc.s 24
+    stloc.s 35
+    ldloc.s 26
+    ldloc.s 35
     add.ovf
-    stloc.s 14
+    stloc.s 25
     ldloc.s 7
     conv.i4
-    stloc.s 25
-    ldloc.s 14
+    stloc.s 36
     ldloc.s 25
+    ldloc.s 36
     add.ovf
-    stloc.s 13
+    stloc.s 24
     ldloc.s 8
     conv.i4
-    stloc.s 26
-    ldloc.s 13
-    ldloc.s 26
+    stloc.s 37
+    ldloc.s 24
+    ldloc.s 37
     add.ovf
-    stloc.s 12
+    stloc.s 23
     ldloc.s 9
     conv.i4
-    stloc.s 27
-    ldloc.s 12
-    ldloc.s 27
+    stloc.s 38
+    ldloc.s 23
+    ldloc.s 38
     add.ovf
-    stloc.s 11
-    ldloc.s 10
-    conv.i4
-    stloc.s 28
+    stloc.s 22
     ldloc.s 11
-    ldloc.s 28
+    conv.i4
+    stloc.s 39
+    ldloc.s 22
+    ldloc.s 39
+    add.ovf
+    stloc.s 21
+    ldloc.s 13
+    conv.i4
+    stloc.s 40
+    ldloc.s 21
+    ldloc.s 40
+    add.ovf
+    stloc.s 20
+    ldloc.s 15
+    conv.i4
+    stloc.s 41
+    ldloc.s 20
+    ldloc.s 41
+    add.ovf
+    stloc.s 19
+    ldloc.s 16
+    conv.i4
+    stloc.s 42
+    ldloc.s 19
+    ldloc.s 42
+    add.ovf
+    stloc.s 18
+    ldloc.s 17
+    conv.i4
+    stloc.s 43
+    ldloc.s 18
+    ldloc.s 43
     add.ovf
     stloc.0
   BB1:

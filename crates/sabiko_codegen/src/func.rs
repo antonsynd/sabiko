@@ -56,8 +56,8 @@ struct FnCx<'a, 'b> {
     depth: usize,
     max_depth: usize,
     next_label: u32,
-    /// Compiler-introduced IL locals (struct literal staging), by type.
-    scratch: Vec<(Ty, usize, u16)>,
+    /// Compiler-introduced IL locals that stage struct literals, one per struct type.
+    scratch: Vec<(Ty, u16)>,
 }
 
 impl FnCx<'_, '_> {
@@ -105,19 +105,14 @@ impl FnCx<'_, '_> {
 
     /// A staging local for struct literals of type `ty`, shared by all of them.
     fn scratch(&mut self, ty: &Ty, span: Span) -> u16 {
-        self.scratch_nth(ty, 0, span)
-    }
-
-    /// The `n`th staging local of type `ty`, for sequences that need several at once.
-    fn scratch_nth(&mut self, ty: &Ty, n: usize, span: Span) -> u16 {
-        if let Some((_, _, slot)) = self.scratch.iter().find(|(t, i, _)| t == ty && *i == n) {
+        if let Some((_, slot)) = self.scratch.iter().find(|(t, _)| t == ty) {
             return *slot;
         }
         let name = format!("$tmp{}", self.scratch.len());
         let Slot::Local(slot) = self.new_local(ty, &name, span) else {
             unreachable!()
         };
-        self.scratch.push((ty.clone(), n, slot));
+        self.scratch.push((ty.clone(), slot));
         slot
     }
 
@@ -239,13 +234,7 @@ impl FnCx<'_, '_> {
     }
 
     fn unreachable(&mut self) {
-        self.op("ldstr \"internal error: entered unreachable code\"", 0, 1);
-        self.op(
-            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string)"),
-            1,
-            1,
-        );
-        self.op("throw", 1, 0);
+        self.panic("internal error: entered unreachable code");
     }
 
     // ----------------------------------------------------------------------------------
@@ -722,47 +711,15 @@ impl FnCx<'_, '_> {
             self.ldc_i4(0);
             return;
         };
+        if matches!(op, BinOp::Div | BinOp::Rem) {
+            self.div_rem(op, lp, lhs, rhs, span);
+            return;
+        }
         self.operand(lhs, span);
         self.operand(rhs, span);
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul => self.arith(op, lp),
-            BinOp::Div => {
-                let text = if lp.is_unsigned_int() {
-                    "div.un"
-                } else {
-                    "div"
-                };
-                self.op(text, 2, 1);
-                // `i8::MIN / -1` overflows `i8` but not `int32`: always trap, as Rust does.
-                if lp.is_signed_int() {
-                    self.narrow(lp, true);
-                }
-            }
-            BinOp::Rem if lp.is_signed_int() && types::stack_width(lp) == StackWidth::Narrow => {
-                // `MIN % -1` overflows the narrow type but not `int32`, where `rem` yields 0;
-                // Rust panics in every build mode. The division of the same operands traps
-                // exactly then (and on a zero divisor, as `rem` would), so perform it first.
-                let rhs_slot = self.scratch_nth(&Ty::I32, 1, span);
-                let lhs_slot = self.scratch_nth(&Ty::I32, 0, span);
-                self.stloc(rhs_slot);
-                self.stloc(lhs_slot);
-                self.ldloc(lhs_slot);
-                self.ldloc(rhs_slot);
-                self.op("div", 2, 1);
-                self.narrow(lp, true);
-                self.op("pop", 1, 0);
-                self.ldloc(lhs_slot);
-                self.ldloc(rhs_slot);
-                self.op("rem", 2, 1);
-            }
-            BinOp::Rem => {
-                let text = if lp.is_unsigned_int() {
-                    "rem.un"
-                } else {
-                    "rem"
-                };
-                self.op(text, 2, 1);
-            }
+            BinOp::Div | BinOp::Rem => unreachable!(),
             BinOp::BitAnd => self.op("and", 2, 1),
             BinOp::BitOr => self.op("or", 2, 1),
             BinOp::BitXor => self.op("xor", 2, 1),
@@ -803,6 +760,102 @@ impl FnCx<'_, '_> {
         }
     }
 
+    /// Throws a `PanicException` with `message`; `throw` empties the stack, so the
+    /// continuation after the panic sees whatever it had before.
+    fn panic(&mut self, message: &str) {
+        self.op(format!("ldstr \"{message}\""), 0, 1);
+        self.op(
+            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string)"),
+            1,
+            1,
+        );
+        self.op("throw", 1, 0);
+    }
+
+    /// The integer value of a constant operand, if it is one.
+    fn const_int(operand: &Operand) -> Option<i128> {
+        match operand {
+            Operand::Constant(c) => match c.value {
+                ConstValue::Int(i) => Some(i),
+                ConstValue::Uint(u) => i128::try_from(u).ok(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// `/` and `%` with Rust's checks and messages in every build mode: a zero divisor
+    /// panics, and for signed types so does `MIN / -1` (`MIN % -1`). The CLR traps both for
+    /// `int32` and wider, but with its own messages, and computes narrow types at `int32`
+    /// width where `MIN % -1` is simply 0; so the checks are emitted explicitly, and folded
+    /// away when a constant operand rules them out. Operands are pure (places and
+    /// constants), so each check pushes them again.
+    fn div_rem(&mut self, op: BinOp, p: PrimTy, lhs: &Operand, rhs: &Operand, span: Span) {
+        let (name, zero_msg, overflow_msg) = if op == BinOp::Div {
+            (
+                "div",
+                "attempt to divide by zero",
+                "attempt to divide with overflow",
+            )
+        } else {
+            (
+                "rem",
+                "attempt to calculate the remainder with a divisor of zero",
+                "attempt to calculate the remainder with overflow",
+            )
+        };
+        if p.is_float() {
+            self.operand(lhs, span);
+            self.operand(rhs, span);
+            self.op(name, 2, 1);
+            return;
+        }
+        let rhs_const = Self::const_int(rhs);
+        let lhs_const = Self::const_int(lhs);
+        match rhs_const {
+            Some(0) => {
+                self.panic(zero_msg);
+                // Unreachable, but the store that follows expects a value.
+                self.ldc_i4(0);
+                return;
+            }
+            Some(_) => {}
+            None => {
+                let ok = self.fresh_label();
+                self.operand(rhs, span);
+                self.op(format!("brtrue {ok}"), 1, 0);
+                self.panic(zero_msg);
+                self.label(&ok);
+            }
+        }
+        let min = p
+            .int_bits()
+            .map_or(i128::MIN, |bits| -(1i128 << (bits - 1)));
+        let may_overflow = p.is_signed_int()
+            && rhs_const.is_none_or(|r| r == -1)
+            && lhs_const.is_none_or(|l| l == min);
+        if may_overflow {
+            let ok = self.fresh_label();
+            if rhs_const.is_none() {
+                self.operand(rhs, span);
+                self.int_const(u128::MAX, p);
+                self.op(format!("bne.un {ok}"), 2, 0);
+            }
+            if lhs_const.is_none() {
+                self.operand(lhs, span);
+                #[allow(clippy::cast_sign_loss)]
+                self.int_const(min as u128, p);
+                self.op(format!("bne.un {ok}"), 2, 0);
+            }
+            self.panic(overflow_msg);
+            self.label(&ok);
+        }
+        self.operand(lhs, span);
+        self.operand(rhs, span);
+        let un = if p.is_unsigned_int() { ".un" } else { "" };
+        self.op(format!("{name}{un}"), 2, 1);
+    }
+
     fn shift(&mut self, op: BinOp, lp: PrimTy, rp: PrimTy) {
         let bits = lp.int_bits().unwrap_or(32);
         let rwidth = types::stack_width(rp);
@@ -822,17 +875,7 @@ impl FnCx<'_, '_> {
             }
             self.op(format!("blt.un {ok}"), 2, 0);
             let dir = if op == BinOp::Shl { "left" } else { "right" };
-            self.op(
-                format!("ldstr \"attempt to shift {dir} with overflow\""),
-                0,
-                1,
-            );
-            self.op(
-                format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string)"),
-                1,
-                1,
-            );
-            self.op("throw", 1, 0);
+            self.panic(&format!("attempt to shift {dir} with overflow"));
             self.label(&ok);
             if matches!(rwidth, StackWidth::I64 | StackWidth::Native) {
                 self.op("conv.i4", 1, 1);

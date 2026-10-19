@@ -37,9 +37,12 @@ names which phase owns which section.
 ## 7. Drop and panics (Phase 4)
 
 Panics (Phase 4): a panic is a `Sabiko.Runtime.PanicException`. `Panic(msg)` throws one;
-integer overflow in a debug build, division or remainder by zero, `MIN / -1`, and a shift
-by an amount outside `0..bits` (negative amounts included) panic too, the first three as the
-CLR's own `OverflowException`/`DivideByZeroException`, which the runtime reports as panics.
+integer overflow in a debug build, division or remainder by zero, `MIN / -1`, `MIN % -1`,
+and a shift by an amount outside `0..bits` (negative amounts included) panic too, with
+Rust's messages ("attempt to divide by zero", "attempt to calculate the remainder with
+overflow", "attempt to shift left with overflow", ...). Overflow of `+`, `-` and `*` is
+the CLR's own `OverflowException`, which the runtime reports as "attempt to perform
+arithmetic with overflow" (Rust names the operator).
 An executable's entry point runs `Main` inside a `try`: an exception that escapes is
 reported on standard error as `thread 'main' panicked:` followed by the message, and the
 process exits with code 101 (Rust's). Standard output written before the panic is kept.
@@ -104,8 +107,11 @@ width and are re-narrowed after every arithmetic operation: `conv.ovf.*` in debu
 (trapping on overflow), `conv.*` in release builds (wrapping). `i32`/`i64`/`isize` and the
 unsigned widths use `add.ovf`/`sub.ovf`/`mul.ovf` (`.un` for unsigned) in debug builds and
 the plain opcodes in release builds. Negation is `0 - x` in debug builds so `-MIN` traps,
-`neg` otherwise. Division is `div`/`div.un` (the CLR traps zero divisors and `MIN / -1`);
-remainder is `rem`/`rem.un`. `!` on `bool` is `ceq 0`, on integers `not` followed by
+`neg` otherwise. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
+explicit checks that throw a `PanicException` with Rust's message: a zero divisor, and for
+signed types `MIN` divided by `-1`; a check is dropped when a constant operand rules it out
+(`x % 7` needs none). The checks run in release builds too, as in Rust, and are needed
+because the CLR computes narrow types at `int32` width, where `i8::MIN % -1` is 0. `!` on `bool` is `ceq 0`, on integers `not` followed by
 re-narrowing for unsigned types. Shifts convert the amount to `int32`; debug builds first
 compare it unsigned against the left operand's bit width and throw a `PanicException`
 ("attempt to shift left with overflow") when it is not smaller, release builds mask it with

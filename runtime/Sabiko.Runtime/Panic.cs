@@ -47,7 +47,7 @@ public static class Panic
         PanicException panic => panic.Message,
         OverflowException => "attempt to perform arithmetic with overflow",
         DivideByZeroException => "attempt to divide by zero",
-        ArithmeticException => "attempt to divide with overflow",
+        ArithmeticException arithmetic => string.Concat("arithmetic error: ", arithmetic.Message),
         _ => string.Concat(exception.GetType().FullName, ": ", exception.Message),
     };
 }

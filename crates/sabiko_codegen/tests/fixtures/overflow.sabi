@@ -9,10 +9,14 @@ fn Narrow(a: i8, b: u8, c: i16, d: u16) -> i32 {
     let inv = !b;
     let q = a / 3;
     let r = d % 7;
+    let r2 = a % -3;
+    let r3 = c % (c + 1);
+    let q2 = c / (a as i16);
+    let q3 = b / b;
     let sh = b << 2;
     let sr = a >> 1u8;
     s1 as i32 + s2 as i32 + s3 as i32 + s4 as i32 + n as i32 + inv as i32 + q as i32
-        + r as i32 + sh as i32 + sr as i32
+        + r as i32 + r2 as i32 + r3 as i32 + q2 as i32 + q3 as i32 + sh as i32 + sr as i32
 }
 
 fn Wide(a: i64, b: u64, c: isize, d: usize, e: u32) -> i64 {
