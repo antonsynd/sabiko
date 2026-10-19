@@ -208,6 +208,7 @@ mod tests {
         let b = Span::new(id, 6, 11);
         assert_eq!(sm.get(id).text(a.to(b)), "hello world");
         assert_eq!(a.len(), 5);
-        assert!(Span::point(id, 3).is_empty());
+        assert_eq!(Span::point(id, 3).len(), 0);
+        assert!(Span::point(id, 3).is_empty(), "point spans are empty");
     }
 }
