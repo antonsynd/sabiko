@@ -191,8 +191,9 @@ pub fn unescape_str(body: &str) -> Result<String, LiteralError> {
                 end: i + 1,
             });
         };
-        if next == '\n' {
-            // Line continuation: skip the newline and following whitespace.
+        if next == '\n' || (next == '\r' && body[i + 1..].starts_with("\r\n")) {
+            // Line continuation (LF or CRLF): skip the newline and following whitespace.
+            // The whitespace loop also swallows the LF of a CRLF pair.
             chars.next();
             while matches!(chars.peek(), Some(&(_, w)) if w.is_whitespace()) {
                 chars.next();
@@ -227,6 +228,10 @@ pub fn unescape_char(body: &str) -> Result<char, LiteralError> {
     }
 }
 
+/// How many characters after `\u{` are searched for the closing `}`: room for six hex
+/// digits plus separators, matching the `\u{...}` form the lexer's `Char` regex admits.
+const UNICODE_ESCAPE_WINDOW: usize = 8;
+
 /// Decodes the escape starting at `start` (which must be a backslash). Returns the
 /// character and the offset just past the escape.
 fn decode_escape(text: &str, start: usize) -> Result<(char, usize), LiteralError> {
@@ -257,6 +262,13 @@ fn decode_escape(text: &str, start: usize) -> Result<(char, usize), LiteralError
                 start,
                 end: start + 2,
             })?;
+            // `from_str_radix` would accept a leading `+`; only hex digits are allowed.
+            if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(LiteralError::InvalidEscape {
+                    start,
+                    end: start + 4,
+                });
+            }
             let v = u8::from_str_radix(hex, 16).map_err(|_| LiteralError::InvalidEscape {
                 start,
                 end: start + 4,
@@ -276,12 +288,27 @@ fn decode_escape(text: &str, start: usize) -> Result<(char, usize), LiteralError
                     end: start + 2,
                 });
             }
-            let close = rest.find('}').ok_or(LiteralError::InvalidEscape {
-                start,
-                end: start + 1 + rest.len(),
-            })?;
-            let digits: String = rest[2..close].chars().filter(|&c| c != '_').collect();
-            let end = start + 1 + close + 1;
+            // `\u{` + up to six hex digits (with optional `_` separators) + `}`. The
+            // closing brace must appear within [`UNICODE_ESCAPE_WINDOW`] so a malformed
+            // escape is reported over `\u{...` and not over the whole rest of the literal.
+            let inner = &rest[2..];
+            let window_end = inner
+                .char_indices()
+                .nth(UNICODE_ESCAPE_WINDOW)
+                .map_or(inner.len(), |(j, _)| j);
+            let Some(close) = inner[..window_end].find('}') else {
+                return Err(LiteralError::InvalidEscape {
+                    start,
+                    end: start + 3 + window_end,
+                });
+            };
+            let end = start + 3 + close + 1;
+            let digits: String = inner[..close].chars().filter(|&c| c != '_').collect();
+            // `from_str_radix` would accept a leading `+`; require real hex digits, and
+            // at least one of them.
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(LiteralError::InvalidEscape { start, end });
+            }
             let v = u32::from_str_radix(&digits, 16)
                 .map_err(|_| LiteralError::InvalidUnicodeEscape { start, end })?;
             let c = char::from_u32(v).ok_or(LiteralError::InvalidUnicodeEscape { start, end })?;
@@ -369,6 +396,11 @@ mod tests {
             Ok("linecontinued".to_owned())
         );
         assert_eq!(
+            unescape_str("a\\\r\n   b"),
+            Ok("ab".to_owned()),
+            "CRLF line continuation"
+        );
+        assert_eq!(
             unescape_str(r"bad \q"),
             Err(LiteralError::InvalidEscape { start: 4, end: 6 })
         );
@@ -379,6 +411,44 @@ mod tests {
         assert_eq!(
             unescape_str(r"\xFF"),
             Err(LiteralError::InvalidEscape { start: 0, end: 4 })
+        );
+    }
+
+    #[test]
+    fn signed_or_malformed_hex_escapes_are_rejected() {
+        assert_eq!(
+            unescape_str(r"\x+1"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 4 })
+        );
+        assert_eq!(
+            unescape_str(r"\u{+41}"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 7 })
+        );
+        assert_eq!(
+            unescape_str(r"\u{}"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 4 })
+        );
+        assert_eq!(
+            unescape_str(r"\u{41 x}"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 8 })
+        );
+        assert_eq!(
+            unescape_str(r"\u{_}"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 5 })
+        );
+        // The search for `}` is bounded: the span covers `\u{` plus the window, not the
+        // rest of the literal.
+        assert_eq!(
+            unescape_str(r"\u{41414141414141} tail"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 11 })
+        );
+        assert_eq!(
+            unescape_char(r"\x+1"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 4 })
+        );
+        assert_eq!(
+            unescape_char(r"\u{+41}"),
+            Err(LiteralError::InvalidEscape { start: 0, end: 7 })
         );
     }
 

@@ -20,7 +20,6 @@ pub enum LexError {
     UnexpectedCharacter,
     UnterminatedBlockComment,
     UnterminatedString,
-    UnterminatedChar,
 }
 
 #[derive(Logos, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,9 +48,13 @@ pub enum TokenKind {
     #[regex(r"[0-9][0-9_]*[eE][+-]?[0-9_]+(f32|f64)?")]
     #[regex(r"[0-9][0-9_]*(f32|f64)")]
     Float,
-    #[regex(r#""([^"\\]|\\.|\\\n)*""#)]
+    #[regex(r#""([^"\\]|\\.|\\\r?\n)*""#)]
     Str,
-    #[regex(r#""([^"\\]|\\.|\\\n)*"#, unterminated_string)]
+    /// A `"` whose string never closes. This variant only exists to carry the regex: its
+    /// callback always fails with [`LexError::UnterminatedString`], which [`lex`] reports
+    /// and then pushes a [`TokenKind::Str`] token in its place. It is never emitted as a
+    /// token itself.
+    #[regex(r#""([^"\\]|\\.|\\\r?\n)*"#, unterminated_string)]
     UnterminatedStr,
     #[regex(r"'([^'\\\n]|\\x[0-9a-fA-F]{2}|\\u\{[0-9a-fA-F_]{1,6}\}|\\.)'")]
     Char,
@@ -436,16 +439,23 @@ pub struct Token {
 /// [`TokenKind::Eof`] token whose span is the empty span at the end of the file.
 #[must_use]
 pub fn lex(file: FileId, src: &str, sink: &mut DiagnosticSink) -> Vec<Token> {
+    // A leading byte-order mark is not part of the program (rustc skips it too). The
+    // source map holds the original text, so spans are kept absolute into `src` by
+    // offsetting everything logos reports by the BOM's width.
+    let (base, body) = match src.strip_prefix('\u{feff}') {
+        Some(rest) => ('\u{feff}'.len_utf8(), rest),
+        None => (0, src),
+    };
     let mut tokens = Vec::new();
-    let mut lexer = TokenKind::lexer(src);
-    let to_u32 = |n: usize| u32::try_from(n).expect("source file larger than 4 GiB");
+    let mut lexer = TokenKind::lexer(body);
+    let to_u32 = |n: usize| u32::try_from(base + n).expect("source file larger than 4 GiB");
     while let Some(result) = lexer.next() {
         let range = lexer.span();
         let span = Span::new(file, to_u32(range.start), to_u32(range.end));
         match result {
             Ok(kind) => tokens.push(Token { kind, span }),
             Err(LexError::UnexpectedCharacter) => {
-                let text = &src[range.clone()];
+                let text = &body[range.clone()];
                 // `'ab'` lexes as the lifetime `'ab` followed by a stray `'`; present it as
                 // one (malformed) character literal, which the parser then reports.
                 if text == "'" {
@@ -500,18 +510,9 @@ pub fn lex(file: FileId, src: &str, sink: &mut DiagnosticSink) -> Vec<Token> {
                     span,
                 });
             }
-            Err(LexError::UnterminatedChar) => {
-                sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::INVALID_CHAR_LITERAL,
-                        "unterminated character literal",
-                    )
-                    .with_label(span, "character literal opened here"),
-                );
-            }
         }
     }
-    let end = to_u32(src.len());
+    let end = to_u32(body.len());
     tokens.push(Token {
         kind: TokenKind::Eof,
         span: Span::point(file, end),
@@ -677,6 +678,45 @@ mod tests {
                 T::Eof
             ]
         );
+    }
+
+    #[test]
+    fn leading_bom_is_skipped_and_spans_stay_absolute() {
+        let mut sink = DiagnosticSink::new();
+        let toks = lex(FileId(1), "\u{feff}fn x", &mut sink);
+        assert_eq!(sink.into_vec(), Vec::new());
+        assert_eq!(
+            toks,
+            vec![
+                Token {
+                    kind: T::Fn,
+                    span: Span::new(FileId(1), 3, 5)
+                },
+                Token {
+                    kind: T::Ident,
+                    span: Span::new(FileId(1), 6, 7)
+                },
+                Token {
+                    kind: T::Eof,
+                    span: Span::point(FileId(1), 7)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn bom_elsewhere_is_an_unexpected_character() {
+        let (k, d) = kinds("fn \u{feff}x");
+        assert_eq!(k, vec![T::Fn, T::Ident, T::Eof]);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].code, ErrorCode::UNEXPECTED_CHARACTER);
+    }
+
+    #[test]
+    fn crlf_line_continuation_in_string() {
+        let (k, d) = kinds("let s = \"a\\\r\n    b\";");
+        assert_eq!(d, Vec::new());
+        assert_eq!(k, vec![T::Let, T::Ident, T::Eq, T::Str, T::Semi, T::Eof]);
     }
 
     #[test]

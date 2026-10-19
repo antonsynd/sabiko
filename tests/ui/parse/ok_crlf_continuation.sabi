@@ -1,0 +1,6 @@
+// CRLF line endings throughout; the string uses a backslash-CRLF line continuation.
+fn Main() {
+    let s = "hello, \
+             world";
+    PrintLine(s);
+}
