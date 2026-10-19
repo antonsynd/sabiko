@@ -1,0 +1,480 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/control_flow.sabi
+---
+fn IfExpr(_1: bool, _2: i32, _3: i32) -> i32 {
+    let mut _0: i32;
+    let _4: i32;                         // x
+    let mut _5: bool;
+    let mut _6: bool;
+    let mut _7: bool;
+    let mut _8: bool;
+    let mut _9: bool;
+
+    bb0: {
+        StorageLive(_4);
+        switchInt(copy _1) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _4 = copy _2;
+        goto -> bb3;
+    }
+
+    bb2: {
+        _4 = copy _3;
+        goto -> bb3;
+    }
+
+    bb3: {
+        StorageLive(_5);
+        _5 = Gt(copy _4, const 10_i32);
+        switchInt(copy _5) -> [0: bb6, otherwise: bb4];
+    }
+
+    bb4: {
+        _0 = copy _4;
+        StorageDead(_5);
+        StorageDead(_4);
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+
+    bb6: {
+        StorageDead(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        switchInt(copy _1) -> [0: bb8, otherwise: bb7];
+    }
+
+    bb7: {
+        StorageLive(_8);
+        _8 = Gt(copy _2, const 0_i32);
+        _7 = copy _8;
+        goto -> bb9;
+    }
+
+    bb8: {
+        _7 = const false;
+        goto -> bb9;
+    }
+
+    bb9: {
+        switchInt(copy _7) -> [0: bb10, otherwise: bb11];
+    }
+
+    bb10: {
+        StorageLive(_9);
+        _9 = Lt(copy _3, const 0_i32);
+        _6 = copy _9;
+        goto -> bb12;
+    }
+
+    bb11: {
+        _6 = const true;
+        goto -> bb12;
+    }
+
+    bb12: {
+        switchInt(copy _6) -> [0: bb14, otherwise: bb13];
+    }
+
+    bb13: {
+        _0 = Add(copy _4, const 1_i32);
+        goto -> bb15;
+    }
+
+    bb14: {
+        _0 = Sub(copy _4, const 1_i32);
+        goto -> bb15;
+    }
+
+    bb15: {
+        StorageDead(_9);
+        StorageDead(_8);
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_4);
+        goto -> bb5;
+    }
+}
+
+fn IfStmt(_1: bool) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;                     // n
+    let mut _3: bool;
+    let mut _4: bool;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = const 0_i32;
+        switchInt(copy _1) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _2 = const 1_i32;
+        goto -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_3);
+        _3 = Not(copy _1);
+        switchInt(copy _3) -> [0: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        _2 = Add(copy _2, const 2_i32);
+        goto -> bb7;
+    }
+
+    bb4: {
+        StorageLive(_4);
+        _4 = Eq(copy _2, const 1_i32);
+        switchInt(copy _4) -> [0: bb6, otherwise: bb5];
+    }
+
+    bb5: {
+        _2 = Add(copy _2, const 3_i32);
+        goto -> bb7;
+    }
+
+    bb6: {
+        _2 = Add(copy _2, const 4_i32);
+        goto -> bb7;
+    }
+
+    bb7: {
+        StorageDead(_4);
+        StorageDead(_3);
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb8;
+    }
+
+    bb8: {
+        return;
+    }
+}
+
+fn WhileLoop(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;                     // i
+    let mut _3: i32;                     // acc
+    let mut _4: bool;
+    let mut _5: bool;
+    let mut _6: i32;
+    let mut _7: bool;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = const 0_i32;
+        StorageLive(_3);
+        _3 = const 0_i32;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_4);
+        _4 = Lt(copy _2, copy _1);
+        switchInt(copy _4) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageDead(_4);
+        _2 = Add(copy _2, const 1_i32);
+        StorageLive(_5);
+        StorageLive(_6);
+        _6 = Rem(copy _2, const 2_i32);
+        _5 = Eq(copy _6, const 0_i32);
+        switchInt(copy _5) -> [0: bb5, otherwise: bb4];
+    }
+
+    bb3: {
+        StorageDead(_4);
+        goto -> bb7;
+    }
+
+    bb4: {
+        StorageDead(_6);
+        StorageDead(_5);
+        goto -> bb1;
+    }
+
+    bb5: {
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageLive(_7);
+        _7 = Gt(copy _3, const 100_i32);
+        switchInt(copy _7) -> [0: bb8, otherwise: bb6];
+    }
+
+    bb6: {
+        StorageDead(_7);
+        goto -> bb7;
+    }
+
+    bb7: {
+        _0 = copy _3;
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb9;
+    }
+
+    bb8: {
+        StorageDead(_7);
+        _3 = Add(copy _3, copy _2);
+        goto -> bb1;
+    }
+
+    bb9: {
+        return;
+    }
+}
+
+fn LoopValue(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;                     // n
+    let _3: i32;                         // found
+    let mut _4: bool;
+    let mut _5: i32;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = const 1_i32;
+        StorageLive(_3);
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_4);
+        _4 = Gt(copy _2, copy _1);
+        switchInt(copy _4) -> [0: bb4, otherwise: bb2];
+    }
+
+    bb2: {
+        _3 = copy _2;
+        StorageDead(_4);
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = copy _3;
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb5;
+    }
+
+    bb4: {
+        StorageDead(_4);
+        StorageLive(_5);
+        _5 = Mul(copy _2, const 2_i32);
+        _2 = copy _5;
+        StorageDead(_5);
+        goto -> bb1;
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn Nested(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;                     // total
+    let mut _3: i32;                     // i
+    let mut _4: bool;
+    let mut _5: i32;                     // j
+    let mut _6: bool;
+    let _7: i32;                         // step
+
+    bb0: {
+        StorageLive(_2);
+        _2 = const 0_i32;
+        StorageLive(_3);
+        _3 = const 0_i32;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_4);
+        _4 = Lt(copy _3, copy _1);
+        switchInt(copy _4) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageDead(_4);
+        StorageLive(_5);
+        _5 = const 0_i32;
+        goto -> bb4;
+    }
+
+    bb3: {
+        StorageDead(_4);
+        goto -> bb8;
+    }
+
+    bb4: {
+        StorageLive(_6);
+        _6 = Eq(copy _5, copy _3);
+        switchInt(copy _6) -> [0: bb7, otherwise: bb5];
+    }
+
+    bb5: {
+        StorageDead(_6);
+        goto -> bb6;
+    }
+
+    bb6: {
+        _3 = Add(copy _3, const 1_i32);
+        StorageDead(_5);
+        goto -> bb1;
+    }
+
+    bb7: {
+        StorageDead(_6);
+        StorageLive(_7);
+        _7 = Mul(copy _5, const 2_i32);
+        _2 = Add(copy _2, copy _7);
+        _5 = Add(copy _5, const 1_i32);
+        StorageDead(_7);
+        goto -> bb4;
+    }
+
+    bb8: {
+        _0 = copy _2;
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb9;
+    }
+
+    bb9: {
+        return;
+    }
+}
+
+fn Forever() -> i32 {
+    let mut _0: i32;
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        goto -> bb1;
+    }
+}
+
+fn EarlyReturn(_1: bool) {
+    let mut _0: ();
+    let _2: i32;                         // x
+    let mut _3: i32;
+
+    bb0: {
+        switchInt(copy _1) -> [0: bb3, otherwise: bb1];
+    }
+
+    bb1: {
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        StorageLive(_2);
+        _2 = const 1_i32;
+        StorageLive(_3);
+        _3 = copy _2;
+        StorageDead(_3);
+        _0 = const ();
+        StorageDead(_2);
+        goto -> bb2;
+    }
+}
+
+fn Logical(_1: bool, _2: bool, _3: bool) -> bool {
+    let mut _0: bool;
+    let _4: bool;                        // both
+    let _5: bool;                        // either
+    let mut _6: bool;
+    let mut _7: bool;
+
+    bb0: {
+        StorageLive(_4);
+        switchInt(copy _1) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _4 = copy _2;
+        goto -> bb3;
+    }
+
+    bb2: {
+        _4 = const false;
+        goto -> bb3;
+    }
+
+    bb3: {
+        StorageLive(_5);
+        switchInt(copy _1) -> [0: bb4, otherwise: bb5];
+    }
+
+    bb4: {
+        _5 = copy _2;
+        goto -> bb6;
+    }
+
+    bb5: {
+        _5 = const true;
+        goto -> bb6;
+    }
+
+    bb6: {
+        switchInt(copy _4) -> [0: bb7, otherwise: bb8];
+    }
+
+    bb7: {
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = Not(copy _5);
+        switchInt(copy _7) -> [0: bb10, otherwise: bb9];
+    }
+
+    bb8: {
+        _0 = const true;
+        goto -> bb12;
+    }
+
+    bb9: {
+        _6 = copy _3;
+        goto -> bb11;
+    }
+
+    bb10: {
+        _6 = const false;
+        goto -> bb11;
+    }
+
+    bb11: {
+        _0 = copy _6;
+        goto -> bb12;
+    }
+
+    bb12: {
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageDead(_4);
+        goto -> bb13;
+    }
+
+    bb13: {
+        return;
+    }
+}

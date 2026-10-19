@@ -37,6 +37,7 @@ enum EmitArg {
     Tokens,
     Ast,
     Pretty,
+    Mir,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -67,6 +68,7 @@ fn main() -> ExitCode {
         EmitArg::Tokens => Emit::Tokens,
         EmitArg::Ast => Emit::Ast,
         EmitArg::Pretty => Emit::Pretty,
+        EmitArg::Mir => Emit::Mir,
     };
     let stop_after = match cli.stop_after {
         StageArg::Parse => Stage::Parse,

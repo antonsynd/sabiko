@@ -75,6 +75,9 @@ impl ErrorCode {
     pub const ASSIGN_THROUGH_SHARED_REF: Self = Self(403);
     pub const BORROW_MUT_THROUGH_SHARED_REF: Self = Self(404);
     pub const USE_OF_UNINITIALIZED: Self = Self(405);
+
+    // Internal errors (E09xx)
+    pub const INTERNAL_ERROR: Self = Self(900);
 }
 
 impl fmt::Display for ErrorCode {

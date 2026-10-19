@@ -1,0 +1,141 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/calls.sabi
+---
+fn Nothing() {
+    let mut _0: ();
+
+    bb0: {
+        _0 = const ();
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Add(_1: i32, _2: i32) -> i32 {
+    let mut _0: i32;
+
+    bb0: {
+        _0 = Add(copy _1, copy _2);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Scale(_1: f64) -> f64 {
+    let mut _0: f64;
+
+    bb0: {
+        _0 = Mul(copy _1, const 2.5_f64);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Check(_1: bool, _2: &str) -> bool {
+    let mut _0: bool;
+    let mut _3: &str;
+
+    bb0: {
+        StorageLive(_3);
+        _3 = copy _2;
+        StorageDead(_3);
+        _0 = copy _1;
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Main() -> i32 {
+    let mut _0: i32;
+    let mut _1: ();
+    let _2: i32;                         // a
+    let _3: i32;                         // b
+    let mut _4: i32;
+    let mut _5: i32;
+    let _6: f64;                         // f
+    let _7: bool;                        // ok
+    let mut _8: i32;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = Nothing() -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_1);
+        StorageLive(_2);
+        _2 = Add(const 1_i32, const 2_i32) -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = Add(copy _2, const 10_i32) -> bb3;
+    }
+
+    bb3: {
+        StorageLive(_5);
+        _5 = Add(const 3_i32, const 20_i32) -> bb4;
+    }
+
+    bb4: {
+        _3 = Add(copy _4, copy _5) -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageLive(_6);
+        _6 = Scale(const 1.0_f64) -> bb6;
+    }
+
+    bb6: {
+        StorageLive(_7);
+        _7 = Check(const true, const "sabiko") -> bb7;
+    }
+
+    bb7: {
+        StorageLive(_8);
+        _8 = Add(copy _2, const 1_i32) -> bb8;
+    }
+
+    bb8: {
+        StorageDead(_8);
+        switchInt(copy _7) -> [0: bb10, otherwise: bb9];
+    }
+
+    bb9: {
+        _0 = Add(copy _3, const 10_i32) -> bb11;
+    }
+
+    bb10: {
+        _0 = copy _6 as i32;
+        goto -> bb11;
+    }
+
+    bb11: {
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb12;
+    }
+
+    bb12: {
+        return;
+    }
+}

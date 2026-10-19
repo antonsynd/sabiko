@@ -1,0 +1,31 @@
+// Calls returning `()` and values, nested calls as arguments, constants as operands.
+const LIMIT: i32 = 10;
+const RATIO: f64 = 2.5;
+const ENABLED: bool = true;
+const NAME: &str = "sabiko";
+const DOUBLE: i32 = LIMIT * 2;
+
+fn Nothing() { }
+
+fn Add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn Scale(x: f64) -> f64 {
+    x * RATIO
+}
+
+fn Check(flag: bool, s: &str) -> bool {
+    let _ = s;
+    flag
+}
+
+fn Main() -> i32 {
+    Nothing();
+    let a = Add(1, 2);
+    let b = Add(Add(a, LIMIT), Add(3, DOUBLE));
+    let f = Scale(1.0);
+    let ok = Check(ENABLED, NAME);
+    Add(a, 1);
+    if ok { Add(b, LIMIT) } else { f as i32 }
+}

@@ -1,0 +1,51 @@
+// Struct literals, field reads and writes through `&mut` with autoderef, borrows of
+// locals and fields, a unit struct, structs as arguments and return values.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+struct Marker;
+
+struct Line {
+    A: Point,
+    B: Point,
+}
+
+fn Twice(v: i32) -> i32 {
+    v * 2
+}
+
+fn Make(x: i32, y: i32) -> Point {
+    Point { Y: Twice(y), X: Twice(x) }
+}
+
+fn Shift(p: &mut Point, dx: i32) {
+    p.X = p.X + dx;
+    (*p).Y += 1;
+}
+
+fn Length(l: &Line) -> i32 {
+    let dx = l.B.X - l.A.X;
+    let dy = l.B.Y - l.A.Y;
+    dx * dx + dy * dy
+}
+
+fn Main() {
+    let mut p = Make(1, 2);
+    Shift(&mut p, 3);
+    let r = &p;
+    let x = r.X;
+    let q = &mut p;
+    q.Y = x;
+    let fx = &p.X;
+    let fy = &mut p.Y;
+    *fy = *fx;
+    let m = Marker;
+    let line = Line { A: p, B: Make(x, 0) };
+    let n = Length(&line);
+    let start = line.A;
+    let _ = m;
+    let _ = n;
+    let _ = start;
+}

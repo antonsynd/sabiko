@@ -36,6 +36,24 @@ fn emits_ast_for_valid_file() {
 }
 
 #[test]
+fn emits_mir_for_valid_file() {
+    let path = write_temp("mir.sabi", "fn Add(a: i32, b: i32) -> i32 { a + b }\n");
+    let out = sabikoc().arg(&path).arg("--emit=mir").output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.starts_with("fn Add(_1: i32, _2: i32) -> i32 {"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("_0 = Add(copy _1, copy _2);"), "{stdout}");
+    assert!(stdout.contains("return;"), "{stdout}");
+}
+
+#[test]
 fn reports_errors_with_exit_code_one() {
     let path = write_temp("bad.sabi", "fn Main() { let x = 1 }\n");
     let out = sabikoc().arg(&path).arg("--color=never").output().unwrap();

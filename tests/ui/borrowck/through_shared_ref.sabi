@@ -1,0 +1,33 @@
+// Writing or reborrowing mutably through a `&T` is never allowed, whatever the binding.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Assign(r: &i32) {
+    *r = 1; //~ ERROR E0403 cannot assign to `*r`, which is behind a `&` reference
+}
+
+fn AssignField(p: &Point) {
+    p.X = 1; //~ ERROR E0403 cannot assign to `p.X`, which is behind a `&` reference
+}
+
+fn MutBindingDoesNotHelp(mut r: &i32) {
+    *r = 1; //~ ERROR E0403 cannot assign to `*r`, which is behind a `&` reference
+}
+
+fn Reborrow(r: &i32) {
+    let m = &mut *r; //~ ERROR E0404 cannot borrow `*r` as mutable, as it is behind a `&` reference
+    *m = 2;
+}
+
+fn ReborrowField(p: &Point) {
+    let m = &mut p.Y; //~ ERROR E0404 cannot borrow `p.Y` as mutable, as it is behind a `&` reference
+    *m = 2;
+}
+
+fn ThroughMutIsFine(p: &mut Point) {
+    p.X = 1;
+    let m = &mut p.Y;
+    *m = 2;
+}

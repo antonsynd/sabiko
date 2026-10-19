@@ -1,0 +1,215 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/arith.sabi
+---
+fn Arith(_1: i32, _2: i32) -> i32 {
+    let mut _0: i32;
+    let mut _3: i32;                     // x
+    let mut _4: i32;
+    let _5: i32;                         // y
+    let mut _6: i32;
+    let mut _7: i32;
+    let _8: i32;                         // z
+    let _9: bool;                        // neg
+    let mut _10: bool;
+    let _11: i64;                        // w
+    let mut _12: i64;
+    let mut _13: i64;
+    let mut _14: i64;
+    let _15: f64;                        // f
+    let mut _16: f64;
+    let _17: u32;                        // u
+    let _18: i32;                        // bits
+    let mut _19: i32;
+    let mut _20: i32;
+    let _21: i32;                        // same
+    let mut _22: i32;
+    let mut _23: i32;
+    let mut _24: i32;
+    let mut _25: i32;
+    let mut _26: i32;
+    let mut _27: i32;
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = Mul(copy _2, const 2_i32);
+        _3 = Add(copy _1, copy _4);
+        StorageDead(_4);
+        _3 = Sub(copy _3, const 1_i32);
+        _3 = Mul(copy _3, copy _1);
+        StorageLive(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = Sub(copy _3, copy _2);
+        _6 = Div(copy _7, const 3_i32);
+        _5 = Rem(copy _6, const 2_i32);
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageLive(_8);
+        _8 = Neg(copy _5);
+        StorageLive(_9);
+        StorageLive(_10);
+        _10 = Eq(copy _1, copy _2);
+        _9 = Not(copy _10);
+        StorageDead(_10);
+        StorageLive(_11);
+        StorageLive(_12);
+        _12 = copy _3 as i64;
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = copy _2 as i64;
+        _13 = Shl(copy _14, const 2_i32);
+        _11 = Add(copy _12, copy _13);
+        StorageDead(_14);
+        StorageDead(_13);
+        StorageDead(_12);
+        StorageLive(_15);
+        StorageLive(_16);
+        _16 = copy _1 as f64;
+        _15 = Mul(copy _16, const 1.5_f64);
+        StorageDead(_16);
+        StorageLive(_17);
+        _17 = const 7_u8 as u32;
+        StorageLive(_18);
+        StorageLive(_19);
+        _19 = BitAnd(copy _1, copy _2);
+        StorageLive(_20);
+        _20 = BitXor(copy _1, copy _2);
+        _18 = BitOr(copy _19, copy _20);
+        StorageDead(_20);
+        StorageDead(_19);
+        StorageLive(_21);
+        _21 = copy _1 as i32;
+        switchInt(copy _9) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        StorageLive(_22);
+        StorageLive(_23);
+        _23 = copy _11 as i32;
+        _22 = Add(copy _8, copy _23);
+        StorageLive(_24);
+        _24 = copy _17 as i32;
+        _0 = Add(copy _22, copy _24);
+        StorageDead(_24);
+        StorageDead(_23);
+        StorageDead(_22);
+        goto -> bb3;
+    }
+
+    bb2: {
+        StorageLive(_25);
+        StorageLive(_26);
+        _26 = Add(copy _3, copy _18);
+        _25 = Add(copy _26, copy _21);
+        StorageLive(_27);
+        _27 = copy _15 as i32;
+        _0 = Add(copy _25, copy _27);
+        StorageDead(_27);
+        StorageDead(_26);
+        StorageDead(_25);
+        goto -> bb3;
+    }
+
+    bb3: {
+        StorageDead(_21);
+        StorageDead(_18);
+        StorageDead(_17);
+        StorageDead(_15);
+        StorageDead(_11);
+        StorageDead(_9);
+        StorageDead(_8);
+        StorageDead(_5);
+        StorageDead(_3);
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn Unary(_1: bool, _2: u32) -> u32 {
+    let mut _0: u32;
+    let _3: u32;                         // inverted
+    let _4: u32;                         // shifted
+    let mut _5: bool;
+
+    bb0: {
+        StorageLive(_3);
+        _3 = Not(copy _2);
+        StorageLive(_4);
+        _4 = Shr(copy _3, const 3_u8);
+        StorageLive(_5);
+        _5 = Not(copy _1);
+        switchInt(copy _5) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _0 = copy _4;
+        goto -> bb3;
+    }
+
+    bb2: {
+        _0 = const 0_u32;
+        goto -> bb3;
+    }
+
+    bb3: {
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_3);
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn Literals() -> f64 {
+    let mut _0: f64;
+    let _1: char;                        // c
+    let _2: &str;                        // s
+    let _3: u64;                         // big
+    let _4: f32;                         // half
+    let mut _5: char;
+    let mut _6: &str;
+    let mut _7: u64;
+    let mut _8: f64;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = const 'x';
+        StorageLive(_2);
+        _2 = const "text";
+        StorageLive(_3);
+        _3 = const 1000000_u64;
+        StorageLive(_4);
+        _4 = const 0.5_f32;
+        StorageLive(_5);
+        _5 = copy _1;
+        StorageDead(_5);
+        StorageLive(_6);
+        _6 = copy _2;
+        StorageDead(_6);
+        StorageLive(_7);
+        _7 = copy _3;
+        StorageDead(_7);
+        StorageLive(_8);
+        _8 = copy _4 as f64;
+        _0 = Add(copy _8, const 2.0_f64);
+        StorageDead(_8);
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageDead(_2);
+        StorageDead(_1);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}

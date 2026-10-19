@@ -1,0 +1,35 @@
+[E0403] Error: cannot assign to `*r`, which is behind a `&` reference
+   ╭─[ tests/ui/borrowck/through_shared_ref.sabi:8:5 ]
+   │
+ 8 │     *r = 1; //~ ERROR E0403 cannot assign to `*r`, which is behind a `&` reference
+   │     ───┬──  
+   │        ╰──── `r` is a `&` reference, so the data it refers to cannot be written
+───╯
+[E0403] Error: cannot assign to `p.X`, which is behind a `&` reference
+    ╭─[ tests/ui/borrowck/through_shared_ref.sabi:12:5 ]
+    │
+ 12 │     p.X = 1; //~ ERROR E0403 cannot assign to `p.X`, which is behind a `&` reference
+    │     ───┬───  
+    │        ╰───── `p` is a `&` reference, so the data it refers to cannot be written
+────╯
+[E0403] Error: cannot assign to `*r`, which is behind a `&` reference
+    ╭─[ tests/ui/borrowck/through_shared_ref.sabi:16:5 ]
+    │
+ 16 │     *r = 1; //~ ERROR E0403 cannot assign to `*r`, which is behind a `&` reference
+    │     ───┬──  
+    │        ╰──── `r` is a `&` reference, so the data it refers to cannot be written
+────╯
+[E0404] Error: cannot borrow `*r` as mutable, as it is behind a `&` reference
+    ╭─[ tests/ui/borrowck/through_shared_ref.sabi:20:13 ]
+    │
+ 20 │     let m = &mut *r; //~ ERROR E0404 cannot borrow `*r` as mutable, as it is behind a `&` reference
+    │             ───┬───  
+    │                ╰───── `r` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+────╯
+[E0404] Error: cannot borrow `p.Y` as mutable, as it is behind a `&` reference
+    ╭─[ tests/ui/borrowck/through_shared_ref.sabi:25:13 ]
+    │
+ 25 │     let m = &mut p.Y; //~ ERROR E0404 cannot borrow `p.Y` as mutable, as it is behind a `&` reference
+    │             ────┬───  
+    │                 ╰───── `p` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+────╯

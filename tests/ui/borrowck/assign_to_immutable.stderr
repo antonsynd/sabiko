@@ -1,0 +1,30 @@
+[E0401] Error: cannot assign to `p.X`, as `p` is not declared as mutable
+    ╭─[ tests/ui/borrowck/assign_to_immutable.sabi:14:5 ]
+    │
+ 13 │     let p = Point { X: 1, Y: 2 };
+    │         ┬  
+    │         ╰── help: consider changing this to be mutable: `mut p`
+ 14 │     p.X = 3; //~ ERROR E0401 cannot assign to `p.X`, as `p` is not declared as mutable
+    │     ───┬───  
+    │        ╰───── cannot assign
+────╯
+[E0401] Error: cannot assign to `l.A.Y`, as `l` is not declared as mutable
+    ╭─[ tests/ui/borrowck/assign_to_immutable.sabi:18:5 ]
+    │
+ 17 │ fn Nested(l: Line) {
+    │           ┬  
+    │           ╰── help: consider changing this to be mutable: `mut l`
+ 18 │     l.A.Y = 0; //~ ERROR E0401 cannot assign to `l.A.Y`, as `l` is not declared as mutable
+    │     ────┬────  
+    │         ╰────── cannot assign
+────╯
+[E0401] Error: cannot assign to `p.Y`, as `p` is not declared as mutable
+    ╭─[ tests/ui/borrowck/assign_to_immutable.sabi:23:5 ]
+    │
+ 22 │     let p = Point { X: 1, Y: 2 };
+    │         ┬  
+    │         ╰── help: consider changing this to be mutable: `mut p`
+ 23 │     p.Y += 1; //~ ERROR E0401 cannot assign to `p.Y`, as `p` is not declared as mutable
+    │     ────┬───  
+    │         ╰───── cannot assign
+────╯

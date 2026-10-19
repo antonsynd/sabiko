@@ -5,7 +5,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use sabiko_diagnostics::{Diagnostic, Format, Severity, SourceMap};
+use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode, Format, Severity, SourceMap};
 
 /// What the driver should print after running the pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -19,6 +19,9 @@ pub enum Emit {
     Ast,
     /// The AST printed back as canonical Sabiko source.
     Pretty,
+    /// The MIR of every function, after simplification. Empty when an earlier stage
+    /// reported errors or the pipeline stopped before MIR building.
+    Mir,
 }
 
 /// How far down the pipeline to run. Diagnostics from later stages are never reported
@@ -94,7 +97,7 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
             }
             out
         }
-        Emit::None | Emit::Ast | Emit::Pretty => {
+        Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir => {
             let ast = sabiko_parser::parse_file(file, src, &mut sink);
             match options.emit {
                 Emit::Ast => sabiko_ast::dump::dump(&ast),
@@ -103,13 +106,28 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
                     // Semantic analysis only runs on a syntactically complete file:
                     // recovery drops broken constructs, and reporting "cannot find value"
                     // for names defined inside them would only add noise.
+                    let mut output = String::new();
                     if options.stop_after > Stage::Parse && !sink.has_errors() {
                         let resolve = sabiko_resolve::resolve(&ast, &mut sink);
                         if options.stop_after > Stage::Resolve {
-                            let _typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+                            let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+                            if options.stop_after == Stage::Full && !sink.has_errors() {
+                                let mut bodies = sabiko_mir::build::build_bodies(
+                                    &ast, &resolve, &typeck, &mut sink,
+                                );
+                                check_mir(&bodies, &typeck, &mut sink);
+                                sabiko_mir::simplify::simplify_all(&mut bodies);
+                                check_mir(&bodies, &typeck, &mut sink);
+                                sabiko_borrowck::check_all(&bodies, &resolve, &typeck, &mut sink);
+                                if options.emit == Emit::Mir {
+                                    output = sabiko_mir::pretty::print_bodies(
+                                        &bodies, &resolve, &typeck,
+                                    );
+                                }
+                            }
                         }
                     }
-                    String::new()
+                    output
                 }
             }
         }
@@ -121,6 +139,32 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
         diagnostics,
         output,
     }
+}
+
+/// Runs the MIR validator and reports any violation as an internal compiler error. Debug
+/// builds panic instead, so a broken pass fails its tests loudly.
+fn check_mir(
+    bodies: &[sabiko_mir::Body],
+    typeck: &sabiko_types::TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
+    let failures = sabiko_mir::validate::validate_all(bodies, typeck);
+    debug_assert!(
+        failures.is_empty(),
+        "MIR validation failed:\n{}",
+        failures.join("\n")
+    );
+    if failures.is_empty() {
+        return;
+    }
+    let mut d = Diagnostic::error(
+        ErrorCode::INTERNAL_ERROR,
+        "internal compiler error: MIR validation failed",
+    );
+    for failure in failures {
+        d = d.with_note(failure);
+    }
+    sink.emit(d);
 }
 
 /// Reads and compiles a file from disk.

@@ -1,0 +1,20 @@
+[E0402] Error: cannot borrow `x` as mutable, as `x` is not declared as mutable
+    ╭─[ tests/ui/borrowck/borrow_mut_immutable.sabi:13:11 ]
+    │
+ 12 │     let x = 1;
+    │         ┬  
+    │         ╰── help: consider changing this to be mutable: `mut x`
+ 13 │     Touch(&mut x); //~ ERROR E0402 cannot borrow `x` as mutable, as `x` is not declared as mutable
+    │           ───┬──  
+    │              ╰──── cannot borrow as mutable
+────╯
+[E0402] Error: cannot borrow `p.X` as mutable, as `p` is not declared as mutable
+    ╭─[ tests/ui/borrowck/borrow_mut_immutable.sabi:17:13 ]
+    │
+ 16 │ fn Field(p: Point) {
+    │          ┬  
+    │          ╰── help: consider changing this to be mutable: `mut p`
+ 17 │     let r = &mut p.X; //~ ERROR E0402 cannot borrow `p.X` as mutable, as `p` is not declared as mutable
+    │             ────┬───  
+    │                 ╰───── cannot borrow as mutable
+────╯

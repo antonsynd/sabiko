@@ -1,0 +1,53 @@
+// Storage markers: nested blocks, `let _ = e;`, deferred initialisation, temporaries dying
+// at the end of their statement, unreachable code after `return`.
+fn Twice(v: i32) -> i32 {
+    v * 2
+}
+
+fn Nested(a: i32) -> i32 {
+    let x = a + 1;
+    let y = {
+        let inner = x * 2;
+        let _ = inner + 1;
+        inner
+    };
+    {
+        let z = y;
+        let w;
+        w = z + Twice(z);
+        let _ = w;
+    }
+    let late;
+    if a > 0 { late = x; } else { late = y; }
+    Twice(late) + Twice(x)
+}
+
+fn Unreachable(a: i32) -> i32 {
+    let x = Twice(a);
+    return x;
+    let y = x + 1;
+    y
+}
+
+fn Discarded(a: i32, p: &i32) {
+    Twice(a);
+    a + 1;
+    *p;
+    let _;
+    let _ = Twice(a) + Twice(*p);
+}
+
+fn BreakScopes(n: i32) -> i32 {
+    let mut i = 0;
+    while i < n {
+        let doubled = Twice(i);
+        if doubled > 10 {
+            let extra = doubled + Twice(1);
+            if extra > 20 { break; }
+            if extra > 15 { continue; }
+            if extra > 12 { return extra; }
+        }
+        i += 1;
+    }
+    i
+}

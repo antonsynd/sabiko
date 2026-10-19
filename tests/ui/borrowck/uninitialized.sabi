@@ -1,0 +1,40 @@
+// Reading a binding before every path has assigned it.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Never() -> i32 {
+    let x: i32;
+    x //~ ERROR E0405 used binding `x` isn't initialized
+}
+
+fn Possibly(flag: bool) -> i32 {
+    let x;
+    if flag {
+        x = 1;
+    }
+    x //~ ERROR E0405 used binding `x` is possibly-uninitialized
+}
+
+fn Partial() -> i32 {
+    let mut p: Point;
+    p.X = 1; //~ ERROR E0405 used binding `p` isn't initialized
+    p.X
+}
+
+fn Borrow() {
+    let x: i32;
+    let r = &x; //~ ERROR E0405 used binding `x` isn't initialized
+    let _ = r;
+}
+
+fn InLoop(n: i32) -> i32 {
+    let mut x;
+    let mut i = 0;
+    while i < n {
+        x = i;
+        i += 1;
+    }
+    x //~ ERROR E0405 used binding `x` is possibly-uninitialized
+}

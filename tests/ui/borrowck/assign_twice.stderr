@@ -1,0 +1,60 @@
+[E0400] Error: cannot assign twice to immutable variable `x`
+   ╭─[ tests/ui/borrowck/assign_twice.sabi:4:5 ]
+   │
+ 3 │     let x = 1;
+   │         ┬   ┬  
+   │         ╰────── help: consider making this binding mutable: `mut x`
+   │             │  
+   │             ╰── first assignment to `x`
+ 4 │     x = 2; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+   │     ──┬──  
+   │       ╰──── cannot assign twice to immutable variable
+───╯
+[E0400] Error: cannot assign twice to immutable variable `n`
+   ╭─[ tests/ui/borrowck/assign_twice.sabi:8:5 ]
+   │
+ 7 │ fn Param(n: i32) {
+   │          ┬  
+   │          ╰── help: consider making this binding mutable: `mut n`
+ 8 │     n = 3; //~ ERROR E0400 cannot assign twice to immutable variable `n`
+   │     ──┬──  
+   │       ╰──── cannot assign twice to immutable variable
+───╯
+[E0400] Error: cannot assign twice to immutable variable `x`
+    ╭─[ tests/ui/borrowck/assign_twice.sabi:14:9 ]
+    │
+ 12 │     let x;
+    │         ┬  
+    │         ╰── help: consider making this binding mutable: `mut x`
+    │ 
+ 14 │         x = 1; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+    │         ──┬──  
+    │           ╰──── cannot assign twice to immutable variable
+────╯
+[E0400] Error: cannot assign twice to immutable variable `x`
+    ╭─[ tests/ui/borrowck/assign_twice.sabi:23:5 ]
+    │
+ 19 │     let x;
+    │         ┬  
+    │         ╰── help: consider making this binding mutable: `mut x`
+    │ 
+ 21 │         x = 1;
+    │         ──┬──  
+    │           ╰──── first assignment to `x`
+    │ 
+ 23 │     x = 2; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+    │     ──┬──  
+    │       ╰──── cannot assign twice to immutable variable
+────╯
+[E0400] Error: cannot assign twice to immutable variable `x`
+    ╭─[ tests/ui/borrowck/assign_twice.sabi:28:5 ]
+    │
+ 27 │     let x = 1;
+    │         ┬   ┬  
+    │         ╰────── help: consider making this binding mutable: `mut x`
+    │             │  
+    │             ╰── first assignment to `x`
+ 28 │     x += 1; //~ ERROR E0400 cannot assign twice to immutable variable `x`
+    │     ───┬──  
+    │        ╰──── cannot assign twice to immutable variable
+────╯

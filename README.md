@@ -5,13 +5,12 @@
 compile time, frees Sabiko-owned memory deterministically without the garbage collector,
 and interoperates with C# with zero marshalling.
 
-Status: **Phase 2 in progress.** Phase 1 (lexer, parser, diagnostics) is complete; name
-resolution and type checking are done and wired in, MIR lowering and the mutability and
-initialisation checks are being completed. `sabikoc file.sabi --stop-after=resolve|typeck`
-runs the pipeline up to a stage and reports that stage's diagnostics; `--emit=mir` arrives
-with MIR lowering. See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap,
-[`docs/SPEC.md`](docs/SPEC.md) §11 for the semantics implemented so far and
-[`docs/DECISIONS.md`](docs/DECISIONS.md) for the design decisions.
+Status: **Phase 2 complete.** The front end (lexer, parser, diagnostics), name
+resolution, type checking with local inference, compile-time evaluation of `const` items,
+AST to MIR lowering with a validator, and the mutability and initialisation checks are in
+place; nothing is emitted for .NET yet (Phase 4). `sabikoc file.sabi --stop-after=resolve|typeck`
+runs the pipeline up to a stage and reports that stage's diagnostics; `--emit=mir` prints the
+MIR of every function.
 
 ```rust
 struct Point { X: i32, Y: i32 }
@@ -42,6 +41,7 @@ cargo build
 scripts/check-spike.sh         # assembles, verifies and runs the hand-written IL spike
 cargo run -p sabikoc -- examples/hello.sabi --emit=ast   # parse a file, dump the tree
 cargo run -p sabikoc -- examples/hello.sabi --stop-after=typeck   # resolve and type-check only
+cargo run -p sabikoc -- crates/sabiko_mir/tests/fixtures/control_flow.sabi --emit=mir   # print MIR
 ```
 
 Testing: `cargo test` runs everything, including the UI golden tests under `tests/ui`

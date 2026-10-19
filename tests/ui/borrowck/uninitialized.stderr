@@ -1,0 +1,52 @@
+[E0405] Error: used binding `x` isn't initialized
+   ╭─[ tests/ui/borrowck/uninitialized.sabi:9:5 ]
+   │
+ 8 │     let x: i32;
+   │         ┬  
+   │         ╰── binding declared here but left uninitialized
+ 9 │     x //~ ERROR E0405 used binding `x` isn't initialized
+   │     ┬  
+   │     ╰── `x` used here but it isn't initialized
+───╯
+[E0405] Error: used binding `x` is possibly-uninitialized
+    ╭─[ tests/ui/borrowck/uninitialized.sabi:17:5 ]
+    │
+ 13 │     let x;
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+    │ 
+ 17 │     x //~ ERROR E0405 used binding `x` is possibly-uninitialized
+    │     ┬  
+    │     ╰── `x` used here but it is possibly-uninitialized
+────╯
+[E0405] Error: used binding `p` isn't initialized
+    ╭─[ tests/ui/borrowck/uninitialized.sabi:22:5 ]
+    │
+ 21 │     let mut p: Point;
+    │             ┬  
+    │             ╰── binding declared here but left uninitialized
+ 22 │     p.X = 1; //~ ERROR E0405 used binding `p` isn't initialized
+    │     ───┬───  
+    │        ╰───── `p` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `x` isn't initialized
+    ╭─[ tests/ui/borrowck/uninitialized.sabi:28:13 ]
+    │
+ 27 │     let x: i32;
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+ 28 │     let r = &x; //~ ERROR E0405 used binding `x` isn't initialized
+    │             ─┬  
+    │              ╰── `x` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `x` is possibly-uninitialized
+    ╭─[ tests/ui/borrowck/uninitialized.sabi:39:5 ]
+    │
+ 33 │     let mut x;
+    │             ┬  
+    │             ╰── binding declared here but left uninitialized
+    │ 
+ 39 │     x //~ ERROR E0405 used binding `x` is possibly-uninitialized
+    │     ┬  
+    │     ╰── `x` used here but it is possibly-uninitialized
+────╯
