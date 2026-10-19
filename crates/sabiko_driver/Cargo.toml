@@ -19,5 +19,8 @@ sabiko_mir = { workspace = true }
 sabiko_borrowck = { workspace = true }
 sabiko_codegen = { workspace = true }
 
+[dev-dependencies]
+proptest = "1"
+
 [lints]
 workspace = true

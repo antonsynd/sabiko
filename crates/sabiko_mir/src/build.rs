@@ -215,6 +215,30 @@ impl<'a> Builder<'a> {
         self.terminate_block(bb, kind, span);
     }
 
+    /// Ends the current block with a `switchInt` on `discr`. A discriminant of type `!`
+    /// (`if loop {} {}`, `if return {}`) never produces a value: the block is unreachable
+    /// instead, and the branches lowered after it are dead code `simplify` removes.
+    fn switch_int(
+        &mut self,
+        discr: Operand,
+        targets: Vec<(u128, BasicBlock)>,
+        otherwise: BasicBlock,
+        span: Span,
+    ) {
+        if discr.ty(&self.body).is_never() {
+            self.terminate(TerminatorKind::Unreachable, span);
+        } else {
+            self.terminate(
+                TerminatorKind::SwitchInt {
+                    discr,
+                    targets,
+                    otherwise,
+                },
+                span,
+            );
+        }
+    }
+
     /// Ends the current block with a jump and continues in a fresh block, which is only
     /// reachable if something else jumps to it. Code after `return`, `break` and
     /// `continue` lands in such a block; `simplify` removes it.
@@ -709,14 +733,7 @@ impl<'a> Builder<'a> {
             BinOp::Or => (vec![(0, rhs_block)], short_block, true),
             _ => unreachable!("not a logical operator"),
         };
-        self.terminate(
-            TerminatorKind::SwitchInt {
-                discr: lhs,
-                targets,
-                otherwise,
-            },
-            span,
-        );
+        self.switch_int(lhs, targets, otherwise, span);
         self.current = rhs_block;
         let rhs = self.as_operand(rhs);
         self.assign(dest.clone(), Rvalue::Use(rhs), span);
@@ -746,14 +763,7 @@ impl<'a> Builder<'a> {
         let discr = self.as_operand(cond);
         let then_block = self.new_block();
         let else_block = self.new_block();
-        self.terminate(
-            TerminatorKind::SwitchInt {
-                discr,
-                targets: vec![(0, else_block)],
-                otherwise: then_block,
-            },
-            span,
-        );
+        self.switch_int(discr, vec![(0, else_block)], then_block, span);
         self.current = then_block;
         match dest {
             Some(dest) => self.lower_block_into(dest, then),
@@ -785,14 +795,7 @@ impl<'a> Builder<'a> {
         let cond_temps = self.scopes.pop().expect("condition scope");
         let body_block = self.new_block();
         let false_block = self.new_block();
-        self.terminate(
-            TerminatorKind::SwitchInt {
-                discr,
-                targets: vec![(0, false_block)],
-                otherwise: body_block,
-            },
-            span,
-        );
+        self.switch_int(discr, vec![(0, false_block)], body_block, span);
         self.loops.push(LoopScope {
             header,
             exit: None,

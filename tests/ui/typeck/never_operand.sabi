@@ -1,0 +1,12 @@
+// Expressions of type `!` cannot be dereferenced or have fields, as in Rust (E0614, E0609).
+fn Deref() -> i32 {
+    *Panic("x") //~ ERROR E0309 type `!` cannot be dereferenced
+}
+
+fn DerefReturn() -> i32 {
+    *(return 1) //~ ERROR E0309 type `!` cannot be dereferenced
+}
+
+fn Field() {
+    loop {}.Y //~ ERROR E0301 no field `Y` on type `!`
+}

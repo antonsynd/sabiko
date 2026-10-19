@@ -1,0 +1,21 @@
+[E0309] Error: type `!` cannot be dereferenced
+   ╭─[ tests/ui/typeck/never_operand.sabi:3:5 ]
+   │
+ 3 │     *Panic("x") //~ ERROR E0309 type `!` cannot be dereferenced
+   │     ─────┬─────  
+   │          ╰─────── can't be dereferenced
+───╯
+[E0309] Error: type `!` cannot be dereferenced
+   ╭─[ tests/ui/typeck/never_operand.sabi:7:5 ]
+   │
+ 7 │     *(return 1) //~ ERROR E0309 type `!` cannot be dereferenced
+   │     ─────┬─────  
+   │          ╰─────── can't be dereferenced
+───╯
+[E0301] Error: no field `Y` on type `!`
+    ╭─[ tests/ui/typeck/never_operand.sabi:11:13 ]
+    │
+ 11 │     loop {}.Y //~ ERROR E0301 no field `Y` on type `!`
+    │             ┬  
+    │             ╰── unknown field
+────╯

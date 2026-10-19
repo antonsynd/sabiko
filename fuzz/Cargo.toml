@@ -9,14 +9,30 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 sabiko_parser = { path = "../crates/sabiko_parser" }
 sabiko_diagnostics = { path = "../crates/sabiko_diagnostics" }
 sabiko_span = { path = "../crates/sabiko_span" }
 sabiko_ast = { path = "../crates/sabiko_ast" }
+sabiko_driver = { path = "../crates/sabiko_driver" }
 
 [[bin]]
 name = "parse"
 path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pipeline"
+path = "fuzz_targets/pipeline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pipeline_structured"
+path = "fuzz_targets/pipeline_structured.rs"
 test = false
 doc = false
 bench = false

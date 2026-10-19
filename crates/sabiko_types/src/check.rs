@@ -412,7 +412,8 @@ impl<'a> FnCtxt<'a> {
                         *t
                     }
                     Ty::Error => Ty::Error,
-                    Ty::Never => Ty::Never,
+                    // `*never` is rejected like rustc's E0614; accepting it would leave
+                    // MIR building a deref of a non-reference.
                     other => {
                         let s = self.ty_str(&other);
                         self.error(
@@ -969,7 +970,8 @@ impl<'a> FnCtxt<'a> {
                 Ty::Error
             }
             Ty::Error => Ty::Error,
-            Ty::Never => Ty::Never,
+            // `!` has no fields (rustc's E0609); `loop {}.Y` must not reach MIR building
+            // without a recorded field access.
             other => {
                 let s = self.ty_str(&other);
                 self.error(

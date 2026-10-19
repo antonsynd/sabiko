@@ -7,6 +7,9 @@ name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "ariadne"
@@ -41,6 +44,23 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "datafrog"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0afaad2b26fa326569eb264b1363e8ae3357618c43982b3f285f0774ce76b69"
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -104,6 +124,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "log"
+version = "0.4.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
 name = "logos"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -144,6 +170,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "polonius-engine"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4e8e505342045d397d0b6674dcb82d6faf5cf40484d30eeb88fc82ef14e903f"
+dependencies = [
+ "datafrog",
+ "log",
+ "rustc-hash",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -174,6 +211,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -186,9 +229,11 @@ dependencies = [
 name = "sabiko-fuzz"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "libfuzzer-sys",
  "sabiko_ast",
  "sabiko_diagnostics",
+ "sabiko_driver",
  "sabiko_parser",
  "sabiko_span",
 ]
@@ -202,6 +247,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "sabiko_borrowck"
+version = "0.0.1"
+dependencies = [
+ "polonius-engine",
+ "sabiko_diagnostics",
+ "sabiko_mir",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
+]
+
+[[package]]
+name = "sabiko_codegen"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_mir",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
+]
+
+[[package]]
 name = "sabiko_diagnostics"
 version = "0.0.1"
 dependencies = [
@@ -212,12 +281,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "sabiko_driver"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_borrowck",
+ "sabiko_codegen",
+ "sabiko_diagnostics",
+ "sabiko_lexer",
+ "sabiko_mir",
+ "sabiko_parser",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
+]
+
+[[package]]
 name = "sabiko_lexer"
 version = "0.0.1"
 dependencies = [
  "logos",
  "sabiko_diagnostics",
  "sabiko_span",
+]
+
+[[package]]
+name = "sabiko_mir"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_lexer",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
 ]
 
 [[package]]
@@ -231,8 +328,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sabiko_resolve"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_span",
+]
+
+[[package]]
 name = "sabiko_span"
 version = "0.0.1"
+
+[[package]]
+name = "sabiko_types"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_lexer",
+ "sabiko_resolve",
+ "sabiko_span",
+]
 
 [[package]]
 name = "semver"
