@@ -204,9 +204,14 @@ pub fn iterate_to_fixpoint<A: Analysis>(body: &Body, analysis: &A) -> Results {
     let mut queue = VecDeque::from([BasicBlock::START]);
     let mut queued = vec![false; body.blocks.len()];
     queued[BasicBlock::START.index()] = true;
+    // Every reachable block is processed at least once, even when its entry state equals
+    // the bottom value: its own effects (and those of everything downstream) still have to
+    // be applied. Afterwards a block is revisited only when its entry state changes.
+    let mut visited = vec![false; body.blocks.len()];
 
     while let Some(bb) = queue.pop_front() {
         queued[bb.index()] = false;
+        visited[bb.index()] = true;
         let mut state = entry_sets[bb.index()].clone();
         apply_block(
             body,
@@ -220,7 +225,8 @@ pub fn iterate_to_fixpoint<A: Analysis>(body: &Body, analysis: &A) -> Results {
         };
         analysis.apply_terminator(&mut state, terminator, Location::terminator_of(body, bb));
         for succ in terminator.kind.successors() {
-            if analysis.join(&mut entry_sets[succ.index()], &state) && !queued[succ.index()] {
+            let changed = analysis.join(&mut entry_sets[succ.index()], &state);
+            if (changed || !visited[succ.index()]) && !queued[succ.index()] {
                 queued[succ.index()] = true;
                 queue.push_back(succ);
             }

@@ -1,0 +1,93 @@
+// Moves the move checker accepts: `Copy` structs are copied, a moved value can be assigned
+// again, a `&mut` argument is reborrowed at each call, a move on one branch is undone
+// before the join, and a `&mut` moved by `let` is fine while only the new name is used.
+#[derive(Copy, Clone)]
+struct V {
+    X: i32,
+    Y: i32,
+}
+
+struct P {
+    X: i32,
+}
+
+fn TakeV(v: V) {}
+
+fn Take(p: P) {}
+
+fn Touch(r: &mut P) {}
+
+fn Read(n: i32) {}
+
+fn CopyStruct() {
+    let v = V { X: 1, Y: 2 };
+    TakeV(v);
+    TakeV(v);
+    let w = v;
+    Read(v.X + w.Y);
+}
+
+fn Reassign() {
+    let mut p = P { X: 1 };
+    Take(p);
+    p = P { X: 2 };
+    Take(p);
+}
+
+fn PassTwice(r: &mut P) {
+    Touch(r);
+    Touch(r);
+    r.X = 3;
+}
+
+fn ReinitBeforeJoin(flag: bool) {
+    let mut p = P { X: 1 };
+    if flag {
+        Take(p);
+        p = P { X: 2 };
+    }
+    Take(p);
+}
+
+fn MoveOnBothBranchesThenReinit(flag: bool) {
+    let mut p = P { X: 1 };
+    if flag {
+        Take(p);
+    } else {
+        Take(p);
+    }
+    p = P { X: 3 };
+    Take(p);
+}
+
+fn LetOfMutRef(r: &mut P) {
+    let s = r;
+    s.X = 4;
+    Touch(s);
+}
+
+fn MoveInLoopThenReinit(n: i32) {
+    let mut p = P { X: 0 };
+    let mut i = 0;
+    while i < n {
+        Take(p);
+        p = P { X: i };
+        i += 1;
+    }
+    Take(p);
+}
+
+fn FreshEachIteration(n: i32) {
+    let mut i = 0;
+    while i < n {
+        let p = P { X: i };
+        Take(p);
+        i += 1;
+    }
+}
+
+fn CopyOutOfReference(r: &P) -> i32 {
+    let a = r.X;
+    let b = r.X;
+    a + b
+}

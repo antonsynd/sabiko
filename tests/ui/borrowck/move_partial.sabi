@@ -1,0 +1,63 @@
+// Moving a field out of a struct: a sibling field stays usable, the whole struct is
+// partially moved until the field is assigned again, and assigning a different field does
+// not help.
+struct P {
+    X: i32,
+}
+
+struct Pair {
+    A: P,
+    B: P,
+}
+
+fn Take(p: P) {}
+
+fn TakePair(pair: Pair) {}
+
+fn Read(n: i32) {}
+
+fn Sibling() {
+    let pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    let a = pair.A;
+    Read(pair.B.X);
+    let b = pair.B;
+}
+
+fn Parent() {
+    let pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    let a = pair.A;
+    TakePair(pair); //~ ERROR E0406 use of partially moved value: `pair`
+}
+
+fn ParentBorrow() {
+    let pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    Take(pair.B);
+    let r = &pair; //~ ERROR E0406 borrow of partially moved value: `pair`
+}
+
+fn SameFieldTwice() {
+    let pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    let a = pair.A;
+    let b = pair.A; //~ ERROR E0406 use of moved value: `pair.A`
+}
+
+fn Reinit() {
+    let mut pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    let a = pair.A;
+    pair.A = P { X: 3 };
+    TakePair(pair);
+}
+
+fn ReinitWhole() {
+    let mut pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    let a = pair.A;
+    pair = Pair { A: P { X: 3 }, B: P { X: 4 } };
+    let b = pair.A;
+}
+
+fn ReinitOtherField() {
+    let mut pair = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    let a = pair.A;
+    pair.B = P { X: 3 };
+    TakePair(pair); //~ ERROR E0406 use of partially moved value: `pair`
+}

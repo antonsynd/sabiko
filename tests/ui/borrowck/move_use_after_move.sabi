@@ -1,0 +1,67 @@
+// Using a non-Copy value after it was moved: in straight-line code, after a move on one
+// branch, in the next iteration of a loop, by a borrow, by assigning to a field, and
+// through a `&mut` that was moved by a plain `let`.
+struct P {
+    X: i32,
+}
+
+fn Take(p: P) {}
+
+fn Read(n: i32) {}
+
+fn Straight() {
+    let p = P { X: 1 };
+    let q = p;
+    let r = p; //~ ERROR E0406 use of moved value: `p`
+}
+
+fn Conditional(flag: bool) {
+    let p = P { X: 1 };
+    if flag {
+        Take(p);
+    }
+    Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+}
+
+fn BothBranches(flag: bool) {
+    let p = P { X: 1 };
+    if flag {
+        Take(p);
+    } else {
+        let q = p;
+    }
+    Take(p); //~ ERROR E0406 use of moved value: `p`
+}
+
+fn InLoop(n: i32) {
+    let p = P { X: 1 };
+    let mut i = 0;
+    while i < n {
+        Take(p); //~ ERROR E0406 use of moved value: `p`
+        i += 1;
+    }
+}
+
+fn Borrow() {
+    let p = P { X: 1 };
+    Take(p);
+    let r = &p; //~ ERROR E0406 borrow of moved value: `p`
+}
+
+fn AssignPart() {
+    let mut p = P { X: 1 };
+    Take(p);
+    p.X = 2; //~ ERROR E0406 assign to part of moved value: `p`
+}
+
+fn MovedReference(r: &mut P) {
+    let s = r;
+    Read(r.X); //~ ERROR E0406 use of moved value: `r`
+}
+
+fn OnlyOnce() {
+    let p = P { X: 1 };
+    Take(p);
+    Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+    Read(p.X);
+}
