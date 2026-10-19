@@ -69,16 +69,12 @@ impl BitSet {
     }
 
     pub fn insert_all(&mut self) {
-        for word in &mut self.words {
-            *word = u64::MAX;
-        }
+        self.words.fill(u64::MAX);
         self.clear_excess_bits();
     }
 
     pub fn clear(&mut self) {
-        for word in &mut self.words {
-            *word = 0;
-        }
+        self.words.fill(0);
     }
 
     /// `self |= other`; returns whether `self` changed.
