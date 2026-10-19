@@ -21,9 +21,21 @@ pub enum Emit {
     Pretty,
 }
 
+/// How far down the pipeline to run. Diagnostics from later stages are never reported
+/// when an earlier stage failed, so stopping early is also a way to test one stage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Stage {
+    Parse,
+    Resolve,
+    Typeck,
+    #[default]
+    Full,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options {
     pub emit: Emit,
+    pub stop_after: Stage,
 }
 
 /// The result of running the pipeline on one source file.
@@ -87,7 +99,18 @@ pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
             match options.emit {
                 Emit::Ast => sabiko_ast::dump::dump(&ast),
                 Emit::Pretty => sabiko_ast::pretty::pretty(&ast),
-                _ => String::new(),
+                _ => {
+                    // Semantic analysis only runs on a syntactically complete file:
+                    // recovery drops broken constructs, and reporting "cannot find value"
+                    // for names defined inside them would only add noise.
+                    if options.stop_after > Stage::Parse && !sink.has_errors() {
+                        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+                        if options.stop_after > Stage::Resolve {
+                            let _typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+                        }
+                    }
+                    String::new()
+                }
             }
         }
     };

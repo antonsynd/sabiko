@@ -14,5 +14,7 @@ Each `*.sabi` file here is compiled by `crates/sabiko_driver/tests/ui.rs`. Expec
 Run `BLESS=1 cargo test -p sabiko_driver --test ui` to regenerate `.stderr` files after
 an intentional change, then review the diff.
 
-Directories mirror the pipeline stage under test: `parse/`, later `resolve/`, `typeck/`,
-`borrowck/`, ... . Files whose name starts with `ok_` must compile without diagnostics.
+Directories mirror the pipeline stage under test, and the harness stops the compiler
+after that stage: `parse/` (parser only), `resolve/` (through name resolution), `typeck/`
+(through type checking), `borrowck/` and anything else (the whole pipeline). Files whose
+name starts with `ok_` must compile without diagnostics.

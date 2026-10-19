@@ -579,6 +579,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sabiko_borrowck"
+version = "0.0.1"
+dependencies = [
+ "sabiko_diagnostics",
+ "sabiko_mir",
+ "sabiko_parser",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
+]
+
+[[package]]
 name = "sabiko_diagnostics"
 version = "0.0.1"
 dependencies = [
@@ -593,10 +605,14 @@ name = "sabiko_driver"
 version = "0.0.1"
 dependencies = [
  "sabiko_ast",
+ "sabiko_borrowck",
  "sabiko_diagnostics",
  "sabiko_lexer",
+ "sabiko_mir",
  "sabiko_parser",
+ "sabiko_resolve",
  "sabiko_span",
+ "sabiko_types",
 ]
 
 [[package]]
@@ -606,6 +622,19 @@ dependencies = [
  "logos",
  "sabiko_diagnostics",
  "sabiko_span",
+]
+
+[[package]]
+name = "sabiko_mir"
+version = "0.0.1"
+dependencies = [
+ "insta",
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_parser",
+ "sabiko_resolve",
+ "sabiko_span",
+ "sabiko_types",
 ]
 
 [[package]]
@@ -621,8 +650,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "sabiko_resolve"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_parser",
+ "sabiko_span",
+]
+
+[[package]]
 name = "sabiko_span"
 version = "0.0.1"
+
+[[package]]
+name = "sabiko_types"
+version = "0.0.1"
+dependencies = [
+ "sabiko_ast",
+ "sabiko_diagnostics",
+ "sabiko_lexer",
+ "sabiko_parser",
+ "sabiko_resolve",
+ "sabiko_span",
+]
 
 [[package]]
 name = "sabikoc"

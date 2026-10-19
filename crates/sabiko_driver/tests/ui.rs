@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use sabiko_diagnostics::{Format, Severity};
-use sabiko_driver::{compile_str, Options};
+use sabiko_driver::{compile_str, Options, Stage};
 
 #[derive(Debug)]
 struct Annotation {
@@ -82,7 +82,20 @@ fn run_one(root: &Path, path: &Path, bless: bool) -> Option<String> {
         .to_string_lossy()
         .replace('\\', "/");
     let src = std::fs::read_to_string(path).unwrap();
-    let compilation = compile_str(&format!("tests/ui/{rel}"), &src, Options::default());
+    // The directory names the stage under test; the pipeline stops after it so tests of
+    // early stages are not disturbed by later ones (a parser test may call undefined
+    // functions, for instance).
+    let stop_after = match rel.split('/').next().unwrap_or("") {
+        "parse" => Stage::Parse,
+        "resolve" => Stage::Resolve,
+        "typeck" => Stage::Typeck,
+        _ => Stage::Full,
+    };
+    let options = Options {
+        stop_after,
+        ..Options::default()
+    };
+    let compilation = compile_str(&format!("tests/ui/{rel}"), &src, options);
     let mut failures = String::new();
 
     // 1. annotations vs diagnostics

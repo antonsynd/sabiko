@@ -13,6 +13,10 @@ sabiko_diagnostics = { workspace = true }
 sabiko_lexer = { workspace = true }
 sabiko_ast = { workspace = true }
 sabiko_parser = { workspace = true }
+sabiko_resolve = { workspace = true }
+sabiko_types = { workspace = true }
+sabiko_mir = { workspace = true }
+sabiko_borrowck = { workspace = true }
 
 [lints]
 workspace = true

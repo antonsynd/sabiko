@@ -1,0 +1,22 @@
+[package]
+name = "sabiko_mir"
+description = "Mid-level IR for the Sabiko compiler: data structures, AST lowering, validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabiko_span = { workspace = true }
+sabiko_diagnostics = { workspace = true }
+sabiko_ast = { workspace = true }
+sabiko_resolve = { workspace = true }
+sabiko_types = { workspace = true }
+
+[dev-dependencies]
+sabiko_parser = { workspace = true }
+insta = { version = "1", features = ["glob"] }
+
+[lints]
+workspace = true

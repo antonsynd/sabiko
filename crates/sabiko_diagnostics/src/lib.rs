@@ -36,6 +36,45 @@ impl ErrorCode {
     pub const EXPECTED_PATTERN: Self = Self(106);
     pub const UNSUPPORTED_SYNTAX: Self = Self(107);
     pub const STRUCT_LITERAL_NOT_ALLOWED: Self = Self(108);
+
+    // Name resolution (E02xx)
+    pub const DUPLICATE_DEFINITION: Self = Self(200);
+    pub const UNRESOLVED_TYPE: Self = Self(201);
+    pub const UNRESOLVED_VALUE: Self = Self(202);
+    pub const WRONG_NAMESPACE: Self = Self(203);
+    pub const DUPLICATE_FIELD_DEFINITION: Self = Self(204);
+    pub const DUPLICATE_PARAMETER: Self = Self(205);
+    pub const RECURSIVE_TYPE: Self = Self(206);
+    pub const PLACEHOLDER_IN_SIGNATURE: Self = Self(207);
+    pub const UNSIZED_TYPE: Self = Self(208);
+
+    // Type checking (E03xx)
+    pub const TYPE_MISMATCH: Self = Self(300);
+    pub const UNKNOWN_FIELD: Self = Self(301);
+    pub const MISSING_FIELDS: Self = Self(302);
+    pub const DUPLICATE_FIELD_INIT: Self = Self(303);
+    pub const WRONG_ARG_COUNT: Self = Self(304);
+    pub const NOT_CALLABLE: Self = Self(305);
+    pub const INVALID_BINARY_OP: Self = Self(306);
+    pub const INVALID_UNARY_OP: Self = Self(307);
+    pub const INVALID_CAST: Self = Self(308);
+    pub const INVALID_DEREF: Self = Self(309);
+    pub const INVALID_ASSIGN_TARGET: Self = Self(310);
+    pub const BREAK_OUTSIDE_LOOP: Self = Self(311);
+    pub const BREAK_WITH_VALUE_OUTSIDE_LOOP: Self = Self(312);
+    pub const TYPE_ANNOTATIONS_NEEDED: Self = Self(313);
+    pub const LITERAL_OUT_OF_RANGE: Self = Self(314);
+    pub const NON_CONSTANT_EXPRESSION: Self = Self(315);
+    pub const CONST_EVAL_FAILED: Self = Self(316);
+    pub const FN_ITEM_AS_VALUE: Self = Self(317);
+
+    // Borrow checking (E04xx)
+    pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);
+    pub const ASSIGN_TO_IMMUTABLE: Self = Self(401);
+    pub const BORROW_MUT_IMMUTABLE: Self = Self(402);
+    pub const ASSIGN_THROUGH_SHARED_REF: Self = Self(403);
+    pub const BORROW_MUT_THROUGH_SHARED_REF: Self = Self(404);
+    pub const USE_OF_UNINITIALIZED: Self = Self(405);
 }
 
 impl fmt::Display for ErrorCode {

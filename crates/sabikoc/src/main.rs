@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
 use sabiko_diagnostics::Format;
-use sabiko_driver::{Emit, Options};
+use sabiko_driver::{Emit, Options, Stage};
 
 #[derive(Parser, Debug)]
 #[command(name = "sabikoc", version, about = "The Sabiko compiler", long_about = None)]
@@ -17,6 +17,10 @@ struct Cli {
     /// What to print after compiling.
     #[arg(long, value_enum, default_value_t = EmitArg::None)]
     emit: EmitArg,
+
+    /// Stop the pipeline after this stage (diagnostics of later stages are not reported).
+    #[arg(long, value_enum, default_value_t = StageArg::Full)]
+    stop_after: StageArg,
 
     /// How to print diagnostics.
     #[arg(long, value_enum, default_value_t = ErrorFormat::Human)]
@@ -33,6 +37,14 @@ enum EmitArg {
     Tokens,
     Ast,
     Pretty,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum StageArg {
+    Parse,
+    Resolve,
+    Typeck,
+    Full,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -56,7 +68,14 @@ fn main() -> ExitCode {
         EmitArg::Ast => Emit::Ast,
         EmitArg::Pretty => Emit::Pretty,
     };
-    let compilation = match sabiko_driver::compile_file(&cli.input, Options { emit }) {
+    let stop_after = match cli.stop_after {
+        StageArg::Parse => Stage::Parse,
+        StageArg::Resolve => Stage::Resolve,
+        StageArg::Typeck => Stage::Typeck,
+        StageArg::Full => Stage::Full,
+    };
+    let options = Options { emit, stop_after };
+    let compilation = match sabiko_driver::compile_file(&cli.input, options) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: cannot read `{}`: {e}", cli.input.display());
