@@ -5,7 +5,7 @@
 compile time, frees Sabiko-owned memory deterministically without the garbage collector,
 and interoperates with C# with zero marshalling.
 
-Status: **Phase 0** (toolchain bootstrap). See [`docs/PLAN.md`](docs/PLAN.md) for the
+Status: **Phase 0 complete** (toolchain bootstrap); Phase 1 (front end) is next. See [`docs/PLAN.md`](docs/PLAN.md) for the
 roadmap and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the design decisions.
 
 ```rust

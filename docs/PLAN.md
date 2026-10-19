@@ -111,12 +111,16 @@ Work
 Exit criteria
 - CI green on all three OSes, including the hand-written IL spike running under `dotnet`.
 
-Status (2026-10-19): scaffolding, scripts, spike, hook and CI are in place. Findings:
+Status (2026-10-19): **complete.** CI run 3 green on ubuntu, macos and windows for both
+the Rust checks and the IL spike. Findings:
 - Claude Code cloud containers block `dot.net` / `builds.dotnet.microsoft.com` but allow
   `api.nuget.org`, so `setup-dotnet.sh` falls back to assembling the runtime from the
   `Microsoft.NETCore.App.Runtime.<rid>` pack plus the standalone muxer package.
 - ILVerify caught a `.maxstack` bug in the first draft of the spike before the CLR did,
   which is exactly the role it will play in the codegen test suite.
+- CI caught two portability bugs on the first run: a log line leaking into a command
+  substitution on cold caches, and CRLF checkouts on Windows failing rustfmt's newline
+  check (fixed with `.gitattributes`).
 
 ### Phase 1: Front end (lexer, parser, AST, diagnostics)
 
