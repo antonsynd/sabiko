@@ -1,0 +1,42 @@
+# cargo-mutants configuration (https://mutants.rs). Run through `scripts/mutants.sh`,
+# which mutates one crate at a time in place (`--in-place`, which runs one job at a time:
+# the sabikoc run-pass and run-time differential tests locate the .NET toolchain under
+# `tools/` relative to the source tree, so a copy of the tree would skip them) and narrows
+# `--test-package` to the suites that exercise that crate:
+#   sabiko_borrowck -> sabiko_borrowck (hand-built MIR tests) + sabiko_driver (UI, differential)
+#   sabiko_types    -> sabiko_driver (UI typeck fixtures) + sabiko_mir (MIR snapshots, validator corpus)
+#   sabiko_codegen  -> sabiko_codegen (IL snapshots) + sabikoc (run-pass, run-time differential)
+#                      + sabiko_driver (UI fixtures under tests/ui/codegen, which run the backend)
+# A bare `cargo mutants -p <crate>` falls back to the union below.
+test_package = [
+    "sabiko_borrowck",
+    "sabiko_types",
+    "sabiko_codegen",
+    "sabiko_mir",
+    "sabiko_driver",
+    "sabikoc",
+]
+
+# The whole workspace suite runs in ~20s; the run-time differential tests spawn dotnet, so
+# leave headroom before a slow mutant counts as a timeout.
+timeout_multiplier = 3.0
+minimum_test_timeout = 60
+build_timeout_multiplier = 3.0
+# Match `-j 2` on a four-core runner.
+additional_cargo_test_args = ["--", "--test-threads=2"]
+# CI sets `RUSTFLAGS=-D warnings`; a mutant that leaves a variable unused must still build.
+cap_lints = true
+
+# Not worth mutating: Debug/Display impls, place/type pretty printers and diagnostic
+# wording helpers (their output is pinned by the UI `.stderr` goldens anyway).
+exclude_re = [
+    "<impl (Debug|Display) for ",
+    "::fmt -> ",
+    "::describe -> String",
+    "describe_place -> String",
+    "Ty::display -> String",
+    "ConstValue::render -> String",
+    "Mutability::prefix_str -> ",
+    "UseKind::(noun|verb) -> ",
+    "::make_mutable_help -> String",
+]

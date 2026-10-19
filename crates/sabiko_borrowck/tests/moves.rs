@@ -1018,3 +1018,187 @@ fn temporaries_are_tracked_but_never_reported() {
     mir.ret(end);
     fx.assert_clean(&mir.finish());
 }
+
+// ----------------------------------------------------------------------------------------
+// Move sites: the backward search stops at re-initialisations
+// ----------------------------------------------------------------------------------------
+
+#[test]
+fn only_the_move_after_a_reinitialisation_is_reported() {
+    // Take(p); p = Point {..}; if flag { Take(p) } Take(p)
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t1 = mir.temp(Ty::Unit);
+    let t2 = mir.temp(Ty::Unit);
+    let t3 = mir.temp(Ty::Unit);
+    let (bb0, bb1, then, join, end) = (
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+    );
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.call(bb0, fx.take, vec![mv(local(p))], local(t1), bb1);
+    mir.assign(bb1, local(p), point_aggregate(&fx));
+    mir.branch(bb1, copy(local(flag)), then, join);
+    let second = mir.call(then, fx.take, vec![mv(local(p))], local(t2), join);
+    let used = mir.call(join, fx.take, vec![mv(local(p))], local(t3), end);
+    mir.ret(end);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `p`"]
+    );
+    // The first move is behind the re-initialisation on every path: it is not a site.
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (second, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn a_call_destination_reinitialisation_also_stops_the_search() {
+    // TakeLine(l); l = MakeLine(); if flag { TakeLine(l) } TakeLine(l)
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let t1 = mir.temp(Ty::Unit);
+    let t2 = mir.temp(Ty::Unit);
+    let t3 = mir.temp(Ty::Unit);
+    let (bb0, bb1, bb2, bb3, then, join, end) = (
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+    );
+    mir.call(bb0, fx.make_line, vec![], local(l), bb1);
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t1), bb2);
+    // The re-initialisation is a call destination, so it terminates its block.
+    mir.call(bb2, fx.make_line, vec![], local(l), bb3);
+    mir.branch(bb3, copy(local(flag)), then, join);
+    let second = mir.call(then, fx.take_line, vec![mv(local(l))], local(t2), join);
+    let used = mir.call(join, fx.take_line, vec![mv(local(l))], local(t3), end);
+    mir.ret(end);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `l`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (second, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn partial_assign_to_a_nested_field_of_a_moved_value() {
+    // TakeLine(l); l.A.X = 1;  -- every enclosing struct of the written field is checked
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, bb1, bb2) = (mir.block(), mir.block(), mir.block());
+    mir.call(bb0, fx.make_line, vec![], local(l), bb1);
+    let moved = mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), bb2);
+    let written = mir.assign(bb2, point_x(line_field(&fx, l, 0)), Rvalue::Use(int(1)));
+    mir.ret(bb2);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    // Moving `l` moves every path below it, so the innermost enclosing struct is named.
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 assign to part of moved value: `l.A`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (written, "value partially assigned here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn use_before_the_move_in_a_loop_names_the_previous_iteration() {
+    // loop { let x = p.X; Take(p); }  -- the use comes first in the body, so the move is
+    // only reached through the back edge.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, head, body_bb) = (mir.block(), mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.goto(bb0, head);
+    let used = mir.assign(head, local(x), Rvalue::Use(copy(point_x(local(p)))));
+    let moved = mir.call(head, fx.take, vec![mv(local(p))], local(t), body_bb);
+    mir.goto(body_bb, head);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `p.X`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (moved, "value moved here, in previous iteration of loop"),
+        ]
+    );
+}
+
+#[test]
+fn mut_ref_moved_into_a_deref_gets_no_reborrow_hint() {
+    // fn F(r: &mut i32, slot: &mut &mut i32) { let q = slot; *q = r; *r = 1; }
+    // Only `let s = r;` earns the "consider reborrowing" note, not a write through a
+    // user local.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let r = mir.arg("r", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let slot = mir.arg("slot", Ty::mut_ref(Ty::mut_ref(Ty::I32)), Mutability::Not);
+    let q = mir.user("q", Ty::mut_ref(Ty::mut_ref(Ty::I32)), Mutability::Not);
+    let bb0 = mir.block();
+    mir.live(bb0, q);
+    mir.assign(bb0, local(q), use_move(local(slot)));
+    let moved = mir.assign(bb0, local(q).deref(), use_move(local(r)));
+    let used = mir.assign(bb0, local(r).deref(), Rvalue::Use(int(1)));
+    mir.ret(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `r`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+    assert_eq!(
+        diags[0].notes,
+        ["move occurs because `r` has type `&mut i32`, which does not implement the `Copy` trait"]
+    );
+}

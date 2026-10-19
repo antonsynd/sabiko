@@ -1,0 +1,20 @@
+[package]
+name = "sabiko_testgen"
+description = "Seeded random program generator for the Sabiko/Rust shared subset, used by the differential tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+sabiko_diagnostics = { workspace = true }
+sabiko_parser = { workspace = true }
+sabiko_resolve = { workspace = true }
+sabiko_types = { workspace = true }
+sabiko_driver = { workspace = true }
+
+[lints]
+workspace = true

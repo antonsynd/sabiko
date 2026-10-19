@@ -1,0 +1,5 @@
+// A well-formed entry point compiles to an executable.
+
+fn Main() {
+    PrintLine(1);
+}

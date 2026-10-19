@@ -52,6 +52,56 @@ Programs under `run/` have a `fn Main()` and print. `crates/sabikoc/tests/differ
 builds each one as an executable with both compilers (rustc gets the prelude plus
 `fn main() { Main() }`; sabikoc compiles in debug mode, matching rustc's default overflow
 checks), runs both, and requires identical stdout and exit codes (both compilers exit with
-101 on a panic, including arithmetic overflow). Standard error is not compared: panic
-messages differ. The test is skipped with a notice when `rustc` or the .NET toolchain is
-missing (`SABIKO_REQUIRE_RUSTC=1` / `SABIKO_REQUIRE_DOTNET=1` turn the skip into a failure).
+101 on a panic, including arithmetic overflow). Standard error is compared too:
+
+- after a clean exit (code 0) neither program may have written to stderr;
+- after a panic (code 101) the panic *message* lines must match. rustc prints
+  `thread 'main' panicked at src/main.rs:L:C:` (newer versions insert the thread id) and
+  Sabiko `thread 'main' panicked:`; the message is the next line in both, and the harness
+  runs the Rust binary with `RUST_BACKTRACE=0` so nothing follows it. One difference is
+  accepted: Sabiko reports every overflow of `+`, `-`, `*` and unary `-` as "attempt to
+  perform arithmetic with overflow" because the CLR's `.ovf` opcodes do not say which
+  operator overflowed, where rustc says "attempt to add/subtract/multiply/negate with
+  overflow". Division, remainder, shift and `Panic` messages must be identical.
+
+The test is skipped with a notice when `rustc` or the .NET toolchain is missing
+(`SABIKO_REQUIRE_RUSTC=1` / `SABIKO_REQUIRE_DOTNET=1` turn the skip into a failure). The
+helpers (locating rustc, running both programs, comparing runs, classifying verdicts) live
+in `crates/sabikoc/tests/common/mod.rs` and are shared with the generated tests below.
+
+## Generated programs (`crates/sabiko_testgen`, `crates/sabikoc/tests/generated.rs`)
+
+The hand-written corpus is complemented by random programs from `sabiko_testgen`:
+`generate(seed, &Knobs)` is a deterministic function of a `u64` seed and a knob struct
+(number of functions, structs and constants, line budget, expression and block depth, and a
+violation percentage). Every program is valid in both languages up to borrow checking and
+prints its results, so both oracles above apply to it. The subset is the one listed above
+plus `const` items, nested field paths, `break value`, compound assignment and casts between
+every integer type but `i128`/`u128`, floats, `bool` and ASCII `char`; see the crate
+documentation for the exact list and the exclusions. `Knobs::default()` lets a few per cent
+of the generator's borrow-model checks be skipped so that some programs contain a use after
+move, a conflicting borrow, an assignment to an immutable binding or a write through `&`;
+`Knobs::borrow_clean()` never skips a check.
+
+`generated.rs` checks three properties, each over `SABIKO_GENERATED_SEEDS` seeds starting
+at `SABIKO_GENERATED_BASE_SEED` (default 1):
+
+1. compile-time verdicts agree with rustc (default knobs; 60 seeds by default), with the
+   same classification as the corpus test: any non-borrow error on either side fails;
+2. borrow-clean programs run identically (stdout, exit code, panic message; 40 seeds by
+   default), built with `rustc --crate-type bin` and `sabikoc --emit=exe` plus ILVerify.
+   rustc gets the prelude above with `arithmetic_overflow` and `unconditional_panic` added
+   to the `allow` attribute, so a constant-visible overflow or division by zero compiles and
+   panics at run time on both sides;
+3. the Sabiko pipeline is deterministic (compiling twice gives identical diagnostics, MIR
+   and IL) and idempotent under no-op insertion: `insert_noops` adds `let _ = ();`, `{}`
+   and `();` at random statement boundaries and the error codes and verdict must not
+   change (60 seeds by default).
+
+A failure prints the seed, the program and both compilers' output, so
+`sabiko_testgen::generate(seed, &knobs)` reproduces it; the nightly workflow runs thousands
+of seeds. When a disagreement is a compiler bug, the generator avoids the construct behind a
+`TODO` naming the bug until it is fixed (`grep TODO crates/sabiko_testgen/src`), so that the
+committed tests stay green. The crate's own tests check that 500 seeds parse, resolve and
+type-check, that borrow-clean programs pass the whole pipeline, and that generation is
+deterministic.

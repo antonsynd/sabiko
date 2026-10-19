@@ -1,0 +1,4 @@
+// A reborrow of `**y` needs `*y` to outlive `*x`; the signature promises no such thing.
+fn Store(x: &mut &i32, y: &&i32) {
+    *x = &**y;
+}

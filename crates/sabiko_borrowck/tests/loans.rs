@@ -33,6 +33,8 @@ fn Short(x: &mut &i32, y: &i32) {
     *x = y;
 }
 
+fn Deep(x: &mut &i32, y: &&i32) {}
+
 fn Ret(p: &i32) -> &i32 {
     p
 }
@@ -52,6 +54,7 @@ struct Fixture {
     first: DefId,
     two: DefId,
     short: DefId,
+    deep: DefId,
     ret: DefId,
     main: DefId,
 }
@@ -78,6 +81,7 @@ impl Fixture {
             first: def(DefKind::Fn, "First"),
             two: def(DefKind::Fn, "Two"),
             short: def(DefKind::Fn, "Short"),
+            deep: def(DefKind::Fn, "Deep"),
             ret: def(DefKind::Fn, "Ret"),
             main: def(DefKind::Fn, "Main"),
             resolve,
@@ -1114,4 +1118,154 @@ fn writing_a_parameter_reference_back_into_itself_is_fine() {
     mir.assign(bb0, deref(x), use_copy(local(z)));
     mir.finish_unit(bb0);
     fx.assert_clean(&mir.finish());
+}
+
+#[test]
+fn borrow_stored_in_a_parameter_is_used_when_the_function_returns() {
+    // fn Short(x: &mut &i32, y: &i32) { let l = 1; *x = &l; }
+    // Nothing in the body uses the loan after `l` dies; the caller does, so the "later
+    // use" is the function's return.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::for_fn(fx.short, "Short", Ty::Unit);
+    let x = mir.arg("x", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    mir.arg("y", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let l = mir.user("l", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::shared_ref(Ty::I32));
+    let (bb0, bb1) = (mir.block(), mir.block());
+    mir.live(bb0, l);
+    mir.assign(bb0, local(l), use_int(1));
+    let borrow = mir.assign(bb0, local(t), shared(local(l)));
+    mir.assign(bb0, deref(x), Rvalue::Use(mv(local(t))));
+    let dead = mir.dead(bb0, l);
+    mir.goto(bb0, bb1);
+    let ret = mir.finish_unit(bb1);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0413 `l` does not live long enough"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (borrow, "borrowed value does not live long enough"),
+            (dead, "`l` dropped here while still borrowed"),
+            (ret, "borrow later used here, when the function returns"),
+        ]
+    );
+}
+
+#[test]
+fn local_borrow_beside_a_reference_parameter_is_fine() {
+    // fn Ret(p: &i32) -> &i32 { let x = 1; let r = &x; let v = *r; p }
+    // The parameter's placeholder loan must not be confused with the loan of `x`.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::for_fn(fx.ret, "Ret", Ty::shared_ref(Ty::I32));
+    let p = mir.arg("p", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let v = mir.user("v", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.live(bb0, x);
+    mir.assign(bb0, local(x), use_int(1));
+    mir.live(bb0, r);
+    mir.assign(bb0, local(r), shared(local(x)));
+    mir.live(bb0, v);
+    mir.assign(bb0, local(v), use_copy(deref(r)));
+    mir.assign(bb0, local(Local::RETURN), use_copy(local(p)));
+    mir.dead(bb0, v);
+    mir.dead(bb0, r);
+    mir.dead(bb0, x);
+    mir.ret(bb0);
+    fx.assert_clean(&mir.finish());
+}
+
+#[test]
+fn reborrow_of_a_parameter_carries_its_lifetime() {
+    // fn Short(x: &mut &i32, y: &i32) { *x = &*y; }
+    // The reborrow must outlive `*x`, so `y` must: the signature does not say so.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::for_fn(fx.short, "Short", Ty::Unit);
+    let x = mir.arg("x", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let y = mir.arg("y", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let t = mir.temp(Ty::shared_ref(Ty::I32));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(t), shared(deref(y)));
+    let assign = mir.assign(bb0, deref(x), Rvalue::Use(mv(local(t))));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0415 lifetime may not live long enough"]
+    );
+    assert_eq!(diags[0].primary_span(), Some(assign));
+}
+
+#[test]
+fn writing_through_a_moved_mut_reference_is_invariant() {
+    // fn Short(x: &mut &i32, y: &i32) { let z = x; *z = y; }
+    // `&mut &'a i32` must not become `&mut &'short i32` by moving it: the write through
+    // `z` is a write through `x`.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::for_fn(fx.short, "Short", Ty::Unit);
+    let x = mir.arg("x", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let y = mir.arg("y", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let z = mir.user("z", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let bb0 = mir.block();
+    mir.live(bb0, z);
+    mir.assign(bb0, local(z), Rvalue::Use(mv(local(x))));
+    let assign = mir.assign(bb0, deref(z), use_copy(local(y)));
+    mir.dead(bb0, z);
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0415 lifetime may not live long enough"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [(
+            assign,
+            "requires that the data `y` points to outlives the data `*x` points to"
+        )]
+    );
+}
+
+#[test]
+fn reborrow_through_shared_references_constrains_only_the_innermost() {
+    // fn Deep(x: &mut &i32, y: &&i32) { *x = &**y; }
+    // `**y` is reached through a shared `*y`, whose referent is only copied out: the new
+    // reference needs `*y` to outlive it, not `y`.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::for_fn(fx.deep, "Deep", Ty::Unit);
+    let x = mir.arg("x", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let y = mir.arg(
+        "y",
+        Ty::shared_ref(Ty::shared_ref(Ty::I32)),
+        Mutability::Not,
+    );
+    let t = mir.temp(Ty::shared_ref(Ty::I32));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(t), shared(deref(y).deref()));
+    let assign = mir.assign(bb0, deref(x), Rvalue::Use(mv(local(t))));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0415 lifetime may not live long enough"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [(
+            assign,
+            "requires that the data `*y` points to outlives the data `*x` points to"
+        )]
+    );
 }

@@ -1,0 +1,16 @@
+//@ exit-code: 101
+// A constant `-1` divisor keeps Rust's overflow check for `%`: `i16::MIN % -1` panics
+// instead of yielding the 0 the CLR computes at `int32` width.
+const NEG: i16 = -1;
+
+fn Rem(a: i16) -> i16 {
+    a % NEG
+}
+
+fn Main() {
+    PrintLine(Rem(5));
+    PrintLine(Rem(-32767));
+    PrintLine("about to overflow");
+    PrintLine(Rem(-32768));
+    PrintLine("not reached");
+}

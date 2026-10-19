@@ -1,0 +1,7 @@
+// A loan of a local next to a reference parameter: the two have nothing to do with each other.
+fn Pick(p: &i32) -> &i32 {
+    let local = 1;
+    let r = &local;
+    let _ = *r;
+    p
+}

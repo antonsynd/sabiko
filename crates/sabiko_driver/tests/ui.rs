@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use sabiko_diagnostics::{Format, Severity};
-use sabiko_driver::{compile_str, Options, Stage};
+use sabiko_driver::{compile_str, Emit, Options, OutputKind, Stage};
 
 #[derive(Debug)]
 struct Annotation {
@@ -85,14 +85,27 @@ fn run_one(root: &Path, path: &Path, bless: bool) -> Option<String> {
     // The directory names the stage under test; the pipeline stops after it so tests of
     // early stages are not disturbed by later ones (a parser test may call undefined
     // functions, for instance).
-    let stop_after = match rel.split('/').next().unwrap_or("") {
-        "parse" => Stage::Parse,
-        "resolve" => Stage::Resolve,
-        "typeck" => Stage::Typeck,
-        _ => Stage::Full,
+    // `codegen/` also runs the IL backend (`--emit=il`), which the pipeline otherwise
+    // skips, so its `E05xx` diagnostics can be tested; `codegen/exe/` asks for an
+    // executable, which is what checks the `Main` signature.
+    let (stop_after, emit, output_kind) = match rel.split('/').next().unwrap_or("") {
+        "parse" => (Stage::Parse, Emit::None, OutputKind::Library),
+        "resolve" => (Stage::Resolve, Emit::None, OutputKind::Library),
+        "typeck" => (Stage::Typeck, Emit::None, OutputKind::Library),
+        "codegen" => {
+            let kind = if rel.starts_with("codegen/exe/") {
+                OutputKind::Executable
+            } else {
+                OutputKind::Library
+            };
+            (Stage::Full, Emit::Il, kind)
+        }
+        _ => (Stage::Full, Emit::None, OutputKind::Library),
     };
     let options = Options {
+        emit,
         stop_after,
+        output_kind,
         ..Options::default()
     };
     let compilation = compile_str(&format!("tests/ui/{rel}"), &src, options);

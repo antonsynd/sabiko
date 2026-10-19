@@ -1,0 +1,30 @@
+// Struct literals that cannot be built in their destination: one that reads the
+// destination (a swap), one stored into a field, and two struct types sharing the staging
+// locals; shadowed `let`s, whose IL locals fall back to `_N` names.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+struct Pair {
+    First: Point,
+    Second: Point,
+}
+
+fn Swap(p: Point) -> Point {
+    let mut p = p;
+    p = Point { X: p.Y, Y: p.X };
+    p
+}
+
+fn Main() {
+    let origin = Point { X: 0, Y: 0 };
+    let mut pair = Pair { First: origin, Second: Point { X: 1, Y: 1 } };
+    pair.First = Point { X: 2, Y: 3 };
+    pair = Pair { First: pair.Second, Second: pair.First };
+    let x = 1;
+    let x = x + 1;
+    let x = Swap(Point { X: x, Y: 5 });
+    let _ = x;
+    let _ = pair;
+}

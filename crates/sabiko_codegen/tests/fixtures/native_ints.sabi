@@ -1,0 +1,18 @@
+// `isize`/`usize` constants: values within `int32` load as `int32` and convert; the rest
+// load as `int64`. `2^31..2^32` must not go through a sign-extending `int32`.
+fn Main() {
+    let small: usize = 7;
+    let limit: usize = 2147483647;
+    let big: usize = 2147483648;
+    let huge: usize = 5000000000;
+    let neg: isize = -5;
+    let min32: isize = -2147483648;
+    let below: isize = -2147483649;
+    PrintLine(small);
+    PrintLine(limit);
+    PrintLine(big);
+    PrintLine(huge);
+    PrintLine(neg);
+    PrintLine(min32);
+    PrintLine(below);
+}

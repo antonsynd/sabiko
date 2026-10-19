@@ -643,6 +643,7 @@ dependencies = [
 name = "sabiko_driver"
 version = "0.0.1"
 dependencies = [
+ "proptest",
  "sabiko_ast",
  "sabiko_borrowck",
  "sabiko_codegen",
@@ -705,6 +706,17 @@ name = "sabiko_span"
 version = "0.0.1"
 
 [[package]]
+name = "sabiko_testgen"
+version = "0.0.1"
+dependencies = [
+ "sabiko_diagnostics",
+ "sabiko_driver",
+ "sabiko_parser",
+ "sabiko_resolve",
+ "sabiko_types",
+]
+
+[[package]]
 name = "sabiko_types"
 version = "0.0.1"
 dependencies = [
@@ -723,6 +735,7 @@ dependencies = [
  "clap",
  "sabiko_diagnostics",
  "sabiko_driver",
+ "sabiko_testgen",
  "serde_json",
 ]
 

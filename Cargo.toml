@@ -22,6 +22,7 @@ sabiko_mir = { path = "crates/sabiko_mir" }
 sabiko_borrowck = { path = "crates/sabiko_borrowck" }
 sabiko_codegen = { path = "crates/sabiko_codegen" }
 sabiko_driver = { path = "crates/sabiko_driver" }
+sabiko_testgen = { path = "crates/sabiko_testgen" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
