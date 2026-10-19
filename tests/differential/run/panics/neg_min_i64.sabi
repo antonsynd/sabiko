@@ -1,0 +1,10 @@
+// Negating `i64::MIN` panics in debug builds.
+fn Neg(x: i64) -> i64 { -x }
+
+fn Main() {
+    PrintLine(Neg(9223372036854775807));
+    PrintLine(Neg(-9223372036854775807));
+    PrintLine("about to negate the minimum");
+    PrintLine(Neg(-9223372036854775808));
+    PrintLine("not reached");
+}

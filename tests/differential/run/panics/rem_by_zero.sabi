@@ -1,0 +1,12 @@
+// Remainder by zero panics (shown for `u64`); float remainder by zero is NaN.
+fn Rem(a: u64, b: u64) -> u64 { a % b }
+
+fn Main() {
+    PrintLine(Rem(18446744073709551615, 10));
+    PrintLine(Rem(10, 3));
+    let zero: f64 = 0.0;
+    PrintLine(7.5 % zero);
+    PrintLine("about to take remainder by zero");
+    PrintLine(Rem(10, 0));
+    PrintLine("not reached");
+}

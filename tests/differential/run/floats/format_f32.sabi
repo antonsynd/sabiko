@@ -1,0 +1,22 @@
+// Display of `f32` values: single precision prints the shortest digits that round-trip as `f32`.
+fn Show(x: f32) { PrintLine(x); }
+
+fn Main() {
+    Show(0.0); Show(-0.0); Show(1.0); Show(-1.0); Show(100.0); Show(1234567.0);
+    Show(0.1); Show(0.2); Show(0.3); Show(0.1 + 0.2);
+    Show(1.0 / 3.0); Show(2.0 / 3.0); Show(10.0 / 3.0);
+    Show(16777216.0); Show(16777217.0); Show(33554436.0);
+    Show(1e10); Show(1e15); Show(1e20); Show(1e30); Show(3.4028235e38);
+    Show(1e-5); Show(1e-7); Show(1e-10); Show(1e-30); Show(1e-45); Show(1.17549435e-38);
+    Show(3.1415927); Show(2.7182817); Show(-273.15);
+    Show(100.0 / 7.0); Show(-100.0 / 7.0);
+    Show(0.1 * 3.0); Show(1.1 * 1.1); Show(4.35 * 100.0);
+    Show(123456.79); Show(0.00012345679); Show(9999999.0); Show(99999999.0);
+    let zero: f32 = 0.0;
+    Show(1.0 / zero); Show(-1.0 / zero); Show(zero / zero);
+    Show(2.5 - 2.5); Show(-2.5 + 2.5);
+    let x: f32 = 0.1;
+    let y: f64 = 0.1;
+    PrintLine(x as f64 == y);
+    PrintLine(x == y as f32);
+}

@@ -1,0 +1,33 @@
+// `&`, `|`, `^` and `!` on every integer width and on `bool`.
+fn Bits8(a: i8, b: i8) { Print(a & b); Print(' '); Print(a | b); Print(' '); Print(a ^ b); Print(' '); PrintLine(!a); }
+fn Bits16(a: u16, b: u16) { Print(a & b); Print(' '); Print(a | b); Print(' '); Print(a ^ b); Print(' '); PrintLine(!a); }
+fn Bits32(a: i32, b: i32) { Print(a & b); Print(' '); Print(a | b); Print(' '); Print(a ^ b); Print(' '); PrintLine(!a); }
+fn Bits64(a: u64, b: u64) { Print(a & b); Print(' '); Print(a | b); Print(' '); Print(a ^ b); Print(' '); PrintLine(!a); }
+fn Bools(a: bool, b: bool) { Print(a & b); Print(' '); Print(a | b); Print(' '); Print(a ^ b); Print(' '); PrintLine(!a); }
+
+fn Main() {
+    Bits8(0x5A, 0x33);
+    Bits8(-1, 0x0F);
+    Bits8(-128, 127);
+    Bits16(0xF0F0, 0x0FF0);
+    Bits16(0, 65535);
+    Bits32(0x12345678, 0x0F0F0F0F);
+    Bits32(-2147483648, -1);
+    Bits64(0xFFFFFFFF00000000, 0x00000000FFFFFFFF);
+    Bits64(0x8000000000000001, 1);
+    Bools(true, false);
+    Bools(true, true);
+    Bools(false, false);
+    PrintLine(!0u8);
+    PrintLine(!0u16);
+    PrintLine(!0u32);
+    PrintLine(!0u64);
+    PrintLine(!0usize);
+    PrintLine(!0i8);
+    PrintLine(!0i16);
+    PrintLine(!0i64);
+    PrintLine(!0isize);
+    PrintLine(!200u8 & 0x7F);
+    PrintLine(!(-100i16));
+    PrintLine(!(-1i32));
+}

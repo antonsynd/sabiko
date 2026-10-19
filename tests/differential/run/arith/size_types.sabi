@@ -1,0 +1,31 @@
+// `isize` and `usize` arithmetic (64-bit on every platform both compilers target here).
+fn Size(a: isize, b: isize) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn USize(a: usize, b: usize) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn Main() {
+    Size(100, 7);
+    Size(-100, 7);
+    Size(100, -7);
+    Size(-100, -7);
+    Size(9223372036854775806, 1);
+    Size(-9223372036854775807, 1);
+    USize(100, 7);
+    USize(18446744073709551614, 1);
+    USize(4294967296, 4294967295);
+    let mut total: usize = 0;
+    let mut i: usize = 0;
+    while i < 1000 {
+        total += i * i;
+        i += 1;
+    }
+    PrintLine(total);
+    let idx: isize = -3;
+    PrintLine(idx * idx - 1);
+}

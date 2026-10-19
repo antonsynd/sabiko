@@ -1,0 +1,10 @@
+// Shifting right by the bit width panics in debug builds (`i32` by 32, amount typed `u8`).
+fn Shr(x: i32, n: u8) -> i32 { x >> n }
+
+fn Main() {
+    PrintLine(Shr(-2147483648, 31));
+    PrintLine(Shr(1024, 10));
+    PrintLine("about to shift too far");
+    PrintLine(Shr(1, 32));
+    PrintLine("not reached");
+}

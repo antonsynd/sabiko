@@ -1,0 +1,14 @@
+//@ release
+//@ exit-code: 101
+// Division overflow is not a wrapping operation: `MIN / -1` panics even in release builds.
+fn Div(a: i32, b: i32) -> i32 { a / b }
+fn Add(a: i32, b: i32) -> i32 { a + b }
+
+fn Main() {
+    PrintLine(Add(2147483647, 1));
+    let min: i32 = -2147483648;
+    PrintLine(Div(min, 2));
+    PrintLine("about to overflow");
+    PrintLine(Div(min, -1));
+    PrintLine("not reached");
+}

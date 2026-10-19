@@ -1,0 +1,19 @@
+// `u64 as f32` rounds once, directly: values that a detour through `f64` would round differently.
+fn ToF32(x: u64) -> f32 { x as f32 }
+fn ToF64(x: u64) -> f64 { x as f64 }
+
+fn Main() {
+    let tie: u64 = 9223372586610589697;
+    PrintLine(ToF32(tie));
+    PrintLine(ToF64(tie));
+    let below: u64 = 9223372586610589696;
+    PrintLine(ToF32(below));
+    let plain: u64 = 9223372036854775808;
+    PrintLine(ToF32(plain));
+    let big: u64 = 18446744073709551615;
+    PrintLine(ToF32(big));
+    let odd: u64 = 16777217;
+    PrintLine(ToF32(odd));
+    let odd2: u64 = 16777219;
+    PrintLine(ToF32(odd2));
+}

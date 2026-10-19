@@ -1,0 +1,10 @@
+// Unsigned narrow division by zero panics too.
+fn Div(a: u8, b: u8) -> u8 { a / b }
+
+fn Main() {
+    PrintLine(Div(255, 16));
+    PrintLine(Div(0, 1));
+    PrintLine("about to divide by zero");
+    PrintLine(Div(0, 0));
+    PrintLine("not reached");
+}

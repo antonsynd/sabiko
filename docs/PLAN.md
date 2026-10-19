@@ -323,10 +323,14 @@ that reports an escaping exception Rust-style and exits with 101. `Print`, `Prin
 `Panic` are builtins lowered to `Sabiko.Runtime`, a C# library compiled with `csc` from the
 compilers-toolset package on the bare runtime (no SDK). `sabikoc --emit=il|dll|exe`, `-o`,
 `--release`, `--runtime-path`, `--ilasm`. Verification: IL snapshot tests per construct
-(`crates/sabiko_codegen/tests`), run-pass tests that compile, ILVerify and run every program
-under `tests/run-pass` (stdout and exit codes), and run-time differential tests under
-`tests/differential/run` whose output and exit codes must match the rustc-compiled program;
-CI runs all of it on Linux, macOS and Windows. ILVerify is the gate with one documented
+(`crates/sabiko_codegen/tests`), 20 run-pass programs that are compiled, verified with
+ILVerify and run (`tests/run-pass`: stdout and exit codes, release-mode wrapping, user
+functions shadowing the builtins, deep recursion), and 65 run-time differential programs
+under `tests/differential/run` whose output and exit codes match the rustc-compiled program
+(every operator per width, casts, float formatting, control flow, structs, references, and 30
+panic programs covering each overflow kind, division by zero, `MIN / -1`, `MIN % -1`, bad
+shift amounts and `-MIN`); CI runs all of it on Linux, macOS and Windows. Building the
+corpus found one backend bug (narrow `MIN % -1` returned 0 instead of panicking), fixed. ILVerify is the gate with one documented
 exception, `ReturnPtrToStack` (decision 30: ECMA-335 rejects every function returning a
 reference; the borrow checker covers it). Deferred: `Drop` scopes as `try/finally` and the
 drop-order tests go with drop elaboration to Phase 5 (nothing has drop glue yet, decision

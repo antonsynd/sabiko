@@ -1,0 +1,10 @@
+// A negative `i64` shift amount panics in debug builds for a right shift of a `u64`.
+fn Shr(x: u64, n: i64) -> u64 { x >> n }
+
+fn Main() {
+    PrintLine(Shr(18446744073709551615, 60));
+    PrintLine(Shr(1024, 10));
+    PrintLine("about to shift by a negative amount");
+    PrintLine(Shr(1, -9223372036854775808));
+    PrintLine("not reached");
+}

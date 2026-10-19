@@ -1,0 +1,36 @@
+// Non-`Copy` structs move into calls and back out as return values; a moved variable may be reassigned.
+struct Account {
+    Id: u32,
+    Balance: i64,
+}
+
+fn Deposit(mut acct: Account, amount: i64) -> Account {
+    acct.Balance += amount;
+    acct
+}
+
+fn Close(acct: Account) -> i64 {
+    Print("closing "); PrintLine(acct.Id);
+    acct.Balance
+}
+
+fn Make(id: u32) -> Account { Account { Id: id, Balance: 0 } }
+
+fn Main() {
+    let a = Make(1);
+    let a = Deposit(a, 100);
+    let a = Deposit(a, -30);
+    PrintLine(a.Balance);
+    let mut b = Make(2);
+    b = Deposit(b, 7);
+    PrintLine(b.Balance);
+    let total = Close(a) + Close(b);
+    PrintLine(total);
+    let mut c = Make(3);
+    let d = c;
+    c = Make(4);
+    PrintLine(c.Id);
+    PrintLine(d.Id);
+    let e = if total > 50 { Make(5) } else { Make(6) };
+    PrintLine(Close(e));
+}

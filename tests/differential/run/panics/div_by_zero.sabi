@@ -1,0 +1,12 @@
+// Integer division by zero panics (floats divide to infinity instead).
+fn Div(a: i32, b: i32) -> i32 { a / b }
+
+fn Main() {
+    PrintLine(Div(7, 2));
+    PrintLine(Div(-7, 2));
+    let zero: f64 = 0.0;
+    PrintLine(7.0 / zero);
+    PrintLine("about to divide by zero");
+    PrintLine(Div(7, 0));
+    PrintLine("not reached");
+}

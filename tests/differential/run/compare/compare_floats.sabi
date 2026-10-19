@@ -1,0 +1,30 @@
+// Float comparisons: ordinary values, both zeros, infinities and NaN (every operator is false on NaN but `!=`).
+fn Cmp(a: f64, b: f64) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Cmp32(a: f32, b: f32) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Main() {
+    let zero: f64 = 0.0;
+    let nan = zero / zero;
+    let inf = 1.0 / zero;
+    Cmp(1.0, 2.0); Cmp(2.0, 1.0); Cmp(1.5, 1.5);
+    Cmp(0.0, -0.0); Cmp(-0.0, 0.0);
+    Cmp(inf, inf); Cmp(-inf, inf); Cmp(inf, 1e308); Cmp(-inf, -1e308);
+    Cmp(nan, nan); Cmp(nan, 1.0); Cmp(1.0, nan); Cmp(nan, inf); Cmp(-inf, nan);
+    Cmp(0.1 + 0.2, 0.3);
+    let zero32: f32 = 0.0;
+    let nan32 = zero32 / zero32;
+    let inf32 = 1.0 / zero32;
+    Cmp32(1.0, 2.0); Cmp32(0.0, -0.0); Cmp32(inf32, inf32); Cmp32(nan32, nan32);
+    Cmp32(nan32, 0.0); Cmp32(-inf32, nan32); Cmp32(0.1 + 0.2, 0.3);
+    PrintLine(nan == nan);
+    PrintLine(nan != nan);
+    PrintLine(nan < nan || nan >= nan);
+    PrintLine(!(nan < 1.0) && !(nan >= 1.0));
+}

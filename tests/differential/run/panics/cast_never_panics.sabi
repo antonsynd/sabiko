@@ -1,0 +1,15 @@
+// Casts never panic, whatever the value; only the arithmetic after them can.
+fn Narrow(x: i64) -> i8 { x as i8 }
+fn Big(x: f64) -> u8 { x as u8 }
+
+fn Main() {
+    PrintLine(Narrow(1000));
+    PrintLine(Narrow(-1000));
+    PrintLine(Big(1e300));
+    PrintLine(Big(-1e300));
+    let x = Narrow(127);
+    PrintLine(x);
+    PrintLine("about to overflow");
+    PrintLine(x + Narrow(1));
+    PrintLine("not reached");
+}

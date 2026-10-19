@@ -1,0 +1,36 @@
+// Deep chains of calls passing values through many frames, with arguments evaluated left to right.
+fn Step1(x: i32) -> i32 { Step2(x + 1) * 2 }
+fn Step2(x: i32) -> i32 { Step3(x + 1) * 2 }
+fn Step3(x: i32) -> i32 { Step4(x + 1) * 2 }
+fn Step4(x: i32) -> i32 { Step5(x + 1) * 2 }
+fn Step5(x: i32) -> i32 { Step6(x + 1) * 2 }
+fn Step6(x: i32) -> i32 { x + 1 }
+
+fn Trace(tag: i32) -> i32 {
+    Print("eval "); PrintLine(tag);
+    tag
+}
+
+fn Sum3(a: i32, b: i32, c: i32) -> i32 { a * 100 + b * 10 + c }
+
+fn Compose(a: i64, b: i64) -> i64 { a * 1000 + b }
+
+fn Countdown(n: i32) -> i32 {
+    if n == 0 { 0 } else { 1 + Countdown(n - 1) }
+}
+
+fn Main() {
+    PrintLine(Step1(0));
+    PrintLine(Step1(-6));
+    PrintLine(Sum3(Trace(1), Trace(2), Trace(3)));
+    PrintLine(Sum3(Trace(4) + Trace(5), Trace(6), Sum3(Trace(7), Trace(8), Trace(9))));
+    PrintLine(Compose(Compose(1, 2), Compose(3, 4)));
+    PrintLine(Countdown(500));
+    let mut acc = 0;
+    let mut i = 0;
+    while i < 5 {
+        acc = Sum3(acc % 10, i, Step6(i));
+        i += 1;
+    }
+    PrintLine(acc);
+}

@@ -1,0 +1,32 @@
+//@ release
+// In release builds the shift amount is masked to the bit width (negative amounts included).
+fn Shl8(x: u8, n: i32) -> u8 { x << n }
+fn Shr8(x: i8, n: u64) -> i8 { x >> n }
+fn Shl16(x: u16, n: i8) -> u16 { x << n }
+fn Shl32(x: i32, n: u32) -> i32 { x << n }
+fn Shr32(x: i32, n: i64) -> i32 { x >> n }
+fn Shr64(x: u64, n: i32) -> u64 { x >> n }
+fn Shl64(x: i64, n: usize) -> i64 { x << n }
+fn ShlSize(x: usize, n: i32) -> usize { x << n }
+
+fn Main() {
+    PrintLine(Shl8(1, 8));
+    PrintLine(Shl8(1, 9));
+    PrintLine(Shl8(1, -1));
+    PrintLine(Shr8(-128, 8));
+    PrintLine(Shr8(-128, 15));
+    PrintLine(Shl16(1, 16));
+    PrintLine(Shl16(1, -1));
+    PrintLine(Shl32(1, 32));
+    PrintLine(Shl32(1, 33));
+    PrintLine(Shl32(1, 4294967295));
+    PrintLine(Shr32(-256, 33));
+    PrintLine(Shr32(1024, -62));
+    PrintLine(Shr64(18446744073709551615, 64));
+    PrintLine(Shr64(18446744073709551615, 65));
+    PrintLine(Shr64(1024, -1));
+    PrintLine(Shl64(1, 64));
+    PrintLine(Shl64(1, 127));
+    PrintLine(ShlSize(1, 64));
+    PrintLine(ShlSize(1, -1));
+}

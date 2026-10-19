@@ -1,0 +1,11 @@
+// `u64` addition past the maximum panics in debug builds.
+fn Add(a: u64, b: u64) -> u64 { a + b }
+
+fn Main() {
+    let max: u64 = 18446744073709551615;
+    PrintLine(Add(max - 1, 1));
+    PrintLine(Add(9223372036854775808, 9223372036854775807));
+    PrintLine("about to overflow");
+    PrintLine(Add(max, 1));
+    PrintLine("not reached");
+}

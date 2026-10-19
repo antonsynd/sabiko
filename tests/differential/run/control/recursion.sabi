@@ -1,0 +1,25 @@
+// Recursive functions: factorial, Fibonacci, gcd, Collatz steps, Ackermann and mutual recursion.
+fn Factorial(n: u64) -> u64 { if n <= 1 { 1 } else { n * Factorial(n - 1) } }
+fn Fib(n: u32) -> u32 { if n < 2 { n } else { Fib(n - 1) + Fib(n - 2) } }
+fn Gcd(a: i64, b: i64) -> i64 { if b == 0 { a } else { Gcd(b, a % b) } }
+fn Collatz(n: u64, steps: u32) -> u32 {
+    if n == 1 { steps } else if n % 2 == 0 { Collatz(n / 2, steps + 1) } else { Collatz(3 * n + 1, steps + 1) }
+}
+fn Ackermann(m: u32, n: u32) -> u32 {
+    if m == 0 { n + 1 } else if n == 0 { Ackermann(m - 1, 1) } else { Ackermann(m - 1, Ackermann(m, n - 1)) }
+}
+fn IsEven(n: u32) -> bool { if n == 0 { true } else { IsOdd(n - 1) } }
+fn IsOdd(n: u32) -> bool { if n == 0 { false } else { IsEven(n - 1) } }
+fn Power(base: f64, exp: i32) -> f64 {
+    if exp == 0 { 1.0 } else if exp < 0 { 1.0 / Power(base, -exp) } else { base * Power(base, exp - 1) }
+}
+
+fn Main() {
+    PrintLine(Factorial(0)); PrintLine(Factorial(5)); PrintLine(Factorial(20));
+    PrintLine(Fib(0)); PrintLine(Fib(1)); PrintLine(Fib(10)); PrintLine(Fib(25));
+    PrintLine(Gcd(48, 18)); PrintLine(Gcd(17, 5)); PrintLine(Gcd(0, 9)); PrintLine(Gcd(-48, 18));
+    PrintLine(Collatz(1, 0)); PrintLine(Collatz(6, 0)); PrintLine(Collatz(27, 0)); PrintLine(Collatz(97, 0));
+    PrintLine(Ackermann(2, 3)); PrintLine(Ackermann(3, 3));
+    PrintLine(IsEven(10)); PrintLine(IsOdd(10)); PrintLine(IsEven(7));
+    PrintLine(Power(2.0, 10)); PrintLine(Power(2.0, -2)); PrintLine(Power(1.5, 3));
+}

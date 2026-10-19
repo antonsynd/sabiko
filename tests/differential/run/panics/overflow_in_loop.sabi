@@ -1,0 +1,11 @@
+// An accumulator that eventually overflows `u16` panics on the exact iteration Rust panics on.
+fn Main() {
+    let mut total: u16 = 0;
+    let mut i: u16 = 0;
+    while i < 1000 {
+        total += i * 7;
+        i += 1;
+        if i % 20 == 0 { Print(i); Print(':'); Print(total); Print(' '); }
+    }
+    PrintLine("not reached");
+}

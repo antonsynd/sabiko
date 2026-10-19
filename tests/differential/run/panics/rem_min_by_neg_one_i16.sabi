@@ -1,0 +1,9 @@
+// `i16::MIN % -1` overflows the narrow type and panics in debug builds.
+fn Rem(a: i16, b: i16) -> i16 { a % b }
+
+fn Main() {
+    PrintLine(Rem(-32768, 3));
+    PrintLine("about to overflow");
+    PrintLine(Rem(-32768, -1));
+    PrintLine("not reached");
+}

@@ -57,7 +57,7 @@ struct FnCx<'a, 'b> {
     max_depth: usize,
     next_label: u32,
     /// Compiler-introduced IL locals (struct literal staging), by type.
-    scratch: Vec<(Ty, u16)>,
+    scratch: Vec<(Ty, usize, u16)>,
 }
 
 impl FnCx<'_, '_> {
@@ -105,14 +105,19 @@ impl FnCx<'_, '_> {
 
     /// A staging local for struct literals of type `ty`, shared by all of them.
     fn scratch(&mut self, ty: &Ty, span: Span) -> u16 {
-        if let Some((_, slot)) = self.scratch.iter().find(|(t, _)| t == ty) {
+        self.scratch_nth(ty, 0, span)
+    }
+
+    /// The `n`th staging local of type `ty`, for sequences that need several at once.
+    fn scratch_nth(&mut self, ty: &Ty, n: usize, span: Span) -> u16 {
+        if let Some((_, _, slot)) = self.scratch.iter().find(|(t, i, _)| t == ty && *i == n) {
             return *slot;
         }
         let name = format!("$tmp{}", self.scratch.len());
         let Slot::Local(slot) = self.new_local(ty, &name, span) else {
             unreachable!()
         };
-        self.scratch.push((ty.clone(), slot));
+        self.scratch.push((ty.clone(), n, slot));
         slot
     }
 
@@ -732,6 +737,23 @@ impl FnCx<'_, '_> {
                 if lp.is_signed_int() {
                     self.narrow(lp, true);
                 }
+            }
+            BinOp::Rem if lp.is_signed_int() && types::stack_width(lp) == StackWidth::Narrow => {
+                // `MIN % -1` overflows the narrow type but not `int32`, where `rem` yields 0;
+                // Rust panics in every build mode. The division of the same operands traps
+                // exactly then (and on a zero divisor, as `rem` would), so perform it first.
+                let rhs_slot = self.scratch_nth(&Ty::I32, 1, span);
+                let lhs_slot = self.scratch_nth(&Ty::I32, 0, span);
+                self.stloc(rhs_slot);
+                self.stloc(lhs_slot);
+                self.ldloc(lhs_slot);
+                self.ldloc(rhs_slot);
+                self.op("div", 2, 1);
+                self.narrow(lp, true);
+                self.op("pop", 1, 0);
+                self.ldloc(lhs_slot);
+                self.ldloc(rhs_slot);
+                self.op("rem", 2, 1);
             }
             BinOp::Rem => {
                 let text = if lp.is_unsigned_int() {

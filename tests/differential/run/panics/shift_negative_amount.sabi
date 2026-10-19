@@ -1,0 +1,10 @@
+// A negative shift amount panics in debug builds (it is out of range, like a huge unsigned value).
+fn Shl(x: u16, n: i32) -> u16 { x << n }
+
+fn Main() {
+    PrintLine(Shl(1, 15));
+    PrintLine(Shl(3, 0));
+    PrintLine("about to shift by a negative amount");
+    PrintLine(Shl(1, -1));
+    PrintLine("not reached");
+}

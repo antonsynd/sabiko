@@ -1,0 +1,34 @@
+// `#[derive(Copy, Clone)]` structs are copied on assignment and when passed by value.
+#[derive(Copy, Clone)]
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Shift(mut p: Point, dx: i32) -> Point {
+    p.X += dx;
+    p
+}
+
+fn Show(p: Point) {
+    Print(p.X); Print(','); PrintLine(p.Y);
+}
+
+fn Main() {
+    let mut a = Point { X: 1, Y: 2 };
+    let b = a;
+    a.X = 10;
+    Show(a);
+    Show(b);
+    let c = Shift(a, 5);
+    Show(a);
+    Show(c);
+    Show(Shift(Shift(b, 1), 1));
+    let mut d = c;
+    d.Y = -2;
+    Show(c);
+    Show(d);
+    let e = Point { X: d.X, Y: a.Y + b.Y };
+    Show(e);
+    PrintLine(a.X == 10 && b.X == 1 && c.X == 15 && d.Y == -2);
+}

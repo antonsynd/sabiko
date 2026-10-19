@@ -1,0 +1,12 @@
+// `i32::MIN / -1` overflows and panics in debug builds.
+fn Div(a: i32, b: i32) -> i32 { a / b }
+
+fn Main() {
+    let min: i32 = -2147483648;
+    PrintLine(Div(min, 1));
+    PrintLine(Div(min, 2));
+    PrintLine(Div(min + 1, -1));
+    PrintLine("about to overflow");
+    PrintLine(Div(min, -1));
+    PrintLine("not reached");
+}

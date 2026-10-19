@@ -1,0 +1,12 @@
+// Subtracting below `i64::MIN` panics in debug builds.
+fn Sub(a: i64, b: i64) -> i64 { a - b }
+
+fn Main() {
+    let min: i64 = -9223372036854775808;
+    PrintLine(Sub(min, 0));
+    PrintLine(Sub(min + 1, 1));
+    PrintLine(Sub(0, 9223372036854775807));
+    PrintLine("about to overflow");
+    PrintLine(Sub(min, 1));
+    PrintLine("not reached");
+}

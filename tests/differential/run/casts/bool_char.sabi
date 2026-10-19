@@ -1,0 +1,26 @@
+// Casts from `bool` and `char` to integers, and `u8 as char`.
+fn Flag(b: bool) -> i32 { b as i32 }
+fn Code(c: char) -> u32 { c as u32 }
+fn Letter(n: u8) -> char { n as char }
+
+fn Main() {
+    PrintLine(Flag(true)); PrintLine(Flag(false));
+    PrintLine(true as u8); PrintLine(false as i64); PrintLine(true as usize); PrintLine(true as i8);
+    PrintLine(true as u8 + true as u8);
+    PrintLine(Code('a')); PrintLine(Code('A')); PrintLine(Code('0')); PrintLine(Code(' '));
+    PrintLine(Code('\n')); PrintLine(Code('é')); PrintLine(Code('\u{FFFF}')); PrintLine(Code('\u{3042}'));
+    PrintLine('a' as u8); PrintLine('é' as u8); PrintLine('\u{3042}' as u8); PrintLine('\u{3042}' as i8);
+    PrintLine('z' as i32); PrintLine('z' as u64); PrintLine('z' as i16); PrintLine('\u{FFFF}' as i16);
+    PrintLine('\u{FFFF}' as u16); PrintLine('\u{3042}' as usize);
+    PrintLine(Letter(97)); PrintLine(Letter(65)); PrintLine(Letter(48)); PrintLine(Letter(255));
+    PrintLine(Letter(0) as u32); PrintLine(Letter(127) as u32);
+    let mut c: u8 = 97;
+    while c < 103 {
+        Print(c as char);
+        c += 1;
+    }
+    PrintLine("");
+    PrintLine(('a' as u8 + 25) as char);
+    PrintLine((Code('a') + 1) as u8 as char);
+    PrintLine(Flag(Code('b') > Code('a')));
+}

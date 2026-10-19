@@ -1,0 +1,30 @@
+// `const` items of several types, including constants computed from other constants.
+const LIMIT: i32 = 100;
+const HALF: i32 = LIMIT / 2;
+const MASK: u32 = (1 << 12) - 1;
+const BIG: u64 = 1 << 63;
+const NEG: i8 = -128;
+const RATIO: f64 = 22.0 / 7.0;
+const SCALE: f32 = 0.5;
+const ENABLED: bool = LIMIT > 50 && HALF < LIMIT;
+const INITIAL: char = 'S';
+const BYTES: usize = 1024 * 1024;
+const OFFSET: isize = -(LIMIT as isize) * 3;
+const SHIFTED: i64 = (NEG as i64) << 8 | 0xFF;
+
+fn Clamp(x: i32) -> i32 { if x > LIMIT { LIMIT } else if x < -LIMIT { -LIMIT } else { x } }
+
+fn Main() {
+    PrintLine(LIMIT); PrintLine(HALF); PrintLine(MASK); PrintLine(BIG); PrintLine(NEG);
+    PrintLine(RATIO); PrintLine(SCALE); PrintLine(ENABLED); PrintLine(INITIAL); PrintLine(BYTES);
+    PrintLine(OFFSET); PrintLine(SHIFTED);
+    PrintLine(Clamp(250)); PrintLine(Clamp(-250)); PrintLine(Clamp(HALF));
+    PrintLine(0xABCDu32 & MASK);
+    PrintLine(BIG - 1);
+    PrintLine(RATIO * SCALE as f64);
+    let mut i = 0;
+    let mut sum = 0;
+    while i < HALF { sum += i; i += 1; }
+    PrintLine(sum);
+    PrintLine(BYTES / 1024 == 1024);
+}

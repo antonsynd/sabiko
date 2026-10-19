@@ -1,0 +1,10 @@
+// Adding past `i8::MAX` panics in debug builds, after the earlier output was written.
+fn Add(a: i8, b: i8) -> i8 { a + b }
+
+fn Main() {
+    PrintLine(Add(100, 27));
+    PrintLine(Add(-128, 127));
+    PrintLine("about to overflow");
+    PrintLine(Add(127, 1));
+    PrintLine("not reached");
+}

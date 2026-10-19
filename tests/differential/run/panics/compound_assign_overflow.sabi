@@ -1,0 +1,13 @@
+// Compound assignment operators check for overflow like their plain forms (`*=` on `i32`).
+fn Grow(x: &mut i32) { *x *= 3; }
+
+fn Main() {
+    let mut x = 1;
+    let mut steps = 0;
+    while steps < 19 { Grow(&mut x); steps += 1; }
+    PrintLine(x);
+    PrintLine("about to overflow");
+    Grow(&mut x);
+    Grow(&mut x);
+    PrintLine("not reached");
+}

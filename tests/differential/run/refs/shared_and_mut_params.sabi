@@ -1,0 +1,40 @@
+// Passing `&T` and `&mut T` to functions, reading through `&`, writing through `&mut`, reborrowing.
+struct Counter { Hits: i32, Total: i64 }
+
+fn Peek(c: &Counter) -> i64 { c.Total + c.Hits as i64 }
+
+fn Bump(c: &mut Counter, by: i64) {
+    c.Hits += 1;
+    c.Total += by;
+}
+
+fn BumpTwice(c: &mut Counter, by: i64) {
+    Bump(c, by);
+    Bump(&mut *c, by);
+    PrintLine(Peek(c));
+}
+
+fn Double(x: &mut i32) { *x = *x * 2; }
+
+fn Sum(a: &i32, b: &i32) -> i32 { *a + *b }
+
+fn Main() {
+    let mut c = Counter { Hits: 0, Total: 0 };
+    Bump(&mut c, 10);
+    PrintLine(Peek(&c));
+    BumpTwice(&mut c, 5);
+    Print(c.Hits); Print(' '); PrintLine(c.Total);
+    let mut x = 21;
+    Double(&mut x);
+    PrintLine(x);
+    let r = &mut x;
+    Double(r);
+    Double(r);
+    PrintLine(*r);
+    PrintLine(x);
+    let y = 5;
+    PrintLine(Sum(&x, &y));
+    PrintLine(Sum(&y, &y));
+    let s = &c;
+    PrintLine(s.Hits + Peek(s) as i32);
+}

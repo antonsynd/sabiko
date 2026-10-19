@@ -1,0 +1,11 @@
+// Negating `i32::MIN` panics in debug builds.
+fn Neg(x: i32) -> i32 { -x }
+
+fn Main() {
+    PrintLine(Neg(2147483647));
+    PrintLine(Neg(-2147483647));
+    PrintLine(Neg(0));
+    PrintLine("about to negate the minimum");
+    PrintLine(Neg(-2147483648));
+    PrintLine("not reached");
+}

@@ -1,0 +1,38 @@
+// All six comparison operators on signed and unsigned integers of several widths.
+fn Cmp8(a: i8, b: i8) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpU8(a: u8, b: u8) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Cmp64(a: i64, b: i64) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpU64(a: u64, b: u64) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Main() {
+    Cmp8(-128, 127); Cmp8(127, -128); Cmp8(-1, -1); Cmp8(-1, 0);
+    CmpU8(255, 0); CmpU8(0, 255); CmpU8(128, 127); CmpU8(200, 200);
+    Cmp64(-9223372036854775808, 9223372036854775807); Cmp64(-1, 1); Cmp64(5, 5);
+    CmpU64(18446744073709551615, 0); CmpU64(9223372036854775808, 9223372036854775807);
+    CmpU64(7, 7);
+    let x: u32 = 4000000000;
+    let y: u32 = 1;
+    PrintLine(x > y);
+    PrintLine((x as i32) > (y as i32));
+    let p: usize = 18446744073709551615;
+    let q: isize = -1;
+    PrintLine(p > 1);
+    PrintLine(q < 1);
+    PrintLine(-3i16 < 2);
+    PrintLine(65535u16 >= 32768);
+}

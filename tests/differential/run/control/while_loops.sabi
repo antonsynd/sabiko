@@ -1,0 +1,36 @@
+// `while` with `continue`, nested loops, and a loop whose condition has a side effect.
+fn Tick(n: &mut i32) -> bool {
+    *n += 1;
+    *n <= 3
+}
+
+fn Main() {
+    let mut i = 0;
+    while i < 10 {
+        i += 1;
+        if i % 2 == 0 { continue; }
+        Print(i); Print(' ');
+    }
+    PrintLine("");
+    let mut row = 1;
+    while row <= 4 {
+        let mut col = 1;
+        while col <= row {
+            Print(row * col);
+            Print(if col == row { '\n' } else { ' ' });
+            col += 1;
+        }
+        row += 1;
+    }
+    let mut n = 0;
+    while Tick(&mut n) {
+        Print("tick "); PrintLine(n);
+    }
+    PrintLine(n);
+    let mut count = 0;
+    while false { count = 99; }
+    PrintLine(count);
+    let mut k: u8 = 250;
+    while k != 255 { k += 1; count += 1; }
+    PrintLine(count);
+}

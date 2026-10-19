@@ -1,0 +1,10 @@
+// `u32` multiplication overflow panics in debug builds.
+fn Mul(a: u32, b: u32) -> u32 { a * b }
+
+fn Main() {
+    PrintLine(Mul(65535, 65537));
+    PrintLine(Mul(65536, 65535));
+    PrintLine("about to overflow");
+    PrintLine(Mul(65536, 65536));
+    PrintLine("not reached");
+}

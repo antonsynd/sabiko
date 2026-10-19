@@ -1,0 +1,21 @@
+//@ exit-code: 101
+// User-defined `Print(bool)` and `Panic(&str)` shadow the builtins; the user `Panic` prints then triggers a real panic.
+fn Print(flag: bool) {
+    PrintLine(if flag { "yes" } else { "no" });
+}
+
+fn Panic(msg: &str) -> i32 {
+    PrintLine(msg);
+    PrintLine("custom panic handler");
+    let zero = Zero();
+    1 / zero
+}
+
+fn Zero() -> i32 { 0 }
+
+fn Main() {
+    Print(true);
+    Print(false);
+    PrintLine(Panic("giving up"));
+    PrintLine("not reached");
+}

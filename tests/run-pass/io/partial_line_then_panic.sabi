@@ -1,0 +1,16 @@
+//@ exit-code: 101
+// Output written with `Print` and no trailing newline still reaches stdout before the panic.
+fn Fail(n: i32) -> i32 {
+    if n > 2 { Panic("boom") }
+    n
+}
+
+fn Main() {
+    Print("a");
+    Print(Fail(1));
+    Print("b");
+    Print(Fail(2));
+    Print("c");
+    Print(Fail(3));
+    PrintLine("not reached");
+}

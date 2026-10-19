@@ -1,0 +1,24 @@
+// Float-to-int casts saturate at the target range, truncate toward zero and map NaN to 0.
+fn Main() {
+    let zero: f64 = 0.0;
+    let nan = zero / zero;
+    let inf = 1.0 / zero;
+    PrintLine(2.9 as i32); PrintLine(-2.9 as i32); PrintLine(2.9 as u32); PrintLine(-2.9 as u32);
+    PrintLine(300.5 as u8); PrintLine(-1.5 as i8); PrintLine(-200.0 as i8); PrintLine(255.9 as u8);
+    PrintLine(70000.0 as u16); PrintLine(70000.0 as i16); PrintLine(-40000.0 as i16); PrintLine(-0.5 as u16);
+    PrintLine(3e9 as i32); PrintLine(3e9 as u32); PrintLine(5e9 as u32); PrintLine(-3e9 as i32);
+    PrintLine(1e20 as i64); PrintLine(-1e20 as i64); PrintLine(1e20 as u64); PrintLine(-1e20 as u64);
+    PrintLine(1e20 as isize); PrintLine(1e20 as usize); PrintLine(-7.9 as isize); PrintLine(-7.9 as usize);
+    PrintLine(nan as i8); PrintLine(nan as u8); PrintLine(nan as i32); PrintLine(nan as u64);
+    PrintLine(nan as i64); PrintLine(nan as usize);
+    PrintLine(inf as i8); PrintLine(inf as u16); PrintLine(inf as i32); PrintLine(inf as u64);
+    PrintLine(-inf as i8); PrintLine(-inf as u16); PrintLine(-inf as i64); PrintLine(-inf as isize);
+    PrintLine(127.999 as i8); PrintLine(128.0 as i8); PrintLine(-128.9 as i8); PrintLine(-129.0 as i8);
+    PrintLine(9223372036854775807.0 as i64); PrintLine(18446744073709551615.0 as u64);
+    PrintLine(9.2233720368547748e18 as i64);
+    let zero32: f32 = 0.0;
+    let nan32 = zero32 / zero32;
+    PrintLine(nan32 as i32); PrintLine(nan32 as u8); PrintLine(3.99f32 as u8); PrintLine(-3.99f32 as i16);
+    PrintLine(3e9f32 as i32); PrintLine(3e9f32 as u32); PrintLine(1e30f32 as i64); PrintLine(-1e30f32 as u64);
+    PrintLine(65535.5f32 as u16); PrintLine(1e10f32 as u16); PrintLine(-1e10f32 as i32);
+}

@@ -1,0 +1,35 @@
+// Structs nested in structs: literal construction, field paths and copying a nested part out.
+#[derive(Copy, Clone)]
+struct Point { X: f64, Y: f64 }
+
+#[derive(Copy, Clone)]
+struct Rect { Min: Point, Max: Point }
+
+struct Scene { Frame: Rect, Depth: u8, Visible: bool }
+
+fn Area(r: Rect) -> f64 { (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y) }
+
+fn Center(r: Rect) -> Point { Point { X: (r.Min.X + r.Max.X) / 2.0, Y: (r.Min.Y + r.Max.Y) / 2.0 } }
+
+fn Main() {
+    let mut scene = Scene {
+        Frame: Rect { Min: Point { X: -1.5, Y: 2.0 }, Max: Point { X: 4.5, Y: 5.0 } },
+        Depth: 3,
+        Visible: true,
+    };
+    PrintLine(Area(scene.Frame));
+    let c = Center(scene.Frame);
+    Print(c.X); Print(' '); PrintLine(c.Y);
+    scene.Frame.Max.X = 10.0;
+    scene.Frame.Min = Point { X: 0.0, Y: 0.0 };
+    PrintLine(Area(scene.Frame));
+    let corner = scene.Frame.Max;
+    scene.Frame.Max.Y = -1.0;
+    Print(corner.X); Print(' '); PrintLine(corner.Y);
+    PrintLine(scene.Frame.Max.Y);
+    scene.Depth += 1;
+    scene.Visible = !scene.Visible;
+    Print(scene.Depth); Print(' '); PrintLine(scene.Visible);
+    let copy = scene.Frame;
+    PrintLine(Area(copy) == Area(scene.Frame));
+}

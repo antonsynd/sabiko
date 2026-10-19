@@ -1,0 +1,29 @@
+// Unit structs and empty braced structs can be built, moved, copied and passed around.
+struct Marker;
+
+#[derive(Copy, Clone)]
+struct Token;
+
+struct Empty {}
+
+struct Holder { Tag: Token, Count: i32 }
+
+fn Consume(m: Marker) -> i32 { 1 }
+fn Use(t: Token) -> i32 { 2 }
+fn Hold(h: &Holder) -> i32 { h.Count + Use(h.Tag) }
+
+fn Main() {
+    let m = Marker;
+    PrintLine(Consume(m));
+    let t = Token;
+    let t2 = t;
+    PrintLine(Use(t) + Use(t2));
+    let e = Empty {};
+    let e2 = e;
+    let h = Holder { Tag: t, Count: 40 };
+    PrintLine(Hold(&h));
+    let mut count = 0;
+    let mut i = 0;
+    while i < 3 { count += Use(Token); i += 1; }
+    PrintLine(count);
+}

@@ -1,0 +1,38 @@
+//@ release
+// In release builds `+`, `-` and `*` wrap around for every integer width instead of panicking.
+fn Add8(a: i8, b: i8) -> i8 { a + b }
+fn SubU8(a: u8, b: u8) -> u8 { a - b }
+fn Mul16(a: i16, b: i16) -> i16 { a * b }
+fn AddU16(a: u16, b: u16) -> u16 { a + b }
+fn Add32(a: i32, b: i32) -> i32 { a + b }
+fn MulU32(a: u32, b: u32) -> u32 { a * b }
+fn Sub64(a: i64, b: i64) -> i64 { a - b }
+fn AddU64(a: u64, b: u64) -> u64 { a + b }
+fn AddSize(a: isize, b: isize) -> isize { a + b }
+fn SubUSize(a: usize, b: usize) -> usize { a - b }
+
+fn Main() {
+    PrintLine(Add8(127, 1));
+    PrintLine(Add8(-128, -1));
+    PrintLine(SubU8(0, 1));
+    PrintLine(SubU8(5, 10));
+    PrintLine(Mul16(32767, 2));
+    PrintLine(Mul16(-32768, -1));
+    PrintLine(AddU16(65535, 2));
+    PrintLine(Add32(2147483647, 1));
+    PrintLine(Add32(-2147483648, -2147483648));
+    PrintLine(MulU32(65536, 65536));
+    PrintLine(MulU32(4294967295, 4294967295));
+    PrintLine(Sub64(-9223372036854775808, 1));
+    PrintLine(AddU64(18446744073709551615, 2));
+    PrintLine(AddSize(9223372036854775807, 1));
+    PrintLine(SubUSize(0, 1));
+    let mut x: u8 = 250;
+    let mut i = 0;
+    while i < 10 { x += 1; i += 1; }
+    PrintLine(x);
+    let mut acc: i32 = 1;
+    i = 0;
+    while i < 40 { acc *= 3; i += 1; }
+    PrintLine(acc);
+}
