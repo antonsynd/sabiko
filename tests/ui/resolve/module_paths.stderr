@@ -1,0 +1,45 @@
+[E0107] Error: not yet supported: paths with `::`
+   ╭─[ tests/ui/resolve/module_paths.sabi:2:13 ]
+   │
+ 2 │ fn Param(p: Mod::Point) {} //~ ERROR E0107 not yet supported: paths with `::`
+   │             ─────┬────  
+   │                  ╰────── module paths are not yet supported
+   │ 
+   │ Note: planned for Phase 9; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: paths with `::`
+   ╭─[ tests/ui/resolve/module_paths.sabi:5:12 ]
+   │
+ 5 │     let a: std::i32 = 1; //~ ERROR E0107 not yet supported: paths with `::`
+   │            ────┬───  
+   │                ╰───── module paths are not yet supported
+   │ 
+   │ Note: planned for Phase 9; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: paths with `::`
+   ╭─[ tests/ui/resolve/module_paths.sabi:6:13 ]
+   │
+ 6 │     let b = Mod::Value; //~ ERROR E0107 not yet supported: paths with `::`
+   │             ─────┬────  
+   │                  ╰────── module paths are not yet supported
+   │ 
+   │ Note: planned for Phase 9; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: paths with `::`
+   ╭─[ tests/ui/resolve/module_paths.sabi:7:13 ]
+   │
+ 7 │     let c = Mod::Point { X: 1 }; //~ ERROR E0107 not yet supported: paths with `::`
+   │             ─────┬────  
+   │                  ╰────── module paths are not yet supported
+   │ 
+   │ Note: planned for Phase 9; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: paths with `::`
+   ╭─[ tests/ui/resolve/module_paths.sabi:8:13 ]
+   │
+ 8 │     let d = Mod::Func(1); //~ ERROR E0107 not yet supported: paths with `::`
+   │             ────┬────  
+   │                 ╰────── module paths are not yet supported
+   │ 
+   │ Note: planned for Phase 9; see docs/PLAN.md
+───╯

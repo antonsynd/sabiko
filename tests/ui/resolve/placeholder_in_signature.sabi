@@ -1,0 +1,17 @@
+// The placeholder type `_` is only allowed inside function bodies, never in item signatures.
+fn Param(x: _) {} //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+
+fn Ret() -> _ {} //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+
+fn RefParam(x: &mut _) {} //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+
+struct Holder {
+    Value: _, //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+}
+
+const Limit: _ = 1; //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+
+fn Body() {
+    let x: _ = 1;
+    let y: &_ = &x;
+}

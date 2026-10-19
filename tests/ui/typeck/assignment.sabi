@@ -1,0 +1,32 @@
+// Assignment targets must be places (locals, fields, dereferences); compound assignment follows the operator rules.
+struct P {
+    X: i32,
+}
+
+const K: i32 = 1;
+
+fn Get() -> i32 {
+    1
+}
+
+fn Main(mut p: P, r: &mut i32) {
+    1 = 2; //~ ERROR E0310 invalid left-hand side of assignment
+    Get() = 3; //~ ERROR E0310 invalid left-hand side of assignment
+    K = 4; //~ ERROR E0310 invalid left-hand side of assignment
+    p.X + 1 = 5; //~ ERROR E0310 invalid left-hand side of assignment
+    (p.X + 1) = 5; //~ ERROR E0310 invalid left-hand side of assignment
+    P { X: 1 } = p; //~ ERROR E0310 invalid left-hand side of assignment
+    &p = &p; //~ ERROR E0310 invalid left-hand side of assignment
+    1 += 2; //~ ERROR E0310 invalid left-hand side of assignment
+    (p.X) = 7;
+    *r = 8;
+    p.X = 9;
+    let mut x = 1;
+    x = 1.5; //~ ERROR E0300 mismatched types
+    x = (x = 2); //~ ERROR E0300 mismatched types
+    x += true; //~ ERROR E0300 mismatched types
+    let mut b = true;
+    b -= b; //~ ERROR E0306 binary operation `-` cannot be applied to type `bool`
+    x <<= 2u8;
+    x -= *r;
+}

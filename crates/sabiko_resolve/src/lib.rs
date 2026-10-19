@@ -473,7 +473,7 @@ impl Resolver<'_> {
                 "not yet supported: paths with `::`",
             )
             .with_label(path.span, "module paths are not yet supported")
-            .with_note("planned for Phase 5; see docs/PLAN.md"),
+            .with_note("planned for Phase 9; see docs/PLAN.md"),
         );
         Res::Err
     }

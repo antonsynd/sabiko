@@ -1,0 +1,45 @@
+[E0207] Error: the placeholder `_` is not allowed within types on item signatures
+   ╭─[ tests/ui/resolve/placeholder_in_signature.sabi:2:13 ]
+   │
+ 2 │ fn Param(x: _) {} //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+   │             ┬  
+   │             ╰── not allowed in type signatures
+   │ 
+   │ Note: inference only runs inside function bodies
+───╯
+[E0207] Error: the placeholder `_` is not allowed within types on item signatures
+   ╭─[ tests/ui/resolve/placeholder_in_signature.sabi:4:13 ]
+   │
+ 4 │ fn Ret() -> _ {} //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+   │             ┬  
+   │             ╰── not allowed in type signatures
+   │ 
+   │ Note: inference only runs inside function bodies
+───╯
+[E0207] Error: the placeholder `_` is not allowed within types on item signatures
+   ╭─[ tests/ui/resolve/placeholder_in_signature.sabi:6:21 ]
+   │
+ 6 │ fn RefParam(x: &mut _) {} //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+   │                     ┬  
+   │                     ╰── not allowed in type signatures
+   │ 
+   │ Note: inference only runs inside function bodies
+───╯
+[E0207] Error: the placeholder `_` is not allowed within types on item signatures
+   ╭─[ tests/ui/resolve/placeholder_in_signature.sabi:9:12 ]
+   │
+ 9 │     Value: _, //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+   │            ┬  
+   │            ╰── not allowed in type signatures
+   │ 
+   │ Note: inference only runs inside function bodies
+───╯
+[E0207] Error: the placeholder `_` is not allowed within types on item signatures
+    ╭─[ tests/ui/resolve/placeholder_in_signature.sabi:12:14 ]
+    │
+ 12 │ const Limit: _ = 1; //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+    │              ┬  
+    │              ╰── not allowed in type signatures
+    │ 
+    │ Note: inference only runs inside function bodies
+────╯

@@ -229,7 +229,7 @@ fn F() -> i32 {
                 "E0300 mismatched types [expected `i32`, found `bool`]",
                 "E0300 mismatched types [expected `{integer}`, found `bool`]",
                 "E0300 `if` and `else` have incompatible types [expected `{integer}`, found `bool`]",
-                "E0304 this function takes 2 arguments but 1 argument was supplied [expected 2 argument(s)]",
+                "E0304 this function takes 2 arguments but 1 argument was supplied [expected 2 arguments]",
                 "E0300 mismatched types [expected `bool`, found `{integer}`]",
                 "E0307 cannot apply unary operator `-` to type `u8` [cannot apply unary operator `-`]",
                 "E0307 cannot apply unary operator `!` to type `{float}` [cannot apply unary operator `!`]",
@@ -273,7 +273,7 @@ fn H() -> bool { let x = if true { return false } else { 1 }; x == 2 }
             msgs,
             [
                 "E0300 mismatched types [expected `i32`, found `()`]",
-                "E0300 mismatched types [expected `()`, found `{integer}`]",
+                "E0300 `if` may be missing an `else` clause [expected `i32`, found `()`]",
                 "E0300 mismatched types [expected `i32`, found `()`]",
                 "E0313 type annotations needed [consider giving `x` an explicit type]",
             ]

@@ -1,0 +1,26 @@
+// Items share one namespace, so a struct, function and constant may not share a name; duplicate fields and parameters are rejected.
+struct Thing {
+    X: i32,
+}
+
+fn Thing() {} //~ ERROR E0200 the name `Thing` is defined multiple times
+
+const Thing: i32 = 1; //~ ERROR E0200 the name `Thing` is defined multiple times
+
+fn Twice() {}
+
+fn Twice() {} //~ ERROR E0200 the name `Twice` is defined multiple times
+
+struct Fields {
+    A: i32,
+    B: bool,
+    A: u8, //~ ERROR E0204 field `A` is already declared
+    B: bool, //~ ERROR E0204 field `B` is already declared
+}
+
+fn Params(a: i32, b: i32, a: bool) {} //~ ERROR E0205 identifier `a` is bound more than once in this parameter list
+
+fn ShadowingIsFine(a: i32) {
+    let a = a;
+    let a = a + 1;
+}

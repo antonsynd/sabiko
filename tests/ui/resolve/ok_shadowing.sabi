@@ -1,0 +1,32 @@
+// Items are visible before their definition, `let` shadows earlier bindings (the initialiser still sees the outer one), and a struct may shadow a primitive type name.
+fn Main() -> i32 {
+    let total = Helper(3);
+    let total = total + Offset;
+    let x = 1;
+    let x = x + 1;
+    {
+        let x = x * 2;
+        let y = x;
+    }
+    let w = Wrapper { Inner: Later };
+    total + x
+}
+
+fn Helper(v: i32) -> i32 {
+    let v = v + Offset;
+    v
+}
+
+const Offset: i32 = 10;
+
+struct Wrapper {
+    Inner: Later,
+}
+
+struct Later;
+
+struct u8;
+
+fn UsesShadowedPrimitive(v: u8) -> u8 {
+    v
+}

@@ -1,0 +1,175 @@
+// Inference inside bodies: literal defaults, expectations flowing from annotations, parameters, returns and fields, coercions, expression forms, casts and constants.
+struct Point {
+    X: i32,
+    Y: f64,
+}
+
+struct Marker;
+
+const Base: i32 = 10;
+const Doubled: i32 = Base * 2;
+const Small: u8 = 255;
+const Lowest: i8 = -128;
+const Flag: bool = Doubled > Base && !false;
+const Shifted: u64 = (Small as u64) << 8;
+
+fn TakesU8(v: u8) -> u8 {
+    v
+}
+
+fn Make(x: i32) -> Point {
+    Point { X: x, Y: 1.5 }
+}
+
+fn Literals() {
+    let a = 1;
+    let b = 2.5;
+    let c: u8 = 7;
+    let d = TakesU8(200);
+    let e = 1u16;
+    let f = 3.0f32;
+    let g = -128i8;
+    let h: i64 = -9223372036854775808;
+    let i: u64 = 18446744073709551615;
+    let j: i16 = -(32768);
+    let k = 0xFFu8;
+    let l = 'x';
+    let m = "text";
+    let n = true;
+    let o = ();
+    let p = -3;
+    let q = 1;
+    let r: u8 = q;
+    let s = 1.0;
+    let t: f32 = s;
+}
+
+fn FromReturn() -> u16 {
+    40000
+}
+
+fn FromField(p: Point) -> f64 {
+    let q = Point { X: 5, Y: 0.25 };
+    q.Y + p.Y
+}
+
+fn FromArgument() -> Point {
+    Make(7)
+}
+
+fn Refs(p: &mut Point) -> i32 {
+    let shared: &Point = p;
+    let reborrow = &mut *p;
+    let x = shared.X;
+    reborrow.X = x + 1;
+    let r = &p;
+    let throughTwo = r.X;
+    let rr = &r;
+    let throughThree = rr.X;
+    let s = "hi";
+    (*p).X + throughTwo + throughThree
+}
+
+fn Control(flag: bool) -> i32 {
+    let a = if flag { 1 } else { 2 };
+    let b = loop {
+        break 7;
+    };
+    let c = loop {
+        if flag {
+            break 3;
+        }
+        break 4;
+    };
+    let d = while flag {
+        break;
+    };
+    let e = {
+        let t = a + b;
+        t * 2
+    };
+    let f = if flag { return 0 } else { 5 };
+    let g: i32 = if flag { 1 } else { return 2 };
+    let h = if flag {
+        6
+    } else if a > 1 {
+        7
+    } else {
+        8
+    };
+    let i = loop {
+        if flag {
+            return 9;
+        }
+        break;
+    };
+    if flag {
+        return a;
+    }
+    while a < b {
+        if a == 1 {
+            continue;
+        }
+        break;
+    }
+    a + b + c + e + f + g + h
+}
+
+fn Deferred() -> i32 {
+    let x;
+    x = 1;
+    let y: u8;
+    y = 2;
+    let z;
+    if x > 0 {
+        z = 3;
+    } else {
+        z = 4;
+    }
+    x + (y as i32) + z
+}
+
+fn Casts(c: char, b: bool, f: f64) -> u32 {
+    let a = c as u32;
+    let d = b as i32;
+    let e = f as i32;
+    let g = 65u8 as char;
+    let h = 1 as f32;
+    let i = 2.5 as i8;
+    let j = a as u64;
+    let k = 'a' as u8;
+    let l = -1i32 as u32;
+    let m = 3 as u8;
+    let n = f as f32 as f64;
+    a + (j as u32) + (d as u32) + (e as u32) + (g as u32) + (h as u32) + (i as u32) + (k as u32) + l + (m as u32) + (n as u32)
+}
+
+fn UnitStruct() -> Marker {
+    let m = Marker;
+    m
+}
+
+fn Consts() -> i32 {
+    let a = Base + Doubled;
+    let b = Small as i32;
+    let c = Shifted as i32;
+    if Flag { a + b + c } else { Lowest as i32 }
+}
+
+fn Divergence(flag: bool) -> i32 {
+    if flag {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+fn LoopForever() -> bool {
+    loop {}
+}
+
+fn Unit() {
+    let a = Unit();
+    let b: () = a;
+    Unit()
+}

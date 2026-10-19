@@ -1,0 +1,35 @@
+// A `let` whose type nothing constrains is an error; deferred initialisation and diverging initialisers are fine.
+fn Main() {
+    let x; //~ ERROR E0313 type annotations needed
+    let y: _; //~ ERROR E0313 type annotations needed
+    // One report per unknown type: `w` and `v` share `z`'s problem.
+    let z; //~ ERROR E0313 type annotations needed
+    let w = z;
+    let v: &_ = &w;
+}
+
+fn Deferred() -> i32 {
+    let a;
+    a = 1;
+    let b;
+    b = a;
+    let c: _ = b;
+    let d;
+    d = &c;
+    b + *d
+}
+
+// A diverging initialiser leaves the binding unconstrained; like rustc, it falls back to `()`.
+fn Diverging() -> i32 {
+    let n = return 1;
+}
+
+fn DivergingLoop() -> i32 {
+    let n = loop {};
+}
+
+fn DivergingConstrained() -> i32 {
+    let n = return 1;
+    let m: i32 = n;
+    m
+}

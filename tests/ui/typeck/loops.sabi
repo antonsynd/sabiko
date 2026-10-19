@@ -1,0 +1,43 @@
+// `break`/`continue` outside a loop, `break value` inside `while`, block-like statements that are not `()`, and inconsistent `break` values.
+fn Main(flag: bool) -> i32 {
+    break; //~ ERROR E0311 `break` outside of a loop
+    continue; //~ ERROR E0311 `continue` outside of a loop
+    break 1; //~ ERROR E0311 `break` outside of a loop
+    while flag {
+        break 2; //~ ERROR E0312 can only break with a value inside `loop`
+    }
+    while flag {
+        let v = loop {
+            break 3; // fine: the innermost loop is a `loop`
+        };
+        break;
+    }
+    if flag { 3 } //~ ERROR E0300 mismatched types
+    while flag { 5 } //~ ERROR E0300 mismatched types
+    { 6 } //~ ERROR E0300 mismatched types
+    loop {
+        break;
+        7 //~ ERROR E0300 mismatched types
+    }
+    let a = loop {
+        if flag {
+            break 1;
+        }
+        break true; //~ ERROR E0300 mismatched types
+    };
+    let b: i32 = loop {
+        break; //~ ERROR E0300 mismatched types
+    };
+    let c: i32 = loop {
+        if flag {
+            break 1;
+        } else {
+            break; //~ ERROR E0300 mismatched types
+        }
+    };
+    let d = loop {
+        break 'c';
+    };
+    let e: bool = d; //~ ERROR E0300 mismatched types
+    a
+}

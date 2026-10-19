@@ -1,0 +1,86 @@
+[E0311] Error: `break` outside of a loop
+   ╭─[ tests/ui/typeck/loops.sabi:3:5 ]
+   │
+ 3 │     break; //~ ERROR E0311 `break` outside of a loop
+   │     ──┬──  
+   │       ╰──── cannot `break` outside of a loop
+───╯
+[E0311] Error: `continue` outside of a loop
+   ╭─[ tests/ui/typeck/loops.sabi:4:5 ]
+   │
+ 4 │     continue; //~ ERROR E0311 `continue` outside of a loop
+   │     ────┬───  
+   │         ╰───── cannot `continue` outside of a loop
+───╯
+[E0311] Error: `break` outside of a loop
+   ╭─[ tests/ui/typeck/loops.sabi:5:5 ]
+   │
+ 5 │     break 1; //~ ERROR E0311 `break` outside of a loop
+   │     ───┬───  
+   │        ╰───── cannot `break` outside of a loop
+───╯
+[E0312] Error: can only break with a value inside `loop`
+   ╭─[ tests/ui/typeck/loops.sabi:7:9 ]
+   │
+ 7 │         break 2; //~ ERROR E0312 can only break with a value inside `loop`
+   │         ───┬───  
+   │            ╰───── can only break with a value inside `loop`
+   │ 
+   │ Note: `while` loops evaluate to `()`; use `loop` with `break value`
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:15:15 ]
+    │
+ 15 │     if flag { 3 } //~ ERROR E0300 mismatched types
+    │               ┬  
+    │               ╰── expected `()`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:16:18 ]
+    │
+ 16 │     while flag { 5 } //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `()`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:17:7 ]
+    │
+ 17 │     { 6 } //~ ERROR E0300 mismatched types
+    │       ┬  
+    │       ╰── expected `()`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:20:9 ]
+    │
+ 20 │         7 //~ ERROR E0300 mismatched types
+    │         ┬  
+    │         ╰── expected `()`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:26:15 ]
+    │
+ 26 │         break true; //~ ERROR E0300 mismatched types
+    │               ──┬─  
+    │                 ╰─── expected `{integer}`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:29:9 ]
+    │
+ 29 │         break; //~ ERROR E0300 mismatched types
+    │         ──┬──  
+    │           ╰──── expected `i32`, found `()`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:35:13 ]
+    │
+ 35 │             break; //~ ERROR E0300 mismatched types
+    │             ──┬──  
+    │               ╰──── expected `i32`, found `()`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/loops.sabi:41:19 ]
+    │
+ 41 │     let e: bool = d; //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `bool`, found `char`
+────╯

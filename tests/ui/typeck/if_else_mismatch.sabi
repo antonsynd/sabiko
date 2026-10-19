@@ -1,0 +1,20 @@
+// `if`/`else` branches must have the same type, an `if` without `else` must be `()`, and the condition must be `bool`.
+fn Main(flag: bool, other: bool) -> i32 {
+    let a = if flag { 1 } else { false }; //~ ERROR E0300 `if` and `else` have incompatible types
+    let b = if flag { 2.0 } else { "two" }; //~ ERROR E0300 `if` and `else` have incompatible types
+    let c: i32 = if flag { 1 } else { true }; //~ ERROR E0300 mismatched types
+    let d = if flag { 1 }; //~ ERROR E0300 mismatched types
+    let e = if flag { 3 } else if other { 4 } else { 5.0 }; //~ ERROR E0300 `if` and `else` have incompatible types
+    let f = if 1 { 6 } else { 7 }; //~ ERROR E0300 mismatched types
+    let g = if flag {
+        8
+    } else { //~ ERROR E0300 `if` and `else` have incompatible types
+        9;
+    };
+    let h = if flag { 10 } else { 11 };
+    if other { h } else { 12 }
+}
+
+fn Tail(flag: bool, other: bool) -> i32 {
+    if flag { 1 } else if other { 2 } else { 3.0 } //~ ERROR E0300 mismatched types
+}

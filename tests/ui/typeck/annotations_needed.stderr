@@ -1,0 +1,21 @@
+[E0313] Error: type annotations needed
+   ╭─[ tests/ui/typeck/annotations_needed.sabi:3:9 ]
+   │
+ 3 │     let x; //~ ERROR E0313 type annotations needed
+   │         ┬  
+   │         ╰── consider giving `x` an explicit type
+───╯
+[E0313] Error: type annotations needed
+   ╭─[ tests/ui/typeck/annotations_needed.sabi:4:9 ]
+   │
+ 4 │     let y: _; //~ ERROR E0313 type annotations needed
+   │         ┬  
+   │         ╰── consider giving `y` an explicit type
+───╯
+[E0313] Error: type annotations needed
+   ╭─[ tests/ui/typeck/annotations_needed.sabi:6:9 ]
+   │
+ 6 │     let z; //~ ERROR E0313 type annotations needed
+   │         ┬  
+   │         ╰── consider giving `z` an explicit type
+───╯

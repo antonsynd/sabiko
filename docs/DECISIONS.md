@@ -20,6 +20,13 @@ whether it is a one-way or two-way door. Dates are when the owner settled them.
 | 13 | 2026-10-19 | No `unsafe` in v1; pointer-touching primitives live in the C# runtime assembly | Every Sabiko-emitted assembly stays fully verifiable, so the ILVerify gate is meaningful | Two-way (can add `unsafe` later) |
 | 14 | 2026-10-19 | Integer overflow: panic in debug, wrap in release; explicit `wrapping_*` / `checked_*` | Rust semantics; differs from C#'s unchecked default | Two-way |
 | 15 | 2026-10-19 | Enums are tagged value types with per-variant payload fields; overlap only when all payloads are unmanaged | Correct for generic payloads; layout optimised later | Two-way until exported |
+| 16 | 2026-10-19 | The HIR is the AST plus side tables keyed on `NodeId` (`ResolveResults`, `TypeckResults`) rather than a separate lowered tree | One tree to maintain; the parser's spans and node ids serve every later phase; MIR lowering reads the AST with the tables beside it | Two-way (a dedicated HIR can be introduced if the tables become unwieldy) |
+| 17 | 2026-10-19 | One item namespace: a struct, function and constant may not share a name (Rust keeps separate type and value namespaces) | One name, one meaning; simpler resolution and clearer diagnostics; .NET also has one namespace per scope | Two-way |
+| 18 | 2026-10-19 | `isize`/`usize` are 64-bit: Sabiko targets 64-bit .NET only | Fixed-width lets constants and literal ranges be checked at compile time; 32-bit .NET hosts are not a target | One-way for exported ABIs (struct layouts containing them) |
+| 19 | 2026-10-19 | Integer literals that do not fit their type are hard errors (E0314); rustc has a deny-by-default lint | There is no `#[allow]` yet, and a silently truncated literal is never intended | Two-way |
+| 20 | 2026-10-19 | No inference across function boundaries; `_` is rejected in item signatures (E0207); unsuffixed literals default to `i32`/`f64` | Matches Rust; signatures stay the documentation of a function; bodies check independently | Two-way |
+| 21 | 2026-10-19 | MIR has no `Assert` terminators: overflow and division-by-zero checks are the backend's job via `add.ovf`/`div` and the CLR's exceptions | Fewer blocks and no duplicated check logic; the CLR already traps division by zero and `.ovf` opcodes trap overflow in debug builds | Two-way (rustc-style asserts can be added if a pass needs them) |
+| 22 | 2026-10-19 | Semantic analysis (resolve, typeck, MIR) does not run on a file with parse errors | Recovery drops broken constructs; "cannot find value" for names defined inside them would only add noise | Two-way |
 
 ## Open
 

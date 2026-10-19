@@ -1,0 +1,93 @@
+[E0304] Error: this function takes 2 arguments but 1 argument was supplied
+    ╭─[ tests/ui/typeck/calls.sabi:13:13 ]
+    │
+  8 │ fn Two(a: i32, b: bool) -> i32 {
+    │    ─┬─  
+    │     ╰─── function `Two` defined here
+    │ 
+ 13 │     let a = Two(1); //~ ERROR E0304 this function takes 2 arguments but 1 argument was supplied
+    │             ───┬──  
+    │                ╰──── expected 2 arguments
+────╯
+[E0304] Error: this function takes 2 arguments but 3 arguments were supplied
+    ╭─[ tests/ui/typeck/calls.sabi:14:13 ]
+    │
+  8 │ fn Two(a: i32, b: bool) -> i32 {
+    │    ─┬─  
+    │     ╰─── function `Two` defined here
+    │ 
+ 14 │     let b = Two(1, true, 3); //~ ERROR E0304 this function takes 2 arguments but 3 arguments were supplied
+    │             ───────┬───────  
+    │                    ╰───────── expected 2 arguments
+────╯
+[E0304] Error: this function takes 0 arguments but 1 argument was supplied
+    ╭─[ tests/ui/typeck/calls.sabi:15:13 ]
+    │
+  4 │ fn Zero() -> i32 {
+    │    ──┬─  
+    │      ╰─── function `Zero` defined here
+    │ 
+ 15 │     let c = Zero(1); //~ ERROR E0304 this function takes 0 arguments but 1 argument was supplied
+    │             ───┬───  
+    │                ╰───── expected 0 arguments
+────╯
+[E0305] Error: expected function, found `{integer}`
+    ╭─[ tests/ui/typeck/calls.sabi:17:13 ]
+    │
+ 17 │     let e = d(); //~ ERROR E0305 expected function, found `{integer}`
+    │             ┬  
+    │             ╰── call expression requires function
+────╯
+[E0305] Error: expected function, found `bool`
+    ╭─[ tests/ui/typeck/calls.sabi:18:13 ]
+    │
+ 18 │     let f = true(); //~ ERROR E0305 expected function, found `bool`
+    │             ──┬─  
+    │               ╰─── call expression requires function
+────╯
+[E0305] Error: expected function, found `i32`
+    ╭─[ tests/ui/typeck/calls.sabi:19:13 ]
+    │
+ 19 │     let g = K(); //~ ERROR E0305 expected function, found `i32`
+    │             ┬  
+    │             ╰── call expression requires function
+────╯
+[E0305] Error: expected function, found `i32`
+    ╭─[ tests/ui/typeck/calls.sabi:20:13 ]
+    │
+ 20 │     let h = Zero()(); //~ ERROR E0305 expected function, found `i32`
+    │             ───┬──  
+    │                ╰──── call expression requires function
+────╯
+[E0317] Error: function `Two` cannot be used as a value yet
+    ╭─[ tests/ui/typeck/calls.sabi:21:13 ]
+    │
+ 21 │     let i = Two; //~ ERROR E0317 function `Two` cannot be used as a value yet
+    │             ─┬─  
+    │              ╰─── function items are only callable
+    │ 
+    │ Note: function pointers and closures are planned for Phase 6; see docs/PLAN.md
+────╯
+[E0317] Error: function `Zero` cannot be used as a value yet
+    ╭─[ tests/ui/typeck/calls.sabi:22:14 ]
+    │
+ 22 │     let j = &Zero; //~ ERROR E0317 function `Zero` cannot be used as a value yet
+    │              ──┬─  
+    │                ╰─── function items are only callable
+    │ 
+    │ Note: function pointers and closures are planned for Phase 6; see docs/PLAN.md
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/calls.sabi:23:12 ]
+    │
+ 23 │     Two(1, 2); //~ ERROR E0300 mismatched types
+    │            ┬  
+    │            ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/calls.sabi:24:9 ]
+    │
+ 24 │     Two(true, false); //~ ERROR E0300 mismatched types
+    │         ──┬─  
+    │           ╰─── expected `i32`, found `bool`
+────╯

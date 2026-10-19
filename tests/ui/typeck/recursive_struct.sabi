@@ -1,0 +1,29 @@
+// A struct that contains itself by value, directly or through other structs, has infinite size; references break the cycle.
+struct Node { //~ ERROR E0206 recursive type `Node` has infinite size
+    Next: Node,
+}
+
+struct A { //~ ERROR E0206 recursive types `A` and `B` have infinite size
+    B: B,
+}
+
+struct B {
+    A: A,
+}
+
+struct Outer { //~ ERROR E0206 recursive types `Outer`, `Inner` and `Deepest` have infinite size
+    In: Inner,
+}
+
+struct Inner {
+    Deep: Deepest,
+}
+
+struct Deepest {
+    Back: Outer,
+}
+
+struct Linked {
+    Next: &Linked,
+    Other: &mut Outer,
+}

@@ -1,0 +1,30 @@
+// Constant evaluation: overflow, division by zero, over-wide shifts, cycles and constructs that are not constant yet.
+struct P {
+    X: i32,
+}
+
+fn Compute() -> i32 {
+    1
+}
+
+const A: i8 = 100 + 100; //~ ERROR E0316 attempt to add with overflow
+const B: u32 = 1 / 0; //~ ERROR E0316 attempt to divide by zero
+const C: i32 = 5 % 0; //~ ERROR E0316 attempt to calculate the remainder with a divisor of zero
+const D: u8 = 0 - 1; //~ ERROR E0316 attempt to subtract with overflow
+const E: i32 = 1 << 32; //~ ERROR E0316 attempt to shift left with overflow
+const F: i64 = 1000000000000 * 1000000000000; //~ ERROR E0316 attempt to multiply with overflow
+const G: i32 = -2147483648 / -1; //~ ERROR E0316 attempt to divide with overflow
+const H: i32 = -(-2147483648); //~ ERROR E0316 attempt to negate with overflow
+const I: i32 = J;
+const J: i32 = I; //~ ERROR E0316 cycle detected when evaluating constant `I`
+const K: i32 = K; //~ ERROR E0316 cycle detected when evaluating constant `K`
+const L: i32 = { 1 }; //~ ERROR E0315 blocks cannot be used in constants yet
+const M: i32 = if true { 1 } else { 2 }; //~ ERROR E0315 `if` expressions cannot be used in constants yet
+const N: i32 = Compute(); //~ ERROR E0315 function calls cannot be used in constants yet
+const O: P = P { X: 1 }; //~ ERROR E0315 struct values cannot be used in constants yet
+const Q: i32 = O.X; //~ ERROR E0315 field accesses cannot be used in constants yet
+const R: &i32 = &1; //~ ERROR E0315 references cannot be used in constants yet
+const S: i32 = A as i32 + 1; // silent: `A` already failed
+const T: i32 = 2147483647 + 0; // fine: exactly at the limit
+const U: u8 = 255u8 as i8 as u8; // fine: casts wrap
+const V: f64 = 1.0 / 0.0; // fine: float division does not trap

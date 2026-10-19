@@ -108,6 +108,15 @@ impl InferCtxt {
         self.vars[r.0 as usize].value = Some(ty);
     }
 
+    /// Binds every unbound variable inside `ty` to `Error`, after its problem was reported.
+    pub fn bind_error(&mut self, ty: &Ty) {
+        match self.shallow_resolve(ty) {
+            Ty::Infer(v) => self.bind(v, Ty::Error),
+            Ty::Ref(_, inner) => self.bind_error(&inner),
+            _ => {}
+        }
+    }
+
     fn prim_fits(kind: VarKind, p: PrimTy) -> bool {
         match kind {
             VarKind::General => true,

@@ -1,0 +1,117 @@
+[E0316] Error: attempt to add with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:10:15 ]
+    │
+ 10 │ const A: i8 = 100 + 100; //~ ERROR E0316 attempt to add with overflow
+    │               ────┬────  
+    │                   ╰────── in this constant
+────╯
+[E0316] Error: attempt to divide by zero
+    ╭─[ tests/ui/typeck/consts.sabi:11:16 ]
+    │
+ 11 │ const B: u32 = 1 / 0; //~ ERROR E0316 attempt to divide by zero
+    │                ──┬──  
+    │                  ╰──── in this constant
+────╯
+[E0316] Error: attempt to calculate the remainder with a divisor of zero
+    ╭─[ tests/ui/typeck/consts.sabi:12:16 ]
+    │
+ 12 │ const C: i32 = 5 % 0; //~ ERROR E0316 attempt to calculate the remainder with a divisor of zero
+    │                ──┬──  
+    │                  ╰──── in this constant
+────╯
+[E0316] Error: attempt to subtract with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:13:15 ]
+    │
+ 13 │ const D: u8 = 0 - 1; //~ ERROR E0316 attempt to subtract with overflow
+    │               ──┬──  
+    │                 ╰──── in this constant
+────╯
+[E0316] Error: attempt to shift left with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:14:16 ]
+    │
+ 14 │ const E: i32 = 1 << 32; //~ ERROR E0316 attempt to shift left with overflow
+    │                ───┬───  
+    │                   ╰───── in this constant
+────╯
+[E0316] Error: attempt to multiply with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:15:16 ]
+    │
+ 15 │ const F: i64 = 1000000000000 * 1000000000000; //~ ERROR E0316 attempt to multiply with overflow
+    │                ──────────────┬──────────────  
+    │                              ╰──────────────── in this constant
+────╯
+[E0316] Error: attempt to divide with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:16:16 ]
+    │
+ 16 │ const G: i32 = -2147483648 / -1; //~ ERROR E0316 attempt to divide with overflow
+    │                ────────┬───────  
+    │                        ╰───────── in this constant
+────╯
+[E0316] Error: attempt to negate with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:17:16 ]
+    │
+ 17 │ const H: i32 = -(-2147483648); //~ ERROR E0316 attempt to negate with overflow
+    │                ───────┬──────  
+    │                       ╰──────── in this constant
+────╯
+[E0316] Error: cycle detected when evaluating constant `I`
+    ╭─[ tests/ui/typeck/consts.sabi:19:16 ]
+    │
+ 18 │ const I: i32 = J;
+    │       ┬  
+    │       ╰── `I` defined here
+ 19 │ const J: i32 = I; //~ ERROR E0316 cycle detected when evaluating constant `I`
+    │                ┬  
+    │                ╰── cyclic reference
+────╯
+[E0316] Error: cycle detected when evaluating constant `K`
+    ╭─[ tests/ui/typeck/consts.sabi:20:16 ]
+    │
+ 20 │ const K: i32 = K; //~ ERROR E0316 cycle detected when evaluating constant `K`
+    │       ┬        ┬  
+    │       │        ╰── cyclic reference
+    │       │           
+    │       ╰─────────── `K` defined here
+────╯
+[E0315] Error: blocks cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:21:16 ]
+    │
+ 21 │ const L: i32 = { 1 }; //~ ERROR E0315 blocks cannot be used in constants yet
+    │                ──┬──  
+    │                  ╰──── in this constant
+────╯
+[E0315] Error: `if` expressions cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:22:16 ]
+    │
+ 22 │ const M: i32 = if true { 1 } else { 2 }; //~ ERROR E0315 `if` expressions cannot be used in constants yet
+    │                ────────────┬───────────  
+    │                            ╰───────────── in this constant
+────╯
+[E0315] Error: function calls cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:23:16 ]
+    │
+ 23 │ const N: i32 = Compute(); //~ ERROR E0315 function calls cannot be used in constants yet
+    │                ────┬────  
+    │                    ╰────── in this constant
+────╯
+[E0315] Error: struct values cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:24:14 ]
+    │
+ 24 │ const O: P = P { X: 1 }; //~ ERROR E0315 struct values cannot be used in constants yet
+    │              ─────┬────  
+    │                   ╰────── in this constant
+────╯
+[E0315] Error: field accesses cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:25:16 ]
+    │
+ 25 │ const Q: i32 = O.X; //~ ERROR E0315 field accesses cannot be used in constants yet
+    │                ─┬─  
+    │                 ╰─── in this constant
+────╯
+[E0315] Error: references cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:26:17 ]
+    │
+ 26 │ const R: &i32 = &1; //~ ERROR E0315 references cannot be used in constants yet
+    │                 ─┬  
+    │                  ╰── in this constant
+────╯

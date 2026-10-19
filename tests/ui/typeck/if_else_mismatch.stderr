@@ -1,0 +1,68 @@
+[E0300] Error: `if` and `else` have incompatible types
+   ╭─[ tests/ui/typeck/if_else_mismatch.sabi:3:32 ]
+   │
+ 3 │     let a = if flag { 1 } else { false }; //~ ERROR E0300 `if` and `else` have incompatible types
+   │             ──────────────┬────────┬────  
+   │                           │        ╰────── expected `{integer}`, found `bool`
+   │                           │               
+   │                           ╰─────────────── `if` and `else` have incompatible types
+───╯
+[E0300] Error: `if` and `else` have incompatible types
+   ╭─[ tests/ui/typeck/if_else_mismatch.sabi:4:34 ]
+   │
+ 4 │     let b = if flag { 2.0 } else { "two" }; //~ ERROR E0300 `if` and `else` have incompatible types
+   │             ───────────────┬─────────┬────  
+   │                            │         ╰────── expected `{float}`, found `&str`
+   │                            │                
+   │                            ╰──────────────── `if` and `else` have incompatible types
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/if_else_mismatch.sabi:5:39 ]
+   │
+ 5 │     let c: i32 = if flag { 1 } else { true }; //~ ERROR E0300 mismatched types
+   │                                       ──┬─  
+   │                                         ╰─── expected `i32`, found `bool`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/if_else_mismatch.sabi:6:23 ]
+   │
+ 6 │     let d = if flag { 1 }; //~ ERROR E0300 mismatched types
+   │                       ┬  
+   │                       ╰── expected `()`, found `{integer}`
+───╯
+[E0300] Error: `if` and `else` have incompatible types
+   ╭─[ tests/ui/typeck/if_else_mismatch.sabi:7:52 ]
+   │
+ 7 │     let e = if flag { 3 } else if other { 4 } else { 5.0 }; //~ ERROR E0300 `if` and `else` have incompatible types
+   │                                ─────────────┬─────────┬───  
+   │                                             │         ╰───── expected `{integer}`, found `{float}`
+   │                                             │               
+   │                                             ╰─────────────── `if` and `else` have incompatible types
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/if_else_mismatch.sabi:8:16 ]
+   │
+ 8 │     let f = if 1 { 6 } else { 7 }; //~ ERROR E0300 mismatched types
+   │                ┬  
+   │                ╰── expected `bool`, found `{integer}`
+───╯
+[E0300] Error: `if` and `else` have incompatible types
+    ╭─[ tests/ui/typeck/if_else_mismatch.sabi:11:12 ]
+    │
+  9 │ ╭───▶     let g = if flag {
+    ┆ ┆     
+ 11 │ │ ╭─▶     } else { //~ ERROR E0300 `if` and `else` have incompatible types
+    ┆ ┆ ┆   
+ 13 │ │ ├─▶     };
+    │ │ │       ▲    
+    │ │ ╰──────────── expected `{integer}`, found `()`
+    │ │         │    
+    │ ╰─────────┴──── `if` and `else` have incompatible types
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/if_else_mismatch.sabi:19:46 ]
+    │
+ 19 │     if flag { 1 } else if other { 2 } else { 3.0 } //~ ERROR E0300 mismatched types
+    │                                              ─┬─  
+    │                                               ╰─── expected `i32`, found `{float}`
+────╯

@@ -1,0 +1,70 @@
+[E0200] Error: the name `Thing` is defined multiple times
+   ╭─[ tests/ui/resolve/duplicate_definitions.sabi:6:4 ]
+   │
+ 2 │ struct Thing {
+   │        ──┬──  
+   │          ╰──── previous definition of `Thing` here
+   │ 
+ 6 │ fn Thing() {} //~ ERROR E0200 the name `Thing` is defined multiple times
+   │    ──┬──  
+   │      ╰──── `Thing` redefined here
+   │ 
+   │ Note: items share one namespace: a struct, function and constant may not have the same name
+───╯
+[E0200] Error: the name `Thing` is defined multiple times
+   ╭─[ tests/ui/resolve/duplicate_definitions.sabi:8:7 ]
+   │
+ 2 │ struct Thing {
+   │        ──┬──  
+   │          ╰──── previous definition of `Thing` here
+   │ 
+ 8 │ const Thing: i32 = 1; //~ ERROR E0200 the name `Thing` is defined multiple times
+   │       ──┬──  
+   │         ╰──── `Thing` redefined here
+   │ 
+   │ Note: items share one namespace: a struct, function and constant may not have the same name
+───╯
+[E0200] Error: the name `Twice` is defined multiple times
+    ╭─[ tests/ui/resolve/duplicate_definitions.sabi:12:4 ]
+    │
+ 10 │ fn Twice() {}
+    │    ──┬──  
+    │      ╰──── previous definition of `Twice` here
+    │ 
+ 12 │ fn Twice() {} //~ ERROR E0200 the name `Twice` is defined multiple times
+    │    ──┬──  
+    │      ╰──── `Twice` redefined here
+    │ 
+    │ Note: items share one namespace: a struct, function and constant may not have the same name
+────╯
+[E0204] Error: field `A` is already declared
+    ╭─[ tests/ui/resolve/duplicate_definitions.sabi:17:5 ]
+    │
+ 15 │     A: i32,
+    │     ┬  
+    │     ╰── `A` first declared here
+    │ 
+ 17 │     A: u8, //~ ERROR E0204 field `A` is already declared
+    │     ┬  
+    │     ╰── field already declared
+────╯
+[E0204] Error: field `B` is already declared
+    ╭─[ tests/ui/resolve/duplicate_definitions.sabi:18:5 ]
+    │
+ 16 │     B: bool,
+    │     ┬  
+    │     ╰── `B` first declared here
+    │ 
+ 18 │     B: bool, //~ ERROR E0204 field `B` is already declared
+    │     ┬  
+    │     ╰── field already declared
+────╯
+[E0205] Error: identifier `a` is bound more than once in this parameter list
+    ╭─[ tests/ui/resolve/duplicate_definitions.sabi:21:27 ]
+    │
+ 21 │ fn Params(a: i32, b: i32, a: bool) {} //~ ERROR E0205 identifier `a` is bound more than once in this parameter list
+    │           ┬               ┬  
+    │           │               ╰── used as parameter more than once
+    │           │                  
+    │           ╰────────────────── first use of the name
+────╯

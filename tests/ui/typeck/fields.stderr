@@ -1,0 +1,87 @@
+[E0301] Error: no field `Z` on type `Point`
+    ╭─[ tests/ui/typeck/fields.sabi:10:15 ]
+    │
+ 10 │     let a = p.Z; //~ ERROR E0301 no field `Z` on type `Point`
+    │               ┬  
+    │               ╰── unknown field
+    │ 
+    │ Note: available fields are: `X`, `Y`
+────╯
+[E0301] Error: no field `W` on type `Point`
+    ╭─[ tests/ui/typeck/fields.sabi:11:15 ]
+    │
+ 11 │     let b = r.W; //~ ERROR E0301 no field `W` on type `Point`
+    │               ┬  
+    │               ╰── unknown field
+    │ 
+    │ Note: available fields are: `X`, `Y`
+────╯
+[E0302] Error: missing field `Y` in initializer of `Point`
+    ╭─[ tests/ui/typeck/fields.sabi:12:13 ]
+    │
+ 12 │     let c = Point { X: 1 }; //~ ERROR E0302 missing field `Y` in initializer of `Point`
+    │             ──┬──  
+    │               ╰──── missing `Y`
+────╯
+[E0302] Error: missing fields `X` and `Y` in initializer of `Point`
+    ╭─[ tests/ui/typeck/fields.sabi:13:13 ]
+    │
+ 13 │     let d = Point {}; //~ ERROR E0302 missing fields `X` and `Y` in initializer of `Point`
+    │             ──┬──  
+    │               ╰──── missing `X` and `Y`
+────╯
+[E0301] Error: struct `Point` has no field named `Z`
+    ╭─[ tests/ui/typeck/fields.sabi:14:33 ]
+    │
+ 14 │     let e = Point { X: 1, Y: 2, Z: 3 }; //~ ERROR E0301 struct `Point` has no field named `Z`
+    │                                 ┬  
+    │                                 ╰── `Point` does not have this field
+    │ 
+    │ Note: available fields are: `X`, `Y`
+────╯
+[E0303] Error: field `X` specified more than once
+    ╭─[ tests/ui/typeck/fields.sabi:15:27 ]
+    │
+ 15 │     let f = Point { X: 1, X: 2, Y: 3 }; //~ ERROR E0303 field `X` specified more than once
+    │                     ┬     ┬  
+    │                     │     ╰── used more than once
+    │                     │        
+    │                     ╰──────── first use of the field
+────╯
+[E0301] Error: struct `Empty` has no field named `Z`
+    ╭─[ tests/ui/typeck/fields.sabi:16:21 ]
+    │
+ 16 │     let g = Empty { Z: 1 }; //~ ERROR E0301 struct `Empty` has no field named `Z`
+    │                     ┬  
+    │                     ╰── `Empty` does not have this field
+────╯
+[E0301] Error: no field `X` on type `{integer}`
+    ╭─[ tests/ui/typeck/fields.sabi:18:15 ]
+    │
+ 18 │     let h = n.X; //~ ERROR E0301 no field `X` on type `{integer}`
+    │               ┬  
+    │               ╰── unknown field
+────╯
+[E0301] Error: no field `X` on type `bool`
+    ╭─[ tests/ui/typeck/fields.sabi:19:18 ]
+    │
+ 19 │     let i = true.X; //~ ERROR E0301 no field `X` on type `bool`
+    │                  ┬  
+    │                  ╰── unknown field
+────╯
+[E0301] Error: no field `X` on type `i32`
+    ╭─[ tests/ui/typeck/fields.sabi:21:22 ]
+    │
+ 21 │     let j = (&typed).X; //~ ERROR E0301 no field `X` on type `i32`
+    │                      ┬  
+    │                      ╰── unknown field
+────╯
+[E0203] Error: expected value, found struct `Point`
+    ╭─[ tests/ui/typeck/fields.sabi:22:13 ]
+    │
+ 22 │     let k = Point; //~ ERROR E0203 expected value, found struct `Point`
+    │             ──┬──  
+    │               ╰──── not a value
+    │ 
+    │ Note: use struct literal syntax instead: `Point { .. }`
+────╯

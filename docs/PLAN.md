@@ -191,6 +191,30 @@ Verification
 - MIR golden tests (`--emit=mir` snapshots) for control flow lowering.
 - Property: MIR validator passes on every program in the test corpus after lowering.
 
+Status (2026-10-19): **in progress.** Done: `sabiko_resolve` (items visible everywhere,
+`let` scoping and shadowing, one item namespace, E0200–E0207) and `sabiko_types`
+(bidirectional inference with unification, literal defaulting, `!` and `&mut T` to `&T`
+coercions, divergence tracking, compile-time evaluation of `const` items with Rust's
+semantics, E0206/E0208/E0300–E0317), both wired into the driver and reachable with
+`sabikoc --stop-after=resolve|typeck`; the MIR data structures, validator, simplifier and
+`--emit=mir` printer in `sabiko_mir`. Being completed: AST to MIR lowering
+(`sabiko_mir::build`) and the mutability and initialisation checks (E0400–E0405) in
+`sabiko_borrowck`. Decisions made while implementing (rows 16–22 of `docs/DECISIONS.md`):
+the HIR is the AST plus side tables keyed on `NodeId` rather than a separate tree; items
+share one namespace; `isize`/`usize` are 64-bit; integer literals that do not fit their type
+are hard errors; no inference across item signatures and `_` rejected in them, literal
+defaults `i32`/`f64`; MIR has no `Assert` terminators (overflow and division checks are the
+backend's job); semantic analysis does not run on a file with parse errors. Test layers: unit
+tests in each crate, UI tests with `//~ ERROR` annotations and golden `.stderr` files under
+`tests/ui/resolve` (6 files) and `tests/ui/typeck` (16 files), one concept per file, and
+`tests/ui/borrowck` for the mutability and initialisation checks. Reviewing the generated
+goldens found typeck gaps still to fix: an `if` without `else` in tail position of a non-`()`
+function is not checked against the return type (`fn F(b: bool) -> i32 { if b { return 1; } }`
+is accepted); `let x: &str = ..` inside a body wrongly reports E0208 (the sizedness check
+runs on the referent of a reference annotation); `-1 as u32` and `*s` for `s: &str` are
+accepted; `&T == &T` is rejected; a mismatch inside `&e` is reported twice. The semantics
+implemented so far are written up in `docs/SPEC.md` §11.
+
 ### Phase 3: Borrow checker v1
 
 Work

@@ -1,0 +1,22 @@
+// Unknown type and value names, locals outside their scope, and a primitive type name used as a value.
+struct Holder {
+    Value: Missing, //~ ERROR E0201 cannot find type `Missing` in this scope
+}
+
+const Limit: Nope = 1; //~ ERROR E0201 cannot find type `Nope` in this scope
+
+fn Param(p: &Unknown) {} //~ ERROR E0201 cannot find type `Unknown` in this scope
+
+fn Main() {
+    let a: Missing = 1; //~ ERROR E0201 cannot find type `Missing` in this scope
+    let b = undefinedValue; //~ ERROR E0202 cannot find value `undefinedValue` in this scope
+    let c = i32; //~ ERROR E0202 cannot find value `i32` in this scope
+    let d = later; //~ ERROR E0202 cannot find value `later` in this scope
+    let later = 1;
+    {
+        let inner = 2;
+    }
+    let e = inner; //~ ERROR E0202 cannot find value `inner` in this scope
+    let f = Main(); // items and locals in scope resolve fine
+    let g = a + later;
+}

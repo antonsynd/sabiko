@@ -91,6 +91,10 @@ pub(crate) struct FnCtxt<'a> {
     negating: bool,
     int_lits: Vec<IntLit>,
     casts: Vec<PendingCast>,
+    /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
+    pending_negs: Vec<(Span, Ty)>,
+    /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `()`.
+    diverging_vars: Vec<Ty>,
     errors_before: usize,
 }
 
@@ -117,6 +121,8 @@ impl<'a> FnCtxt<'a> {
             negating: false,
             int_lits: Vec::new(),
             casts: Vec::new(),
+            pending_negs: Vec::new(),
+            diverging_vars: Vec::new(),
             errors_before,
         }
     }
@@ -209,17 +215,19 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn lower_type(&mut self, ty: &Type) -> Ty {
+        let t = self.lower_type_unchecked(ty);
+        collect::check_sized(&t, ty.span, self.sink);
+        t
+    }
+
+    fn lower_type_unchecked(&mut self, ty: &Type) -> Ty {
         match &ty.kind {
             TypeKind::Infer => self.infer.new_var(VarKind::General),
             TypeKind::Ref { mutable, inner } => {
-                let inner = self.lower_type(inner);
+                let inner = self.lower_type_unchecked(inner);
                 Ty::Ref(Mutability::from_bool(*mutable), Box::new(inner))
             }
-            _ => {
-                let t = collect::lower_sig_type(ty, self.resolve);
-                collect::check_sized(&t, ty.span, self.sink);
-                t
-            }
+            _ => collect::lower_sig_type(ty, self.resolve),
         }
     }
 
@@ -277,7 +285,9 @@ impl<'a> FnCtxt<'a> {
                         // `let x = return;` gives `x: !`; keep it as a fresh variable so
                         // uses of `x` are not all typed `!`.
                         if self.shallow(&i).is_never() {
-                            self.infer.new_var(VarKind::General)
+                            let v = self.infer.new_var(VarKind::General);
+                            self.diverging_vars.push(v.clone());
+                            v
                         } else {
                             i
                         }
@@ -380,16 +390,27 @@ impl<'a> FnCtxt<'a> {
                     Some(Ty::Ref(_, t)) => Some(*t),
                     _ => None,
                 };
+                let errors_before = self.sink.error_count();
                 let inner_ty = self.check_expr(inner, inner_expected.as_ref());
                 if self.shallow(&inner_ty).is_never() {
                     return Ty::Never;
+                }
+                if inner_expected.is_some() && self.sink.error_count() > errors_before {
+                    // The operand already failed against the expected referent; a second
+                    // report for the reference would say the same thing.
+                    return Ty::Error;
                 }
                 Ty::Ref(m, Box::new(inner_ty))
             }
             ExprKind::Deref(inner) => {
                 let inner_ty = self.check_expr(inner, None);
                 match self.shallow(&inner_ty) {
-                    Ty::Ref(_, t) => *t,
+                    Ty::Ref(_, t) => {
+                        if !collect::check_sized(&t, expr.span, self.sink) {
+                            return Ty::Error;
+                        }
+                        *t
+                    }
                     Ty::Error => Ty::Error,
                     Ty::Never => Ty::Never,
                     other => {
@@ -605,7 +626,12 @@ impl<'a> FnCtxt<'a> {
             (Ty::Infer(v), _) => {
                 let kind = self.infer.kind(*v);
                 match op {
-                    UnOp::Neg => true,
+                    UnOp::Neg => {
+                        if kind == VarKind::Int {
+                            self.pending_negs.push((operand.span, ty.clone()));
+                        }
+                        true
+                    }
                     UnOp::Not => kind != VarKind::Float,
                 }
             }
@@ -669,12 +695,25 @@ impl<'a> FnCtxt<'a> {
                 let rr = self.shallow(&r);
                 let l_ok = self.is_integer_like(&lr);
                 let r_ok = self.is_integer_like(&rr);
-                if !l_ok {
-                    self.binary_op_error(op, &lr, span);
-                    return Ty::Error;
-                }
-                if !r_ok {
-                    self.binary_op_error(op, &rr, span);
+                if !l_ok || !r_ok {
+                    let (ls, rs) = (self.ty_str(&lr), self.ty_str(&rr));
+                    let bad = if l_ok { &rs } else { &ls };
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::INVALID_BINARY_OP,
+                            format!(
+                                "binary operation `{}` cannot be applied to type `{bad}`",
+                                op.as_str()
+                            ),
+                        )
+                        .with_label(
+                            span,
+                            format!("no implementation for `{ls} {} {rs}`", op.as_str()),
+                        ),
+                    );
+                    if !l_ok {
+                        return Ty::Error;
+                    }
                 }
                 l
             }
@@ -740,15 +779,18 @@ impl<'a> FnCtxt<'a> {
 
     /// Checks an assignment target and returns its type.
     fn check_place(&mut self, expr: &Expr) -> Ty {
-        let is_place = match &strip_parens(expr).kind {
-            ExprKind::Path(_) => matches!(
-                self.resolve.res(strip_parens(expr).id),
-                Res::Local(_) | Res::Err
-            ),
+        let target = strip_parens(expr);
+        let is_place = match &target.kind {
+            ExprKind::Path(_) => matches!(self.resolve.res(target.id), Res::Local(_) | Res::Err),
             ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => true,
             _ => false,
         };
-        let ty = self.check_expr(expr, None);
+        let ty = if is_place || !matches!(target.kind, ExprKind::Path(_)) {
+            self.check_expr(expr, None)
+        } else {
+            // An item path: evaluating it would only add "cannot be used as a value".
+            self.record(expr, Ty::Error)
+        };
         if !is_place {
             self.error(
                 Diagnostic::error(
@@ -822,7 +864,14 @@ impl<'a> FnCtxt<'a> {
                         }
                     ),
                 )
-                .with_label(span, format!("expected {} argument(s)", sig.inputs.len()))
+                .with_label(
+                    span,
+                    format!(
+                        "expected {} {}",
+                        sig.inputs.len(),
+                        plural(sig.inputs.len(), "argument")
+                    ),
+                )
                 .with_label(sig.name_span, format!("function `{name}` defined here")),
             );
         }
@@ -889,7 +938,25 @@ impl<'a> FnCtxt<'a> {
         self.check_expr(cond, Some(&Ty::BOOL));
         let cond_diverges = self.diverges;
         let Some(els) = els else {
-            self.check_block(then, Some(&Ty::Unit));
+            let needs_value = expected
+                .map(|e| self.shallow(e))
+                .is_some_and(|e| !matches!(e, Ty::Unit | Ty::Error | Ty::Infer(_)));
+            if needs_value {
+                // Check the branch against what the `if` must produce, so the real
+                // problem (no `else`) is the only one reported.
+                self.check_block(then, expected);
+                let e = self.ty_str(expected.expect("checked above"));
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_MISMATCH,
+                        "`if` may be missing an `else` clause",
+                    )
+                    .with_label(span, format!("expected `{e}`, found `()`"))
+                    .with_note("`if` expressions without `else` evaluate to `()`"),
+                );
+            } else {
+                self.check_block(then, Some(&Ty::Unit));
+            }
             self.diverges = cond_diverges;
             return Ty::Unit;
         };
@@ -1061,12 +1128,13 @@ impl<'a> FnCtxt<'a> {
     // ----- finalisation -----
 
     fn finish(mut self) -> BodyTypes {
-        // Apply literal defaults, then report any still-unknown types.
-        let mut expr_types = HashMap::new();
-        for (id, ty) in std::mem::take(&mut self.expr_types) {
-            let t = self.infer.resolve_with_defaults(&ty);
-            expr_types.insert(id, t);
+        // Never-type fallback: `let x = return;` leaves `x` unconstrained; it becomes `()`.
+        for v in std::mem::take(&mut self.diverging_vars) {
+            if let Ty::Infer(_) = self.infer.resolve(&v) {
+                let _ = self.infer.unify(&v, &Ty::Unit);
+            }
         }
+        // Report locals whose type is still unknown, then apply literal defaults.
         let mut local_types = HashMap::new();
         let mut locals: Vec<(LocalId, Ty)> =
             std::mem::take(&mut self.local_types).into_iter().collect();
@@ -1083,15 +1151,34 @@ impl<'a> FnCtxt<'a> {
                     )
                     .with_label(span, format!("consider giving `{name}` an explicit type")),
                 );
+                // Other locals sharing the variable are the same problem, not a new one.
+                self.infer.bind_error(&t);
                 t = Ty::Error;
             }
             local_types.insert(id, t);
         }
-        // Any expression still unknown involves an unknown local (reported above) or an
-        // unused literal; never report twice.
-        for ty in expr_types.values_mut() {
-            if ty.has_infer() {
-                *ty = Ty::Error;
+        let mut expr_types = HashMap::new();
+        for (id, ty) in std::mem::take(&mut self.expr_types) {
+            let mut t = self.infer.resolve_with_defaults(&ty);
+            // Anything still unknown involves an unknown local (reported above).
+            if t.has_infer() {
+                t = Ty::Error;
+            }
+            expr_types.insert(id, t);
+        }
+        for (span, ty) in std::mem::take(&mut self.pending_negs) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if let Ty::Prim(p) = t {
+                if p.is_unsigned_int() {
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::INVALID_UNARY_OP,
+                            format!("cannot apply unary operator `-` to type `{}`", p.name()),
+                        )
+                        .with_label(span, "cannot apply unary operator `-`")
+                        .with_note("unsigned values cannot be negated"),
+                    );
+                }
             }
         }
 
