@@ -1,0 +1,46 @@
+// Writing to a borrowed place, or to a prefix of it, while the loan is live.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Whole() {
+    let mut x = 1;
+    let r = &mut x;
+    x = 2; //~ ERROR E0410 cannot assign to `x` because it is borrowed
+    *r = 1;
+}
+
+fn FieldOfBorrowedStruct() {
+    let mut p = Point { X: 1, Y: 2 };
+    let r = &p;
+    p.X = 3; //~ ERROR E0410 cannot assign to `p.X` because it is borrowed
+    let _ = r.Y;
+}
+
+fn StructWithBorrowedField() {
+    let mut p = Point { X: 1, Y: 2 };
+    let x = &p.X;
+    p = Point { X: 0, Y: 0 }; //~ ERROR E0410 cannot assign to `p` because it is borrowed
+    let _ = *x;
+}
+
+fn ThroughOriginalWhileReborrowed(m: &mut i32) {
+    let r = &mut *m;
+    *m = 2; //~ ERROR E0410 cannot assign to `*m` because it is borrowed
+    *r = 1;
+}
+
+fn InLoop() {
+    let mut n = 0;
+    let mut i = 0;
+    while i < 3 {
+        let w = &mut n;
+        *w += 1;
+        if i == 2 {
+            n = 0; //~ ERROR E0410 cannot assign to `n` because it is borrowed
+        }
+        *w += 1;
+        i += 1;
+    }
+}

@@ -1,0 +1,15 @@
+// Reading a binding that may not have been initialised on every path.
+fn Read(n: i32) {}
+
+fn Never() {
+    let x: i32;
+    Read(x);
+}
+
+fn Maybe(flag: bool) {
+    let x;
+    if flag {
+        x = 1;
+    }
+    Read(x);
+}

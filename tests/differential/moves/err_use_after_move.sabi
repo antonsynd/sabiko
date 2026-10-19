@@ -1,0 +1,12 @@
+// Using a non-Copy struct after it was moved into a call.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Read(n: i32) {}
+
+fn Main() {
+    let p = P { X: 1 };
+    Take(p);
+    Read(p.X);
+}

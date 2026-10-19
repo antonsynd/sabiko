@@ -1,0 +1,13 @@
+// Moving a non-Copy value out from behind a reference.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Shared(r: &P) {
+    let p = *r;
+    Take(p);
+}
+
+fn Mutable(r: &mut P) {
+    Take(*r);
+}

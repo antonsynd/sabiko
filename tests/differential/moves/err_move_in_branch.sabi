@@ -1,0 +1,14 @@
+// A move on one path makes the value maybe-moved after the `if`.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Read(n: i32) {}
+
+fn Main(flag: bool) {
+    let p = P { X: 1 };
+    if flag {
+        Take(p);
+    }
+    Read(p.X);
+}

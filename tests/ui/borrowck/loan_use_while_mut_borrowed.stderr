@@ -1,0 +1,53 @@
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/loan_use_while_mut_borrowed.sabi:10:13 ]
+    │
+  9 │     let r = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+ 10 │     let y = x; //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │             ┬  
+    │             ╰── use of borrowed `x`
+ 11 │     *r = y;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `z` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/loan_use_while_mut_borrowed.sabi:17:8 ]
+    │
+ 16 │     let m = &mut z;
+    │             ───┬──  
+    │                ╰──── `z` is borrowed here
+ 17 │     if z == 1 { //~ ERROR E0411 cannot use `z` because it was mutably borrowed
+    │        ───┬──  
+    │           ╰──── use of borrowed `z`
+ 18 │         *m = 2;
+    │         ───┬──  
+    │            ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `p.X` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/loan_use_while_mut_borrowed.sabi:25:13 ]
+    │
+ 24 │     let m = &mut p;
+    │             ───┬──  
+    │                ╰──── `p` is borrowed here
+ 25 │     let x = p.X; //~ ERROR E0411 cannot use `p.X` because it was mutably borrowed
+    │             ─┬─  
+    │              ╰─── use of borrowed `p.X`
+ 26 │     m.Y = x;
+    │     ───┬───  
+    │        ╰───── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/loan_use_while_mut_borrowed.sabi:38:13 ]
+    │
+ 35 │     let m = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 38 │     let y = x; //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │             ┬  
+    │             ╰── use of borrowed `x`
+ 39 │     *m = y;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯

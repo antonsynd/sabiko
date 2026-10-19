@@ -1,0 +1,55 @@
+[E0413] Error: `x` does not live long enough
+    ╭─[ tests/ui/borrowck/loan_dangling.sabi:12:13 ]
+    │
+ 12 │         r = &x; //~ ERROR E0413 `x` does not live long enough
+    │             ─┬  
+    │              ╰── borrowed value does not live long enough
+ 13 │     }
+    │     ┬  
+    │     ╰── `x` dropped here while still borrowed
+ 14 │     let _ = *r;
+    │             ─┬  
+    │              ╰── borrow later used here
+────╯
+[E0413] Error: `y` does not live long enough
+    ╭─[ tests/ui/borrowck/loan_dangling.sabi:23:13 ]
+    │
+ 23 │         s = &y; //~ ERROR E0413 `y` does not live long enough
+    │             ─┬  
+    │              ╰── borrowed value does not live long enough
+    │ 
+ 25 │     }
+    │     ┬  
+    │     ╰── `y` dropped here while still borrowed
+ 26 │     let _ = *s;
+    │             ─┬  
+    │              ╰── borrow later used here
+────╯
+[E0414] Error: cannot return reference to local variable `x`
+    ╭─[ tests/ui/borrowck/loan_dangling.sabi:31:5 ]
+    │
+ 31 │     &x //~ ERROR E0414 cannot return reference to local variable `x`
+    │     ─┬  
+    │      ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `q.X`
+    ╭─[ tests/ui/borrowck/loan_dangling.sabi:36:5 ]
+    │
+ 36 │     &q.X //~ ERROR E0414 cannot return reference to local data `q.X`
+    │     ──┬─  
+    │       ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `p.X`
+    ╭─[ tests/ui/borrowck/loan_dangling.sabi:41:5 ]
+    │
+ 41 │     &p.X //~ ERROR E0414 cannot return reference to local data `p.X`
+    │     ──┬─  
+    │       ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local variable `x`
+    ╭─[ tests/ui/borrowck/loan_dangling.sabi:47:16 ]
+    │
+ 47 │         return &x; //~ ERROR E0414 cannot return reference to local variable `x`
+    │                ─┬  
+    │                 ╰── returns a reference to data owned by the current function
+────╯

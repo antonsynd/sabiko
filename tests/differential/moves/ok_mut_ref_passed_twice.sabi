@@ -1,0 +1,17 @@
+// Passing a `&mut` to a function reborrows it, so it can be passed again.
+fn Touch(n: &mut i32) {
+    *n += 1;
+}
+
+fn Twice(r: &mut i32) {
+    Touch(r);
+    Touch(r);
+    *r += 1;
+}
+
+fn Main() {
+    let mut x = 0;
+    Twice(&mut x);
+    Touch(&mut x);
+    Touch(&mut x);
+}

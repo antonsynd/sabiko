@@ -1,0 +1,12 @@
+// An immutable binding may be assigned once on each path after its declaration.
+fn Read(n: i32) {}
+
+fn Main(flag: bool) {
+    let x;
+    if flag {
+        x = 1;
+    } else {
+        x = 2;
+    }
+    Read(x);
+}

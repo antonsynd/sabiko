@@ -5,12 +5,13 @@
 compile time, frees Sabiko-owned memory deterministically without the garbage collector,
 and interoperates with C# with zero marshalling.
 
-Status: **Phase 2 complete.** The front end (lexer, parser, diagnostics), name
-resolution, type checking with local inference, compile-time evaluation of `const` items,
-AST to MIR lowering with a validator, and the mutability and initialisation checks are in
-place; nothing is emitted for .NET yet (Phase 4). `sabikoc file.sabi --stop-after=resolve|typeck`
-runs the pipeline up to a stage and reports that stage's diagnostics; `--emit=mir` prints the
-MIR of every function.
+Status: **Phase 3 complete.** The front end (lexer, parser, diagnostics), name resolution,
+type checking with local inference, `const` evaluation, MIR lowering with a validator, and
+the borrow checker (mutability, initialisation, moves, and loans solved by the Polonius
+engine from MIR-generated facts) are in place; nothing is emitted for .NET yet (Phase 4).
+A differential harness checks every program in `tests/differential/` against `rustc`: both
+compilers must agree on accept versus borrow error. `sabikoc file.sabi
+--stop-after=resolve|typeck` runs the pipeline up to a stage; `--emit=mir` prints the MIR.
 
 ```rust
 struct Point { X: i32, Y: i32 }
@@ -45,8 +46,10 @@ cargo run -p sabikoc -- crates/sabiko_mir/tests/fixtures/control_flow.sabi --emi
 ```
 
 Testing: `cargo test` runs everything, including the UI golden tests under `tests/ui`
-(see `tests/ui/README.md`; `BLESS=1` regenerates expectations) and the snapshot tests
-(`INSTA_UPDATE=always` or `cargo insta review` to accept changes).
+(see `tests/ui/README.md`; `BLESS=1` regenerates expectations), the differential tests
+against `rustc` under `tests/differential` (see its README; skipped with a notice when
+`rustc` is not on `PATH`) and the snapshot tests (`INSTA_UPDATE=always` or
+`cargo insta review` to accept changes).
 
 On Windows use `scripts/setup-dotnet.ps1` instead.
 

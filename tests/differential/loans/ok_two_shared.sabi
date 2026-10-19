@@ -1,0 +1,10 @@
+// Any number of shared borrows may coexist.
+fn Read(n: i32) {}
+
+fn Main() {
+    let x = 1;
+    let r = &x;
+    let s = &x;
+    Read(*r + *s);
+    Read(x);
+}

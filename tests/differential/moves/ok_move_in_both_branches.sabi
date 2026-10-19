@@ -1,0 +1,13 @@
+// Moving on every path is fine as long as nothing uses the value afterwards.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Main(flag: bool) {
+    let p = P { X: 1 };
+    if flag {
+        Take(p);
+    } else {
+        Take(p);
+    }
+}

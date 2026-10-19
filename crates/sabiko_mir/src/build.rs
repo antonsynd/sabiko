@@ -231,6 +231,23 @@ impl<'a> Builder<'a> {
         local
     }
 
+    /// Declares a temporary in the enclosing block's scope (not the statement's), so it
+    /// outlives the statement that creates it.
+    fn new_temp_in_block_scope(&mut self, ty: Ty, span: Span) -> Local {
+        let local = self.new_local(LocalDecl {
+            ty,
+            mutability: Mutability::Mut,
+            kind: LocalKind::Temp,
+            name: None,
+            span,
+            source: None,
+        });
+        let block_scope = self.scopes.len() - 2;
+        self.scopes[block_scope].push(local);
+        self.push_stmt(StatementKind::StorageLive(local), span);
+        local
+    }
+
     /// Declares a temporary in the innermost scope and marks it live.
     fn new_temp(&mut self, ty: Ty, span: Span) -> Local {
         let local = self.new_local(LocalDecl {
@@ -406,6 +423,24 @@ impl<'a> Builder<'a> {
     }
 
     /// What a path expression names, through parentheses.
+    /// `&e` / `&mut e` where `e` is not a place: the borrow of a temporary.
+    fn ref_of_temporary(expr: &Expr) -> Option<(bool, &Expr)> {
+        if let ExprKind::Ref {
+            mutable,
+            expr: inner,
+        } = &strip_parens(expr).kind
+        {
+            let is_place = matches!(
+                strip_parens(inner).kind,
+                ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+            );
+            if !is_place {
+                return Some((*mutable, inner));
+            }
+        }
+        None
+    }
+
     /// A place expression of type `&mut T`, which coercion sites reborrow.
     fn is_mut_ref_place_expr(&self, expr: &Expr) -> bool {
         matches!(
@@ -881,6 +916,17 @@ impl<'a> Builder<'a> {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
                             let op = self.coerced_operand(init);
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
+                        } else if let Some((mutable, inner)) = Self::ref_of_temporary(init) {
+                            // Temporary lifetime extension: in `let r = &<rvalue>;` the
+                            // temporary lives as long as `r`'s block, as in Rust.
+                            let ty = self.ty(inner).clone();
+                            let temp = self.new_temp_in_block_scope(ty, inner.span);
+                            self.expr_into_dest(&Place::local(temp), inner);
+                            self.assign(
+                                Place::local(local),
+                                Rvalue::Ref(Mutability::from_bool(mutable), Place::local(temp)),
+                                init.span,
+                            );
                         } else {
                             self.expr_into_dest(&Place::local(local), init);
                         }

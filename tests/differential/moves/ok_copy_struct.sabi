@@ -1,0 +1,15 @@
+// A `#[derive(Copy)]` struct is copied into the call, so it stays usable.
+#[derive(Copy, Clone)]
+struct V { X: i32, Y: i32 }
+
+fn Take(v: V) {}
+
+fn Read(n: i32) {}
+
+fn Main() {
+    let v = V { X: 1, Y: 2 };
+    Take(v);
+    Take(v);
+    let w = v;
+    Read(v.X + w.Y);
+}

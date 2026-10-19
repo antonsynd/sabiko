@@ -1,0 +1,10 @@
+// A mutable borrow while a shared borrow is still used later.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let r = &x;
+    let m = &mut x;
+    *m = 2;
+    Read(*r);
+}

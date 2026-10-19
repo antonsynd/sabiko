@@ -1,0 +1,43 @@
+// Return types that borrow need exactly one reference among the parameters to borrow
+// from (lifetime elision); with two parameters' data flowing into each other the
+// signature would need explicit lifetimes.
+fn TwoInputs(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let _ = b;
+    a
+}
+
+fn NoInputs() -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    &0
+}
+
+fn NestedInput(x: &mut &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    *x
+}
+
+fn ValueInput(n: i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let _ = n;
+    &0
+}
+
+fn Store(x: &mut &i32, y: &i32) {
+    *x = y; //~ ERROR E0415 lifetime may not live long enough
+}
+
+fn StoreThroughLocal(x: &mut &i32, y: &i32) {
+    let z = y;
+    *x = z; //~ ERROR E0415 lifetime may not live long enough
+}
+
+fn StoreBackIsFine(x: &mut &i32, y: &i32) {
+    let _ = y;
+    let z = *x;
+    *x = z;
+}
+
+fn CallerOfUnelidableSignatureIsNotBlamed() {
+    let mut a = 1;
+    let b = 2;
+    let r = TwoInputs(&a, &b);
+    a = 3;
+    let _ = *r;
+}

@@ -1,0 +1,10 @@
+// Writing through a `&T`.
+struct P { X: i32 }
+
+fn Direct(r: &i32) {
+    *r = 1;
+}
+
+fn Field(p: &P) {
+    p.X = 1;
+}

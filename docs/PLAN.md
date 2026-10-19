@@ -225,8 +225,13 @@ on references implies. The semantics are written up in `docs/SPEC.md` §11.
 Work
 - Copy vs move types (primitives and `&T` are `Copy`; structs are move unless
   `#[derive(Copy)]`); use-after-move, move-out-of-borrow, partial moves, move in loop.
-- Loans: shared and mutable, with NLL-style liveness so a borrow ends at last use, not
-  scope end.
+- Loans: checked by generating Polonius facts from the MIR (an origin per reference type
+  in each local's type, loans at `&`/`&mut` rvalues, kills on reassignment and
+  `StorageDead`, invalidations at writes/moves/conflicting borrows, variable liveness per
+  point, subset constraints from assignments, call arguments and callee signatures) and
+  solving them with the `polonius-engine` crate; an error is reported for every loan live
+  at a point that invalidates it. Move checking, mutability and signature elision stay
+  hand-written.
 - Conflict rules: shared XOR mutable; writes/moves of a borrowed place; disjoint field
   borrows allowed (partial borrows, as in the Ferrite note); reborrows (`&mut *r`,
   `&*r`).
@@ -235,20 +240,55 @@ Work
   Phase 9 adds explicit lifetimes.
 - Returning references to locals rejected; references stored in struct fields rejected
   until Phase 9.
-- Drop elaboration: insert `Drop` calls at `StorageDead` in reverse declaration order,
-  drop flags for conditionally moved values.
+- Drop elaboration (insert `Drop` calls at `StorageDead` in reverse declaration order,
+  drop flags for conditionally moved values) is deferred: no Phase 3 type needs drop glue
+  (primitives, references and structs of them are trivially droppable), so it lands with
+  `Box`/`String` in Phase 5.
 
 Verification
 - Compile-fail corpus (`tests/ui/borrowck/`): at least one test per rule above, in both
   the "must reject" and the adjacent "must accept" form (e.g. two shared borrows OK,
   mutable after last use of shared OK, disjoint fields OK).
 - Differential testing against `rustc`: every `.sabi` program in `tests/differential/`
-  is also valid Rust syntax (the harness prepends `#![allow(nonstandard_style)]` since
-  Sabiko uses .NET casing). A harness runs `rustc --emit=metadata` on each and asserts
-  "rustc rejects with a borrow error" iff "sabiko rejects with a borrow error". Phase 3
-  is not done while this disagrees on the subset.
+  is also valid Rust syntax (the harness prepends `#![allow(nonstandard_style, unused,
+  dead_code)]` since Sabiko uses .NET casing). A harness runs `rustc --emit=metadata` on
+  each and asserts "rustc rejects with a borrow error" iff "sabiko rejects with a borrow
+  error"; a program either compiler rejects for any other reason fails the test outright,
+  so the corpus stays valid in both languages. Phase 3 is not done while this disagrees
+  on the subset.
+- Diffing our Polonius facts against rustc's `-Znll-facts` dump was considered and
+  rejected: the facts are indexed by MIR locations and our MIR is not rustc's MIR, so the
+  two fact sets cannot be aligned without a lowering-preserving map that would itself
+  need testing. The differential harness compares verdicts instead.
 - Property: borrowck is deterministic and idempotent (same diagnostics across two runs,
   across statement reorderings that preserve semantics).
+
+Status (2026-10-19): **complete.** `sabiko_borrowck` now runs four checks per body:
+mutability and initialisation (Phase 2), move checking and loan checking. Moves
+(`moves.rs`): a move-path forest cut at the first `Deref`, a maybe-moved dataflow, and
+move-site recovery by a backward walk with dominator-based back-edge detection for the
+"in previous iteration of loop" label; rustc's E0382/E0507 wording, deduplicated per set of
+move sites (E0406/E0407). Loans (`loans.rs`, `loans/regions.rs`, `loans/facts.rs`): one
+origin per reference type in every local, universal origins from the elided signature
+(exactly one input reference, else E0416), Polonius facts generated from the MIR (loans,
+kills on reassignment, invalidations by conflicting accesses with rustc's shallow/deep
+and disjoint-field rules, variable liveness, subset constraints from assignments, calls
+and reborrow chains) and solved by `polonius-engine`; errors map to E0408–E0415 with
+"borrow later used here" labels found by a forward search over the CFG. Groundwork:
+`#[derive(Copy)]` (E0417 when a field is not `Copy`), `&mut` reborrows at coercion sites,
+temporary lifetime extension for `let r = &<value>;`, references in struct fields rejected
+until Phase 9. Drop elaboration is deferred to Phase 5 (no Phase 3 type has drop glue).
+Verification: 35 + 24 + 31 hand-built MIR unit tests, UI fixtures under `tests/ui/borrowck`
+(mutability, moves, loans, accepted programs), and the differential harness
+(`crates/sabiko_driver/tests/differential.rs`) over `tests/differential/` (40 programs in
+`ok_`/`err_` pairs: 13 moves, 20 loans, 7 mutability/initialisation), which agrees with
+rustc on every program: both accept the `ok_` files and both reject the `err_` files with a
+borrow-family error. Integrating the parallel work found and fixed a dataflow bug (a block
+whose entry state equalled the bottom value was never processed). Known gaps carried
+forward: two-phase borrows (`v.Push(v.Len())`) wait for methods in Phase 5; comparisons
+between references are still rejected; `check_loans` only runs for bodies that reached
+MIR, so a signature-elision error inside a body with type errors is reported once the
+type errors are fixed.
 
 ### Phase 4: CIL code generation v1 and the runtime library
 

@@ -1,0 +1,9 @@
+// Assigning to a place while a shared borrow of it is live.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let r = &x;
+    x = 2;
+    Read(*r);
+}

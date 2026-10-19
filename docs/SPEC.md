@@ -154,3 +154,61 @@ Checked on the MIR by `sabiko_borrowck` (E0400–E0405):
   rejected whatever the binding's mutability (E0403, E0404).
 - Through `&mut T` the target is mutable regardless of whether the reference binding
   itself is `mut`: `*r = 1` and `&mut r.X` are fine for `r: &mut T`.
+
+### 11.4 Borrow checking (Phase 3 subset)
+
+Checked on the MIR by `sabiko_borrowck` (E0406–E0417), after the mutability and
+initialisation rules of §11.3. Every rule below is also a rule of Rust, and
+`tests/differential/` holds a program per rule that `rustc` must judge the same way.
+
+Moves (E0406, E0407):
+
+- Primitives, `&T` and structs with `#[derive(Copy)]` are `Copy`: using them copies.
+  `#[derive(Copy)]` requires every field to be `Copy` (E0417); `Clone` may be named
+  alongside it. Every other struct and `&mut T` is a move type: a by-value use (a `let`
+  initialiser, assignment right-hand side, call argument, struct literal field, return
+  value) moves the place, and any later read, borrow or move of it, or of a place that
+  contains or is contained in it, is a use of a moved value (E0406). A move in one branch
+  counts as a move after the `if`; a move inside a loop is a use-after-move on the next
+  iteration. Moving a field leaves the sibling fields usable but the parent struct not.
+- Assigning a whole value to a moved-from `mut` binding re-initialises it.
+- A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
+  a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
+- A `&mut T` is implicitly reborrowed (`&mut *r`) where the expected type is `&mut`:
+  call arguments, struct literal fields, assignment, annotated `let`, `return`. A plain
+  `let s = r;` moves it (as in Rust).
+
+Loans (E0408–E0413):
+
+- `&p` creates a shared loan, `&mut p` a mutable loan of the place `p`. A loan is live
+  from its creation to the last use of any reference that may hold it (NLL liveness:
+  through assignments, calls and returns, not to the end of the lexical scope), and dies
+  when the reference holding it is reassigned (a kill) or goes out of scope.
+- While a shared loan is live, the place and every place that overlaps it (its fields,
+  any struct containing it, the referent of a reference to it) may be read and shared
+  again, but not written (E0410), mutably borrowed (E0408) or moved (E0412).
+- While a mutable loan is live, the loaned place and everything overlapping it may not be
+  read, written, moved or borrowed at all, other than through that reference (E0409 for a
+  second `&mut`, E0411 for a use, E0410 for a write, E0412 for a move). Reborrows through
+  the reference (`&mut *r`, `&*r`, `&mut r.X`) are allowed and suspend the original until
+  the reborrow's last use.
+- Loans of disjoint fields (`&mut p.X` and `&mut p.Y`) do not conflict; two loans of the
+  same field do.
+- A referent must outlive every reference to it: a reference to an inner-block local used
+  after the block ends is E0413.
+
+Signatures and lifetimes (E0414–E0416):
+
+- Lifetimes are elided only: a function returning a reference must have exactly one
+  reference parameter (nested references count once per parameter), and the returned
+  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`). A reference
+  returned may therefore only point into that parameter's referent; returning a reference
+  to a local or to a by-value parameter is E0414.
+- Inside a body, references with different elided lifetimes are unrelated: storing `y` in
+  `*x` for `x: &mut &i32, y: &i32` is E0415 ("lifetime may not live long enough" in Rust).
+  References in struct fields stay rejected until Phase 9.
+
+The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
+↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597; E0414 ↔ E0515; E0415 ↔ the uncoded
+"lifetime may not live long enough"; E0416 ↔ E0106; E0417 ↔ E0204. The differential harness
+compares verdicts (accept vs borrow error), not codes.

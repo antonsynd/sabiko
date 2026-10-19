@@ -338,22 +338,22 @@ const NOT_COPY_POINT: &str =
 fn straight_line_use_after_move() {
     // let p = Point {..}; let q = p; let r = p;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let q = b.user("q", fx.point_ty(), Mutability::Not);
-    let r = b.user("r", fx.point_ty(), Mutability::Not);
-    let bb0 = b.block();
-    b.live(bb0, p);
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    b.live(bb0, q);
-    let moved = b.assign(bb0, local(q), use_move(local(p)));
-    b.live(bb0, r);
-    let used = b.assign(bb0, local(r), use_move(local(p)));
-    b.dead(bb0, r);
-    b.dead(bb0, q);
-    b.dead(bb0, p);
-    b.ret(bb0);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let q = mir.user("q", fx.point_ty(), Mutability::Not);
+    let r = mir.user("r", fx.point_ty(), Mutability::Not);
+    let bb0 = mir.block();
+    mir.live(bb0, p);
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.live(bb0, q);
+    let moved = mir.assign(bb0, local(q), use_move(local(p)));
+    mir.live(bb0, r);
+    let used = mir.assign(bb0, local(r), use_move(local(p)));
+    mir.dead(bb0, r);
+    mir.dead(bb0, q);
+    mir.dead(bb0, p);
+    mir.ret(bb0);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -375,18 +375,18 @@ fn straight_line_use_after_move() {
 fn second_use_of_same_move_is_not_reported_again() {
     // Take(p); let a = p.X; let b = p.X;  -- one error, not one per use
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let a = b.user("a", Ty::I32, Mutability::Not);
-    let c = b.user("c", Ty::I32, Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let (bb0, bb1) = (b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    let moved = b.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
-    let used = b.assign(bb1, local(a), Rvalue::Use(copy(point_x(local(p)))));
-    b.assign(bb1, local(c), Rvalue::Use(copy(point_x(local(p)))));
-    b.ret(bb1);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let a = mir.user("a", Ty::I32, Mutability::Not);
+    let c = mir.user("c", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, bb1) = (mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    let moved = mir.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
+    let used = mir.assign(bb1, local(a), Rvalue::Use(copy(point_x(local(p)))));
+    mir.assign(bb1, local(c), Rvalue::Use(copy(point_x(local(p)))));
+    mir.ret(bb1);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -407,20 +407,20 @@ fn second_use_of_same_move_is_not_reported_again() {
 fn move_on_one_branch_is_maybe_moved() {
     // let p; if flag { Take(p) } ; Take(p)
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let flag = b.arg("flag", Ty::BOOL, Mutability::Not);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let t1 = b.temp(Ty::Unit);
-    let t2 = b.temp(Ty::Unit);
-    let (bb0, then, join, end) = (b.block(), b.block(), b.block(), b.block());
-    b.live(bb0, p);
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    b.branch(bb0, copy(local(flag)), then, join);
-    let moved = b.call(then, fx.take, vec![mv(local(p))], local(t1), join);
-    let used = b.call(join, fx.take, vec![mv(local(p))], local(t2), end);
-    b.dead(end, p);
-    b.ret(end);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let t1 = mir.temp(Ty::Unit);
+    let t2 = mir.temp(Ty::Unit);
+    let (bb0, then, join, end) = (mir.block(), mir.block(), mir.block(), mir.block());
+    mir.live(bb0, p);
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.branch(bb0, copy(local(flag)), then, join);
+    let moved = mir.call(then, fx.take, vec![mv(local(p))], local(t1), join);
+    let used = mir.call(join, fx.take, vec![mv(local(p))], local(t2), end);
+    mir.dead(end, p);
+    mir.ret(end);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -440,22 +440,28 @@ fn move_on_one_branch_is_maybe_moved() {
 fn move_on_both_branches_labels_both() {
     // if flag { let a = p } else { let c = p }; Take(p)
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let flag = b.arg("flag", Ty::BOOL, Mutability::Not);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let c = b.user("c", fx.point_ty(), Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let (bb0, then, els, join, end) = (b.block(), b.block(), b.block(), b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    b.branch(bb0, copy(local(flag)), then, els);
-    let first = b.assign(then, local(a), use_move(local(p)));
-    b.goto(then, join);
-    let second = b.assign(els, local(c), use_move(local(p)));
-    b.goto(els, join);
-    let used = b.call(join, fx.take, vec![mv(local(p))], local(t), end);
-    b.ret(end);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let c = mir.user("c", fx.point_ty(), Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, then, els, join, end) = (
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+        mir.block(),
+    );
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.branch(bb0, copy(local(flag)), then, els);
+    let first = mir.assign(then, local(a), use_move(local(p)));
+    mir.goto(then, join);
+    let second = mir.assign(els, local(c), use_move(local(p)));
+    mir.goto(els, join);
+    let used = mir.call(join, fx.take, vec![mv(local(p))], local(t), end);
+    mir.ret(end);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -476,18 +482,18 @@ fn move_on_both_branches_labels_both() {
 fn move_in_loop_is_reported_for_the_next_iteration() {
     // let p; loop { Take(p) }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let (bb0, head, body_bb, back) = (b.block(), b.block(), b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    b.goto(bb0, head);
-    b.goto(head, body_bb);
-    b.live(body_bb, t);
-    let site = b.call(body_bb, fx.take, vec![mv(local(p))], local(t), back);
-    b.dead(back, t);
-    b.goto(back, head);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, head, body_bb, back) = (mir.block(), mir.block(), mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.goto(bb0, head);
+    mir.goto(head, body_bb);
+    mir.live(body_bb, t);
+    let site = mir.call(body_bb, fx.take, vec![mv(local(p))], local(t), back);
+    mir.dead(back, t);
+    mir.goto(back, head);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -507,19 +513,19 @@ fn move_in_loop_is_reported_for_the_next_iteration() {
 fn move_before_loop_then_use_inside_is_not_a_loop_move() {
     // Take(p); while flag { let a = p.X }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let flag = b.arg("flag", Ty::BOOL, Mutability::Not);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let a = b.user("a", Ty::I32, Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let (bb0, head, body_bb, exit) = (b.block(), b.block(), b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    let moved = b.call(bb0, fx.take, vec![mv(local(p))], local(t), head);
-    b.branch(head, copy(local(flag)), body_bb, exit);
-    let used = b.assign(body_bb, local(a), Rvalue::Use(copy(point_x(local(p)))));
-    b.goto(body_bb, head);
-    b.ret(exit);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let a = mir.user("a", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, head, body_bb, exit) = (mir.block(), mir.block(), mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    let moved = mir.call(bb0, fx.take, vec![mv(local(p))], local(t), head);
+    mir.branch(head, copy(local(flag)), body_bb, exit);
+    let used = mir.assign(body_bb, local(a), Rvalue::Use(copy(point_x(local(p)))));
+    mir.goto(body_bb, head);
+    mir.ret(exit);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(diags.len(), 1, "{diags:#?}");
@@ -536,20 +542,20 @@ fn move_before_loop_then_use_inside_is_not_a_loop_move() {
 fn borrow_after_move() {
     // Take(p); let r = &p;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let r = b.user(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let r = mir.user(
         "r",
         Ty::Ref(Mutability::Not, Box::new(fx.point_ty())),
         Mutability::Not,
     );
-    let t = b.temp(Ty::Unit);
-    let (bb0, bb1) = (b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    let moved = b.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
-    let used = b.assign(bb1, local(r), Rvalue::Ref(Mutability::Not, local(p)));
-    b.ret(bb1);
-    let body = b.finish();
+    let t = mir.temp(Ty::Unit);
+    let (bb0, bb1) = (mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    let moved = mir.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
+    let used = mir.assign(bb1, local(r), Rvalue::Ref(Mutability::Not, local(p)));
+    mir.ret(bb1);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -570,15 +576,15 @@ fn borrow_after_move() {
 fn assign_to_part_of_moved_value() {
     // Take(p); p.X = 1;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Mut);
-    let t = b.temp(Ty::Unit);
-    let (bb0, bb1) = (b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    let moved = b.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
-    let used = b.assign(bb1, point_x(local(p)), Rvalue::Use(int(1)));
-    b.ret(bb1);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t = mir.temp(Ty::Unit);
+    let (bb0, bb1) = (mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    let moved = mir.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
+    let used = mir.assign(bb1, point_x(local(p)), Rvalue::Use(int(1)));
+    mir.ret(bb1);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -598,16 +604,16 @@ fn assign_to_part_of_moved_value() {
 fn use_through_moved_reference_names_the_reference() {
     // fn f(r: &mut Point) { let s = r; let x = r.X; }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
     let ref_ty = Ty::Ref(Mutability::Mut, Box::new(fx.point_ty()));
-    let r = b.arg("r", ref_ty.clone(), Mutability::Not);
-    let s = b.user("s", ref_ty, Mutability::Not);
-    let x = b.user("x", Ty::I32, Mutability::Not);
-    let bb0 = b.block();
-    let moved = b.assign(bb0, local(s), use_move(local(r)));
-    let used = b.assign(bb0, local(x), Rvalue::Use(copy(point_x(local(r).deref()))));
-    b.ret(bb0);
-    let body = b.finish();
+    let r = mir.arg("r", ref_ty.clone(), Mutability::Not);
+    let s = mir.user("s", ref_ty, Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    let moved = mir.assign(bb0, local(s), use_move(local(r)));
+    let used = mir.assign(bb0, local(x), Rvalue::Use(copy(point_x(local(r).deref()))));
+    mir.ret(bb0);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -635,11 +641,11 @@ fn use_through_moved_reference_names_the_reference() {
 // ----------------------------------------------------------------------------------------
 
 /// `let l = MakeLine();` in `bb0`, continuing in the returned block.
-fn make_line(b: &mut BodyBuilder, fx: &Fixture, l: Local) -> BasicBlock {
-    let bb0 = b.block();
-    let bb1 = b.block();
-    b.live(bb0, l);
-    b.call(bb0, fx.make_line, vec![], local(l), bb1);
+fn make_line(mir: &mut BodyBuilder, fx: &Fixture, l: Local) -> BasicBlock {
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    mir.live(bb0, l);
+    mir.call(bb0, fx.make_line, vec![], local(l), bb1);
     bb1
 }
 
@@ -647,16 +653,16 @@ fn make_line(b: &mut BodyBuilder, fx: &Fixture, l: Local) -> BasicBlock {
 fn partial_move_then_use_of_parent() {
     // let a = l.A; TakeLine(l);
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Not);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let bb1 = make_line(&mut b, &fx, l);
-    let end = b.block();
-    let moved = b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    let used = b.call(bb1, fx.take_line, vec![mv(local(l))], local(t), end);
-    b.ret(end);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let end = mir.block();
+    let moved = mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    let used = mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), end);
+    mir.ret(end);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -680,19 +686,19 @@ fn partial_move_then_use_of_parent() {
 fn partial_move_then_borrow_of_parent() {
     // let a = l.A; let r = &l;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Not);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let r = b.user(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let r = mir.user(
         "r",
         Ty::Ref(Mutability::Not, Box::new(fx.line_ty())),
         Mutability::Not,
     );
-    let bb1 = make_line(&mut b, &fx, l);
-    b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    let used = b.assign(bb1, local(r), Rvalue::Ref(Mutability::Not, local(l)));
-    b.ret(bb1);
-    let body = b.finish();
+    let bb1 = make_line(&mut mir, &fx, l);
+    mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    let used = mir.assign(bb1, local(r), Rvalue::Ref(Mutability::Not, local(l)));
+    mir.ret(bb1);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -709,36 +715,36 @@ fn partial_move_then_borrow_of_parent() {
 fn partial_move_then_sibling_is_accepted() {
     // let a = l.A; let x = l.B.X; let b = l.B;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Not);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let x = b.user("x", Ty::I32, Mutability::Not);
-    let bp = b.user("b", fx.point_ty(), Mutability::Not);
-    let bb1 = make_line(&mut b, &fx, l);
-    b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    b.assign(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let bp = mir.user("b", fx.point_ty(), Mutability::Not);
+    let bb1 = make_line(&mut mir, &fx, l);
+    mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    mir.assign(
         bb1,
         local(x),
         Rvalue::Use(copy(point_x(line_field(&fx, l, 1)))),
     );
-    b.assign(bb1, local(bp), use_move(line_field(&fx, l, 1)));
-    b.ret(bb1);
-    fx.assert_clean(&b.finish());
+    mir.assign(bb1, local(bp), use_move(line_field(&fx, l, 1)));
+    mir.ret(bb1);
+    fx.assert_clean(&mir.finish());
 }
 
 #[test]
 fn moving_the_same_field_twice() {
     // let a = l.A; let b = l.A;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Not);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let c = b.user("c", fx.point_ty(), Mutability::Not);
-    let bb1 = make_line(&mut b, &fx, l);
-    let moved = b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    let used = b.assign(bb1, local(c), use_move(line_field(&fx, l, 0)));
-    b.ret(bb1);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let c = mir.user("c", fx.point_ty(), Mutability::Not);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let moved = mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    let used = mir.assign(bb1, local(c), use_move(line_field(&fx, l, 0)));
+    mir.ret(bb1);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -762,87 +768,87 @@ fn moving_the_same_field_twice() {
 fn reinitialisation_by_assignment_then_use_is_accepted() {
     // Take(p); p = Point {..}; Take(p);
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Mut);
-    let t1 = b.temp(Ty::Unit);
-    let t2 = b.temp(Ty::Unit);
-    let (bb0, bb1, bb2) = (b.block(), b.block(), b.block());
-    b.assign(bb0, local(p), point_aggregate(&fx));
-    b.call(bb0, fx.take, vec![mv(local(p))], local(t1), bb1);
-    b.assign(bb1, local(p), point_aggregate(&fx));
-    b.call(bb1, fx.take, vec![mv(local(p))], local(t2), bb2);
-    b.ret(bb2);
-    fx.assert_clean(&b.finish());
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t1 = mir.temp(Ty::Unit);
+    let t2 = mir.temp(Ty::Unit);
+    let (bb0, bb1, bb2) = (mir.block(), mir.block(), mir.block());
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.call(bb0, fx.take, vec![mv(local(p))], local(t1), bb1);
+    mir.assign(bb1, local(p), point_aggregate(&fx));
+    mir.call(bb1, fx.take, vec![mv(local(p))], local(t2), bb2);
+    mir.ret(bb2);
+    fx.assert_clean(&mir.finish());
 }
 
 #[test]
 fn reinitialisation_by_call_destination_is_accepted() {
     // TakeLine(l); l = MakeLine(); TakeLine(l);
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Mut);
-    let t1 = b.temp(Ty::Unit);
-    let t2 = b.temp(Ty::Unit);
-    let bb1 = make_line(&mut b, &fx, l);
-    let (bb2, bb3, bb4) = (b.block(), b.block(), b.block());
-    b.call(bb1, fx.take_line, vec![mv(local(l))], local(t1), bb2);
-    b.call(bb2, fx.make_line, vec![], local(l), bb3);
-    b.call(bb3, fx.take_line, vec![mv(local(l))], local(t2), bb4);
-    b.ret(bb4);
-    fx.assert_clean(&b.finish());
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let t1 = mir.temp(Ty::Unit);
+    let t2 = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let (bb2, bb3, bb4) = (mir.block(), mir.block(), mir.block());
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t1), bb2);
+    mir.call(bb2, fx.make_line, vec![], local(l), bb3);
+    mir.call(bb3, fx.take_line, vec![mv(local(l))], local(t2), bb4);
+    mir.ret(bb4);
+    fx.assert_clean(&mir.finish());
 }
 
 #[test]
 fn reinitialising_the_field_then_using_the_parent_is_accepted() {
     // let a = l.A; l.A = Point {..}; TakeLine(l);
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Mut);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let bb1 = make_line(&mut b, &fx, l);
-    let end = b.block();
-    b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    b.assign(bb1, line_field(&fx, l, 0), point_aggregate(&fx));
-    b.call(bb1, fx.take_line, vec![mv(local(l))], local(t), end);
-    b.ret(end);
-    fx.assert_clean(&b.finish());
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let end = mir.block();
+    mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    mir.assign(bb1, line_field(&fx, l, 0), point_aggregate(&fx));
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), end);
+    mir.ret(end);
+    fx.assert_clean(&mir.finish());
 }
 
 #[test]
 fn reinitialising_the_parent_clears_the_children() {
     // let a = l.A; l = MakeLine(); let b = l.A;
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Mut);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let c = b.user("c", fx.point_ty(), Mutability::Not);
-    let bb1 = make_line(&mut b, &fx, l);
-    let bb2 = b.block();
-    b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    b.call(bb1, fx.make_line, vec![], local(l), bb2);
-    b.assign(bb2, local(c), use_move(line_field(&fx, l, 0)));
-    b.ret(bb2);
-    fx.assert_clean(&b.finish());
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let c = mir.user("c", fx.point_ty(), Mutability::Not);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let bb2 = mir.block();
+    mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    mir.call(bb1, fx.make_line, vec![], local(l), bb2);
+    mir.assign(bb2, local(c), use_move(line_field(&fx, l, 0)));
+    mir.ret(bb2);
+    fx.assert_clean(&mir.finish());
 }
 
 #[test]
 fn reinitialising_one_field_leaves_the_other_moved() {
     // let a = l.A; let b = l.B; l.A = Point {..}; TakeLine(l);
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Mut);
-    let a = b.user("a", fx.point_ty(), Mutability::Not);
-    let c = b.user("c", fx.point_ty(), Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let bb1 = make_line(&mut b, &fx, l);
-    let end = b.block();
-    b.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    let moved_b = b.assign(bb1, local(c), use_move(line_field(&fx, l, 1)));
-    b.assign(bb1, line_field(&fx, l, 0), point_aggregate(&fx));
-    let used = b.call(bb1, fx.take_line, vec![mv(local(l))], local(t), end);
-    b.ret(end);
-    let body = b.finish();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let c = mir.user("c", fx.point_ty(), Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let end = mir.block();
+    mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    let moved_b = mir.assign(bb1, local(c), use_move(line_field(&fx, l, 1)));
+    mir.assign(bb1, line_field(&fx, l, 0), point_aggregate(&fx));
+    let used = mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), end);
+    mir.ret(end);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -862,17 +868,17 @@ fn reinitialising_one_field_leaves_the_other_moved() {
 fn storage_dead_resets_the_local() {
     // loop { StorageLive(p); p = ..; Take(p); StorageDead(p) }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let t = b.temp(Ty::Unit);
-    let (head, body_bb, back) = (b.block(), b.block(), b.block());
-    b.goto(head, body_bb);
-    b.live(body_bb, p);
-    b.assign(body_bb, local(p), point_aggregate(&fx));
-    b.call(body_bb, fx.take, vec![mv(local(p))], local(t), back);
-    b.dead(back, p);
-    b.goto(back, head);
-    fx.assert_clean(&b.finish());
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let (head, body_bb, back) = (mir.block(), mir.block(), mir.block());
+    mir.goto(head, body_bb);
+    mir.live(body_bb, p);
+    mir.assign(body_bb, local(p), point_aggregate(&fx));
+    mir.call(body_bb, fx.take, vec![mv(local(p))], local(t), back);
+    mir.dead(back, p);
+    mir.goto(back, head);
+    fx.assert_clean(&mir.finish());
 }
 
 // ----------------------------------------------------------------------------------------
@@ -883,17 +889,17 @@ fn storage_dead_resets_the_local() {
 fn move_out_of_shared_reference() {
     // fn f(r: &Point) { let p = *r; }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let r = b.arg(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let r = mir.arg(
         "r",
         Ty::Ref(Mutability::Not, Box::new(fx.point_ty())),
         Mutability::Not,
     );
-    let p = b.user("p", fx.point_ty(), Mutability::Not);
-    let bb0 = b.block();
-    let site = b.assign(bb0, local(p), use_move(local(r).deref()));
-    b.ret(bb0);
-    let body = b.finish();
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let bb0 = mir.block();
+    let site = mir.assign(bb0, local(p), use_move(local(r).deref()));
+    mir.ret(bb0);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -913,23 +919,23 @@ fn move_out_of_shared_reference() {
 fn move_out_of_mutable_reference_field() {
     // fn f(r: &mut Line) { Take(r.A); }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let r = b.arg(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let r = mir.arg(
         "r",
         Ty::Ref(Mutability::Mut, Box::new(fx.line_ty())),
         Mutability::Not,
     );
-    let t = b.temp(Ty::Unit);
-    let (bb0, bb1) = (b.block(), b.block());
-    let site = b.call(
+    let t = mir.temp(Ty::Unit);
+    let (bb0, bb1) = (mir.block(), mir.block());
+    let site = mir.call(
         bb0,
         fx.take,
         vec![mv(local(r).deref().field(0, fx.point_ty()))],
         local(t),
         bb1,
     );
-    b.ret(bb1);
-    let body = b.finish();
+    mir.ret(bb1);
+    let body = mir.finish();
 
     let diags = fx.check(&body);
     assert_eq!(
@@ -949,19 +955,19 @@ fn move_out_of_mutable_reference_field() {
 fn copy_out_of_reference_is_accepted() {
     // fn f(r: &Point) { let x = r.X; let y = r.X; }
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let r = b.arg(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let r = mir.arg(
         "r",
         Ty::Ref(Mutability::Not, Box::new(fx.point_ty())),
         Mutability::Not,
     );
-    let x = b.user("x", Ty::I32, Mutability::Not);
-    let y = b.user("y", Ty::I32, Mutability::Not);
-    let bb0 = b.block();
-    b.assign(bb0, local(x), Rvalue::Use(copy(point_x(local(r).deref()))));
-    b.assign(bb0, local(y), Rvalue::Use(copy(point_x(local(r).deref()))));
-    b.ret(bb0);
-    fx.assert_clean(&b.finish());
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), Rvalue::Use(copy(point_x(local(r).deref()))));
+    mir.assign(bb0, local(y), Rvalue::Use(copy(point_x(local(r).deref()))));
+    mir.ret(bb0);
+    fx.assert_clean(&mir.finish());
 }
 
 // ----------------------------------------------------------------------------------------
@@ -973,42 +979,42 @@ fn copy_struct_is_never_reported() {
     // let v = Vec2 {..}; TakeVec(v); TakeVec(v); let w = v;
     let fx = Fixture::new();
     assert!(fx.typeck.items.is_copy(&fx.vec2_ty()));
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let v = b.user("v", fx.vec2_ty(), Mutability::Not);
-    let w = b.user("w", fx.vec2_ty(), Mutability::Not);
-    let t1 = b.temp(Ty::Unit);
-    let t2 = b.temp(Ty::Unit);
-    let (bb0, bb1, bb2) = (b.block(), b.block(), b.block());
-    b.assign(
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let v = mir.user("v", fx.vec2_ty(), Mutability::Not);
+    let w = mir.user("w", fx.vec2_ty(), Mutability::Not);
+    let t1 = mir.temp(Ty::Unit);
+    let t2 = mir.temp(Ty::Unit);
+    let (bb0, bb1, bb2) = (mir.block(), mir.block(), mir.block());
+    mir.assign(
         bb0,
         local(v),
         Rvalue::Aggregate(fx.vec2, vec![int(1), int(2)]),
     );
-    b.call(bb0, fx.take_vec, vec![copy(local(v))], local(t1), bb1);
-    b.call(bb1, fx.take_vec, vec![copy(local(v))], local(t2), bb2);
-    b.assign(bb2, local(w), Rvalue::Use(copy(local(v))));
-    b.ret(bb2);
-    fx.assert_clean(&b.finish());
+    mir.call(bb0, fx.take_vec, vec![copy(local(v))], local(t1), bb1);
+    mir.call(bb1, fx.take_vec, vec![copy(local(v))], local(t2), bb2);
+    mir.assign(bb2, local(w), Rvalue::Use(copy(local(v))));
+    mir.ret(bb2);
+    fx.assert_clean(&mir.finish());
 }
 
 #[test]
 fn temporaries_are_tracked_but_never_reported() {
     // _t = Point {..}; l.A = move _t; TakeLine(l);  and a (malformed) double move of _t.
     let fx = Fixture::new();
-    let mut b = BodyBuilder::new(&fx, Ty::Unit);
-    let l = b.user("l", fx.line_ty(), Mutability::Mut);
-    let t = b.temp(fx.point_ty());
-    let u = b.temp(fx.point_ty());
-    let unit_t = b.temp(Ty::Unit);
-    let bb1 = make_line(&mut b, &fx, l);
-    let end = b.block();
-    b.live(bb1, t);
-    b.assign(bb1, local(t), point_aggregate(&fx));
-    b.assign(bb1, line_field(&fx, l, 0), use_move(local(t)));
-    b.assign(bb1, local(u), use_move(local(t)));
-    b.dead(bb1, t);
-    b.call(bb1, fx.take_line, vec![mv(local(l))], local(unit_t), end);
-    b.assign(end, local(Local::RETURN), unit());
-    b.ret(end);
-    fx.assert_clean(&b.finish());
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Mut);
+    let t = mir.temp(fx.point_ty());
+    let u = mir.temp(fx.point_ty());
+    let unit_t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let end = mir.block();
+    mir.live(bb1, t);
+    mir.assign(bb1, local(t), point_aggregate(&fx));
+    mir.assign(bb1, line_field(&fx, l, 0), use_move(local(t)));
+    mir.assign(bb1, local(u), use_move(local(t)));
+    mir.dead(bb1, t);
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(unit_t), end);
+    mir.assign(end, local(Local::RETURN), unit());
+    mir.ret(end);
+    fx.assert_clean(&mir.finish());
 }

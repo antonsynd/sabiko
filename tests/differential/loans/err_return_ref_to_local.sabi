@@ -1,0 +1,7 @@
+// Returning a reference to a local of the function.
+struct P { X: i32 }
+
+fn Main(p: &P) -> &i32 {
+    let x = p.X + 1;
+    &x
+}

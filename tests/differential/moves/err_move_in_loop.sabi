@@ -1,0 +1,13 @@
+// A move inside a loop body is a use-after-move on the second iteration.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Main() {
+    let p = P { X: 1 };
+    let mut i = 0;
+    while i < 3 {
+        Take(p);
+        i += 1;
+    }
+}

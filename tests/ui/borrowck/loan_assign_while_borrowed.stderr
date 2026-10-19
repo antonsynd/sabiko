@@ -1,0 +1,67 @@
+[E0410] Error: cannot assign to `x` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_assign_while_borrowed.sabi:10:5 ]
+    │
+  9 │     let r = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+ 10 │     x = 2; //~ ERROR E0410 cannot assign to `x` because it is borrowed
+    │     ──┬──  
+    │       ╰──── assignment to borrowed `x` occurs here
+ 11 │     *r = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0410] Error: cannot assign to `p.X` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_assign_while_borrowed.sabi:17:5 ]
+    │
+ 16 │     let r = &p;
+    │             ─┬  
+    │              ╰── `p` is borrowed here
+ 17 │     p.X = 3; //~ ERROR E0410 cannot assign to `p.X` because it is borrowed
+    │     ───┬───  
+    │        ╰───── assignment to borrowed `p.X` occurs here
+ 18 │     let _ = r.Y;
+    │             ─┬─  
+    │              ╰─── borrow later used here
+────╯
+[E0410] Error: cannot assign to `p` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_assign_while_borrowed.sabi:24:5 ]
+    │
+ 23 │     let x = &p.X;
+    │             ──┬─  
+    │               ╰─── `p.X` is borrowed here
+ 24 │     p = Point { X: 0, Y: 0 }; //~ ERROR E0410 cannot assign to `p` because it is borrowed
+    │     ────────────┬───────────  
+    │                 ╰───────────── assignment to borrowed `p` occurs here
+ 25 │     let _ = *x;
+    │             ─┬  
+    │              ╰── borrow later used here
+────╯
+[E0410] Error: cannot assign to `*m` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_assign_while_borrowed.sabi:30:5 ]
+    │
+ 29 │     let r = &mut *m;
+    │             ───┬───  
+    │                ╰───── `*m` is borrowed here
+ 30 │     *m = 2; //~ ERROR E0410 cannot assign to `*m` because it is borrowed
+    │     ───┬──  
+    │        ╰──── assignment to borrowed `*m` occurs here
+ 31 │     *r = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0410] Error: cannot assign to `n` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_assign_while_borrowed.sabi:41:13 ]
+    │
+ 38 │         let w = &mut n;
+    │                 ───┬──  
+    │                    ╰──── `n` is borrowed here
+    │ 
+ 41 │             n = 0; //~ ERROR E0410 cannot assign to `n` because it is borrowed
+    │             ──┬──  
+    │               ╰──── assignment to borrowed `n` occurs here
+    │ 
+ 43 │         *w += 1;
+    │         ───┬───  
+    │            ╰───── borrow later used here
+────╯

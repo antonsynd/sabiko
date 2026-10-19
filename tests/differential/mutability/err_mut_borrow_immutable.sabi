@@ -1,0 +1,9 @@
+// Taking `&mut` of a binding not declared `mut`.
+fn Touch(n: &mut i32) {
+    *n += 1;
+}
+
+fn Main() {
+    let x = 1;
+    Touch(&mut x);
+}

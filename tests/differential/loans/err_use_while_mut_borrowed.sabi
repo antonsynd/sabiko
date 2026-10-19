@@ -1,0 +1,9 @@
+// Reading a place while a mutable borrow of it is live.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let m = &mut x;
+    Read(x);
+    *m = 2;
+}

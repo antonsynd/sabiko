@@ -1,0 +1,22 @@
+// `let r = &<value>;` keeps the temporary alive for the enclosing block, as in Rust.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Read(n: &i32) -> i32 {
+    *n
+}
+
+fn Main() -> i32 {
+    let a = &0;
+    let p = &Point { X: 1, Y: 2 };
+    let m = &mut 5;
+    *m += 1;
+    let sum = Read(a) + p.X + p.Y + *m;
+    {
+        let inner = &(sum + 1);
+        let _ = Read(inner);
+    }
+    Read(a) + sum
+}

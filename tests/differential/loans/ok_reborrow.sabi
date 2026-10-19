@@ -1,0 +1,15 @@
+// Reborrowing `&mut *r` and `&*r`; the original is usable again after the reborrow's last use.
+struct P { X: i32 }
+
+fn Read(n: i32) {}
+
+fn Main(r: &mut P) {
+    let s = &mut *r;
+    s.X = 1;
+    let t = &*r;
+    Read(t.X);
+    r.X = 2;
+    let u = &mut r.X;
+    *u += 1;
+    Read(r.X);
+}

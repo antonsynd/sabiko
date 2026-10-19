@@ -1,0 +1,41 @@
+// Moving a value out while it, or something reached through it, is borrowed.
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Take(p: Point) -> i32 {
+    p.X
+}
+
+fn MoveBorrowedStruct() {
+    let p = Point { X: 1, Y: 2 };
+    let r = &p;
+    let q = p; //~ ERROR E0412 cannot move out of `p` because it is borrowed
+    let _ = r.X;
+    let _ = q;
+}
+
+fn MoveIntoCall() {
+    let p = Point { X: 1, Y: 2 };
+    let r = &p.Y;
+    let n = Take(p); //~ ERROR E0412 cannot move out of `p` because it is borrowed
+    let _ = *r + n;
+}
+
+fn MoveReborrowedReference() {
+    let mut n = 0;
+    let m = &mut n;
+    let t = &mut *m;
+    let m2 = m; //~ ERROR E0412 cannot move out of `m` because it is borrowed
+    *t = 1;
+    *m2 = 2;
+}
+
+fn MoveAfterLastUseIsFine() {
+    let p = Point { X: 1, Y: 2 };
+    let r = &p;
+    let _ = r.X;
+    let q = p;
+    let _ = q;
+}

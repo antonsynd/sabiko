@@ -1,0 +1,14 @@
+// Moving one field out and then using the whole struct.
+struct Inner { V: i32 }
+
+struct Outer { A: Inner, B: Inner }
+
+fn TakeInner(i: Inner) {}
+
+fn TakeOuter(o: Outer) {}
+
+fn Main() {
+    let o = Outer { A: Inner { V: 1 }, B: Inner { V: 2 } };
+    TakeInner(o.A);
+    TakeOuter(o);
+}

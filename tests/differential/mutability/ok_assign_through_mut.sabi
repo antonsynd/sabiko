@@ -1,0 +1,11 @@
+// Writing through a `&mut T` works whether or not the reference binding is `mut`.
+struct P { X: i32 }
+
+fn Direct(r: &mut i32) {
+    *r = 1;
+}
+
+fn Field(p: &mut P) {
+    p.X = 1;
+    (*p).X += 1;
+}

@@ -1,0 +1,14 @@
+// `&mut` of a `mut` binding and of its fields.
+struct P { X: i32 }
+
+fn Touch(n: &mut i32) {
+    *n += 1;
+}
+
+fn Main() {
+    let mut x = 1;
+    Touch(&mut x);
+    let mut p = P { X: 1 };
+    Touch(&mut p.X);
+    p.X += 1;
+}

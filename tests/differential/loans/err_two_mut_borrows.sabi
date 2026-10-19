@@ -1,0 +1,8 @@
+// Two live mutable borrows of the same place.
+fn Main() {
+    let mut x = 1;
+    let a = &mut x;
+    let b = &mut x;
+    *a = 1;
+    *b = 2;
+}

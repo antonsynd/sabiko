@@ -1,0 +1,12 @@
+// A reference to an inner-block local used only inside that block is fine.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut total = 0;
+    {
+        let x = 1;
+        let r = &x;
+        total += *r;
+    }
+    Read(total);
+}

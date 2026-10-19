@@ -1,0 +1,39 @@
+[E0409] Error: cannot borrow `x` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/loan_two_mut.sabi:10:13 ]
+    │
+  9 │     let a = &mut x;
+    │             ───┬──  
+    │                ╰──── first mutable borrow occurs here
+ 10 │     let b = &mut x; //~ ERROR E0409 cannot borrow `x` as mutable more than once at a time
+    │             ───┬──  
+    │                ╰──── second mutable borrow occurs here
+ 11 │     *a = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0409] Error: cannot borrow `p` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/loan_two_mut.sabi:18:17 ]
+    │
+ 17 │     let x = &mut p.X;
+    │             ────┬───  
+    │                 ╰───── first mutable borrow occurs here
+ 18 │     let whole = &mut p; //~ ERROR E0409 cannot borrow `p` as mutable more than once at a time
+    │                 ───┬──  
+    │                    ╰──── second mutable borrow occurs here
+ 19 │     *x = 3;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0409] Error: cannot borrow `*r` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/loan_two_mut.sabi:25:13 ]
+    │
+ 24 │     let a = &mut *r;
+    │             ───┬───  
+    │                ╰───── first mutable borrow occurs here
+ 25 │     let b = &mut *r; //~ ERROR E0409 cannot borrow `*r` as mutable more than once at a time
+    │             ───┬───  
+    │                ╰───── second mutable borrow occurs here
+ 26 │     *a = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
