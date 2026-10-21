@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_mir::{Body, StatementKind};
+use sabiko_mir::{Body, Operand, StatementKind, TerminatorKind};
 use sabiko_span::FileId;
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -133,5 +133,34 @@ fn structural_properties() {
     assert!(
         checked > 10,
         "only {checked} bodies checked; corpus missing?"
+    );
+}
+
+/// The validator rejects a `switchInt` on a non-integer discriminant: retyping the
+/// discriminant of `if b { .. }` from `bool` to `f64` must be reported.
+#[test]
+fn validator_rejects_switch_on_float() {
+    let (mut bodies, typeck) =
+        lower("fn F(b: bool) -> i32 { if b { 1 } else { 2 } }").expect("valid program");
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let body = &mut bodies[0];
+    let discr = body
+        .blocks
+        .iter()
+        .find_map(|b| match &b.terminator.as_ref()?.kind {
+            TerminatorKind::SwitchInt {
+                discr: Operand::Copy(p) | Operand::Move(p),
+                ..
+            } => Some(p.local),
+            _ => None,
+        })
+        .expect("an `if` lowers to a switchInt on a place");
+    body.locals[discr.index()].ty = sabiko_types::Ty::F64;
+    let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("switchInt on non-integer type")),
+        "{errors:#?}"
     );
 }

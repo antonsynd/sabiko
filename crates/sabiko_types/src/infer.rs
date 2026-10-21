@@ -206,4 +206,15 @@ mod tests {
         assert!(cx.unify(&Ty::Never, &Ty::BOOL).is_err());
         assert!(cx.unify(&Ty::Error, &Ty::BOOL).is_ok());
     }
+
+    /// `!` coerces to anything but never unifies: a variable stays open, so a diverging
+    /// initialiser falls back to `()` instead of making the binding `!`.
+    #[test]
+    fn never_does_not_bind_a_variable() {
+        let mut cx = InferCtxt::new();
+        let v = cx.new_var(VarKind::General);
+        assert!(cx.unify(&v, &Ty::Never).is_err());
+        assert!(cx.unify(&Ty::Never, &v).is_err());
+        assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
+    }
 }

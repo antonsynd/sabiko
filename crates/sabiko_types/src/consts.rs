@@ -343,7 +343,7 @@ fn truncate(v: u128, p: PrimTy) -> u128 {
 
 fn shift_amount(r: &ConstValue, bits: u32, span: Span, op: &str) -> Result<u32, ConstError> {
     let amount = match r {
-        ConstValue::Int(i) if *i >= 0 => u32::try_from(*i).ok(),
+        ConstValue::Int(i) => u32::try_from(*i).ok(),
         ConstValue::Uint(u) => u32::try_from(*u).ok(),
         _ => None,
     };
@@ -563,12 +563,12 @@ fn cast(v: &ConstValue, from: Option<PrimTy>, to: PrimTy) -> Option<ConstValue> 
         }),
         (Src::Float(f), PrimTy::F32) => ConstValue::Float(f64::from(f as f32)),
         (Src::Float(f), PrimTy::F64) => ConstValue::Float(f),
+        // Rust's `as` already maps NaN to 0 and saturates at the 128-bit range; clamp to
+        // the target's range on top.
         (Src::Float(f), p) if p.is_integer() => {
             let (min, max) = bounds(p);
             if p.is_signed_int() {
-                let v = if f.is_nan() {
-                    0
-                } else if f >= max as f64 {
+                let v = if f >= max as f64 {
                     max as i128
                 } else if f <= min as f64 {
                     min
@@ -577,14 +577,7 @@ fn cast(v: &ConstValue, from: Option<PrimTy>, to: PrimTy) -> Option<ConstValue> 
                 };
                 ConstValue::Int(v)
             } else {
-                let v = if f.is_nan() || f <= 0.0 {
-                    0
-                } else if f >= max as f64 {
-                    max
-                } else {
-                    f as u128
-                };
-                ConstValue::Uint(v)
+                ConstValue::Uint(if f >= max as f64 { max } else { f as u128 })
             }
         }
         _ => return None,

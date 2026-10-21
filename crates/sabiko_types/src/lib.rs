@@ -379,6 +379,7 @@ const M: i32 = { 1 };
             ("bool", "true & false", "false"),
             ("bool", "true && false", "false"),
             ("bool", "false | true", "true"),
+            ("bool", "true | true", "true"),
             ("bool", "false || true", "true"),
             ("bool", "true ^ true", "false"),
             ("bool", "true ^ false", "true"),
