@@ -76,6 +76,15 @@ fixpoint), `pipeline` (the whole pipeline through IL on arbitrary text) and
 budget; the nightly workflow runs each target and uploads any crash as an artifact. A crash
 is a compiler bug: minimise it, add the input as a UI or no-panic regression test, fix.
 
+Setup: `rustup toolchain install nightly --profile minimal && rustup run nightly cargo
+install cargo-fuzz --locked`. The script calls `rustup run nightly cargo` rather than
+`cargo +nightly`, because `+toolchain` only works when the `cargo` first on `PATH` is
+rustup's proxy; with Homebrew's `rust` formula (or a distro Rust) ahead of it, `cargo
++nightly` fails with "no such command: `+nightly`". The same shadowing makes plain `cargo`
+ignore `rust-toolchain.toml`; `rustup which cargo` shows where rustup's cargo lives, and on
+Homebrew putting `/opt/homebrew/opt/rustup/bin` first on `PATH` in the shell profile fixes
+it for every command.
+
 ## Mutation testing
 
 `scripts/mutants.sh [crate...]` runs `cargo mutants` (configuration in
@@ -83,6 +92,13 @@ is a compiler bug: minimise it, add the input as a UI or no-panic regression tes
 each mutant with the suites that exercise the crate, and fails when a crate's score drops
 below its threshold. Scores and the list of known equivalent mutants are recorded below;
 the nightly workflow runs it and uploads `mutants.out`.
+
+Setup: `cargo install cargo-mutants --locked`, then `source tools/env.sh` and export
+`SABIKO_REQUIRE_DOTNET=1` so the .NET suites fail rather than skip (a skipped suite lowers
+the `sabiko_codegen` score). The script runs on macOS's stock bash 3.2 and, when rustup is
+installed, runs cargo as `rustup run <pinned channel> cargo`, so a Homebrew `cargo` on
+`PATH` does not replace the pinned toolchain. It mutates sources in place for hours: do not
+edit or build in `crates/` while it runs, and run fuzzing from a separate `git worktree`.
 
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
 2026-10-21), score = (caught + timeout) / viable:

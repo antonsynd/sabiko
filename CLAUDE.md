@@ -44,6 +44,8 @@ run-time differential tests must run there, not skip. Run all four checks before
   the seed and the program. A construct the generator must avoid gets a TODO naming the bug.
 - Property tests: `PROPTEST_CASES=4096 cargo test -p sabiko_driver --test no_panic`.
 - Fuzzing (nightly Rust): `scripts/fuzz.sh pipeline 600`; crashes land in `fuzz/artifacts`.
+  Setup for fuzzing and mutation testing, and the Homebrew `cargo`-shadows-rustup pitfall,
+  are in `docs/TESTING.md` (Fuzzing, Mutation testing).
 - Mutation testing: `scripts/mutants.sh sabiko_borrowck` (slow; thresholds inside);
   triage survivors into tests or the equivalent-mutant list in `docs/TESTING.md`.
 - Hand-built MIR unit tests for the borrow checker live in `crates/sabiko_borrowck/tests`.
