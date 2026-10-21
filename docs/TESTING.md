@@ -84,13 +84,25 @@ each mutant with the suites that exercise the crate, and fails when a crate's sc
 below its threshold. Scores and the list of known equivalent mutants are recorded below;
 the nightly workflow runs it and uploads `mutants.out`.
 
-Scores at the end of the hardening pass (2026-10-19), score = (caught + timeout) / viable:
+Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
+2026-10-21), score = (caught + timeout) / viable:
 
 | Crate | Viable mutants | Caught | Missed | Score | Threshold |
 | --- | --- | --- | --- | --- | --- |
 | `sabiko_borrowck` | 295 | 267 | 28 | 90.5% | 90 |
 | `sabiko_codegen` | 244 | 233 | 11 | 95.5% | 95 |
-| `sabiko_types` | 420 | 420 | 0 | 100% | 99 |
+| `sabiko_types` | 413 | 407 | 6 | 98.5% | 98 |
+
+The `sabiko_types` row first read 420 of 420, which the first nightly run did not
+reproduce: with the same test packages it measured 281 of 420 (66.9%). Constant evaluation
+had almost no value-level tests and several error-recovery paths none at all. A table of
+constants checked against rustc's values and UI fixtures for error propagation and
+divergence kill all but six survivors, and writing them found three bugs (see Properties).
+The six are equivalent: `(max << 1) | 1` and the sign-extension `|` equal their `^`
+mutants because the bits they combine never overlap; the `op.is_comparison()` and
+float-cast `p.is_integer()` guards are only reached by programs typeck rejects; a
+parenthesised callee's recorded type is never read by a later stage; and `check_if`'s
+`(_, !)` arm returns what the general arm returns, since `!` coerces to anything.
 
 The first run found 43 and 28 survivors in the borrow checker and the backend; 32 were
 real gaps and got killing tests, among them three borrow-checker rules no test exercised
