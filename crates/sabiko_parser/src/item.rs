@@ -125,7 +125,8 @@ impl Parser<'_, '_> {
         self.error_unsupported(what, span, phase)
     }
 
-    /// `#[path args]`; the args are kept as raw text.
+    /// `#[path]`, `#[path(tokens)]` (or `[...]`, `{...}`) or `#[path = tokens]`, like Rust;
+    /// the args are kept as raw text. Delimiters inside the args must nest and match.
     fn parse_attribute(&mut self) -> PResult<Attribute> {
         let start = self.expect(TokenKind::Hash)?.span;
         if self.at(TokenKind::Bang) {
@@ -139,21 +140,16 @@ impl Parser<'_, '_> {
         self.expect(TokenKind::LBracket)?;
         let path = self.parse_path()?;
         let args_start = self.peek().span.start;
-        let mut depth = 0i32;
-        loop {
-            match self.peek_kind() {
-                TokenKind::Eof => return Err(self.error_expected("`]`")),
-                TokenKind::LBracket | TokenKind::LParen | TokenKind::LBrace => depth += 1,
-                TokenKind::RParen | TokenKind::RBrace => depth -= 1,
-                TokenKind::RBracket => {
-                    if depth == 0 {
-                        break;
-                    }
-                    depth -= 1;
-                }
-                _ => {}
+        match self.peek_kind() {
+            TokenKind::RBracket => {}
+            TokenKind::Eq => {
+                self.bump();
+                self.skip_attr_tokens(false)?;
             }
-            self.bump();
+            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                self.skip_attr_tokens(true)?;
+            }
+            _ => return Err(self.error_expected("`(`, `[`, `{`, `=` or `]`")),
         }
         let args_end = self.peek().span.start;
         let args = self.src[args_start as usize..args_end as usize]
@@ -165,6 +161,35 @@ impl Parser<'_, '_> {
             args,
             span: self.span_from(start),
         })
+    }
+
+    /// Skips attribute args up to the closing `]`. With `single_group` the args are one
+    /// delimited group and skipping stops after its closer; the caller expects the `]`.
+    fn skip_attr_tokens(&mut self, single_group: bool) -> PResult<()> {
+        let mut closers: Vec<TokenKind> = Vec::new();
+        loop {
+            let kind = self.peek_kind();
+            match kind {
+                TokenKind::Eof => return Err(self.error_expected("`]`")),
+                TokenKind::RBracket if closers.is_empty() => return Ok(()),
+                TokenKind::LParen => closers.push(TokenKind::RParen),
+                TokenKind::LBracket => closers.push(TokenKind::RBracket),
+                TokenKind::LBrace => closers.push(TokenKind::RBrace),
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    match closers.pop() {
+                        Some(expected) if expected == kind => {}
+                        Some(expected) => return Err(self.error_expected(expected.describe())),
+                        None => return Err(self.error_expected("`]`")),
+                    }
+                    if single_group && closers.is_empty() {
+                        self.bump();
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+            self.bump();
+        }
     }
 
     pub(crate) fn parse_ident(&mut self) -> PResult<Ident> {

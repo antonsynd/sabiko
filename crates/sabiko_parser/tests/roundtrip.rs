@@ -306,7 +306,9 @@ fn item() -> impl Strategy<Value = Item> {
         prop_oneof![
             Just(String::new()),
             Just("(Copy, Clone)".to_owned()),
-            Just("(name = \"x\")".to_owned())
+            Just("(name = \"x\")".to_owned()),
+            Just("[a{b(c)}]".to_owned()),
+            Just("= \"x\"".to_owned())
         ]
         .prop_map(|args| Attribute {
             path: path("derive"),
@@ -569,5 +571,37 @@ fn cast_before_lt_roundtrips() {
         strip_parens_file(&mut parsed);
         assert_eq!(dump(&parsed), dump(&file), "source:\n{src}");
         assert_eq!(pretty(&parsed), src, "printer is not a fixpoint");
+    }
+}
+
+/// Regression (nightly fuzz, `parse` target): `#[d s {)]` parsed with args `s {)` and
+/// printed as `#[ds {)]`, which re-parses with the path `ds`. Rust's attribute grammar is
+/// enforced now; every accepted shape prints back unchanged.
+#[test]
+fn attribute_args_follow_rust_and_roundtrip() {
+    for src in [
+        "#[d]\nstruct A;\n",
+        "#[d(x, y)]\nstruct A;\n",
+        "#[d[a{b(c)}]]\nstruct A;\n",
+        "#[d{x}]\nstruct A;\n",
+        "#[d = \"x\"]\nstruct A;\n",
+        "#[d = f(a, [b])]\nstruct A;\n",
+    ] {
+        let mut sink = DiagnosticSink::new();
+        let file = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+        assert!(!sink.has_errors(), "{src}: {:#?}", sink.diagnostics());
+        assert_eq!(pretty(&file), src);
+    }
+    for src in [
+        "#[d s {)]struct m{}",
+        "#[d s]\nstruct A;\n",
+        "#[d(x) y]\nstruct A;\n",
+        "#[d(x]]\nstruct A;\n",
+        "#[d)]\nstruct A;\n",
+        "#[d = (]\nstruct A;\n",
+    ] {
+        let mut sink = DiagnosticSink::new();
+        let _ = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+        assert!(sink.has_errors(), "{src} should be rejected");
     }
 }

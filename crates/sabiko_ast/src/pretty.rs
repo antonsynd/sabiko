@@ -58,7 +58,13 @@ impl Printer {
             self.newline();
         }
         for a in attrs {
-            let _ = write!(self.out, "#[{}{}]", path_str(&a.path), a.args);
+            // `#[derive(Copy)]` but `#[doc = "x"]`: a space keeps `=` args off the path.
+            let sep = if a.args.starts_with(['(', '[', '{']) || a.args.is_empty() {
+                ""
+            } else {
+                " "
+            };
+            let _ = write!(self.out, "#[{}{sep}{}]", path_str(&a.path), a.args);
             self.newline();
         }
     }

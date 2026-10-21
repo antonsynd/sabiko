@@ -1,0 +1,13 @@
+// Attribute argument shapes that Rust accepts on these attributes; the parser's
+// round-trip tests also cover `#[path[...]]` and `#[path{...}]`.
+#[derive(Copy, Clone)]
+struct A;
+
+#[allow(dead_code)]
+#[doc = "a unit struct"]
+struct B;
+
+#[cfg_attr(test, derive(Clone))]
+struct C;
+
+fn Main() {}

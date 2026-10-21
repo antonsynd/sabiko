@@ -1,0 +1,28 @@
+[E0100] Error: expected `(`, `[`, `{`, `=` or `]`, found identifier `s`
+   ╭─[ tests/ui/parse/attribute_args.sabi:3:10 ]
+   │
+ 3 │ #[derive s] //~ ERROR E0100 expected `(`, `[`, `{`, `=` or `]`, found identifier `s`
+   │          ┬  
+   │          ╰── expected `(`, `[`, `{`, `=` or `]` here
+───╯
+[E0100] Error: expected `]`, found identifier `Clone`
+   ╭─[ tests/ui/parse/attribute_args.sabi:6:16 ]
+   │
+ 6 │ #[derive(Copy) Clone] //~ ERROR E0100 expected `]`, found identifier `Clone`
+   │                ──┬──  
+   │                  ╰──── expected `]` here
+───╯
+[E0100] Error: expected `)`, found `]`
+   ╭─[ tests/ui/parse/attribute_args.sabi:9:14 ]
+   │
+ 9 │ #[derive(Copy]] //~ ERROR E0100 expected `)`, found `]`
+   │              ┬  
+   │              ╰── expected `)` here
+───╯
+[E0100] Error: expected `}`, found `)`
+    ╭─[ tests/ui/parse/attribute_args.sabi:12:10 ]
+    │
+ 12 │ #[derive{)] //~ ERROR E0100 expected `}`, found `)`
+    │          ┬  
+    │          ╰── expected `}` here
+────╯
