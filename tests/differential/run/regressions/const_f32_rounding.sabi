@@ -1,0 +1,15 @@
+// Minimal reproducer: constants typed `f32` were evaluated in f64 without rounding, so
+// `0.1f32 as f64` printed 0.1 and `16777217.0` (not representable in f32) kept its value.
+const WIDENED: f64 = 0.1f32 as f64;
+const UNREPRESENTABLE: f32 = 16777217.0;
+const VIA_F32: f64 = UNREPRESENTABLE as f64;
+const SUM: f64 = (16777216.0f32 + 1.0) as f64;
+const THIRD: f32 = 1.0 / 3.0;
+
+fn Main() {
+    PrintLine(WIDENED);
+    PrintLine(VIA_F32);
+    PrintLine(SUM);
+    PrintLine(THIRD as f64);
+    PrintLine(UNREPRESENTABLE);
+}

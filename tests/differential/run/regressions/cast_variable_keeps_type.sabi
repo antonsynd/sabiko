@@ -1,0 +1,15 @@
+// Minimal reproducer: an integer variable cast with `as` took the cast's type, so
+// `let t = 300; t as u8` was rejected as an out-of-range `u8` literal. Only a literal
+// operand takes the target type; `t` is an `i32` and the cast wraps.
+fn Main() {
+    let t = 300;
+    PrintLine(t as u8);
+    let n = -1;
+    PrintLine(n as u32);
+    let viaBlock = { let a = 260; a } as u8;
+    PrintLine(viaBlock);
+    let viaIf = (if t > 0 { 511 } else { 0 }) as u8;
+    PrintLine(viaIf);
+    let f = 2.5;
+    PrintLine(f as f32);
+}

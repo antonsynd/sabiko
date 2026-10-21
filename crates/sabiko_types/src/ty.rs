@@ -102,16 +102,6 @@ impl Ty {
     }
 
     #[must_use]
-    pub fn is_float(&self) -> bool {
-        self.as_prim().is_some_and(PrimTy::is_float)
-    }
-
-    #[must_use]
-    pub fn is_numeric(&self) -> bool {
-        self.as_prim().is_some_and(PrimTy::is_numeric)
-    }
-
-    #[must_use]
     pub fn is_bool(&self) -> bool {
         matches!(self, Ty::Prim(PrimTy::Bool))
     }

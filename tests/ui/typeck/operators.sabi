@@ -21,6 +21,7 @@ fn Main(p: P, q: P, s: &str, b: bool) {
     let r = 1.0 & 2.0; //~ ERROR E0306 binary operation `&` cannot be applied to type `{float}`
     let t = b << 1; //~ ERROR E0306 binary operation `<<` cannot be applied to type `bool`
     let u = 1 << 2.0; //~ ERROR E0306 binary operation `<<` cannot be applied to type `{float}`
+    let ff = 1.5f64 >> 1; //~ ERROR E0306 binary operation `>>` cannot be applied to type `f64`
     let v = s + s; //~ ERROR E0306 binary operation `+` cannot be applied to type `&str`
     let w = 'a' - 'b'; //~ ERROR E0306 binary operation `-` cannot be applied to type `char`
     let x = () / (); //~ ERROR E0306 binary operation `/` cannot be applied to type `()`

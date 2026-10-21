@@ -1,0 +1,49 @@
+// Programs that must type-check cleanly: divergence carried across blocks and `if`
+// branches, non-`derive` attributes, inferred referents and a parenthesised callee.
+#[allow(dead_code)]
+struct Unused;
+
+fn AfterPanic() -> i32 {
+    Panic("stop");
+    let after = { 1 };
+}
+
+fn BothReturn(b: bool) -> i32 {
+    if b {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+fn BothReturnStatement(b: bool) -> i32 {
+    if b {
+        return 1;
+    } else {
+        return 2;
+    };
+    let after = 3;
+}
+
+fn ElseReturns(b: bool) -> i32 {
+    let v = if b { 1 } else { return 2; };
+    v
+}
+
+fn InferredReferent() -> u8 {
+    let r: &_ = &5u8;
+    *r
+}
+
+fn Twice(x: i32) -> i32 {
+    x * 2
+}
+
+fn ParenCallee() -> i32 {
+    (Twice)(4)
+}
+
+fn Main() {
+    PrintLine(BothReturn(true) + BothReturnStatement(false) + ElseReturns(false) + ParenCallee());
+    PrintLine(InferredReferent());
+}

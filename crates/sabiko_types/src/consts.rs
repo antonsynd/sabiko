@@ -163,12 +163,38 @@ impl Evaluator<'_, '_> {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn eval(&mut self, expr: &Expr, body: &BodyTypes) -> Result<ConstValue, ConstError> {
         let ty = body.expr_ty(expr.id).clone();
+        // An error type comes from a mistake reported elsewhere, such as an unresolved
+        // declared type on a constant this one reads: fail without a second diagnostic.
+        if ty.is_error() {
+            return Err(ConstError {
+                span: expr.span,
+                code: ErrorCode::CONST_EVAL_FAILED,
+                message: String::new(),
+                silent: true,
+            });
+        }
+        let v = self.eval_kind(expr, &ty, body)?;
+        // Floats are computed in f64; an `f32` result must hold exactly what an f32 can.
+        // Rounding each operation's f64 result is exact f32 arithmetic for `+ - * /`
+        // (f64 has more than 2 * 24 + 2 bits) and `%` is exact in both.
+        Ok(match (v, ty.as_prim()) {
+            (ConstValue::Float(f), Some(PrimTy::F32)) => ConstValue::Float(f64::from(f as f32)),
+            (v, _) => v,
+        })
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn eval_kind(
+        &mut self,
+        expr: &Expr,
+        ty: &Ty,
+        body: &BodyTypes,
+    ) -> Result<ConstValue, ConstError> {
         match &expr.kind {
             ExprKind::Lit(lit) => Ok(match lit {
-                Lit::Int { value, .. } => int_from_u128(*value, &ty),
+                Lit::Int { value, .. } => int_from_u128(*value, ty),
                 Lit::Float { text, .. } => {
                     let f = sabiko_lexer::literal::parse_float(text)
                         .map_err(|_| failed(expr.span, "invalid float literal"))?;
@@ -209,10 +235,10 @@ impl Evaluator<'_, '_> {
                     (UnOp::Neg, ConstValue::Float(f)) => Ok(ConstValue::Float(-f)),
                     (UnOp::Not, ConstValue::Bool(b)) => Ok(ConstValue::Bool(!b)),
                     (UnOp::Not, ConstValue::Int(i)) => Ok(ConstValue::Int(!i)),
-                    (UnOp::Not, ConstValue::Uint(u)) => Ok(ConstValue::Uint(truncate(
-                        !u,
-                        prim.expect("unsigned values have a primitive type"),
-                    ))),
+                    (UnOp::Not, ConstValue::Uint(u)) => {
+                        let p = prim.ok_or_else(|| failed(expr.span, "untyped integer"))?;
+                        Ok(ConstValue::Uint(truncate(!u, p)))
+                    }
                     _ => Err(failed(expr.span, "invalid operand for unary operator")),
                 }
             }
@@ -421,7 +447,7 @@ fn binary(
         (BinOp::BitXor, V::Bool(a), V::Bool(b)) => V::Bool(a ^ b),
         (BinOp::Shl, V::Int(a), amount) => {
             let s = shift_amount(&amount, bits, span, "shift left")?;
-            let p = prim.expect("typed integer");
+            let p = prim.ok_or_else(|| failed(span, "untyped integer"))?;
             // Shift in the unsigned domain and sign-extend back.
             let (_, max) = bounds(p);
             let raw = ((a as u128) << s) & ((max << 1) | 1);
@@ -433,7 +459,8 @@ fn binary(
         }
         (BinOp::Shl, V::Uint(a), amount) => {
             let s = shift_amount(&amount, bits, span, "shift left")?;
-            V::Uint(truncate(a << s, prim.expect("typed integer")))
+            let p = prim.ok_or_else(|| failed(span, "untyped integer"))?;
+            V::Uint(truncate(a << s, p))
         }
         (BinOp::Shr, V::Uint(a), amount) => {
             let s = shift_amount(&amount, bits, span, "shift right")?;

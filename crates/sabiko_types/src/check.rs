@@ -355,7 +355,11 @@ impl<'a> FnCtxt<'a> {
                     Some(&lhs_ty)
                 };
                 let rhs_ty = self.check_expr(rhs, rhs_expected);
-                self.check_arith_operands(*op, &lhs_ty, &rhs_ty, expr.span);
+                if matches!(op, BinOp::Shl | BinOp::Shr) {
+                    self.check_shift_operands(*op, &lhs_ty, &rhs_ty, expr.span);
+                } else {
+                    self.check_arith_operands(*op, &lhs_ty, &rhs_ty, expr.span);
+                }
                 Ty::Unit
             }
             ExprKind::Call { callee, args } => self.check_call(callee, args, expr.span),
@@ -432,14 +436,12 @@ impl<'a> FnCtxt<'a> {
                 let from = self.check_expr(inner, None);
                 let from_s = self.shallow(&from);
                 let to_s = self.shallow(&to);
-                // An unsuffixed literal takes the target type when the families agree.
-                if let (Ty::Infer(v), Ty::Prim(p)) = (&from_s, &to_s) {
-                    let kind = self.infer.kind(*v);
-                    if (kind == VarKind::Int && p.is_integer())
-                        || (kind == VarKind::Float && p.is_float())
-                    {
-                        let _ = self.infer.unify(&from_s, &to_s);
-                    }
+                // An unsuffixed literal operand takes the target type when the families
+                // agree (`300 as u8` is out of range), like rustc's castable expectation;
+                // `unify` refuses a mismatched family. A variable keeps its own type.
+                if matches!((&from_s, &to_s), (Ty::Infer(_), Ty::Prim(_))) && is_cast_literal(inner)
+                {
+                    let _ = self.infer.unify(&from_s, &to_s);
                 }
                 self.casts.push(PendingCast {
                     span: expr.span,
@@ -692,31 +694,11 @@ impl<'a> FnCtxt<'a> {
             BinOp::Shl | BinOp::Shr => {
                 let l = self.check_expr(lhs, expected);
                 let r = self.check_expr(rhs, None);
-                let lr = self.shallow(&l);
-                let rr = self.shallow(&r);
-                let l_ok = self.is_integer_like(&lr);
-                let r_ok = self.is_integer_like(&rr);
-                if !l_ok || !r_ok {
-                    let (ls, rs) = (self.ty_str(&lr), self.ty_str(&rr));
-                    let bad = if l_ok { &rs } else { &ls };
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::INVALID_BINARY_OP,
-                            format!(
-                                "binary operation `{}` cannot be applied to type `{bad}`",
-                                op.as_str()
-                            ),
-                        )
-                        .with_label(
-                            span,
-                            format!("no implementation for `{ls} {} {rs}`", op.as_str()),
-                        ),
-                    );
-                    if !l_ok {
-                        return Ty::Error;
-                    }
+                if self.check_shift_operands(op, &l, &r, span) {
+                    l
+                } else {
+                    Ty::Error
                 }
-                l
             }
             _ => {
                 let l = self.check_expr(lhs, expected);
@@ -739,6 +721,34 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// Checks that both operands of `<<` or `>>` (or their compound forms) are integers,
+    /// each of its own type. Returns whether the left one is, so a bad right operand
+    /// still leaves the result typed.
+    fn check_shift_operands(&mut self, op: BinOp, lhs: &Ty, rhs: &Ty, span: Span) -> bool {
+        let lr = self.shallow(lhs);
+        let rr = self.shallow(rhs);
+        let l_ok = self.is_integer_like(&lr);
+        let r_ok = self.is_integer_like(&rr);
+        if !l_ok || !r_ok {
+            let (ls, rs) = (self.ty_str(&lr), self.ty_str(&rr));
+            let bad = if l_ok { &rs } else { &ls };
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::INVALID_BINARY_OP,
+                    format!(
+                        "binary operation `{}` cannot be applied to type `{bad}`",
+                        op.as_str()
+                    ),
+                )
+                .with_label(
+                    span,
+                    format!("no implementation for `{ls} {} {rs}`", op.as_str()),
+                ),
+            );
+        }
+        l_ok
+    }
+
     /// Checks that `+ - * / % & | ^` (and their compound forms) apply to `lhs`'s type.
     /// `rhs` has already been unified with `lhs`.
     fn check_arith_operands(&mut self, op: BinOp, lhs: &Ty, _rhs: &Ty, span: Span) -> bool {
@@ -751,7 +761,6 @@ impl<'a> FnCtxt<'a> {
             (Ty::Prim(p), BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor) => {
                 p.is_integer() || *p == PrimTy::Bool
             }
-            (Ty::Prim(p), BinOp::Shl | BinOp::Shr) => p.is_integer(),
             (Ty::Prim(p), _) => p.is_numeric(),
             _ => false,
         };
@@ -1340,6 +1349,17 @@ impl<'a> FnCtxt<'a> {
             .with_note("only primitive types can be cast with `as`"),
         };
         self.error(d);
+    }
+}
+
+/// Whether the cast target reaches a literal in `expr`, as rustc's expectation does:
+/// through parentheses, `-`, `!` and a block's tail, but not into `if` branches.
+fn is_cast_literal(expr: &Expr) -> bool {
+    match &strip_parens(expr).kind {
+        ExprKind::Lit(_) => true,
+        ExprKind::Unary(_, inner) => is_cast_literal(inner),
+        ExprKind::Block(b) => b.tail.as_deref().is_some_and(is_cast_literal),
+        _ => false,
     }
 }
 

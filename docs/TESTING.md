@@ -59,6 +59,14 @@ reads), and a float formatting tie rounded the wrong way in the runtime. The han
 corpora had caught none of them. Each has a regression program under
 `tests/differential/run/regressions` or `tests/ui`.
 
+The first nightly run (2026-10-20) added two fuzz crashes: the pretty printer glued a
+malformed attribute's arguments to its path (`#[d s {)]` printed as `#[ds {)]`; attributes
+now follow Rust's grammar), and constant evaluation panicked on a shift of a constant whose
+declared type did not resolve. The tests written to kill the type checker's surviving
+mutants then found three more: `f32` constants were computed in f64 without rounding (a
+miscompile), a cast gave its type to any integer variable rather than only to a literal
+operand (`let t = 300; t as u8` was rejected), and `<<=`/`>>=` accepted float operands.
+
 ## Fuzzing
 
 `fuzz/` holds libFuzzer targets (nightly Rust): `parse` (parser plus pretty-printer

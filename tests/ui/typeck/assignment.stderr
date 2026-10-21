@@ -82,3 +82,24 @@
     │     ───┬──  
     │        ╰──── no implementation for `bool - bool`
 ────╯
+[E0306] Error: binary operation `<<` cannot be applied to type `{float}`
+    ╭─[ tests/ui/typeck/assignment.sabi:32:5 ]
+    │
+ 32 │     fl <<= 1; //~ ERROR E0306 binary operation `<<` cannot be applied to type `{float}`
+    │     ────┬───  
+    │         ╰───── no implementation for `{float} << {integer}`
+────╯
+[E0306] Error: binary operation `<<` cannot be applied to type `{float}`
+    ╭─[ tests/ui/typeck/assignment.sabi:33:5 ]
+    │
+ 33 │     x <<= 2.0; //~ ERROR E0306 binary operation `<<` cannot be applied to type `{float}`
+    │     ────┬────  
+    │         ╰────── no implementation for `{integer} << {float}`
+────╯
+[E0306] Error: binary operation `>>` cannot be applied to type `bool`
+    ╭─[ tests/ui/typeck/assignment.sabi:34:5 ]
+    │
+ 34 │     x >>= true; //~ ERROR E0306 binary operation `>>` cannot be applied to type `bool`
+    │     ─────┬────  
+    │          ╰────── no implementation for `{integer} >> bool`
+────╯
