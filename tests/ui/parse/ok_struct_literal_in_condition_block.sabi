@@ -1,0 +1,9 @@
+// Braces lift the struct-literal restriction of a condition, also for the block of an
+// `if` or loop nested in that condition (found by the parser round-trip property test).
+struct Key { X: i32 }
+
+fn Main(flag: bool) {
+    while if flag { let _ = Key { X: 1 }; true } else { false } { }
+    if loop { let _ = Key { X: 2 }; break true; } { }
+    while { Key { X: 3 }.X > 0 } { }
+}

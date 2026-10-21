@@ -418,11 +418,7 @@ impl Parser<'_, '_> {
                 Ok(self.mk(ExprKind::Paren(Box::new(inner)), start))
             }
             TokenKind::LBrace => {
-                let saved = self.no_struct_literal;
-                self.no_struct_literal = false;
-                let block = self.parse_block();
-                self.no_struct_literal = saved;
-                let block = block?;
+                let block = self.parse_block()?;
                 Ok(self.mk(ExprKind::Block(block), start))
             }
             TokenKind::If => self.parse_if(),

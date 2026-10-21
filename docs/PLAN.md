@@ -380,6 +380,16 @@ casts giving their type to integer variables instead of only to literal operands
 `<<=`/`>>=` accepting floats. Each has a regression test. The fuzz job had never built its
 targets (`cargo fuzz build` ran on the pinned stable toolchain); it now uses `+nightly`.
 
+Update (2026-10-21), after the second nightly run: two more bugs, both fixed with
+regression tests. Borrowing a diverging operand (`&break 4;`, `let q = &loop {};`) panicked
+MIR validation, and a struct literal in the block of an `if` nested in a `while` condition
+was rejected by the parser. Known gap left by the first: the type checker types `&e` as `!`
+when `e` diverges, where rustc types it `&!`. Sabiko therefore accepts some programs rustc
+rejects (`let q: &Point = &loop {};`, `Pass(&return 1)`, `fn Main() { &mut loop {} }`) and
+rejects one rustc accepts (`*&mut return 9`, E0309). None of these miscompiles, since the
+code after the borrow is unreachable. Typing it `&!` needs the backend to handle `&!`
+locals, which it rejects today (E0500).
+
 ### Phase 5: Data types
 
 Work

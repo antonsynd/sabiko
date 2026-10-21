@@ -631,12 +631,18 @@ impl<'a> Builder<'a> {
                 mutable,
                 expr: inner,
             } => {
-                let place = self.as_place(inner);
-                self.assign(
-                    dest.clone(),
-                    Rvalue::Ref(Mutability::from_bool(*mutable), place),
-                    span,
-                );
+                // `&loop {}`, `&break 4`: the type checker types the borrow of a diverging
+                // operand `!`, and there is no value to borrow.
+                if self.ty(expr).is_never() {
+                    self.lower_expr_discard(inner);
+                } else {
+                    let place = self.as_place(inner);
+                    self.assign(
+                        dest.clone(),
+                        Rvalue::Ref(Mutability::from_bool(*mutable), place),
+                        span,
+                    );
+                }
             }
             ExprKind::Cast(inner, _) => {
                 let target = self.ty(expr).clone();
@@ -932,7 +938,9 @@ impl<'a> Builder<'a> {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
                             let op = self.coerced_operand(init);
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
-                        } else if let Some((mutable, inner)) = Self::ref_of_temporary(init) {
+                        } else if let Some((mutable, inner)) =
+                            Self::ref_of_temporary(init).filter(|_| !self.ty(init).is_never())
+                        {
                             // Temporary lifetime extension: in `let r = &<rvalue>;` the
                             // temporary lives as long as `r`'s block, as in Rust.
                             let ty = self.ty(inner).clone();

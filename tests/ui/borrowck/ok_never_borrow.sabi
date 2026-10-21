@@ -1,0 +1,32 @@
+// Borrowing a diverging operand (`&loop {}`, `&break 4`, `&return`) has no value to
+// borrow: the lowering only evaluates the operand, and the block after it is unreachable.
+// Found by the pipeline fuzz targets (`let q = &loop {};`, `&break 4;` in a loop).
+fn LetLoop() {
+    let q = &loop {};
+}
+
+fn LetReturn(flag: bool) -> i32 {
+    if flag {
+        let r = &mut return 1;
+    }
+    2
+}
+
+fn BreakInLoop(flag: bool) -> i32 {
+    let c = loop {
+        if flag {
+            &break 3;
+        }
+        &mut break 4;
+    };
+    c
+}
+
+fn Discarded() {
+    &mut loop {};
+}
+
+fn Main() {
+    let _ = LetReturn(true);
+    let _ = BreakInLoop(false);
+}

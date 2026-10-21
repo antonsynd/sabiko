@@ -67,6 +67,16 @@ mutants then found three more: `f32` constants were computed in f64 without roun
 miscompile), a cast gave its type to any integer variable rather than only to a literal
 operand (`let t = 300; t as u8` was rejected), and `<<=`/`>>=` accepted float operands.
 
+The second nightly run (2026-10-21) found two more. Both pipeline fuzz targets hit a MIR
+validation panic on the borrow of a diverging operand (`&break 4;` in a loop, `let q =
+&loop {};`): the type checker types such a borrow `!`, and the builder still assigned it
+to the destination (`tests/ui/borrowck/ok_never_borrow.sabi`,
+`tests/differential/run/regressions/borrow_of_diverging.sabi`). The parser round-trip
+property found a struct literal in the block of an `if` nested in a `while` condition
+rejected (`while if c { let _ = A {}; } {}`): the condition's struct-literal restriction
+reached the block, where rustc lifts it at every brace
+(`tests/ui/parse/ok_struct_literal_in_condition_block.sabi` and a proptest seed).
+
 ## Fuzzing
 
 `fuzz/` holds libFuzzer targets (nightly Rust): `parse` (parser plus pretty-printer

@@ -1,0 +1,26 @@
+// Minimal reproducer: `&break 4;` in a loop (and `let q = &loop {};`) failed MIR
+// validation, assigning a borrow typed `!` to a place of the operand's own type. The
+// borrow of a diverging operand only evaluates the operand.
+fn BreakRef(flag: bool) -> i32 {
+    let c = loop {
+        if flag {
+            &break 4;
+        }
+        &mut break 5;
+    };
+    c
+}
+
+fn ReturnRef(flag: bool) -> i32 {
+    if flag {
+        let r = &return 7;
+    }
+    8
+}
+
+fn Main() {
+    PrintLine(BreakRef(true));
+    PrintLine(BreakRef(false));
+    PrintLine(ReturnRef(true));
+    PrintLine(ReturnRef(false));
+}
