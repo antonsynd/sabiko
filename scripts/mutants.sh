@@ -20,9 +20,9 @@
 # `git checkout -- <file>` restores it.
 #
 # Runs on macOS's bash 3.2 (no associative arrays, no empty "${a[@]}" under `set -u`). When
-# rustup is installed, cargo runs as `rustup run <channel from rust-toolchain.toml> cargo`,
-# so a Homebrew or distro `cargo` earlier on PATH cannot silently replace the pinned
-# toolchain (cargo-mutants builds every mutant with the cargo that launched it).
+# rustup is installed, the bin/ of the toolchain pinned in rust-toolchain.toml goes first
+# on PATH, so a Homebrew or distro `cargo` earlier on PATH cannot silently replace it:
+# cargo-mutants runs `cargo build` and `cargo test` through PATH for every mutant.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -55,19 +55,17 @@ fi
 
 channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
 if command -v rustup >/dev/null 2>&1; then
-    cargo=(rustup run "$channel" cargo)
-    if ! "${cargo[@]}" --version >/dev/null 2>&1; then
+    if ! pinned_cargo=$(rustup which --toolchain "$channel" cargo 2>/dev/null); then
         echo "mutants.sh: the pinned toolchain is missing: rustup toolchain install $channel" >&2
         exit 1
     fi
-else
-    cargo=(cargo)
-    if ! cargo --version | grep -q "^cargo $channel "; then
-        echo "mutants.sh: warning: $(cargo --version) is not the pinned $channel" \
-            "(rust-toolchain.toml); install rustup to get the pinned toolchain" >&2
-    fi
+    PATH="$(dirname "$pinned_cargo"):$PATH"
+    export PATH
+elif ! cargo --version | grep -q "^cargo $channel "; then
+    echo "mutants.sh: warning: $(cargo --version) is not the pinned $channel" \
+        "(rust-toolchain.toml); install rustup to get the pinned toolchain" >&2
 fi
-if ! "${cargo[@]}" mutants --version >/dev/null 2>&1; then
+if ! cargo mutants --version >/dev/null 2>&1; then
     echo "cargo-mutants is not installed: cargo install cargo-mutants --locked" >&2
     exit 1
 fi
@@ -90,7 +88,7 @@ for crate in "${crates[@]}"; do
     # The build timeout is fixed rather than derived from the baseline: with a warm
     # target/ the baseline builds in no time and the derived limit kills every mutant build.
     rc=0
-    "${cargo[@]}" mutants --in-place --build-timeout 900 -p "$crate" \
+    cargo mutants --in-place --build-timeout 900 -p "$crate" \
         --test-package "$packages" -o "$out" ${extra_args[@]+"${extra_args[@]}"} || rc=$?
     if [ "$rc" -ne 0 ] && [ "$rc" -lt 2 ] || [ "$rc" -gt 4 ]; then
         echo "mutants.sh: cargo mutants failed for $crate (exit $rc)" >&2

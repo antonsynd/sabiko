@@ -86,14 +86,16 @@ fixpoint), `pipeline` (the whole pipeline through IL on arbitrary text) and
 budget; the nightly workflow runs each target and uploads any crash as an artifact. A crash
 is a compiler bug: minimise it, add the input as a UI or no-panic regression test, fix.
 
-Setup: `rustup toolchain install nightly --profile minimal && rustup run nightly cargo
-install cargo-fuzz --locked`. The script calls `rustup run nightly cargo` rather than
-`cargo +nightly`, because `+toolchain` only works when the `cargo` first on `PATH` is
-rustup's proxy; with Homebrew's `rust` formula (or a distro Rust) ahead of it, `cargo
-+nightly` fails with "no such command: `+nightly`". The same shadowing makes plain `cargo`
-ignore `rust-toolchain.toml`; `rustup which cargo` shows where rustup's cargo lives, and on
-Homebrew putting `/opt/homebrew/opt/rustup/bin` first on `PATH` in the shell profile fixes
-it for every command.
+Setup: `rustup toolchain install nightly --profile minimal && cargo install cargo-fuzz
+--locked`. The script puts the nightly toolchain's own `bin/` (`rustup which --toolchain
+nightly cargo`) first on `PATH` rather than calling `cargo +nightly`: `+toolchain` only
+works when the `cargo` first on `PATH` is rustup's proxy, and with Homebrew's `rust` formula
+(or a distro Rust) ahead of it `cargo +nightly` fails with "no such command: `+nightly`".
+`rustup run nightly cargo fuzz` is not enough either, because cargo-fuzz runs `cargo build`
+through `PATH` and finds the Homebrew cargo again, which rejects the `-Z` flags. The same
+shadowing makes plain `cargo` ignore `rust-toolchain.toml`; on Homebrew, putting
+`/opt/homebrew/opt/rustup/bin` first on `PATH` in the shell profile fixes it for every
+command.
 
 ## Mutation testing
 
@@ -106,8 +108,8 @@ the nightly workflow runs it and uploads `mutants.out`.
 Setup: `cargo install cargo-mutants --locked`, then `source tools/env.sh` and export
 `SABIKO_REQUIRE_DOTNET=1` so the .NET suites fail rather than skip (a skipped suite lowers
 the `sabiko_codegen` score). The script runs on macOS's stock bash 3.2 and, when rustup is
-installed, runs cargo as `rustup run <pinned channel> cargo`, so a Homebrew `cargo` on
-`PATH` does not replace the pinned toolchain. It mutates sources in place for hours: do not
+installed, puts the pinned toolchain's `bin/` first on `PATH`, so a Homebrew `cargo` does
+not replace the pinned toolchain for the builds and tests cargo-mutants runs. It mutates sources in place for hours: do not
 edit or build in `crates/` while it runs, and run fuzzing from a separate `git worktree`.
 
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on

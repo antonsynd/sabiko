@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Fuzz one libFuzzer target for a fixed time budget (needs rustup, the nightly toolchain
-# and cargo-fuzz: `rustup toolchain install nightly --profile minimal && rustup run nightly
-# cargo install cargo-fuzz --locked`).
+# and cargo-fuzz: `rustup toolchain install nightly --profile minimal && cargo install
+# cargo-fuzz --locked`).
 #
 #   scripts/fuzz.sh [target] [seconds]        default: pipeline, 300
 #
-# Every cargo call goes through `rustup run nightly cargo`, not `cargo +nightly`: the
-# `+toolchain` syntax only works when the `cargo` first on PATH is rustup's proxy, and a
-# Homebrew or distro Rust ahead of it answers "no such command: `+nightly`".
+# The script puts the nightly toolchain's own bin/ first on PATH rather than using
+# `cargo +nightly`: `+toolchain` only works when the `cargo` first on PATH is rustup's
+# proxy, and a Homebrew or distro Rust ahead of it answers "no such command: `+nightly`".
+# `rustup run nightly cargo` is not enough either: cargo-fuzz runs `cargo build` through
+# PATH, which finds the Homebrew cargo again and rejects the nightly-only flags.
 #
 # 1. Seeds fuzz/corpus/<target>/ with every .sabi under tests/, crates/*/tests/fixtures and
 #    examples/ (the corpus directory is gitignored; libFuzzer adds to it as it runs).
@@ -28,19 +30,19 @@ if [[ ! -f "$fuzz_dir/fuzz_targets/$target.rs" ]]; then
     ls "$fuzz_dir/fuzz_targets" | sed 's/\.rs$//; s/^/  /' >&2
     exit 2
 fi
-nightly_cargo() { rustup run nightly cargo "$@"; }
 if ! command -v rustup >/dev/null 2>&1; then
     echo "fuzz.sh: rustup is required (https://rustup.rs, or \`brew install rustup\`)" >&2
     exit 2
 fi
-if ! nightly_cargo --version >/dev/null 2>&1; then
+if ! nightly_cargo="$(rustup which --toolchain nightly cargo 2>/dev/null)"; then
     echo "fuzz.sh: the nightly toolchain is required:" >&2
     echo "  rustup toolchain install nightly --profile minimal" >&2
     exit 2
 fi
-if ! nightly_cargo fuzz --version >/dev/null 2>&1; then
-    echo "fuzz.sh: cargo-fuzz is required:" >&2
-    echo "  rustup run nightly cargo install cargo-fuzz --locked" >&2
+nightly_bin="$(dirname "$nightly_cargo")"
+export PATH="$nightly_bin:$PATH"
+if ! cargo fuzz --version >/dev/null 2>&1; then
+    echo "fuzz.sh: cargo-fuzz is required: cargo install cargo-fuzz --locked" >&2
     exit 2
 fi
 
@@ -63,7 +65,7 @@ cd "$fuzz_dir"
 # exits non-zero on a crash; `|| status=$?` keeps our own reporting in control.
 status=0
 # cargo-fuzz itself points libFuzzer's -artifact_prefix at fuzz/artifacts/<target>/.
-nightly_cargo fuzz run "$target" "$corpus" -- \
+cargo fuzz run "$target" "$corpus" -- \
     -max_total_time="$seconds" -timeout=30 -rss_limit_mb=4096 || status=$?
 
 # --- 3. report crashes --------------------------------------------------------------------
@@ -79,11 +81,11 @@ echo "fuzz.sh: $target: libFuzzer exited with status $status; ${#crashes[@]} art
 for c in "${crashes[@]}"; do
     [[ "$c" == *.min ]] && continue # a minimized copy from an earlier run
     echo "  reproducer: $c"
-    echo "  reproduce with: rustup run nightly cargo fuzz run $target ${c#"$repo/"}"
+    echo "  reproduce with: PATH=\"$nightly_bin:\$PATH\" cargo fuzz run $target ${c#"$repo/"}"
     minimized="$c.min"
     # tmin reruns the target many times; a crash whose minimization fails (e.g. a
     # timeout) still gets reported, with the original input.
-    if nightly_cargo fuzz tmin -r 2000 "$target" "$c" >"$artifacts/tmin.log" 2>&1; then
+    if cargo fuzz tmin -r 2000 "$target" "$c" >"$artifacts/tmin.log" 2>&1; then
         # cargo fuzz tmin writes `minimized-from-<hash>` next to the artifact.
         newest="$(ls -t "$artifacts"/minimized-from-* 2>/dev/null | head -n1 || true)"
         if [[ -n "$newest" ]]; then
@@ -101,10 +103,10 @@ for c in "${crashes[@]}"; do
         [[ -f "$input" ]] || continue
         echo "  ---- program from ${input##*/} ----"
         # The reproducer crashes the target, so these pipelines fail by design.
-        SABIKO_FUZZ_PRINT=1 nightly_cargo fuzz run "$target" "$input" 2>&1 \
+        SABIKO_FUZZ_PRINT=1 cargo fuzz run "$target" "$input" 2>&1 \
             | sed -n '/^---- program ----$/,/^---- end ----$/{/^---- /d;p}' | head -n 200 || true
         echo "  ---- panic ----"
-        nightly_cargo fuzz run "$target" "$input" 2>&1 | grep -A2 'panicked at' | head -n 6 || true
+        cargo fuzz run "$target" "$input" 2>&1 | grep -A2 'panicked at' | head -n 6 || true
         echo "  -------------------------"
     done
 done
