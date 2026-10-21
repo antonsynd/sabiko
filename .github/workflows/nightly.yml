@@ -26,11 +26,14 @@ jobs:
             fuzz
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
+      # `+nightly`: rust-toolchain.toml pins the stable toolchain for the whole tree,
+      # which overrides the default the step above installs.
       - name: Build the fuzz targets
-        run: cd fuzz && cargo fuzz build
+        run: cd fuzz && cargo +nightly fuzz build
       # Every target runs even after an earlier one crashes (`if: always()`), so one
       # night reports every bug it found; the job still fails because a step failed.
       - name: Fuzz the whole pipeline on arbitrary text
+        if: always()
         run: scripts/fuzz.sh pipeline 600
       - name: Fuzz the parser
         if: always()

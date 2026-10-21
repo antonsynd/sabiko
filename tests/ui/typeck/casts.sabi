@@ -21,4 +21,8 @@ fn Main(p: P, r: &i32, s: &str, u: ()) {
     let o = 300 as u8; //~ ERROR E0314 literal out of range for `u8`
     let p = -1 as u32; //~ ERROR E0307 cannot apply unary operator `-` to type `u32`
     let q = -1 as i64;
+    let r = { let x = 1; 300 } as u8; //~ ERROR E0314 literal out of range for `u8`
+    let s = !256 as u8; //~ ERROR E0314 literal out of range for `u8`
+    let t = 300;
+    let v = t as u8;
 }

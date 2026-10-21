@@ -1,0 +1,28 @@
+[E0201] Error: cannot find type `Point` in this scope
+   ╭─[ tests/ui/typeck/const_error_type.sabi:4:10 ]
+   │
+ 4 │ const A: Point = 1usize; //~ ERROR E0201 cannot find type `Point`
+   │          ──┬──  
+   │            ╰──── not found in this scope
+───╯
+[E0201] Error: cannot find type `Point` in this scope
+   ╭─[ tests/ui/typeck/const_error_type.sabi:5:10 ]
+   │
+ 5 │ const B: Point = A << 0; //~ ERROR E0201 cannot find type `Point`
+   │          ──┬──  
+   │            ╰──── not found in this scope
+───╯
+[E0201] Error: cannot find type `Point` in this scope
+   ╭─[ tests/ui/typeck/const_error_type.sabi:6:10 ]
+   │
+ 6 │ const C: Point = !A; //~ ERROR E0201 cannot find type `Point`
+   │          ──┬──  
+   │            ╰──── not found in this scope
+───╯
+[E0201] Error: cannot find type `Point` in this scope
+   ╭─[ tests/ui/typeck/const_error_type.sabi:7:10 ]
+   │
+ 7 │ const D: Point = (A << 1) + 2; //~ ERROR E0201 cannot find type `Point`
+   │          ──┬──  
+   │            ╰──── not found in this scope
+───╯

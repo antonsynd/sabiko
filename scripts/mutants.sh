@@ -29,12 +29,14 @@ declare -A TEST_PACKAGES=(
 )
 # Percent, integer. Recorded 2026-10-19: borrowck 90.5% (262 caught + 5 timeouts of 295
 # viable; the 28 survivors are unused helpers or unobservable branches), codegen 95.5%
-# (233 of 244; 11 survivors, dead branches given the MIR the builder produces), types
-# 100% (420 of 420).
+# (233 of 244; 11 survivors, dead branches given the MIR the builder produces). Types,
+# recorded 2026-10-21: 98.5% (407 of 413; the 6 survivors are the equivalent mutants listed
+# in docs/TESTING.md). The 100% recorded for types on 2026-10-19 did not reproduce: the
+# first nightly run measured 66.9%, see docs/PLAN.md.
 declare -A MINIMUM_SCORE=(
     [sabiko_borrowck]=90
     [sabiko_codegen]=95
-    [sabiko_types]=99
+    [sabiko_types]=98
 )
 
 crates=("$@")

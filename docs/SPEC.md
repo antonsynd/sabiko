@@ -12,6 +12,9 @@ names which phase owns which section.
 
 ## 2. Syntax (Phase 1, extended by 5, 6, 9)
 - Items: `fn`, `struct`, `enum`, `trait`, `impl`, `const`, `mod`, `use`, `extern "dotnet"`
+- Outer attributes as in Rust: `#[path]`, `#[path(tokens)]` (or `[...]`, `{...}`) and
+  `#[path = tokens]`, with delimiters that nest and match (E0100 otherwise); only
+  `derive(Copy, Clone)` is interpreted so far
 - Statements and expressions
 - Patterns
 - Types: primitives, references, tuples, arrays, slices, named types, generics
@@ -223,7 +226,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   comparisons, logical operators, casts and references to other constants. Overflow,
   division or remainder by zero, over-wide shifts and cycles between constants are errors
   (E0316); blocks, calls, struct values, references and control flow are not constant
-  expressions yet (E0315).
+  expressions yet (E0315). Values follow Rust exactly: integer casts wrap, float to
+  integer casts saturate (NaN gives 0), and an `f32` constant is rounded to `f32` after
+  every operation, so `0.1f32 as f64` is `0.10000000149011612`.
 
 ### 11.3 Mutability
 

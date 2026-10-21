@@ -1,0 +1,10 @@
+// Regression (nightly fuzz, `pipeline_structured`): a constant whose declared type does
+// not resolve has the error type, and evaluating another constant that shifts or negates
+// it panicked ("typed integer"). The unresolved name is the only diagnostic.
+const A: Point = 1usize; //~ ERROR E0201 cannot find type `Point`
+const B: Point = A << 0; //~ ERROR E0201 cannot find type `Point`
+const C: Point = !A; //~ ERROR E0201 cannot find type `Point`
+const D: Point = (A << 1) + 2; //~ ERROR E0201 cannot find type `Point`
+const E: u32 = A as u32;
+
+fn Main() {}

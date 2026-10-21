@@ -1,4 +1,4 @@
-// Assignment targets must be places (locals, fields, dereferences); compound assignment follows the operator rules.
+// Assignment targets must be places (locals, fields, dereferences); compound assignment follows the operator rules, shifts included.
 struct P {
     X: i32,
 }
@@ -28,5 +28,9 @@ fn Main(mut p: P, r: &mut i32) {
     let mut b = true;
     b -= b; //~ ERROR E0306 binary operation `-` cannot be applied to type `bool`
     x <<= 2u8;
+    let mut fl = 1.5;
+    fl <<= 1; //~ ERROR E0306 binary operation `<<` cannot be applied to type `{float}`
+    x <<= 2.0; //~ ERROR E0306 binary operation `<<` cannot be applied to type `{float}`
+    x >>= true; //~ ERROR E0306 binary operation `>>` cannot be applied to type `bool`
     x -= *r;
 }

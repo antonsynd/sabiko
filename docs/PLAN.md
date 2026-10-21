@@ -364,11 +364,21 @@ construct it still avoids is the implicit two-phase reborrow of a `&mut` local i
 position (`Use(m, m.Field)`), which Sabiko rejects and rustc accepts (known gap since Phase
 3, waits for methods). Fuzzing: three libFuzzer targets, no crashes after the three
 never-type fixes it found; the proptest no-panic suite runs 256 cases per property on every
-CI job and 4096 nightly. Mutation scores: borrowck 90.5%, codegen 95.5%, types 100%, with
+CI job and 4096 nightly. Mutation scores: borrowck 90.5%, codegen 95.5%, types 98.5%, with
 thresholds enforced nightly. Nine compiler bugs were found and fixed in total (see
 `docs/TESTING.md`); the largest fix makes MIR building copy place operands into temporaries
 at operand-evaluation time, as rustc does (decision 36), which repaired a miscompile and
 three false rejections at once.
+
+Update (2026-10-21), after the first nightly run: it measured `sabiko_types` at 66.9%, not
+the 100% recorded above, so that measurement was wrong. New tests bring it to 98.5% and the
+threshold moves from 99 to 98, because the six survivors are equivalent mutants (listed in
+`docs/TESTING.md`; decision 40). The run's two fuzz crashes (the pretty printer's fixpoint
+on a malformed attribute, a const-eval panic on an error-typed operand) are fixed, as are
+three bugs the new tests found: `f32` constants computed without rounding (a miscompile),
+casts giving their type to integer variables instead of only to literal operands, and
+`<<=`/`>>=` accepting floats. Each has a regression test. The fuzz job had never built its
+targets (`cargo fuzz build` ran on the pinned stable toolchain); it now uses `+nightly`.
 
 ### Phase 5: Data types
 

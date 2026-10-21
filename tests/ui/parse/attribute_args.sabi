@@ -1,0 +1,18 @@
+// Attribute arguments follow Rust: nothing, one delimited group, or `= tokens`, with
+// delimiters that nest and match.
+#[derive s] //~ ERROR E0100 expected `(`, `[`, `{`, `=` or `]`, found identifier `s`
+struct A;
+
+#[derive(Copy) Clone] //~ ERROR E0100 expected `]`, found identifier `Clone`
+struct B;
+
+#[derive(Copy]] //~ ERROR E0100 expected `)`, found `]`
+struct C;
+
+#[derive{)] //~ ERROR E0100 expected `}`, found `)`
+struct D;
+
+#[derive(Copy, Clone)]
+struct Ok;
+
+fn Main() {}

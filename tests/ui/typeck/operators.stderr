@@ -117,38 +117,45 @@
     │             ────┬───  
     │                 ╰───── no implementation for `{integer} << {float}`
 ────╯
-[E0306] Error: binary operation `+` cannot be applied to type `&str`
-    ╭─[ tests/ui/typeck/operators.sabi:24:13 ]
+[E0306] Error: binary operation `>>` cannot be applied to type `f64`
+    ╭─[ tests/ui/typeck/operators.sabi:24:14 ]
     │
- 24 │     let v = s + s; //~ ERROR E0306 binary operation `+` cannot be applied to type `&str`
+ 24 │     let ff = 1.5f64 >> 1; //~ ERROR E0306 binary operation `>>` cannot be applied to type `f64`
+    │              ─────┬─────  
+    │                   ╰─────── no implementation for `f64 >> {integer}`
+────╯
+[E0306] Error: binary operation `+` cannot be applied to type `&str`
+    ╭─[ tests/ui/typeck/operators.sabi:25:13 ]
+    │
+ 25 │     let v = s + s; //~ ERROR E0306 binary operation `+` cannot be applied to type `&str`
     │             ──┬──  
     │               ╰──── no implementation for `&str + &str`
 ────╯
 [E0306] Error: binary operation `-` cannot be applied to type `char`
-    ╭─[ tests/ui/typeck/operators.sabi:25:13 ]
+    ╭─[ tests/ui/typeck/operators.sabi:26:13 ]
     │
- 25 │     let w = 'a' - 'b'; //~ ERROR E0306 binary operation `-` cannot be applied to type `char`
+ 26 │     let w = 'a' - 'b'; //~ ERROR E0306 binary operation `-` cannot be applied to type `char`
     │             ────┬────  
     │                 ╰────── no implementation for `char - char`
 ────╯
 [E0306] Error: binary operation `/` cannot be applied to type `()`
-    ╭─[ tests/ui/typeck/operators.sabi:26:13 ]
+    ╭─[ tests/ui/typeck/operators.sabi:27:13 ]
     │
- 26 │     let x = () / (); //~ ERROR E0306 binary operation `/` cannot be applied to type `()`
+ 27 │     let x = () / (); //~ ERROR E0306 binary operation `/` cannot be applied to type `()`
     │             ───┬───  
     │                ╰───── no implementation for `() / ()`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/operators.sabi:28:10 ]
+    ╭─[ tests/ui/typeck/operators.sabi:29:10 ]
     │
- 28 │     y += true; //~ ERROR E0300 mismatched types
+ 29 │     y += true; //~ ERROR E0300 mismatched types
     │          ──┬─  
     │            ╰─── expected `{integer}`, found `bool`
 ────╯
 [E0306] Error: binary operation `-` cannot be applied to type `bool`
-    ╭─[ tests/ui/typeck/operators.sabi:30:5 ]
+    ╭─[ tests/ui/typeck/operators.sabi:31:5 ]
     │
- 30 │     z -= z; //~ ERROR E0306 binary operation `-` cannot be applied to type `bool`
+ 31 │     z -= z; //~ ERROR E0306 binary operation `-` cannot be applied to type `bool`
     │     ───┬──  
     │        ╰──── no implementation for `bool - bool`
 ────╯
