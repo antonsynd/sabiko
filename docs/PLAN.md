@@ -390,6 +390,13 @@ rejects one rustc accepts (`*&mut return 9`, E0309). None of these miscompiles, 
 code after the borrow is unreachable. Typing it `&!` needs the backend to handle `&!`
 locals, which it rejects today (E0500).
 
+Update (2026-10-22), after the third nightly run: the fuzzer overflowed the stack on
+`let r; r = &r;`, which unified a type variable with a reference to itself; unification now
+has an occurs check (E0300, cyclic type of infinite size). The nightly runs measure
+`sabiko_borrowck` at 94.0% (267 of 284 viable), not the 90.5% (267 of 295) recorded from a
+local run: the same mutants are killed, and 11 survivors are unviable in CI. Its threshold
+moves from 90 to 93.
+
 ### Phase 5: Data types
 
 Work
