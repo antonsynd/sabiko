@@ -113,11 +113,11 @@ not replace the pinned toolchain for the builds and tests cargo-mutants runs. It
 edit or build in `crates/` while it runs, and run fuzzing from a separate `git worktree`.
 
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
-2026-10-21), score = (caught + timeout) / viable:
+2026-10-21, `sabiko_borrowck` on 2026-10-22), score = (caught + timeout) / viable:
 
 | Crate | Viable mutants | Caught | Missed | Score | Threshold |
 | --- | --- | --- | --- | --- | --- |
-| `sabiko_borrowck` | 295 | 267 | 28 | 90.5% | 90 |
+| `sabiko_borrowck` | 284 | 267 | 17 | 94.0% | 93 |
 | `sabiko_codegen` | 244 | 233 | 11 | 95.5% | 95 |
 | `sabiko_types` | 413 | 407 | 6 | 98.5% | 98 |
 
@@ -131,6 +131,10 @@ mutants because the bits they combine never overlap; the `op.is_comparison()` an
 float-cast `p.is_integer()` guards are only reached by programs typeck rejects; a
 parenthesised callee's recorded type is never read by a later stage; and `check_if`'s
 `(_, !)` arm returns what the general arm returns, since `!` coerces to anything.
+
+The `sabiko_borrowck` row first read 295 viable and 28 missed, from a local run; every
+nightly run counts 11 of those mutants as unviable, with the same 267 killed, so the row
+now records the nightly measurement and the threshold moves from 90 to 93.
 
 The first run found 43 and 28 survivors in the borrow checker and the backend; 32 were
 real gaps and got killing tests, among them three borrow-checker rules no test exercised

@@ -35,14 +35,15 @@ test_packages() {
     esac
 }
 # Percent, integer. Recorded 2026-10-19: borrowck 90.5% (262 caught + 5 timeouts of 295
-# viable; the 28 survivors are unused helpers or unobservable branches), codegen 95.5%
+# viable; the 28 survivors are unused helpers or unobservable branches; the nightly runs
+# count 11 of them unviable, so 94.0% of 284 since 2026-10-22), codegen 95.5%
 # (233 of 244; 11 survivors, dead branches given the MIR the builder produces). Types,
 # recorded 2026-10-21: 98.5% (407 of 413; the 6 survivors are the equivalent mutants listed
 # in docs/TESTING.md). The 100% recorded for types on 2026-10-19 did not reproduce: the
 # first nightly run measured 66.9%, see docs/PLAN.md.
 minimum_score() {
     case "$1" in
-        sabiko_borrowck) echo 90 ;;
+        sabiko_borrowck) echo 93 ;;
         sabiko_codegen) echo 95 ;;
         sabiko_types) echo 98 ;;
     esac
