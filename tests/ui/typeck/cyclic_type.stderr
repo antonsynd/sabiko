@@ -1,0 +1,36 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/cyclic_type.sabi:6:13 ]
+   │
+ 6 │         r = &r; //~ ERROR E0300 mismatched types
+   │             ─┬  
+   │              ╰── expected `_`, found `&_`
+   │ 
+   │ Note: cyclic type of infinite size
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/cyclic_type.sabi:12:9 ]
+    │
+ 12 │     s = &&s; //~ ERROR E0300 mismatched types
+    │         ─┬─  
+    │          ╰─── expected `_`, found `&&_`
+    │ 
+    │ Note: cyclic type of infinite size
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/cyclic_type.sabi:18:9 ]
+    │
+ 18 │     a = &b; //~ ERROR E0300 mismatched types
+    │         ─┬  
+    │          ╰── expected `_`, found `&&_`
+    │ 
+    │ Note: cyclic type of infinite size
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/cyclic_type.sabi:23:9 ]
+    │
+ 23 │     x = &mut x; //~ ERROR E0300 mismatched types
+    │         ───┬──  
+    │            ╰──── expected `_`, found `&mut _`
+    │ 
+    │ Note: cyclic type of infinite size
+────╯

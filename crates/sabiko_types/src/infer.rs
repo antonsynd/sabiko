@@ -117,6 +117,26 @@ impl InferCtxt {
         }
     }
 
+    /// Whether `v` appears in `ty`. Binding `v` to such a type would make it infinite
+    /// (`let r; r = &r;`), and resolving it would never terminate.
+    fn occurs(&mut self, v: TyVid, ty: &Ty) -> bool {
+        match self.shallow_resolve(ty) {
+            Ty::Infer(w) => self.root(v) == self.root(w),
+            Ty::Ref(_, inner) => self.occurs(v, &inner),
+            _ => false,
+        }
+    }
+
+    /// Whether unifying `a` with `b` fails only because it would build an infinite type.
+    pub fn is_cyclic(&mut self, a: &Ty, b: &Ty) -> bool {
+        match (self.shallow_resolve(a), self.shallow_resolve(b)) {
+            (Ty::Infer(_), Ty::Infer(_)) => false,
+            (Ty::Infer(v), other) | (other, Ty::Infer(v)) => self.occurs(v, &other),
+            (Ty::Ref(_, ia), Ty::Ref(_, ib)) => self.is_cyclic(&ia, &ib),
+            _ => false,
+        }
+    }
+
     fn prim_fits(kind: VarKind, p: PrimTy) -> bool {
         match kind {
             VarKind::General => true,
@@ -152,7 +172,7 @@ impl InferCtxt {
                 let ok = match other {
                     Ty::Prim(p) => Self::prim_fits(kind, *p),
                     Ty::Never => false,
-                    _ => kind == VarKind::General,
+                    _ => kind == VarKind::General && !self.occurs(*v, other),
                 };
                 if ok {
                     self.bind(*v, other.clone());
@@ -205,6 +225,31 @@ mod tests {
             .is_err());
         assert!(cx.unify(&Ty::Never, &Ty::BOOL).is_err());
         assert!(cx.unify(&Ty::Error, &Ty::BOOL).is_ok());
+    }
+
+    #[test]
+    fn occurs_check_rejects_infinite_types() {
+        let mut cx = InferCtxt::new();
+        let v = cx.new_var(VarKind::General);
+        let w = cx.new_var(VarKind::General);
+        cx.unify(&v, &w).unwrap();
+        assert!(cx
+            .unify(&v, &Ty::shared_ref(Ty::shared_ref(w.clone())))
+            .is_err());
+        assert!(cx.unify(&Ty::mut_ref(v.clone()), &v).is_err());
+        assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
+
+        assert!(cx.is_cyclic(&v, &Ty::shared_ref(w.clone())));
+        assert!(cx.is_cyclic(
+            &Ty::mut_ref(Ty::shared_ref(v.clone())),
+            &Ty::mut_ref(w.clone())
+        ));
+        assert!(!cx.is_cyclic(&Ty::shared_ref(v.clone()), &Ty::shared_ref(Ty::BOOL)));
+        assert!(!cx.is_cyclic(&v, &w));
+        assert!(!cx.is_cyclic(&Ty::BOOL, &Ty::shared_ref(v.clone())));
+        let i = cx.new_var(VarKind::Int);
+        let f = cx.new_var(VarKind::Float);
+        assert!(!cx.is_cyclic(&i, &f));
     }
 
     /// `!` coerces to anything but never unifies: a variable stays open, so a diverging

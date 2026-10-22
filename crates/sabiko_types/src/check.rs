@@ -192,7 +192,19 @@ impl<'a> FnCtxt<'a> {
     /// `span` if it is not.
     fn coerce(&mut self, span: Span, found: &Ty, expected: &Ty) {
         if self.try_coerce(found, expected).is_err() {
-            self.mismatch(span, expected, found);
+            if self.infer.is_cyclic(found, expected) {
+                let (e, f) = (self.ty_str(expected), self.ty_str(found));
+                self.error(
+                    Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+                        .with_label(span, format!("expected `{e}`, found `{f}`"))
+                        .with_note("cyclic type of infinite size"),
+                );
+                // The variable stays open (`let r; r = &r;`); that is the same problem.
+                self.infer.bind_error(found);
+                self.infer.bind_error(expected);
+            } else {
+                self.mismatch(span, expected, found);
+            }
         }
     }
 

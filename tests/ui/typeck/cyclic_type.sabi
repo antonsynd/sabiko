@@ -1,0 +1,24 @@
+// A variable unified with a type containing itself would be infinite (the occurs check).
+// Found by the pipeline fuzzer as a stack overflow: `fn o(){let r;{r=&r}}`.
+fn Main() {
+    let r;
+    {
+        r = &r; //~ ERROR E0300 mismatched types
+    }
+}
+
+fn Nested() {
+    let mut s;
+    s = &&s; //~ ERROR E0300 mismatched types
+}
+
+fn ThroughAnotherLocal() {
+    let a;
+    let b = &a;
+    a = &b; //~ ERROR E0300 mismatched types
+}
+
+fn ThroughMutableReference() {
+    let mut x;
+    x = &mut x; //~ ERROR E0300 mismatched types
+}
