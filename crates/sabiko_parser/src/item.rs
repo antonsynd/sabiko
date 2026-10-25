@@ -405,7 +405,12 @@ impl Parser<'_, '_> {
                     ));
                 }
                 let mutable = self.eat(TokenKind::Mut).is_some();
-                let inner = self.parse_type()?;
+                let inner = self.nested(|p| {
+                    if double {
+                        p.descend()?;
+                    }
+                    p.parse_type()
+                })?;
                 if double {
                     // `&&T` is `&(&T)`.
                     let inner_span = inner.span;

@@ -36,6 +36,7 @@ impl ErrorCode {
     pub const EXPECTED_PATTERN: Self = Self(106);
     pub const UNSUPPORTED_SYNTAX: Self = Self(107);
     pub const STRUCT_LITERAL_NOT_ALLOWED: Self = Self(108);
+    pub const NESTING_TOO_DEEP: Self = Self(109);
 
     // Name resolution (E02xx)
     pub const DUPLICATE_DEFINITION: Self = Self(200);

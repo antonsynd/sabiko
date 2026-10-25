@@ -8,6 +8,10 @@ use sabiko_span::FileId;
 
 fuzz_target!(|data: &[u8]| {
     let Ok(src) = std::str::from_utf8(data) else { return };
+    // `SABIKO_FUZZ_PRINT=1` echoes the input, as in the other targets.
+    if std::env::var_os("SABIKO_FUZZ_PRINT").is_some() {
+        eprintln!("---- program ----\n{src}\n---- end ----");
+    }
     let mut sink = DiagnosticSink::new();
     let file = sabiko_parser::parse_file(FileId(0), src, &mut sink);
     if !sink.has_errors() {

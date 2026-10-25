@@ -16,6 +16,11 @@ names which phase owns which section.
   `#[path = tokens]`, with delimiters that nest and match (E0100 otherwise); only
   `derive(Copy, Clone)` is interpreted so far
 - Statements and expressions
+- Nesting is limited to 256 levels (`sabiko_parser::MAX_NESTING`, clang's default bracket
+  depth); deeper input is a fatal E0109, where rustc has no fixed limit. A level is a
+  nested expression (parentheses, a block's statement, a call argument, an `else if`), a
+  prefix operator, each binary operator or cast of a chain, each postfix call, index or
+  field access, or a `&` in a type; `&&` counts twice
 - Patterns
 - Types: primitives, references, tuples, arrays, slices, named types, generics
 

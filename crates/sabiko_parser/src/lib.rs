@@ -6,6 +6,9 @@
 //! the file is still checked. Rust's two context rules are implemented: a block-like
 //! expression (`if`, `while`, `loop`, `{}`) at statement position is a complete statement
 //! without `;`, and struct literals are not allowed bare in `if`/`while` conditions.
+//!
+//! Nesting is limited to [`MAX_NESTING`] levels. Every later stage recurses over the
+//! tree, so the limit is what keeps the whole pipeline within its stack.
 
 mod expr;
 mod item;
@@ -22,6 +25,13 @@ use sabiko_span::{FileId, Span};
 pub struct ParseError;
 
 pub type PResult<T> = Result<T, ParseError>;
+
+/// How deeply expressions, blocks and types may nest (clang's default bracket depth).
+/// One level is a nested expression (parentheses, a block's statement, a call argument,
+/// an `else if`), a prefix operator, a binary operator or cast in a chain, a postfix
+/// call, index or field access, or a `&` in a type; `&&` counts twice. Exceeding it is
+/// fatal (E0109).
+pub const MAX_NESTING: u32 = 256;
 
 /// Parses a whole source file. Lexical and syntactic errors go to `sink`; the returned
 /// tree contains everything that could be parsed.
@@ -75,6 +85,8 @@ pub(crate) struct Parser<'s, 'd> {
     /// Position of the token the last error was reported at, to avoid piling several
     /// diagnostics onto one token during recovery.
     last_error_pos: Option<usize>,
+    /// Current nesting level, checked against [`MAX_NESTING`].
+    depth: u32,
 }
 
 impl<'s, 'd> Parser<'s, 'd> {
@@ -90,6 +102,7 @@ impl<'s, 'd> Parser<'s, 'd> {
             no_struct_literal: false,
             stmt_start: false,
             last_error_pos: None,
+            depth: 0,
         }
     }
 
@@ -158,6 +171,47 @@ impl<'s, 'd> Parser<'s, 'd> {
         let id = NodeId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    // ---- nesting -------------------------------------------------------------------------
+
+    /// Enters one more level of nesting; the caller restores the depth with
+    /// [`Self::keep_depth`] or [`Self::nested`].
+    pub(crate) fn descend(&mut self) -> PResult<()> {
+        self.depth += 1;
+        if self.depth <= MAX_NESTING {
+            return Ok(());
+        }
+        let span = self.peek().span;
+        let d = Diagnostic::error(
+            ErrorCode::NESTING_TOO_DEEP,
+            format!("nesting exceeds the limit of {MAX_NESTING} levels"),
+        )
+        .with_label(span, "nested too deeply here")
+        .with_note("move the inner part into a `let` binding or a separate function");
+        let err = self.emit(d);
+        // Fatal: recovery would only re-enter the same nesting. Jump to the end so that
+        // every enclosing construct stops at once, silently (the end counts as reported).
+        self.pos = self.tokens.len() - 1;
+        self.last_error_pos = Some(self.pos);
+        Err(err)
+    }
+
+    /// Runs `f` one level deeper.
+    pub(crate) fn nested<T>(&mut self, f: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
+        self.keep_depth(|p| {
+            p.descend()?;
+            f(p)
+        })
+    }
+
+    /// Runs `f` and restores the depth afterwards, for the loops that build left-nested
+    /// trees (`a + b + c`, `x.F().G()`) and descend once per iteration.
+    pub(crate) fn keep_depth<T>(&mut self, f: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
+        let saved = self.depth;
+        let r = f(self);
+        self.depth = saved;
+        r
     }
 
     // ---- diagnostics ---------------------------------------------------------------------

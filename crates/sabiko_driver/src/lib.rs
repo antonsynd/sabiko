@@ -92,9 +92,29 @@ impl Compilation {
     }
 }
 
-/// Compiles source text given under `name` (used in diagnostics).
+/// Stack of the thread [`compile_str`] runs the pipeline on. Every stage recurses over the
+/// syntax tree, whose depth [`sabiko_parser::MAX_NESTING`] bounds; at that depth a debug
+/// build needs up to 8 MiB, more than a test thread's 2 MiB. The stack is reserved, not
+/// committed, so the margin costs nothing.
+const PIPELINE_STACK_SIZE: usize = 64 << 20;
+
+/// Compiles source text given under `name` (used in diagnostics). The pipeline runs on a
+/// thread of its own with a stack sized for the deepest program the parser accepts, so
+/// the caller's stack size does not matter; a panic in the pipeline is resumed here.
 #[must_use]
 pub fn compile_str(name: &str, src: &str, options: Options) -> Compilation {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("sabiko-pipeline".to_owned())
+            .stack_size(PIPELINE_STACK_SIZE)
+            .spawn_scoped(scope, || run_pipeline(name, src, options))
+            .expect("failed to spawn the compiler thread")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
+fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
     let mut source_map = SourceMap::new();
     let file = source_map.add(name, src);
     let mut sink = sabiko_diagnostics::DiagnosticSink::new();

@@ -397,6 +397,14 @@ has an occurs check (E0300, cyclic type of infinite size). The nightly runs meas
 local run: the same mutants are killed, and 11 survivors are unviable in CI. Its threshold
 moves from 90 to 93.
 
+Update (2026-10-25), after the fourth nightly run: the parser fuzzer overflowed the stack on
+~1900 nested blocks. The parser had no nesting limit, and in a debug build the whole
+parser alone overflowed a test thread's 2 MiB at 75 nested blocks. Nesting is now limited to
+256 levels (fatal E0109, decision 41), and the driver runs the pipeline on a 64 MiB thread;
+`crates/sabiko_driver/tests/nesting.rs` compiles every kind of nesting at the limit and one
+past it. The same run's slow units (`&&&…&&1`) came from the type checker resolving types in
+time roughly quartic in their depth (11 s for 255 `&` in debug); resolution is linear now.
+
 ### Phase 5: Data types
 
 Work

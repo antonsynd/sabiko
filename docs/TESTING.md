@@ -77,6 +77,12 @@ rejected (`while if c { let _ = A {}; } {}`): the condition's struct-literal res
 reached the block, where rustc lifts it at every brace
 (`tests/ui/parse/ok_struct_literal_in_condition_block.sabi` and a proptest seed).
 
+The fourth nightly run (2026-10-25) overflowed the parser's stack with ~1900 nested blocks:
+nothing limited nesting, and every stage recurses over the tree. The parser now stops at 256
+levels (E0109) and `crates/sabiko_driver/tests/nesting.rs` checks each kind of nesting at
+the limit, through code generation, and one level past it. Its slow units (deeply nested
+`&`) exposed type resolution quartic in the depth of a type.
+
 ## Fuzzing
 
 `fuzz/` holds libFuzzer targets (nightly Rust): `parse` (parser plus pretty-printer

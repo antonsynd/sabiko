@@ -11,6 +11,12 @@ use crate::{PResult, Parser};
 impl Parser<'_, '_> {
     /// Full expression including assignment (lowest precedence, right associative).
     pub(crate) fn parse_expr(&mut self) -> PResult<Expr> {
+        self.nested(Self::parse_expr_inner)
+    }
+
+    /// [`Self::parse_expr`] without its level of nesting, for the operand of a construct
+    /// that already counted one (call arguments, an index).
+    fn parse_expr_inner(&mut self) -> PResult<Expr> {
         let start = self.peek().span;
         let stmt_start = self.stmt_start;
         let lhs = self.parse_binary(0)?;
@@ -84,6 +90,11 @@ impl Parser<'_, '_> {
     }
 
     fn parse_binary(&mut self, min_prec: u8) -> PResult<Expr> {
+        self.keep_depth(|p| p.parse_binary_chain(min_prec))
+    }
+
+    /// Each operator of the chain is a level: `a + b + c` is `(a + b) + c`.
+    fn parse_binary_chain(&mut self, min_prec: u8) -> PResult<Expr> {
         let start = self.peek().span;
         let stmt_start = self.stmt_start;
         let mut lhs = self.parse_cast()?;
@@ -99,6 +110,7 @@ impl Parser<'_, '_> {
             if prec < min_prec {
                 break;
             }
+            self.descend()?;
             let op_tok = self.bump();
             if op.is_comparison() {
                 if let ExprKind::Binary(prev, ..) = &lhs.kind {
@@ -118,6 +130,10 @@ impl Parser<'_, '_> {
 
     /// `expr as Type`, binding tighter than every binary operator but looser than unary.
     fn parse_cast(&mut self) -> PResult<Expr> {
+        self.keep_depth(Self::parse_cast_chain)
+    }
+
+    fn parse_cast_chain(&mut self) -> PResult<Expr> {
         let start = self.peek().span;
         let stmt_start = self.stmt_start;
         let mut e = self.parse_unary()?;
@@ -125,6 +141,7 @@ impl Parser<'_, '_> {
             return Ok(e);
         }
         while self.eat(TokenKind::As).is_some() {
+            self.descend()?;
             let ty = self.parse_type_no_generics()?;
             if matches!(ty.kind, TypeKind::Path(_))
                 && matches!(self.peek_kind(), TokenKind::Lt | TokenKind::Shl)
@@ -217,23 +234,23 @@ impl Parser<'_, '_> {
         match self.peek_kind() {
             TokenKind::Minus => {
                 self.bump();
-                let e = self.parse_unary()?;
+                let e = self.nested(Self::parse_unary)?;
                 Ok(self.mk(ExprKind::Unary(UnOp::Neg, Box::new(e)), start))
             }
             TokenKind::Bang => {
                 self.bump();
-                let e = self.parse_unary()?;
+                let e = self.nested(Self::parse_unary)?;
                 Ok(self.mk(ExprKind::Unary(UnOp::Not, Box::new(e)), start))
             }
             TokenKind::Star => {
                 self.bump();
-                let e = self.parse_unary()?;
+                let e = self.nested(Self::parse_unary)?;
                 Ok(self.mk(ExprKind::Deref(Box::new(e)), start))
             }
             TokenKind::Amp => {
                 self.bump();
                 let mutable = self.eat(TokenKind::Mut).is_some();
-                let e = self.parse_unary()?;
+                let e = self.nested(Self::parse_unary)?;
                 Ok(self.mk(
                     ExprKind::Ref {
                         mutable,
@@ -247,7 +264,7 @@ impl Parser<'_, '_> {
                 let tok = self.bump();
                 let mutable = self.eat(TokenKind::Mut).is_some();
                 let inner_start = Span::new(self.file, tok.span.start + 1, tok.span.end);
-                let e = self.parse_unary()?;
+                let e = self.nested(|p| p.nested(Self::parse_unary))?;
                 let inner = self.mk(
                     ExprKind::Ref {
                         mutable,
@@ -268,6 +285,11 @@ impl Parser<'_, '_> {
     }
 
     fn parse_postfix(&mut self) -> PResult<Expr> {
+        self.keep_depth(Self::parse_postfix_chain)
+    }
+
+    /// Each call, index and field access of the chain is a level.
+    fn parse_postfix_chain(&mut self) -> PResult<Expr> {
         let start = self.peek().span;
         let stmt_start = self.stmt_start;
         let mut e = self.parse_primary()?;
@@ -278,6 +300,7 @@ impl Parser<'_, '_> {
             match self.peek_kind() {
                 TokenKind::LParen | TokenKind::LBracket if complete => return Ok(e),
                 TokenKind::LParen => {
+                    self.descend()?;
                     self.bump();
                     let args = self.parse_call_args()?;
                     e = self.mk(
@@ -289,17 +312,19 @@ impl Parser<'_, '_> {
                     );
                 }
                 TokenKind::LBracket => {
+                    self.descend()?;
                     self.bump();
                     // Like parentheses, brackets lift the `if`/`while` condition restriction:
                     // `if a[P { x: 1 }] {}` is fine.
                     let index = self.in_delimited(TokenKind::RBracket, |p| {
-                        let index = p.parse_expr()?;
+                        let index = p.parse_expr_inner()?;
                         p.expect(TokenKind::RBracket)?;
                         Ok(index)
                     })?;
                     e = self.mk(ExprKind::Index(Box::new(e), Box::new(index)), start);
                 }
                 TokenKind::Dot => {
+                    self.descend()?;
                     self.bump();
                     // `t.0.1` lexes as a float literal `0.1`; report it as the tuple access
                     // it is meant to be.
@@ -352,7 +377,7 @@ impl Parser<'_, '_> {
         self.in_delimited(TokenKind::RParen, |p| {
             let mut args = Vec::new();
             while !p.at(TokenKind::RParen) && !p.at_eof() {
-                args.push(p.parse_expr()?);
+                args.push(p.parse_expr_inner()?);
                 if p.eat(TokenKind::Comma).is_none() {
                     break;
                 }
@@ -554,7 +579,7 @@ impl Parser<'_, '_> {
         let then = self.parse_block()?;
         let els = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {
-                Some(Box::new(self.parse_if()?))
+                Some(Box::new(self.nested(Self::parse_if)?))
             } else {
                 let bstart = self.peek().span;
                 let block = self.parse_block()?;

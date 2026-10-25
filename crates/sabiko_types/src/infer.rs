@@ -79,11 +79,17 @@ impl InferCtxt {
     }
 
     /// Replaces every bound variable in `ty` with its value. Unbound variables stay.
+    /// Linear in the size of the type: a reference is rebuilt around its resolved
+    /// referent, not cloned whole at every level (that was quadratic in the nesting).
     #[must_use]
     pub fn resolve(&mut self, ty: &Ty) -> Ty {
-        match self.shallow_resolve(ty) {
-            Ty::Ref(m, inner) => Ty::Ref(m, Box::new(self.resolve(&inner))),
-            t => t,
+        match ty {
+            Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(self.resolve(inner))),
+            Ty::Infer(_) => match self.shallow_resolve(ty) {
+                t @ Ty::Infer(_) => t,
+                t => self.resolve(&t),
+            },
+            t => t.clone(),
         }
     }
 
@@ -91,14 +97,17 @@ impl InferCtxt {
     /// unbound literal variables. General variables stay unbound.
     #[must_use]
     pub fn resolve_with_defaults(&mut self, ty: &Ty) -> Ty {
-        match self.resolve(ty) {
-            Ty::Infer(v) => match self.kind(v) {
-                VarKind::Int => Ty::I32,
-                VarKind::Float => Ty::F64,
-                VarKind::General => Ty::Infer(v),
+        match ty {
+            Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(self.resolve_with_defaults(inner))),
+            Ty::Infer(_) => match self.shallow_resolve(ty) {
+                Ty::Infer(v) => match self.kind(v) {
+                    VarKind::Int => Ty::I32,
+                    VarKind::Float => Ty::F64,
+                    VarKind::General => Ty::Infer(v),
+                },
+                t => self.resolve_with_defaults(&t),
             },
-            Ty::Ref(m, inner) => Ty::Ref(m, Box::new(self.resolve_with_defaults(&inner))),
-            t => t,
+            t => t.clone(),
         }
     }
 
@@ -225,6 +234,38 @@ mod tests {
             .is_err());
         assert!(cx.unify(&Ty::Never, &Ty::BOOL).is_err());
         assert!(cx.unify(&Ty::Error, &Ty::BOOL).is_ok());
+    }
+
+    /// Resolution goes through references and through variables bound to references,
+    /// keeping mutability and applying literal defaults at any depth.
+    #[test]
+    fn resolve_goes_through_references_and_bindings() {
+        let mut cx = InferCtxt::new();
+        let int = cx.new_var(VarKind::Int);
+        let inner = cx.new_var(VarKind::General);
+        cx.unify(&inner, &Ty::mut_ref(int.clone())).unwrap();
+        let outer = cx.new_var(VarKind::General);
+        cx.unify(&outer, &Ty::shared_ref(inner.clone())).unwrap();
+        let ty = Ty::mut_ref(outer);
+
+        let Ty::Infer(int_root) = cx.shallow_resolve(&int) else {
+            panic!("`int` is unbound")
+        };
+        let open = Ty::mut_ref(Ty::shared_ref(Ty::mut_ref(Ty::Infer(int_root))));
+        assert_eq!(cx.resolve(&ty), open);
+        let defaulted = Ty::mut_ref(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
+        assert_eq!(cx.resolve_with_defaults(&ty), defaulted);
+
+        let general = cx.new_var(VarKind::General);
+        let Ty::Infer(general_root) = cx.shallow_resolve(&general) else {
+            panic!("`general` is unbound")
+        };
+        assert_eq!(
+            cx.resolve_with_defaults(&Ty::shared_ref(general)),
+            Ty::shared_ref(Ty::Infer(general_root))
+        );
+        assert_eq!(cx.resolve_with_defaults(&Ty::Unit), Ty::Unit);
+        assert_eq!(cx.resolve(&Ty::Unit), Ty::Unit);
     }
 
     #[test]

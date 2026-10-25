@@ -105,8 +105,10 @@ for c in "${crashes[@]}"; do
         # The reproducer crashes the target, so these pipelines fail by design.
         SABIKO_FUZZ_PRINT=1 cargo fuzz run "$target" "$input" 2>&1 \
             | sed -n '/^---- program ----$/,/^---- end ----$/{/^---- /d;p}' | head -n 200 || true
+        # A panic, or a sanitizer or libFuzzer error such as a stack overflow or timeout.
         echo "  ---- panic ----"
-        cargo fuzz run "$target" "$input" 2>&1 | grep -A2 'panicked at' | head -n 6 || true
+        cargo fuzz run "$target" "$input" 2>&1 \
+            | grep -E -A2 'panicked at|==ERROR: |^SUMMARY: ' | head -n 6 || true
         echo "  -------------------------"
     done
 done
