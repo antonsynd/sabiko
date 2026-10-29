@@ -38,7 +38,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `i128`/`u128` included) plus tuples (#6: tuple types of primitives, structs and tuples,
   wide ones past `System.ValueTuple`'s seven direct elements, as locals, parameters,
   returns and struct fields; element reads and writes; destructuring lets by value and
-  through a reference); both oracles above, panic locations included, are
+  through a reference) and methods (#7: impl blocks, `self`/`mut self`/`&self`/`&mut self`
+  methods and associated constructors, called as `Type::Name(..)` or with method syntax on
+  places, references, call results and temporaries, chained, and in the two-phase shapes
+  of #15 where later arguments read the receiver or a reborrowed `&mut` argument); both
+  oracles above, panic locations included, are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
   nightly), and to reorderings of them (see Properties). A failure prints the seed and the
   program; `SABIKO_GENERATED_BASE_SEED` selects the range.
@@ -46,9 +50,15 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `ReturnPtrToStack` (decision 30).
 - The MIR validator runs after every pass in the pipeline (debug builds panic on a
   violation) and over every program in the corpus (`crates/sabiko_mir/tests/validate_corpus.rs`),
-  copy forwarding included. Copy forwarding (`sabiko_mir::forward`) also has hand-built
-  MIR unit tests, one per condition, each a body where breaking the condition would change
-  the value read; the run-time differential corpus (`regressions/stack_values.sabi`,
+  copy forwarding included; it checks that a two-phase borrow goes into a temporary one
+  call reads (`validator_rejects_misused_two_phase_borrow`). The borrow checker's
+  two-phase rules (#15) also have hand-built MIR tests in
+  `crates/sabiko_borrowck/tests/loans.rs`, one per rule: reads and shared borrows during
+  the reservation, explicit borrows, writes, moves and second reservations, the conflict at
+  activation, shared borrows taken before the reservation, reservations across blocks, the
+  loan after its activation and a two-phase borrow nothing activates. Copy forwarding
+  (`sabiko_mir::forward`) also has hand-built MIR unit tests, one per condition, each a
+  body where breaking the condition would change the value read; the run-time differential corpus (`regressions/stack_values.sabi`,
   `regressions/operand_order_sibling_call.sabi` among others) and the generated programs
   check the optimised code against rustc.
 
@@ -227,7 +237,7 @@ output, and measures two modes: whole-process launches (wall time and peak RSS, 
 20 warmup + 100 measured). It reports n, mean, stdev, min, p50, p90, p99 and max per metric
 and the Sabiko/C# ratios as a table, `--json` and `--markdown`.
 
-The nightly workflow runs the whole set (about 13 minutes including setup), puts the report
+The nightly workflow runs the whole set (about 17 minutes including setup), puts the report
 in the job summary and uploads the JSON. Time is never gated (shared runners are noisy);
 allocations are: `benchmarks/allocation_gate.py check` fails when a Sabiko benchmark
 allocates more than 10% over `benchmarks/allocation-baseline.json`, which changes only

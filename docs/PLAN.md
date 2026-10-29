@@ -488,6 +488,45 @@ place where rustc only mentions it, so Sabiko rejects `let _ = p; Take(p);` (a T
 `sabiko_mir::build`). The generator does not produce tuples of references, `()` values or
 tuple comparisons.
 
+Update (2026-10-29), methods and two-phase borrows (#7, #15, decision 53): inherent `impl`
+blocks (any number per struct, before or after it) hold associated functions, methods
+taking `self`, `mut self`, `&self` or `&mut self`, reached as `Type::Name` (two-segment
+paths; `Self` and `Self::Name` inside a block) or with method syntax. The type checker
+finds a method with rustc's receiver probe for inherent impls (by value, then `&`, then
+`&mut` at each auto-deref step; a reference matched by value is reborrowed); path calls
+adjust nothing. MIR building evaluates the receiver before the arguments (decision 36:
+`c.Plus(Change(&mut c))` passes the old `c`), and a `&self`/`&mut self` method's output
+lifetime is `self`'s whatever its other parameters. Every function of an impl block is a
+`public static` method of the struct's own value type with the receiver as first
+parameter (decision 32's lowering), called directly; the IL of a method call is a plain
+`call`, which the JIT inlines as it does any small static method. Two-phase borrows (decision 54) cover rustc's two cases, autoref'd
+`&mut self` receivers and the implicit reborrow of a `&mut` call argument: MIR marks them
+(`BorrowKind::Mut { two_phase }`), and the loan facts treat them as reserved (a shared
+borrow that also conflicts with other mutable loans) until the call activates them. New
+codes: E0110 (misplaced `self` parameter), E0210 (duplicate associated function, rustc's
+E0592), E0211 (impl for a non-struct, E0390), E0212 (unknown associated function, E0599),
+E0213 (`self` outside a method, E0424), E0319 (unknown method, E0599), E0320 (method used
+as a field, E0615). All 76 staged programs (50 verdicts, 13 run-time, 11 UI) and the tuple
+known gap `ok_two_phase_reborrow_tuple_field` agree with rustc and moved into their
+harnesses; `self_type.sabi` included, since `Self` is supported. The generator produces
+methods (impl blocks, receivers of every kind, associated constructors, method syntax on
+places, references, call results and temporaries, chains, and the two-phase shapes
+`v.Add(v.Get())` and `Use(m, m.X)`), which removed its workaround for the implicit
+two-phase reborrow; 2000 seeds at each of three bases (2300000, 6100000, 9400000) agree
+with rustc on all five properties. A `methods` benchmark (structs with methods in a hot
+loop; instance methods on structs in the C#) runs at parity with C# in release builds
+(p50 in-process 1.00x, process 1.06x) and allocates nothing; checked builds are 1.23x
+in-process, the cost of 64-bit overflow checks through runtime helpers (decision 43) that
+checked `fibonacci` shows too, not of the calls. The other benchmarks did not move. Gaps:
+associated constants (`tests/pending/methods/known_gap/associated_consts.sabi`, E0107),
+`&&P` and `&mut &mut P` receivers at run time (`known_gap/double_ref_receivers.sabi`: borrow
+checking accepts them, code generation still rejects `&&T` with E0500 until `Ref<T>`),
+trait impls (Phase 6, with `impl Drop` first, decision 46), generic impls, `self: Type`
+receivers, methods on primitives, tuples and references (E0211), methods returning `!`
+(`!` cannot be written in a signature yet), and C#-facing instance methods (Phase 8 export
+shape). Pre-existing and unchanged: `return.Foo()` does not parse (rustc reads a method
+call on `return`); `(return).Foo()` is E0319 as in rustc.
+
 ### Phase 5: Data types
 
 Work
@@ -498,7 +537,8 @@ against drops rather than retrofitted.
   (#6, decision 52; see the status note above).
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
-  `&mut` reborrows in argument position.
+  `&mut` reborrows in argument position. Done (#7, #15, decisions 53 and 54; see the
+  status note above); associated constants remain.
 - Drop elaboration (moved here from Phase 3 by decision 26, given a phase by decision 46):
   drop flags, drops at scope end in reverse declaration order, each droppable scope lowered
   inside `try/finally`. `impl Drop for S` is the one trait impl accepted before Phase 6,

@@ -6,9 +6,10 @@
 //! (`&&T`, `&mut &T`) and in the elements of tuples (`(&T, &mut U)`).
 //!
 //! Function signatures use *universal* origins: one per reference in the parameter types.
-//! The return type follows Rust's elision rule for functions without `self`: when exactly
-//! one origin occurs across all parameters, every reference in the return type uses it;
-//! otherwise the signature is unusable and the caller reports E0416.
+//! The return type follows Rust's elision rules: in a method taking `&self` or `&mut self`
+//! every reference in the return type has `self`'s origin; otherwise, when exactly one
+//! origin occurs across all parameters, every reference in the return type uses it; failing
+//! both, the signature is unusable and the caller reports E0416.
 //!
 //! This module also defines the atom newtypes the Polonius engine indexes its facts with.
 
