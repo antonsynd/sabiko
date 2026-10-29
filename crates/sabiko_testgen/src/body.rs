@@ -1494,7 +1494,7 @@ impl<'a> BodyGen<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BodyGen, Ty, ValTy};
+    use super::{BodyGen, Ty, ValTy, INDENT};
     use crate::program::gen_program;
     use crate::rng::Rng;
     use crate::Knobs;
@@ -1506,7 +1506,7 @@ mod tests {
     #[test]
     fn reinitialisation_in_a_block_is_not_definite_afterwards() {
         let knobs = Knobs::borrow_clean();
-        let mut reinitialised = 0;
+        let (mut reinitialised, mut definite) = (0, 0);
         for seed in 0..400 {
             let mut rng = Rng::new(seed);
             let prog = gen_program(&mut rng, &knobs);
@@ -1518,6 +1518,10 @@ mod tests {
             gen.used_names.push(name.clone());
             let v = gen.declare(name.clone(), Ty::Val(ValTy::Struct(s)), true, false);
             gen.vars[v].moved = true;
+            // The block's own lines are at the current indentation, the statements of its
+            // body (or branches) one level deeper; anything deeper is in a nested block.
+            let outer = INDENT.repeat(gen.indent);
+            let body_reinit = format!("{outer}{INDENT}{name} = ");
             let block = seed % 4;
             match block {
                 0 => gen.stmt_while(2),
@@ -1525,24 +1529,21 @@ mod tests {
                 2 => gen.stmt_loop(true),
                 _ => gen.stmt_if(2),
             };
-            let reinit = |lines: &[String]| {
-                lines
-                    .iter()
-                    .any(|l| l.trim_start().starts_with(&format!("{name} = ")))
-            };
-            reinitialised += usize::from(reinit(&gen.lines));
+            let reinit_at =
+                |lines: &[String], prefix: &str| lines.iter().any(|l| l.starts_with(prefix));
+            reinitialised += usize::from(reinit_at(&gen.lines, &body_reinit));
             // An `if` with an `else` whose branches both re-initialise at their top level
-            // (not in a nested block) is definite.
-            let top_level = |lines: &[String]| {
-                lines
+            // is definite.
+            let both_branches = block == 3
+                && gen
+                    .lines
                     .iter()
-                    .any(|l| l.starts_with(&format!("        {name} = ")))
-            };
-            let both_branches = gen
-                .lines
-                .iter()
-                .position(|l| l == "    } else {")
-                .is_some_and(|e| top_level(&gen.lines[..e]) && top_level(&gen.lines[e..]));
+                    .position(|l| *l == format!("{outer}}} else {{"))
+                    .is_some_and(|e| {
+                        reinit_at(&gen.lines[..e], &body_reinit)
+                            && reinit_at(&gen.lines[e..], &body_reinit)
+                    });
+            definite += usize::from(both_branches);
             assert_eq!(
                 gen.vars[v].moved,
                 !both_branches,
@@ -1550,10 +1551,16 @@ mod tests {
                 gen.lines.join("\n")
             );
         }
-        // The property is only exercised when a block re-initialises the local.
+        // The property is only exercised when a block re-initialises the local, and the
+        // exception only when some `if`/`else` does so in both branches; if either count
+        // drops to zero, the line matching above no longer fits the generator's layout.
         assert!(
             reinitialised >= 5,
-            "only {reinitialised} re-initialisations"
+            "only {reinitialised} blocks re-initialise the local"
+        );
+        assert!(
+            definite > 0,
+            "no `if`/`else` re-initialises in both branches"
         );
     }
 }
