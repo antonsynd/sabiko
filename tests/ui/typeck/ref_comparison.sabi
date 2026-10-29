@@ -34,4 +34,15 @@ fn Deferred(p: P) {
     let y;
     let deep = &y == &&1;
     y = &2;
+    // Judged later too: a referent still unknown, compared and then found comparable or not.
+    let u;
+    let fineLater = &u == &u;
+    u = 5;
+    let v;
+    let badLater = &v == &v; //~ ERROR E0306 binary operation `==` cannot be applied to type `&P`
+    v = P { X: 1 };
+    // A right operand of unknown type takes the left one's.
+    let w;
+    let rightLater = &u == w;
+    w = &6;
 }

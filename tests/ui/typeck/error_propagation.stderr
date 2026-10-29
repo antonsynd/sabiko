@@ -36,73 +36,80 @@
     │                    ──┬─  
     │                      ╰─── not found in this scope
 ────╯
-[E0306] Error: binary operation `+` cannot be applied to type `bool`
-    ╭─[ tests/ui/typeck/error_propagation.sabi:21:13 ]
+[E0202] Error: cannot find value `Missing` in this scope
+    ╭─[ tests/ui/typeck/error_propagation.sabi:18:19 ]
     │
- 21 │     let a = true + true; //~ ERROR E0306 binary operation `+` cannot be applied to type `bool`
+ 18 │     let e = &1 == Missing; //~ ERROR E0202 cannot find value `Missing`
+    │                   ───┬───  
+    │                      ╰───── not found in this scope
+────╯
+[E0306] Error: binary operation `+` cannot be applied to type `bool`
+    ╭─[ tests/ui/typeck/error_propagation.sabi:22:13 ]
+    │
+ 22 │     let a = true + true; //~ ERROR E0306 binary operation `+` cannot be applied to type `bool`
     │             ─────┬─────  
     │                  ╰─────── no implementation for `bool + bool`
 ────╯
 [E0306] Error: binary operation `<<` cannot be applied to type `bool`
-    ╭─[ tests/ui/typeck/error_propagation.sabi:23:13 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:24:13 ]
     │
- 23 │     let c = true << 1; //~ ERROR E0306 binary operation `<<` cannot be applied to type `bool`
+ 24 │     let c = true << 1; //~ ERROR E0306 binary operation `<<` cannot be applied to type `bool`
     │             ────┬────  
     │                 ╰────── no implementation for `bool << {integer}`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/error_propagation.sabi:28:19 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:29:19 ]
     │
- 28 │     let r: &u8 = &true; //~ ERROR E0300 mismatched types
+ 29 │     let r: &u8 = &true; //~ ERROR E0300 mismatched types
     │                   ──┬─  
     │                     ╰─── expected `u8`, found `bool`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/error_propagation.sabi:33:19 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:34:19 ]
     │
- 33 │     let x: bool = *r; //~ ERROR E0300 mismatched types
+ 34 │     let x: bool = *r; //~ ERROR E0300 mismatched types
     │                   ─┬  
     │                    ╰── expected `bool`, found `u8`
 ────╯
 [E0310] Error: invalid left-hand side of assignment
-    ╭─[ tests/ui/typeck/error_propagation.sabi:37:5 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:38:5 ]
     │
- 37 │     (1 + true) = 5; //~ ERROR E0310 invalid left-hand side of assignment
+ 38 │     (1 + true) = 5; //~ ERROR E0310 invalid left-hand side of assignment
     │     ─────┬────  
     │          ╰────── cannot assign to this expression
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/error_propagation.sabi:37:10 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:38:10 ]
     │
- 37 │     (1 + true) = 5; //~ ERROR E0310 invalid left-hand side of assignment
+ 38 │     (1 + true) = 5; //~ ERROR E0310 invalid left-hand side of assignment
     │          ──┬─  
     │            ╰─── expected `{integer}`, found `bool`
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/error_propagation.sabi:43:15 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:44:15 ]
     │
- 43 │     PrintLine(&x); //~ ERROR E0313 type annotations needed
+ 44 │     PrintLine(&x); //~ ERROR E0313 type annotations needed
     │               ─┬  
     │                ╰── cannot infer the type of this argument to `PrintLine`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/error_propagation.sabi:49:13 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:50:13 ]
     │
- 49 │     } else {} //~ ERROR E0300 mismatched types
+ 50 │     } else {} //~ ERROR E0300 mismatched types
     │             ┬  
     │             ╰── expected `i32`, found `()`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/error_propagation.sabi:59:1 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:60:1 ]
     │
- 59 │ } //~ ERROR E0300 mismatched types
+ 60 │ } //~ ERROR E0300 mismatched types
     │ ┬  
     │ ╰── expected `i32`, found `()`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/error_propagation.sabi:61:21 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:62:21 ]
     │
- 61 │ const NARROW: i32 = 5u8; //~ ERROR E0300 mismatched types
+ 62 │ const NARROW: i32 = 5u8; //~ ERROR E0300 mismatched types
     │                     ─┬─  
     │                      ╰─── expected `i32`, found `u8`
 ────╯
