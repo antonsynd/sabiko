@@ -1,0 +1,37 @@
+// Comparisons between references need references of the same depth to comparable types
+// (rustc's E0277/E0308 for the same programs); `<` and friends also need matching
+// mutability below the outermost reference, and `&mut` on the left.
+struct P {
+    X: i32,
+}
+
+fn Main(p: &P, q: &P, s: &str) {
+    let a = 1;
+    let mut b = 2;
+    let c = &a == a; //~ ERROR E0306 can't compare `&{integer}` with `{integer}`
+    let r = &a;
+    let d = r != 1; //~ ERROR E0306 can't compare `&{integer}` with `{integer}`
+    let e = a == &a; //~ ERROR E0300 mismatched types
+    let f = &mut b < &a; //~ ERROR E0306 can't compare `&mut {integer}` with `&{integer}`
+    let g = &&a < &&mut b; //~ ERROR E0306 can't compare `&&{integer}` with `&&mut {integer}`
+    let h = &a == &1.0; //~ ERROR E0300 mismatched types
+    let i = p == q; //~ ERROR E0306 binary operation `==` cannot be applied to type `&P`
+    let j = &p.X >= &q.X;
+    // `&str` comparisons are valid Rust; Sabiko adds them with `&str` support (issue #10).
+    let k = s == "x"; //~ ERROR E0306 binary operation `==` cannot be applied to type `&str`
+    let l = &&a == &a; //~ ERROR E0306 can't compare `&&{integer}` with `&{integer}`
+    let fine = &a < &mut b && &mut b == &a && &&a == &&mut b && r <= &a;
+}
+
+// An operand whose type is only known later is judged once it is.
+fn Deferred(p: P) {
+    let x;
+    let same = x == x; //~ ERROR E0306 binary operation `==` cannot be applied to type `P`
+    x = p;
+    let r;
+    let alsoSame = r != r; //~ ERROR E0306 binary operation `!=` cannot be applied to type `&P`
+    r = &x;
+    let y;
+    let deep = &y == &&1;
+    y = &2;
+}

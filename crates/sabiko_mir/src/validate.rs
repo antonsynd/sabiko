@@ -194,8 +194,16 @@ impl Validator<'_> {
                     self.err(bb, format!("{op:?} must be lowered to a branch"));
                 }
                 let lhs = self.operand_ty(bb, lhs);
-                let _rhs = self.operand_ty(bb, rhs);
+                let rhs = self.operand_ty(bb, rhs);
                 if op.is_comparison() {
+                    // A comparison of references compares the referents: MIR building
+                    // dereferences the operands, so a reference here would compare
+                    // addresses.
+                    let is_ref = |t: &Option<Ty>| matches!(t, Some(Ty::Ref(..)));
+                    let diverges = |t: &Option<Ty>| matches!(t, Some(Ty::Never | Ty::Error));
+                    if (is_ref(&lhs) || is_ref(&rhs)) && !(diverges(&lhs) || diverges(&rhs)) {
+                        self.err(bb, format!("{op:?} of reference operands {lhs:?}, {rhs:?}"));
+                    }
                     Some(Ty::BOOL)
                 } else {
                     lhs
@@ -353,7 +361,7 @@ impl Validator<'_> {
         }
         for arg in args {
             if let Some(ty) = self.operand_ty(bb, arg) {
-                if !(is_printable(&ty) || ty.is_error() || ty.is_never()) {
+                if !(is_printable(&ty) || ty.is_error() || ty.is_uninhabited()) {
                     self.err(
                         bb,
                         format!(

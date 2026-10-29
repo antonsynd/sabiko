@@ -1,0 +1,17 @@
+// `char` literals at the edges of the Basic Multilingual Plane, the range a Sabiko `char`
+// (one UTF-16 code unit) can hold; beyond it is E0318, so this corpus stops at U+FFFF.
+fn Main() {
+    let last = '\u{FFFF}';
+    let beforeSurrogates = '\u{D7FF}';
+    let afterSurrogates = '\u{E000}';
+    PrintLine(last as u32);
+    PrintLine(beforeSurrogates as u32);
+    PrintLine(afterSurrogates as u32);
+    PrintLine(last > afterSurrogates && afterSurrogates > beforeSurrogates);
+    PrintLine(last as u16);
+    PrintLine(afterSurrogates as u8);
+    PrintLine('\u{FFFD}');
+    PrintLine(afterSurrogates);
+    PrintLine(last);
+    PrintLine("\u{1F600} is a string, not a char");
+}

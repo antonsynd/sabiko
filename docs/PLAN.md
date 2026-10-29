@@ -406,6 +406,17 @@ parser alone overflowed a test thread's 2 MiB at 75 nested blocks. Nesting is no
 past it. The same run's slow units (`&&&…&&1`) came from the type checker resolving types in
 time roughly quartic in their depth (11 s for 255 `&` in debug); resolution is linear now.
 
+Update (2026-10-29), type-checker gaps left by Phases 2–4 (#16, #21, #17): comparisons
+between references (all six operators, with rustc's `&`/`&mut` mixing rules) type-check and
+compare the referents; MIR reborrows each operand as a shared temporary and dereferences it
+after both operands ran, as rustc's `PartialEq::eq(&l, &r)` does, and the generator produces
+such comparisons. One verdict gap remains: rustc's borrow of a reference *variable* used as
+an operand (`r == { r = &y; r }`), which needs `&&T` codegen. Non-BMP `char` literals are
+the type checker's E0318 instead of a codegen E0500. The borrow of a diverging expression is
+typed `&!` as in rustc, `&!` locals get no storage (decision 44), and a block with a tail is
+typed by its tail even after a diverging statement; together these close the four known
+divergences listed above.
+
 Update (2026-10-29), borrow-checker and infrastructure gaps (#20, #23, #22): the
 signature-elision check (E0416) runs per function from the signature, independently of
 whether the body type-checked, so it appears next to body errors as rustc's E0106 does;

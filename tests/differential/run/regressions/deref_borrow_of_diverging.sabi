@@ -1,0 +1,59 @@
+// Issue #17: `&e` of a diverging `e` is `&!`; `*&mut return 9` is `!` and type-checks
+// where an `i32` is expected. `&!` locals get no storage (decision 44); the code after the
+// borrow is unreachable, and the assembly must still verify.
+fn DerefMut() -> i32 {
+    *&mut return 9
+}
+
+fn Deref(flag: bool) -> i32 {
+    if flag {
+        *&return 1
+    } else {
+        2
+    }
+}
+
+fn ThroughLocal(flag: bool) -> i32 {
+    if flag {
+        let r = &mut return 4;
+        *r
+    } else {
+        5
+    }
+}
+
+fn LoopValue(n: i32) -> i32 {
+    let mut i = 0;
+    let c = loop {
+        i += 1;
+        if i == n {
+            break &return i * 10;
+        }
+    };
+    *c
+}
+
+fn Compare(flag: bool) -> bool {
+    if flag {
+        return &loop { break 3; } == &3;
+    }
+    (&return false) == &loop {}
+}
+
+fn Reassigned(flag: bool) -> i32 {
+    let mut r = &return 6;
+    r = &loop {};
+    7
+}
+
+fn Main() {
+    PrintLine(DerefMut());
+    PrintLine(Deref(true));
+    PrintLine(Deref(false));
+    PrintLine(ThroughLocal(true));
+    PrintLine(ThroughLocal(false));
+    PrintLine(LoopValue(3));
+    PrintLine(Compare(true));
+    PrintLine(Compare(false));
+    PrintLine(Reassigned(true));
+}

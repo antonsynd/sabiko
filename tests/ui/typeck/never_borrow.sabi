@@ -1,0 +1,53 @@
+// The borrow of a diverging expression has type `&!` (`&mut !`), as in rustc, not `!`:
+// a borrow is not a coercion site, so `&!` is not `&T`. rustc rejects each of these with
+// E0308. A block is typed by its tail even after a diverging statement.
+struct Point {
+    X: i32,
+}
+
+fn Pass(r: &i32) {}
+
+fn Annotated() {
+    let q: &Point = &loop {}; //~ ERROR E0300 mismatched types
+}
+
+fn Argument() -> i32 {
+    Pass(&return 1); //~ ERROR E0300 mismatched types
+    2
+}
+
+fn Tail() {
+    &mut loop {} //~ ERROR E0300 mismatched types
+}
+
+fn Returned(x: &i32) -> &i32 {
+    &return x //~ ERROR E0300 mismatched types
+}
+
+fn MutAnnotated() -> i32 {
+    let r: &mut i32 = &mut return 1; //~ ERROR E0300 mismatched types
+    3
+}
+
+fn Reassigned() -> i32 {
+    let x = 1;
+    let mut r = &return 1;
+    r = &x; //~ ERROR E0300 mismatched types
+    2
+}
+
+fn Branches(c: bool) -> i32 {
+    let a = 5;
+    let r = if c { &a } else { &return 1 }; //~ ERROR E0300 `if` and `else` have incompatible types
+    *r
+}
+
+fn DivergingStatement(c: bool) -> u8 {
+    let v = if c { 1u8 } else { return 0; 2i32 }; //~ ERROR E0300 `if` and `else` have incompatible types
+    v
+}
+
+fn DivergingBlockTail() -> i32 {
+    let v = { return 3; 4u8 };
+    v //~ ERROR E0300 mismatched types
+}
