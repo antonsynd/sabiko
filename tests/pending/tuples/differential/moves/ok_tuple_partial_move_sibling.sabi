@@ -1,0 +1,13 @@
+// After moving one field out of a tuple, the other fields are still usable and movable.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Main() {
+    let t = (P { X: 1 }, P { X: 2 }, 3);
+    Take(t.0);
+    PrintLine(t.1.X + t.2);
+    let r = &t.1;
+    PrintLine(r.X);
+    Take(t.1);
+}

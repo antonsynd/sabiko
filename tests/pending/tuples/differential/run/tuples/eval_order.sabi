@@ -1,0 +1,31 @@
+// Tuple elements are evaluated left to right, nested ones too; a place element is read
+// when its position is reached; compound assignment to a field runs its right side first.
+fn Next(c: &mut i32, tag: char) -> i32 {
+    *c += 1;
+    Print(tag); Print('='); Print(*c); Print(' ');
+    *c
+}
+
+fn Bump(t: &mut (i32, i32)) -> i32 {
+    t.0 += 100;
+    t.1 += 100;
+    7
+}
+
+fn Main() {
+    let mut c = 0;
+    let t = (Next(&mut c, 'a'), (Next(&mut c, 'b'), Next(&mut c, 'c')), Next(&mut c, 'd'));
+    PrintLine("");
+    Print(t.0); Print(t.1.0); Print(t.1.1); PrintLine(t.2);
+    let u = (c, Next(&mut c, 'e'), c);
+    PrintLine("");
+    Print(u.0); Print(' '); Print(u.1); Print(' '); PrintLine(u.2);
+    let (x, y) = (Next(&mut c, 'f') * 10, Next(&mut c, 'g'));
+    PrintLine("");
+    Print(x); Print(' '); PrintLine(y);
+    let mut v = (1, 2);
+    v.1 += Bump(&mut v);
+    Print(v.0); Print(' '); PrintLine(v.1);
+    v.0 = Bump(&mut v) + v.1;
+    Print(v.0); Print(' '); PrintLine(v.1);
+}

@@ -1,0 +1,12 @@
+// Tuple arity mismatches: in a `let` pattern, an annotation, an argument and a return value.
+fn Pair(t: (i32, i32)) -> (i32, i32, i32) {
+    (t.0, t.1) //~ rustc E0308: mismatched types [expected a tuple with 3 elements, found one with 2 elements]
+}
+
+fn Main() {
+    let (a, b) = (1, 2, 3); //~ rustc E0308: mismatched types [expected a tuple with 3 elements, found one with 2 elements]
+    let (c, d, e) = (1, 2); //~ rustc E0308: mismatched types [expected a tuple with 2 elements, found one with 3 elements]
+    let t: (i32, i32) = (1, 2, 3); //~ rustc E0308: mismatched types [expected a tuple with 2 elements, found one with 3 elements]
+    let u = Pair((1, 2, 3)); //~ rustc E0308: mismatched types [expected a tuple with 2 elements, found one with 3 elements]
+    let ((f, g), h) = ((1,), 2); //~ rustc E0308: mismatched types [expected a tuple with 1 element, found one with 2 elements]
+}

@@ -1,0 +1,13 @@
+// A `mut` tuple binding allows assignment, compound assignment and `&mut` of every field.
+struct P { X: i32 }
+
+fn Main() {
+    let mut t = (1, (2, P { X: 3 }), 4u8);
+    t.0 = 5;
+    t.1.0 += t.0;
+    t.1.1.X *= 2;
+    t.1 = (6, P { X: 7 });
+    let r = &mut t.2;
+    *r -= 1;
+    t = (0, (0, P { X: 0 }), 0);
+}

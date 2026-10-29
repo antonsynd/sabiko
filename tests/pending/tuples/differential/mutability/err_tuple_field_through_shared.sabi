@@ -1,0 +1,8 @@
+// Writing to, or mutably borrowing, a tuple field through a `&` reference.
+fn Assign(r: &(i32, i32)) {
+    r.0 = 1;
+}
+
+fn Borrow(r: &(i32, (i32, i32))) {
+    let m = &mut r.1.0;
+}

@@ -1,0 +1,6 @@
+// Taking `&mut` of a field of a tuple bound without `mut`.
+fn Main() {
+    let t = (1, 2);
+    let r = &mut t.1;
+    *r = 3;
+}

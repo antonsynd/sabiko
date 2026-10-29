@@ -1,0 +1,14 @@
+// A tuple whose elements are all Copy (derived Copy structs included) is Copy itself.
+#[derive(Copy, Clone)]
+struct P { X: i32 }
+
+fn Take(t: (P, i32, (bool, char))) {}
+
+fn Main() {
+    let t = (P { X: 1 }, 2, (true, 'c'));
+    Take(t);
+    Take(t);
+    let u = t;
+    let v = t.0;
+    PrintLine(t.0.X + u.1 + v.X);
+}

@@ -1,0 +1,11 @@
+// Destructuring moves only the bound elements: `_` binds nothing, so that field stays usable.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Main() {
+    let t = (P { X: 1 }, P { X: 2 });
+    let (a, _) = t;
+    Take(a);
+    Take(t.1);
+}

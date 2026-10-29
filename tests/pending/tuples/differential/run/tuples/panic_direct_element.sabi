@@ -1,0 +1,6 @@
+// `Panic(...)` written directly as a tuple element (its `!` coerces to the element type).
+fn Main() {
+    let flag = true;
+    let t: (i32, bool) = (1, if flag { Panic("direct") } else { false });
+    PrintLine(t.0);
+}

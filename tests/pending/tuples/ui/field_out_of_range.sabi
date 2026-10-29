@@ -1,0 +1,12 @@
+// Tuple field indices beyond the arity, nested, through a reference, and on `()`.
+fn Main() {
+    let t = (1, true);
+    let a = t.2; //~ rustc E0609: no field `2` on type `({integer}, bool)`
+    let n = ((1, 2), 3);
+    let b = n.0.2; //~ rustc E0609: no field `2` on type `({integer}, {integer})`
+    let c = n.1.0; //~ rustc E0610: `{integer}` is a primitive type and therefore doesn't have fields
+    let r = &t;
+    let d = r.5; //~ rustc E0609: no field `5` on type `&({integer}, bool)`
+    let u = ();
+    let e = u.0; //~ rustc E0609: no field `0` on type `()`
+}

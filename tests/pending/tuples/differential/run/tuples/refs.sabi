@@ -1,0 +1,46 @@
+// Tuples through references (`r.0` auto-dereferences), writes through `&mut t.0` and
+// `&mut (A, B)` parameters, tuples of references, and references returned into a tuple.
+fn Total(r: &(i32, (i32, i32))) -> i32 { r.0 + r.1.0 + (*r).1.1 }
+
+fn Scale(r: &mut (i32, i32), k: i32) {
+    r.0 *= k;
+    (*r).1 *= k;
+}
+
+fn Larger(r: &mut (i32, i32)) -> &mut i32 {
+    if r.0 >= r.1 { &mut r.0 } else { &mut r.1 }
+}
+
+fn AddInto(p: (&mut i64, &i64)) { *p.0 += *p.1; }
+
+fn Main() {
+    let mut t = (1, (2, 3));
+    PrintLine(Total(&t));
+    let r = &t;
+    let rr = &r;
+    PrintLine(rr.1.1);
+    let f = &mut t.1.0;
+    *f = 20;
+    PrintLine(Total(&t));
+    let mut u = (3, 7);
+    Scale(&mut u, -2);
+    Print(u.0); Print(' '); PrintLine(u.1);
+    *Larger(&mut u) = 100;
+    Print(u.0); Print(' '); PrintLine(u.1);
+    let m = &mut u;
+    m.0 = m.1 + 1;
+    let inner = &mut m.1;
+    *inner += 1;
+    Print(u.0); Print(' '); PrintLine(u.1);
+    let mut a = 5i64;
+    let b = 37i64;
+    AddInto((&mut a, &b));
+    AddInto((&mut a, &b));
+    PrintLine(a);
+    let refs = (&a, &b, &t);
+    PrintLine(*refs.0 + *refs.1 + refs.2.1.0 as i64);
+    let x = 1.5;
+    let y = 2.25;
+    let pair = (&x, &y);
+    PrintLine(pair.0 < pair.1);
+}

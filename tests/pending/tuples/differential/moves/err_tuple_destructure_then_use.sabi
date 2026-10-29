@@ -1,0 +1,11 @@
+// A destructuring `let` moves the bound elements out of the tuple.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Main() {
+    let t = (P { X: 1 }, (P { X: 2 }, 3));
+    let (_, (b, n)) = t;
+    Take(b);
+    Take(t.1.0);
+}

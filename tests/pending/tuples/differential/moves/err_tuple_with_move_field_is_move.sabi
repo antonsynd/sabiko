@@ -1,0 +1,8 @@
+// One non-Copy element makes the whole tuple a move type, even nested inside another tuple.
+struct P { X: i32 }
+
+fn Main() {
+    let t = (1, (true, P { X: 2 }));
+    let u = t;
+    let v = t;
+}

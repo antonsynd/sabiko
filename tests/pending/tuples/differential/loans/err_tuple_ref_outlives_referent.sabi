@@ -1,0 +1,9 @@
+// A reference stored in a tuple must not outlive its referent.
+fn Main() {
+    let p;
+    {
+        let x = 1;
+        p = (&x, 2);
+    }
+    PrintLine(*p.0 + p.1);
+}

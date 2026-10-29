@@ -1,0 +1,14 @@
+// Through a `&mut` to a tuple every field is mutable, without the binding being `mut`.
+fn Update(r: &mut (i32, (i32, bool))) {
+    r.0 = 1;
+    r.1.0 += r.0;
+    r.1.1 = !r.1.1;
+    let m = &mut r.1;
+    m.0 *= 2;
+}
+
+fn Main() {
+    let mut t = (0, (0, false));
+    Update(&mut t);
+    PrintLine(t.1.0);
+}

@@ -1,0 +1,9 @@
+// Debug-build overflow in a compound assignment to a nested tuple field.
+fn Main() {
+    let mut t = (0, (32765i16, 0u8));
+    while t.0 < 5 {
+        t.1.0 += 1;
+        t.0 += 1;
+        PrintLine(t.1.0);
+    }
+}

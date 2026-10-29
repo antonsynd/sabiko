@@ -1,0 +1,13 @@
+// Assigning a new value to a moved-out field makes the whole tuple usable again.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn TakeBoth(t: (P, P)) {}
+
+fn Main() {
+    let mut t = (P { X: 1 }, P { X: 2 });
+    Take(t.0);
+    t.0 = P { X: 3 };
+    TakeBoth(t);
+}

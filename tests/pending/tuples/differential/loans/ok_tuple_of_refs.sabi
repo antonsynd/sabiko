@@ -1,0 +1,10 @@
+// A tuple holding a shared and a mutable reference to different locals.
+fn Main() {
+    let a = 1;
+    let mut b = 2;
+    let p = (&a, &mut b);
+    *p.1 += *p.0;
+    let q = (&a, &a);
+    PrintLine(*q.0 + *q.1);
+    PrintLine(b);
+}
