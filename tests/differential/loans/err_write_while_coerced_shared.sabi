@@ -1,0 +1,11 @@
+// The shared reborrow made by the `&mut i32` to `&i32` coercion is still a loan: writing
+// through the `&mut` while it is live is an error.
+fn Read(n: i32) {}
+
+fn Main() {
+    let mut x = 1;
+    let r = &mut x;
+    let s: &i32 = r;
+    *r = 2;
+    Read(*s);
+}

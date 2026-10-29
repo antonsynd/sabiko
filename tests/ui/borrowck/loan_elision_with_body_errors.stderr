@@ -1,0 +1,144 @@
+[E0416] Error: missing lifetime specifier
+   ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:5:4 ]
+   │
+ 5 │ fn ErrorBeforeUse(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+   │    ───────┬──────  
+   │           ╰──────── expected named lifetime parameter
+   │ 
+   │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+   │ 
+   │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:6:19 ]
+   │
+ 6 │     let x: bool = 1; //~ ERROR E0300 mismatched types
+   │                   ┬  
+   │                   ╰── expected `bool`, found `{integer}`
+───╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:11:4 ]
+    │
+ 11 │ fn ErrorAfterUse(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ──────┬──────  
+    │          ╰──────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:14:18 ]
+    │
+ 14 │     let y: i32 = true; //~ ERROR E0300 mismatched types
+    │                  ──┬─  
+    │                    ╰─── expected `i32`, found `bool`
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:18:4 ]
+    │
+ 18 │ fn ErrorInNestedBlock(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ─────────┬────────  
+    │             ╰────────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:21:25 ]
+    │
+ 21 │             let z: u8 = 'c'; //~ ERROR E0300 mismatched types
+    │                         ─┬─  
+    │                          ╰─── expected `u8`, found `char`
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:27:4 ]
+    │
+ 27 │ fn NoInputsWithError() -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ────────┬────────  
+    │            ╰────────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:28:19 ]
+    │
+ 28 │     let w: bool = 2; //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `bool`, found `{integer}`
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:32:4 ]
+    │
+ 32 │ fn UnresolvedNameInBody(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ──────────┬─────────  
+    │              ╰─────────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0202] Error: cannot find value `Nope` in this scope
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:33:5 ]
+    │
+ 33 │     Nope(); //~ ERROR E0202 cannot find value `Nope`
+    │     ──┬─  
+    │       ╰─── not found in this scope
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:38:4 ]
+    │
+ 38 │ fn CleanBody(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ────┬────  
+    │        ╰────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:43:4 ]
+    │
+ 43 │ fn ValueInput(n: i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ─────┬────  
+    │         ╰────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:50:19 ]
+    │
+ 50 │     let v: bool = n; //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `bool`, found `i32`
+────╯
+[E0416] Error: missing lifetime specifier
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:60:4 ]
+    │
+ 60 │ fn UnresolvedParamType(a: &Missing, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │    ─────────┬─────────  
+    │             ╰─────────── expected named lifetime parameter
+    │ 
+    │ Note 1: this function's return type contains a borrowed value, but the signature does not say which one of the parameters it is borrowed from
+    │ 
+    │ Note 2: explicit lifetimes are planned for Phase 9; see docs/PLAN.md
+────╯
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:60:28 ]
+    │
+ 60 │ fn UnresolvedParamType(a: &Missing, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    │                            ───┬───  
+    │                               ╰───── not found in this scope
+────╯
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/borrowck/loan_elision_with_body_errors.sabi:65:33 ]
+    │
+ 65 │ fn UnresolvedParamTypeElides(a: Missing, b: &i32) -> &i32 { //~ ERROR E0201 cannot find type `Missing`
+    │                                 ───┬───  
+    │                                    ╰───── not found in this scope
+────╯
