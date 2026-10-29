@@ -183,14 +183,14 @@ SourceFile
     │ 
     │ Note: planned for Phase 6 (traits) and Phase 8 (extern); see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: `impl` blocks
-    ╭─[ errors_unsupported.sabi:22:1 ]
+[E0107] Error: not yet supported: trait implementations
+    ╭─[ errors_unsupported.sabi:22:10 ]
     │
- 22 │ impl Foo { }
-    │ ──┬─  
-    │   ╰─── not supported in this version of Sabiko
+ 22 │ impl Foo for Bar { }
+    │          ─┬─  
+    │           ╰─── not supported in this version of Sabiko
     │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
+    │ Note: planned for Phase 6; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: `trait` items
     ╭─[ errors_unsupported.sabi:23:1 ]

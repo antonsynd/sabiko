@@ -214,10 +214,24 @@ pub struct DefInfo {
     pub span: Span,
     /// The `Item` node. [`NodeId::DUMMY`] for a builtin.
     pub node: NodeId,
-    /// Index into `SourceFile::items`. `usize::MAX` for a builtin.
+    /// Index into `SourceFile::items` (of the `impl` block, for an associated function).
+    /// `usize::MAX` for a builtin.
     pub item_index: usize,
+    /// For an associated function, its index among the members of its `impl` block.
+    pub member_index: Option<usize>,
+    /// For an associated function, the struct its `impl` block is for; `None` for other
+    /// items, and for the members of an `impl` whose type did not resolve.
+    pub parent: Option<DefId>,
     /// `Some` for a compiler builtin, `None` for every user item.
     pub builtin: Option<Builtin>,
+}
+
+impl DefInfo {
+    /// Whether this is a function of an `impl` block (a method or an associated function).
+    #[must_use]
+    pub fn is_assoc(&self) -> bool {
+        self.member_index.is_some()
+    }
 }
 
 /// A local binding.
@@ -255,6 +269,10 @@ pub struct ResolveResults {
     /// `ExprKind::Path` or `ExprKind::Struct`.
     res: HashMap<NodeId, Res>,
     pat_locals: HashMap<NodeId, LocalId>,
+    /// The associated functions of each struct, by name.
+    assoc_fns: HashMap<(DefId, String), DefId>,
+    /// The `self` binding of each method, keyed by its function's definition.
+    self_locals: HashMap<DefId, LocalId>,
 }
 
 impl ResolveResults {
@@ -263,14 +281,16 @@ impl ResolveResults {
         &self.defs[id.0 as usize]
     }
 
-    /// The definition an item node introduced.
+    /// The definition an item node introduced. Not defined for an `impl` block, whose
+    /// members are the definitions.
     #[must_use]
     pub fn def_of_item(&self, item: NodeId) -> DefId {
         self.item_defs[&item]
     }
 
-    /// The AST item of a user definition. Must not be called for a builtin (see
-    /// [`ResolveResults::builtin`]): builtins have no item.
+    /// The AST item of a user definition (a member of an `impl` block for an associated
+    /// function). Must not be called for a builtin (see [`ResolveResults::builtin`]):
+    /// builtins have no item.
     #[must_use]
     pub fn item<'a>(&self, file: &'a SourceFile, id: DefId) -> &'a Item {
         let info = self.def(id);
@@ -279,7 +299,34 @@ impl ResolveResults {
             "builtin `{}` has no AST item",
             info.name
         );
-        &file.items[info.item_index]
+        let item = &file.items[info.item_index];
+        match (&item.kind, info.member_index) {
+            (ItemKind::Impl(imp), Some(member)) => &imp.items[member],
+            _ => item,
+        }
+    }
+
+    /// The name of a definition as a path: `Point::New` for an associated function,
+    /// the plain name otherwise.
+    #[must_use]
+    pub fn qualified_name(&self, def: DefId) -> String {
+        let info = self.def(def);
+        match info.parent {
+            Some(parent) => format!("{}::{}", self.def(parent).name, info.name),
+            None => info.name.clone(),
+        }
+    }
+
+    /// The associated function `name` of the struct `adt`, if it has one.
+    #[must_use]
+    pub fn assoc_fn(&self, adt: DefId, name: &str) -> Option<DefId> {
+        self.assoc_fns.get(&(adt, name.to_owned())).copied()
+    }
+
+    /// The `self` binding of a method; `None` for a function without a `self` parameter.
+    #[must_use]
+    pub fn self_local(&self, def: DefId) -> Option<LocalId> {
+        self.self_locals.get(&def).copied()
     }
 
     /// `Some` when `def` is a compiler builtin rather than a user item.
@@ -331,8 +378,10 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
         scopes: Vec::new(),
         sink,
         current_fn: None,
+        impl_scope: ImplScope::Outside,
     };
     r.collect_items(file);
+    r.collect_impls(file);
     for (index, item) in file.items.iter().enumerate() {
         r.resolve_item(item, index);
     }
@@ -346,24 +395,63 @@ struct Resolver<'d> {
     scopes: Vec<Vec<(String, LocalId)>>,
     sink: &'d mut DiagnosticSink,
     current_fn: Option<DefId>,
+    /// Whether the resolver is inside an `impl` block, and for which struct: what `Self`
+    /// names.
+    impl_scope: ImplScope,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImplScope {
+    Outside,
+    /// An `impl` block whose type did not resolve (already reported).
+    Unresolved,
+    Struct(DefId),
 }
 
 impl Resolver<'_> {
+    fn new_def(&mut self, info: DefInfo) -> DefId {
+        let id = DefId(u32::try_from(self.results.defs.len()).expect("too many items"));
+        self.results.defs.push(info);
+        id
+    }
+
     fn collect_items(&mut self, file: &SourceFile) {
         for (index, item) in file.items.iter().enumerate() {
             let kind = match &item.kind {
                 ItemKind::Fn(_) => DefKind::Fn,
                 ItemKind::Struct(_) => DefKind::Struct,
                 ItemKind::Const(_) => DefKind::Const,
+                ItemKind::Impl(imp) => {
+                    // The members are definitions of their own, in source order, but not in
+                    // the item namespace: they are reached as `Type::Name` or as methods.
+                    for (member_index, member) in imp.items.iter().enumerate() {
+                        let ItemKind::Fn(f) = &member.kind else {
+                            continue;
+                        };
+                        let id = self.new_def(DefInfo {
+                            kind: DefKind::Fn,
+                            name: f.name.name.clone(),
+                            span: f.name.span,
+                            node: member.id,
+                            item_index: index,
+                            member_index: Some(member_index),
+                            parent: None,
+                            builtin: None,
+                        });
+                        self.results.item_defs.insert(member.id, id);
+                    }
+                    continue;
+                }
             };
-            let name = item.name();
-            let id = DefId(u32::try_from(self.results.defs.len()).expect("too many items"));
-            self.results.defs.push(DefInfo {
+            let name = item.name().expect("only `impl` blocks have no name");
+            let id = self.new_def(DefInfo {
                 kind,
                 name: name.name.clone(),
                 span: name.span,
                 node: item.id,
                 item_index: index,
+                member_index: None,
+                parent: None,
                 builtin: None,
             });
             self.results.item_defs.insert(item.id, id);
@@ -391,23 +479,120 @@ impl Resolver<'_> {
             if self.items.contains_key(builtin.name()) {
                 continue;
             }
-            let id = DefId(u32::try_from(self.results.defs.len()).expect("too many items"));
-            self.results.defs.push(DefInfo {
+            let id = self.new_def(DefInfo {
                 kind: DefKind::Fn,
                 name: builtin.name().to_owned(),
                 span: Span::dummy(),
                 node: NodeId::DUMMY,
                 item_index: usize::MAX,
+                member_index: None,
+                parent: None,
                 builtin: Some(builtin),
             });
             self.items.insert(builtin.name().to_owned(), id);
         }
     }
 
+    /// Resolves the type of every `impl` block, records each member's parent struct and
+    /// registers it under `(struct, name)`. Two members of one name for the same struct are
+    /// reported as rustc does: at the later one when both are in one block, at the earlier
+    /// one when they are in different blocks.
+    fn collect_impls(&mut self, file: &SourceFile) {
+        // The first definition of each `(struct, name)`, with the index of its block.
+        let mut first: HashMap<(DefId, String), (DefId, usize)> = HashMap::new();
+        for (index, item) in file.items.iter().enumerate() {
+            let ItemKind::Impl(imp) = &item.kind else {
+                continue;
+            };
+            let Some(adt) = self.resolve_impl_target(&imp.self_ty) else {
+                continue;
+            };
+            for member in &imp.items {
+                let ItemKind::Fn(f) = &member.kind else {
+                    continue;
+                };
+                let def = self.results.def_of_item(member.id);
+                self.results.defs[def.0 as usize].parent = Some(adt);
+                let key = (adt, f.name.name.clone());
+                let Some(&(prev, prev_block)) = first.get(&key) else {
+                    first.insert(key.clone(), (def, index));
+                    self.results.assoc_fns.insert(key, def);
+                    continue;
+                };
+                let prev_span = self.results.def(prev).span;
+                let name = &f.name.name;
+                let (primary, other) = if prev_block == index {
+                    (f.name.span, prev_span)
+                } else {
+                    (prev_span, f.name.span)
+                };
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_ASSOC_ITEM,
+                        format!("duplicate definitions with name `{name}`"),
+                    )
+                    .with_label(primary, format!("duplicate definitions for `{name}`"))
+                    .with_label(other, format!("other definition for `{name}`")),
+                );
+            }
+        }
+    }
+
+    /// The struct an `impl` block is for, reporting anything else.
+    fn resolve_impl_target(&mut self, ty: &Type) -> Option<DefId> {
+        let TypeKind::Path(path) = &ty.kind else {
+            self.resolve_type(ty, true);
+            self.invalid_impl_target(ty.span, "this type");
+            return None;
+        };
+        let res = self.resolve_type_path(path);
+        self.results.res.insert(ty.id, res);
+        match res {
+            Res::Def(def) => Some(def),
+            Res::Prim(_) => {
+                self.invalid_impl_target(ty.span, "primitive types");
+                None
+            }
+            Res::Local(_) | Res::Err => None,
+        }
+    }
+
+    fn invalid_impl_target(&mut self, span: Span, what: &str) {
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::INVALID_IMPL_TARGET,
+                format!("cannot define inherent `impl` for {what}"),
+            )
+            .with_label(span, "not a struct of this file")
+            .with_note(
+                "an inherent `impl` block is only allowed for a struct defined in the same file",
+            ),
+        );
+    }
+
     fn resolve_item(&mut self, item: &Item, index: usize) {
+        if let ItemKind::Impl(imp) = &item.kind {
+            let target = match imp.self_ty.kind {
+                TypeKind::Path(_) => match self.results.res(imp.self_ty.id) {
+                    Res::Def(def) => Some(def),
+                    _ => None,
+                },
+                _ => None,
+            };
+            self.impl_scope = target.map_or(ImplScope::Unresolved, ImplScope::Struct);
+            for member in &imp.items {
+                if let ItemKind::Fn(f) = &member.kind {
+                    let def = self.results.def_of_item(member.id);
+                    self.resolve_fn(def, f);
+                }
+            }
+            self.impl_scope = ImplScope::Outside;
+            return;
+        }
         let def = self.results.def_of_item(item.id);
         debug_assert_eq!(self.results.def(def).item_index, index);
         match &item.kind {
+            ItemKind::Impl(_) => unreachable!("handled above"),
             ItemKind::Fn(f) => self.resolve_fn(def, f),
             ItemKind::Struct(s) => {
                 if let StructKind::Named(fields) = &s.kind {
@@ -446,6 +631,25 @@ impl Resolver<'_> {
     fn resolve_fn(&mut self, def: DefId, f: &FnDecl) {
         self.current_fn = Some(def);
         self.scopes.push(Vec::new());
+        if let Some(sp) = &f.self_param {
+            // `self` cannot be a `let` binding (it is a keyword), so a lookup of it finds
+            // this binding and nothing else.
+            let id = LocalId(u32::try_from(self.results.locals.len()).expect("too many locals"));
+            self.results.locals.push(LocalInfo {
+                name: "self".to_owned(),
+                mutable: matches!(sp.kind, sabiko_ast::SelfKind::Value { mutable: true }),
+                span: sp.span,
+                pat: sp.id,
+                owner: def,
+                is_param: true,
+            });
+            self.results.pat_locals.insert(sp.id, id);
+            self.results.self_locals.insert(def, id);
+            self.scopes
+                .last_mut()
+                .expect("a scope is open")
+                .push(("self".to_owned(), id));
+        }
         let mut seen: HashMap<&str, Span> = HashMap::new();
         for p in &f.params {
             self.resolve_type(&p.ty, true);
@@ -594,11 +798,33 @@ impl Resolver<'_> {
         Res::Err
     }
 
+    /// `Self` inside an `impl` block: its struct, or `Res::Err` (silently) when the block's
+    /// type did not resolve. Outside one it is an error, reported here.
+    fn resolve_self_type(&mut self, span: Span) -> Res {
+        match self.impl_scope {
+            ImplScope::Struct(def) => Res::Def(def),
+            ImplScope::Unresolved => Res::Err,
+            ImplScope::Outside => {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::UNRESOLVED_TYPE,
+                        "cannot find type `Self` in this scope",
+                    )
+                    .with_label(span, "`Self` is only available in impls"),
+                );
+                Res::Err
+            }
+        }
+    }
+
     fn resolve_type_path(&mut self, path: &Path) -> Res {
         if !path.is_single() {
             return self.unsupported_path(path);
         }
         let name = &path.segments[0];
+        if name.name == "Self" {
+            return self.resolve_self_type(name.span);
+        }
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
@@ -629,12 +855,34 @@ impl Resolver<'_> {
     }
 
     fn resolve_value_path(&mut self, path: &Path) -> Res {
-        if !path.is_single() {
-            return self.unsupported_path(path);
+        match path.segments.len() {
+            1 => {}
+            2 => return self.resolve_assoc_path(path),
+            _ => return self.unsupported_path(path),
         }
         let name = &path.segments[0];
         if let Some(local) = self.lookup_local(&name.name) {
             return Res::Local(local);
+        }
+        if name.name == "self" {
+            let in_assoc_fn = self.impl_scope != ImplScope::Outside;
+            let mut d = Diagnostic::error(
+                ErrorCode::SELF_OUTSIDE_METHOD,
+                "cannot find value `self` in this scope",
+            )
+            .with_label(
+                name.span,
+                "`self` value is a keyword only available in methods with a `self` parameter",
+            );
+            if in_assoc_fn {
+                d = d.with_note("add a `self` receiver parameter to make this a method: `&self`, `&mut self` or `self`");
+            }
+            self.sink.emit(d);
+            return Res::Err;
+        }
+        if name.name == "Self" {
+            // A unit struct as a value; the type checker rejects any other struct.
+            return self.resolve_self_type(name.span);
         }
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
@@ -652,8 +900,80 @@ impl Resolver<'_> {
         if PrimTy::from_name(&name.name).is_some() {
             d = d.with_note(format!("`{}` is a type, not a value", name.name));
         }
+        let owners: Vec<String> = self
+            .results
+            .assoc_fns
+            .keys()
+            .filter(|(_, n)| *n == name.name)
+            .map(|(adt, _)| self.results.def(*adt).name.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if let Some(owner) = owners.first() {
+            d = d.with_note(format!(
+                "`{}` is an associated function of `{owner}`: call it as `{owner}::{}(..)`",
+                name.name, name.name
+            ));
+        }
         self.sink.emit(d);
         Res::Err
+    }
+
+    /// `Type::Name`: an associated function of a struct (`Self` inside an `impl` block).
+    /// The first segment is looked up as a type: a local, a function or a constant of
+    /// that name does not count, as in rustc.
+    fn resolve_assoc_path(&mut self, path: &Path) -> Res {
+        let (ty, item) = (&path.segments[0], &path.segments[1]);
+        if matches!(ty.name.as_str(), "self" | "crate" | "super") {
+            return self.unsupported_path(path);
+        }
+        let known = ty.name == "Self"
+            || self.items.contains_key(&ty.name)
+            || PrimTy::from_name(&ty.name).is_some();
+        if !known {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNRESOLVED_TYPE,
+                    format!("cannot find type `{}` in this scope", ty.name),
+                )
+                .with_label(ty.span, "not found in this scope")
+                .with_note("`A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9"),
+            );
+            return Res::Err;
+        }
+        let adt = match self.resolve_type_path(&Path {
+            segments: vec![ty.clone()],
+            span: ty.span,
+        }) {
+            Res::Def(def) => def,
+            Res::Prim(prim) => {
+                self.unknown_assoc_item(item, &format!("type `{}`", prim.name()));
+                return Res::Err;
+            }
+            Res::Local(_) | Res::Err => return Res::Err,
+        };
+        if let Some(def) = self.results.assoc_fn(adt, &item.name) {
+            return Res::Def(def);
+        }
+        let what = format!("struct `{}`", self.results.def(adt).name);
+        self.unknown_assoc_item(item, &what);
+        Res::Err
+    }
+
+    fn unknown_assoc_item(&mut self, item: &sabiko_ast::Ident, owner: &str) {
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNKNOWN_ASSOC_ITEM,
+                format!(
+                    "no associated function named `{}` found for {owner}",
+                    item.name
+                ),
+            )
+            .with_label(
+                item.span,
+                format!("associated function not found in {owner}"),
+            ),
+        );
     }
 
     fn resolve_struct_path(&mut self, path: &Path) -> Res {
@@ -661,6 +981,9 @@ impl Resolver<'_> {
             return self.unsupported_path(path);
         }
         let name = &path.segments[0];
+        if name.name == "Self" {
+            return self.resolve_self_type(name.span);
+        }
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
@@ -855,7 +1178,11 @@ mod tests {
     }
 
     fn fn_paths(ast: &SourceFile, name: &str) -> Vec<(String, NodeId)> {
-        let item = ast.items.iter().find(|i| i.name().name == name).unwrap();
+        let item = ast
+            .items
+            .iter()
+            .find(|i| i.name().is_some_and(|n| n.name == name))
+            .unwrap();
         let ItemKind::Fn(f) = &item.kind else {
             panic!()
         };

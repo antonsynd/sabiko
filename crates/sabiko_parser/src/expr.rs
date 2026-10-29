@@ -554,7 +554,12 @@ impl Parser<'_, '_> {
                 };
                 Ok(self.mk(ExprKind::Return(value), start))
             }
-            TokenKind::Ident => {
+            TokenKind::SelfValue => {
+                // `self`: a path the resolver binds to the receiver. Never a struct literal.
+                let path = self.parse_path()?;
+                Ok(self.mk(ExprKind::Path(path), start))
+            }
+            TokenKind::Ident | TokenKind::SelfType => {
                 let path = self.parse_path()?;
                 if self.at(TokenKind::LBrace) {
                     if !self.no_struct_literal {
@@ -592,9 +597,6 @@ impl Parser<'_, '_> {
             }
             TokenKind::For => {
                 Err(self.error_unsupported("`for` loops", start, "planned for Phase 5"))
-            }
-            TokenKind::SelfValue => {
-                Err(self.error_unsupported("`self`", start, "planned for Phase 5"))
             }
             TokenKind::Pipe | TokenKind::OrOr => {
                 Err(self.error_unsupported("closures", start, "not planned"))

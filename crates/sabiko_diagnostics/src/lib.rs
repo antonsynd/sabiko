@@ -37,6 +37,8 @@ impl ErrorCode {
     pub const UNSUPPORTED_SYNTAX: Self = Self(107);
     pub const STRUCT_LITERAL_NOT_ALLOWED: Self = Self(108);
     pub const NESTING_TOO_DEEP: Self = Self(109);
+    /// A `self` parameter outside an `impl` block, or not first in the parameter list.
+    pub const MISPLACED_SELF_PARAM: Self = Self(110);
 
     // Name resolution (E02xx)
     pub const DUPLICATE_DEFINITION: Self = Self(200);
@@ -49,6 +51,17 @@ impl ErrorCode {
     pub const PLACEHOLDER_IN_SIGNATURE: Self = Self(207);
     pub const UNSIZED_TYPE: Self = Self(208);
     pub const DUPLICATE_BINDING: Self = Self(209);
+    /// Two associated items of one name for the same type, in one `impl` block or in two
+    /// (rustc's E0592).
+    pub const DUPLICATE_ASSOC_ITEM: Self = Self(210);
+    /// An inherent `impl` for something other than a struct of this file (rustc's E0390
+    /// for primitives).
+    pub const INVALID_IMPL_TARGET: Self = Self(211);
+    /// `Type::Name` where the type has no associated function `Name` (rustc's E0599 for
+    /// paths).
+    pub const UNKNOWN_ASSOC_ITEM: Self = Self(212);
+    /// `self` used as a value outside a method with a `self` parameter (rustc's E0424).
+    pub const SELF_OUTSIDE_METHOD: Self = Self(213);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -72,6 +85,10 @@ impl ErrorCode {
     /// A `char` literal outside the Basic Multilingual Plane: `char` is one UTF-16 code
     /// unit (decision 31).
     pub const NON_BMP_CHAR: Self = Self(318);
+    /// `e.Name(..)` where the receiver's type has no method `Name` (rustc's E0599).
+    pub const UNKNOWN_METHOD: Self = Self(319);
+    /// `e.Name` naming a method, not a field (rustc's E0615).
+    pub const METHOD_AS_FIELD: Self = Self(320);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

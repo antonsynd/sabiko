@@ -69,6 +69,9 @@ impl Dumper {
                 self.line(&format!("{vis}Fn {}", f.name.name));
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
+                    if let Some(sp) = &f.self_param {
+                        d.line(&format!("SelfParam {}", sp.kind.as_str()));
+                    }
                     for p in &f.params {
                         d.line("Param");
                         d.nested(|d| {
@@ -112,6 +115,16 @@ impl Dumper {
                     d.meta(&item.attrs, &item.docs);
                     d.ty(&c.ty);
                     d.expr(&c.value);
+                });
+            }
+            ItemKind::Impl(imp) => {
+                self.line(&format!("{vis}Impl"));
+                self.nested(|d| {
+                    d.meta(&item.attrs, &item.docs);
+                    d.ty(&imp.self_ty);
+                    for member in &imp.items {
+                        d.item(member);
+                    }
                 });
             }
         }

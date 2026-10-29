@@ -109,6 +109,39 @@ impl Parser<'_, '_> {
     }
 }
 
+impl Parser<'_, '_> {
+    /// Inside an `impl` block, skips to the start of the next member at nesting depth 0,
+    /// or up to (not past) the `}` that closes the block.
+    pub(crate) fn recover_to_impl_member(&mut self) {
+        let mut depth = 0i32;
+        loop {
+            let k = self.peek_kind();
+            if k == TokenKind::Eof || (depth == 0 && k == TokenKind::RBrace) {
+                return;
+            }
+            if depth == 0
+                && self.pos != self.last_error_pos.unwrap_or(usize::MAX)
+                && is_item_start(k)
+            {
+                return;
+            }
+            match k {
+                TokenKind::LBrace => depth += 1,
+                TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // The end of the broken member's body.
+                        self.bump();
+                        return;
+                    }
+                }
+                _ => {}
+            }
+            self.bump();
+        }
+    }
+}
+
 pub(crate) fn is_item_start(k: TokenKind) -> bool {
     matches!(
         k,
