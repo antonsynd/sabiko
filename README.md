@@ -54,6 +54,7 @@ scripts/check-runtime.sh       # pins the runtime library's formatting and panic
 cargo run -p sabikoc -- examples/hello.sabi --emit=exe -o out/hello.dll && dotnet out/hello.dll
 cargo run -p sabikoc -- examples/hello.sabi --emit=il    # print the CIL module
 cargo run -p sabikoc -- examples/hello.sabi --emit=mir   # print MIR
+cargo run -p sabikoc -- examples/hello.sabi --emit=mir-elaborated   # MIR after drop elaboration
 cargo run -p sabikoc -- examples/hello.sabi --stop-after=typeck   # resolve and type-check only
 ```
 

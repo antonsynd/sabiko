@@ -19,8 +19,9 @@ names which phase owns which section.
   before or after the struct. The members are functions (attributes, doc comments and
   `pub` as on items); a member may take `self`, `mut self`, `&self` or `&mut self` as its
   first parameter (a method). A `self` parameter outside an `impl` block, or not first, is
-  E0110. Not yet supported (E0107): generic impls, trait impls (`impl Trait for Type`),
-  associated constants and types, `self: Type`, `&'a self`
+  E0110. Not yet supported (E0107): generic impls, trait impls (`impl Trait for Type`)
+  other than `impl Drop for Type` (§7), associated constants and types, `self: Type`,
+  `&'a self`
 - Paths: `Type::Name` (exactly two segments) names an associated function; `Self` (in a
   type, a struct literal, a path or as a unit-struct value) and `self` (a value) begin a
   path like an identifier. Longer paths and `::` in types and struct literals are E0107
@@ -69,7 +70,7 @@ field and a method may share a name (`c.Count` and `c.Count()`). Inside an `impl
 
 ## 6. Mutability (Phase 2)
 
-## 7. Drop and panics (Phase 4)
+## 7. Drop and panics (Phase 4, 5)
 
 Panics (Phase 4): a panic is a `Sabiko.Runtime.PanicException`. `Panic(msg)` throws one;
 integer overflow in a debug build, division or remainder by zero, `MIN / -1`, `MIN % -1`,
@@ -92,10 +93,67 @@ written before the panic is kept.
 Release builds (`--release`) wrap integer arithmetic instead of panicking; division, shift
 and explicit panics behave the same in both.
 
-Drop: user `Drop` implementations need `impl` blocks and arrive with drop elaboration in
-Phase 5. The lowering is fixed (decision 12): a scope owning droppable values becomes a
-`try`/`finally` whose `finally` drops in reverse declaration order, so drops run during
-unwinding for free.
+Drop (#12, decisions 46 and 55). A struct of the file may implement `Drop`, the one trait
+impl so far: `impl Drop for S { fn drop(&mut self) { .. } }`, defining `drop` with exactly
+that signature and nothing else (§11.1, §11.2). The method keeps Rust's lowercase name. A
+type has *drop glue* when it is such a struct, or a struct or tuple with a field (element)
+that has drop glue; such a type is never `Copy` (E0324, E0417). Values with drop glue are
+dropped as rustc drops them (edition 2021):
+
+- A value's own `drop` runs first, with its fields intact (it may read and change them);
+  then its fields with drop glue are dropped in declaration order (not the order of the
+  struct literal), recursively. A tuple drops its elements first to last.
+- Locals are dropped at the end of their block, the last declared first (by declaration,
+  not by initialisation: in `let a: D; let b = ..; a = ..;`, `b` goes first); parameters
+  after the body's locals, the last parameter first. Shadowing drops nothing. `return`,
+  `break` and `continue` drop the locals of every scope they leave, innermost first; the
+  value they carry is moved out first. A loop body's locals are dropped every iteration.
+- A moved-out value is not dropped where it was declared, but where it went: at the end of
+  the callee for a by-value argument (`self` included), with the struct or tuple it was
+  moved into. Where a value is initialised or moved on some paths only, it is dropped on
+  the paths where it holds one (a drop flag), also for each field of a struct without
+  `Drop` or element of a tuple: after `let b = p.B;` only `p`'s other fields are dropped,
+  and assigning `p.B` again makes it count again.
+- Assigning to a place that holds a value drops the old value after the new one is
+  computed and stored: `x = Make(2);` makes 2, then drops the old `x`. Nothing is dropped
+  where the place holds nothing (first or deferred initialisation, after a move). If the
+  old value's `drop` panics, the place already holds the new value, and unwinding drops
+  it. Assigning a field drops only the old field; assigning a partially moved struct as a
+  whole drops only the fields still in it.
+- Temporaries are dropped at the end of their statement, in the reverse order their
+  values were completed: a call's result before the temporaries made for its receiver and
+  arguments (`Make(1).Next();` drops `Next`'s result, then `Make(1)`'s). Except:
+  an `if` or `while` condition's temporaries (and those of a `&&`/`||` operand) are
+  dropped before the branch or body runs; `let r = &temp;` and `let t = (&temp, ..);`
+  extend the temporary to the end of the block (`r = &temp;` does not: E0413, rustc's
+  E0716); a block's tail expression's temporaries are dropped after the block's locals
+  (a function body's after its locals and before its parameters); the operand of
+  `return` is not a tail, its temporaries go first.
+- `let _ = <value>;` drops the value at once, `let _x = ..;` at the end of the block, and
+  `let (_, y) = (..);` drops the unbound element at the end of the `let`; an expression
+  statement drops its value at its end. `let _ = place;` does nothing (§11.4).
+- `drop` cannot be called (E0323, rustc's E0040), and there is no `std::mem::drop` yet:
+  passing a value to a function that takes it by value drops it there.
+- The implicit drop needs no `mut` binding. A drop at a scope end invalidates every loan
+  of the value (E0413), an assignment that drops the old value every loan of the place
+  (E0410), but a drop is not a use of the references a value holds: dropping a `(&T, D)`
+  does not keep its loan alive. No non-`Copy` field may be moved out of a value whose type
+  implements `Drop` (E0418, rustc's E0509); `Copy` fields can be read. Inside `drop`,
+  `self` is `&mut S`.
+
+Unwinding: a panic drops every value that holds one, frame by frame: the callee's locals
+and parameters, then the caller's temporaries and locals, by the rules above. Operands
+already evaluated for an unfinished struct literal, tuple or call are dropped, the last
+first; the unfinished struct's own `drop` does not run. A `drop` that panics at a normal
+scope end is an ordinary panic: that value's fields are still dropped, then everything
+else live, as rustc's drop glue does. A panic while unwinding (a `drop` called during
+cleanup that panics) aborts the process, as Rust does (decision 56): standard output is
+flushed, both panics are reported on standard error, followed by `panic in a destructor
+during cleanup` and `thread caused non-unwinding panic. aborting.`, and the process ends
+with `Environment.FailFast` (SIGABRT on Unix; exit status 134 in a shell) without running
+any further drop. One difference: rustc prints a panic's report when the panic starts,
+before the drops; Sabiko prints it after them. Both go to standard error, so standard
+output is the same.
 
 ## 8. Memory model (Phase 7)
 - `Box<T>`, `Gc<T>`, `Cell<T>`, `RefCell<T>`, `Arena`
@@ -158,7 +216,8 @@ can write the memory the place reads: no assignment to `p`'s local, `p`'s local 
 borrowed, and, for a place read through a reference, no assignment through a reference or
 to a borrowed local in between; calls end blocks, so none can run in between. Copies
 nothing reads are deleted. `--emit=mir` prints the MIR before this pass, as the borrow
-checker sees it. The backend then walks the MIR (§11); every statement and terminator
+checker sees it; `--emit=mir-elaborated` after drop elaboration (decision 55), the pass
+before it. The backend then walks the MIR (§11); every statement and terminator
 becomes an instruction sequence. MIR locals become IL locals (`.locals init`, listing only
 the locals the code uses) and MIR arguments IL arguments, except that a user local or
 temporary assigned once (not by a struct literal; a tuple is fine) and read once by a whole-local operand,
@@ -197,7 +256,9 @@ chain; `return` loads the return local and `ret`.
 Arithmetic follows Rust. In release builds `+`, `-`, `*` are the plain opcodes and
 values narrower than `int32` (`i8 i16 u8 u16`), which compute at `int32` width, are
 truncated after every operation with `conv.*`; negation is `neg`. In debug builds every
-`+`, `-`, `*` and unary `-` (as `0 - x`) is checked explicitly (decision 43): narrow types
+`+`, `-`, `*` and unary `-` (as `0 - x`) is checked explicitly (decision 43; a negated
+integer literal is one constant already in MIR, as in rustc, while `-C` for a constant
+`C` holding the type's minimum panics like any other negation): narrow types
 compute exactly at `int32` width and `i32`/`u32` at `int64` width (operands widened with
 `conv.i8`/`conv.u8`), and the result must equal its own truncation to the type (`dup; dup;
 conv.i1; beq`, with `conv.i8` after the truncation for the 32-bit types); `i64`, `u64`,
@@ -258,6 +319,24 @@ from `u128`, which reinterprets; floats into 128-bit, which saturates with NaN a
 round once to nearest-even (the BCL's `Int128` to `float` goes through `double` and can
 round twice). `bool` and `char` convert as `uint8` and `char`.
 
+Drops (decisions 55, 56). A struct's `drop` is the static method `'Drop.drop'` of its
+type, taking the receiver as `S&` like any `&mut self` method. A type whose drop does more
+than call its own `drop` gets drop glue, a static method `'<Drop>T'(T&)` of the module
+class, emitted on first use: it calls the struct's `drop` (if any), then each field's
+glue in declaration order, every step but the last inside a `.try` whose `fault` handler
+runs the steps after it. A MIR `Drop` loads the place's address and calls the glue (or
+`'Drop.drop'`). Drop flags are `bool` locals. Each MIR cleanup scope with something to
+drop is a protected region: its blocks are laid out contiguously, in reverse postorder
+with the region's entry first, inside `.try { .. } fault { .. }`, nested as the scopes
+nest; the handler calls `Sabiko.Runtime.Panic::BeginCleanup()` and then drops the scope's
+places, each behind its flag. Control leaves a region only by `leave` (a conditional
+branch out of one goes to a `leave` trampoline, and a `return` inside one is a `leave` to
+the return block), and no value waits on the evaluation stack across a region boundary.
+A function that drops nothing on a panic path has no exception handling at all. An
+executable's entry point catches through a filter, `Panic::Filter`, which runs before any
+handler: it records the panic and accepts it, or aborts when the thread is already
+cleaning up after one.
+
 Verifiability. Every emitted assembly passes ILVerify with `ReturnPtrToStack` ignored
 (decision 30): ECMA-335 has no rule that lets a function return a managed pointer it
 received, so that error fires for every `fn ... -> &T`; the borrow checker (§11.4) ensures
@@ -298,6 +377,13 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   tuple or `()`; E0201/E0203 for an unknown name or a non-type). Its functions are
   resolved like free functions, with `Self` naming the struct and, in a method, `self`
   bound as the first parameter (mutable for `mut self`).
+- `impl Drop for T` (§7): `T` must be a struct of the file (E0214 for a primitive, a
+  tuple, a reference or `()`, rustc's E0117/E0120; E0201 for an unknown name), with one
+  such impl (E0215 at the second, rustc's E0119), which defines `drop` (E0216, E0046) and
+  nothing else (E0217, E0407; `fn Drop` gets a note that the name is lowercase). Its
+  members are not associated functions: `T::drop` and `t.drop()` find an inherent `drop`
+  first and the destructor otherwise (then E0323). An item of the file named `Drop`
+  shadows the trait: `impl Drop for T` is then E0203 (rustc's E0404).
 
 ### 11.2 Types and inference
 
@@ -416,6 +502,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - Assignment `p = e` and compound assignment `p op= e` require `p` to be a place: a local
   (not a constant), a field of a place, or a dereference (E0310). Their value is `()`.
   Compound assignment follows the operator rules above.
+- The `drop` of an `impl Drop` must be exactly `fn drop(&mut self)`: another receiver, a
+  missing receiver or a return type is E0321 (rustc's E0053/E0186), another parameter
+  count E0322 (E0050). Calling it, `d.drop()` or `D::drop(&mut d)`, is E0323 (E0040).
+  `#[derive(Copy)]` on a struct with `impl Drop` is E0324 (E0184); on a struct with a
+  field that has drop glue it is E0417, as for any non-`Copy` field.
 - A `const` initialiser is evaluated at compile time. Allowed: literals, arithmetic,
   comparisons, logical operators, casts and references to other constants. Overflow,
   division or remainder by zero, over-wide shifts and cycles between constants are errors
@@ -448,7 +539,7 @@ Checked on the MIR by `sabiko_borrowck` (E0400–E0405):
 
 ### 11.4 Borrow checking (Phase 3 subset)
 
-Checked on the MIR by `sabiko_borrowck` (E0406–E0417), after the mutability and
+Checked on the MIR by `sabiko_borrowck` (E0406–E0418), after the mutability and
 initialisation rules of §11.3. Every rule below is also a rule of Rust, and
 `tests/differential/` holds a program per rule that `rustc` must judge the same way.
 
@@ -480,6 +571,10 @@ Moves (E0406, E0407):
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
+- No non-`Copy` field may be moved out of a value whose type implements `Drop`, at any
+  depth (`o.Inner`, `o.Inner.X`, also out of a by-value `self`): its `drop` will see the
+  whole value (E0418, rustc's E0509). Moving the whole value, or a field of a struct
+  without `Drop` that holds one, is fine.
 - A `&mut T` is implicitly reborrowed (`&mut *r`) where the expected type is `&mut`:
   call arguments, struct literal fields, assignment, annotated `let`, `return`. Where the
   expected type is `&T` the reborrow is shared (`&*r`), so `F(&*r, r)` with two `&T`
@@ -509,7 +604,9 @@ Loans (E0408–E0413):
   conflict; two loans of the
   same field do.
 - A referent must outlive every reference to it: a reference to an inner-block local used
-  after the block ends is E0413. A temporary receiver dies with its statement:
+  after the block ends is E0413. A value with drop glue is dropped at the end of its scope
+  (§7), which ends its loans the same way; the drop is not a use of the references the
+  value holds (drop-liveness). A temporary receiver dies with its statement:
   `let r = Make().XRef();` followed by a use of `r` is E0413 (rustc's E0716).
 
 Two-phase borrows (#15, decision 54). Two borrows a call makes implicitly are two-phase:
@@ -549,6 +646,7 @@ Signatures and lifetimes (E0414–E0416):
 
 The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
 ↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597 (E0716 for a temporary); E0414 ↔ E0515;
-E0415 ↔ the uncoded "lifetime may not live long enough"; E0416 ↔ E0106; E0417 ↔ E0204.
+E0415 ↔ the uncoded "lifetime may not live long enough"; E0416 ↔ E0106; E0417 ↔ E0204;
+E0418 ↔ E0509.
 The differential harness compares verdicts (accept vs borrow error), not codes. The
 mutability family maps as E0400 ↔ E0384, E0401/E0403 ↔ E0594, E0402/E0404 ↔ E0596.

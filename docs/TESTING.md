@@ -11,7 +11,7 @@ runs the suite on Linux, macOS and Windows with the .NET toolchain installed and
 | Suite | Where | Update |
 | --- | --- | --- |
 | UI tests: `//~ ERROR Exxxx msg` annotations and rendered `.stderr` per program; the directory selects the pipeline stage | `tests/ui/<stage>/`, `crates/sabiko_driver/tests/ui.rs` | `BLESS=1 cargo test -p sabiko_driver --test ui`, then review the diff |
-| MIR snapshots per construct, as built (what the borrow checker sees) and after copy forwarding (`fixtures_forwarded@*`, decision 51) | `crates/sabiko_mir/tests/{fixtures,snapshots}` | `INSTA_UPDATE=always cargo test -p sabiko_mir` or `cargo insta review` |
+| MIR snapshots per construct, as built (what the borrow checker sees), after drop elaboration (`fixtures_elaborated@drop*`, decision 55) and after drop elaboration and copy forwarding (`fixtures_forwarded@*`, decision 51) | `crates/sabiko_mir/tests/{fixtures,snapshots}` | `INSTA_UPDATE=always cargo test -p sabiko_mir` or `cargo insta review` |
 | IL snapshots per construct; each snapshot is also assembled with `ilasm` and verified with ILVerify when the toolchain is present | `crates/sabiko_codegen/tests/{fixtures,snapshots}` | same, `-p sabiko_codegen` |
 | Block layout: in every method of the IL fixtures, the run-pass and run-time differential corpora and the benchmarks (both build modes), every backward branch targets a block on a CFG cycle, so loop-free methods have none (the JIT would treat them as loops) | `crates/sabiko_codegen/tests/layout.rs` | fix the layout |
 | Run-pass: compiled by the `sabikoc` binary, verified, run under `dotnet`; stdout and exit code compared, and the exact panic report (`.stderr`, path relative to the repository) of a program that panics; `//@ release`, `//@ exit-code: N` | `tests/run-pass/`, `crates/sabikoc/tests/run_pass.rs` | `BLESS=1 cargo test -p sabikoc --test run_pass`, then read the `.stdout` and check it against Rust semantics (there is no oracle here) |
@@ -30,7 +30,10 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `tests/differential/run/` are built as executables by both compilers (in release mode,
   wrapping arithmetic, for a program with a `//@ release` line) and run; stdout and
   exit codes must match, and when both panic so must the panic report: the message and
-  the location's line and column (each compiler's file name must be its own input). The
+  the location's line and column (each compiler's file name must be its own input). An
+  abort (a panic in a `drop` during unwinding, decision 56) is exit code 134 on every
+  platform (`common::exit_code` maps a signal to 128 + its number and Windows' fail-fast
+  statuses to 134), and the first panic's report must match then too. The
   rustc prelude is appended to the program, its lints passed as `-A` flags, so that line
   numbers agree; `Panic` is `#[track_caller]` there, so it reports its call site.
 - Generated programs (`crates/sabiko_testgen`, `crates/sabikoc/tests/generated.rs`): a
@@ -41,7 +44,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   through a reference) and methods (#7: impl blocks, `self`/`mut self`/`&self`/`&mut self`
   methods and associated constructors, called as `Type::Name(..)` or with method syntax on
   places, references, call results and temporaries, chained, and in the two-phase shapes
-  of #15 where later arguments read the receiver or a reborrowed `&mut` argument); both
+  of #15 where later arguments read the receiver or a reborrowed `&mut` argument) and drops
+  (#12: half of the non-`Copy` structs implement `Drop`, printing their name and a field,
+  so drop order, flags, reassignment, early exits and unwinding show in the output; no
+  value is moved out of them, and `reorder` counts a statement that binds, overwrites or
+  discards a value with drop glue as an effect); both
   oracles above, panic locations included, are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
   nightly), and to reorderings of them (see Properties). A failure prints the seed and the
