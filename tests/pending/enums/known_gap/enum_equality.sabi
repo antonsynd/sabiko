@@ -1,0 +1,12 @@
+// KNOWN GAP (Phase 6): `#[derive(PartialEq)]` and `==` on enums. Sabiko interprets only
+// `derive(Copy, Clone)`, and comparing structs, tuples and enums waits for the comparison
+// traits of Phase 6 (E0107 for tuples today). Until then programs compare with `match`.
+#[derive(Copy, Clone, PartialEq)]
+enum Light { Red, Green, Blinking(i32) }
+
+fn Main() {
+    let a = Light::Blinking(2);
+    PrintLine(a == Light::Blinking(2));
+    PrintLine(a != Light::Red);
+    PrintLine(Light::Green == Light::Red);
+}

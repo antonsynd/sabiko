@@ -1,0 +1,22 @@
+// Binding a Copy payload copies it: the scrutinee is untouched and can be matched again,
+// moved or passed on afterwards. The same holds for a Copy field of a struct variant.
+struct Token { Id: i32 }
+
+enum Shape { Dot, Square(i32), Rect { W: i32, H: i32, Tag: Token } }
+
+fn Take(s: Shape) {}
+
+fn Main() {
+    let s = Shape::Square(3);
+    let side = match s {
+        Shape::Square(n) => n,
+        _ => 0,
+    };
+    let r = Shape::Rect { W: 2, H: 5, Tag: Token { Id: 1 } };
+    let area = match r {
+        Shape::Rect { W: w, H: h, .. } => w * h,
+        _ => 0,
+    };
+    Take(s);
+    Take(r);
+}

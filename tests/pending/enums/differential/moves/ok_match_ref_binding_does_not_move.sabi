@@ -1,0 +1,21 @@
+// `ref t` borrows the payload instead of moving it, and `_` and `..` bind nothing, so
+// none of these matches moves out of the scrutinee.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token), Pair(Token, Token) }
+
+fn Take(s: Slot) {}
+
+fn Main() {
+    let s = Slot::Full(Token { Id: 1 });
+    match s {
+        Slot::Full(ref t) => PrintLine(t.Id),
+        _ => {}
+    }
+    match s {
+        Slot::Full(_) => PrintLine("full"),
+        Slot::Pair(..) => PrintLine("pair"),
+        Slot::Empty => {}
+    }
+    Take(s);
+}

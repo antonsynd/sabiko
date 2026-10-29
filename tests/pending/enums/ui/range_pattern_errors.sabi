@@ -1,0 +1,13 @@
+// Range patterns: the lower bound must not exceed the upper (E0030), and an exclusive
+// range `a..b` (stable since Rust 1.80) must not be empty (E0579).
+fn F(n: i32) -> i32 {
+    let a = match n {
+        5..=1 => 1, //~ rustc E0030: lower bound for range pattern must be less than or equal to upper bound [lower bound larger than upper bound]
+        _ => 0,
+    };
+    let b = match n {
+        3..3 => 1, //~ rustc E0579: lower bound for range pattern must be less than upper bound
+        _ => 0,
+    };
+    a + b
+}

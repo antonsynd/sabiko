@@ -1,0 +1,10 @@
+// `let` takes an irrefutable pattern: a variant of a multi-variant enum, or a literal, is
+// E0005 (`let else` is the refutable form, ui/if_let/). A single-variant enum's pattern
+// is irrefutable (run/enums/single_variant.sabi).
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell, t: (i32, i32)) -> i32 {
+    let Cell::Value(n) = c; //~ rustc E0005: refutable pattern in local binding
+    let (0, m) = t; //~ rustc E0005: refutable pattern in local binding
+    n + m
+}

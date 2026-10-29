@@ -1,0 +1,16 @@
+// A match scrutinee is parsed like an `if` condition: a struct literal (a struct or a
+// struct variant) there is a syntax error unless parenthesised
+// (run/enums/single_variant.sabi), because `{` would start the arms.
+struct P { X: i32 }
+
+enum Named { Only { Id: i32 } }
+
+fn F() -> i32 {
+    let a = match P { X: 1 } { //~ rustc -: struct literals are not allowed here
+        P { X: x } => x,
+    };
+    let b = match Named::Only { Id: 2 } { //~ rustc -: struct literals are not allowed here
+        Named::Only { Id: i } => i,
+    };
+    a + b
+}

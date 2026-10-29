@@ -1,0 +1,10 @@
+// Enum definitions: variant names are unique within an enum, and an enum shares the item
+// namespace with structs and functions (both E0428); a struct variant's field names are
+// unique (E0124).
+enum Light { Red, Green, Red } //~ rustc E0428: the name `Red` is defined multiple times
+
+struct Dir { X: i32 }
+
+enum Dir { North } //~ rustc E0428: the name `Dir` is defined multiple times
+
+enum Shape { Rect { W: i32, W: i32 } } //~ rustc E0124: field `W` is already declared

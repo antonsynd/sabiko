@@ -1,0 +1,33 @@
+// (drops, #12) An enum with its own `Drop` impl cannot have a non-Copy payload moved out
+// by a match binding (E0509, like a struct with `Drop`); `ref` bindings and Copy payloads
+// are fine.
+struct Token { Id: i32 }
+
+enum Holder { Nothing, One(Token), Count(i32) }
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        PrintLine("drop holder");
+    }
+}
+
+fn Consume(t: Token) {}
+
+fn F(h: Holder) -> i32 {
+    match h { //~ rustc E0509: cannot move out of type `Holder`, which implements the `Drop` trait [cannot move out of here]
+        Holder::One(t) => {
+            Consume(t);
+            1
+        }
+        Holder::Count(n) => n,
+        Holder::Nothing => 0,
+    }
+}
+
+fn G(h: Holder) -> i32 {
+    match h {
+        Holder::One(ref t) => t.Id,
+        Holder::Count(n) => n,
+        Holder::Nothing => 0,
+    }
+}

@@ -1,0 +1,28 @@
+// `bool` is exhaustive with `true` and `false`; a pair of bools needs all four
+// combinations. `char` needs `_` (or ranges covering every scalar value): E0004. rustc's
+// char ranges skip the surrogates, so `'{'..='\u{d7ff}'` and `'\u{e000}'..='\u{10ffff}'`
+// are two gaps ("and 1 more"); with decision 31's UTF-16 `char` Sabiko's gaps differ.
+fn F(a: bool, b: bool) -> i32 {
+    match (a, b) { //~ rustc E0004: non-exhaustive patterns: `(false, true)` not covered
+        (true, _) => 1,
+        (false, false) => 2,
+    }
+}
+
+fn G(c: char) -> i32 {
+    match c { //~ rustc E0004: non-exhaustive patterns: `'\0'..='@'`, `'['..='`'`, `'{'..='\u{d7ff}'` and 1 more not covered
+        'a'..='z' => 1,
+        'A'..='Z' => 2,
+    }
+}
+
+// Every BMP character is not enough in rustc: the scalar values above U+FFFF remain,
+// although a Sabiko `char` cannot hold them (decision 31). Sabiko must agree with rustc
+// here (E0004), or it would accept a program that is not valid Rust. (rustc prints the
+// printable U+10000 itself, not `\u{10000}`.)
+fn H(c: char) -> i32 {
+    match c { //~ rustc E0004: non-exhaustive patterns: `'𐀀'..='\u{10ffff}'` not covered
+        '\0'..='\u{d7ff}' => 1,
+        '\u{e000}'..='\u{ffff}' => 2,
+    }
+}

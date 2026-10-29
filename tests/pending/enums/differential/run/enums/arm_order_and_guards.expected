@@ -1,0 +1,28 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+  guard 1 -> true
+1
+  guard 1 -> false
+  guard 2 -> true
+2
+  guard 1 -> false
+  guard 2 -> false
+3
+  guard 4 -> true
+4
+  guard 4 -> false
+  guard 5 -> false
+  guard 5 -> true
+5
+  guard 4 -> false
+  guard 5 -> false
+  guard 5 -> false
+6
+  guard 7 -> true
+7
+  guard 7 -> false
+8
+1
+100
+2
+0

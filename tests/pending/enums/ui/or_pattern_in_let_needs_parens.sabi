@@ -1,0 +1,14 @@
+// A top-level or-pattern in `let` (and in a parameter) must be parenthesised: a syntax
+// error otherwise. `let (A(x) | B(x)) = ..;` is accepted when the alternatives together
+// are irrefutable.
+enum Either { Left(i32), Right(i32) }
+
+fn F(e: Either) -> i32 {
+    let Either::Left(x) | Either::Right(x) = e; //~ rustc -: `let` bindings require top-level or-patterns in parentheses
+    x
+}
+
+fn G(e: Either) -> i32 {
+    let (Either::Left(y) | Either::Right(y)) = e;
+    y
+}

@@ -1,0 +1,10 @@
+// `if let ... && ...` (let chains) is edition 2024; the harnesses use edition 2021, where
+// rustc rejects it. (Nested `if let` or a guard in a `match` say the same.)
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell) -> i32 {
+    if let Cell::Value(n) = c && n > 0 { //~ rustc -: let chains are only allowed in Rust 2024 or later
+        return n;
+    }
+    0
+}

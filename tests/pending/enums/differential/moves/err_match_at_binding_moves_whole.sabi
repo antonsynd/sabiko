@@ -1,0 +1,16 @@
+// `whole @ Slot::Full(_)` binds the whole scrutinee by value: the scrutinee is moved even
+// though the subpattern only tests it.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Take(s: Slot) {}
+
+fn Main() {
+    let s = Slot::Full(Token { Id: 1 });
+    match s {
+        whole @ Slot::Full(_) => Take(whole),
+        Slot::Empty => {}
+    }
+    Take(s);
+}

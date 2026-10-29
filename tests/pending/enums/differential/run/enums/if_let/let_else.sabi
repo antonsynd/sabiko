@@ -1,0 +1,39 @@
+// `let PATTERN = value else { diverge };` binds when the refutable pattern matches; the
+// `else` block must diverge (`return`, `break`, `continue`, a panic). The bindings are in
+// scope after the statement. A top-level or-pattern needs parentheses, as in any `let`;
+// `a @ b` binds a Copy payload twice.
+enum Cell { Empty, Value(i32), Pair(i32, i32) }
+
+fn Value(c: Cell) -> i32 {
+    let Cell::Value(n) = c else {
+        return -1;
+    };
+    n * 2
+}
+
+fn SumPairs(limit: i32) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    loop {
+        i += 1;
+        let c = if i > limit { Cell::Empty } else if i % 2 == 0 { Cell::Pair(i, i) } else { Cell::Value(i) };
+        let (Cell::Pair(a, b) | Cell::Value(a @ b)) = c else {
+            break;
+        };
+        if a > 6 {
+            continue;
+        }
+        total += a + b;
+    }
+    total
+}
+
+fn Main() {
+    PrintLine(Value(Cell::Value(21)));
+    PrintLine(Value(Cell::Pair(1, 2)));
+    PrintLine(SumPairs(10));
+    let Cell::Pair(x, y) = Cell::Pair(3, 4) else {
+        Panic("unreachable");
+    };
+    PrintLine(x * y);
+}

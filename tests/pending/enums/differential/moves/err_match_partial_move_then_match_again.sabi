@@ -1,0 +1,20 @@
+// Moving one payload field out leaves the enum partially moved. Unlike a struct or a
+// tuple, whose other fields stay usable, matching the enum again reads its discriminant,
+// which is a use of the whole value: E0382 even though `b` was not moved.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Pair(Token, Token) }
+
+fn Consume(t: Token) {}
+
+fn Main() {
+    let s = Slot::Pair(Token { Id: 1 }, Token { Id: 2 });
+    match s {
+        Slot::Pair(a, _) => Consume(a),
+        Slot::Empty => {}
+    }
+    match s {
+        Slot::Pair(_, b) => Consume(b),
+        Slot::Empty => {}
+    }
+}

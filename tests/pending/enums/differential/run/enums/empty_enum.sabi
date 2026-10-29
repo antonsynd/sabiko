@@ -1,0 +1,22 @@
+// An enum without variants has no values: `match n {}` with no arms is exhaustive and has
+// type `!`, so a function taking one can return any type. Such functions can be written
+// and type-checked but never called.
+enum Never {}
+
+fn Absurd(n: Never) -> i32 {
+    match n {}
+}
+
+fn Pick(r: &Never) -> bool {
+    match *r {}
+}
+
+struct Holder { Count: i32 }
+
+fn FromNever(n: Never) -> Holder {
+    match n {}
+}
+
+fn Main() {
+    PrintLine("empty enums compile");
+}

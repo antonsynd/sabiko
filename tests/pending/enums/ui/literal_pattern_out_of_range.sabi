@@ -1,0 +1,14 @@
+// A literal pattern, or a range bound, must fit the scrutinee's type: the
+// `overflowing_literals` lint, deny-by-default, so an error without a code (Sabiko's
+// E0314 for expressions).
+fn F(n: u8, m: i8) -> i32 {
+    let a = match n {
+        0..=300 => 1, //~ rustc -: literal out of range for `u8`
+        _ => 0,
+    };
+    let b = match m {
+        128 => 1, //~ rustc -: literal out of range for `i8`
+        _ => 0,
+    };
+    a + b
+}

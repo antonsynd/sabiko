@@ -1,0 +1,12 @@
+// A pattern binding is immutable unless written `mut n`: assigning it is E0384.
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell) -> i32 {
+    match c {
+        Cell::Value(n) => {
+            n += 1;
+            n
+        }
+        Cell::Empty => 0,
+    }
+}

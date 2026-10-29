@@ -1,0 +1,15 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+make 3
+guard 1 false
+guard 3 true
+arm 3
+3
+make 0
+make 7
+guard 5 true
+20
+make 1
+make 2
+make 3
+30

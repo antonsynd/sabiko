@@ -1,0 +1,11 @@
+// `ref mut` borrows the payload mutably, so the scrutinee must be a mutable place: E0596
+// for a binding declared without `mut`.
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let c = Cell::Value(1);
+    match c {
+        Cell::Value(ref mut n) => *n += 1,
+        Cell::Empty => {}
+    }
+}

@@ -1,0 +1,20 @@
+// A pattern must have the scrutinee's type: a char literal against an `i32`, a variant of
+// another enum, a tuple of the wrong arity (E0308).
+enum Light { Red, Green }
+
+enum Dir { North, South }
+
+fn F(n: i32, l: Light, t: (i32, i32)) -> i32 {
+    let a = match n {
+        'a' => 1, //~ rustc E0308: mismatched types [expected `i32`, found `char`]
+        _ => 0,
+    };
+    let b = match l {
+        Dir::North => 1, //~ rustc E0308: mismatched types [expected `Light`, found `Dir`]
+        _ => 0,
+    };
+    let c = match t {
+        (x, y, z) => x, //~ rustc E0308: mismatched types [expected a tuple with 2 elements, found one with 3 elements]
+    };
+    a + b + c
+}

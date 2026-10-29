@@ -1,0 +1,25 @@
+// (drops, #12) Moving a droppable payload out of one variant field and then passing the
+// enum on: E0382 (partially moved), as for any non-Copy payload. The enum itself has no
+// `Drop` impl, so the move out is allowed (E0509 applies only to an enum with its own
+// `Drop`, see ui/move_out_of_drop_enum.sabi).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+enum Holder { Nothing, Two(D, D) }
+
+fn Take(h: Holder) {}
+fn Consume(d: D) {}
+
+fn Main() {
+    let h = Holder::Two(D { Id: 1 }, D { Id: 2 });
+    match h {
+        Holder::Two(a, _) => Consume(a),
+        Holder::Nothing => {}
+    }
+    Take(h);
+}

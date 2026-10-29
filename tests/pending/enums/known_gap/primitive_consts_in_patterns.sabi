@@ -1,0 +1,30 @@
+// KNOWN GAP: associated constants of primitive types (`i8::MIN`, `i32::MAX`) are E0212
+// in Sabiko today ("no associated function named `MAX` found for type `i32`"), in
+// expressions and so in patterns. rustc accepts them as range bounds, and
+// `i8::MIN..=-1 | 0..=i8::MAX` is exhaustive. run/enums/literals_and_ranges.sabi uses the
+// literal bounds `-128..=127` instead. Belongs in `differential/run/enums/` when primitive
+// associated constants arrive (with associated constants of #7's follow-up).
+fn Sign(n: i8) -> i32 {
+    match n {
+        i8::MIN..=-1 => -1,
+        0 => 0,
+        1..=i8::MAX => 1,
+    }
+}
+
+fn Wide(n: i32) -> i32 {
+    match n {
+        i32::MIN => 0,
+        i32::MAX => 2,
+        _ => 1,
+    }
+}
+
+fn Main() {
+    PrintLine(Sign(-128));
+    PrintLine(Sign(0));
+    PrintLine(Sign(127));
+    PrintLine(Wide(-2147483648));
+    PrintLine(Wide(2147483647));
+    PrintLine(Wide(5));
+}

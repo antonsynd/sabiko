@@ -1,0 +1,40 @@
+// Fieldless enums cast to integers with `as`: implicit discriminants count from 0,
+// explicit ones may be negative or out of order, a variant without one is the previous
+// plus one, and the cast wraps to the target type (`as u8` of 300 is 44, of -2 is 254).
+// Matching does not depend on the values.
+#[derive(Copy, Clone)]
+enum Plain { A, B, C }
+
+#[derive(Copy, Clone)]
+enum Code { Low = -2, Mid, High = 300, Top, Back = 10 }
+
+fn Name(c: Code) -> i32 {
+    match c {
+        Code::Low => 1,
+        Code::Mid => 2,
+        Code::High => 3,
+        Code::Top => 4,
+        Code::Back => 5,
+    }
+}
+
+fn Main() {
+    PrintLine(Plain::A as i32);
+    PrintLine(Plain::C as i32);
+    PrintLine(Plain::B as u8);
+    PrintLine(Code::Low as i32);
+    PrintLine(Code::Mid as i32);
+    PrintLine(Code::High as i64);
+    PrintLine(Code::Top as i32);
+    PrintLine(Code::Back as i32);
+    PrintLine(Code::High as u8);
+    PrintLine(Code::Low as u8);
+    PrintLine(Code::Low as i8);
+    PrintLine(Code::Top as u16);
+    PrintLine(Code::Low as u64);
+    PrintLine(Code::Low as isize);
+    let c = Code::Top;
+    PrintLine(c as i32 + Name(c));
+    let all = (Code::Low as i32) + (Code::Mid as i32) + (Code::High as i32);
+    PrintLine(all);
+}

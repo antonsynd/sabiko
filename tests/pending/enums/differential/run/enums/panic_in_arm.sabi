@@ -1,0 +1,22 @@
+// A panic inside an arm, after the output of earlier iterations: exit code 101 and the
+// location of the `Panic` call inside the arm.
+enum Cell { Empty, Value(i32) }
+
+fn Check(c: Cell) -> i32 {
+    match c {
+        Cell::Value(n) if n > 0 => n,
+        Cell::Value(n) => {
+            Print("bad value ");
+            PrintLine(n);
+            Panic("negative value")
+        }
+        Cell::Empty => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Check(Cell::Value(3)));
+    PrintLine(Check(Cell::Empty));
+    PrintLine(Check(Cell::Value(-4)));
+    PrintLine("not reached");
+}

@@ -1,0 +1,52 @@
+// The first arm that matches wins, also when later arms are more specific (`5` in
+// `First` is unreachable, rustc's `unreachable_patterns` warning); a guard is
+// tried only when its pattern matches, and a false guard falls through to the next arm,
+// which may be the same pattern again. Guards read the arm's bindings, the scrutinee and
+// other locals; an or-pattern with a guard runs the guard once per matching alternative.
+enum Cell { Empty, Value(i32), Pair(i32, i32) }
+
+fn Check(tag: i32, result: bool) -> bool {
+    Print("  guard ");
+    Print(tag);
+    Print(" -> ");
+    PrintLine(result);
+    result
+}
+
+fn Pick(c: Cell, limit: i32) -> i32 {
+    match c {
+        Cell::Value(n) if Check(1, n > limit) => 1,
+        Cell::Value(n) if Check(2, n == limit) => 2,
+        Cell::Value(_) => 3,
+        Cell::Pair(a, b) if Check(4, a + b > limit) => 4,
+        Cell::Pair(x, _) | Cell::Pair(_, x) if Check(5, x == limit) => 5,
+        Cell::Pair(..) => 6,
+        Cell::Empty if Check(7, limit < 0) => 7,
+        _ => 8,
+    }
+}
+
+fn First(n: i32) -> i32 {
+    match n {
+        _ if n > 100 => 100,
+        0..=9 => 1,
+        5 => 5,
+        x if x % 2 == 0 => 2,
+        _ => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Pick(Cell::Value(10), 5));
+    PrintLine(Pick(Cell::Value(5), 5));
+    PrintLine(Pick(Cell::Value(1), 5));
+    PrintLine(Pick(Cell::Pair(3, 4), 5));
+    PrintLine(Pick(Cell::Pair(0, 2), 2));
+    PrintLine(Pick(Cell::Pair(1, 1), 5));
+    PrintLine(Pick(Cell::Empty, -1));
+    PrintLine(Pick(Cell::Empty, 1));
+    PrintLine(First(5));
+    PrintLine(First(500));
+    PrintLine(First(12));
+    PrintLine(First(13));
+}

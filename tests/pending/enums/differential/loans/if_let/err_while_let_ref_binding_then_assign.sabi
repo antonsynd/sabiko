@@ -1,0 +1,11 @@
+// A `ref` binding of a `while let` borrows the scrutinee for its uses in the body:
+// assigning the scrutinee before the last use of the binding is E0506.
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let mut c = Cell::Value(3);
+    while let Cell::Value(ref n) = c {
+        c = if *n > 0 { Cell::Value(*n - 1) } else { Cell::Empty };
+        PrintLine(*n);
+    }
+}

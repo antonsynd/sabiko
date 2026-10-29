@@ -1,0 +1,17 @@
+// Every alternative of an or-pattern must bind the same names: E0408 for a name missing
+// from one alternative (reported at the alternative that lacks it).
+enum Shape { Square(i32), Rect(i32, i32), Dot }
+
+fn F(s: Shape) -> i32 {
+    match s {
+        Shape::Square(w) | Shape::Rect(w, h) => w, //~ rustc E0408: variable `h` is not bound in all patterns [pattern doesn't bind `h`]
+        Shape::Dot => 0,
+    }
+}
+
+fn G(s: Shape) -> i32 {
+    match s {
+        Shape::Square(a) | Shape::Dot => 1, //~ rustc E0408: variable `a` is not bound in all patterns
+        Shape::Rect(..) => 2,
+    }
+}

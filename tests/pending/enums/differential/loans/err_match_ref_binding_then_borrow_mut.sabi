@@ -1,0 +1,18 @@
+// A `ref` binding of one field, then a mutable borrow of the whole scrutinee while the
+// binding is still used: E0502, even though the mutable borrow is taken for another field.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Pair(Token, Token) }
+
+fn Bump(s: &mut Slot) {}
+
+fn Main() {
+    let mut s = Slot::Pair(Token { Id: 1 }, Token { Id: 2 });
+    match s {
+        Slot::Pair(ref a, _) => {
+            Bump(&mut s);
+            PrintLine(a.Id);
+        }
+        Slot::Empty => {}
+    }
+}

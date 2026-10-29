@@ -1,0 +1,12 @@
+// A non-`mut` local initialised before the match cannot be assigned again in an arm
+// (E0384), even an arm that may not run.
+enum Light { Red, Green }
+
+fn F(l: Light) -> i32 {
+    let wait = 10;
+    match l {
+        Light::Red => wait = 30,
+        Light::Green => {}
+    }
+    wait
+}

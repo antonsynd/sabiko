@@ -1,0 +1,26 @@
+// Arithmetic overflow inside an arm panics in a debug build ("attempt to add with
+// overflow", exit 101), located at the addition in the arm.
+enum Acc { Small(i8), Big(i32) }
+
+fn Add(a: Acc, k: i8) -> Acc {
+    match a {
+        Acc::Small(n) if k < 0 => Acc::Big(n as i32 + k as i32),
+        Acc::Small(n) => Acc::Small(n + k),
+        Acc::Big(n) => Acc::Big(n + k as i32),
+    }
+}
+
+fn Show(a: Acc) {
+    match a {
+        Acc::Small(n) => PrintLine(n),
+        Acc::Big(n) => PrintLine(n),
+    }
+}
+
+fn Main() {
+    Show(Add(Acc::Small(100), 27));
+    Show(Add(Acc::Small(100), -50));
+    Show(Add(Acc::Big(100), 100));
+    Show(Add(Acc::Small(100), 28));
+    PrintLine("not reached");
+}

@@ -1,0 +1,17 @@
+// A match must cover every variant: E0004, naming the missing ones (several are listed,
+// a payload variant with its fields as `_`).
+enum Light { Red, Yellow, Green, Blinking(i32) }
+
+fn F(l: Light) -> i32 {
+    match l { //~ rustc E0004: non-exhaustive patterns: `Light::Green` not covered
+        Light::Red => 1,
+        Light::Yellow => 2,
+        Light::Blinking(_) => 3,
+    }
+}
+
+fn G(l: Light) -> i32 {
+    match l { //~ rustc E0004: non-exhaustive patterns: `Light::Yellow`, `Light::Green` and `Light::Blinking(_)` not covered
+        Light::Red => 1,
+    }
+}

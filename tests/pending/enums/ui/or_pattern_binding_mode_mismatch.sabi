@@ -1,0 +1,8 @@
+// ... and the same binding mode: `ref x` in one alternative and `x` in another is E0409.
+enum Pair { Left(i32), Right(i32) }
+
+fn F(p: Pair) -> i32 {
+    match p {
+        Pair::Left(ref x) | Pair::Right(x) => 1, //~ rustc E0409: variable `x` is bound inconsistently across alternatives separated by `|` [bound in different ways] //~ rustc E0308: mismatched types
+    }
+}

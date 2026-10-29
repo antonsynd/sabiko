@@ -1,0 +1,13 @@
+// Only a path names a variant in a pattern: a bare `Red` is a fresh binding that matches
+// everything. rustc rejects a binding named like a variant of the scrutinee's enum with
+// E0170 (the deny-by-default `bindings_with_variant_name` lint, so an error). Variants
+// cannot be imported until modules (Phase 9), so a bare name never resolves to a variant.
+// The lint still runs exhaustiveness: the second arm is unreachable (a warning).
+enum Light { Red, Green }
+
+fn F(l: Light) -> i32 {
+    match l {
+        Red => 1, //~ rustc E0170: pattern binding `Red` is named the same as one of the variants of the type `Light`
+        Green => 2, //~ rustc E0170: pattern binding `Green` is named the same as one of the variants of the type `Light` //~ rustc warning: unreachable pattern
+    }
+}

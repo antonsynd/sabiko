@@ -1,0 +1,6 @@
+// `#[derive(Copy, Clone)]` on an enum needs every payload to be Copy and Clone: E0204 for
+// Copy and E0277 for Clone, at the payload (like a struct's field, Sabiko's E0417 today).
+struct Token { Id: i32 }
+
+#[derive(Copy, Clone)]
+enum Slot { Empty, Full(Token) } //~ rustc E0204: the trait `Copy` cannot be implemented for this type //~ rustc E0277: the trait bound `Token: Clone` is not satisfied

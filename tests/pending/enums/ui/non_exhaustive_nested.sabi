@@ -1,0 +1,27 @@
+// Exhaustiveness looks inside payloads, struct variants and tuples: covering
+// `Cell::Value(true)` leaves `Cell::Value(false)`, and a tuple scrutinee needs every
+// combination.
+enum Cell { Empty, Value(bool) }
+
+enum Shape { Dot, Rect { W: i32, Filled: bool } }
+
+fn F(c: Cell) -> i32 {
+    match c { //~ rustc E0004: non-exhaustive patterns: `Cell::Value(false)` not covered
+        Cell::Empty => 0,
+        Cell::Value(true) => 1,
+    }
+}
+
+fn G(s: Shape) -> i32 {
+    match s { //~ rustc E0004: non-exhaustive patterns: `Shape::Rect { Filled: false, .. }` not covered
+        Shape::Dot => 0,
+        Shape::Rect { Filled: true, .. } => 1,
+    }
+}
+
+fn H(c: Cell, b: bool) -> i32 {
+    match (c, b) { //~ rustc E0004: non-exhaustive patterns: `(Cell::Empty, false)` not covered
+        (Cell::Empty, true) => 0,
+        (Cell::Value(_), _) => 1,
+    }
+}
