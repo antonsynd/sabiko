@@ -25,7 +25,7 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | Structs holding references | Emitted as `ref struct` (`IsByRefLikeAttribute`) | CLR then guarantees they never escape to the heap. |
 | Heap ownership | `Box<T>` over `NativeMemory.Alloc/Free`, requires `T: unmanaged` | Deterministic free, no GC tracking. |
 | .NET reference types | Opaque `Gc<T>` handle, borrow-checked at the handle level | Explicit opt-in to GC-managed memory for interop only. |
-| Strings | `&str` = `ReadOnlySpan<char>` (Phase 5); owned `String` = native UTF-16 buffer freed deterministically (Phase 7); `System.String` only as `Gc<System::String>` with zero-copy `.as_str()` | Keeps every struct `unmanaged`; C# passes `string` to `&str` implicitly; one copy, no transcoding, to produce a .NET string. |
+| Strings | `&str` = `ReadOnlySpan<char>` (Phase 5); owned `String` = native UTF-16 buffer freed deterministically (Phase 7); `System.String` only as `Gc<System::String>` with zero-copy `.as_str()` (Phase 7) | Keeps every struct `unmanaged`; C# passes `string` to `&str` implicitly; one copy, no transcoding, to produce a .NET string. |
 | Slices | `&[T]` = `ReadOnlySpan<T>`, `&mut [T]` = `Span<T>`; `[T; N]` = inline array | Bounds checks provided by the CLR. |
 | Traits | .NET interfaces; `impl Trait for S` = `S : ITrait`; bounds = generic constraints | Reified generics shared with C#; static dispatch via `constrained. callvirt`. |
 | Dynamic dispatch | Only through explicit `Gc<dyn Trait>` | Boxing is never implicit. |
@@ -61,8 +61,9 @@ crates/
   sabiko_types       type checking, local inference (unification), trait resolution
   sabiko_mir         MIR: basic blocks, places, rvalues, terminators; AST->MIR lowering
   sabiko_borrowck    move checking, NLL loans/liveness, mutability, drop elaboration
-  sabiko_cil         CIL text model + emitter (.il), later PE writer
-  sabiko_codegen     MIR -> CIL lowering, metadata (attributes, interop shapes)
+  sabiko_codegen     MIR -> CIL lowering, the CIL text model and .il emitter, metadata
+                     (attributes, interop shapes); the planned separate sabiko_cil crate
+                     was folded in, and the Phase 10 PE writer may split it out again
   sabiko_metadata    ECMA-335 reader for referenced assemblies (Phase 8)
   sabiko_driver      pipeline orchestration, session, options
   sabikoc            CLI binary
@@ -405,33 +406,58 @@ parser alone overflowed a test thread's 2 MiB at 75 nested blocks. Nesting is no
 past it. The same run's slow units (`&&&…&&1`) came from the type checker resolving types in
 time roughly quartic in their depth (11 s for 255 `&` in debug); resolution is linear now.
 
+Update (2026-10-29), borrow-checker and infrastructure gaps (#20, #23, #22): the
+signature-elision check (E0416) runs per function from the signature, independently of
+whether the body type-checked, so it appears next to body errors as rustc's E0106 does;
+when any body has errors, borrow checking is still skipped for every body. A `&mut T`
+passed where a `&T` is expected is now a shared reborrow (`&*r`), as in rustc: the old
+mutable reborrow made Sabiko reject `F(&*r, r)`, which generated programs found.
+Verification gains a property that the borrow-check verdict does not change when adjacent
+independent statements are swapped; rustc judges every reordered program and borrow-clean
+ones must run like the original, so the independence analysis is itself tested. Phase 0's
+`deny.toml` is in place: licences, bans and sources on every CI run, advisories nightly
+(decision 45).
+
 ### Phase 5: Data types
 
 Work
-- `enum` with unit, tuple and struct variants; `match` with patterns (literals, bindings,
-  wildcards, tuple/struct/enum destructuring, guards); exhaustiveness and reachability
-  checking (usefulness algorithm, as in rustc).
-- Tuples, `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing,
-  `.len()`, `.get(i) -> Option<&T>` lowered to a length check.
-- `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
-  basic slicing; `Gc<System::String>` with zero-copy `.as_str()`. No owned string yet.
-- `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
-  generic types that may hold it are emitted with `allows ref struct`.
+Order (decision 46): tuples and `()` values, then `impl` blocks and methods (with two-phase
+borrows), then drop elaboration, then enums and `match`, so that match lowering is written
+against drops rather than retrofitted.
+- Tuples; `()` as a value with real storage where it is a parameter or field type.
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
-  method call syntax with auto-ref.
-- `core` prelude written in Sabiko: `Option`, `Result`, `?` operator, `unwrap`, `expect`.
+  method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
+  `&mut` reborrows in argument position.
+- Drop elaboration (moved here from Phase 3 by decision 26, given a phase by decision 46):
+  drop flags, drops at scope end in reverse declaration order, each droppable scope lowered
+  inside `try/finally`. `impl Drop for S` is the one trait impl accepted before Phase 6,
+  special-cased as a language item so drops can be observed and diffed against rustc.
+- `enum` with unit, tuple and struct variants, non-generic (generic enums come with Phase 6,
+  decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
+  destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
+  as in rustc).
+- `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
+- `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
+  basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
+- `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
+  generic types that may hold it are emitted with `allows ref struct`. This also lowers
+  `&&T`.
 
 Verification
 - Exhaustiveness UI tests (missing variant, unreachable arm, nested patterns).
 - Enum layout tests from C#: a C# test reads tag/payload fields of a Sabiko enum and
-  matches on it.
-- Index out of range: run-pass test expects `IndexOutOfRangeException` for `a[i]` and
-  `None` for `a.get(i)`.
-- Differential tests extended to enums/match/slices.
+  matches on it (the first `tests/interop` harness).
+- Drop-order tests (from Phase 4): reverse declaration order, conditional drops through
+  flags, drops during unwinding, compared against rustc.
+- Index out of range: run-pass test expects a panic with rustc's message for `a[i]`.
+- Differential tests and the program generator extended to every new construct.
 
 ### Phase 6: Traits and generics
 
 Work
+- `core` prelude written in Sabiko, moved here from Phase 5 (decision 47): `Option`,
+  `Result`, `?` operator, `unwrap`, `expect`, and `.get(i) -> Option<&T>` on slices
+  lowered to a length check. `?` converts errors through `From` once traits exist.
 - `trait` with required methods and default methods (default methods become static
   helper methods, since .NET interfaces on structs cannot carry state).
 - `impl Trait for Type`; coherence (one impl per trait/type pair).
@@ -455,6 +481,7 @@ Verification
 Work
 - `Box<T>` (`T: unmanaged`): `NativeMemory.Alloc`, deterministic free in `drop`,
   `Deref`/`DerefMut`. Compile-time `unmanaged` check (no GC references inside).
+- `Gc<System::String>` with zero-copy `.as_str()`, moved here from Phase 5 (decision 48).
 - Owned `String` (native UTF-16 buffer) and `Vec<T>` (`T: unmanaged`) with
   `.to_dotnet()` conversions; both implemented over runtime primitives so Sabiko IL
   stays verifiable.
@@ -557,7 +584,7 @@ Verification
 | Diagnostics | compiletest-style `//~ ERROR` annotations + golden `.stderr`; error codes stable | `tests/ui/` |
 | Type and borrow checking | Must-reject and must-accept pairs; differential vs `rustc` on the shared subset | `tests/ui/`, `tests/differential/` |
 | MIR | Validator pass after every transformation (debug builds); `--emit=mir` snapshots | `sabiko_mir` |
-| Codegen | `.il` golden snapshots; `ilverify` on every artifact | `tests/codegen/`, CI |
+| Codegen | `.il` golden snapshots, assembled and verified; `ilverify` on every artifact | `crates/sabiko_codegen/tests`, `tests/ui/codegen`, CI |
 | Runtime behaviour | Run-pass stdout comparison; panic exit codes; drop order; leak counters | `tests/run-pass/` |
 | Memory model | Live-allocation counters, no-GC-region runs, RSS bounds | `tests/run-pass/memory/` |
 | Interop | xunit projects in both directions; IL inspection for zero marshalling; layout equality; BenchmarkDotNet | `tests/interop/` |
@@ -596,6 +623,13 @@ Settled by the owner (2026-10-19)
 - No `unsafe` in v1; unverifiable code confined to the C# runtime assembly.
 - Integer overflow: Rust semantics (panic in debug, wrap in release).
 
+Settled by the owner (2026-10-29)
+- Syntax fidelity: Sabiko stays a strict syntactic subset of Rust, casing aside
+  (decision 49).
+- Drop elaboration lands in Phase 5 with `Drop` special-cased (decision 46); `Option`,
+  `Result` and `?` move to Phase 6 (decision 47); `Gc<System::String>` to Phase 7
+  (decision 48).
+
 Open, to decide before the phase that needs them
 1. .NET exceptions crossing into Sabiko (Phase 8). Proposal: propagate as panics;
    opt-in `#[dotnet(catch)]` on extern declarations converts to `Result<T, Gc<Exception>>`.
@@ -605,6 +639,4 @@ Open, to decide before the phase that needs them
    free functions in a static class named after the module.
 4. Collections (Phase 7). Proposal: `Vec<T>` native for `T: unmanaged`; GC collections
    only via `Gc<List<T>>`.
-5. Syntax fidelity. Proposal: strict syntactic subset of Rust wherever possible (casing
-   aside) so the differential tests against `rustc` keep paying off.
-6. Threads, `Send`, `Sync`. Proposal: out of scope for 0.1.
+5. Threads, `Send`, `Sync`. Proposal: out of scope for 0.1.
