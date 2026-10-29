@@ -23,9 +23,10 @@ same output. The workloads are sized to take roughly 50–250 ms per process lau
 | `lcg_hash` | A MINSTD generator feeding a polynomial hash: `u64` multiply and remainder by constants |
 | `tuples` | Pairs passed and returned by value, a quotient-and-remainder pair, destructuring and a three-element accumulator rebuilt per iteration; the C# uses `System.ValueTuple`, which Sabiko's tuples lower to (decision 52) |
 | `methods` | Structs with methods in a hot loop: a generator stepped through `&mut self`, a Copy vector type with by-value, `&self` and `&mut self` methods and a constructor, particles and a world calling methods on their fields (one call a two-phase borrow); Sabiko's methods are static methods of the struct (decision 53), the C# uses instance methods on structs |
+| `drops` | Values with drop glue in a hot loop (#12): a struct of two `Drop` values built per iteration, one sometimes moved into a function (a drop flag), the rest dropped through the struct's glue at the end of the body, a long-lived value replaced every fifth iteration; Sabiko's protected regions (decision 55) against the C#'s explicit `Drop()` calls in `try`/`finally` |
 
 They stay inside today's subset (integers, floats, `bool`, structs, tuples, references,
-functions, methods, `if`/`while`/`loop`): no arrays, enums or generics. Two consequences:
+functions, methods, `impl Drop`, `if`/`while`/`loop`): no arrays, enums or generics. Two consequences:
 the n-body bodies are spelled out as struct fields with the ten pairs written out, and its
 square root is a Newton iteration (there is no `f64::sqrt`: methods on primitives come
 with traits). The C#

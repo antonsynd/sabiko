@@ -1,0 +1,53 @@
+// Values with drop glue in a hot loop (#12): every iteration builds a struct holding two
+// `Drop` values, sometimes moves one out into a function that drops it (a drop flag for
+// that field), and drops the rest at the end of the body (the struct's drop glue opened
+// into its fields); every fifth iteration replaces a long-lived value, which drops the old
+// one. Each `drop` is a call with a branch that rarely prints, so the loop measures the
+// drops, the flags and the protected regions around them, not output. The C# program
+// keeps the same values in structs and runs the same `Drop` calls at the same points,
+// with `try`/`finally` where Sabiko would drop on a panic, as deterministic cleanup is
+// written in C#. Nothing overflows in a checked build.
+
+const Rounds: u64 = 10_000_000;
+
+struct Guard { Id: u64, Weight: u64 }
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        if self.Id % 1_000_000 == 0 {
+            Print("dropped ");
+            PrintLine(self.Weight);
+        }
+    }
+}
+
+struct Pair { A: Guard, B: Guard, Tag: u64 }
+
+fn Make(id: u64, seed: u64) -> Guard {
+    Guard { Id: id, Weight: seed % 1000 }
+}
+
+fn Consume(g: Guard) -> u64 {
+    g.Weight + 1
+}
+
+fn Main() {
+    let mut total: u64 = 0;
+    let mut keep = Make(0, 1);
+    let mut i: u64 = 1;
+    while i < Rounds {
+        let p = Pair { A: Make(i, i * 7), B: Make(i + Rounds, i * 13), Tag: i };
+        if i % 3 == 0 {
+            total = total + Consume(p.A);
+        } else {
+            total = total + p.A.Weight;
+        }
+        total = total + p.B.Weight + p.Tag % 7;
+        if i % 5 == 0 {
+            keep = Make(i, total);
+        }
+        i += 1;
+    }
+    total = total + keep.Weight;
+    PrintLine(total);
+}
