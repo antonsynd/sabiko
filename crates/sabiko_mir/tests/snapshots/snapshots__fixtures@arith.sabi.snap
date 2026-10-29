@@ -160,6 +160,7 @@ fn Arith(_1: i32, _2: i32) -> i32 {
     }
 
     bb1: {
+        StorageDead(_38);
         StorageLive(_39);
         StorageLive(_40);
         _40 = copy _13;
@@ -183,6 +184,7 @@ fn Arith(_1: i32, _2: i32) -> i32 {
     }
 
     bb2: {
+        StorageDead(_38);
         StorageLive(_45);
         StorageLive(_46);
         StorageLive(_47);
@@ -209,7 +211,6 @@ fn Arith(_1: i32, _2: i32) -> i32 {
     }
 
     bb3: {
-        StorageDead(_38);
         StorageDead(_36);
         StorageDead(_29);
         StorageDead(_28);
@@ -255,18 +256,20 @@ fn Unary(_1: bool, _2: u32) -> u32 {
     }
 
     bb1: {
+        StorageDead(_8);
+        StorageDead(_7);
         _0 = copy _5;
         goto -> bb3;
     }
 
     bb2: {
+        StorageDead(_8);
+        StorageDead(_7);
         _0 = const 0_u32;
         goto -> bb3;
     }
 
     bb3: {
-        StorageDead(_8);
-        StorageDead(_7);
         StorageDead(_5);
         StorageDead(_3);
         goto -> bb4;
@@ -283,11 +286,8 @@ fn Literals() -> f64 {
     let _2: &str;                        // s
     let _3: u64;                         // big
     let _4: f32;                         // half
-    let mut _5: char;
-    let mut _6: &str;
-    let mut _7: u64;
-    let mut _8: f64;
-    let mut _9: f32;
+    let mut _5: f64;
+    let mut _6: f32;
 
     bb0: {
         StorageLive(_1);
@@ -298,26 +298,20 @@ fn Literals() -> f64 {
         _3 = const 1000000_u64;
         StorageLive(_4);
         _4 = const 0.5_f32;
+        PlaceMention(_1);
+        PlaceMention(_2);
+        PlaceMention(_3);
         StorageLive(_5);
-        _5 = copy _1;
-        StorageDead(_5);
         StorageLive(_6);
-        _6 = copy _2;
-        StorageDead(_6);
-        StorageLive(_7);
-        _7 = copy _3;
-        StorageDead(_7);
-        StorageLive(_8);
-        StorageLive(_9);
-        _9 = copy _4;
-        _8 = copy _9 as f64;
-        _0 = Add(copy _8, const 2.0_f64);
-        StorageDead(_9);
-        StorageDead(_8);
+        _6 = copy _4;
+        _5 = copy _6 as f64;
+        _0 = Add(copy _5, const 2.0_f64);
         StorageDead(_4);
         StorageDead(_3);
         StorageDead(_2);
         StorageDead(_1);
+        StorageDead(_6);
+        StorageDead(_5);
         goto -> bb1;
     }
 

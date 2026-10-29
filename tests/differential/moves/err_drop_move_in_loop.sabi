@@ -1,0 +1,20 @@
+// Moving a value declared outside a loop inside the loop body, without reinitialising it,
+// moves it again in the next iteration.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {}
+
+fn Main() {
+    let d = D { Id: 1 };
+    let mut i = 0;
+    while i < 3 {
+        Consume(d);
+        i += 1;
+    }
+}

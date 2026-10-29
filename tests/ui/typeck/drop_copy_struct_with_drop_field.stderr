@@ -1,0 +1,9 @@
+[E0417] Error: the trait `Copy` cannot be implemented for type `W`
+    ╭─[ tests/ui/typeck/drop_copy_struct_with_drop_field.sabi:14:12 ]
+    │
+ 14 │ struct W { Inner: D, N: i32 } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `W`
+    │        ┬   ────┬───  
+    │        │       ╰───── this field does not implement `Copy`: `D`
+    │        │             
+    │        ╰───────────── `Copy` derived here
+────╯

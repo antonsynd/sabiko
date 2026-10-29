@@ -49,13 +49,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
       [0] float64 'cur',
       [1] int64 'n',
       [2] int64 'm',
-      [3] int64 '_16',
+      [3] int64 '_14',
       [4] float64 'a',
-      [5] int64 '_36',
-      [6] int64 '_37',
-      [7] int64 '_38',
-      [8] int64 '_39',
-      [9] int64 '$tmp0'
+      [5] int64 '_33',
+      [6] int64 '_34',
+      [7] int64 '_35',
+      [8] int64 '$tmp0'
     )
   BB0:
     ldc.r8 5.0
@@ -74,7 +73,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
   BB3:
     ldc.i8 -7
     ldloc.1
-    ldloca.s 9
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L1
     ldstr "stack_values_order.sabi:13:15"
@@ -82,7 +81,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L1:
-    ldloc.s 9
+    ldloc.s 8
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
   BB4:
     ldc.i8 -4
@@ -91,7 +90,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
   BB5:
     ldc.i8 2
     ldc.i8 3
-    ldloca.s 9
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(int64, int64, int64&)
     brfalse L2
     ldstr "stack_values_order.sabi:15:16"
@@ -99,11 +98,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L2:
-    ldloc.s 9
+    ldloc.s 8
     stloc.3
     ldc.i8 0
     ldloc.3
-    ldloca.s 9
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L3
     ldstr "stack_values_order.sabi:15:15"
@@ -111,9 +110,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L3:
-    ldloc.s 9
+    ldloc.s 8
     ldloc.2
-    ldloca.s 9
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L4
     ldstr "stack_values_order.sabi:15:15"
@@ -121,7 +120,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L4:
-    ldloc.s 9
+    ldloc.s 8
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
   BB6:
     ldc.r8 1.0
@@ -152,11 +151,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
   BB14:
     ldc.i4 2147483647
-    ldc.i8 -983
-    stloc.s 7
     ldc.i8 1287500301
-    ldloc.s 7
-    ldloca.s 9
+    ldc.i8 -983
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L5
     ldstr "stack_values_order.sabi:23:17"
@@ -164,11 +161,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L5:
-    ldloc.s 9
+    ldloc.s 8
     stloc.s 6
     ldc.i8 0
     ldloc.s 6
-    ldloca.s 9
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L6
     ldstr "stack_values_order.sabi:23:16"
@@ -176,13 +173,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L6:
-    ldloc.s 9
+    ldloc.s 8
     stloc.s 5
     conv.i8
-    stloc.s 8
+    stloc.s 7
     ldloc.s 5
-    ldloc.s 8
-    ldloca.s 9
+    ldloc.s 7
+    ldloca.s 8
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L7
     ldstr "stack_values_order.sabi:23:16"
@@ -190,7 +187,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
     ldnull
     throw
   L7:
-    ldloc.s 9
+    ldloc.s 8
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
   BB15:
     ret
@@ -208,8 +205,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values_order.sabi
       stloc.0
       leave.s DONE
     }
-    catch [System.Runtime]System.Exception
+    filter
     {
+      call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Filter(object)
+      endfilter
+    }
+    {
+      castclass [System.Runtime]System.Exception
       call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime]System.Exception)
       stloc.0
       leave.s DONE

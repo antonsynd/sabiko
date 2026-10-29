@@ -24,6 +24,9 @@ pub enum Emit {
     /// before copy forwarding. Empty when an earlier stage reported errors or the
     /// pipeline stopped before MIR building.
     Mir,
+    /// The MIR after drop elaboration and simplification (decision 55), before copy
+    /// forwarding. Empty when any stage reported errors.
+    MirElaborated,
     /// The textual CIL module (`ilasm` input). Empty when any stage reported errors.
     Il,
 }
@@ -136,7 +139,7 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
             }
             out
         }
-        Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir | Emit::Il => {
+        Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir | Emit::MirElaborated | Emit::Il => {
             let ast = sabiko_parser::parse_file(file, src, &mut sink);
             match options.emit {
                 Emit::Ast => sabiko_ast::dump::dump(&ast),
@@ -171,11 +174,24 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                         &bodies, &resolve, &typeck,
                                     );
                                 }
-                                if options.emit == Emit::Il && !sink.has_errors() {
-                                    // After borrow checking, which needs every copy
-                                    // MIR building made (decisions 36 and 51).
-                                    sabiko_mir::forward::forward_all(&mut bodies);
+                                if options.emit == Emit::MirElaborated && !sink.has_errors() {
+                                    // After borrow checking, which sees the drops as built
+                                    // (decision 55).
+                                    sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
                                     check_mir(&bodies, &typeck, &mut sink);
+                                    sabiko_mir::simplify::simplify_all(&mut bodies);
+                                    check_mir(&bodies, &typeck, &mut sink);
+                                    output = sabiko_mir::pretty::print_bodies(
+                                        &bodies, &resolve, &typeck,
+                                    );
+                                }
+                                if options.emit == Emit::Il && !sink.has_errors() {
+                                    // After borrow checking, which sees the drops as built
+                                    // (decision 55) and needs every copy MIR building
+                                    // made (decisions 36 and 51).
+                                    let failures =
+                                        sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
+                                    report_invalid_mir(failures, &mut sink);
                                     let codegen = sabiko_codegen::Options {
                                         assembly_name: assembly_name(name),
                                         kind: options.output_kind,
@@ -229,7 +245,11 @@ fn check_mir(
     typeck: &sabiko_types::TypeckResults,
     sink: &mut DiagnosticSink,
 ) {
-    let failures = sabiko_mir::validate::validate_all(bodies, typeck);
+    report_invalid_mir(sabiko_mir::validate::validate_all(bodies, typeck), sink);
+}
+
+/// Reports the validator's complaints as an internal compiler error (debug builds panic).
+fn report_invalid_mir(failures: Vec<String>, sink: &mut DiagnosticSink) {
     debug_assert!(
         failures.is_empty(),
         "MIR validation failed:\n{}",

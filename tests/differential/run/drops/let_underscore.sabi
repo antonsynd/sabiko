@@ -1,0 +1,32 @@
+// `let _ = <value expression>;` drops the value at once (nothing binds it), while `let _x
+// = ...;` binds a variable that lives to the end of the scope. An expression statement drops
+// its value at the end of the statement. In `let (_, y) = (..);` the tuple is a temporary
+// of the statement: `y` moves its element out, and the element `_` did not bind is dropped
+// at the end of the `let`.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Main() {
+    let _ = Make(1);
+    PrintLine("after let _");
+    let _x = Make(2);
+    PrintLine("after let _x");
+    Make(3);
+    PrintLine("after expression statement");
+    let (_, y) = (Make(4), Make(5));
+    PrintLine("after tuple pattern");
+    let (_, _) = (Make(6), Make(7));
+    PrintLine("end of Main");
+}

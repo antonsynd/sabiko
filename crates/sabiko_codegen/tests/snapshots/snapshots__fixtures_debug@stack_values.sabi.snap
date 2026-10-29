@@ -501,11 +501,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
       [4] int64 'b',
       [5] int64 'c',
       [6] int64 '_42',
-      [7] int32 '_50',
-      [8] int32 'i',
-      [9] int64 'sum',
-      [10] int64 '_70',
-      [11] int64 '$tmp0'
+      [7] int32 'i',
+      [8] int64 'sum',
+      [9] int64 '_66',
+      [10] int64 '$tmp0'
     )
   BB0:
     ldloca.s 0
@@ -631,7 +630,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     stloc.s 5
     ldloc.s 4
     ldc.i8 1
-    ldloca.s 11
+    ldloca.s 10
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L5
     ldstr "stack_values.sabi:48:5"
@@ -639,11 +638,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L5:
-    ldloc.s 11
+    ldloc.s 10
     stloc.s 4
     ldloc.s 5
     ldloc.s 4
-    ldloca.s 11
+    ldloca.s 10
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L6
     ldstr "stack_values.sabi:49:27"
@@ -651,7 +650,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L6:
-    ldloc.s 11
+    ldloc.s 10
     stloc.s 6
     ldloc.s 5
     ldloc.s 4
@@ -669,11 +668,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB18:
     ldc.i4.s -2
-    ldc.i4.s -9
-    stloc.s 7
     ldc.i4.7
     ldc.i4.1
-    ldloc.s 7
+    ldc.i4.s -9
     call int32 'StackValues'::'Products'(int32, int32, int32, int32)
   BB19:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
@@ -706,18 +703,18 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB30:
     ldc.i4.0
-    stloc.s 8
+    stloc.s 7
     ldc.i8 0
-    stloc.s 9
+    stloc.s 8
   BB31:
-    ldloc.s 8
+    ldloc.s 7
     ldc.i4.s 10
     clt
     brfalse BB33
   BB32:
-    ldloc.s 8
+    ldloc.s 7
     conv.i8
-    ldloc.s 8
+    ldloc.s 7
     conv.i8
     mul
     dup
@@ -731,7 +728,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     throw
   L7:
     conv.i4
-    ldloc.s 8
+    ldloc.s 7
     conv.i8
     ldc.i4.1
     conv.i8
@@ -747,9 +744,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     throw
   L8:
     conv.i4
-    stloc.s 8
+    stloc.s 7
     conv.i8
-    ldloc.s 8
+    ldloc.s 7
     conv.i8
     add
     dup
@@ -764,10 +761,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   L9:
     conv.i4
     conv.i8
-    stloc.s 10
+    stloc.s 9
+    ldloc.s 8
     ldloc.s 9
-    ldloc.s 10
-    ldloca.s 11
+    ldloca.s 10
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L10
     ldstr "stack_values.sabi:62:9"
@@ -775,22 +772,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L10:
-    ldloc.s 11
-    stloc.s 9
+    ldloc.s 10
+    stloc.s 8
     br BB31
   BB33:
-  BB34:
-    ldloc.s 9
+    ldloc.s 8
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
-  BB35:
+  BB34:
     ldloca.s 0
     ldfld int32 'P'::'A'
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
-  BB36:
+  BB35:
     ldloca.s 0
     ldfld int64 'P'::'B'
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
-  BB37:
+  BB36:
     ret
   }
 
@@ -806,8 +802,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
       stloc.0
       leave.s DONE
     }
-    catch [System.Runtime]System.Exception
+    filter
     {
+      call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Filter(object)
+      endfilter
+    }
+    {
+      castclass [System.Runtime]System.Exception
       call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime]System.Exception)
       stloc.0
       leave.s DONE

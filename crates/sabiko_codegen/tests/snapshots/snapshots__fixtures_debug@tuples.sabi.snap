@@ -85,11 +85,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
   {
     .maxstack 2
     .locals init (
-      [0] uint8 '_0',
-      [1] bool 'b',
-      [2] uint8 'c',
-      [3] valuetype [System.Runtime]System.ValueTuple`2<int32, uint8> '_5',
-      [4] uint8 'd'
+      [0] bool 'b',
+      [1] uint8 'c',
+      [2] valuetype [System.Runtime]System.ValueTuple`2<int32, uint8> '_5',
+      [3] uint8 'd'
     )
   BB0:
     ldarga.s 0
@@ -97,28 +96,24 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
     ldarga.s 0
     ldflda !1 valuetype [System.Runtime]System.ValueTuple`2<int32, valuetype [System.Runtime]System.ValueTuple`2<bool, uint8>>::Item2
     ldfld !0 valuetype [System.Runtime]System.ValueTuple`2<bool, uint8>::Item1
-    stloc.1
+    stloc.0
     ldarga.s 0
     ldflda !1 valuetype [System.Runtime]System.ValueTuple`2<int32, valuetype [System.Runtime]System.ValueTuple`2<bool, uint8>>::Item2
     ldfld !1 valuetype [System.Runtime]System.ValueTuple`2<bool, uint8>::Item2
-    stloc.2
-    ldloc.2
-    newobj instance void valuetype [System.Runtime]System.ValueTuple`2<int32, uint8>::.ctor(!0, !1)
-    stloc.3
-    ldloca.s 3
-    ldfld !1 valuetype [System.Runtime]System.ValueTuple`2<int32, uint8>::Item2
-    stloc.s 4
+    stloc.1
     ldloc.1
+    newobj instance void valuetype [System.Runtime]System.ValueTuple`2<int32, uint8>::.ctor(!0, !1)
+    stloc.2
+    ldloca.s 2
+    ldfld !1 valuetype [System.Runtime]System.ValueTuple`2<int32, uint8>::Item2
+    stloc.3
+    ldloc.0
     brfalse BB2
   BB1:
-    ldloc.s 4
-    stloc.0
-    br BB3
+    ldloc.3
+    ret
   BB2:
-    ldloc.2
-    stloc.0
-  BB3:
-    ldloc.0
+    ldloc.1
     ret
   }
 
@@ -330,7 +325,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
     stloc.1
     br BB1
   BB3:
-  BB4:
     ldloca.s 0
     ldfld !0 valuetype [System.Runtime]System.ValueTuple`2<uint64, uint64>::Item1
     ret

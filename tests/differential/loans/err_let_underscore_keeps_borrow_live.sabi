@@ -1,0 +1,8 @@
+// `let _ = r;` mentions the reference `r`: a use for liveness (rustc's `PlaceMention`),
+// so the loan `r` holds is live until there and the assignment to `x` conflicts with it.
+fn Main() {
+    let mut x = 1;
+    let r = &x;
+    x = 2;
+    let _ = r;
+}

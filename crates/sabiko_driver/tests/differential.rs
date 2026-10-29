@@ -28,14 +28,14 @@ const RUSTC_PRELUDE: &str = "#![allow(nonstandard_style, unused, dead_code)]\n\
 /// valid Rust the corpus promises.
 const RUSTC_BORROW_CODES: &[&str] = &[
     "E0106", "E0204", "E0373", "E0381", "E0382", "E0384", "E0499", "E0502", "E0503", "E0505",
-    "E0506", "E0507", "E0515", "E0521", "E0594", "E0596", "E0597", "E0623", "E0716",
+    "E0506", "E0507", "E0509", "E0515", "E0521", "E0594", "E0596", "E0597", "E0623", "E0716",
 ];
 
 /// rustc errors without a code that are still borrow-checker verdicts.
 const RUSTC_UNCODED_BORROW_ERRORS: &[&str] = &["lifetime may not live long enough"];
 
-/// Sabiko's borrow-checker code range (E0400..=E0417).
-const SABIKO_BORROW_CODES: std::ops::RangeInclusive<u16> = 400..=417;
+/// Sabiko's borrow-checker code range (E0400..=E0418).
+const SABIKO_BORROW_CODES: std::ops::RangeInclusive<u16> = 400..=418;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {

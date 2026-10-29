@@ -1,0 +1,13 @@
+// A type has at most one `Drop` impl; rustc reports the second one.
+// Checked against rustc: E0119 (the Sabiko codes are annotated).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+impl Drop for D { //~ ERROR E0215 conflicting implementations of trait `Drop` for type `D`
+    fn drop(&mut self) {}
+}

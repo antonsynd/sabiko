@@ -1,0 +1,23 @@
+// Assigning to a moved-out field of a struct without `Drop` reinitialises it: the struct
+// is whole again and can be moved as a whole. The assignment drops nothing (the field
+// holds no value), which the drop elaboration must know per field.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D }
+
+fn Consume(d: D) {}
+
+fn Take(p: Pair) {}
+
+fn Main() {
+    let mut p = Pair { A: D { Id: 1 }, B: D { Id: 2 } };
+    Consume(p.A);
+    p.A = D { Id: 3 };
+    Take(p);
+}

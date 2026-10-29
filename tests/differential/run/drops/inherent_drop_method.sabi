@@ -1,0 +1,22 @@
+// An inherent method may be called `drop` next to an `impl Drop`: method calls and paths
+// find the inherent one (rustc prefers inherent items over trait items), so neither is an
+// explicit destructor call, and the destructor still runs once at the end of `Main`.
+struct V { Id: i32 }
+
+impl Drop for V {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+impl V {
+    fn drop(&self) {
+        PrintLine(100 + self.Id);
+    }
+}
+
+fn Main() {
+    let v = V { Id: 1 };
+    v.drop();
+    V::drop(&v);
+}

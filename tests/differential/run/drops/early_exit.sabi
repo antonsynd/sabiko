@@ -1,0 +1,82 @@
+// `return`, `break` and `continue` leave scopes early: the locals of every scope left are
+// dropped, innermost scope first and in reverse declaration order within each. A value
+// returned or carried by `break` is moved out, so it is not dropped there.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn EarlyReturn(flag: bool) -> i32 {
+    let a = Make(1);
+    {
+        let b = Make(2);
+        if flag {
+            let c = Make(3);
+            return 10;
+        }
+        let d = Make(4);
+    }
+    PrintLine("no early return");
+    20
+}
+
+fn ReturnLocal() -> D {
+    let a = Make(5);
+    let b = Make(6);
+    return a;
+}
+
+fn ReturnFromLoop() -> D {
+    let outer = Make(40);
+    loop {
+        let x = Make(41);
+        let y = Make(42);
+        if x.Id > 0 {
+            return y;
+        }
+    }
+}
+
+fn Main() {
+    PrintLine(EarlyReturn(true));
+    PrintLine(EarlyReturn(false));
+    let r = ReturnLocal();
+    PrintLine(r.Id);
+    let r2 = ReturnFromLoop();
+    PrintLine(r2.Id);
+
+    let mut i = 0;
+    while i < 3 {
+        let x = Make(100 + i);
+        i += 1;
+        if i == 1 {
+            let y = Make(200);
+            continue;
+        }
+        if i == 2 {
+            let z = Make(300);
+            break;
+        }
+        PrintLine("end of body");
+    }
+    PrintLine("after while");
+
+    let outer = Make(7);
+    let got = loop {
+        let k = Make(8);
+        let v = Make(9);
+        break v;
+    };
+    PrintLine(got.Id);
+    PrintLine("end of Main");
+}

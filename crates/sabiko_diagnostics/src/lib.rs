@@ -62,6 +62,14 @@ impl ErrorCode {
     pub const UNKNOWN_ASSOC_ITEM: Self = Self(212);
     /// `self` used as a value outside a method with a `self` parameter (rustc's E0424).
     pub const SELF_OUTSIDE_METHOD: Self = Self(213);
+    /// `impl Drop` for something other than a struct of the file (rustc's E0120, E0117).
+    pub const INVALID_DROP_TARGET: Self = Self(214);
+    /// A second `impl Drop` for the same struct (rustc's E0119).
+    pub const CONFLICTING_DROP_IMPLS: Self = Self(215);
+    /// An `impl Drop` without `fn drop` (rustc's E0046).
+    pub const MISSING_DROP_FN: Self = Self(216);
+    /// An item of an `impl Drop` other than `drop` (rustc's E0407).
+    pub const NOT_A_DROP_MEMBER: Self = Self(217);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -89,6 +97,15 @@ impl ErrorCode {
     pub const UNKNOWN_METHOD: Self = Self(319);
     /// `e.Name` naming a method, not a field (rustc's E0615).
     pub const METHOD_AS_FIELD: Self = Self(320);
+    /// `drop` declared with another receiver or return type than `fn drop(&mut self)`
+    /// (rustc's E0053, E0186).
+    pub const DROP_SIGNATURE_MISMATCH: Self = Self(321);
+    /// `drop` declared with parameters besides `&mut self` (rustc's E0050).
+    pub const DROP_PARAM_COUNT: Self = Self(322);
+    /// `d.drop()` or `D::drop(&mut d)` (rustc's E0040).
+    pub const EXPLICIT_DROP_CALL: Self = Self(323);
+    /// `#[derive(Copy)]` on a type that implements `Drop` (rustc's E0184).
+    pub const COPY_WITH_DESTRUCTOR: Self = Self(324);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);
@@ -109,6 +126,8 @@ impl ErrorCode {
     pub const LIFETIME_TOO_SHORT: Self = Self(415);
     pub const MISSING_LIFETIME_SPECIFIER: Self = Self(416);
     pub const COPY_NOT_IMPLEMENTABLE: Self = Self(417);
+    /// A non-`Copy` field moved out of a value whose type implements `Drop` (rustc's E0509).
+    pub const MOVE_OUT_OF_DROP: Self = Self(418);
 
     // Code generation (E05xx)
     /// A construct the CIL backend cannot lower yet.

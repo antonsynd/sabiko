@@ -21,3 +21,7 @@ pub fn Normalize(v: &mut Vector) -> f64 {
 
 fn Unit() -> () {}
 fn Infer(x: _) {}
+
+impl Drop for Marker {
+    fn drop(&mut self) {}
+}

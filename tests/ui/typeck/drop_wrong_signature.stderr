@@ -1,0 +1,41 @@
+[E0321] Error: method `drop` has an incompatible type for trait `Drop`
+    ╭─[ tests/ui/typeck/drop_wrong_signature.sabi:12:13 ]
+    │
+ 12 │     fn drop(&self) {} //~ ERROR E0321 method `drop` has an incompatible type for trait `Drop`
+    │             ──┬──  
+    │               ╰──── expected `&mut A`, found `&A`: types differ in mutability
+    │ 
+    │ Note: `Drop::drop` is declared as `fn drop(&mut self)`
+────╯
+[E0321] Error: method `drop` has an incompatible type for trait `Drop`
+    ╭─[ tests/ui/typeck/drop_wrong_signature.sabi:16:13 ]
+    │
+ 16 │     fn drop(self) {} //~ ERROR E0321 method `drop` has an incompatible type for trait `Drop`
+    │             ──┬─  
+    │               ╰─── expected `&mut B`, found `B`
+    │ 
+    │ Note: `Drop::drop` is declared as `fn drop(&mut self)`
+────╯
+[E0321] Error: method `drop` has an incompatible type for trait `Drop`
+    ╭─[ tests/ui/typeck/drop_wrong_signature.sabi:20:27 ]
+    │
+ 20 │     fn drop(&mut self) -> i32 { self.Id } //~ ERROR E0321 method `drop` has an incompatible type for trait `Drop`
+    │                           ─┬─  
+    │                            ╰─── expected `()`, found `i32`
+    │ 
+    │ Note: `Drop::drop` is declared as `fn drop(&mut self)`
+────╯
+[E0322] Error: method `drop` has 2 parameters but the declaration in trait `Drop::drop` has 1
+    ╭─[ tests/ui/typeck/drop_wrong_signature.sabi:24:24 ]
+    │
+ 24 │     fn drop(&mut self, n: i32) {} //~ ERROR E0322 method `drop` has 2 parameters but the declaration in trait `Drop::drop` has 1
+    │                        ───┬──  
+    │                           ╰──── expected 1 parameter, found 2
+────╯
+[E0321] Error: method `drop` has a `&mut self` declaration in the trait, but not in the impl
+    ╭─[ tests/ui/typeck/drop_wrong_signature.sabi:28:8 ]
+    │
+ 28 │     fn drop() {} //~ ERROR E0321 method `drop` has a `&mut self` declaration in the trait, but not in the impl
+    │        ──┬─  
+    │          ╰─── expected `&mut self` in impl
+────╯

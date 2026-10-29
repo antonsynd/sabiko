@@ -1,0 +1,29 @@
+// `drop` must be exactly `fn drop(&mut self)`: a `&self` or by-value `self` receiver, a
+// missing receiver or a return type is an incompatible signature; an extra parameter is a
+// parameter count mismatch.
+// Checked against rustc: E0050, E0053, E0186 (the Sabiko codes are annotated).
+struct A { Id: i32 }
+struct B { Id: i32 }
+struct C { Id: i32 }
+struct E { Id: i32 }
+struct G { Id: i32 }
+
+impl Drop for A {
+    fn drop(&self) {} //~ ERROR E0321 method `drop` has an incompatible type for trait `Drop`
+}
+
+impl Drop for B {
+    fn drop(self) {} //~ ERROR E0321 method `drop` has an incompatible type for trait `Drop`
+}
+
+impl Drop for C {
+    fn drop(&mut self) -> i32 { self.Id } //~ ERROR E0321 method `drop` has an incompatible type for trait `Drop`
+}
+
+impl Drop for E {
+    fn drop(&mut self, n: i32) {} //~ ERROR E0322 method `drop` has 2 parameters but the declaration in trait `Drop::drop` has 1
+}
+
+impl Drop for G {
+    fn drop() {} //~ ERROR E0321 method `drop` has a `&mut self` declaration in the trait, but not in the impl
+}

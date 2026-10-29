@@ -1,0 +1,15 @@
+// `Drop` is the only trait an `impl` can name; a struct of the file called `Drop` shadows
+// it, and `impl Drop for S` is then an impl of a struct, not of a trait.
+// Checked against rustc: E0404 (the Sabiko code is annotated).
+struct Drop;
+struct S { Id: i32 }
+
+impl Drop for S { //~ ERROR E0203 expected trait, found struct `Drop`
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let s = S { Id: 1 };
+}

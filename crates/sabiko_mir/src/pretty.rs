@@ -76,9 +76,40 @@ pub fn print_body(body: &Body, resolve: &ResolveResults, typeck: &TypeckResults,
             }
         }
     }
+    // Cleanup scopes (decision 55): what a panic drops in the blocks they protect.
+    for (i, cleanup) in body.cleanups.iter().enumerate() {
+        let parent = cleanup
+            .parent
+            .map_or(String::new(), |c| format!(" in c{}", c.0));
+        let drops: Vec<String> = cleanup
+            .drops
+            .iter()
+            .map(|d| match d.flag {
+                Some(flag) => format!("drop({}) if _{}", p.place(&d.place), flag.0),
+                None => format!("drop({})", p.place(&d.place)),
+            })
+            .collect();
+        let drops = if drops.is_empty() {
+            "nothing".to_owned()
+        } else {
+            drops.join(", ")
+        };
+        let _ = writeln!(
+            out,
+            "    cleanup c{i}{parent}: _{} => {drops};",
+            cleanup.local.0
+        );
+    }
     for bb in body.block_ids() {
         let data = body.block(bb);
-        let _ = write!(out, "\n    bb{}: {{\n", bb.0);
+        match data.cleanup {
+            Some(c) => {
+                let _ = write!(out, "\n    bb{} (cleanup c{}): {{\n", bb.0, c.0);
+            }
+            None => {
+                let _ = write!(out, "\n    bb{}: {{\n", bb.0);
+            }
+        }
         for stmt in &data.statements {
             let _ = writeln!(out, "        {};", p.stmt(&stmt.kind));
         }
@@ -200,6 +231,7 @@ impl Printer<'_> {
             }
             StatementKind::StorageLive(l) => format!("StorageLive(_{})", l.0),
             StatementKind::StorageDead(l) => format!("StorageDead(_{})", l.0),
+            StatementKind::PlaceMention(place) => format!("PlaceMention({})", self.place(place)),
             StatementKind::Nop => "nop".to_owned(),
         }
     }
@@ -240,6 +272,9 @@ impl Printer<'_> {
                     self.resolve.qualified_name(*func),
                     args.join(", ")
                 )
+            }
+            TerminatorKind::Drop { place, target } => {
+                format!("drop({}) -> bb{}", self.place(place), target.0)
             }
             TerminatorKind::Return => "return".to_owned(),
             TerminatorKind::Unreachable => "unreachable".to_owned(),

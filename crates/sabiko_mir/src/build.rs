@@ -17,15 +17,34 @@
 //! into existence, `StorageDead` at the end of its scope (the enclosing block for `let`
 //! bindings, the enclosing statement for temporaries) in reverse declaration order, and
 //! on every early exit (`break`, `continue`, `return`) for all scopes being left.
+//! Temporaries go to rustc's temporary scope (edition 2021): the innermost statement, `if`
+//! or `while` condition, operand of `&&`/`||`, body of an `if`, `else`, `while` or `loop`,
+//! or the function body. A block is not one, so the temporaries of a block's tail
+//! expression outlive the block's locals.
+//!
+//! Drops (decision 55): a local whose type has drop glue gets a `Drop` terminator right
+//! before its `StorageDead`, on every path out of its scope, whether or not it still holds
+//! a value; drop elaboration sorts that out after borrow checking. Function arguments are
+//! dropped when the function's outermost scopes end, the last argument first, each after
+//! the bindings of its pattern (rustc's order). While a local with drop glue may hold a
+//! value, the blocks are protected by a cleanup scope ([`crate::CleanupData`]): it opens
+//! after the local's first write when that write is the only one its initialiser makes
+//! (`let d = Make();`), and at the declaration otherwise (`let d;`, `let d = if ..`), and
+//! closes before the local's drop. The open cleanup scopes form a chain ordered like the
+//! drops at the ends of the scopes, innermost first; a scope opened below others (the
+//! binding of `let d = F(&Make());`, written while the statement's temporary still lives)
+//! closes those and reopens them inside it, so cleanup scopes always nest and each has a
+//! single entry. A block that holds anything that may panic never changes chains half-way:
+//! the chain changes at a new block.
 //!
 //! Lowering itself never reports diagnostics: the type checker already rejected every
 //! invalid program, and bodies with type errors are skipped.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{
     BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, Pat, PatKind, SourceFile,
-    Stmt, StmtKind,
+    Stmt, StmtKind, UnOp,
 };
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
@@ -33,8 +52,9 @@ use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
-    AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, Constant, Local, LocalDecl,
-    LocalKind, Operand, Place, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
+    AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, CleanupData, CleanupDrop,
+    CleanupScope, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue, Statement,
+    StatementKind, Terminator, TerminatorKind,
 };
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
@@ -86,9 +106,21 @@ struct Builder<'a> {
     body: Body,
     /// Resolver bindings to MIR locals.
     local_map: HashMap<LocalId, Local>,
-    /// Locals to `StorageDead` when each open scope ends, innermost last. Blocks and
-    /// statements (for their temporaries) each open one.
+    /// Locals to drop and `StorageDead` when each open scope ends, innermost last, each in
+    /// declaration order. Blocks, statements and the other temporary scopes each open one;
+    /// the function's arguments are in scopes of their own, outermost.
     scopes: Vec<Vec<Local>>,
+    /// Index into `scopes` of the scope temporaries go to (see the module docs).
+    temp_scope: usize,
+    /// Locals with drop glue declared but not written yet, whose cleanup scope opens after
+    /// their first write.
+    pending: HashSet<Local>,
+    /// The open cleanup scopes, outermost first, with the local each protects.
+    chain: Vec<(Local, CleanupScope)>,
+    /// While lowering the initialiser of `let x = ..;`: the block's scope and the position
+    /// in it where temporaries extended to the block go, before the binding (rustc drops
+    /// the binding first).
+    extend_at: Option<(usize, usize)>,
     loops: Vec<LoopScope>,
     /// The block holding the single `return`, created on first use.
     return_block: Option<BasicBlock>,
@@ -170,6 +202,7 @@ impl<'a> Builder<'a> {
             locals,
             arg_count: f.params.len() + usize::from(f.self_param.is_some()),
             blocks: vec![BasicBlockData::default()],
+            cleanups: Vec::new(),
             span: item.span,
         };
         Self {
@@ -179,6 +212,10 @@ impl<'a> Builder<'a> {
             body,
             local_map,
             scopes: Vec::new(),
+            temp_scope: 0,
+            pending: HashSet::new(),
+            chain: Vec::new(),
+            extend_at: None,
             loops: Vec::new(),
             return_block: None,
             current: BasicBlock::START,
@@ -189,22 +226,35 @@ impl<'a> Builder<'a> {
 
     fn build(mut self, f: &FnDecl) -> Option<Body> {
         let span = f.body.span;
-        // Bindings of tuple-pattern parameters live for the whole body.
-        self.push_scope();
-        self.push_scope();
+        // Each argument has a scope of its own, the first outermost, holding the argument
+        // and the bindings of its pattern, which live for the whole body: rustc drops the
+        // bindings, then the argument, the last argument first.
         let first_param = 1 + usize::from(f.self_param.is_some());
-        for (i, param) in f.params.iter().enumerate() {
+        let args: Vec<Local> = self.body.args().collect();
+        for arg in args {
+            self.push_scope();
+            self.scopes.last_mut().expect("pushed above").push(arg);
+            self.track_drop(arg);
+            self.open_pending(arg);
+            let Some(param) = arg.index().checked_sub(first_param).map(|i| &f.params[i]) else {
+                continue;
+            };
             if let PatKind::Tuple(_) = param.pat.kind {
-                let arg = Local(u32::try_from(i + first_param).expect("fewer than 2^32 locals"));
+                let saved = self.push_temp_scope();
                 self.bind_pattern(&param.pat, Place::local(arg));
+                self.close_temp_scope(saved, param_span(f));
             }
         }
-        self.pop_scope(param_span(f));
+        // The temporary scope of the body's tail expression, whose temporaries are dropped
+        // after the body's locals and before the arguments (edition 2021).
+        self.push_temp_scope();
         self.lower_block_into(&Place::local(Local::RETURN), &f.body);
-        self.pop_scope(span);
+        while !self.scopes.is_empty() {
+            self.pop_scope(span);
+        }
         let ret = self.return_block();
         self.terminate(TerminatorKind::Goto { target: ret }, span);
-        self.current = ret;
+        self.enter(ret);
         self.terminate(TerminatorKind::Return, span);
         debug_assert!(self.scopes.is_empty() && self.loops.is_empty());
         if self.failed {
@@ -237,8 +287,19 @@ impl<'a> Builder<'a> {
             .push(Statement { kind, span });
     }
 
+    /// Continues in `bb`, protected by the cleanup scopes open now.
+    fn enter(&mut self, bb: BasicBlock) {
+        self.current = bb;
+        self.body.blocks[bb.index()].cleanup = self.cleanup_head();
+    }
+
+    /// `place = rvalue`. The first write to a whole pending local opens its cleanup scope.
     fn assign(&mut self, place: Place, rvalue: Rvalue, span: Span) {
+        let written = place.is_local().then_some(place.local);
         self.push_stmt(StatementKind::Assign(place, rvalue), span);
+        if let Some(local) = written {
+            self.open_pending(local);
+        }
     }
 
     /// Ends `bb` with `kind`. Every block is terminated exactly once.
@@ -278,12 +339,186 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// Ends the current block with a jump and continues in a fresh block, which is only
-    /// reachable if something else jumps to it. Code after `return`, `break` and
-    /// `continue` lands in such a block; `simplify` removes it.
-    fn jump_away(&mut self, kind: TerminatorKind, span: Span) {
-        self.terminate(kind, span);
-        self.current = self.new_block();
+    // ----- drops and cleanup scopes (decision 55) -----
+
+    fn needs_drop(&self, local: Local) -> bool {
+        self.typeck
+            .items
+            .needs_drop(&self.body.local_decl(local).ty)
+    }
+
+    /// Starts tracking `local` if its type has drop glue: its cleanup scope opens after its
+    /// first whole write, or earlier at [`Self::open_pending`].
+    fn track_drop(&mut self, local: Local) {
+        if self.needs_drop(local) {
+            self.pending.insert(local);
+        }
+    }
+
+    /// Opens the cleanup scope of `local` if it is still pending: after its first write,
+    /// or before it when its initialiser writes it in several places (`let d = if c { A() }
+    /// else { B() };`) or later (`let d;`), or for an argument.
+    fn open_pending(&mut self, local: Local) {
+        if self.pending.remove(&local) {
+            self.open_cleanup(local);
+        }
+    }
+
+    /// Where `local` is among the open scopes: the scope's index and the position in it.
+    /// Unwinding drops locals in the reverse of this order.
+    fn rank(&self, local: Local) -> (usize, usize) {
+        self.scopes
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, scope)| scope.iter().position(|&l| l == local).map(|p| (i, p)))
+            .expect("a local with a cleanup scope is in an open scope")
+    }
+
+    /// Opens a cleanup scope for `local` at its place in the chain: the scopes of locals a
+    /// panic drops before it (in inner scopes, or declared later) close and reopen inside
+    /// it.
+    fn open_cleanup(&mut self, local: Local) {
+        let rank = self.rank(local);
+        let mut above = Vec::new();
+        while let Some(&(top, _)) = self.chain.last() {
+            if self.rank(top) <= rank {
+                break;
+            }
+            above.push(top);
+            self.chain.pop();
+        }
+        self.push_cleanup(local);
+        for l in above.into_iter().rev() {
+            self.push_cleanup(l);
+        }
+        self.chain_changed();
+    }
+
+    fn push_cleanup(&mut self, local: Local) {
+        let scope = CleanupScope(
+            u32::try_from(self.body.cleanups.len()).expect("fewer than 2^32 cleanup scopes"),
+        );
+        self.body.cleanups.push(CleanupData {
+            parent: self.cleanup_head(),
+            local,
+            drops: vec![CleanupDrop {
+                place: Place::local(local),
+                flag: None,
+            }],
+        });
+        self.chain.push((local, scope));
+    }
+
+    fn cleanup_head(&self) -> Option<CleanupScope> {
+        self.chain.last().map(|&(_, scope)| scope)
+    }
+
+    /// The chain of open cleanup scopes changed: what follows is protected by the new
+    /// chain. The current block takes it over while it holds nothing that may panic (only
+    /// storage markers); otherwise a new block starts here.
+    fn chain_changed(&mut self) {
+        let head = self.cleanup_head();
+        let data = &self.body.blocks[self.current.index()];
+        if data.cleanup == head {
+            return;
+        }
+        let only_markers = data.statements.iter().all(|s| {
+            matches!(
+                s.kind,
+                StatementKind::StorageLive(_)
+                    | StatementKind::StorageDead(_)
+                    | StatementKind::PlaceMention(_)
+                    | StatementKind::Nop
+            )
+        });
+        if only_markers {
+            self.body.blocks[self.current.index()].cleanup = head;
+        } else {
+            let span = data.statements.last().map_or(self.body.span, |s| s.span);
+            let next = self.new_block();
+            self.terminate(TerminatorKind::Goto { target: next }, span);
+            self.enter(next);
+        }
+    }
+
+    /// The drop of `local` if its type has drop glue, outside its own cleanup scope.
+    fn drop_local(&mut self, local: Local, span: Span) {
+        if !self.needs_drop(local) {
+            return;
+        }
+        self.pending.remove(&local);
+        if self.chain.last().is_some_and(|&(l, _)| l == local) {
+            self.chain.pop();
+            self.chain_changed();
+        }
+        let next = self.new_block();
+        self.terminate(
+            TerminatorKind::Drop {
+                place: Place::local(local),
+                target: next,
+            },
+            span,
+        );
+        self.enter(next);
+    }
+
+    /// `temp`'s value is computed. rustc schedules a temporary's drop at this point, so it
+    /// is dropped before the temporaries made while computing it (`Make(1).Next();` drops
+    /// `Next`'s result, then `Make(1)`'s): `temp` moves to the end of its scope (of the
+    /// extended temporaries of a `let`, for one of those), and its cleanup scope, if it
+    /// opened before the value was complete, moves to its new rank.
+    fn temp_complete(&mut self, temp: Local) {
+        if !self.needs_drop(temp) {
+            return;
+        }
+        let (scope, pos) = self.rank(temp);
+        let end = match self.extend_at {
+            Some((block_scope, at)) if scope == block_scope && pos < at => at - 1,
+            _ => self.scopes[scope].len() - 1,
+        };
+        let moved = self.scopes[scope].remove(pos);
+        self.scopes[scope].insert(end, moved);
+        let Some(index) = self.chain.iter().position(|&(l, _)| l == temp) else {
+            return;
+        };
+        if index + 1 == self.chain.len() {
+            return;
+        }
+        let mut reopen: Vec<Local> = self.chain.drain(index..).map(|(l, _)| l).collect();
+        reopen.sort_by_key(|&l| self.rank(l));
+        for local in reopen {
+            self.push_cleanup(local);
+        }
+        self.chain_changed();
+    }
+
+    /// The end of `local`'s scope: its drop, then its `StorageDead` (arguments have no
+    /// storage markers).
+    fn end_local(&mut self, local: Local, span: Span) {
+        self.drop_local(local, span);
+        if self.body.local_decl(local).kind != LocalKind::Arg {
+            self.push_stmt(StatementKind::StorageDead(local), span);
+        }
+    }
+
+    /// Leaves every scope at `depth` and above (an early exit), innermost first, then
+    /// jumps to `target`. The scopes stay open: the code that follows is unreachable but
+    /// is still lowered in the scopes it is written in, under the cleanup scopes it had.
+    fn exit_to(&mut self, depth: usize, target: BasicBlock, span: Span) {
+        let saved = (self.chain.clone(), self.pending.clone());
+        let locals: Vec<Local> = self.scopes[depth..]
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev().copied())
+            .collect();
+        for local in locals {
+            self.end_local(local, span);
+        }
+        self.terminate(TerminatorKind::Goto { target }, span);
+        (self.chain, self.pending) = saved;
+        let next = self.new_block();
+        self.enter(next);
     }
 
     // ----- locals and scopes -----
@@ -295,7 +530,8 @@ impl<'a> Builder<'a> {
     }
 
     /// Declares a temporary in the enclosing block's scope (not the statement's), so it
-    /// outlives the statement that creates it.
+    /// outlives the statement that creates it. In `let x = ..;` it goes before `x`: rustc
+    /// drops the binding first.
     fn new_temp_in_block_scope(&mut self, ty: Ty, span: Span) -> Local {
         let local = self.new_local(LocalDecl {
             ty,
@@ -305,13 +541,19 @@ impl<'a> Builder<'a> {
             span,
             source: None,
         });
-        let block_scope = self.scopes.len() - 2;
-        self.scopes[block_scope].push(local);
+        if let Some((block_scope, at)) = self.extend_at {
+            self.scopes[block_scope].insert(at, local);
+            self.extend_at = Some((block_scope, at + 1));
+        } else {
+            let block_scope = self.scopes.len() - 2;
+            self.scopes[block_scope].push(local);
+        }
         self.push_stmt(StatementKind::StorageLive(local), span);
+        self.track_drop(local);
         local
     }
 
-    /// Declares a temporary in the innermost scope and marks it live.
+    /// Declares a temporary in the temporary scope and marks it live.
     fn new_temp(&mut self, ty: Ty, span: Span) -> Local {
         let local = self.new_local(LocalDecl {
             ty,
@@ -321,11 +563,9 @@ impl<'a> Builder<'a> {
             span,
             source: None,
         });
-        self.scopes
-            .last_mut()
-            .expect("temporaries are created inside a scope")
-            .push(local);
+        self.scopes[self.temp_scope].push(local);
         self.push_stmt(StatementKind::StorageLive(local), span);
+        self.track_drop(local);
         local
     }
 
@@ -345,6 +585,7 @@ impl<'a> Builder<'a> {
         let block_scope = self.scopes.len() - 2;
         self.scopes[block_scope].push(local);
         self.push_stmt(StatementKind::StorageLive(local), span);
+        self.track_drop(local);
         local
     }
 
@@ -352,10 +593,35 @@ impl<'a> Builder<'a> {
         self.scopes.push(Vec::new());
     }
 
-    /// Closes the innermost scope, ending the storage of its locals in reverse order.
+    /// Opens a scope temporaries go to (a statement, a condition, a body); returns the
+    /// temporary scope to restore when it closes.
+    fn push_temp_scope(&mut self) -> usize {
+        self.push_scope();
+        std::mem::replace(&mut self.temp_scope, self.scopes.len() - 1)
+    }
+
+    /// Closes the innermost scope, dropping and ending the storage of its locals in
+    /// reverse order.
     fn pop_scope(&mut self, span: Span) {
         let locals = self.scopes.pop().expect("a scope is open");
-        self.storage_dead(&locals, span);
+        for &local in locals.iter().rev() {
+            self.end_local(local, span);
+        }
+    }
+
+    /// Closes a scope opened by [`Self::push_temp_scope`], restoring the temporary scope
+    /// it returned.
+    fn close_temp_scope(&mut self, saved: usize, span: Span) {
+        self.temp_scope = saved;
+        self.pop_scope(span);
+    }
+
+    /// Lowers `f` in a temporary scope of its own: an `if`, `else`, `while` or `loop` body,
+    /// whose tail expression's temporaries are dropped at its end, after its locals.
+    fn in_temp_scope(&mut self, span: Span, f: impl FnOnce(&mut Self)) {
+        let saved = self.push_temp_scope();
+        f(self);
+        self.close_temp_scope(saved, span);
     }
 
     fn storage_dead(&mut self, locals: &[Local], span: Span) {
@@ -364,18 +630,19 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// Ends the storage of every local in the scopes at `depth` and above, innermost
-    /// first, without closing them: the code that follows an early exit is unreachable
-    /// but is still lowered in the scopes it is written in.
-    fn exit_scopes(&mut self, depth: usize, span: Span) {
-        let locals: Vec<Local> = self.scopes[depth..]
-            .iter()
-            .rev()
-            .flat_map(|scope| scope.iter().rev().copied())
-            .collect();
-        for local in locals {
-            self.push_stmt(StatementKind::StorageDead(local), span);
+    /// Evaluates the condition of an `if` or `while`, or the left operand of `&&`/`||`, in
+    /// a temporary scope of its own. Its temporaries with drop glue are dropped at once,
+    /// before the branch on the result (a `bool`, never one of them); the caller ends the
+    /// storage of all of them at the start of both successors.
+    fn condition(&mut self, cond: &Expr, span: Span) -> (Operand, Vec<Local>) {
+        let saved = self.push_temp_scope();
+        let discr = self.as_operand(cond);
+        self.temp_scope = saved;
+        let temps = self.scopes.pop().expect("pushed above");
+        for &local in temps.iter().rev() {
+            self.drop_local(local, span);
         }
+        (discr, temps)
     }
 
     // ----- helpers -----
@@ -452,6 +719,28 @@ impl<'a> Builder<'a> {
             value: ConstValue::Bool(value),
             span,
         })
+    }
+
+    /// `-<integer literal>` (through parentheses) as one constant, as rustc builds it: the
+    /// exact negation, `-2147483648i32` included, and `-2^127` for `i128`, whose literal
+    /// wraps to `i128::MIN` (see [`Self::lit_constant`]). So only a constant item is ever
+    /// negated at run time, where negating the minimum overflows.
+    fn negated_literal(&mut self, expr: &Expr) -> Option<Constant> {
+        let ExprKind::Unary(UnOp::Neg, operand) = &strip_parens(expr).kind else {
+            return None;
+        };
+        let operand = strip_parens(operand);
+        let ExprKind::Lit(lit @ Lit::Int { .. }) = &operand.kind else {
+            return None;
+        };
+        let ty = self.ty(operand).clone();
+        let mut c = self.lit_constant(lit, &ty, operand.span);
+        let ConstValue::Int(v) = c.value else {
+            return None;
+        };
+        c.value = ConstValue::Int(v.wrapping_neg());
+        c.span = self.span_of(expr);
+        Some(c)
     }
 
     fn lit_constant(&mut self, lit: &Lit, ty: &Ty, span: Span) -> Constant {
@@ -591,6 +880,9 @@ impl<'a> Builder<'a> {
                 let ty = self.ty(expr).clone();
                 Operand::Constant(self.const_constant(def, &ty, expr.span))
             }
+            ExprKind::Unary(UnOp::Neg, _) if self.negated_literal(expr).is_some() => {
+                Operand::Constant(self.negated_literal(expr).expect("checked above"))
+            }
             _ => {
                 let temp = self.as_temp(expr);
                 self.place_operand(Place::local(temp))
@@ -627,7 +919,11 @@ impl<'a> Builder<'a> {
     fn as_temp(&mut self, expr: &Expr) -> Local {
         let ty = self.ty(expr).clone();
         let temp = self.new_temp(ty, expr.span);
+        if !writes_once(expr) {
+            self.open_pending(temp);
+        }
         self.expr_into_dest(&Place::local(temp), expr);
+        self.temp_complete(temp);
         temp
     }
 
@@ -674,6 +970,10 @@ impl<'a> Builder<'a> {
                 },
                 Res::Prim(_) | Res::Err => unreachable!("unresolved path in a checked body"),
             },
+            ExprKind::Unary(UnOp::Neg, _) if self.negated_literal(expr).is_some() => {
+                let c = self.negated_literal(expr).expect("checked above");
+                self.assign(dest.clone(), Rvalue::Use(Operand::Constant(c)), span);
+            }
             ExprKind::Unary(op, operand) => {
                 let operand = self.as_operand(operand);
                 self.assign(dest.clone(), Rvalue::UnaryOp(*op, operand), span);
@@ -808,7 +1108,10 @@ impl<'a> Builder<'a> {
             },
             span,
         );
-        self.current = next;
+        self.enter(next);
+        if target.is_some() && dest.is_local() {
+            self.open_pending(dest.local);
+        }
     }
 
     /// `receiver.Name(args)`: a call of the method the type checker picked, whose first
@@ -912,6 +1215,7 @@ impl<'a> Builder<'a> {
             let ty = self.ty(e).clone();
             let temp = self.new_temp(ty, e.span);
             self.tuple_into(&Place::local(temp), e, true);
+            self.temp_complete(temp);
             return Some(self.place_operand(Place::local(temp)));
         }
         None
@@ -926,7 +1230,11 @@ impl<'a> Builder<'a> {
             Self::ref_of_temporary(e).filter(|(_, inner)| !self.ty(inner).is_never())?;
         let ty = self.ty(inner).clone();
         let referent = self.new_temp_in_block_scope(ty, inner.span);
+        if !writes_once(inner) {
+            self.open_pending(referent);
+        }
         self.expr_into_dest(&Place::local(referent), inner);
+        self.temp_complete(referent);
         let ref_ty = self.ty(e).clone();
         let temp = self.new_temp(ref_ty, e.span);
         self.assign(
@@ -1055,7 +1363,8 @@ impl<'a> Builder<'a> {
     /// `a && b` / `a || b`: the right operand only runs when the left one does not decide
     /// the result.
     fn lower_logical(&mut self, dest: &Place, op: BinOp, lhs: &Expr, rhs: &Expr, span: Span) {
-        let lhs = self.as_operand(lhs);
+        // Each operand is a temporary scope of its own.
+        let (lhs, lhs_temps) = self.condition(lhs, span);
         let rhs_block = self.new_block();
         let short_block = self.new_block();
         let (targets, otherwise, short_value) = match op {
@@ -1065,20 +1374,25 @@ impl<'a> Builder<'a> {
             _ => unreachable!("not a logical operator"),
         };
         self.switch_int(lhs, targets, otherwise, span);
-        self.current = rhs_block;
+        self.enter(rhs_block);
+        self.storage_dead(&lhs_temps, span);
+        let saved = self.push_temp_scope();
         let rhs = self.as_operand(rhs);
         self.assign(dest.clone(), Rvalue::Use(rhs), span);
+        self.close_temp_scope(saved, span);
         let rhs_end = self.current;
-        self.current = short_block;
+        self.enter(short_block);
+        self.storage_dead(&lhs_temps, span);
         self.assign(
             dest.clone(),
             Rvalue::Use(Self::bool_constant(short_value, span)),
             span,
         );
+        let short_end = self.current;
         let join = self.new_block();
         self.terminate_block(rhs_end, TerminatorKind::Goto { target: join }, span);
-        self.terminate_block(short_block, TerminatorKind::Goto { target: join }, span);
-        self.current = join;
+        self.terminate_block(short_end, TerminatorKind::Goto { target: join }, span);
+        self.enter(join);
     }
 
     /// `if cond { then } else { els }`. `bool` is `0`/`1`, so `0` selects the else
@@ -1091,20 +1405,26 @@ impl<'a> Builder<'a> {
         els: Option<&Expr>,
         span: Span,
     ) {
-        let discr = self.as_operand(cond);
+        // The condition and each branch are temporary scopes of their own: a
+        // condition's temporaries are dropped before the branch runs.
+        let (discr, cond_temps) = self.condition(cond, span);
         let then_block = self.new_block();
         let else_block = self.new_block();
         self.switch_int(discr, vec![(0, else_block)], then_block, span);
-        self.current = then_block;
-        match dest {
-            Some(dest) => self.lower_block_into(dest, then),
-            None => self.lower_block_discard(then),
-        }
+        self.enter(then_block);
+        self.storage_dead(&cond_temps, span);
+        self.in_temp_scope(then.span, |this| match dest {
+            Some(dest) => this.lower_block_into(dest, then),
+            None => this.lower_block_discard(then),
+        });
         let then_end = self.current;
-        self.current = else_block;
+        self.enter(else_block);
+        self.storage_dead(&cond_temps, span);
         match (els, dest) {
-            (Some(els), Some(dest)) => self.expr_into_dest(dest, els),
-            (Some(els), None) => self.lower_expr_discard(els),
+            (Some(els), Some(dest)) => {
+                self.in_temp_scope(els.span, |this| this.expr_into_dest(dest, els));
+            }
+            (Some(els), None) => self.in_temp_scope(els.span, |this| this.lower_expr_discard(els)),
             (None, Some(dest)) => self.assign(dest.clone(), Self::unit_rvalue(span), span),
             (None, None) => {}
         }
@@ -1112,7 +1432,7 @@ impl<'a> Builder<'a> {
         let join = self.new_block();
         self.terminate_block(then_end, TerminatorKind::Goto { target: join }, span);
         self.terminate_block(else_end, TerminatorKind::Goto { target: join }, span);
-        self.current = join;
+        self.enter(join);
     }
 
     /// `while cond { body }`. The condition's temporaries die at the start of both
@@ -1120,10 +1440,8 @@ impl<'a> Builder<'a> {
     fn lower_while(&mut self, cond: &Expr, body: &Block, span: Span) {
         let header = self.new_block();
         self.terminate(TerminatorKind::Goto { target: header }, span);
-        self.current = header;
-        self.push_scope();
-        let discr = self.as_operand(cond);
-        let cond_temps = self.scopes.pop().expect("condition scope");
+        self.enter(header);
+        let (discr, cond_temps) = self.condition(cond, span);
         let body_block = self.new_block();
         let false_block = self.new_block();
         self.switch_int(discr, vec![(0, false_block)], body_block, span);
@@ -1133,16 +1451,16 @@ impl<'a> Builder<'a> {
             dest: None,
             scope_depth: self.scopes.len(),
         });
-        self.current = body_block;
+        self.enter(body_block);
         self.storage_dead(&cond_temps, span);
-        self.lower_block_discard(body);
+        self.in_temp_scope(body.span, |this| this.lower_block_discard(body));
         self.terminate(TerminatorKind::Goto { target: header }, span);
         let scope = self.loops.pop().expect("loop scope pushed above");
-        self.current = false_block;
+        self.enter(false_block);
         self.storage_dead(&cond_temps, span);
         let exit = scope.exit.unwrap_or_else(|| self.new_block());
         self.terminate(TerminatorKind::Goto { target: exit }, span);
-        self.current = exit;
+        self.enter(exit);
     }
 
     /// `loop { body }`. Only `break` leaves it; without one nothing after the loop is
@@ -1150,17 +1468,18 @@ impl<'a> Builder<'a> {
     fn lower_loop(&mut self, dest: Option<Place>, body: &Block, span: Span) {
         let header = self.new_block();
         self.terminate(TerminatorKind::Goto { target: header }, span);
-        self.current = header;
+        self.enter(header);
         self.loops.push(LoopScope {
             header,
             exit: None,
             dest,
             scope_depth: self.scopes.len(),
         });
-        self.lower_block_discard(body);
+        self.in_temp_scope(body.span, |this| this.lower_block_discard(body));
         self.terminate(TerminatorKind::Goto { target: header }, span);
         let scope = self.loops.pop().expect("loop scope pushed above");
-        self.current = scope.exit.unwrap_or_else(|| self.new_block());
+        let exit = scope.exit.unwrap_or_else(|| self.new_block());
+        self.enter(exit);
     }
 
     fn lower_break(&mut self, value: Option<&Expr>, span: Span) {
@@ -1176,7 +1495,6 @@ impl<'a> Builder<'a> {
             }
             (None, None) => {}
         }
-        self.exit_scopes(self.loops[depth].scope_depth, span);
         let exit = if let Some(bb) = self.loops[depth].exit {
             bb
         } else {
@@ -1184,14 +1502,13 @@ impl<'a> Builder<'a> {
             self.loops[depth].exit = Some(bb);
             bb
         };
-        self.jump_away(TerminatorKind::Goto { target: exit }, span);
+        self.exit_to(self.loops[depth].scope_depth, exit, span);
     }
 
     fn lower_continue(&mut self, span: Span) {
         let scope = self.loops.last().expect("`continue` inside a loop");
         let (header, depth) = (scope.header, scope.scope_depth);
-        self.exit_scopes(depth, span);
-        self.jump_away(TerminatorKind::Goto { target: header }, span);
+        self.exit_to(depth, header, span);
     }
 
     fn lower_return(&mut self, value: Option<&Expr>, span: Span) {
@@ -1205,9 +1522,8 @@ impl<'a> Builder<'a> {
             Some(value) => self.expr_into_dest(&ret, value),
             None => self.assign(ret, Self::unit_rvalue(span), span),
         }
-        self.exit_scopes(0, span);
         let target = self.return_block();
-        self.jump_away(TerminatorKind::Goto { target }, span);
+        self.exit_to(0, target, span);
     }
 
     // ----- blocks and statements -----
@@ -1261,6 +1577,7 @@ impl<'a> Builder<'a> {
             let ty = self.ty(init).clone();
             let temp = self.new_temp(ty, init.span);
             self.tuple_into(&Place::local(temp), init, true);
+            self.temp_complete(temp);
             Place::local(temp)
         } else {
             Place::local(self.as_temp(init))
@@ -1314,7 +1631,8 @@ impl<'a> Builder<'a> {
                     .resolve
                     .local_of_pat(pat.id)
                     .expect("identifier patterns introduce locals");
-                self.declare_user_local(id, pat.span);
+                let local = self.declare_user_local(id, pat.span);
+                self.open_pending(local);
             }
             PatKind::Wild => {}
             PatKind::Tuple(elems) => {
@@ -1327,7 +1645,9 @@ impl<'a> Builder<'a> {
 
     /// Lowers one statement. Temporaries it creates die when it ends.
     fn lower_stmt(&mut self, stmt: &Stmt) {
-        self.push_scope();
+        let saved = self.push_temp_scope();
+        // A `let` inside an initialiser (`let x = { let y = &F(); .. };`) has its own.
+        let outer_extend_at = self.extend_at.take();
         match &stmt.kind {
             StmtKind::Let(l) => match &l.pat.kind {
                 PatKind::Ident { .. } => {
@@ -1335,7 +1655,13 @@ impl<'a> Builder<'a> {
                         .resolve
                         .local_of_pat(l.pat.id)
                         .expect("identifier patterns introduce locals");
+                    let block_scope = self.scopes.len() - 2;
+                    let at = self.scopes[block_scope].len();
                     let local = self.declare_user_local(id, l.pat.span);
+                    self.extend_at = Some((block_scope, at));
+                    if l.init.as_ref().is_none_or(|init| !writes_once(init)) {
+                        self.open_pending(local);
+                    }
                     if let Some(init) = &l.init {
                         if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
@@ -1350,6 +1676,7 @@ impl<'a> Builder<'a> {
                             let ty = self.ty(inner).clone();
                             let temp = self.new_temp_in_block_scope(ty, inner.span);
                             self.expr_into_dest(&Place::local(temp), inner);
+                            self.temp_complete(temp);
                             self.assign(
                                 Place::local(local),
                                 Rvalue::Ref(
@@ -1365,13 +1692,20 @@ impl<'a> Builder<'a> {
                             self.expr_into_dest(&Place::local(local), init);
                         }
                     }
+                    self.extend_at = None;
                 }
-                // TODO: rustc only mentions a place initialiser here (a liveness use of its
-                // local, no read, move or initialisation check: `let _ = p;` leaves a
-                // non-Copy `p` usable); Sabiko reads it, which rejects some valid programs.
+                // `let _ = place;` only mentions the place, as in rustc (#37): no read, move
+                // or initialisation check, a liveness use of its local (`let _ = p;` leaves
+                // a non-Copy `p` usable). Any other initialiser is evaluated into a
+                // temporary that dies with the statement.
                 PatKind::Wild => {
                     if let Some(init) = &l.init {
-                        self.as_temp(init);
+                        if is_place_expr(self.resolve, init) {
+                            let place = self.as_place(init);
+                            self.push_stmt(StatementKind::PlaceMention(place), init.span);
+                        } else {
+                            self.as_temp(init);
+                        }
                     }
                 }
                 PatKind::Tuple(_) => self.lower_let_tuple(&l.pat, l.init.as_ref()),
@@ -1379,7 +1713,8 @@ impl<'a> Builder<'a> {
             StmtKind::Expr { expr, .. } => self.lower_expr_discard(expr),
             StmtKind::Empty => {}
         }
-        self.pop_scope(stmt.span);
+        self.close_temp_scope(saved, stmt.span);
+        self.extend_at = outer_extend_at;
     }
 }
 
@@ -1396,6 +1731,23 @@ fn is_place_expr(resolve: &ResolveResults, expr: &Expr) -> bool {
 /// The span after the parameters' end, for the storage markers of their bindings.
 fn param_span(f: &FnDecl) -> Span {
     f.params.last().map_or(f.name.span, |p| p.span)
+}
+
+/// Whether lowering `expr` into a destination writes it exactly once, as its last step
+/// (or never, when it diverges first): then the cleanup scope of a destination with drop
+/// glue opens after that write. Branching expressions write it on each branch.
+fn writes_once(expr: &Expr) -> bool {
+    match &strip_parens(expr).kind {
+        ExprKind::If { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Loop { .. }
+        | ExprKind::Break(_)
+        | ExprKind::Continue
+        | ExprKind::Return(_)
+        | ExprKind::Binary(BinOp::And | BinOp::Or, ..) => false,
+        ExprKind::Block(block) => block.tail.as_deref().is_none_or(writes_once),
+        _ => true,
+    }
 }
 
 fn strip_parens(mut e: &Expr) -> &Expr {

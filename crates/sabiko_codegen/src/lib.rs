@@ -14,12 +14,18 @@
 //! Every check is explicit and its panic carries Rust's message and the source location
 //! (decision 43), raised by a throw helper in `Sabiko.Runtime.Checks`.
 //!
+//! Drops (decision 55): a MIR `Drop` calls the type's `drop` or drop glue (see [`drops`]), and
+//! each cleanup scope with something to drop is a protected region (`.try`) over its
+//! blocks with a `fault` handler that drops it; functions without drops have no exception
+//! handling at all.
+//!
 //! Verifiability: the output passes `ILVerify` except for `ReturnPtrToStack`, the ECMA-335
 //! rule that forbids returning any managed pointer that may point into a frame. That rule
 //! rejects every function returning `&T` (C# ref returns are rejected the same way), so
 //! the gate ignores exactly that error and the borrow checker guarantees what the verifier
 //! cannot: a returned reference never points at the returning frame.
 
+mod drops;
 mod func;
 mod types;
 
@@ -95,6 +101,7 @@ pub fn emit_il(
         class_name,
         had_error: false,
         byref_tuples: Vec::new(),
+        drop_glues: Vec::new(),
     };
 
     let mut out = String::new();
@@ -116,6 +123,7 @@ pub fn emit_il(
         }
         func::emit_body(&mut cx, body, &mut out);
     }
+    cx.drop_glues(&mut out);
     if options.kind == OutputKind::Executable {
         if let Some(body) = main {
             if body.arg_count != 0 || !body.return_ty().is_unit() {
@@ -158,6 +166,9 @@ pub(crate) struct Cx<'a> {
     /// Tuple types containing references, each lowered to a generated `ref struct`
     /// (decision 52), in order of first use, with their type names.
     byref_tuples: Vec<(Ty, String)>,
+    /// Types whose drop glue the module needs, in order of first use, with the glue
+    /// method's name (decision 55).
+    drop_glues: Vec<(Ty, String)>,
 }
 
 impl Cx<'_> {
@@ -316,7 +327,10 @@ impl Cx<'_> {
     }
 
     /// `Main` runs inside a `try`; an escaping exception is reported by the runtime and
-    /// becomes the exit code.
+    /// becomes the exit code. The handler is selected by an exception filter, which runs
+    /// before any cleanup handler of the panic (the first pass of .NET's exception
+    /// handling): a panic raised while a cleanup handler runs (a `drop` panicking during
+    /// unwinding) aborts the process there, as rustc does (decision 55).
     fn entry_point(&self, out: &mut String) {
         let class = types::quote(&self.class_name);
         let _ = write!(
@@ -333,8 +347,13 @@ impl Cx<'_> {
       stloc.0
       leave.s DONE
     }}
-    catch [System.Runtime]System.Exception
+    filter
     {{
+      call int32 [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Filter(object)
+      endfilter
+    }}
+    {{
+      castclass [System.Runtime]System.Exception
       call int32 [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime]System.Exception)
       stloc.0
       leave.s DONE

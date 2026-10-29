@@ -4,11 +4,12 @@
 //! `return` or `break`, the exit of a `loop` nobody leaves) and blocks that only forward to
 //! another block (join points with nothing in them). [`simplify_body`] retargets jumps
 //! past the forwarding blocks, then drops every block unreachable from `bb0` and renumbers
-//! the rest, keeping their relative order.
+//! the rest, keeping their relative order, and does the same for the cleanup scopes no
+//! block is in any more.
 
 use std::collections::HashSet;
 
-use crate::{BasicBlock, Body, TerminatorKind};
+use crate::{BasicBlock, Body, CleanupScope, StatementKind, TerminatorKind};
 
 pub fn simplify_all(bodies: &mut [Body]) {
     for body in bodies {
@@ -19,6 +20,24 @@ pub fn simplify_all(bodies: &mut [Body]) {
 pub fn simplify_body(body: &mut Body) {
     merge_gotos(body);
     remove_unreachable(body);
+    remove_unused_cleanups(body);
+}
+
+/// Removes every storage marker, then simplifies. Storage markers only matter to the
+/// borrow checker, drop elaboration and copy forwarding; once those ran, a block that
+/// only ended the storage of a condition's temporaries is an empty jump like any other.
+pub fn strip_storage_markers(bodies: &mut [Body]) {
+    for body in bodies {
+        for data in &mut body.blocks {
+            data.statements.retain(|s| {
+                !matches!(
+                    s.kind,
+                    StatementKind::StorageLive(_) | StatementKind::StorageDead(_)
+                )
+            });
+        }
+        simplify_body(body);
+    }
 }
 
 /// A block, other than the start block, that holds nothing but `goto -> target`.
@@ -112,4 +131,47 @@ fn remove_unreachable(body: &mut Body) {
             data
         })
         .collect();
+}
+
+/// Drops the cleanup scopes that no block is in, directly or through a nested scope (their
+/// blocks became unreachable or were skipped by [`merge_gotos`]), and renumbers the rest
+/// in their current order, so a parent still comes before its children.
+fn remove_unused_cleanups(body: &mut Body) {
+    let mut used = vec![false; body.cleanups.len()];
+    for data in &body.blocks {
+        let mut scope = data.cleanup;
+        while let Some(s) = scope {
+            if used[s.index()] {
+                // Its ancestors are marked already.
+                break;
+            }
+            used[s.index()] = true;
+            scope = body.cleanups[s.index()].parent;
+        }
+    }
+    if used.iter().all(|&u| u) {
+        return;
+    }
+    let mut renumber = vec![None; used.len()];
+    let mut next = 0u32;
+    for (i, &u) in used.iter().enumerate() {
+        if u {
+            renumber[i] = Some(CleanupScope(next));
+            next += 1;
+        }
+    }
+    let renumbered = |s: CleanupScope| renumber[s.index()].expect("the scope of a block is in use");
+    let cleanups = std::mem::take(&mut body.cleanups);
+    body.cleanups = cleanups
+        .into_iter()
+        .zip(&used)
+        .filter(|(_, &u)| u)
+        .map(|(mut data, _)| {
+            data.parent = data.parent.map(renumbered);
+            data
+        })
+        .collect();
+    for data in &mut body.blocks {
+        data.cleanup = data.cleanup.map(renumbered);
+    }
 }

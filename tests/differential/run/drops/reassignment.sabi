@@ -1,0 +1,58 @@
+// Assigning to a place that holds a value drops the old value, after the right-hand side
+// has been evaluated and before the new value is stored. Assigning to a moved-out or
+// not-yet-initialised place drops nothing. Assigning a field drops only the old field;
+// assigning a whole value with its own `drop` runs that `drop`, then drops its fields.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D }
+
+struct Outer { Id: i32, Inner: D }
+
+impl Drop for Outer {
+    fn drop(&mut self) {
+        Print("drop outer ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn PassThrough(d: D) -> D {
+    PrintLine("pass");
+    d
+}
+
+fn Main() {
+    let mut x = Make(1);
+    x = Make(2);
+    PrintLine(x.Id);
+    Consume(x);
+    x = Make(3);
+    x = Make(x.Id + 10);
+    x = PassThrough(x);
+    PrintLine(x.Id);
+    let y: D;
+    y = Make(4);
+    let mut p = Pair { A: Make(5), B: Make(6) };
+    p.A = Make(7);
+    let mut o = Outer { Id: 8, Inner: Make(9) };
+    o.Inner = Make(10);
+    o = Outer { Id: 11, Inner: Make(12) };
+    PrintLine("end of Main");
+}

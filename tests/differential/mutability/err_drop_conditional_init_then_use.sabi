@@ -1,0 +1,18 @@
+// A droppable binding assigned on one branch only is possibly uninitialised after the
+// `if`: using it is an error (its drop at the end of the scope, which needs a drop flag,
+// is not).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Run(flag: bool) {
+    let d: D;
+    if flag {
+        d = D { Id: 1 };
+    }
+    PrintLine(d.Id);
+}

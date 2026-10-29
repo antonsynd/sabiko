@@ -1,0 +1,16 @@
+//@ exit-code: 101
+// Negating a constant holding the type's minimum overflows. A `const` item reaches the
+// backend as a constant, which `-` used to fold with wrapping arithmetic; `-2147483648i32`
+// written inline negates the positive literal and is fine. (rustc rejects `-SCALE` at
+// compile time with its deny-by-default `arithmetic_overflow` lint; with the lint allowed,
+// as in the generated-program harness, it panics here too.)
+const SCALE: i32 = -2147483648i32;
+const WIDE: i128 = -170141183460469231731687303715884105728i128;
+
+fn Main() {
+    PrintLine(-2147483648i32);
+    PrintLine(-(WIDE + 1));
+    PrintLine("about to overflow");
+    PrintLine(-SCALE);
+    PrintLine("not reached");
+}

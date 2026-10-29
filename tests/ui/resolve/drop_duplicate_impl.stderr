@@ -1,0 +1,11 @@
+[E0215] Error: conflicting implementations of trait `Drop` for type `D`
+    ╭─[ tests/ui/resolve/drop_duplicate_impl.sabi:11:1 ]
+    │
+  5 │ impl Drop for D {
+    │ ───────┬───────  
+    │        ╰───────── first implementation here
+    │ 
+ 11 │ impl Drop for D { //~ ERROR E0215 conflicting implementations of trait `Drop` for type `D`
+    │ ───────┬───────  
+    │        ╰───────── conflicting implementation for `D`
+────╯

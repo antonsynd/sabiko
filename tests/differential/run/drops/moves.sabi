@@ -1,0 +1,45 @@
+// A moved-out local is not dropped at the end of its scope: the value is dropped wherever
+// it ends up. Passed by value, it is dropped at the end of the callee (after the callee's
+// own locals); returned, by the caller; moved into a struct or a tuple, with that value.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    let local = Make(d.Id + 50);
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn PassThrough(d: D) -> D {
+    PrintLine("pass");
+    d
+}
+
+fn Main() {
+    let a = Make(1);
+    Consume(a);
+    PrintLine("after Consume");
+    let b = Make(2);
+    let c = PassThrough(b);
+    PrintLine("after PassThrough");
+    let d = Make(3);
+    let e = Make(4);
+    let pair = Pair { A: e, B: d };
+    let t = (Make(5), c);
+    Consume(Make(6));
+    PrintLine("end of Main");
+}

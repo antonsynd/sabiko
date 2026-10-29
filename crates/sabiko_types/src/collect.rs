@@ -70,6 +70,11 @@ pub struct ItemTypes {
     /// The builtins that were not shadowed by a user item (see
     /// [`sabiko_resolve::ResolveResults::builtin`]).
     builtins: HashMap<DefId, Builtin>,
+    /// The `drop` function of each struct with an `impl Drop` (decision 46).
+    drop_impls: HashMap<DefId, DefId>,
+    /// The structs with drop glue: an `impl Drop` of their own or a field that has drop
+    /// glue (decision 55).
+    needs_drop: HashSet<DefId>,
 }
 
 impl ItemTypes {
@@ -104,6 +109,24 @@ impl ItemTypes {
     #[must_use]
     pub fn const_ty(&self, def: DefId) -> &Ty {
         &self.const_tys[&def]
+    }
+
+    /// The `drop` function of the struct `adt`'s `impl Drop`, if it has one.
+    #[must_use]
+    pub fn drop_impl(&self, adt: DefId) -> Option<DefId> {
+        self.drop_impls.get(&adt).copied()
+    }
+
+    /// Whether a value of `ty` has drop glue: a struct with an `impl Drop`, or a struct or
+    /// tuple with a field (element) that has drop glue. References, primitives, `()` and
+    /// `Copy` types never do.
+    #[must_use]
+    pub fn needs_drop(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Adt(def) => self.needs_drop.contains(def),
+            Ty::Tuple(elems) => elems.iter().any(|e| self.needs_drop(e)),
+            _ => false,
+        }
     }
 
     /// Whether values of `ty` are copied rather than moved. Like [`Ty::is_copy`] but
@@ -336,17 +359,133 @@ pub(crate) fn collect(
             }
         }
     }
+    for adt in resolve.defs_of_kind(DefKind::Struct) {
+        if let Some(def) = resolve.drop_impl(adt) {
+            items.drop_impls.insert(adt, def);
+            if let Some(f) = file.all_items().find_map(|item| match &item.kind {
+                ItemKind::Fn(f) if resolve.def_of_item(item.id) == def => Some(f),
+                _ => None,
+            }) {
+                check_drop_signature(resolve, adt, f, sink);
+            }
+        }
+    }
     check_recursive_structs(resolve, &items, sink);
+    items.needs_drop = structs_needing_drop(resolve, &items);
     check_copy_derives(resolve, &items, sink);
     items
 }
 
-/// `#[derive(Copy)]` requires every field to be `Copy`.
+/// `drop` must be declared exactly `fn drop(&mut self)`: E0321 for another receiver or a
+/// return type (rustc's E0053, E0186), E0322 for parameters after `&mut self` (E0050).
+fn check_drop_signature(
+    resolve: &ResolveResults,
+    adt: DefId,
+    f: &sabiko_ast::FnDecl,
+    sink: &mut DiagnosticSink,
+) {
+    let name = &resolve.def(adt).name;
+    let incompatible = |span: Span, label: String| {
+        Diagnostic::error(
+            ErrorCode::DROP_SIGNATURE_MISMATCH,
+            "method `drop` has an incompatible type for trait `Drop`",
+        )
+        .with_label(span, label)
+        .with_note("`Drop::drop` is declared as `fn drop(&mut self)`")
+    };
+    match f.self_param.as_ref().map(|sp| (sp.kind, sp.span)) {
+        Some((SelfKind::Ref { mutable: true }, _)) => {}
+        Some((SelfKind::Ref { mutable: false }, span)) => sink.emit(incompatible(
+            span,
+            format!("expected `&mut {name}`, found `&{name}`: types differ in mutability"),
+        )),
+        Some((SelfKind::Value { .. }, span)) => sink.emit(incompatible(
+            span,
+            format!("expected `&mut {name}`, found `{name}`"),
+        )),
+        None => sink.emit(
+            Diagnostic::error(
+                ErrorCode::DROP_SIGNATURE_MISMATCH,
+                "method `drop` has a `&mut self` declaration in the trait, but not in the impl",
+            )
+            .with_label(f.name.span, "expected `&mut self` in impl"),
+        ),
+    }
+    if let Some(ret) = &f.ret {
+        let ty = lower_sig_type(ret, resolve);
+        if !ty.is_unit() {
+            sink.emit(incompatible(
+                ret.span,
+                format!("expected `()`, found `{}`", ty.display(resolve)),
+            ));
+        }
+    }
+    if !f.params.is_empty() {
+        let found = f.params.len() + 1;
+        let start = f.params[0].span;
+        let end = f.params[f.params.len() - 1].span;
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::DROP_PARAM_COUNT,
+                format!(
+                    "method `drop` has {found} parameters but the declaration in trait `Drop::drop` has 1"
+                ),
+            )
+            .with_label(
+                Span::new(start.file, start.start, end.end),
+                format!("expected 1 parameter, found {found}"),
+            ),
+        );
+    }
+}
+
+/// The structs whose values have drop glue (see [`ItemTypes::needs_drop`]), to a fixpoint:
+/// a struct needs drop when it has an `impl Drop` or a field type that needs drop.
+fn structs_needing_drop(resolve: &ResolveResults, items: &ItemTypes) -> HashSet<DefId> {
+    let mut set: HashSet<DefId> = items.drop_impls.keys().copied().collect();
+    let structs: Vec<DefId> = resolve.defs_of_kind(DefKind::Struct).collect();
+    loop {
+        let before = set.len();
+        let probe = ItemTypes {
+            needs_drop: set.clone(),
+            ..ItemTypes::default()
+        };
+        for &def in &structs {
+            if items
+                .adt(def)
+                .fields
+                .iter()
+                .any(|f| probe.needs_drop(&f.ty))
+            {
+                set.insert(def);
+            }
+        }
+        if set.len() == before {
+            return set;
+        }
+    }
+}
+
+/// `#[derive(Copy)]` requires every field to be `Copy` (E0417) and no `impl Drop` (E0324):
+/// a copy would be dropped twice.
 fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
     for def in resolve.defs_of_kind(DefKind::Struct) {
         let adt = items.adt(def);
         if !adt.is_copy {
             continue;
+        }
+        if items.drop_impl(def).is_some() {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::COPY_WITH_DESTRUCTOR,
+                    "the trait `Copy` cannot be implemented for this type; the type has a destructor",
+                )
+                .with_label(adt.span, "`Copy` not allowed on types with destructors")
+                .with_note(format!(
+                    "`{}` implements `Drop`; a copy would be dropped twice",
+                    adt.name
+                )),
+            );
         }
         for field in &adt.fields {
             if !items.is_copy(&field.ty) {

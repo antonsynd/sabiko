@@ -1,0 +1,34 @@
+// A `drop` that panics while a panic is already unwinding: rustc aborts the process
+// ("panic in a destructor during cleanup") without running the drops after the second
+// panic, killed by SIGABRT. So does Sabiko (decision 55): every cleanup handler marks the
+// thread as cleaning up, and the entry point's exception filter, which .NET runs before any
+// handler of the new panic, fails fast. The run harnesses normalise an abort to exit code
+// 134 on every platform; after an abort they compare stdout only (`make 1`, `make 2`,
+// `drop 2 (bomb)`), since rustc forces a backtrace onto stderr there.
+struct Bomb { Id: i32 }
+
+impl Drop for Bomb {
+    fn drop(&mut self) {
+        Print("drop ");
+        Print(self.Id);
+        PrintLine(" (bomb)");
+        Panic("second panic, in drop");
+    }
+}
+
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    PrintLine("make 1");
+    let a = D { Id: 1 };
+    PrintLine("make 2");
+    let b = Bomb { Id: 2 };
+    Panic("first panic");
+}

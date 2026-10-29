@@ -1,0 +1,8 @@
+// `let _ = *r;` reads nothing, but it mentions `*r` and so uses `r` for liveness: the
+// shared loan is live at the assignment to `x`.
+fn Main() {
+    let mut x = 1;
+    let r = &x;
+    x = 2;
+    let _ = *r;
+}

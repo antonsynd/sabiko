@@ -1,0 +1,9 @@
+[E0203] Error: expected trait, found struct `Drop`
+   ╭─[ tests/ui/resolve/drop_shadowed_trait.sabi:7:6 ]
+   │
+ 7 │ impl Drop for S { //~ ERROR E0203 expected trait, found struct `Drop`
+   │      ──┬─  
+   │        ╰─── not a trait
+   │ 
+   │ Note: `Drop` is the only trait that can be implemented for now; an item of this file shadows it
+───╯

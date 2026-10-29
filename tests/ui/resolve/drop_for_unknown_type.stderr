@@ -1,0 +1,7 @@
+[E0201] Error: cannot find type `Nope` in this scope
+   ╭─[ tests/ui/resolve/drop_for_unknown_type.sabi:4:15 ]
+   │
+ 4 │ impl Drop for Nope { //~ ERROR E0201 cannot find type `Nope` in this scope
+   │               ──┬─  
+   │                 ╰─── not found in this scope
+───╯

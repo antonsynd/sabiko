@@ -48,6 +48,10 @@ pub struct StructDef {
     pub name: String,
     pub copy: bool,
     pub fields: Vec<Field>,
+    /// `Some(path)` for a struct with an `impl Drop` (never a `Copy` one): its `drop`
+    /// prints the struct's name and the primitive leaf `self{path}`, so the output shows
+    /// which value was dropped when.
+    pub drop: Option<String>,
 }
 
 /// A constant's value, known to the generator so initialisers never overflow.
@@ -207,6 +211,32 @@ impl Program {
         }
     }
 
+    /// Whether the sub-place `path` (as [`Program::sub_places`] spells it) of a value of
+    /// type `root` lies inside a struct with `impl Drop`, which no value may be moved out
+    /// of (rustc's E0509): `.Inner` of such a struct, `.A.Inner` of a plain struct whose
+    /// `A` is one. The value itself (`""`) is not inside one.
+    pub fn moves_out_of_drop(&self, root: ValTy, path: &str) -> bool {
+        let mut ty = root;
+        for seg in path.split('.').skip(1) {
+            ty = match ty {
+                ValTy::Struct(s) => {
+                    let def = &self.structs[s];
+                    if def.drop.is_some() {
+                        return true;
+                    }
+                    def.fields
+                        .iter()
+                        .find(|f| f.name == seg)
+                        .expect("a field of the struct")
+                        .ty
+                }
+                ValTy::Tuple(t) => self.tuples[t][seg.parse::<usize>().expect("an index")],
+                ValTy::Prim(_) => unreachable!("a primitive has no sub-places"),
+            };
+        }
+        false
+    }
+
     /// All sub-places of a value of type `v`, including the value itself (`""`), with their
     /// types, up to a nesting depth of three.
     pub fn sub_places(&self, v: ValTy) -> Vec<(String, ValTy)> {
@@ -253,6 +283,13 @@ impl Program {
                 let _ = writeln!(out, "    {}: {},", f.name, self.val_name(f.ty));
             }
             out.push_str("}\n\n");
+            if let Some(leaf) = &s.drop {
+                let _ = writeln!(
+                    out,
+                    "impl Drop for {0} {{\n    fn drop(&mut self) {{\n        Print(\"drop {0} \");\n        PrintLine(self{leaf});\n    }}\n}}\n",
+                    s.name
+                );
+            }
         }
         for c in &self.consts {
             let _ = writeln!(out, "const {}: {} = {};", c.name, c.ty.name(), c.init);
@@ -416,7 +453,7 @@ pub fn random_literal(rng: &mut Rng, p: Prim) -> (String, ConstValue) {
 
 /// Generates the structs: each struct's fields are primitives, earlier structs or tuples
 /// of primitives (`program.tuples` holds those so far), and a `Copy` struct only contains
-/// `Copy` fields.
+/// `Copy` fields. Half of the other structs implement `Drop`.
 fn gen_structs(rng: &mut Rng, knobs: &Knobs, program: &mut Program) {
     let count = rng.index(knobs.max_structs + 1);
     let mut used = Vec::new();
@@ -445,7 +482,18 @@ fn gen_structs(rng: &mut Rng, knobs: &Knobs, program: &mut Program) {
             };
             fields.push(Field { name: fname, ty });
         }
-        program.structs.push(StructDef { name, copy, fields });
+        program.structs.push(StructDef {
+            name,
+            copy,
+            fields,
+            drop: None,
+        });
+        if !copy && rng.chance(50) {
+            let index = program.structs.len() - 1;
+            let leaves = program.leaves(ValTy::Struct(index));
+            let (path, _) = rng.pick(&leaves).clone();
+            program.structs[index].drop = Some(path);
+        }
     }
 }
 

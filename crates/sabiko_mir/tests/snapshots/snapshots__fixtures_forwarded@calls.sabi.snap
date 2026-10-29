@@ -47,9 +47,9 @@ fn Scale(_1: f64) -> f64 {
 
 fn Check(_1: bool, _2: &str) -> bool {
     let mut _0: bool;
-    let mut _3: &str;
 
     bb0: {
+        PlaceMention(_2);
         _0 = copy _1;
         goto -> bb1;
     }

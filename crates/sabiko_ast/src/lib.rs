@@ -105,7 +105,7 @@ pub enum ItemKind {
     Fn(FnDecl),
     Struct(StructDecl),
     Const(ConstDecl),
-    /// `impl Type { fn ... }`: an inherent impl block.
+    /// `impl Type { fn ... }`: an inherent impl block; `impl Drop for Type { .. }`.
     Impl(ImplDecl),
 }
 
@@ -122,10 +122,14 @@ impl Item {
     }
 }
 
-/// `impl Type { ... }`. Its members are items of their own (each with a [`NodeId`]);
-/// only functions are allowed, with or without a `self` parameter.
+/// `impl Type { ... }`, or `impl Drop for Type { ... }`. Its members are items of their
+/// own (each with a [`NodeId`]); only functions are allowed, with or without a `self`
+/// parameter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImplDecl {
+    /// The trait of a trait impl: only `Drop` is accepted before Phase 6 (decision 46), as
+    /// a language item. `None` for an inherent impl.
+    pub trait_ref: Option<Ident>,
     /// The implemented type as written: a path naming a struct (or `Self`) in a valid
     /// program.
     pub self_ty: Type,

@@ -1,0 +1,34 @@
+[E0216] Error: not all trait items implemented, missing: `drop`
+   ╭─[ tests/ui/resolve/drop_missing_or_extra_items.sabi:9:1 ]
+   │
+ 9 │ impl Drop for A {} //~ ERROR E0216 not all trait items implemented, missing: `drop`
+   │ ───────┬───────  
+   │        ╰───────── missing `drop` in implementation
+   │ 
+   │ Note: `impl Drop` must define `fn drop(&mut self)`
+───╯
+[E0216] Error: not all trait items implemented, missing: `drop`
+    ╭─[ tests/ui/resolve/drop_missing_or_extra_items.sabi:11:1 ]
+    │
+ 11 │ impl Drop for B { //~ ERROR E0216 not all trait items implemented, missing: `drop`
+    │ ───────┬───────  
+    │        ╰───────── missing `drop` in implementation
+    │ 
+    │ Note: `impl Drop` must define `fn drop(&mut self)`
+────╯
+[E0217] Error: method `Drop` is not a member of trait `Drop`
+    ╭─[ tests/ui/resolve/drop_missing_or_extra_items.sabi:12:8 ]
+    │
+ 12 │     fn Drop(&mut self) {} //~ ERROR E0217 method `Drop` is not a member of trait `Drop`
+    │        ──┬─  
+    │          ╰─── not a member of trait `Drop`
+    │ 
+    │ Note: the trait's method is `drop`, lowercase: it keeps Rust's name, unlike Sabiko's PascalCase methods
+────╯
+[E0217] Error: method `Extra` is not a member of trait `Drop`
+    ╭─[ tests/ui/resolve/drop_missing_or_extra_items.sabi:17:8 ]
+    │
+ 17 │     fn Extra(&self) {} //~ ERROR E0217 method `Extra` is not a member of trait `Drop`
+    │        ──┬──  
+    │          ╰──── not a member of trait `Drop`
+────╯

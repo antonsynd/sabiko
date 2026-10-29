@@ -156,6 +156,9 @@ pub enum AccessKind {
     MutBorrow,
     /// `StorageDead(local)` (shallow write).
     StorageDead,
+    /// `drop(place)`: a write of everything the place owns, not of what references in it
+    /// point to (rustc's `AccessDepth::Drop`), like `StorageDead`.
+    Drop,
     /// `return`, which ends every local's storage.
     Return,
     /// The creation of a two-phase borrow: a deep read that also conflicts with every
@@ -170,7 +173,7 @@ impl AccessKind {
     /// overwriting a reference does not touch what it used to point to.
     #[must_use]
     pub fn is_shallow(self) -> bool {
-        matches!(self, Self::Write | Self::StorageDead)
+        matches!(self, Self::Write | Self::StorageDead | Self::Drop)
     }
 
     /// Whether the access conflicts with a loan of the same (or overlapping) place.
@@ -183,6 +186,7 @@ impl AccessKind {
             | Self::Write
             | Self::MutBorrow
             | Self::StorageDead
+            | Self::Drop
             | Self::Return
             | Self::Activation => true,
         }
@@ -416,9 +420,21 @@ impl Generator<'_> {
             }
             StatementKind::StorageDead(local) => {
                 self.define(*local, location);
-                self.access(&Place::local(*local), AccessKind::StorageDead, location);
+                // A local with drop glue was just dropped, which invalidated the same
+                // loans: one error is enough.
+                if !self
+                    .typeck
+                    .items
+                    .needs_drop(&self.body.local_decl(*local).ty)
+                {
+                    self.access(&Place::local(*local), AccessKind::StorageDead, location);
+                }
                 self.kill_loans_of_local(*local, location);
             }
+            // `let _ = place;`: a use of the local for liveness only (rustc's
+            // `PlaceMention`), so a reference mentioned there keeps its loans live, but no
+            // access: nothing is read, so no loan is invalidated.
+            StatementKind::PlaceMention(place) => self.use_local(place.local, location),
             StatementKind::Nop => {}
         }
     }
@@ -483,6 +499,12 @@ impl Generator<'_> {
                             });
                     }
                 }
+            }
+            // A drop writes everything the place owns. It is not a use: no type with drop
+            // glue holds a reference that its drop could use (drop-liveness), so a tuple
+            // `(&T, D)` is dropped without keeping its reference alive.
+            TerminatorKind::Drop { place, .. } => {
+                self.access(place, AccessKind::Drop, location);
             }
             TerminatorKind::Goto { .. } | TerminatorKind::Unreachable => {}
         }

@@ -175,17 +175,18 @@ fn Unary(_1: bool, _2: u32) -> u32 {
     }
 
     bb1: {
+        StorageDead(_7);
         _0 = copy _5;
         goto -> bb3;
     }
 
     bb2: {
+        StorageDead(_7);
         _0 = const 0_u32;
         goto -> bb3;
     }
 
     bb3: {
-        StorageDead(_7);
         StorageDead(_5);
         StorageDead(_3);
         goto -> bb4;
@@ -202,11 +203,8 @@ fn Literals() -> f64 {
     let _2: &str;                        // s
     let _3: u64;                         // big
     let _4: f32;                         // half
-    let mut _5: char;
-    let mut _6: &str;
-    let mut _7: u64;
-    let mut _8: f64;
-    let mut _9: f32;
+    let mut _5: f64;
+    let mut _6: f32;
 
     bb0: {
         StorageLive(_1);
@@ -217,14 +215,17 @@ fn Literals() -> f64 {
         _3 = const 1000000_u64;
         StorageLive(_4);
         _4 = const 0.5_f32;
-        StorageLive(_8);
-        _8 = copy _4 as f64;
-        _0 = Add(copy _8, const 2.0_f64);
-        StorageDead(_8);
+        PlaceMention(_1);
+        PlaceMention(_2);
+        PlaceMention(_3);
+        StorageLive(_5);
+        _5 = copy _4 as f64;
+        _0 = Add(copy _5, const 2.0_f64);
         StorageDead(_4);
         StorageDead(_3);
         StorageDead(_2);
         StorageDead(_1);
+        StorageDead(_5);
         goto -> bb1;
     }
 

@@ -7,10 +7,10 @@
    │ 
    │ Note: planned for Phase 6; see docs/PLAN.md
 ───╯
-[E0107] Error: not yet supported: trait implementations
+[E0107] Error: not yet supported: trait implementations other than `impl Drop`
    ╭─[ tests/ui/parse/impl_syntax.sabi:8:12 ]
    │
- 8 │ impl Clone for P { } //~ ERROR E0107 not yet supported: trait implementations
+ 8 │ impl Clone for P { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
    │            ─┬─  
    │             ╰─── not supported in this version of Sabiko
    │ 

@@ -1,0 +1,47 @@
+// Unwinding honours drop flags: `a`, moved out on the path taken, is not dropped again, and
+// `b`, declared without a value and assigned later, is dropped because it was assigned, in
+// its place in reverse declaration order (`c`, then `b`). The loop body's local is dropped
+// at the end of each completed iteration and once more by the unwinding; `Main`'s local
+// last.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Run(flag: bool) {
+    let a = Make(1);
+    let b: D;
+    let c = Make(2);
+    if flag {
+        Consume(a);
+        b = Make(3);
+    }
+    let mut i = 0;
+    loop {
+        let l = Make(10 + i);
+        if i == 2 {
+            Panic("stop");
+        }
+        i += 1;
+    }
+}
+
+fn Main() {
+    let m = Make(100);
+    Run(m.Id > 50);
+}

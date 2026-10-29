@@ -1,0 +1,56 @@
+// Locals are dropped at the end of their block in reverse declaration order: an inner
+// block's locals before the statement after the block runs, a block expression's locals
+// before its value is bound, a function's locals when it returns and then its parameters
+// (the last parameter first). Values without drop glue (`n`, the Copy struct `Plain`) take
+// no part, and a value moved out of a block as its result is not dropped there.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Plain { N: i32 }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn TwoParams(a: D, b: D) {
+    let c = Make(30);
+    PrintLine("in TwoParams");
+}
+
+fn Main() {
+    let a = Make(1);
+    let n = 5;
+    let b = Make(2);
+    {
+        let c = Make(3);
+        let p = Plain { N: n };
+        let d = Make(4);
+        PrintLine("end of inner block");
+    }
+    PrintLine("after inner block");
+    let v = {
+        let t = Make(5);
+        let u = Make(6);
+        t.Id * 2
+    };
+    PrintLine(v);
+    let w = {
+        let t = Make(7);
+        let u = Make(8);
+        u
+    };
+    PrintLine(w.Id);
+    TwoParams(Make(10), Make(20));
+    PrintLine("after TwoParams");
+    let e = Make(9);
+    PrintLine("end of Main");
+}

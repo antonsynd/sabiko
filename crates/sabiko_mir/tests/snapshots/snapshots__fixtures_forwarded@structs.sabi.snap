@@ -92,10 +92,10 @@ fn Length(_1: &Line) -> i32 {
         StorageLive(_11);
         _11 = Mul(copy _5, copy _5);
         _0 = Add(copy _8, copy _11);
-        StorageDead(_11);
-        StorageDead(_8);
         StorageDead(_5);
         StorageDead(_2);
+        StorageDead(_11);
+        StorageDead(_8);
         goto -> bb1;
     }
 
@@ -124,9 +124,6 @@ fn Main() {
     let _16: i32;                        // n
     let mut _17: &Line;
     let _18: Point;                      // start
-    let mut _19: Marker;
-    let mut _20: i32;
-    let mut _21: Point;
 
     bb0: {
         StorageLive(_1);
@@ -178,6 +175,9 @@ fn Main() {
         StorageDead(_17);
         StorageLive(_18);
         _18 = move _12.A;
+        PlaceMention(_11);
+        PlaceMention(_16);
+        PlaceMention(_18);
         _0 = const ();
         StorageDead(_18);
         StorageDead(_16);

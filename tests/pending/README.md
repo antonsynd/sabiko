@@ -99,6 +99,30 @@ Each rule has a compile-time program above and a hand-built MIR test in
    arguments and stays borrowed through the call; an argument that writes the receiver is
    E0506 (`err_shared_receiver_arg_writes`).
 
+## `drops/`: issues #12 (drop elaboration) and #37 (`let _ = place;`) (landed)
+
+The staged programs were checked with rustc 1.99.1 (58cf8f9c3 2026-10-13) as the harnesses
+prepare them (the compile-time ones with the prelude of
+`crates/sabiko_driver/tests/differential.rs`, the run-time ones with that of
+`crates/sabikoc/tests/differential_run.rs`, the UI ones annotated `//~ rustc E0xxx`), and
+moved into their harnesses by #37 and #12 (decision 55). All of them agree with rustc; none
+needed a correction. The drop rules they pin are in `docs/SPEC.md` (Drop).
+
+| staged | now |
+| --- | --- |
+| `differential/{loans,moves,mutability}/*.sabi` (26 programs) | `tests/differential/{loans,moves,mutability}/`, unchanged |
+| `differential/run/drops/*.sabi` (18 programs) | `tests/differential/run/drops/`; the `.expected` notes are deleted |
+| `known_gap/let_underscore_place.sabi` | `tests/differential/run/drops/` (#37: `let _ = place;` is a `PlaceMention`) |
+| `known_gap/panic_in_drop_while_unwinding.sabi` | `tests/differential/run/drops/`: Sabiko aborts as rustc does, and the run harness now compares aborts (exit 134 on every platform, first panic report) |
+| `ui/move_out_of_drop_type.sabi` (E0509 x3) | three `tests/differential/moves/err_drop_move_field_out_of_drop_*` programs: E0509 is in `RUSTC_BORROW_CODES`, Sabiko's E0418 |
+| `ui/drop_for_non_struct`, `drop_for_unknown_type`, `drop_missing_or_extra_items`, `duplicate_drop_impl` | `tests/ui/resolve/` (E0214, E0201, E0216/E0217, E0215) |
+| `ui/derive_copy_on_drop_type`, `copy_struct_with_drop_field`, `drop_wrong_signature`, `explicit_drop_call` | `tests/ui/typeck/` (E0324, E0417, E0321/E0322, E0323) |
+
+Each converted UI program names the rustc codes it was checked against in a comment. #12
+added `ui/resolve/drop_shadowed_trait` (rustc E0404, Sabiko E0203), a receiverless
+`fn drop()` to `drop_wrong_signature` (E0186, Sabiko E0321) and
+`run/drops/inherent_drop_method`. No known gap is left.
+
 ## `enums/`: issue #8, enums, `match`, patterns, exhaustiveness
 
 Every program was checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the version

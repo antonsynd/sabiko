@@ -1,0 +1,14 @@
+// A struct holding a droppable (hence neither Copy nor Clone) field cannot derive `Copy`
+// or `Clone`. rustc's E0204 is in the differential harness's borrow family, but the
+// `Clone` error that comes with it is not, so this is a UI test.
+// Checked against rustc: E0204, E0277 (the Sabiko codes are annotated).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+#[derive(Copy, Clone)]
+struct W { Inner: D, N: i32 } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `W`

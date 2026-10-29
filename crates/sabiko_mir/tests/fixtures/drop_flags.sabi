@@ -1,0 +1,48 @@
+// Values initialised or moved on some paths only: elaboration gives them a `bool` flag
+// (decision 55), set where the value is written and cleared where it is moved, and tests
+// it at the drop and in the cleanup scope. A field of a struct without `Drop` gets a flag
+// of its own after a partial move.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D }
+
+fn Consume(d: D) {}
+
+fn MaybeMoved(flag: bool) {
+    let d = D { Id: 1 };
+    if flag {
+        Consume(d);
+    }
+}
+
+fn MaybeInit(flag: bool) {
+    let d: D;
+    if flag {
+        d = D { Id: 2 };
+    }
+}
+
+fn MovedEveryOtherIteration() {
+    let mut i = 0;
+    let mut d = D { Id: 3 };
+    while i < 4 {
+        if i % 2 == 0 {
+            Consume(d);
+            d = D { Id: i };
+        }
+        i = i + 1;
+    }
+}
+
+fn PartialMove(flag: bool) {
+    let p = Pair { A: D { Id: 4 }, B: D { Id: 5 } };
+    if flag {
+        Consume(p.A);
+    }
+}

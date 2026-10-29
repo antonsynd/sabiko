@@ -1194,6 +1194,14 @@ impl<'a> FnCtxt<'a> {
         if let Some(builtin @ (Builtin::Print | Builtin::PrintLine)) = self.items.builtin(def) {
             return self.check_print_call(builtin, args, span);
         }
+        if self.resolve.is_drop_fn(def) {
+            // `D::drop(&mut d)`.
+            self.explicit_drop_call(callee.span);
+            for a in args {
+                self.check_expr(a, None);
+            }
+            return Ty::Error;
+        }
         let sig = self.items.fn_sig(def).clone();
         if sig.inputs.len() != args.len() {
             let d = Self::wrong_arg_count("function", sig.inputs.len(), args.len(), span);
@@ -1289,6 +1297,11 @@ impl<'a> FnCtxt<'a> {
             }
         };
         let Some(def) = self.resolve.assoc_fn(adt, &name.name) else {
+            if name.name == "drop" && self.items.drop_impl(adt).is_some() {
+                // `d.drop()`: the destructor of `impl Drop` is not callable.
+                self.explicit_drop_call(name.span);
+                return None;
+            }
             let is_field = self.items.adt(adt).field_index(&name.name).is_some();
             let label = if is_field {
                 "field, not a method"
@@ -1336,6 +1349,19 @@ impl<'a> FnCtxt<'a> {
             }
         }
         unreachable!("a method of the innermost struct matches by value or by autoref")
+    }
+
+    /// E0323: `d.drop()` or `D::drop(&mut d)` (rustc's E0040). Sabiko has no
+    /// `std::mem::drop`; a value is dropped early by passing it to a by-value parameter.
+    fn explicit_drop_call(&mut self, span: Span) {
+        self.error(
+            Diagnostic::error(
+                ErrorCode::EXPLICIT_DROP_CALL,
+                "explicit use of destructor method",
+            )
+            .with_label(span, "explicit destructor calls not allowed")
+            .with_note("a value is dropped at the end of its scope; to drop it earlier, pass it by value to a function"),
+        );
     }
 
     /// E0319: no method `name` for a receiver of type `recv_ty`.

@@ -110,16 +110,17 @@ fn programs_have_the_expected_shape() {
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
         assert!(src.contains("fn Main() {"), "seed {seed}");
-        // Output is observable: something is printed (seed 138 only uses `Print`), or the
-        // program panics (seed 390 does nothing else).
+        // Output is observable: something is printed (some programs only use `Print`), or
+        // the program panics (some do nothing else).
         assert!(
             src.contains("PrintLine(") || src.contains("Print(") || src.contains("Panic("),
             "seed {seed}:\n{src}"
         );
         let lines = src.lines().count();
         total_lines += lines;
+        // The line budget covers the bodies; an `impl Drop` adds seven item lines.
         assert!(
-            lines <= knobs.max_lines + 30,
+            lines <= knobs.max_lines + 30 + 7 * knobs.max_structs,
             "seed {seed}: {lines} lines\n{src}"
         );
     }
@@ -158,7 +159,10 @@ fn programs_use_methods() {
     let (mut impls, mut calls, mut reads_receiver) = (0, 0, 0);
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
-        impls += usize::from(src.contains("\nimpl "));
+        impls += usize::from(
+            src.lines()
+                .any(|l| l.starts_with("impl ") && !l.starts_with("impl Drop for ")),
+        );
         let mut called = false;
         let mut read = false;
         for line in src.lines() {
@@ -193,5 +197,22 @@ fn programs_use_methods() {
     assert!(
         impls >= 150 && calls >= 100 && reads_receiver >= 20,
         "impl blocks in {impls}, method calls in {calls}, arguments reading the receiver in {reads_receiver} of {SEEDS} programs"
+    );
+}
+
+/// Drops (#12) are part of the subset: a fair share of programs declare structs with
+/// `impl Drop` and keep values of them in locals, so drop order, moves, reassignments,
+/// early exits and unwinding are all observable in the output.
+#[test]
+fn programs_use_drop() {
+    let knobs = Knobs::default();
+    let mut with_drop = 0;
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        with_drop += usize::from(src.contains("\nimpl Drop for "));
+    }
+    assert!(
+        with_drop >= 100,
+        "`impl Drop` in {with_drop} of {SEEDS} programs"
     );
 }

@@ -100,7 +100,11 @@ impl Checker<'_> {
                 self.check_rvalue(rvalue, statement.span);
                 self.check_write(place, statement.span);
             }
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // `let _ = place;` needs no initialised or mutable place: it touches nothing.
+            StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::PlaceMention(_)
+            | StatementKind::Nop => {}
         }
     }
 
@@ -115,7 +119,12 @@ impl Checker<'_> {
                 }
                 self.check_write(destination, terminator.span);
             }
-            TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+            // A drop needs neither an initialised place (it drops what is there) nor a
+            // `mut` binding, although `drop` takes `&mut self`.
+            TerminatorKind::Drop { .. }
+            | TerminatorKind::Goto { .. }
+            | TerminatorKind::Return
+            | TerminatorKind::Unreachable => {}
         }
     }
 

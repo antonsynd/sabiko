@@ -350,9 +350,39 @@ pub fn run_rust_with(
     Ok(Run {
         stdout: text(&out.stdout),
         stderr: text(&out.stderr),
-        code: out.status.code().unwrap_or(-1),
+        code: exit_code(out.status),
         source: "prog.rs".to_owned(),
     })
+}
+
+/// The exit code of a finished program, with an abort normalised to 134 on every platform:
+/// rustc aborts on a panic in a destructor during unwinding, and so does a Sabiko program
+/// (`Environment.FailFast`, decision 55). On Unix both die of `SIGABRT` (128 + 6, as a
+/// shell reports it); on Windows rustc's `__fastfail` exits with `STATUS_STACK_BUFFER_OVERRUN`
+/// and .NET's fail-fast with `COR_E_FAILFAST` or `STATUS_FAIL_FAST_EXCEPTION`. Another
+/// signal is 128 + its number; no code at all is -1.
+pub fn exit_code(status: std::process::ExitStatus) -> i32 {
+    const ABORT: i32 = 134;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return 128 + signal;
+        }
+    }
+    match status.code() {
+        #[allow(clippy::cast_possible_wrap)]
+        Some(code)
+            if cfg!(windows)
+                && [0xC000_0409_u32, 0x8013_1623, 0xC000_0602]
+                    .iter()
+                    .any(|&c| code == c as i32) =>
+        {
+            ABORT
+        }
+        Some(code) => code,
+        None => -1,
+    }
 }
 
 /// Builds the Sabiko program at `path` as an executable in `dir` (debug mode), verifies it
@@ -375,7 +405,7 @@ pub fn run_sabiko_with(
     Ok(Run {
         stdout: text(&out.stdout),
         stderr: text(&out.stderr),
-        code: out.status.code().unwrap_or(-1),
+        code: exit_code(out.status),
         source: path.file_name().unwrap().to_string_lossy().into_owned(),
     })
 }
@@ -467,10 +497,10 @@ pub fn compare_panics(rust: &Run, sabi: &Run) -> Result<(), String> {
     }
 }
 
-/// Compares two runs: exit codes and stdout must match; when both panicked (101) the panic
-/// reports must agree, message and location (see [`compare_panics`]); when both exited
-/// with 0 neither may have written to stderr. Returns the differences, or a one-line
-/// summary.
+/// Compares two runs: exit codes and stdout must match; when both panicked (101) or aborted
+/// on a panic during unwinding (134) the (first) panic reports must agree, message and
+/// location (see [`compare_panics`]); when both exited with 0 neither may have written to
+/// stderr. Returns the differences, or a one-line summary.
 pub fn compare_runs(rust: &Run, sabi: &Run) -> Result<String, String> {
     let mut failures = String::new();
     if rust.code != sabi.code {
@@ -488,7 +518,7 @@ pub fn compare_runs(rust: &Run, sabi: &Run) -> Result<String, String> {
         );
     }
     if rust.code == sabi.code {
-        if rust.code == 101 {
+        if rust.code == 101 || rust.code == 134 {
             if let Err(e) = compare_panics(rust, sabi) {
                 let _ = write!(
                     failures,
@@ -541,15 +571,15 @@ impl std::fmt::Display for Verdict {
 /// rustc error codes that belong to borrow checking.
 pub const RUSTC_BORROW_CODES: &[&str] = &[
     "E0106", "E0204", "E0373", "E0381", "E0382", "E0384", "E0499", "E0502", "E0503", "E0505",
-    "E0506", "E0507", "E0515", "E0521", "E0594", "E0596", "E0597", "E0623", "E0716",
+    "E0506", "E0507", "E0509", "E0515", "E0521", "E0594", "E0596", "E0597", "E0623", "E0716",
 ];
 pub const RUSTC_UNCODED_BORROW_ERRORS: &[&str] = &["lifetime may not live long enough"];
 
-/// Sabiko's borrow-checker codes (E0400..=E0417).
+/// Sabiko's borrow-checker codes (E0400..=E0418).
 pub fn sabiko_code_is_borrow(code: &str) -> bool {
     code.strip_prefix('E')
         .and_then(|n| n.parse::<u16>().ok())
-        .is_some_and(|n| (400..=417).contains(&n))
+        .is_some_and(|n| (400..=418).contains(&n))
 }
 
 pub fn verdict_of(codes: &[String], is_borrow: impl Fn(&str) -> bool) -> Verdict {

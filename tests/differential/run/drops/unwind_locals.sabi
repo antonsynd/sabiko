@@ -1,0 +1,39 @@
+// A panic unwinds the scopes it leaves: every live local is dropped, innermost scope first
+// and in reverse declaration order, then the process exits with 101. A moved-out local and
+// a local whose declaration was not reached are not dropped. (rustc prints the panic report
+// on stderr before the drops run; the harness compares the two streams separately.)
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Main() {
+    let a = Make(1);
+    let b = Make(2);
+    Consume(b);
+    {
+        let c = Make(3);
+        let n = 7;
+        if n > 5 {
+            let d = Make(4);
+            Panic("boom");
+        }
+        let e = Make(5);
+    }
+    let f = Make(6);
+}

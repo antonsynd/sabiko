@@ -5,6 +5,8 @@
 //! must agree too: when both exit with 101 the panic reports must match, message and
 //! location (`thread 'main' panicked at FILE:LINE:COL:` with the file names normalised to
 //! each compiler's own input), and after a clean exit neither may have written to stderr.
+//! A panic in a destructor during unwinding aborts both (exit 134 on every platform, see
+//! `common::exit_code`); the first panic's report must match then too.
 //! The prelude goes after the program, so that line numbers agree.
 //! A `//@ release` line builds both in release mode instead (`sabikoc --release`, rustc
 //! with `-C overflow-checks=off`): wrapping arithmetic, with division and shift checks

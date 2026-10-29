@@ -30,7 +30,7 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | Traits | .NET interfaces; `impl Trait for S` = `S : ITrait`; bounds = generic constraints | Reified generics shared with C#; static dispatch via `constrained. callvirt`. |
 | Dynamic dispatch | Only through explicit `Gc<dyn Trait>` | Boxing is never implicit. |
 | Enums | Tagged value type: `tag` field + per-variant payload fields (overlap only when all payloads are unmanaged) | Correct for generic payloads; optimise layout later. |
-| Drop | `trait Drop`; compiler inserts drops at scope end (reverse order, drop flags); each droppable scope lowered inside `try/finally` | Drops also run during panic unwinding for free. |
+| Drop | `trait Drop`; compiler inserts drops at scope end (reverse order, drop flags); each scope with something to drop on a panic path lowered as a `try`/`fault` region, a panic during unwinding aborts (decisions 55, 56) | Drops also run during panic unwinding for free. |
 | Panics | `throw Sabiko.Runtime.PanicException` | Maps onto CLR exceptions; C# can catch it. |
 | Generics | Reified .NET generics, no monomorphisation in the compiler | C# can instantiate Sabiko generics. |
 | Runtime borrow checking | `Cell<T>` / `RefCell<T>` in the runtime library | For cases static checking cannot prove (async, callbacks from C#). |
@@ -59,8 +59,9 @@ crates/
   sabiko_parser      hand-written recursive descent + Pratt expressions
   sabiko_resolve     modules, scopes, name resolution -> HIR-lite (DefIds)
   sabiko_types       type checking, local inference (unification), trait resolution
-  sabiko_mir         MIR: basic blocks, places, rvalues, terminators; AST->MIR lowering
-  sabiko_borrowck    move checking, NLL loans/liveness, mutability, drop elaboration
+  sabiko_mir         MIR: basic blocks, places, rvalues, terminators; AST->MIR lowering;
+                     drop elaboration and copy forwarding after borrow checking
+  sabiko_borrowck    move checking, NLL loans/liveness, mutability
   sabiko_codegen     MIR -> CIL lowering, the CIL text model and .il emitter, metadata
                      (attributes, interop shapes); the planned separate sabiko_cil crate
                      was folded in, and the Phase 10 PE writer may split it out again
@@ -83,7 +84,8 @@ docs/
 ```
 
 Pipeline: `source -> tokens -> AST -> resolved HIR -> typed HIR -> MIR -> (borrowck,
-drop elaboration, MIR validation) -> CIL model -> .il -> ilasm -> .dll/.exe`.
+drop elaboration, copy forwarding, MIR validation) -> CIL model -> .il -> ilasm ->
+.dll/.exe`.
 
 Every MIR transformation is followed by a MIR validator pass in debug builds (as rustc
 does), so internal invariant breaks are caught at the pass that introduced them.
@@ -483,10 +485,11 @@ destructuring assignment (`(a, b) = (b, a)`) are E0107 (the comparison traits ar
 stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`); the two-phase
 reborrow `Use(m, m.0)` waits for #15; a tuple holding a reference cannot be a struct field
 (lifetimes, Phase 9); constants cannot be tuples (E0315); literal and other refutable
-patterns are E0107 until `match`. Pre-existing and unchanged: `let _ = place;` reads the
-place where rustc only mentions it, so Sabiko rejects `let _ = p; Take(p);` (a TODO in
-`sabiko_mir::build`). The generator does not produce tuples of references, `()` values or
-tuple comparisons.
+patterns are E0107 until `match`. Pre-existing then: `let _ = place;` read the place where
+rustc only mentions it, so Sabiko rejected `let _ = p; Take(p);`; #37 fixed it: the
+statement is a MIR `PlaceMention`, a liveness use of the local and nothing else, as in
+rustc. The generator does not produce tuples of references, `()` values or tuple
+comparisons.
 
 Update (2026-10-29), methods and two-phase borrows (#7, #15, decision 53): inherent `impl`
 blocks (any number per struct, before or after it) hold associated functions, methods
@@ -527,6 +530,57 @@ receivers, methods on primitives, tuples and references (E0211), methods returni
 shape). Pre-existing and unchanged: `return.Foo()` does not parse (rustc reads a method
 call on `return`); `(return).Foo()` is E0319 as in rustc.
 
+Update (2026-10-29), drops (#12, #37, decision 55): `impl Drop for S { fn drop(&mut self) }`
+is accepted for the structs of the file, the only trait impl so far, with rustc's checks
+(new codes E0214 target, E0215 duplicate impl, E0216 missing `drop`, E0217 other member,
+E0321/E0322 signature, E0323 explicit call, E0324 `Copy` with a destructor, E0418 move out
+of a `Drop` type, rustc's E0509, now in the differential harness's borrow family). MIR
+building emits a `Drop` at every scope end, early exit and statement end (edition 2021
+temporary scopes, including condition temporaries, extended `let r = &temp` and tail
+temporaries after the block's locals) and nests cleanup scopes over the blocks where a
+panic must drop something. The borrow checker sees those drops (a drop invalidates loans
+but is not a use of the references a value holds). Drop elaboration, a new MIR pass after
+borrow checking, makes them exact from initialisation dataflow: drop flags where a value
+is maybe initialised, per field of plain structs and tuples after a partial move,
+`old = move p; p = new; drop(old)` for assignments, and the cleanup scopes' drops at the
+points that may panic. Code generation emits drop glue as one static method per type and
+each cleanup scope with drops as a `.try`/`fault` region; functions without drops on a
+panic path have no exception handling, and the benchmarks' IL is unchanged apart from the
+storage markers now removed after copy forwarding. A panic while unwinding aborts as in
+Rust (decision 56): cleanup handlers mark the thread, and the entry point's exception
+filter, which runs before any handler, fails fast when the mark is set. #37 landed first:
+`let _ = place;` is a MIR `PlaceMention`, a liveness use only. All staged programs (26
+verdict pairs, 18 run-time programs, 9 UI programs) and both known gaps
+(`let_underscore_place`, `panic_in_drop_while_unwinding`) agree with rustc and moved into
+their harnesses (the run harness now compares aborts: exit 134 on every platform and the
+first panic report); `move_out_of_drop_type` became three E0418/E0509 verdict pairs. The
+generator gives half of its non-`Copy` structs an `impl Drop` that prints the struct's name
+and a field, never moves out of them, and counts drops as effects when reordering; 2000
+seeds at each of three bases (3100000, 5700000, 8300000) agree with rustc on all five
+properties. The runs found two compiler bugs and a generator one, all fixed: the reorder
+analysis treated a shared reborrow of a `&mut` (`let d = &*m;`) as a read-only alias and
+moved a read of the borrowed local past a use of `d`; temporaries were dropped in
+declaration order rather than in the order their values were completed (`Make(1).Next();`
+dropped `Make(1)` first; `run/drops/temporary_order.sabi`), and, pre-existing since
+Phase 4, the backend folded `-C` for a constant `C` holding the type's minimum with
+wrapping arithmetic, so a debug build did not panic; MIR building now folds a negated
+literal into one constant, as rustc does, and only a constant item is negated at run time
+(`run-pass/panics/negate_const_min.sabi`). Gaps: other trait impls (Phase 6);
+`std::mem::drop` and `Box`/`String` (Phase 7, decision 48; a by-value function parameter
+drops early meanwhile); generic and
+`Drop` types holding references (Phase 9: their drop would then be a use); the abort's
+standard error after the first report differs from rustc's (.NET's fail-fast message);
+Windows' fail-fast exit statuses are mapped to 134 from documentation, not yet observed in
+CI; a C# caller catching a panic (Phase 8) must clear the cleanup mark. Performance: the
+other benchmarks have no drop glue and stay free of exception handling; the new `drops`
+benchmark allocates nothing but runs at about 2.5 times the C# time (p50, in-process,
+release and checked). Most of it is one protected region: stripped from the IL by hand,
+the program takes 400 ms instead of 920 ms for 10^8 iterations (350 ms with no drops at
+all). With it, the JIT copies a struct literal's operand temporary (live in a cleanup
+handler) into the aggregate through memory, two 8-byte stores then a 16-byte load, which
+stalls store forwarding; building struct literals in place (decision 51 kept
+`ldloca`+`initobj`+`stfld`) is the likely fix.
+
 ### Phase 5: Data types
 
 Work
@@ -543,6 +597,7 @@ against drops rather than retrofitted.
   drop flags, drops at scope end in reverse declaration order, each droppable scope lowered
   inside `try/finally`. `impl Drop for S` is the one trait impl accepted before Phase 6,
   special-cased as a language item so drops can be observed and diffed against rustc.
+  Done (#12, decisions 55 and 56, with `try`/`fault` regions; see the status note above).
 - `enum` with unit, tuple and struct variants, non-generic (generic enums come with Phase 6,
   decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
@@ -559,7 +614,8 @@ Verification
 - Enum layout tests from C#: a C# test reads tag/payload fields of a Sabiko enum and
   matches on it (the first `tests/interop` harness).
 - Drop-order tests (from Phase 4): reverse declaration order, conditional drops through
-  flags, drops during unwinding, compared against rustc.
+  flags, drops during unwinding, compared against rustc. Done (#12):
+  `tests/differential/run/drops/` and the generator.
 - Index out of range: run-pass test expects a panic with rustc's message for `a[i]`.
 - Differential tests and the program generator extended to every new construct.
 

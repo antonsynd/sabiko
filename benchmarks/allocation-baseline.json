@@ -8,6 +8,12 @@
     "collatz/release": {
       "allocated_bytes": 0
     },
+    "drops/checked": {
+      "allocated_bytes": 0
+    },
+    "drops/release": {
+      "allocated_bytes": 0
+    },
     "fibonacci/checked": {
       "allocated_bytes": 0
     },

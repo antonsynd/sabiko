@@ -37,15 +37,11 @@ fn Local(_1: bool) -> i32 {
 
     bb2: {
         _0 = const 5_i32;
-        goto -> bb4;
+        goto -> bb3;
     }
 
     bb3: {
         return;
-    }
-
-    bb4: {
-        goto -> bb3;
     }
 }
 
@@ -63,23 +59,23 @@ fn LoopValue(_1: i32) -> i32 {
     bb1: {
         StorageLive(_3);
         _3 = Gt(copy _1, const 2_i32);
-        switchInt(copy _3) -> [0: bb4, otherwise: bb2];
+        switchInt(copy _3) -> [0: bb3, otherwise: bb2];
     }
 
     bb2: {
-        _0 = copy _1;
         StorageDead(_3);
+        _0 = copy _1;
         StorageDead(_2);
-        goto -> bb3;
+        goto -> bb4;
     }
 
     bb3: {
-        return;
+        StorageDead(_3);
+        goto -> bb1;
     }
 
     bb4: {
-        StorageDead(_3);
-        goto -> bb1;
+        return;
     }
 }
 

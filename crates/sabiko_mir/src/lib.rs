@@ -6,20 +6,31 @@
 //! operands are locals or constants, places are a local plus field/deref projections.
 //!
 //! The shape follows rustc's MIR closely so that the borrow checker (Phase 3) and the CIL
-//! backend (Phase 4) can lean on well-understood designs. Deliberate simplifications for
-//! Phase 2: no `Assert` terminators (overflow, division and shift checks are the backend's
-//! job: it emits them explicitly, located at the statement's span, decision 43), no unwind
-//! edges, no drops yet. A statement lowered from a parenthesised expression carries the
-//! span of the outermost parentheses, as rustc's HIR does, so panic locations agree.
+//! backend (Phase 4) can lean on well-understood designs. Deliberate simplifications: no
+//! `Assert` terminators (overflow, division and shift checks are the backend's job: it
+//! emits them explicitly, located at the statement's span, decision 43), and no unwind
+//! edges: what a panic drops is described by nested [`CleanupData`] scopes over blocks
+//! instead (decision 55), which code generation turns into `try`/`fault` regions. A
+//! statement lowered from a parenthesised expression carries the span of the outermost
+//! parentheses, as rustc's HIR does, so panic locations agree.
+//!
+//! Drops (decision 55): MIR building emits a [`TerminatorKind::Drop`] wherever a value
+//! with drop glue goes out of scope, whether or not it still holds a value, and nests a
+//! cleanup scope around the blocks where a panic must drop it. The borrow checker sees
+//! that MIR. [`elaborate`] then decides, from initialisation dataflow, which drops run
+//! unconditionally, which need a drop flag and which open into their fields, drops the old
+//! value of every assignment to an initialised place, and fills in the cleanup scopes.
 //!
 //! Module map:
 //! - [`build`]: AST to MIR lowering (`build::build_bodies`).
 //! - [`validate`]: structural and type well-formedness checks, run after every pass.
 //! - [`simplify`]: removes unreachable blocks and merges trivial gotos.
-//! - [`forward`]: copy forwarding, after borrow checking (decision 51).
+//! - [`elaborate`]: drop elaboration, after borrow checking (decision 55).
+//! - [`forward`]: copy forwarding, after drop elaboration (decision 51).
 //! - [`pretty`]: the `--emit=mir` printer.
 
 pub mod build;
+pub mod elaborate;
 pub mod forward;
 pub mod pretty;
 pub mod simplify;
@@ -29,6 +40,31 @@ pub use sabiko_ast::{BinOp, UnOp};
 use sabiko_resolve::{DefId, LocalId};
 use sabiko_span::Span;
 pub use sabiko_types::{ConstValue, Mutability, Ty};
+
+/// The passes between borrow checking and code generation, in order: drop elaboration
+/// (decision 55), simplification, copy forwarding (decision 51) and the removal of
+/// storage markers, with the validator after each. Returns the validator's complaints, each
+/// prefixed with the pass it followed.
+#[must_use]
+pub fn lower_for_codegen(bodies: &mut [Body], typeck: &sabiko_types::TypeckResults) -> Vec<String> {
+    let mut failures = Vec::new();
+    let mut check = |bodies: &[Body], pass: &str| {
+        failures.extend(
+            validate::validate_all(bodies, typeck)
+                .into_iter()
+                .map(|f| format!("after {pass}: {f}")),
+        );
+    };
+    elaborate::elaborate_all(bodies, typeck);
+    check(bodies, "drop elaboration");
+    simplify::simplify_all(bodies);
+    check(bodies, "simplification");
+    forward::forward_all(bodies);
+    check(bodies, "copy forwarding");
+    simplify::strip_storage_markers(bodies);
+    check(bodies, "removing storage markers");
+    failures
+}
 
 /// Index into [`Body::locals`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -82,6 +118,42 @@ pub struct LocalDecl {
     pub source: Option<LocalId>,
 }
 
+/// Index into [`Body::cleanups`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CleanupScope(pub u32);
+
+impl CleanupScope {
+    #[must_use]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// A cleanup scope: the blocks whose [`BasicBlockData::cleanup`] chain contains it are
+/// protected by it. A panic in one of them runs the innermost scope's drops first, then its
+/// parent's, and so on outwards (decision 55). MIR building makes one scope per stretch of
+/// blocks in which a local with drop glue may hold a value; the blocks of a scope have a
+/// single entry from outside it, and scopes nest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CleanupData {
+    /// The enclosing scope, whose drops run after this one's.
+    pub parent: Option<CleanupScope>,
+    /// The local the scope protects.
+    pub local: Local,
+    /// What unwinding drops, in order. As built: the local, whatever part of it holds a
+    /// value. After [`elaborate`]: the exact places, each unconditionally or behind its
+    /// drop flag; empty when the local never holds a value at a point that may panic
+    /// inside the scope, and then the scope needs no handler.
+    pub drops: Vec<CleanupDrop>,
+}
+
+/// One drop a cleanup scope performs: `place`, when `flag` is `None` or holds `true`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CleanupDrop {
+    pub place: Place,
+    pub flag: Option<Local>,
+}
+
 /// The MIR of one function.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Body {
@@ -91,6 +163,8 @@ pub struct Body {
     pub locals: Vec<LocalDecl>,
     pub arg_count: usize,
     pub blocks: Vec<BasicBlockData>,
+    /// The cleanup scopes blocks refer to; a parent always precedes its children.
+    pub cleanups: Vec<CleanupData>,
     pub span: Span,
 }
 
@@ -118,6 +192,23 @@ impl Body {
     pub fn return_ty(&self) -> &Ty {
         &self.locals[0].ty
     }
+
+    #[must_use]
+    pub fn cleanup(&self, scope: CleanupScope) -> &CleanupData {
+        &self.cleanups[scope.index()]
+    }
+
+    /// The cleanup scopes protecting `bb`, innermost first.
+    #[must_use]
+    pub fn cleanup_chain(&self, bb: BasicBlock) -> Vec<CleanupScope> {
+        let mut out = Vec::new();
+        let mut next = self.block(bb).cleanup;
+        while let Some(scope) = next {
+            out.push(scope);
+            next = self.cleanup(scope).parent;
+        }
+        out
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -125,6 +216,8 @@ pub struct BasicBlockData {
     pub statements: Vec<Statement>,
     /// `None` only while a block is under construction.
     pub terminator: Option<Terminator>,
+    /// The innermost cleanup scope protecting the block, if any (decision 55).
+    pub cleanup: Option<CleanupScope>,
 }
 
 impl BasicBlockData {
@@ -147,6 +240,11 @@ pub enum StatementKind {
     StorageLive(Local),
     /// The local's storage ends. Drop elaboration (Phase 3) inserts drops before this.
     StorageDead(Local),
+    /// `let _ = place;`: the place is only mentioned (rustc's `PlaceMention`). Nothing is
+    /// read, moved or required to be initialised; the borrow checker counts it as a use
+    /// of the local for liveness only, so a loan held by a reference that is mentioned is
+    /// live there. Code generation emits nothing.
+    PlaceMention(Place),
     Nop,
 }
 
@@ -362,6 +460,13 @@ pub enum TerminatorKind {
         destination: Place,
         target: Option<BasicBlock>,
     },
+    /// Drop the value in `place`, whose type has drop glue, and continue at `target`. As
+    /// built (and as the borrow checker sees it), it drops whatever part of the place holds
+    /// a value, if any; after [`elaborate`], the whole place holds a value.
+    Drop {
+        place: Place,
+        target: BasicBlock,
+    },
     Return,
     Unreachable,
 }
@@ -371,7 +476,7 @@ impl TerminatorKind {
     #[must_use]
     pub fn successors(&self) -> Vec<BasicBlock> {
         match self {
-            TerminatorKind::Goto { target } => vec![*target],
+            TerminatorKind::Goto { target } | TerminatorKind::Drop { target, .. } => vec![*target],
             TerminatorKind::SwitchInt {
                 targets, otherwise, ..
             } => {
@@ -386,7 +491,7 @@ impl TerminatorKind {
 
     pub fn successors_mut(&mut self) -> Vec<&mut BasicBlock> {
         match self {
-            TerminatorKind::Goto { target } => vec![target],
+            TerminatorKind::Goto { target } | TerminatorKind::Drop { target, .. } => vec![target],
             TerminatorKind::SwitchInt {
                 targets, otherwise, ..
             } => {

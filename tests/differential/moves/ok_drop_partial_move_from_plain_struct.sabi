@@ -1,0 +1,24 @@
+// A struct without a `Drop` impl may have its droppable fields moved out one at a time
+// (E0509 applies only to types that implement `Drop` themselves); the remaining fields
+// stay usable, and are the only ones dropped at the end of the scope.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D, N: i32 }
+
+fn Consume(d: D) {}
+
+fn Main() {
+    let p = Pair { A: D { Id: 1 }, B: D { Id: 2 }, N: 3 };
+    Consume(p.A);
+    PrintLine(p.B.Id);
+    PrintLine(p.N);
+    let t = (D { Id: 4 }, D { Id: 5 });
+    let first = t.0;
+    PrintLine(t.1.Id);
+}

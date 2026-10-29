@@ -118,7 +118,10 @@ impl Dumper {
                 });
             }
             ItemKind::Impl(imp) => {
-                self.line(&format!("{vis}Impl"));
+                match &imp.trait_ref {
+                    Some(t) => self.line(&format!("{vis}Impl {} for", t.name)),
+                    None => self.line(&format!("{vis}Impl")),
+                }
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
                     d.ty(&imp.self_ty);

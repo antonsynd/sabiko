@@ -269,21 +269,35 @@ impl Parser<'_, '_> {
         })
     }
 
-    /// `impl Type { fn ... }`, after any attributes and visibility.
+    /// `impl Type { fn ... }` or `impl Drop for Type { fn ... }`, after any attributes and
+    /// visibility. `Drop` is the only trait that may be implemented before Phase 6
+    /// (decision 46); any other trait impl is not yet supported.
     fn parse_impl(&mut self) -> PResult<ImplDecl> {
         self.expect(TokenKind::Impl)?;
         if self.at(TokenKind::Lt) {
             let span = self.peek().span;
             return Err(self.error_unsupported("generic parameters", span, "planned for Phase 6"));
         }
-        let self_ty = self.parse_type()?;
+        let mut self_ty = self.parse_type()?;
+        let mut trait_ref = None;
         if self.at(TokenKind::For) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported(
-                "trait implementations",
-                span,
-                "planned for Phase 6",
-            ));
+            let drop_trait = match &self_ty.kind {
+                TypeKind::Path(path) if path.is_single() && path.segments[0].name == "Drop" => {
+                    Some(path.segments[0].clone())
+                }
+                _ => None,
+            };
+            let Some(name) = drop_trait else {
+                let span = self.peek().span;
+                return Err(self.error_unsupported(
+                    "trait implementations other than `impl Drop`",
+                    span,
+                    "planned for Phase 6",
+                ));
+            };
+            self.bump();
+            trait_ref = Some(name);
+            self_ty = self.parse_type()?;
         }
         if self.at(TokenKind::Where) {
             let span = self.peek().span;
@@ -298,7 +312,11 @@ impl Parser<'_, '_> {
             }
         }
         self.expect(TokenKind::RBrace)?;
-        Ok(ImplDecl { self_ty, items })
+        Ok(ImplDecl {
+            trait_ref,
+            self_ty,
+            items,
+        })
     }
 
     /// `self`, `mut self`, `&self`, `&mut self` at the start of a parameter list, or one

@@ -1,0 +1,35 @@
+// A panic while call arguments are being evaluated drops the arguments already evaluated
+// (the callee never ran, so it did not take them) and the elements of a tuple under
+// construction, innermost first, in reverse order of evaluation.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Fail(id: i32) -> D {
+    Print("fail ");
+    PrintLine(id);
+    Panic("cannot build")
+}
+
+fn Take(a: D, b: (D, D, D), c: D) {
+    PrintLine("in Take");
+}
+
+fn Main() {
+    let x = Make(1);
+    Take(Make(2), (Make(3), Make(4), Make(5)), Make(6));
+    PrintLine("--");
+    Take(Make(10), (Make(11), Fail(12), Make(13)), Make(14));
+    PrintLine("unreachable");
+}

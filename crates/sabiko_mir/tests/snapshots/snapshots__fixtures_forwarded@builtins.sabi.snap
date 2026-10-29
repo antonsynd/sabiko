@@ -15,20 +15,17 @@ fn Checked(_1: i32) -> i32 {
     }
 
     bb1: {
+        StorageDead(_2);
         _0 = copy _1;
         goto -> bb3;
     }
 
     bb2: {
+        StorageDead(_2);
         _0 = Panic(const "negative") -> unreachable;
     }
 
     bb3: {
-        StorageDead(_2);
-        goto -> bb4;
-    }
-
-    bb4: {
         return;
     }
 }

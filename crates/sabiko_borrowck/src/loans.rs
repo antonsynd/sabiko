@@ -213,7 +213,7 @@ impl Reporter<'_> {
             )
             .with_label(span, format!("move out of `{accessed}` occurs here"))
             .with_label(data.span, format!("borrow of `{borrowed}` occurs here")),
-            AccessKind::StorageDead | AccessKind::Return => {
+            AccessKind::StorageDead | AccessKind::Drop | AccessKind::Return => {
                 return Some(self.lifetime_error(location, point, loan, invalidation.kind));
             }
         };
@@ -250,7 +250,7 @@ impl Reporter<'_> {
         }
         let local = self.describe(&Place::local(root));
         let diag = if self.body.local_decl(root).kind == LocalKind::Temp
-            && kind == AccessKind::StorageDead
+            && matches!(kind, AccessKind::StorageDead | AccessKind::Drop)
         {
             // The MIR builder ends a statement's temporaries with the statement.
             Diagnostic::error(

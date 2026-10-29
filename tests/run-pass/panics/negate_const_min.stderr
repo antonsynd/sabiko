@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/panics/negate_const_min.sabi:14:15:
+attempt to negate with overflow

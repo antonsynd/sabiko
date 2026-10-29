@@ -41,11 +41,11 @@
     │                      ╰──── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:20:13 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:20:9 ]
     │
- 20 │     let _ = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
-    │             ────┬───  
-    │                 ╰───── cannot be compiled yet
+ 20 │     let again = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    │         ──┬──  
+    │           ╰──── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to a reference is not yet supported by code generation
     ╭─[ tests/ui/codegen/unsupported.sabi:23:9 ]

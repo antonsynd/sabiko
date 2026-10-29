@@ -1,0 +1,24 @@
+// Passing a non-Copy field of a value whose type implements `Drop` by value moves it out of
+// that value: rustc E0509, Sabiko E0418.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Owner { Id: i32, Inner: D }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {}
+
+fn Main() {
+    let b = Owner { Id: 3, Inner: D { Id: 4 } };
+    Consume(b.Inner);
+}

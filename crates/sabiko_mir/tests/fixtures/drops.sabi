@@ -1,0 +1,53 @@
+// Drops as MIR building emits them (decision 55): a `Drop` terminator at each scope end, in
+// reverse declaration order, with every block of the scope in a cleanup scope that drops
+// the same locals on the unwinding path; temporaries at the end of their statement; the
+// old value before an assignment; nothing for a type without drop glue.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D, N: i32 }
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Consume(d: D) {}
+
+fn ScopeEnd() {
+    let a = Make(1);
+    let n = 2;
+    let b = Make(n);
+}
+
+fn Temporary() -> i32 {
+    Make(3).Id + 1
+}
+
+fn Reassign() {
+    let mut x = Make(4);
+    x = Make(5);
+}
+
+fn EarlyReturn(flag: bool) -> D {
+    let a = Make(6);
+    if flag {
+        return Make(7);
+    }
+    a
+}
+
+// A tuple holding a value with drop glue has drop glue: dropped whole at scope end.
+fn Tuple() -> i32 {
+    let t = (Make(11), 12);
+    t.1
+}
+
+fn Fields() {
+    let p = Pair { A: Make(8), B: Make(9), N: 10 };
+    Consume(p.A);
+}

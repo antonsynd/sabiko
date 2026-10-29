@@ -1,0 +1,23 @@
+// A by-value `self` of a type that implements `Drop` is still dropped as a whole at the end
+// of the method: moving a non-Copy field out of it is rustc E0509, Sabiko E0418.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Owner { Id: i32, Inner: D }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+impl Owner {
+    fn IntoInner(self) -> D {
+        self.Inner
+    }
+}

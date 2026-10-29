@@ -20,17 +20,26 @@
 //! both products on the stack for the addition. The stack is otherwise empty between
 //! statements, and at a block label unless the block is entered only by falling through
 //! from its single predecessor (a call's continuation, say).
+//!
+//! Cleanup scopes (decision 55): the blocks a cleanup scope with something to drop
+//! protects are laid out contiguously, its entry first, as one `.try` region with a
+//! `fault` handler that drops what the scope says; nested scopes nest. Control leaves a
+//! region only by `leave` (a conditional branch out of one goes through a `leave`
+//! trampoline), the stack is empty at region boundaries, and a block inside a region never
+//! returns in place. A function whose cleanup scopes drop nothing has no region at all.
 
 use std::fmt::Write as _;
 
 use sabiko_diagnostics::ErrorCode;
 use sabiko_mir::{
-    AggregateKind, BasicBlock, BinOp, Body, ConstValue, Constant, Local, LocalKind, Operand, Place,
-    PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty, UnOp,
+    AggregateKind, BasicBlock, BinOp, Body, CleanupScope, ConstValue, Constant, Local, LocalKind,
+    Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty,
+    UnOp,
 };
 use sabiko_resolve::{Builtin, DefId, PrimTy};
 use sabiko_span::Span;
 
+use crate::drops::DROP_METHOD;
 use crate::types::{self, StackWidth, IS_READONLY_ATTR, STR_SPAN};
 use crate::{Cx, RUNTIME_ASSEMBLY};
 
@@ -63,11 +72,24 @@ pub(crate) fn emit_body(cx: &mut Cx<'_>, body: &Body, out: &mut String) {
         def_returns: false,
     };
     f.assign_slots();
+    // The protected regions open around the blocks: the layout makes each contiguous.
+    let mut open: Vec<CleanupScope> = Vec::new();
     for i in 0..f.layout.order.len() {
         let bb = f.layout.order[i];
-        if f.layout.emitted(bb) {
-            f.block(bb);
+        let want = f.layout.regions[bb.index()].clone();
+        let common = open.iter().zip(&want).take_while(|(a, b)| a == b).count();
+        while open.len() > common {
+            let scope = open.pop().expect("a region is open");
+            f.close_region(scope);
         }
+        for &scope in &want[common..] {
+            f.open_region();
+            open.push(scope);
+        }
+        f.block(bb);
+    }
+    while let Some(scope) = open.pop() {
+        f.close_region(scope);
     }
     f.write_method(out);
 }
@@ -78,9 +100,13 @@ pub(crate) fn emit_body(cx: &mut Cx<'_>, body: &Body, out: &mut String) {
 /// branch goes forward except the back edges of loops: the JIT treats a method with a
 /// backward branch as a loop, which sends it to instrumented Tier0 instead of plain Tier0.
 /// The walk visits a block's successors in terminator order (a `switchInt`'s `otherwise`
-/// last), which places the last unvisited successor right after the block, where it is
+/// last, which places the last unvisited successor right after the block, where it is
 /// reached by falling through. A jump to a block that only returns is emitted as the
-/// return itself, so such a block is emitted only when a `switchInt` branches to it.
+/// return itself, so such a block is emitted only when a `switchInt` branches to it or a
+/// block inside a protected region jumps to it. The blocks of each protected region are
+/// then grouped where the region's first block is, keeping reverse postorder within
+/// each group: a region's entry dominates its blocks, so it comes first, and the grouping
+/// turns no forward edge into a backward one.
 struct Layout {
     order: Vec<BasicBlock>,
     /// The block emitted after each block (indexed by block), if any.
@@ -89,8 +115,13 @@ struct Layout {
     return_only: Vec<bool>,
     /// Blocks that some `switchInt` branches to.
     switch_target: Vec<bool>,
+    /// Blocks some block inside a protected region jumps to.
+    left_to: Vec<bool>,
     /// The number of control-flow edges into each block.
     preds: Vec<usize>,
+    /// The protected regions around each block: its cleanup scopes that drop something,
+    /// outermost first.
+    regions: Vec<Vec<CleanupScope>>,
 }
 
 impl Layout {
@@ -123,6 +154,19 @@ impl Layout {
         let mut order: Vec<BasicBlock> = post.into_iter().rev().collect();
         // Simplification leaves no unreachable blocks; keep any anyway, at the end.
         order.extend(body.block_ids().filter(|bb| !visited[bb.index()]));
+        let regions: Vec<Vec<CleanupScope>> = body
+            .block_ids()
+            .map(|bb| {
+                let mut chain: Vec<CleanupScope> = body
+                    .cleanup_chain(bb)
+                    .into_iter()
+                    .filter(|&scope| !body.cleanup(scope).drops.is_empty())
+                    .collect();
+                chain.reverse();
+                chain
+            })
+            .collect();
+        let order = group_regions(&order, &regions);
         let return_only: Vec<bool> = body
             .blocks
             .iter()
@@ -133,16 +177,21 @@ impl Layout {
                             s.kind,
                             StatementKind::StorageLive(_)
                                 | StatementKind::StorageDead(_)
+                                | StatementKind::PlaceMention(_)
                                 | StatementKind::Nop
                         )
                     })
             })
             .collect();
         let mut switch_target = vec![false; n];
+        let mut left_to = vec![false; n];
         let mut preds = vec![0; n];
-        for data in &body.blocks {
+        for (b, data) in body.blocks.iter().enumerate() {
             for s in data.terminator().kind.successors() {
                 preds[s.index()] += 1;
+                if !regions[b].is_empty() {
+                    left_to[s.index()] = true;
+                }
             }
             if let TerminatorKind::SwitchInt { .. } = &data.terminator().kind {
                 for s in data.terminator().kind.successors() {
@@ -155,7 +204,9 @@ impl Layout {
             next: vec![None; n],
             return_only,
             switch_target,
+            left_to,
             preds,
+            regions,
         };
         // Blocks that are never emitted do not separate their neighbours.
         let emitted: Vec<BasicBlock> = order.into_iter().filter(|&bb| layout.emitted(bb)).collect();
@@ -171,14 +222,70 @@ impl Layout {
     }
 
     /// Whether `bb` gets code of its own: a block that only returns is inlined into the
-    /// jumps to it, unless it is the entry or a `switchInt` target.
+    /// jumps to it, unless it is the entry, a `switchInt` target or left to from a
+    /// protected region (`ret` is not allowed in one).
     fn emitted(&self, bb: BasicBlock) -> bool {
-        !self.return_only[bb.index()] || bb == BasicBlock::START || self.switch_target[bb.index()]
+        !self.return_only[bb.index()]
+            || bb == BasicBlock::START
+            || self.switch_target[bb.index()]
+            || self.left_to[bb.index()]
     }
 
     fn is_next(&self, from: BasicBlock, to: BasicBlock) -> bool {
         self.next[from.index()] == Some(to)
     }
+
+    /// Whether control from `from` to `to` leaves a protected region (`to` is not inside
+    /// every region `from` is in): only `leave` may do that.
+    fn exits(&self, from: BasicBlock, to: BasicBlock) -> bool {
+        let (f, t) = (&self.regions[from.index()], &self.regions[to.index()]);
+        !t.starts_with(f)
+    }
+
+    /// Whether a jump from `from` to the return-only block `to` may be the return itself.
+    fn returns_in_place(&self, from: BasicBlock, to: BasicBlock) -> bool {
+        self.return_only[to.index()] && self.regions[from.index()].is_empty()
+    }
+}
+
+/// `order` with the blocks of each protected region moved together, where the region's
+/// first block is, recursively; otherwise in the order given.
+fn group_regions(order: &[BasicBlock], regions: &[Vec<CleanupScope>]) -> Vec<BasicBlock> {
+    enum Item {
+        Block(BasicBlock),
+        Region(CleanupScope, Vec<Item>),
+    }
+    fn flatten(items: Vec<Item>, out: &mut Vec<BasicBlock>) {
+        for item in items {
+            match item {
+                Item::Block(bb) => out.push(bb),
+                Item::Region(_, inner) => flatten(inner, out),
+            }
+        }
+    }
+    let mut root: Vec<Item> = Vec::new();
+    for &bb in order {
+        let mut list = &mut root;
+        for &scope in &regions[bb.index()] {
+            let index = if let Some(i) = list
+                .iter()
+                .position(|item| matches!(item, Item::Region(s, _) if *s == scope))
+            {
+                i
+            } else {
+                list.push(Item::Region(scope, Vec::new()));
+                list.len() - 1
+            };
+            let Item::Region(_, inner) = &mut list[index] else {
+                unreachable!("found or pushed a region above")
+            };
+            list = inner;
+        }
+        list.push(Item::Block(bb));
+    }
+    let mut out = Vec::with_capacity(order.len());
+    flatten(root, &mut out);
+    out
 }
 
 struct FnCx<'a, 'b> {
@@ -227,6 +334,9 @@ enum Instr {
         pushes: usize,
     },
     Label(String),
+    /// An exception-handling directive (`.try`, `fault`, a brace): the stack is empty
+    /// after it, at the start of a protected region or a handler.
+    Directive(String),
     /// `ldloc`, `stloc` or `ldloca` of an IL local, numbered when the method is written.
     Local(LocalOp, u16),
     /// The definition `defs[i]` of a stackable local.
@@ -319,7 +429,18 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
                     other[destination.local.index()] += 1;
                 }
             }
+            // A dropped place is borrowed by the drop glue call.
+            TerminatorKind::Drop { place, .. } => other[place.local.index()] += 1,
             TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+        }
+    }
+    // Cleanup handlers read drop flags and borrow the places they drop.
+    for cleanup in &body.cleanups {
+        for drop in &cleanup.drops {
+            other[drop.place.local.index()] += 1;
+            if let Some(flag) = drop.flag {
+                other[flag.index()] += 1;
+            }
         }
     }
     (0..n)
@@ -408,10 +529,16 @@ impl FnCx<'_, '_> {
                 params.push(format!("{ty} {}", types::quote(&name)));
             }
         }
+        // The `drop` of an `impl Drop` (decision 55).
+        let name = if self.cx.resolve.is_drop_fn(body.def) {
+            DROP_METHOD
+        } else {
+            &body.name
+        };
         let _ = writeln!(
             out,
             "  .method public hidebysig static {ret} {}({}) cil managed\n  {{",
-            types::quote(&body.name),
+            types::quote(name),
             params.join(", ")
         );
         for p in readonly_params {
@@ -451,7 +578,7 @@ impl FnCx<'_, '_> {
         }
         for instr in &self.code {
             match instr {
-                Instr::Op { text, .. } => {
+                Instr::Op { text, .. } | Instr::Directive(text) => {
                     let _ = writeln!(out, "    {text}");
                 }
                 Instr::Label(name) => {
@@ -484,23 +611,26 @@ impl FnCx<'_, '_> {
     fn max_stack(&self) -> usize {
         let mut depth = 0usize;
         let mut max = 0usize;
-        let mut step = |pops: usize, pushes: usize| {
-            debug_assert!(depth >= pops, "stack underflow in the final stream");
-            depth = depth.saturating_sub(pops) + pushes;
-            max = max.max(depth);
+        let step = |depth: &mut usize, max: &mut usize, pops: usize, pushes: usize| {
+            debug_assert!(*depth >= pops, "stack underflow in the final stream");
+            *depth = depth.saturating_sub(pops) + pushes;
+            *max = (*max).max(*depth);
         };
         for instr in &self.code {
             match instr {
-                Instr::Op { pops, pushes, .. } => step(*pops, *pushes),
+                Instr::Op { pops, pushes, .. } => step(&mut depth, &mut max, *pops, *pushes),
                 Instr::Label(_) => {}
-                Instr::Local(LocalOp::Load | LocalOp::Address, _) => step(0, 1),
-                Instr::Local(LocalOp::Store, _) => step(1, 0),
+                Instr::Directive(_) => depth = 0,
+                Instr::Local(LocalOp::Load | LocalOp::Address, _) => {
+                    step(&mut depth, &mut max, 0, 1);
+                }
+                Instr::Local(LocalOp::Store, _) => step(&mut depth, &mut max, 1, 0),
                 Instr::Def(d) => match self.defs[*d].mode {
                     DefMode::Stack => {}
-                    DefMode::Spill => step(1, 0),
+                    DefMode::Spill => step(&mut depth, &mut max, 1, 0),
                     DefMode::DupSpill => {
-                        step(1, 2);
-                        step(1, 0);
+                        step(&mut depth, &mut max, 1, 2);
+                        step(&mut depth, &mut max, 1, 0);
                     }
                 },
             }
@@ -531,6 +661,62 @@ impl FnCx<'_, '_> {
     fn label(&mut self, name: &str) {
         self.settle();
         self.code.push(Instr::Label(name.to_owned()));
+    }
+
+    fn directive(&mut self, text: &str) {
+        debug_assert!(
+            self.pending.is_empty(),
+            "a value waits on the stack at a region boundary in {}",
+            self.body.name
+        );
+        self.depth = 0;
+        self.code.push(Instr::Directive(text.to_owned()));
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Protected regions (decision 55)
+    // ----------------------------------------------------------------------------------
+
+    fn open_region(&mut self) {
+        self.directive(".try");
+        self.directive("{");
+    }
+
+    /// Ends the region of `scope` and emits its handler: it marks the thread as cleaning
+    /// up (a panic from here on aborts, see `Panic.Filter`), then drops what the scope
+    /// says, each place behind its flag if it has one.
+    fn close_region(&mut self, scope: CleanupScope) {
+        let span = self.body.span;
+        self.directive("}");
+        self.directive("fault");
+        self.directive("{");
+        self.op(
+            format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::BeginCleanup()"),
+            0,
+            0,
+        );
+        for drop in self.body.cleanup(scope).drops.clone() {
+            let skip = drop.flag.map(|flag| {
+                let skip = self.fresh_label();
+                self.load(&Place::local(flag), span);
+                self.op(format!("brfalse {skip}"), 1, 0);
+                skip
+            });
+            self.drop_place(&drop.place, span);
+            if let Some(skip) = skip {
+                self.label(&skip);
+            }
+        }
+        self.op("endfault", 0, 0);
+        self.directive("}");
+    }
+
+    /// Drops the value in `place` through its type's drop glue.
+    fn drop_place(&mut self, place: &Place, span: Span) {
+        let ty = place.ty(self.body);
+        let call = self.cx.drop_glue_call(&ty, span);
+        self.addr(place, span);
+        self.op(call, 1, 0);
     }
 
     // ----------------------------------------------------------------------------------
@@ -702,7 +888,7 @@ impl FnCx<'_, '_> {
         let term = data.terminator();
         let term_returns = match &term.kind {
             TerminatorKind::Return => true,
-            TerminatorKind::Goto { target } => self.layout.return_only[target.index()],
+            TerminatorKind::Goto { target } => self.layout.returns_in_place(bb, *target),
             _ => false,
         };
         for (k, stmt) in data.statements.iter().enumerate() {
@@ -713,6 +899,7 @@ impl FnCx<'_, '_> {
                         s.kind,
                         StatementKind::StorageLive(_)
                             | StatementKind::StorageDead(_)
+                            | StatementKind::PlaceMention(_)
                             | StatementKind::Nop
                     )
                 });
@@ -729,7 +916,7 @@ impl FnCx<'_, '_> {
             TerminatorKind::Call {
                 target: Some(target),
                 ..
-            } => self.layout.return_only[target.index()],
+            } => self.layout.returns_in_place(bb, *target),
             _ => false,
         };
         self.stmt_start = self.code.len();
@@ -746,6 +933,7 @@ impl FnCx<'_, '_> {
                 self.layout.is_next(bb, *target)
                     && self.layout.preds[target.index()] == 1
                     && !self.layout.return_only[target.index()]
+                    && self.layout.regions[bb.index()] == self.layout.regions[target.index()]
             }
             _ => false,
         };
@@ -762,7 +950,11 @@ impl FnCx<'_, '_> {
     fn stmt(&mut self, stmt: &Statement) {
         match &stmt.kind {
             StatementKind::Assign(place, rvalue) => self.assign(place, rvalue, stmt.span),
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // A mention reads nothing (`let _ = place;`).
+            StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::PlaceMention(_)
+            | StatementKind::Nop => {}
         }
     }
 
@@ -780,12 +972,32 @@ impl FnCx<'_, '_> {
     }
 
     /// Branches to `target` unless it is the block emitted next; a jump to a block that
-    /// only returns is the return itself.
+    /// only returns is the return itself, outside protected regions; out of one, it is a
+    /// `leave`.
     fn jump(&mut self, target: BasicBlock, from: BasicBlock) {
-        if self.layout.return_only[target.index()] {
+        if self.layout.returns_in_place(from, target) {
             self.ret();
+        } else if self.layout.exits(from, target) {
+            self.op(format!("leave BB{}", target.0), 0, 0);
         } else if !self.layout.is_next(from, target) {
             self.op(format!("br BB{}", target.0), 0, 0);
+        }
+    }
+
+    /// The label a conditional branch from `from` to `target` goes to: the block's, or a
+    /// trampoline that leaves the protected regions on the way (recorded in `tramps`).
+    fn branch_label(
+        &mut self,
+        from: BasicBlock,
+        target: BasicBlock,
+        tramps: &mut Vec<(String, BasicBlock)>,
+    ) -> String {
+        if self.layout.exits(from, target) {
+            let label = self.fresh_label();
+            tramps.push((label.clone(), target));
+            label
+        } else {
+            format!("BB{}", target.0)
         }
     }
 
@@ -810,23 +1022,35 @@ impl FnCx<'_, '_> {
                 otherwise,
             } => {
                 let discr_ty = discr.ty(self.body);
+                // Conditional branches cannot leave a protected region: those that would
+                // go to a `leave` after the block instead.
+                let mut tramps = Vec::new();
                 if let [(0, zero_target)] = targets[..] {
                     self.operand(discr, term.span);
-                    if self.layout.is_next(bb, zero_target) && !self.layout.is_next(bb, *otherwise)
-                    {
+                    let falls_through =
+                        self.layout.is_next(bb, zero_target) && !self.layout.exits(bb, zero_target);
+                    if falls_through && !self.layout.is_next(bb, *otherwise) {
                         // Fall through to the zero target instead of jumping to it.
-                        self.op(format!("brtrue BB{}", otherwise.0), 1, 0);
+                        let label = self.branch_label(bb, *otherwise, &mut tramps);
+                        self.op(format!("brtrue {label}"), 1, 0);
+                        if tramps.is_empty() {
+                            return;
+                        }
+                        self.op(format!("br BB{}", zero_target.0), 0, 0);
+                        self.trampolines(tramps);
                         return;
                     }
-                    self.op(format!("brfalse BB{}", zero_target.0), 1, 0);
+                    let label = self.branch_label(bb, zero_target, &mut tramps);
+                    self.op(format!("brfalse {label}"), 1, 0);
                 } else {
                     for (value, target) in targets {
                         self.operand(discr, term.span);
+                        let label = self.branch_label(bb, *target, &mut tramps);
                         match discr_ty.as_prim() {
                             Some(p) if types::stack_width(p) == StackWidth::Wide => {
                                 self.int_const(*value, p);
                                 self.wide_compare(p, "op_Equality");
-                                self.op(format!("brtrue BB{}", target.0), 1, 0);
+                                self.op(format!("brtrue {label}"), 1, 0);
                                 continue;
                             }
                             Some(p) if p.is_integer() => self.int_const(*value, p),
@@ -838,10 +1062,22 @@ impl FnCx<'_, '_> {
                                 self.ldc_i4(*value as u32 as i32);
                             }
                         }
-                        self.op(format!("beq BB{}", target.0), 2, 0);
+                        self.op(format!("beq {label}"), 2, 0);
                     }
                 }
-                self.jump(*otherwise, bb);
+                if tramps.is_empty() {
+                    self.jump(*otherwise, bb);
+                } else {
+                    // The trampolines follow, so the block cannot fall through.
+                    if self.layout.exits(bb, *otherwise)
+                        || self.layout.returns_in_place(bb, *otherwise)
+                    {
+                        self.jump(*otherwise, bb);
+                    } else {
+                        self.op(format!("br BB{}", otherwise.0), 0, 0);
+                    }
+                    self.trampolines(tramps);
+                }
             }
             TerminatorKind::Call {
                 func,
@@ -857,8 +1093,20 @@ impl FnCx<'_, '_> {
                     None => self.unreachable(),
                 }
             }
+            TerminatorKind::Drop { place, target } => {
+                self.drop_place(place, term.span);
+                self.jump(*target, bb);
+            }
             TerminatorKind::Return => self.ret(),
             TerminatorKind::Unreachable => self.unreachable(),
+        }
+    }
+
+    /// `label: leave target` for each conditional branch out of a protected region.
+    fn trampolines(&mut self, tramps: Vec<(String, BasicBlock)>) {
+        for (label, target) in tramps {
+            self.label(&label);
+            self.op(format!("leave BB{}", target.0), 0, 0);
         }
     }
 
@@ -937,40 +1185,7 @@ impl FnCx<'_, '_> {
 
     /// The struct a field projection applies to, and the field's name and CIL type.
     fn field_ref(&mut self, base_ty: &Ty, index: usize, field_ty: &Ty, span: Span) -> String {
-        let Ty::Adt(def) = base_ty else {
-            panic!("field projection on non-struct {base_ty:?}");
-        };
-        let adt = self.cx.typeck.items.adt(*def);
-        let struct_name = types::quote(&adt.name);
-        let field_name = types::quote(&adt.fields[index].name);
-        let cil = types::cil_type(self.cx, field_ty, span);
-        format!("{cil} {struct_name}::{field_name}")
-    }
-
-    /// The field reference of element `index` of a tuple of type `base_ty`, after the
-    /// `Rest` fields to go through first (a `System.ValueTuple` holds seven elements; `t.7`
-    /// is `t.Rest.Item1`, `t.15` is `t.Rest.Rest.Item2`). The fields of a generic
-    /// instantiation are referenced by their declared type, the type parameter (`!0`).
-    fn tuple_field_ref(&mut self, base_ty: &Ty, index: usize, span: Span) -> (Vec<String>, String) {
-        let Ty::Tuple(elems) = base_ty else {
-            panic!("element projection on non-tuple {base_ty:?}");
-        };
-        if types::is_byref_tuple(base_ty) {
-            let class = types::quote(&self.cx.byref_tuple(base_ty, span));
-            let cil = types::cil_type(self.cx, &elems[index], span);
-            return (Vec::new(), format!("{cil} {class}::'Item{}'", index + 1));
-        }
-        let mut rest = Vec::new();
-        let mut elems: &[Ty] = elems;
-        let mut index = index;
-        while index >= types::VALUE_TUPLE_DIRECT {
-            let class = types::value_tuple_type(self.cx, elems, span);
-            rest.push(format!("!{} {class}::Rest", types::VALUE_TUPLE_DIRECT));
-            elems = &elems[types::VALUE_TUPLE_DIRECT..];
-            index -= types::VALUE_TUPLE_DIRECT;
-        }
-        let class = types::value_tuple_type(self.cx, elems, span);
-        (rest, format!("!{index} {class}::Item{}", index + 1))
+        self.cx.struct_field_ref(base_ty, index, field_ty, span)
     }
 
     /// Pushes the address of `parent` and goes to the field `index` of it: returns the
@@ -978,15 +1193,11 @@ impl FnCx<'_, '_> {
     fn field_base(&mut self, parent: &Place, index: usize, field_ty: &Ty, span: Span) -> String {
         let base_ty = parent.ty(self.body);
         self.addr(parent, span);
-        if let Ty::Tuple(_) = base_ty {
-            let (rest, field) = self.tuple_field_ref(&base_ty, index, span);
-            for hop in rest {
-                self.op(format!("ldflda {hop}"), 1, 1);
-            }
-            field
-        } else {
-            self.field_ref(&base_ty, index, field_ty, span)
+        let (rest, field) = self.cx.field_path(&base_ty, index, field_ty, span);
+        for hop in rest {
+            self.op(format!("ldflda {hop}"), 1, 1);
         }
+        field
     }
 
     fn parent(place: &Place) -> Place {
@@ -1323,8 +1534,13 @@ impl FnCx<'_, '_> {
                 self.operand(operand, span);
                 self.op("neg", 1, 1);
             }
-            UnOp::Neg if matches!(operand, Operand::Constant(_)) => {
-                // `-literal`: fold instead of emitting `0 - literal`.
+            UnOp::Neg
+                if matches!(operand, Operand::Constant(c)
+                    if !self.checks() || negation_fits(&c.value, p)) =>
+            {
+                // `-C` for a constant item (MIR building folds `-literal` already): fold
+                // instead of emitting `0 - C`, unless the negation overflows (`C` is the
+                // type's minimum) in a checked build, which then panics at run time.
                 let Operand::Constant(c) = operand else {
                     unreachable!()
                 };
@@ -2071,6 +2287,19 @@ fn local_instr(op: LocalOp, i: u16) -> String {
 
 fn is_mut_ref(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref(m, _) if m.is_mut())
+}
+
+/// Whether negating the constant `value` of type `p` stays in range: always but for a
+/// signed constant holding the type's minimum.
+fn negation_fits(value: &ConstValue, p: PrimTy) -> bool {
+    match value {
+        ConstValue::Int(i) if p.is_signed_int() => {
+            let (min, max) = sabiko_types::consts::int_bounds(p);
+            let max = i128::try_from(max).expect("a signed maximum fits i128");
+            i.checked_neg().is_some_and(|n| (min..=max).contains(&n))
+        }
+        _ => true,
+    }
 }
 
 #[cfg(test)]

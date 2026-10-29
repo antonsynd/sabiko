@@ -61,7 +61,10 @@ enum EmitArg {
     Tokens,
     Ast,
     Pretty,
+    /// The MIR the borrow checker sees.
     Mir,
+    /// The MIR after drop elaboration (decision 55), before copy forwarding.
+    MirElaborated,
     /// The textual CIL module.
     Il,
     /// A library assembly.
@@ -99,6 +102,7 @@ fn main() -> ExitCode {
         EmitArg::Ast => Emit::Ast,
         EmitArg::Pretty => Emit::Pretty,
         EmitArg::Mir => Emit::Mir,
+        EmitArg::MirElaborated => Emit::MirElaborated,
         EmitArg::Il | EmitArg::Dll | EmitArg::Exe => Emit::Il,
     };
     let stop_after = match cli.stop_after {

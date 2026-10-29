@@ -14,35 +14,34 @@ expression: il
   {
     .maxstack 5
     .locals init (
-      [0] int32 '_0',
-      [1] int32 'x',
-      [2] int32 '_5',
-      [3] int32 'z',
-      [4] int64 'w',
-      [5] float64 'f',
-      [6] uint32 'u',
-      [7] int32 'bits',
-      [8] int32 'same',
-      [9] int32 '_41'
+      [0] int32 'x',
+      [1] int32 '_5',
+      [2] int32 'z',
+      [3] int64 'w',
+      [4] float64 'f',
+      [5] uint32 'u',
+      [6] int32 'bits',
+      [7] int32 'same',
+      [8] int32 '_41'
     )
   BB0:
     ldarg.1
     ldc.i4.2
     mul
-    stloc.2
-    ldarg.0
-    ldloc.2
-    add
     stloc.1
+    ldarg.0
     ldloc.1
+    add
+    stloc.0
+    ldloc.0
     ldc.i4.1
     sub
-    stloc.1
-    ldloc.1
+    stloc.0
+    ldloc.0
     ldarg.0
     mul
-    stloc.1
-    ldloc.1
+    stloc.0
+    ldloc.0
     ldarg.1
     sub
     ldc.i4.3
@@ -50,13 +49,13 @@ expression: il
     ldc.i4.2
     rem
     neg
-    stloc.3
+    stloc.2
     ldarg.0
     ldarg.1
     ceq
     ldc.i4.0
     ceq
-    ldloc.1
+    ldloc.0
     conv.i8
     ldarg.1
     conv.i8
@@ -65,15 +64,15 @@ expression: il
     and
     shl
     add
-    stloc.s 4
+    stloc.3
     ldarg.0
     conv.r8
     ldc.r8 1.5
     mul
-    stloc.s 5
+    stloc.s 4
     ldc.i4.7
     conv.u4
-    stloc.s 6
+    stloc.s 5
     ldarg.0
     ldarg.1
     and
@@ -81,34 +80,30 @@ expression: il
     ldarg.1
     xor
     or
-    stloc.s 7
+    stloc.s 6
     ldarg.0
-    stloc.s 8
+    stloc.s 7
     brfalse BB2
   BB1:
-    ldloc.s 4
-    conv.i4
-    stloc.s 9
     ldloc.3
-    ldloc.s 9
-    add
-    ldloc.s 6
     conv.i4
-    add
-    stloc.0
-    br BB3
-  BB2:
-    ldloc.1
-    ldloc.s 7
-    add
+    stloc.s 8
+    ldloc.2
     ldloc.s 8
     add
     ldloc.s 5
     conv.i4
     add
-    stloc.0
-  BB3:
+    ret
+  BB2:
     ldloc.0
+    ldloc.s 6
+    add
+    ldloc.s 7
+    add
+    ldloc.s 4
+    conv.i4
+    add
     ret
   }
 
@@ -116,8 +111,7 @@ expression: il
   {
     .maxstack 3
     .locals init (
-      [0] uint32 '_0',
-      [1] uint32 'shifted'
+      [0] uint32 'shifted'
     )
   BB0:
     ldarg.1
@@ -126,20 +120,16 @@ expression: il
     ldc.i4.s 31
     and
     shr.un
-    stloc.1
+    stloc.0
     ldarg.0
     ldc.i4.0
     ceq
     brfalse BB2
   BB1:
-    ldloc.1
-    stloc.0
-    br BB3
+    ldloc.0
+    ret
   BB2:
     ldc.i4.0
-    stloc.0
-  BB3:
-    ldloc.0
     ret
   }
 

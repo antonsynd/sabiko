@@ -73,6 +73,8 @@ struct Place {
     via_ref: Option<bool>,
     /// The whole root variable (or the whole referent), not a field of it.
     whole: bool,
+    /// Inside a struct with `impl Drop`, so never moved (E0509).
+    in_drop: bool,
 }
 
 /// A generated expression and the variables a reference-typed result borrows.
@@ -351,6 +353,7 @@ impl<'a> BodyGen<'a> {
                             root: i,
                             via_ref: None,
                             whole: path.is_empty(),
+                            in_drop: self.prog.moves_out_of_drop(v, &path),
                         });
                     }
                 }
@@ -367,6 +370,7 @@ impl<'a> BodyGen<'a> {
                             root: i,
                             via_ref: Some(mutable),
                             whole: path.is_empty(),
+                            in_drop: self.prog.moves_out_of_drop(inner, &path),
                         });
                     }
                 }
@@ -398,6 +402,7 @@ impl<'a> BodyGen<'a> {
                 }
                 // A move.
                 place.via_ref.is_none()
+                    && !place.in_drop
                     && root.shared_locks == 0
                     && root.loop_depth == self.loop_depth()
             }
@@ -1836,16 +1841,39 @@ mod tests {
                 |lines: &[String], prefix: &str| lines.iter().any(|l| l.starts_with(prefix));
             reinitialised += usize::from(reinit_at(&gen.lines, &body_reinit));
             // An `if` with an `else` whose branches both re-initialise at their top level
-            // is definite.
-            let both_branches = block == 3
-                && gen
-                    .lines
+            // is definite, unless a branch uses the local again after its re-initialisation
+            // (and may move it): the text does not tell, so such a block is skipped.
+            let else_line = gen
+                .lines
+                .iter()
+                .position(|l| *l == format!("{outer}}} else {{"));
+            let is_name_char = |c: char| c.is_alphanumeric() || c == '_';
+            let mentioned_after_reinit = |lines: &[String]| {
+                lines
                     .iter()
-                    .position(|l| *l == format!("{outer}}} else {{"))
-                    .is_some_and(|e| {
-                        reinit_at(&gen.lines[..e], &body_reinit)
-                            && reinit_at(&gen.lines[e..], &body_reinit)
-                    });
+                    .position(|l| l.starts_with(&body_reinit))
+                    .is_some_and(|r| {
+                        lines[r + 1..].iter().any(|l| {
+                            l.match_indices(name.as_str()).any(|(at, _)| {
+                                !l[..at].ends_with(is_name_char)
+                                    && !l[at + name.len()..].starts_with(is_name_char)
+                            })
+                        })
+                    })
+            };
+            if block == 3
+                && else_line.is_some_and(|e| {
+                    mentioned_after_reinit(&gen.lines[..e])
+                        || mentioned_after_reinit(&gen.lines[e..])
+                })
+            {
+                continue;
+            }
+            let both_branches = block == 3
+                && else_line.is_some_and(|e| {
+                    reinit_at(&gen.lines[..e], &body_reinit)
+                        && reinit_at(&gen.lines[e..], &body_reinit)
+                });
             definite += usize::from(both_branches);
             assert_eq!(
                 gen.vars[v].moved,

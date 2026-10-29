@@ -1,0 +1,6 @@
+// `impl Drop` for a name that is not a type (alone, since it is a resolve error and the
+// other `impl Drop` errors come later).
+// Checked against rustc: E0425 (the Sabiko codes are annotated).
+impl Drop for Nope { //~ ERROR E0201 cannot find type `Nope` in this scope
+    fn drop(&mut self) {}
+}
