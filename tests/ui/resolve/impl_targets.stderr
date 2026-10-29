@@ -1,0 +1,41 @@
+[E0211] Error: cannot define inherent `impl` for primitive types
+   ╭─[ tests/ui/resolve/impl_targets.sabi:9:6 ]
+   │
+ 9 │ impl &P { //~ ERROR E0211 cannot define inherent `impl` for primitive types
+   │      ─┬  
+   │       ╰── not a struct of this file
+   │ 
+   │ Note: an inherent `impl` block is only allowed for a struct defined in the same file
+───╯
+[E0211] Error: cannot define inherent `impl` for primitive types
+    ╭─[ tests/ui/resolve/impl_targets.sabi:13:6 ]
+    │
+ 13 │ impl (i32, i32) { } //~ ERROR E0211 cannot define inherent `impl` for primitive types
+    │      ─────┬────  
+    │           ╰────── not a struct of this file
+    │ 
+    │ Note: an inherent `impl` block is only allowed for a struct defined in the same file
+────╯
+[E0211] Error: cannot define inherent `impl` for primitive types
+    ╭─[ tests/ui/resolve/impl_targets.sabi:15:6 ]
+    │
+ 15 │ impl () { } //~ ERROR E0211 cannot define inherent `impl` for primitive types
+    │      ─┬  
+    │       ╰── not a struct of this file
+    │ 
+    │ Note: an inherent `impl` block is only allowed for a struct defined in the same file
+────╯
+[E0201] Error: cannot find type `Self` in this scope
+    ╭─[ tests/ui/resolve/impl_targets.sabi:26:17 ]
+    │
+ 26 │ fn Outside() -> Self { //~ ERROR E0201 cannot find type `Self` in this scope
+    │                 ──┬─  
+    │                   ╰─── `Self` is only available in impls
+────╯
+[E0201] Error: cannot find type `Self` in this scope
+    ╭─[ tests/ui/resolve/impl_targets.sabi:31:13 ]
+    │
+ 31 │     let p = Self::New(); //~ ERROR E0201 cannot find type `Self` in this scope
+    │             ──┬─  
+    │               ╰─── `Self` is only available in impls
+────╯

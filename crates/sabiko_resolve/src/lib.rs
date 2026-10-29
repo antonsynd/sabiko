@@ -542,7 +542,7 @@ impl Resolver<'_> {
     fn resolve_impl_target(&mut self, ty: &Type) -> Option<DefId> {
         let TypeKind::Path(path) = &ty.kind else {
             self.resolve_type(ty, true);
-            self.invalid_impl_target(ty.span, "this type");
+            self.invalid_impl_target(ty.span);
             return None;
         };
         let res = self.resolve_type_path(path);
@@ -550,18 +550,18 @@ impl Resolver<'_> {
         match res {
             Res::Def(def) => Some(def),
             Res::Prim(_) => {
-                self.invalid_impl_target(ty.span, "primitive types");
+                self.invalid_impl_target(ty.span);
                 None
             }
             Res::Local(_) | Res::Err => None,
         }
     }
 
-    fn invalid_impl_target(&mut self, span: Span, what: &str) {
+    fn invalid_impl_target(&mut self, span: Span) {
         self.sink.emit(
             Diagnostic::error(
                 ErrorCode::INVALID_IMPL_TARGET,
-                format!("cannot define inherent `impl` for {what}"),
+                "cannot define inherent `impl` for primitive types",
             )
             .with_label(span, "not a struct of this file")
             .with_note(

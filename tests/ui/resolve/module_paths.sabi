@@ -1,9 +1,12 @@
-// Paths with `::` are not supported yet; they are rejected with E0107 in type, value, call and struct-literal position.
+// Module paths are not supported yet: a path with `::` is rejected with E0107 in type and
+// struct-literal position and with three or more segments; `A::B` in value and call
+// position is `Type::Item` (#7), so an `A` that names no type is E0201.
 fn Param(p: Mod::Point) {} //~ ERROR E0107 not yet supported: paths with `::`
 
 fn Main() {
     let a: std::i32 = 1; //~ ERROR E0107 not yet supported: paths with `::`
-    let b = Mod::Value; //~ ERROR E0107 not yet supported: paths with `::`
+    let b = Mod::Value; //~ ERROR E0201 cannot find type `Mod` in this scope
     let c = Mod::Point { X: 1 }; //~ ERROR E0107 not yet supported: paths with `::`
-    let d = Mod::Func(1); //~ ERROR E0107 not yet supported: paths with `::`
+    let d = Mod::Func(1); //~ ERROR E0201 cannot find type `Mod` in this scope
+    let e = a::b::Func(1); //~ ERROR E0107 not yet supported: paths with `::`
 }

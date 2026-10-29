@@ -1,0 +1,18 @@
+// Method lookup failures: no method of that name (on a struct, through `&P`, on `self`),
+// a field called as a method, and a method used as a field.
+// rustc: E0599, E0615 (checked with the pinned rustc).
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Twice(&self) -> i32 { self.Nope() } //~ ERROR E0319 no method named `Nope` found for reference `&P`
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    p.Nope(); //~ ERROR E0319 no method named `Nope` found for struct `P`
+    let r = &p;
+    r.Nope(1); //~ ERROR E0319 no method named `Nope` found for reference `&P`
+    let a = p.X(); //~ ERROR E0319 no method named `X` found for struct `P`
+    let b = p.Get; //~ ERROR E0320 attempted to take value of method `Get` on type `P`
+}

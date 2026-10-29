@@ -1,0 +1,14 @@
+// `Type::Name` lookup failures: an associated function that does not exist, and an
+// associated function (no `self`) called with method syntax.
+// rustc: E0599 (checked with the pinned rustc).
+struct P { X: i32 }
+
+impl P {
+    fn New() -> P { P { X: 0 } }
+}
+
+fn Main() {
+    let p = P::Nope(); //~ ERROR E0212 no associated function named `Nope` found for struct `P`
+    let q = P::New();
+    let r = q.New(); //~ ERROR E0319 no method named `New` found for struct `P`
+}

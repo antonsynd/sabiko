@@ -1,0 +1,21 @@
+// A method called as an associated function takes its receiver as an ordinary first
+// argument, with no auto-ref or auto-deref: it must have exactly the receiver's type.
+// rustc: E0308 (checked with the pinned rustc).
+struct P { X: i32 }
+struct Q { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Inc(&mut self) { self.X += 1; }
+    fn Consume(self) -> i32 { self.X }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let q = Q { X: 2 };
+    let a = P::Get(p); //~ ERROR E0300 mismatched types
+    let b = P::Get(5); //~ ERROR E0300 mismatched types
+    P::Inc(&p); //~ ERROR E0300 mismatched types
+    let c = P::Get(&q); //~ ERROR E0300 mismatched types
+    let d = P::Consume(&p); //~ ERROR E0300 mismatched types
+}

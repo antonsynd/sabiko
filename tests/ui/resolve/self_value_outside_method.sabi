@@ -1,0 +1,14 @@
+// `self` is only a value inside a method with a `self` parameter: not in an associated
+// function without one, not in a free function.
+// rustc: E0424 (checked with the pinned rustc).
+struct P { X: i32 }
+
+impl P {
+    fn New() -> P {
+        P { X: self.X } //~ ERROR E0213 cannot find value `self` in this scope
+    }
+}
+
+fn Free() -> i32 {
+    self.X //~ ERROR E0213 cannot find value `self` in this scope
+}

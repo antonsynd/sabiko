@@ -1,0 +1,54 @@
+[E0203] Error: expected type, found function `F`
+   ╭─[ tests/ui/resolve/path_to_non_type.sabi:8:6 ]
+   │
+ 6 │ fn F() -> i32 { 1 }
+   │    ┬  
+   │    ╰── `F` defined here
+   │ 
+ 8 │ impl F { //~ ERROR E0203 expected type, found function `F`
+   │      ┬  
+   │      ╰── not a type
+───╯
+[E0201] Error: cannot find type `Nope` in this scope
+    ╭─[ tests/ui/resolve/path_to_non_type.sabi:11:6 ]
+    │
+ 11 │ impl Nope { //~ ERROR E0201 cannot find type `Nope` in this scope
+    │      ──┬─  
+    │        ╰─── not found in this scope
+────╯
+[E0203] Error: expected type, found function `F`
+    ╭─[ tests/ui/resolve/path_to_non_type.sabi:16:13 ]
+    │
+  6 │ fn F() -> i32 { 1 }
+    │    ┬  
+    │    ╰── `F` defined here
+    │ 
+ 16 │     let a = F::New(); //~ ERROR E0203 expected type, found function `F`
+    │             ┬  
+    │             ╰── not a type
+────╯
+[E0201] Error: cannot find type `x` in this scope
+    ╭─[ tests/ui/resolve/path_to_non_type.sabi:17:13 ]
+    │
+ 17 │     let b = x::New(); //~ ERROR E0201 cannot find type `x` in this scope
+    │             ┬  
+    │             ╰── not found in this scope
+    │ 
+    │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+────╯
+[E0201] Error: cannot find type `Nope` in this scope
+    ╭─[ tests/ui/resolve/path_to_non_type.sabi:18:13 ]
+    │
+ 18 │     let c = Nope::New(); //~ ERROR E0201 cannot find type `Nope` in this scope
+    │             ──┬─  
+    │               ╰─── not found in this scope
+    │ 
+    │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+────╯
+[E0212] Error: no associated function named `New` found for type `i32`
+    ╭─[ tests/ui/resolve/path_to_non_type.sabi:19:18 ]
+    │
+ 19 │     let d = i32::New(); //~ ERROR E0212 no associated function named `New` found for type `i32`
+    │                  ─┬─  
+    │                   ╰─── associated function not found in type `i32`
+────╯

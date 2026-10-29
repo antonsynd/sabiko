@@ -1,0 +1,20 @@
+// `A::B` paths: the first segment must name a type (a function, a local and an unknown
+// name are errors; a primitive has no such item), and an impl must be for a type.
+// rustc: E0425, E0433, E0573, E0599 (checked with the pinned rustc).
+struct P { X: i32 }
+
+fn F() -> i32 { 1 }
+
+impl F { //~ ERROR E0203 expected type, found function `F`
+}
+
+impl Nope { //~ ERROR E0201 cannot find type `Nope` in this scope
+}
+
+fn Main() {
+    let x = 1;
+    let a = F::New(); //~ ERROR E0203 expected type, found function `F`
+    let b = x::New(); //~ ERROR E0201 cannot find type `x` in this scope
+    let c = Nope::New(); //~ ERROR E0201 cannot find type `Nope` in this scope
+    let d = i32::New(); //~ ERROR E0212 no associated function named `New` found for type `i32`
+}

@@ -1,11 +1,12 @@
 // Two items of one name in one impl block, and across two impl blocks of the same type:
 // both E0592; for the second, rustc reports at the first definition.
+// rustc: E0592 (checked with the pinned rustc).
 struct P { X: i32 }
 
 impl P {
     fn Get(&self) -> i32 { self.X }
-    fn Get(&self) -> i32 { self.X + 1 } //~ rustc E0592: duplicate definitions with name `Get` [duplicate definitions for `Get`]
-    fn New() -> P { P { X: 0 } } //~ rustc E0592: duplicate definitions with name `New` [duplicate definitions for `New`]
+    fn Get(&self) -> i32 { self.X + 1 } //~ ERROR E0210 duplicate definitions with name `Get`
+    fn New() -> P { P { X: 0 } } //~ ERROR E0210 duplicate definitions with name `New`
 }
 
 impl P {

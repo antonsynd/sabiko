@@ -1,0 +1,37 @@
+[E0319] Error: no method named `Nope` found for reference `&P`
+   ╭─[ tests/ui/typeck/unknown_method.sabi:8:35 ]
+   │
+ 8 │     fn Twice(&self) -> i32 { self.Nope() } //~ ERROR E0319 no method named `Nope` found for reference `&P`
+   │                                   ──┬─  
+   │                                     ╰─── method not found
+───╯
+[E0319] Error: no method named `Nope` found for struct `P`
+    ╭─[ tests/ui/typeck/unknown_method.sabi:13:7 ]
+    │
+ 13 │     p.Nope(); //~ ERROR E0319 no method named `Nope` found for struct `P`
+    │       ──┬─  
+    │         ╰─── method not found
+────╯
+[E0319] Error: no method named `Nope` found for reference `&P`
+    ╭─[ tests/ui/typeck/unknown_method.sabi:15:7 ]
+    │
+ 15 │     r.Nope(1); //~ ERROR E0319 no method named `Nope` found for reference `&P`
+    │       ──┬─  
+    │         ╰─── method not found
+────╯
+[E0319] Error: no method named `X` found for struct `P`
+    ╭─[ tests/ui/typeck/unknown_method.sabi:16:15 ]
+    │
+ 16 │     let a = p.X(); //~ ERROR E0319 no method named `X` found for struct `P`
+    │               ┬  
+    │               ╰── field, not a method
+────╯
+[E0320] Error: attempted to take value of method `Get` on type `P`
+    ╭─[ tests/ui/typeck/unknown_method.sabi:17:15 ]
+    │
+ 17 │     let b = p.Get; //~ ERROR E0320 attempted to take value of method `Get` on type `P`
+    │               ─┬─  
+    │                ╰─── method, not a field
+    │ 
+    │ Note: use parentheses to call the method: `Get(..)`
+────╯

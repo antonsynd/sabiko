@@ -1,0 +1,32 @@
+// An inherent `impl` is only for a struct of the file: a reference, a tuple or `()` is
+// rustc's E0390 ("cannot define inherent `impl` for primitive types"), as is a primitive
+// (`typeck/method_on_primitive.sabi`). `Self` is only a type inside an `impl` block
+// (rustc E0411); there it names the struct, also in a struct literal, as a unit struct
+// value and in `Self::Item`.
+struct P { X: i32 }
+struct U;
+
+impl &P { //~ ERROR E0211 cannot define inherent `impl` for primitive types
+    fn A(&self) { }
+}
+
+impl (i32, i32) { } //~ ERROR E0211 cannot define inherent `impl` for primitive types
+
+impl () { } //~ ERROR E0211 cannot define inherent `impl` for primitive types
+
+impl P {
+    fn New() -> Self { Self { X: 1 } }
+    fn Again() -> Self { Self::New() }
+}
+
+impl U {
+    fn Unit() -> Self { Self }
+}
+
+fn Outside() -> Self { //~ ERROR E0201 cannot find type `Self` in this scope
+    P::New()
+}
+
+fn Main() {
+    let p = Self::New(); //~ ERROR E0201 cannot find type `Self` in this scope
+}

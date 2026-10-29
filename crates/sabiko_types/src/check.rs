@@ -1247,10 +1247,8 @@ impl<'a> FnCtxt<'a> {
             let expected = params.get(i).cloned();
             self.check_expr(a, expected.as_ref());
         }
+        // No method returns `!`: the never type cannot be written in a signature.
         self.method_calls.insert(expr.id, callee);
-        if sig.output.is_never() {
-            self.diverges = true;
-        }
         sig.output
     }
 
@@ -1280,6 +1278,8 @@ impl<'a> FnCtxt<'a> {
                         "the receiver's type must be known to call a method",
                     ),
                 );
+                // The local behind it is the same problem, not a new one.
+                self.infer.bind_error(&Ty::Infer(v));
                 return None;
             }
             Ty::Adt(adt) => adt,

@@ -1,7 +1,8 @@
 // A `self` parameter is only allowed in associated functions (alone: rustc reports it from
 // the parser, Sabiko may report it from the parser or the resolver).
+// rustc: an uncoded parser error (checked with the pinned rustc).
 struct P { X: i32 }
 
-fn Free(self) -> i32 { //~ rustc -: `self` parameter is only allowed in associated functions [not semantically valid as function parameter]
+fn Free(self) -> i32 { //~ ERROR E0110 `self` parameter is only allowed in associated functions
     1
 }

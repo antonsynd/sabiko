@@ -1,0 +1,68 @@
+[E0107] Error: not yet supported: generic parameters
+   ╭─[ tests/ui/parse/impl_syntax.sabi:6:5 ]
+   │
+ 6 │ impl<T> P { } //~ ERROR E0107 not yet supported: generic parameters
+   │     ┬  
+   │     ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 6; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: trait implementations
+   ╭─[ tests/ui/parse/impl_syntax.sabi:8:12 ]
+   │
+ 8 │ impl Clone for P { } //~ ERROR E0107 not yet supported: trait implementations
+   │            ─┬─  
+   │             ╰─── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 6; see docs/PLAN.md
+───╯
+[E0107] Error: not yet supported: associated constants
+    ╭─[ tests/ui/parse/impl_syntax.sabi:11:5 ]
+    │
+ 11 │     const C: i32 = 1; //~ ERROR E0107 not yet supported: associated constants
+    │     ──┬──  
+    │       ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: a later step after inherent `impl` blocks (#7); see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: associated types
+    ╭─[ tests/ui/parse/impl_syntax.sabi:12:5 ]
+    │
+ 12 │     type T = i32; //~ ERROR E0107 not yet supported: associated types
+    │     ──┬─  
+    │       ╰─── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0110] Error: unexpected `self` parameter in function
+    ╭─[ tests/ui/parse/impl_syntax.sabi:13:18 ]
+    │
+ 13 │     fn A(x: i32, self) { } //~ ERROR E0110 unexpected `self` parameter in function
+    │                  ──┬─  
+    │                    ╰─── must be the first parameter of an associated function
+────╯
+[E0107] Error: not yet supported: explicit `self` types (`self: Type`)
+    ╭─[ tests/ui/parse/impl_syntax.sabi:14:14 ]
+    │
+ 14 │     fn B(self: P) { } //~ ERROR E0107 not yet supported: explicit `self` types
+    │              ┬  
+    │              ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 6; see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: explicit lifetimes
+    ╭─[ tests/ui/parse/impl_syntax.sabi:15:11 ]
+    │
+ 15 │     fn C(&'a self) { } //~ ERROR E0107 not yet supported: explicit lifetimes
+    │           ─┬  
+    │            ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: planned for Phase 9; see docs/PLAN.md
+────╯
+[E0101] Error: expected a function in this `impl` block, found `struct`
+    ╭─[ tests/ui/parse/impl_syntax.sabi:16:5 ]
+    │
+ 16 │     struct Q; //~ ERROR E0101 expected a function in this `impl` block
+    │     ───┬──  
+    │        ╰──── expected `fn` here
+────╯

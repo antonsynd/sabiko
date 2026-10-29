@@ -1,0 +1,10 @@
+// Receivers whose type has no methods: an unknown type (rustc E0282), `!` (rustc E0599),
+// a tuple and a `&str` (rustc E0599).
+fn Main() {
+    let x;
+    x.Foo(); //~ ERROR E0313 type annotations needed
+    let y: i32 = (return).Foo(); //~ ERROR E0319 no method named `Foo` found for type `!`
+    let t = (1, 2);
+    t.Swap(); //~ ERROR E0319 no method named `Swap` found for type `({integer}, {integer})`
+    "text".Len(); //~ ERROR E0319 no method named `Len` found for reference `&str`
+}

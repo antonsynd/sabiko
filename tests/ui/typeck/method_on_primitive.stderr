@@ -1,0 +1,45 @@
+[E0211] Error: cannot define inherent `impl` for primitive types
+   ╭─[ tests/ui/typeck/method_on_primitive.sabi:4:6 ]
+   │
+ 4 │ impl i32 { //~ ERROR E0211 cannot define inherent `impl` for primitive types
+   │      ─┬─  
+   │       ╰─── not a struct of this file
+   │ 
+   │ Note: an inherent `impl` block is only allowed for a struct defined in the same file
+───╯
+[E0319] Error: no method named `Triple` found for type `i32`
+    ╭─[ tests/ui/typeck/method_on_primitive.sabi:10:15 ]
+    │
+ 10 │     let a = x.Triple(); //~ ERROR E0319 no method named `Triple` found for type `i32`
+    │               ───┬──  
+    │                  ╰──── method not found
+    │ 
+    │ Note: only structs have methods (inherent `impl` blocks)
+────╯
+[E0319] Error: no method named `Triple` found for type `{integer}`
+    ╭─[ tests/ui/typeck/method_on_primitive.sabi:11:15 ]
+    │
+ 11 │     let b = 5.Triple(); //~ ERROR E0319 no method named `Triple` found for type `{integer}`
+    │               ───┬──  
+    │                  ╰──── method not found
+    │ 
+    │ Note: only structs have methods (inherent `impl` blocks)
+────╯
+[E0319] Error: no method named `Not` found for type `bool`
+    ╭─[ tests/ui/typeck/method_on_primitive.sabi:12:18 ]
+    │
+ 12 │     let c = true.Not(); //~ ERROR E0319 no method named `Not` found for type `bool`
+    │                  ─┬─  
+    │                   ╰─── method not found
+    │ 
+    │ Note: only structs have methods (inherent `impl` blocks)
+────╯
+[E0319] Error: no method named `Half` found for type `f64`
+    ╭─[ tests/ui/typeck/method_on_primitive.sabi:13:20 ]
+    │
+ 13 │     let d = 1.5f64.Half(); //~ ERROR E0319 no method named `Half` found for type `f64`
+    │                    ──┬─  
+    │                      ╰─── method not found
+    │ 
+    │ Note: only structs have methods (inherent `impl` blocks)
+────╯

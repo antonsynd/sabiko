@@ -1,0 +1,21 @@
+[E0210] Error: duplicate definitions with name `Get`
+   ╭─[ tests/ui/resolve/duplicate_method.sabi:8:8 ]
+   │
+ 7 │     fn Get(&self) -> i32 { self.X }
+   │        ─┬─  
+   │         ╰─── other definition for `Get`
+ 8 │     fn Get(&self) -> i32 { self.X + 1 } //~ ERROR E0210 duplicate definitions with name `Get`
+   │        ─┬─  
+   │         ╰─── duplicate definitions for `Get`
+───╯
+[E0210] Error: duplicate definitions with name `New`
+    ╭─[ tests/ui/resolve/duplicate_method.sabi:9:8 ]
+    │
+  9 │     fn New() -> P { P { X: 0 } } //~ ERROR E0210 duplicate definitions with name `New`
+    │        ─┬─  
+    │         ╰─── duplicate definitions for `New`
+    │ 
+ 13 │     fn New() -> P { P { X: 1 } }
+    │        ─┬─  
+    │         ╰─── other definition for `New`
+────╯
