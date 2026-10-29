@@ -1,0 +1,11 @@
+// `&x == { x = 3; &y }`: the borrow of `x` on the left is live until the comparison, so
+// assigning `x` in the right operand conflicts (rustc E0506).
+fn Main() {
+    let mut x = 1;
+    let y = 3;
+    let same = &x == {
+        x = 3;
+        &y
+    };
+    PrintLine(same);
+}

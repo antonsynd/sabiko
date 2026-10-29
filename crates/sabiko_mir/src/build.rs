@@ -24,10 +24,11 @@
 use std::collections::HashMap;
 
 use sabiko_ast::{
-    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, PatKind, SourceFile, Stmt, StmtKind,
+    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, PatKind, SourceFile, Stmt,
+    StmtKind,
 };
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
@@ -95,6 +96,9 @@ struct Builder<'a> {
     current: BasicBlock,
     /// Set when a constant without a value was referenced; the body is discarded.
     failed: bool,
+    /// The span of the outermost parentheses around an expression, for the expressions
+    /// that have them (see [`Builder::span_of`]).
+    paren_spans: HashMap<NodeId, Span>,
 }
 
 impl<'a> Builder<'a> {
@@ -157,6 +161,7 @@ impl<'a> Builder<'a> {
             return_block: None,
             current: BasicBlock::START,
             failed: false,
+            paren_spans: HashMap::new(),
         }
     }
 
@@ -359,26 +364,32 @@ impl<'a> Builder<'a> {
     }
 
     /// An operand for a coercion site: a call argument, struct field initialiser, assignment
-    /// right-hand side, annotated `let` initialiser or return value. Like rustc, a `&mut T`
-    /// place is reborrowed (`&mut *p`) instead of moved there, so passing a mutable
-    /// reference to a function does not consume it.
-    fn coerced_operand(&mut self, expr: &Expr) -> Operand {
+    /// right-hand side, annotated `let` initialiser or return value, whose expected type is
+    /// `target` (`None` when there is none, as for `Print`'s argument). Like rustc, a
+    /// `&mut T` place is reborrowed instead of moved there, so passing a mutable reference
+    /// to a function does not consume it: `&mut *p`, or `&*p` when `target` is `&T` (the
+    /// `&mut T` to `&T` coercion), which leaves other shared borrows of `*p` usable.
+    fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>) -> Operand {
         let is_place_expr = matches!(
             strip_parens(expr).kind,
             ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
         );
         if is_place_expr {
-            if let Ty::Ref(Mutability::Mut, _) = self.ty(expr) {
-                let ty = self.ty(expr).clone();
+            if let Ty::Ref(Mutability::Mut, referent) = self.ty(expr) {
+                let referent = (**referent).clone();
+                let mutability = match target {
+                    Some(Ty::Ref(Mutability::Not, _)) => Mutability::Not,
+                    _ => Mutability::Mut,
+                };
                 let place = self.as_place(expr);
                 if place.local != Local::RETURN || !place.projection.is_empty() {
-                    let temp = self.new_temp(ty, expr.span);
+                    let temp = self.new_temp(Ty::Ref(mutability, Box::new(referent)), expr.span);
                     self.assign(
                         Place::local(temp),
-                        Rvalue::Ref(Mutability::Mut, place.deref()),
+                        Rvalue::Ref(mutability, place.deref()),
                         expr.span,
                     );
-                    return Operand::Move(Place::local(temp));
+                    return self.place_operand(Place::local(temp));
                 }
             }
         }
@@ -405,7 +416,12 @@ impl<'a> Builder<'a> {
         let value = match lit {
             Lit::Int { value, .. } => {
                 if ty.as_prim().is_some_and(PrimTy::is_signed_int) {
-                    ConstValue::Int(i128::try_from(*value).unwrap_or(i128::MAX))
+                    // The type checker only lets `2^127` through as the operand of a
+                    // negation (`-170141183460469231731687303715884105728i128`); wrapping
+                    // it to `i128::MIN` keeps `-MIN == MIN` exact. Saturating it to
+                    // `i128::MAX` made that literal `MIN + 1`.
+                    #[allow(clippy::cast_possible_wrap)]
+                    ConstValue::Int(*value as i128)
                 } else {
                     ConstValue::Uint(*value)
                 }
@@ -481,6 +497,21 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// The span statements lowered from `expr` carry: its own, or, inside parentheses, that
+    /// of the outermost parentheses, as rustc's HIR has it (`(a + b)` overflows at the
+    /// `(`), so panic locations agree with rustc's.
+    fn span_of(&self, expr: &Expr) -> Span {
+        self.paren_spans.get(&expr.id).copied().unwrap_or(expr.span)
+    }
+
+    /// Records that `inner`, the contents of the parenthesised `paren`, takes the span of
+    /// the outermost parentheses, and returns `inner`.
+    fn enter_paren<'e>(&mut self, paren: &Expr, inner: &'e Expr) -> &'e Expr {
+        let span = self.span_of(paren);
+        self.paren_spans.insert(inner.id, span);
+        inner
+    }
+
     fn def_kind(&self, def: DefId) -> DefKind {
         self.resolve.def(def).kind
     }
@@ -497,7 +528,10 @@ impl<'a> Builder<'a> {
     /// operand can read `n`.
     fn as_operand(&mut self, expr: &Expr) -> Operand {
         match &expr.kind {
-            ExprKind::Paren(inner) => self.as_operand(inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.as_operand(inner)
+            }
             ExprKind::Lit(lit) => {
                 let ty = self.ty(expr).clone();
                 Operand::Constant(self.lit_constant(lit, &ty, expr.span))
@@ -525,7 +559,10 @@ impl<'a> Builder<'a> {
     /// Lowers `expr` to a place. Non-place expressions are evaluated into a temporary.
     fn as_place(&mut self, expr: &Expr) -> Place {
         match &expr.kind {
-            ExprKind::Paren(inner) => self.as_place(inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.as_place(inner)
+            }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Local(id) => Place::local(self.mir_local(id)),
                 _ => Place::local(self.as_temp(expr)),
@@ -556,9 +593,12 @@ impl<'a> Builder<'a> {
     /// nothing and leave the builder in an unreachable block.
     #[allow(clippy::too_many_lines)]
     fn expr_into_dest(&mut self, dest: &Place, expr: &Expr) {
-        let span = expr.span;
+        let span = self.span_of(expr);
         match &expr.kind {
-            ExprKind::Paren(inner) => self.expr_into_dest(dest, inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.expr_into_dest(dest, inner);
+            }
             ExprKind::Lit(_) | ExprKind::Unit => {
                 let op = self.as_operand(expr);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
@@ -594,6 +634,11 @@ impl<'a> Builder<'a> {
             ExprKind::Binary(op @ (BinOp::And | BinOp::Or), lhs, rhs) => {
                 self.lower_logical(dest, *op, lhs, rhs, span);
             }
+            ExprKind::Binary(op, lhs, rhs)
+                if op.is_comparison() && self.comparison_derefs(lhs, rhs) > 0 =>
+            {
+                self.lower_ref_comparison(dest, *op, lhs, rhs, span);
+            }
             ExprKind::Binary(op, lhs, rhs) => {
                 let lhs = self.as_operand(lhs);
                 let rhs = self.as_operand(rhs);
@@ -607,7 +652,16 @@ impl<'a> Builder<'a> {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
                     unreachable!("callees are function paths in a checked body")
                 };
-                let args: Vec<Operand> = args.iter().map(|a| self.coerced_operand(a)).collect();
+                // `Print` and `PrintLine` are overloaded and have no signature.
+                let inputs = match self.typeck.items.builtin(func) {
+                    Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
+                    _ => self.typeck.items.fn_sig(func).inputs.clone(),
+                };
+                let args: Vec<Operand> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| self.coerced_operand(a, inputs.get(i)))
+                    .collect();
                 let next = self.new_block();
                 // A callee returning `!` (`Panic`) has no return edge; what follows lands
                 // in an unreachable block, as after `return`.
@@ -631,9 +685,10 @@ impl<'a> Builder<'a> {
                 mutable,
                 expr: inner,
             } => {
-                // `&loop {}`, `&break 4`: the type checker types the borrow of a diverging
-                // operand `!`, and there is no value to borrow.
-                if self.ty(expr).is_never() {
+                // `&loop {}`, `&break 4`: the borrow of a diverging operand (typed `&!`)
+                // has no value to borrow; only the operand runs, and what follows is
+                // unreachable. The destination is never written.
+                if self.ty(inner).is_never() {
                     self.lower_expr_discard(inner);
                 } else {
                     let place = self.as_place(inner);
@@ -676,7 +731,8 @@ impl<'a> Builder<'a> {
                     })
                     .collect();
                 for (field, index) in fields.iter().zip(indices) {
-                    operands[index] = Some(self.coerced_operand(&field.value));
+                    let field_ty = adt.fields[index].ty.clone();
+                    operands[index] = Some(self.coerced_operand(&field.value, Some(&field_ty)));
                 }
                 let operands = operands
                     .into_iter()
@@ -694,9 +750,12 @@ impl<'a> Builder<'a> {
     /// statement-like forms need no destination; anything else goes into a temporary that
     /// dies with the statement.
     fn lower_expr_discard(&mut self, expr: &Expr) {
-        let span = expr.span;
+        let span = self.span_of(expr);
         match &expr.kind {
-            ExprKind::Paren(inner) => self.lower_expr_discard(inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.lower_expr_discard(inner);
+            }
             ExprKind::Assign(..) | ExprKind::AssignOp(..) => self.lower_assign(expr),
             ExprKind::Block(block) => self.lower_block_discard(block),
             ExprKind::If { cond, then, els } => {
@@ -713,13 +772,79 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// How many references both operands of a comparison have: `r == s` for `r, s: &&i32`
+    /// compares `**r` with `**s`. Zero for primitive operands and when either side
+    /// diverges.
+    fn comparison_derefs(&self, lhs: &Expr, rhs: &Expr) -> usize {
+        let (mut a, mut b) = (self.ty(lhs), self.ty(rhs));
+        let mut derefs = 0;
+        while let (Ty::Ref(_, x), Ty::Ref(_, y)) = (a, b) {
+            a = x;
+            b = y;
+            derefs += 1;
+        }
+        derefs
+    }
+
+    /// `r == s` (or any comparison) on references compares the referents, as Rust's
+    /// `PartialEq`/`PartialOrd` impls for `&A` do. Each operand is evaluated to a shared
+    /// reference first and both are dereferenced in the comparison itself, after both
+    /// were evaluated: rustc passes `&r` and `&s` to `PartialEq::eq`, so the referents
+    /// stay borrowed while the right operand runs (`r == { *r = 3; s }` is a conflict),
+    /// and a `&mut` operand is only borrowed, not moved.
+    fn lower_ref_comparison(
+        &mut self,
+        dest: &Place,
+        op: BinOp,
+        lhs: &Expr,
+        rhs: &Expr,
+        span: Span,
+    ) {
+        let derefs = self.comparison_derefs(lhs, rhs);
+        let mut lhs = self.comparison_operand(lhs);
+        let mut rhs = self.comparison_operand(rhs);
+        for _ in 0..derefs {
+            lhs = lhs.deref();
+            rhs = rhs.deref();
+        }
+        let lhs = self.place_operand(lhs);
+        let rhs = self.place_operand(rhs);
+        self.assign(dest.clone(), Rvalue::BinaryOp(op, lhs, rhs), span);
+    }
+
+    /// A reference operand of a comparison, as a temporary holding the reference. A place
+    /// is reborrowed shared (`&*r`), so a `&mut` place is not moved; anything else is
+    /// evaluated into the temporary.
+    fn comparison_operand(&mut self, expr: &Expr) -> Place {
+        let is_place = match &strip_parens(expr).kind {
+            ExprKind::Path(_) => matches!(self.path_res(expr), Some(Res::Local(_))),
+            ExprKind::Field(..) | ExprKind::Deref(_) => true,
+            _ => false,
+        };
+        if !is_place {
+            return Place::local(self.as_temp(expr));
+        }
+        let Ty::Ref(_, referent) = self.ty(expr).clone() else {
+            unreachable!("comparison operands with derefs are references")
+        };
+        let place = self.as_place(expr);
+        let temp = self.new_temp(Ty::shared_ref(*referent), expr.span);
+        self.assign(
+            Place::local(temp),
+            Rvalue::Ref(Mutability::Not, place.deref()),
+            expr.span,
+        );
+        Place::local(temp)
+    }
+
     /// `p = e` and `p op= e`. The right-hand side is evaluated first, then the place, as
     /// in rustc.
     fn lower_assign(&mut self, expr: &Expr) {
-        let span = expr.span;
+        let span = self.span_of(expr);
         match &expr.kind {
             ExprKind::Assign(lhs, rhs) => {
-                let rhs = self.coerced_operand(rhs);
+                let target = self.ty(lhs).clone();
+                let rhs = self.coerced_operand(rhs, Some(&target));
                 let place = self.as_place(lhs);
                 self.assign(place, Rvalue::Use(rhs), span);
             }
@@ -879,7 +1004,8 @@ impl<'a> Builder<'a> {
         let ret = Place::local(Local::RETURN);
         match value {
             Some(value) if self.is_mut_ref_place_expr(value) => {
-                let op = self.coerced_operand(value);
+                let target = ret.ty(&self.body);
+                let op = self.coerced_operand(value, Some(&target));
                 self.assign(ret, Rvalue::Use(op), span);
             }
             Some(value) => self.expr_into_dest(&ret, value),
@@ -936,10 +1062,11 @@ impl<'a> Builder<'a> {
                     if let Some(init) = &l.init {
                         if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
-                            let op = self.coerced_operand(init);
+                            let target = Place::local(local).ty(&self.body);
+                            let op = self.coerced_operand(init, Some(&target));
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
-                        } else if let Some((mutable, inner)) =
-                            Self::ref_of_temporary(init).filter(|_| !self.ty(init).is_never())
+                        } else if let Some((mutable, inner)) = Self::ref_of_temporary(init)
+                            .filter(|(_, inner)| !self.ty(inner).is_never())
                         {
                             // Temporary lifetime extension: in `let r = &<rvalue>;` the
                             // temporary lives as long as `r`'s block, as in Rust.

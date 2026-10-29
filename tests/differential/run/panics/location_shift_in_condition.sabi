@@ -1,0 +1,9 @@
+// A shift check in a `while` condition panics where the condition's shift starts.
+fn Main() {
+    let mut n: u32 = 0;
+    while (1u64 << n) < 1000000000000 { n += 7; }
+    PrintLine(n);
+    let mut m: i64 = 60;
+    while (1i64 << m) != 0 { m += 1; }
+    PrintLine("not reached");
+}

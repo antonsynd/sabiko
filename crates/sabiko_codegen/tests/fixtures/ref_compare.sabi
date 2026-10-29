@@ -1,0 +1,27 @@
+// Comparisons between references load the referents (`ldind.*`) and compare them like
+// the primitives: unsigned forms for `u8`, unordered negation for floats.
+fn Unsigned(a: &u8, b: &u8) -> bool {
+    a < b
+}
+
+fn FloatNe(a: &mut f64, b: &f64) -> bool {
+    a != b
+}
+
+fn FloatGe(a: &f32, b: &f32) -> bool {
+    a >= b
+}
+
+fn Fields(p: &P, q: &P) -> bool {
+    &p.X == &q.X
+}
+
+struct P {
+    X: i64,
+}
+
+fn Main() {
+    let c = 'x';
+    PrintLine(&c <= &'y');
+    PrintLine(Unsigned(&1, &2));
+}

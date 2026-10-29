@@ -1,0 +1,67 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:11:21 ]
+    │
+ 11 │     let q: &Point = &loop {}; //~ ERROR E0300 mismatched types
+    │                     ────┬───  
+    │                         ╰───── expected `&Point`, found `&!`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:15:10 ]
+    │
+ 15 │     Pass(&return 1); //~ ERROR E0300 mismatched types
+    │          ────┬────  
+    │              ╰────── expected `&i32`, found `&!`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:20:5 ]
+    │
+ 20 │     &mut loop {} //~ ERROR E0300 mismatched types
+    │     ──────┬─────  
+    │           ╰─────── expected `()`, found `&mut !`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:24:5 ]
+    │
+ 24 │     &return x //~ ERROR E0300 mismatched types
+    │     ────┬────  
+    │         ╰────── expected `&i32`, found `&!`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:28:23 ]
+    │
+ 28 │     let r: &mut i32 = &mut return 1; //~ ERROR E0300 mismatched types
+    │                       ──────┬──────  
+    │                             ╰──────── expected `&mut i32`, found `&mut !`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:35:9 ]
+    │
+ 35 │     r = &x; //~ ERROR E0300 mismatched types
+    │         ─┬  
+    │          ╰── expected `&!`, found `&{integer}`
+────╯
+[E0300] Error: `if` and `else` have incompatible types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:41:30 ]
+    │
+ 41 │     let r = if c { &a } else { &return 1 }; //~ ERROR E0300 `if` and `else` have incompatible types
+    │             ───────────────┬───────┬──────  
+    │                            │       ╰──────── expected `&{integer}`, found `&!`
+    │                            │                
+    │                            ╰──────────────── `if` and `else` have incompatible types
+────╯
+[E0300] Error: `if` and `else` have incompatible types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:46:31 ]
+    │
+ 46 │     let v = if c { 1u8 } else { return 0; 2i32 }; //~ ERROR E0300 `if` and `else` have incompatible types
+    │             ──────────────────┬────────┬────────  
+    │                               │        ╰────────── expected `u8`, found `i32`
+    │                               │                   
+    │                               ╰─────────────────── `if` and `else` have incompatible types
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_borrow.sabi:52:5 ]
+    │
+ 52 │     v //~ ERROR E0300 mismatched types
+    │     ┬  
+    │     ╰── expected `i32`, found `u8`
+────╯

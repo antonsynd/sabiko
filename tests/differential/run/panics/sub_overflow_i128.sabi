@@ -1,0 +1,10 @@
+// Subtracting below `i128::MIN` panics in debug builds.
+fn Sub(a: i128, b: i128) -> i128 { a - b }
+
+fn Main() {
+    PrintLine(Sub(-170141183460469231731687303715884105727, 1));
+    PrintLine(Sub(170141183460469231731687303715884105727, 170141183460469231731687303715884105727));
+    PrintLine("about to overflow");
+    PrintLine(Sub(-170141183460469231731687303715884105728, 1));
+    PrintLine("not reached");
+}

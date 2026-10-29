@@ -1,0 +1,9 @@
+// A `u128` shift amount of `2^64` panics in debug builds: it must not be truncated to 0 first.
+fn Shr(x: u64, n: u128) -> u64 { x >> n }
+
+fn Main() {
+    PrintLine(Shr(18446744073709551615, 63));
+    PrintLine("about to shift too far");
+    PrintLine(Shr(1024, 18446744073709551616));
+    PrintLine("not reached");
+}

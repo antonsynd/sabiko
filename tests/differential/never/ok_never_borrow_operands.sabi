@@ -1,0 +1,30 @@
+// `&!` as an operand: compared with another `&!` (`!: PartialEq`), printed (`!: Display`),
+// as a statement, and from a block whose tail diverges.
+fn Compare() -> bool {
+    &loop {} == &loop {}
+}
+
+fn Printed() {
+    PrintLine(&loop {});
+}
+
+fn Statement() {
+    &mut loop {};
+}
+
+fn BlockBorrow() {
+    let x = &{
+        return;
+    };
+}
+
+fn Branches(c: bool) -> i32 {
+    let a = 5;
+    let r = if c {
+        &a
+    } else {
+        return 1;
+        &2
+    };
+    *r
+}

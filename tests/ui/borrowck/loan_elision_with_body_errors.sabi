@@ -1,0 +1,67 @@
+// Signature elision (E0416) depends only on the signature, so it is reported even when
+// the body has errors and never reaches MIR (rustc reports E0106 next to the body's
+// errors too). Each signature is reported exactly once.
+
+fn ErrorBeforeUse(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let x: bool = 1; //~ ERROR E0300 mismatched types
+    let _ = b;
+    a
+}
+
+fn ErrorAfterUse(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let r = a;
+    let _ = b;
+    let y: i32 = true; //~ ERROR E0300 mismatched types
+    r
+}
+
+fn ErrorInNestedBlock(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    if *a > 0 {
+        {
+            let z: u8 = 'c'; //~ ERROR E0300 mismatched types
+        }
+    }
+    b
+}
+
+fn NoInputsWithError() -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let w: bool = 2; //~ ERROR E0300 mismatched types
+    &0
+}
+
+fn UnresolvedNameInBody(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    Nope(); //~ ERROR E0202 cannot find value `Nope`
+    a
+}
+
+// Clean bodies with unelidable signatures, next to the bodies with errors.
+fn CleanBody(a: &i32, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let _ = b;
+    a
+}
+
+fn ValueInput(n: i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    let _ = n;
+    &0
+}
+
+// Signatures that elide are not reported, whether or not their body has errors.
+fn Elides(a: &i32, n: i32) -> &i32 {
+    let v: bool = n; //~ ERROR E0300 mismatched types
+    a
+}
+
+fn ElidesClean(a: &i32) -> &i32 {
+    a
+}
+
+// An unresolved type in a parameter has no reference inside it: the reference count
+// still decides (rustc agrees).
+fn UnresolvedParamType(a: &Missing, b: &i32) -> &i32 { //~ ERROR E0416 missing lifetime specifier
+    //~^ ERROR E0201 cannot find type `Missing`
+    b
+}
+
+fn UnresolvedParamTypeElides(a: Missing, b: &i32) -> &i32 { //~ ERROR E0201 cannot find type `Missing`
+    b
+}

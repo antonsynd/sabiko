@@ -1,0 +1,81 @@
+[E0306] Error: can't compare `&{integer}` with `{integer}`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:11:13 ]
+    │
+ 11 │     let c = &a == a; //~ ERROR E0306 can't compare `&{integer}` with `{integer}`
+    │             ───┬───  
+    │                ╰───── no implementation for `&{integer} == {integer}`
+────╯
+[E0306] Error: can't compare `&{integer}` with `{integer}`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:13:13 ]
+    │
+ 13 │     let d = r != 1; //~ ERROR E0306 can't compare `&{integer}` with `{integer}`
+    │             ───┬──  
+    │                ╰──── no implementation for `&{integer} != {integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:14:18 ]
+    │
+ 14 │     let e = a == &a; //~ ERROR E0300 mismatched types
+    │                  ─┬  
+    │                   ╰── expected `{integer}`, found `&{integer}`
+────╯
+[E0306] Error: can't compare `&mut {integer}` with `&{integer}`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:15:13 ]
+    │
+ 15 │     let f = &mut b < &a; //~ ERROR E0306 can't compare `&mut {integer}` with `&{integer}`
+    │             ─────┬─────  
+    │                  ╰─────── no implementation for `&mut {integer} < &{integer}`
+    │ 
+    │ Note: `<`, `<=`, `>` and `>=` need references of the same mutability, except that an outermost `&mut` on the right weakens to `&`
+────╯
+[E0306] Error: can't compare `&&{integer}` with `&&mut {integer}`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:16:13 ]
+    │
+ 16 │     let g = &&a < &&mut b; //~ ERROR E0306 can't compare `&&{integer}` with `&&mut {integer}`
+    │             ──────┬──────  
+    │                   ╰──────── no implementation for `&&{integer} < &&mut {integer}`
+    │ 
+    │ Note: `<`, `<=`, `>` and `>=` need references of the same mutability, except that an outermost `&mut` on the right weakens to `&`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:17:19 ]
+    │
+ 17 │     let h = &a == &1.0; //~ ERROR E0300 mismatched types
+    │                   ──┬─  
+    │                     ╰─── expected `&{integer}`, found `&{float}`
+────╯
+[E0306] Error: binary operation `==` cannot be applied to type `&P`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:18:13 ]
+    │
+ 18 │     let i = p == q; //~ ERROR E0306 binary operation `==` cannot be applied to type `&P`
+    │             ───┬──  
+    │                ╰──── no implementation for `&P == &P`
+────╯
+[E0306] Error: binary operation `==` cannot be applied to type `&str`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:21:13 ]
+    │
+ 21 │     let k = s == "x"; //~ ERROR E0306 binary operation `==` cannot be applied to type `&str`
+    │             ────┬───  
+    │                 ╰───── no implementation for `&str == &str`
+────╯
+[E0306] Error: can't compare `&&{integer}` with `&{integer}`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:22:13 ]
+    │
+ 22 │     let l = &&a == &a; //~ ERROR E0306 can't compare `&&{integer}` with `&{integer}`
+    │             ────┬────  
+    │                 ╰────── no implementation for `&&{integer} == &{integer}`
+────╯
+[E0306] Error: binary operation `==` cannot be applied to type `P`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:29:16 ]
+    │
+ 29 │     let same = x == x; //~ ERROR E0306 binary operation `==` cannot be applied to type `P`
+    │                ───┬──  
+    │                   ╰──── no implementation for `P == P`
+────╯
+[E0306] Error: binary operation `!=` cannot be applied to type `&P`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:32:20 ]
+    │
+ 32 │     let alsoSame = r != r; //~ ERROR E0306 binary operation `!=` cannot be applied to type `&P`
+    │                    ───┬──  
+    │                       ╰──── no implementation for `&P != &P`
+────╯

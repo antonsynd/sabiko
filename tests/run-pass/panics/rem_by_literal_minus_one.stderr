@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/panics/rem_by_literal_minus_one.sabi:7:5:
+attempt to calculate the remainder with overflow

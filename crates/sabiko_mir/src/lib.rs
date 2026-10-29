@@ -7,8 +7,10 @@
 //!
 //! The shape follows rustc's MIR closely so that the borrow checker (Phase 3) and the CIL
 //! backend (Phase 4) can lean on well-understood designs. Deliberate simplifications for
-//! Phase 2: no `Assert` terminators (overflow and division checks are the backend's job,
-//! via `add.ovf` and the CLR's own `DivideByZeroException`), no unwind edges, no drops yet.
+//! Phase 2: no `Assert` terminators (overflow, division and shift checks are the backend's
+//! job: it emits them explicitly, located at the statement's span, decision 43), no unwind
+//! edges, no drops yet. A statement lowered from a parenthesised expression carries the
+//! span of the outermost parentheses, as rustc's HIR does, so panic locations agree.
 //!
 //! Module map:
 //! - [`build`]: AST to MIR lowering (`build::build_bodies`).

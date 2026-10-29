@@ -1,0 +1,10 @@
+// Adding past `i128::MAX` panics in debug builds.
+fn Add(a: i128, b: i128) -> i128 { a + b }
+
+fn Main() {
+    PrintLine(Add(170141183460469231731687303715884105726, 1));
+    PrintLine(Add(-170141183460469231731687303715884105728, 0));
+    PrintLine("about to overflow");
+    PrintLine(Add(170141183460469231731687303715884105727, 1));
+    PrintLine("not reached");
+}

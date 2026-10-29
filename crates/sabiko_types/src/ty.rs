@@ -83,6 +83,17 @@ impl Ty {
         matches!(self, Ty::Never)
     }
 
+    /// `!`, or a reference to an uninhabited type (`&!`, the type of `&loop {}`): no
+    /// value of it is ever produced, so code generation gives it no storage.
+    #[must_use]
+    pub fn is_uninhabited(&self) -> bool {
+        match self {
+            Ty::Never => true,
+            Ty::Ref(_, inner) => inner.is_uninhabited(),
+            _ => false,
+        }
+    }
+
     #[must_use]
     pub fn is_unit(&self) -> bool {
         matches!(self, Ty::Unit)

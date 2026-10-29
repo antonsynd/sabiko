@@ -1,0 +1,23 @@
+//@ release
+// Release builds wrap `+ - *` and unary `-` at every width and mask shift amounts; casts are
+// unaffected.
+fn I8(a: i8, b: i8) { Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' '); PrintLine(-a); }
+fn I16(a: i16, b: i16) { Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' '); PrintLine(-a); }
+fn I32(a: i32, b: i32) { Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' '); PrintLine(-a); }
+fn I64(a: i64, b: i64) { Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' '); PrintLine(-a); }
+fn Isize(a: isize, b: isize) { Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' '); PrintLine(-a); }
+fn U8(a: u8, b: u8) { Print(a + b); Print(' '); Print(a - b); Print(' '); PrintLine(a * b); }
+fn U16(a: u16, b: u16) { Print(a + b); Print(' '); Print(a - b); Print(' '); PrintLine(a * b); }
+fn U32(a: u32, b: u32) { Print(a + b); Print(' '); Print(a - b); Print(' '); PrintLine(a * b); }
+fn U64(a: u64, b: u64) { Print(a + b); Print(' '); Print(a - b); Print(' '); PrintLine(a * b); }
+fn Usize(a: usize, b: usize) { Print(a + b); Print(' '); Print(a - b); Print(' '); PrintLine(a * b); }
+fn Shifts(a: u16, b: i64, n: u32) { Print(a << n); Print(' '); Print(a >> n); Print(' '); Print(b << n); Print(' '); PrintLine(b >> n); }
+
+fn Main() {
+    I8(-128, -1); I8(127, 127); I16(-32768, -1); I16(32767, 300);
+    I32(-2147483648, -1); I32(2147483647, 65536); I64(-9223372036854775808, -1);
+    I64(9223372036854775807, 4294967296); Isize(-9223372036854775808, 3);
+    U8(0, 1); U8(255, 255); U16(0, 1); U16(65535, 65535); U32(0, 1); U32(4294967295, 4294967295);
+    U64(0, 1); U64(18446744073709551615, 18446744073709551615); Usize(0, 1);
+    Shifts(0x8001, -5, 17); Shifts(1, 1, 64); Shifts(3, 3, 4294967295);
+}

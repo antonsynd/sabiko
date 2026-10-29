@@ -1,0 +1,9 @@
+// A tab before the panic site counts as one column, as in rustc.
+fn Id(x: i64) -> i64 { x }
+
+fn Main() {
+	let a: i64 = Id(-9223372036854775807);
+	PrintLine(a);
+	let b = a	- 2;
+	PrintLine(b);
+}

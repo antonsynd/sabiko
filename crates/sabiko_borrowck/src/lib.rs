@@ -1,7 +1,8 @@
 //! Borrow checking for Sabiko MIR.
 //!
 //! Four checks run on the MIR of one function at a time and report through the shared
-//! diagnostics sink:
+//! diagnostics sink (signature elision, E0416, is checked once per function by
+//! [`check_signatures`], independently of the bodies):
 //! - mutability: writes and `&mut` borrows must go to mutable places;
 //! - initialisation: reads follow a write on every path, an immutable binding is written
 //!   at most once;
@@ -33,6 +34,8 @@ use sabiko_diagnostics::DiagnosticSink;
 use sabiko_mir::Body;
 use sabiko_resolve::ResolveResults;
 use sabiko_types::TypeckResults;
+
+pub use loans::check_signatures;
 
 /// Checks one body.
 pub fn check_body(

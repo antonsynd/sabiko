@@ -1,0 +1,16 @@
+// Unary minus on `i128` and `!` on both 128-bit types, including folded negative literals.
+fn Neg(x: i128) -> i128 { -x }
+fn Not(x: u128) -> u128 { !x }
+fn NotI(x: i128) -> i128 { !x }
+
+fn Main() {
+    PrintLine(Neg(170141183460469231731687303715884105727));
+    PrintLine(Neg(-170141183460469231731687303715884105727));
+    PrintLine(Neg(0)); PrintLine(Neg(-1)); PrintLine(Neg(18446744073709551616));
+    PrintLine(-170141183460469231731687303715884105728i128);
+    PrintLine(-(-5i128));
+    PrintLine(-Neg(7));
+    PrintLine(Not(0)); PrintLine(Not(340282366920938463463374607431768211455));
+    PrintLine(Not(1 << 64));
+    PrintLine(NotI(0)); PrintLine(NotI(-170141183460469231731687303715884105728));
+}

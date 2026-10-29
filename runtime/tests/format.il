@@ -146,6 +146,47 @@
     ldc.i4.s 42
     conv.u
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native uint)
+    // i128, u128 (System.Int128/UInt128, built from their 64-bit halves)
+    ldc.i8 0x8000000000000000
+    ldc.i8 0
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
+    ldc.i8 0x7FFFFFFFFFFFFFFF
+    ldc.i8 -1
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
+    ldc.i8 -1
+    ldc.i8 -1
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
+    ldc.i8 0
+    ldc.i8 0
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
+    ldc.i8 -1
+    ldc.i8 0
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
+    ldc.i8 0x27E41B32
+    ldc.i8 0x46BEC9B16E398115
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
+    ldc.i8 -1
+    ldc.i8 -1
+    newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.UInt128)
+    ldc.i8 0
+    ldc.i8 0
+    newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.UInt128)
+    ldc.i8 1
+    ldc.i8 0
+    newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.UInt128)
+    ldc.i8 0x8000000000000000
+    ldc.i8 0
+    newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.UInt128)
     // bool, char, str
     ldc.i4.1
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(bool)
@@ -179,6 +220,14 @@
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(float64)
     ldc.i4.7
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(uint8)
+    ldc.i8 -1
+    ldc.i8 -5
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.Int128)
+    ldc.i8 0
+    ldc.i8 9
+    newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.UInt128)
     ldstr "!"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.ReadOnlySpan`1<char>)

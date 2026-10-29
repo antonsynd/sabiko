@@ -46,7 +46,7 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
         },
         overflow_checks,
     };
-    let il = sabiko_codegen::emit_il(&bodies, &resolve, &typeck, &options, &mut sink);
+    let il = sabiko_codegen::emit_il(&bodies, &resolve, &typeck, &sm, &options, &mut sink);
     assert!(
         !sink.has_errors(),
         "code generation reported errors:\n{}",
@@ -195,4 +195,14 @@ fn arith_release() {
     let il = lower(&path, false);
     assemble_and_verify("arith_release", &il);
     insta::assert_snapshot!("arith_release", il);
+}
+
+/// 128-bit arithmetic in release mode: the plain operator methods and masked shift amounts.
+#[test]
+fn wide_ints_release() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wide_ints.sabi");
+    let il = lower(&path, false);
+    assemble_and_verify("wide_ints_release", &il);
+    insta::assert_snapshot!("wide_ints_release", il);
 }

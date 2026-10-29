@@ -1,7 +1,7 @@
 # Nightly soak: a fuzzing budget over the whole pipeline and the property tests at a much
-# higher case count than a PR run can afford. Any crash is a compiler bug: the reproducer
-# is uploaded as a workflow artifact and the job fails. Also mutation testing and the
-# runtime/memory benchmarks against C# (benchmarks/README.md).
+# higher case count than a PR run can afford, mutation testing, the RustSec advisory check,
+# and the runtime/memory benchmarks against C# (benchmarks/README.md). Any crash is a
+# compiler bug: the reproducer is uploaded as a workflow artifact and the job fails.
 name: Nightly
 
 on:
@@ -78,6 +78,20 @@ jobs:
       - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
         run: scripts/setup-dotnet.sh
       - run: cargo test --workspace
+
+  # RustSec advisories against the dependency graph (`deny.toml`). Nightly rather than per
+  # push (decision 45): a new advisory is news about a dependency, not about the change
+  # under review, and should not fail unrelated pull requests.
+  advisories:
+    name: cargo-deny (advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+      - run: cargo deny check advisories
 
   # Runtime and memory of Sabiko-compiled programs against the same programs in C# (and
   # rustc for reference); see benchmarks/README.md. The report goes to the job summary and,

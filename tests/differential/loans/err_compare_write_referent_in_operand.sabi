@@ -1,0 +1,12 @@
+// The left operand's referent stays borrowed while the right operand runs, so writing
+// through the same `&mut` there conflicts (rustc E0506).
+fn Main() {
+    let mut a = 1;
+    let b = 4;
+    let r = &mut a;
+    let same = r == {
+        *r = 3;
+        &b
+    };
+    PrintLine(same);
+}

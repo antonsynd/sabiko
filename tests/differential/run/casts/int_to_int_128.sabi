@@ -1,0 +1,38 @@
+// Casts between `i128`/`u128` and every other integer type, `bool` and `char`: widening
+// extends by the source's sign, narrowing truncates, `i128` <-> `u128` reinterprets.
+fn Main() {
+    let n8: i8 = -1;
+    let n16: i16 = -32768;
+    let n32: i32 = -2147483648;
+    let n64: i64 = -9223372036854775808;
+    let nsz: isize = -2;
+    PrintLine(n8 as i128); PrintLine(n8 as u128); PrintLine(n16 as i128); PrintLine(n16 as u128);
+    PrintLine(n32 as i128); PrintLine(n32 as u128); PrintLine(n64 as i128); PrintLine(n64 as u128);
+    PrintLine(nsz as i128); PrintLine(nsz as u128);
+    let b8: u8 = 255;
+    let b16: u16 = 65535;
+    let b32: u32 = 4294967295;
+    let b64: u64 = 18446744073709551615;
+    let bsz: usize = 18446744073709551615;
+    PrintLine(b8 as i128); PrintLine(b8 as u128); PrintLine(b16 as i128); PrintLine(b16 as u128);
+    PrintLine(b32 as i128); PrintLine(b32 as u128); PrintLine(b64 as i128); PrintLine(b64 as u128);
+    PrintLine(bsz as i128); PrintLine(bsz as u128);
+    PrintLine(true as i128); PrintLine(false as u128); PrintLine(true as u128);
+    PrintLine('A' as i128); PrintLine('z' as u128);
+    let w: i128 = -0x0123456789ABCDEFFEDCBA9876543210;
+    PrintLine(w as i8); PrintLine(w as i16); PrintLine(w as i32); PrintLine(w as i64);
+    PrintLine(w as isize); PrintLine(w as u8); PrintLine(w as u16); PrintLine(w as u32);
+    PrintLine(w as u64); PrintLine(w as usize); PrintLine(w as u128); PrintLine(w as i128);
+    let v: u128 = 0xFEDCBA9876543210FEDCBA9876543210;
+    PrintLine(v as i8); PrintLine(v as i16); PrintLine(v as i32); PrintLine(v as i64);
+    PrintLine(v as isize); PrintLine(v as u8); PrintLine(v as u16); PrintLine(v as u32);
+    PrintLine(v as u64); PrintLine(v as usize); PrintLine(v as i128); PrintLine(v as u128);
+    let min: i128 = -170141183460469231731687303715884105728;
+    PrintLine(min as u128); PrintLine(min as i64); PrintLine(min as u8); PrintLine(min as isize);
+    let max: u128 = 340282366920938463463374607431768211455;
+    PrintLine(max as i128); PrintLine(max as i32); PrintLine(max as u64); PrintLine(max as usize);
+    PrintLine((max as i128) as u128);
+    PrintLine(300i128 as u8 as i128);
+    PrintLine(-129i128 as i8 as u128);
+    PrintLine((0x141u128 as u8) as char);
+}

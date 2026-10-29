@@ -1,0 +1,14 @@
+// Comparing `&mut` references only borrows them (rustc autorefs `PartialEq::eq`'s
+// operands): both stay usable for writes afterwards.
+fn Main() {
+    let mut a = 1;
+    let mut b = 2;
+    let r = &mut a;
+    let s = &mut b;
+    let less = r < s;
+    let same = r == s;
+    *r = 5;
+    *s = 6;
+    PrintLine(less);
+    PrintLine(same);
+}

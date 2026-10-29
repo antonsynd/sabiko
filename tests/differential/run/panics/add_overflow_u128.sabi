@@ -1,0 +1,11 @@
+// Adding past `u128::MAX` panics in debug builds, also through `+=`.
+fn Main() {
+    let mut x: u128 = 340282366920938463463374607431768211453;
+    x += 1;
+    PrintLine(x);
+    x += 1;
+    PrintLine(x);
+    PrintLine("about to overflow");
+    x += 1;
+    PrintLine("not reached");
+}

@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/io/partial_line_then_panic.sabi:4:16:
+boom

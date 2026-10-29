@@ -1,0 +1,34 @@
+//@ release
+// Release builds wrap `i128`/`u128` arithmetic and mask shift amounts with 127.
+fn AddI(a: i128, b: i128) -> i128 { a + b }
+fn SubI(a: i128, b: i128) -> i128 { a - b }
+fn MulI(a: i128, b: i128) -> i128 { a * b }
+fn NegI(a: i128) -> i128 { -a }
+fn AddU(a: u128, b: u128) -> u128 { a + b }
+fn SubU(a: u128, b: u128) -> u128 { a - b }
+fn MulU(a: u128, b: u128) -> u128 { a * b }
+fn ShlI(x: i128, n: u32) -> i128 { x << n }
+fn ShrU(x: u128, n: i128) -> u128 { x >> n }
+fn ShrI(x: i128, n: u128) -> i128 { x >> n }
+
+fn Main() {
+    let max: i128 = 170141183460469231731687303715884105727;
+    let min: i128 = -max - 1;
+    let umax: u128 = 340282366920938463463374607431768211455;
+    PrintLine(AddI(max, 1)); PrintLine(AddI(min, -1)); PrintLine(SubI(min, 1)); PrintLine(SubI(max, -1));
+    PrintLine(MulI(max, 2)); PrintLine(MulI(min, -1)); PrintLine(MulI(18446744073709551616, 18446744073709551617));
+    PrintLine(NegI(min)); PrintLine(NegI(max));
+    PrintLine(AddU(umax, 1)); PrintLine(AddU(umax, umax)); PrintLine(SubU(0, 1)); PrintLine(SubU(5, 7));
+    PrintLine(MulU(umax, umax)); PrintLine(MulU(18446744073709551616, 18446744073709551616));
+    PrintLine(ShlI(1, 128)); PrintLine(ShlI(1, 130)); PrintLine(ShlI(3, 4294967295));
+    PrintLine(ShrU(umax, -1)); PrintLine(ShrU(umax, 129)); PrintLine(ShrU(umax, 18446744073709551616));
+    PrintLine(ShrI(min, 255)); PrintLine(ShrI(min, 340282366920938463463374607431768211455));
+    let mut x: u128 = 1;
+    let mut i = 0;
+    while i < 130 { x *= 3; i += 1; }
+    PrintLine(x);
+    let mut y: i128 = 7;
+    y = SubI(y, max);
+    y = SubI(y, max);
+    PrintLine(y);
+}

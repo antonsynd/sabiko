@@ -1,0 +1,22 @@
+// `&e` of a diverging `e` is `&!`, and `*` of it is `!` again, which coerces to anything
+// (issue #17: Sabiko typed the borrow `!` and rejected `*&mut return 9` with E0309).
+fn DerefMut() -> i32 {
+    *&mut return 9
+}
+
+fn Deref(flag: bool) -> i32 {
+    if flag {
+        *&return 1
+    } else {
+        2
+    }
+}
+
+fn ThroughLocal() -> i32 {
+    let r = &mut return 4;
+    *r
+}
+
+fn Main() {
+    let x: i32 = *&loop {};
+}

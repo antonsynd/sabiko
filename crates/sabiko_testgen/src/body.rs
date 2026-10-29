@@ -691,9 +691,46 @@ impl<'a> BodyGen<'a> {
         let d = depth.saturating_sub(1);
         let p = random_prim(self.rng);
         let op = *self.rng.pick(&["==", "!=", "<", "<=", ">", ">="]);
+        if self.rng.chance(20) {
+            if let Some(e) = self.ref_compare(p, op, d) {
+                return e;
+            }
+        }
         let a = self.prim_expr(p, d);
         let b = self.prim_expr(p, d);
         Expr::value(format!("({} {op} {})", a.text, b.text))
+    }
+
+    /// `(a op b)` between two `&p` operands, which compares the referents: borrows of
+    /// places, reference locals (`&` or `&mut`, only reborrowed), calls returning
+    /// references and borrows of temporaries. The left operand's loans are held while the
+    /// right one is generated, as for call arguments: both languages keep them alive until
+    /// the comparison. `None` when no reference to a `p` is in reach.
+    fn ref_compare(&mut self, p: Prim, op: &str, depth: u32) -> Option<Expr> {
+        let mut a = self.ref_compare_operand(p, depth)?;
+        if !matches!(op, "==" | "!=") && !a.text.starts_with('&') {
+            // A reference local or call may be `&mut`, and `PartialOrd` has no impl for
+            // `&mut A` against `&B` (a `&mut` right operand is coerced to `&`).
+            a.text = format!("&*{}", a.text);
+        }
+        self.lock(&a.roots);
+        let b = self.ref_compare_operand(p, depth);
+        self.unlock(&a.roots);
+        let b = b?;
+        Some(Expr::value(format!("({} {op} {})", a.text, b.text)))
+    }
+
+    fn ref_compare_operand(&mut self, p: Prim, depth: u32) -> Option<Expr> {
+        // A borrowed temporary must not be a place (`&(x)` borrows `x`): a literal or an
+        // `if` expression.
+        match self.rng.weighted(&[70, 15, 15]) {
+            0 => self.ref_expr(false, ValTy::Prim(p), depth),
+            1 => Some(Expr::value(format!("&{}", self.literal(p).text))),
+            _ => {
+                let e = self.if_expr(ValTy::Prim(p), depth);
+                Some(Expr::value(format!("&{}", e.text)))
+            }
+        }
     }
 
     fn prim_expr(&mut self, p: Prim, depth: u32) -> Expr {

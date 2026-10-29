@@ -85,6 +85,16 @@ public static class Console
     /// <summary>Writes a <c>usize</c> and a newline.</summary>
     public static void PrintLine(nuint value) => Write(value, newline: true);
 
+    /// <summary>Writes an <c>i128</c>.</summary>
+    public static void Print(Int128 value) => Write(value, newline: false);
+    /// <summary>Writes an <c>i128</c> and a newline.</summary>
+    public static void PrintLine(Int128 value) => Write(value, newline: true);
+
+    /// <summary>Writes a <c>u128</c>.</summary>
+    public static void Print(UInt128 value) => Write(value, newline: false);
+    /// <summary>Writes a <c>u128</c> and a newline.</summary>
+    public static void PrintLine(UInt128 value) => Write(value, newline: true);
+
     // ---- floats -------------------------------------------------------------------
 
     /// <summary>Writes an <c>f32</c> as Rust's <c>Display</c> would.</summary>

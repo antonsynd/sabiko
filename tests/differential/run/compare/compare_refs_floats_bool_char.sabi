@@ -1,0 +1,49 @@
+// Comparisons between references to `f64`, `f32`, `bool` and `char` compare the referents:
+// NaN is unordered and unequal to itself, `-0.0 == 0.0`, and chars order by code unit.
+fn CmpF64(a: &f64, b: &f64) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpF32(a: &f32, b: &mut f32) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpBool(a: &bool, b: &bool) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpChar(a: &char, b: &char) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Main() {
+    let zero: f64 = 0.0;
+    let nan = zero / zero;
+    let inf = 1.0 / zero;
+    let negZero = -0.0;
+    CmpF64(&1.5, &2.5); CmpF64(&2.5, &1.5); CmpF64(&zero, &negZero); CmpF64(&negZero, &zero);
+    CmpF64(&nan, &nan); CmpF64(&nan, &1.0); CmpF64(&1.0, &nan); CmpF64(&inf, &nan);
+    CmpF64(&inf, &inf); CmpF64(&-inf, &inf); CmpF64(&(0.1 + 0.2), &0.3);
+    let zero32: f32 = 0.0;
+    let nan32 = zero32 / zero32;
+    let mut nanCopy = nan32;
+    let mut one32: f32 = 1.0;
+    CmpF32(&nan32, &mut nanCopy);
+    CmpF32(&1.0, &mut one32);
+    CmpF32(&-0.0, &mut 0.0);
+    CmpBool(&false, &true); CmpBool(&true, &false); CmpBool(&true, &true);
+    let t = true;
+    let f = false;
+    CmpBool(&f, &f);
+    PrintLine(&t > &f);
+    CmpChar(&'a', &'b'); CmpChar(&'z', &'a'); CmpChar(&'é', &'e'); CmpChar(&'\u{FFFD}', &'\u{FFFD}');
+    let c = 'q';
+    let rc = &c;
+    PrintLine(rc >= &'a' && rc <= &'z');
+    PrintLine(&nan == &nan);
+    PrintLine(&nan != &nan);
+}

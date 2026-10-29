@@ -47,13 +47,21 @@ names which phase owns which section.
 Panics (Phase 4): a panic is a `Sabiko.Runtime.PanicException`. `Panic(msg)` throws one;
 integer overflow in a debug build, division or remainder by zero, `MIN / -1`, `MIN % -1`,
 and a shift by an amount outside `0..bits` (negative amounts included) panic too, with
-Rust's messages ("attempt to divide by zero", "attempt to calculate the remainder with
-overflow", "attempt to shift left with overflow", ...). Overflow of `+`, `-` and `*` is
-the CLR's own `OverflowException`, which the runtime reports as "attempt to perform
-arithmetic with overflow" (Rust names the operator).
+Rust's messages: "attempt to add with overflow" (`subtract`, `multiply`, `negate`),
+"attempt to divide by zero", "attempt to divide with overflow", "attempt to calculate the
+remainder with a divisor of zero", "attempt to calculate the remainder with overflow",
+"attempt to shift left with overflow" (`right`). Every check is explicit (decision 43).
+Each panic carries its source location, as Rust's do: the start of the expression whose
+operator panicked (`a + b` in `(a + b) * c` is located at the `(`: parentheses widen the
+span, as in rustc), or of the `Panic(...)` call. The file is named as it was given to
+`sabikoc`; lines are 1-based; the column is rustc's display column, 1-based, counting a
+tab as 4 columns, East Asian wide characters as 2 and combining marks and zero-width
+characters as 0 (`SourceFile::rust_column`).
 An executable's entry point runs `Main` inside a `try`: an exception that escapes is
-reported on standard error as `thread 'main' panicked:` followed by the message, and the
-process exits with code 101 (Rust's). Standard output written before the panic is kept.
+reported on standard error as `thread 'main' panicked at file:line:column:` followed by
+the message (`thread 'main' panicked:` for a panic without a location, which generated
+code does not raise), and the process exits with code 101 (Rust's). Standard output
+written before the panic is kept.
 Release builds (`--release`) wrap integer arithmetic instead of panicking; division, shift
 and explicit panics behave the same in both.
 
@@ -86,15 +94,16 @@ Every user identifier is quoted in the IL. An executable additionally has a priv
 `()` (E0501).
 
 Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u32 u64
-usize` are `uint8 uint16 uint32 uint64 native uint`; `f32`/`f64` are `float32`/`float64`;
+usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value types
+`System.Int128`/`System.UInt128` (decision 42); `f32`/`f64` are `float32`/`float64`;
 `bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
 `valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
 `modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
 value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
 `&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
-`void` as a return type; locals and temporaries of type `()` or `!` have no storage, and
-assignments to them are dropped. Not lowered yet (E0500): `i128`/`u128`, `&&T`, `()`-typed
-parameters and fields.
+`void` as a return type; locals and temporaries of type `()`, `!` or a reference to `!`
+(`&!`, `&&!`, ...) have no storage (decisions 32 and 44), and assignments to them are
+dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and fields.
 
 Statements and expressions. The backend walks the MIR (§11); every statement and
 terminator becomes an instruction sequence that leaves the evaluation stack empty, so basic
@@ -110,12 +119,18 @@ argument's type and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cann
 and `unreachable`, are followed by a throw. `if` is `brfalse`, other `switchInt`s a `beq`
 chain; `return` loads the return local and `ret`.
 
-Arithmetic follows Rust. Values narrower than `int32` (`i8 i16 u8 u16`) compute at `int32`
-width and are re-narrowed after every arithmetic operation: `conv.ovf.*` in debug builds
-(trapping on overflow), `conv.*` in release builds (wrapping). `i32`/`i64`/`isize` and the
-unsigned widths use `add.ovf`/`sub.ovf`/`mul.ovf` (`.un` for unsigned) in debug builds and
-the plain opcodes in release builds. Negation is `0 - x` in debug builds so `-MIN` traps,
-`neg` otherwise. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
+Arithmetic follows Rust. In release builds `+`, `-`, `*` are the plain opcodes and
+values narrower than `int32` (`i8 i16 u8 u16`), which compute at `int32` width, are
+truncated after every operation with `conv.*`; negation is `neg`. In debug builds every
+`+`, `-`, `*` and unary `-` (as `0 - x`) is checked explicitly (decision 43): narrow types
+compute exactly at `int32` width and `i32`/`u32` at `int64` width (operands widened with
+`conv.i8`/`conv.u8`), and the result must equal its own truncation to the type (`dup; dup;
+conv.i1; beq`, with `conv.i8` after the truncation for the 32-bit types); `i64`, `u64`,
+`isize`, `usize`, `i128` and `u128` call `Sabiko.Runtime.Arithmetic::AddOverflows`,
+`SubOverflows` or `MulOverflows`, which return whether the exact result overflowed and
+store the wrapped one through a `T&` to a scratch local. A failed check throws
+`PanicException(message, location)` (`ldstr`, `ldstr`, `newobj`, `throw`); no `.ovf`
+opcode is emitted. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
 explicit checks that throw a `PanicException` with Rust's message: a zero divisor, and for
 signed types `MIN` divided by `-1`; a check is dropped when a constant operand rules it out
 (`x % 7` needs none). The checks run in release builds too, as in Rust, and are needed
@@ -126,7 +141,15 @@ compare it unsigned against the left operand's bit width and throw a `PanicExcep
 `bits - 1`; `>>` is `shr` for signed and `shr.un` for unsigned left operands, and `<<` on a
 narrow type truncates. Comparisons are `ceq`/`clt`/`cgt` with the `.un` forms for unsigned
 integers, `bool` and `char`; `!=`, `<=` and `>=` negate the opposite comparison, using the
-unordered forms on floats so that any comparison with NaN but `!=` is false. Casts: integer
+unordered forms on floats so that any comparison with NaN but `!=` is false. A comparison of
+references is the comparison of the referents: MIR building evaluates each operand to a
+shared reference temporary (a place operand is reborrowed, `&*r`, so a `&mut` is not
+moved), and the comparison reads `*l` and `*r` (`ldind.*`) after both operands ran, as
+rustc's `PartialEq::eq(&l, &r)` does. The referents therefore stay borrowed while the right
+operand runs (`r == { *r = 3; s }` is E0410, rustc E0506). One divergence remains: rustc
+also borrows a reference *variable* used as an operand, so `r == { r = &y; r }` is E0506
+there and accepted by Sabiko (comparing the old referent with the new one); expressing that
+loan needs a `&&T` temporary, which code generation does not support yet. Casts: integer
 to integer `conv.*` chosen by the target, with sign extension decided by the source
 (`conv.i8` from signed, `conv.u8` from unsigned sources); integer to float `conv.r4`/`conv.r8`
 preceded by `conv.r.un` for unsigned sources; float to `i32`/`i64`/`isize` and their
@@ -135,6 +158,24 @@ narrow type clamps with `System.Math.Clamp` first, because the CLR only saturate
 bits. Constants are `ldc.i4`/`ldc.i8` (with `conv.i`/`conv.u` for the native widths),
 `ldc.r4`/`ldc.r8` (non-finite values by bit pattern), and `ldstr` converted with
 `String::op_Implicit` for `&str`. `.maxstack` is computed exactly.
+
+128-bit integers (decision 42). An `i128`/`u128` constant is `newobj
+Int128::.ctor(uint64 upper, uint64 lower)`. Every operator is a `call` to the operator
+method of `System.Int128`/`System.UInt128`: `op_Addition`, `op_Subtraction`,
+`op_Multiply` and `op_UnaryNegation` in release builds (debug builds check them with the
+`Sabiko.Runtime.Arithmetic` helpers, as for 64-bit integers);
+`op_Division`/`op_Modulus` behind the same explicit zero and `MIN / -1` checks as the other
+widths (comparing with `op_Inequality`); `op_BitwiseAnd`, `op_BitwiseOr`, `op_ExclusiveOr`,
+`op_OnesComplement`; the six comparison operators. Shifts check (debug) or mask (release)
+the amount as for the other widths, a 128-bit amount being compared as `u128` before it is
+truncated to `int32`, then call `op_LeftShift`/`op_RightShift` (arithmetic for `Int128`,
+logical for `UInt128`). Casts call `op_Implicit` (a widening that cannot lose information:
+any integer into `Int128`, unsigned ones into `UInt128`) or `op_Explicit` (signed into
+`UInt128`, which sign-extends; 128-bit to a narrower type, which truncates; `i128` to and
+from `u128`, which reinterprets; floats into 128-bit, which saturates with NaN as 0).
+128-bit to `f32`/`f64` calls `Sabiko.Runtime.Arithmetic::ToSingle`/`ToDouble`, which
+round once to nearest-even (the BCL's `Int128` to `float` goes through `double` and can
+round twice). `bool` and `char` convert as `uint8` and `char`.
 
 Verifiability. Every emitted assembly passes ILVerify with `ReturnPtrToStack` ignored
 (decision 30): ECMA-335 has no rule that lets a function return a managed pointer it
@@ -173,11 +214,20 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `f64`, `bool`, `char`, `()`, `str` (only behind a reference, E0208), named structs,
   `&T`, `&mut T`. A struct may not contain itself by value, directly or through other
   structs (E0206). `!` is the type of `break`, `continue`, `return` and of a `loop`
-  without `break`; it coerces to any type.
+  without `break`; it coerces to any type. The borrow of a diverging expression (`&loop {}`,
+  `&mut return 1`) has type `&!` (`&mut !`), as in rustc: a borrow is not a coercion site,
+  so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
+  while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
+  (rustc's `!: PartialEq + Display`); the code after one is unreachable.
 - Inference runs per function body and per constant initialiser, by unification; nothing
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of
   subexpressions flow back up.
+- A `char` is one UTF-16 code unit (decision 31), so a `char` literal outside the Basic
+  Multilingual Plane (above U+FFFF, such as `'\u{1F600}'`) is an error (E0318), in
+  constants too; a string literal holds any character. This is a deliberate divergence
+  from Rust, where `char` is a Unicode scalar value and such literals are valid, so the
+  differential corpus and the generator avoid them.
 - An unsuffixed integer literal has type `{integer}`, unifies with any integer type and
   defaults to `i32`; a float literal is `{float}` and defaults to `f64`. A literal that
   does not fit the type it ends up with is an error (E0314), including after negation
@@ -192,8 +242,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   - `<< >>`: left operand an integer type, right operand any integer type; result the
     left type.
   - `== != < <= > >=`: both operands the same primitive type (integers, floats, `bool`,
-    `char`, `()`); result `bool`. Structs and references do not compare (operator traits
-    arrive in Phase 6).
+    `char`, `()`); result `bool`. References compare their referents, as Rust's
+    `PartialEq`/`PartialOrd` impls for `&A` do: both operands must be references of the
+    same depth to the same comparable primitive (`&i32 == i32` is E0306, like rustc's
+    E0277). `==` and `!=` accept any mix of `&` and `&mut` at every level; `<`, `<=`, `>`
+    and `>=` need the same mutability on both sides, except that a `&mut` right operand of
+    a `&` left one is accepted (rustc coerces it to the `&B` of `impl PartialOrd<&B> for
+    &A`). Structs and `&str` do not compare (operator traits arrive in Phase 6; `&str`
+    comparisons come with `&str` support).
   - `&& ||`: `bool` operands, `bool` result.
   - Unary `-`: signed integer or float. Unary `!`: integer or `bool`.
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an
@@ -214,8 +270,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `while` is `()`. `loop` has the type of its `break value`s, which must agree, and `!` if
   it never breaks. `break value` is only allowed directly inside `loop` (E0312);
   `break`/`continue` outside a loop is E0311.
-- A block has the type of its tail expression, `()` without one, and `!` when a statement
-  in it diverges. A block-like expression used as a statement (`if`, `while`, `loop`,
+- A block has the type of its tail expression, even when an earlier statement diverges
+  (`{ return; 2u8 }` is `u8`, as in rustc); without a tail it is `!` when a statement in
+  it diverges and `()` otherwise. A block-like expression used as a statement (`if`, `while`, `loop`,
   `{ .. }` without a trailing `;`) must be `()`.
 - A function body is a block checked against the declared return type (`()` when
   omitted); `return;` has the value `()`.
@@ -270,8 +327,9 @@ Moves (E0406, E0407):
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
 - A `&mut T` is implicitly reborrowed (`&mut *r`) where the expected type is `&mut`:
-  call arguments, struct literal fields, assignment, annotated `let`, `return`. A plain
-  `let s = r;` moves it (as in Rust).
+  call arguments, struct literal fields, assignment, annotated `let`, `return`. Where the
+  expected type is `&T` the reborrow is shared (`&*r`), so `F(&*r, r)` with two `&T`
+  parameters is accepted. A plain `let s = r;` moves it (as in Rust).
 
 Loans (E0408–E0413):
 
@@ -296,7 +354,8 @@ Signatures and lifetimes (E0414–E0416):
 
 - Lifetimes are elided only: a function returning a reference must have exactly one
   reference parameter (nested references count once per parameter), and the returned
-  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`). A reference
+  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`; reported from the
+  signature alone, so also when the body has other errors). A reference
   returned may therefore only point into that parameter's referent; returning a reference
   to a local or to a by-value parameter is E0414.
 - Inside a body, references with different elided lifetimes are unrelated: storing `y` in

@@ -8,8 +8,23 @@ namespace Sabiko.Runtime;
 /// </summary>
 public sealed class PanicException : Exception
 {
-    /// <summary>Creates a panic carrying <paramref name="message"/>.</summary>
+    /// <summary>Creates a panic carrying <paramref name="message"/> and no source location.</summary>
     public PanicException(string message) : base(message)
     {
     }
+
+    /// <summary>
+    /// Creates a panic carrying <paramref name="message"/>, raised at
+    /// <paramref name="location"/> (<c>file:line:column</c>, as Rust reports it).
+    /// </summary>
+    public PanicException(string message, string location) : base(message)
+    {
+        Location = location;
+    }
+
+    /// <summary>
+    /// Where the panic was raised, as <c>file:line:column</c> (1-based; the column counts
+    /// characters), or <c>null</c> when the panic site has no source position.
+    /// </summary>
+    public string? Location { get; }
 }

@@ -1,0 +1,34 @@
+// A `&mut` place passed where a `&` is expected is a shared reborrow (`&*r`): it reads
+// the current value and leaves `r` usable afterwards, beside other shared borrows of `*r`.
+struct Rect {
+    W: i32,
+    H: i32,
+}
+
+fn Two(a: &i32, b: &i32) -> i32 {
+    *a * 10 + *b
+}
+
+fn Area(a: &Rect, b: &Rect) -> i32 {
+    a.W * b.H
+}
+
+fn Bump(p: &mut i32) {
+    *p += 1;
+}
+
+fn Main() {
+    let mut x = 4;
+    let r = &mut x;
+    PrintLine(Two(&*r, r));
+    Bump(r);
+    PrintLine(Two(r, r));
+    let s: &i32 = r;
+    PrintLine(*s + *r);
+    let mut rect = Rect { W: 3, H: 7 };
+    let q = &mut rect;
+    PrintLine(Area(q, &*q));
+    q.H = 2;
+    PrintLine(Area(&*q, q));
+    PrintLine(x + rect.W);
+}

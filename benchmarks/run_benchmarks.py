@@ -75,6 +75,7 @@ PERCENTILE_METHOD = "linear interpolation between closest ranks (Hyndman-Fan typ
 RUSTC_PRELUDE = """#![allow(nonstandard_style, unused, dead_code)]
 fn Print<T: std::fmt::Display>(x: T) { print!("{x}") }
 fn PrintLine<T: std::fmt::Display>(x: T) { println!("{x}") }
+#[track_caller]
 fn Panic(msg: &str) -> ! { panic!("{msg}") }
 fn main() { Main() }
 """

@@ -704,15 +704,20 @@ dependencies = [
 [[package]]
 name = "sabiko_span"
 version = "0.0.1"
+dependencies = [
+ "unicode-width",
+]
 
 [[package]]
 name = "sabiko_testgen"
 version = "0.0.1"
 dependencies = [
+ "sabiko_ast",
  "sabiko_diagnostics",
  "sabiko_driver",
  "sabiko_parser",
  "sabiko_resolve",
+ "sabiko_span",
  "sabiko_types",
 ]
 

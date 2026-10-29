@@ -8,7 +8,8 @@
 //! The lowering is a direct stack-machine walk over the MIR (see [`func`]): every MIR
 //! statement leaves the evaluation stack empty, locals map to IL locals or arguments,
 //! places are loaded and stored through their address. Integer arithmetic follows Rust:
-//! checked in debug builds (`add.ovf`, `conv.ovf.*`), wrapping in release builds.
+//! checked in debug builds, wrapping in release builds. Every check is explicit and its
+//! panic carries Rust's message and the source location (decision 43).
 //!
 //! Verifiability: the output passes `ILVerify` except for `ReturnPtrToStack`, the ECMA-335
 //! rule that forbids returning any managed pointer that may point into a frame. That rule
@@ -24,7 +25,7 @@ use std::fmt::Write as _;
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::Body;
 use sabiko_resolve::{DefKind, ResolveResults};
-use sabiko_span::Span;
+use sabiko_span::{SourceMap, Span};
 use sabiko_types::{Ty, TypeckResults};
 
 pub use types::module_class_name;
@@ -66,11 +67,14 @@ pub const PANIC_EXIT_CODE: i32 = 101;
 
 /// Emits the IL module for `bodies`. Returns `None` after reporting errors for
 /// constructs the backend cannot lower yet (every such error is `E0500`/`E0501`).
+/// `source_map` gives panics their `file:line:column` locations; the file is named as it
+/// was registered (the path given on the command line, as rustc reports it).
 #[must_use]
 pub fn emit_il(
     bodies: &[Body],
     resolve: &ResolveResults,
     typeck: &TypeckResults,
+    source_map: &SourceMap,
     options: &Options,
     sink: &mut DiagnosticSink,
 ) -> Option<String> {
@@ -82,6 +86,7 @@ pub fn emit_il(
     let mut cx = Cx {
         resolve,
         typeck,
+        source_map,
         options,
         sink,
         class_name,
@@ -135,6 +140,7 @@ pub fn emit_il(
 pub(crate) struct Cx<'a> {
     pub(crate) resolve: &'a ResolveResults,
     pub(crate) typeck: &'a TypeckResults,
+    pub(crate) source_map: &'a SourceMap,
     pub(crate) options: &'a Options,
     pub(crate) sink: &'a mut DiagnosticSink,
     /// The static class holding the functions.
@@ -147,6 +153,19 @@ impl Cx<'_> {
         self.had_error = true;
         self.sink
             .emit(Diagnostic::error(code, message).with_label(span, label));
+    }
+
+    /// The panic location of `span`, as Rust's `Location` displays it: `file:line:column`,
+    /// 1-based, the column being rustc's display column (`SourceFile::rust_column`: a tab
+    /// is 4 columns, wide characters 2). `None` for a span without source text.
+    pub(crate) fn location(&self, span: Span) -> Option<String> {
+        if span.is_dummy() {
+            return None;
+        }
+        let file = self.source_map.get(span.file);
+        let line = file.line_col(span.start).line;
+        let col = file.rust_column(span.start);
+        Some(format!("{}:{line}:{col}", file.name))
     }
 
     /// Reports a construct the backend does not lower yet.

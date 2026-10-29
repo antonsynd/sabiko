@@ -1,0 +1,9 @@
+// `u128` remainder by zero panics.
+fn Rem(a: u128, b: u128) -> u128 { a % b }
+
+fn Main() {
+    PrintLine(Rem(340282366920938463463374607431768211455, 1000000007));
+    PrintLine("about to take remainder by zero");
+    PrintLine(Rem(5, 0));
+    PrintLine("not reached");
+}

@@ -358,6 +358,30 @@ const M: i32 = { 1 };
         (values, msgs)
     }
 
+    /// `2^127` is a valid `i128` literal only under a negation, which gives `i128::MIN`
+    /// (it was evaluated to `i128::MIN + 1` once, by saturating the literal).
+    #[test]
+    fn negated_minimum_literals_evaluate_exactly() {
+        let cases = [
+            ("i128", "-170141183460469231731687303715884105728"),
+            ("i128", "-(170141183460469231731687303715884105728)"),
+            ("i128", "-170141183460469231731687303715884105728i128 + 1"),
+            ("i64", "-9223372036854775808"),
+        ];
+        let input: Vec<_> = cases.iter().map(|(t, e)| (*t, (*e).to_owned())).collect();
+        let (values, msgs) = eval_consts(&input);
+        assert!(msgs.is_empty(), "{msgs:?}");
+        assert_eq!(
+            values,
+            [
+                Some("-170141183460469231731687303715884105728".to_owned()),
+                Some("-170141183460469231731687303715884105728".to_owned()),
+                Some("-170141183460469231731687303715884105727".to_owned()),
+                Some("-9223372036854775808".to_owned()),
+            ]
+        );
+    }
+
     /// Every operator, operand kind and cast the evaluator implements, at the edges that
     /// matter (sign bits, saturation, truncation, NaN). The expected values are what rustc
     /// computes for the same constants.

@@ -110,7 +110,11 @@ fn programs_have_the_expected_shape() {
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
         assert!(src.contains("fn Main() {"), "seed {seed}");
-        assert!(src.contains("PrintLine("), "seed {seed}:\n{src}");
+        // Output is observable: something is printed (seed 138 only uses `Print`).
+        assert!(
+            src.contains("PrintLine(") || src.contains("Print("),
+            "seed {seed}:\n{src}"
+        );
         let lines = src.lines().count();
         total_lines += lines;
         assert!(
@@ -123,4 +127,23 @@ fn programs_have_the_expected_shape() {
         average >= 15,
         "programs are too small: {average} lines on average"
     );
+}
+
+/// `i128`/`u128` are part of the type universe: a fair share of programs use each, and
+/// some use their extreme literals (the generator's `u128` values stop at `i128::MAX`).
+#[test]
+fn programs_use_128_bit_integers() {
+    let knobs = Knobs::default();
+    let (mut signed, mut unsigned, mut min_literal) = (0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        signed += usize::from(src.contains("i128"));
+        unsigned += usize::from(src.contains("u128"));
+        min_literal += usize::from(src.contains("-170141183460469231731687303715884105728i128"));
+    }
+    assert!(
+        signed >= 100 && unsigned >= 100,
+        "i128 in {signed}, u128 in {unsigned} of {SEEDS} programs"
+    );
+    assert!(min_literal > 0, "no program uses the `i128::MIN` literal");
 }

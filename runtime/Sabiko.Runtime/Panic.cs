@@ -24,24 +24,56 @@ public static class Panic
         throw new PanicException(message.ToString());
     }
 
+    /// <summary>Raises a panic with <paramref name="message"/> at <paramref name="location"/>.</summary>
+    [DoesNotReturn]
+    public static void Fail(string message, string location)
+    {
+        throw new PanicException(message, location);
+    }
+
+    /// <summary>
+    /// Raises a panic with a <c>&amp;str</c> message at <paramref name="location"/>
+    /// (<c>file:line:column</c>): Sabiko's <c>Panic(msg)</c>.
+    /// </summary>
+    [DoesNotReturn]
+    public static void Fail(ReadOnlySpan<char> message, string location)
+    {
+        throw new PanicException(message.ToString(), location);
+    }
+
     /// <summary>
     /// Called by the generated entry-point wrapper when an exception escapes the user's
-    /// <c>Main</c>. Writes <c>thread 'main' panicked:</c>, a newline, the panic message and
-    /// a newline to stderr and returns <see cref="ExitCode"/> (101) for the wrapper to
-    /// return from <c>Main</c>.
+    /// <c>Main</c>. Writes Rust's report to stderr, <c>thread 'main' panicked at
+    /// file:line:column:</c> (or <c>thread 'main' panicked:</c> when the panic has no
+    /// location), a newline, the panic message and a newline, and returns
+    /// <see cref="ExitCode"/> (101) for the wrapper to return from <c>Main</c>.
     /// </summary>
     public static int Unhandled(Exception exception)
     {
         string message = MessageOf(exception);
+        string? location = (exception as PanicException)?.Location;
         TextWriter err = System.Console.Error;
-        err.Write("thread 'main' panicked:\n");
+        if (location is null)
+        {
+            err.Write("thread 'main' panicked:\n");
+        }
+        else
+        {
+            err.Write("thread 'main' panicked at ");
+            err.Write(location);
+            err.Write(":\n");
+        }
         err.Write(message);
         err.Write('\n');
         err.Flush();
         return ExitCode;
     }
 
-    /// <summary>Maps an escaping exception to the Rust panic message for it.</summary>
+    /// <summary>
+    /// Maps an escaping exception to the Rust panic message for it. Generated code raises
+    /// only <see cref="PanicException"/>s (every check is explicit, decision 43); the other
+    /// cases cover exceptions from the .NET code a program calls.
+    /// </summary>
     internal static string MessageOf(Exception exception) => exception switch
     {
         PanicException panic => panic.Message,

@@ -1,0 +1,30 @@
+// Coercion sites reborrow a `&mut` place instead of moving it: `&mut *r` where a `&mut`
+// is expected, `&*r` where a `&` is (call arguments, annotated `let`, assignment,
+// `return`); a plain `let` moves it.
+fn Read(a: &i32, b: &i32) -> i32 {
+    *a + *b
+}
+
+fn Bump(p: &mut i32) {
+    *p += 1;
+}
+
+fn View(p: &mut i32) -> &i32 {
+    p
+}
+
+fn Main() {
+    let mut x = 1;
+    let r = &mut x;
+    Bump(r);
+    let n = Read(&*r, r);
+    let s: &i32 = r;
+    let mut t: &i32 = &n;
+    t = r;
+    let k = *s + *t;
+    let m: &mut i32 = r;
+    let v = View(m);
+    let j = *v + k;
+    let moved = r;
+    *moved = j;
+}

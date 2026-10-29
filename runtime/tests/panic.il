@@ -1,6 +1,7 @@
 // Runtime panic regression probe: the shape the generated entry-point wrapper has. The user's
-// Main panics; the wrapper's catch hands the exception to Panic::Unhandled and returns its
-// value, so the process exits with 101 and stderr carries the panic message.
+// Main panics at a source location; the wrapper's catch hands the exception to
+// Panic::Unhandled and returns its value, so the process exits with 101 and stderr carries
+// Rust's report: "thread 'main' panicked at src/probe.sabi:7:5:" and the message.
 // Run scripts/check-runtime.sh.
 .assembly extern System.Runtime { .ver 10:0:0:0 .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A) }
 .assembly extern Sabiko.Runtime { .ver 0:1:0:0 }
@@ -11,11 +12,12 @@
 {
   .method public hidebysig static void UserMain() cil managed
   {
-    .maxstack 1
+    .maxstack 2
     ldstr "before"
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(string)
     ldstr "boom"
-    call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(string)
+    ldstr "src/probe.sabi:7:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(string, string)
     ldstr "not reached"
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(string)
     ret

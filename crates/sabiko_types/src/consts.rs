@@ -226,6 +226,12 @@ impl Evaluator<'_, '_> {
                 let v = self.eval(operand, body)?;
                 let prim = ty.as_prim();
                 match (op, v) {
+                    // `-170141183460469231731687303715884105728i128`: the literal is
+                    // `2^127`, read as `i128::MIN` (see `int_from_u128`), and its negation
+                    // is `i128::MIN` itself.
+                    (UnOp::Neg, ConstValue::Int(i128::MIN)) if is_int_literal(operand) => {
+                        check_range(i128::MIN, prim, expr.span, "negate")
+                    }
                     (UnOp::Neg, ConstValue::Int(i)) => {
                         let r = i
                             .checked_neg()
@@ -283,11 +289,24 @@ impl Evaluator<'_, '_> {
     }
 }
 
+/// The value of an integer literal of type `ty`. A signed literal above `i128::MAX` can
+/// only be `2^127` under a negation (the type checker rejects it anywhere else); it wraps
+/// to `i128::MIN`, which the negation keeps. (Saturating it to `i128::MAX` evaluated
+/// `-170141183460469231731687303715884105728` to `i128::MIN + 1`.)
 fn int_from_u128(value: u128, ty: &Ty) -> ConstValue {
     match ty.as_prim() {
-        Some(p) if p.is_signed_int() => ConstValue::Int(i128::try_from(value).unwrap_or(i128::MAX)),
+        #[allow(clippy::cast_possible_wrap)]
+        Some(p) if p.is_signed_int() => ConstValue::Int(value as i128),
         _ => ConstValue::Uint(value),
     }
+}
+
+/// Whether `e` is an integer literal, through parentheses.
+fn is_int_literal(mut e: &Expr) -> bool {
+    while let ExprKind::Paren(inner) = &e.kind {
+        e = inner;
+    }
+    matches!(e.kind, ExprKind::Lit(Lit::Int { .. }))
 }
 
 /// The inclusive `(min, max)` of an integer type.
