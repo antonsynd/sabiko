@@ -1,0 +1,68 @@
+// A value's own `drop` runs first, while its fields are still intact, then its fields are
+// dropped in declaration order (not the order of the struct literal, which is the order of
+// evaluation), recursively. A struct without a `Drop` impl just drops its fields; tuple
+// elements are dropped first to last.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Plain { A: D, N: i32, B: D }
+
+struct Owner { Id: i32, First: D, Second: Plain }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        Print("drop owner ");
+        Print(self.Id);
+        Print(" holding ");
+        Print(self.First.Id);
+        Print(" ");
+        Print(self.Second.A.Id);
+        Print(" ");
+        PrintLine(self.Second.B.Id);
+        self.First.Id += 100;
+    }
+}
+
+struct Wrapper { Inner: Owner, Last: D }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Main() {
+    {
+        let p = Plain { B: Make(2), N: 0, A: Make(1) };
+        PrintLine("end of Plain block");
+    }
+    PrintLine("--");
+    {
+        let o = Owner {
+            Id: 10,
+            Second: Plain { A: Make(13), N: 0, B: Make(14) },
+            First: Make(11),
+        };
+        PrintLine("end of Owner block");
+    }
+    PrintLine("--");
+    {
+        let t = (Make(20), 5, (Make(21), Make(22)), Plain { A: Make(23), N: 1, B: Make(24) });
+        PrintLine("end of tuple block");
+    }
+    PrintLine("--");
+    {
+        let w = Wrapper {
+            Last: Make(30),
+            Inner: Owner { Id: 31, First: Make(32), Second: Plain { A: Make(33), N: 2, B: Make(34) } },
+        };
+        PrintLine("end of Wrapper block");
+    }
+    PrintLine("end of Main");
+}

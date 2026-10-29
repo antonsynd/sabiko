@@ -1,0 +1,18 @@
+// `drop` receives `&mut self`: moving a droppable field out of it is a move out of a
+// mutable reference.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Owner { Inner: D }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        let inner = self.Inner;
+        PrintLine(inner.Id);
+    }
+}

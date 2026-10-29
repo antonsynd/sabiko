@@ -1,0 +1,15 @@
+// `drop` cannot be called explicitly, as a method or through the type's path (Rust's way
+// to drop early is `std::mem::drop`; Sabiko programs pass the value to a by-value function).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let mut d = D { Id: 1 };
+    d.drop(); //~ rustc E0040: explicit use of destructor method [explicit destructor calls not allowed]
+    D::drop(&mut d); //~ rustc E0040: explicit use of destructor method [explicit destructor calls not allowed]
+}

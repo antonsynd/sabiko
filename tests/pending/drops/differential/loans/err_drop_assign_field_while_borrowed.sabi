@@ -1,0 +1,24 @@
+// Assigning a droppable field of a value whose type implements `Drop` drops the old field
+// value: it conflicts with a live borrow into that field.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Owner { Inner: D }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        PrintLine(self.Inner.Id);
+    }
+}
+
+fn Main() {
+    let mut o = Owner { Inner: D { Id: 1 } };
+    let r = &o.Inner.Id;
+    o.Inner = D { Id: 2 };
+    PrintLine(*r);
+}

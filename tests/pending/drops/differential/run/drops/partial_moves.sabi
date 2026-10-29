@@ -1,0 +1,57 @@
+// Moving a field out of a struct without a `Drop` impl (or an element out of a tuple) leaves
+// the other fields to be dropped at the end of the struct's scope, in declaration order; the
+// moved field is dropped wherever it went. Assigning the moved-out field again drops
+// nothing and makes it part of the struct again; assigning the whole struct drops only the
+// fields still in it. A `_` in a tuple pattern leaves its element in the tuple.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Trio { A: D, B: D, C: D }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Main() {
+    {
+        let p = Trio { A: Make(1), B: Make(2), C: Make(3) };
+        let b = p.B;
+        PrintLine("moved p.B");
+    }
+    PrintLine("--");
+    {
+        let mut q = Trio { A: Make(7), B: Make(8), C: Make(9) };
+        Consume(q.A);
+        q.A = Make(10);
+        Consume(q.C);
+        PrintLine("assigning q");
+        q = Trio { A: Make(11), B: Make(12), C: Make(13) };
+        PrintLine("end of q block");
+    }
+    PrintLine("--");
+    {
+        let t = (Make(20), Make(21), Make(22));
+        let (a, _, c) = t;
+        PrintLine("destructured t");
+    }
+    PrintLine("--");
+    {
+        let u = (Make(30), (Make(31), Make(32)));
+        Consume(u.1.0);
+        PrintLine("end of u block");
+    }
+    PrintLine("end of Main");
+}

@@ -1,0 +1,17 @@
+// `r` is declared before `d`, so `d` is dropped first at the end of `Main`, while `r` is
+// still in scope. A reference has no drop glue, and `r` is not used after `d`'s drop, so
+// the drop does not conflict with the borrow.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let r;
+    let d = D { Id: 1 };
+    r = &d;
+    PrintLine(r.Id);
+}

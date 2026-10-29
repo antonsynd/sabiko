@@ -1,0 +1,22 @@
+// Non-lexical lifetimes: a borrow whose last use comes before the move (or the
+// reassignment, which drops the old value) does not conflict with it, even though the
+// reference variable is still in scope at the drop.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {}
+
+fn Main() {
+    let mut d = D { Id: 1 };
+    let r = &d;
+    PrintLine(r.Id);
+    d = D { Id: 2 };
+    let m = &mut d;
+    m.Id = 3;
+    Consume(d);
+}

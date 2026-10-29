@@ -1,0 +1,23 @@
+// `drop` must be exactly `fn drop(&mut self)`: a `&self` or by-value `self` receiver, or a
+// return type, is an incompatible signature; an extra parameter is a parameter count
+// mismatch.
+struct A { Id: i32 }
+struct B { Id: i32 }
+struct C { Id: i32 }
+struct E { Id: i32 }
+
+impl Drop for A {
+    fn drop(&self) {} //~ rustc E0053: method `drop` has an incompatible type for trait [types differ in mutability]
+}
+
+impl Drop for B {
+    fn drop(self) {} //~ rustc E0053: method `drop` has an incompatible type for trait [expected `&mut B`, found `B`]
+}
+
+impl Drop for C {
+    fn drop(&mut self) -> i32 { self.Id } //~ rustc E0053: method `drop` has an incompatible type for trait [expected `()`, found `i32`]
+}
+
+impl Drop for E {
+    fn drop(&mut self, n: i32) {} //~ rustc E0050: method `drop` has 2 parameters but the declaration in trait `std::ops::Drop::drop` has 1 [expected 1 parameter, found 2]
+}

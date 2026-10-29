@@ -1,0 +1,21 @@
+// A loop body's local is dropped at the end of every iteration: a reference to it kept
+// across iterations (and used after the loop) outlives it.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let first = D { Id: 0 };
+    let mut r = &first;
+    let mut i = 0;
+    while i < 2 {
+        let d = D { Id: i };
+        r = &d;
+        i += 1;
+    }
+    PrintLine(r.Id);
+}

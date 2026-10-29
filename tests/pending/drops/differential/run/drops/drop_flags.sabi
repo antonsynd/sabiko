@@ -1,0 +1,89 @@
+// Conditionally moved or conditionally initialised values need drop flags: the drop at the
+// end of the scope runs only on the paths where the value is still there. The order is the
+// order of declaration, not of initialisation: `a`, declared before `b` but assigned after
+// it, is dropped after `b`.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn MaybeConsume(flag: bool) {
+    let a = Make(1);
+    let b = Make(2);
+    if flag {
+        Consume(a);
+    }
+    PrintLine("end of MaybeConsume");
+}
+
+fn MaybeInit(flag: bool) {
+    let a: D;
+    let b = Make(3);
+    if flag {
+        a = Make(4);
+    }
+    PrintLine("end of MaybeInit");
+}
+
+fn OneOrTheOther(flag: bool) {
+    let a = Make(5);
+    let b = Make(6);
+    if flag {
+        Consume(a);
+    } else {
+        Consume(b);
+    }
+    PrintLine("end of OneOrTheOther");
+}
+
+fn ReinitOnOneBranch(flag: bool) {
+    let mut a = Make(7);
+    Consume(a);
+    if flag {
+        a = Make(8);
+    }
+    PrintLine("end of ReinitOnOneBranch");
+}
+
+fn Main() {
+    MaybeConsume(true);
+    PrintLine("--");
+    MaybeConsume(false);
+    PrintLine("--");
+    MaybeInit(true);
+    PrintLine("--");
+    MaybeInit(false);
+    PrintLine("--");
+    OneOrTheOther(true);
+    PrintLine("--");
+    OneOrTheOther(false);
+    PrintLine("--");
+    ReinitOnOneBranch(true);
+    PrintLine("--");
+    ReinitOnOneBranch(false);
+    PrintLine("--");
+    let mut i = 0;
+    while i < 4 {
+        let d = Make(10 + i);
+        if i % 2 == 1 {
+            Consume(d);
+        }
+        i += 1;
+    }
+    PrintLine("end of Main");
+}

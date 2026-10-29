@@ -1,0 +1,21 @@
+// After a droppable field is moved out of a struct, the struct as a whole is partially
+// moved and cannot be moved (or used) as a whole.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair { A: D, B: D }
+
+fn Consume(d: D) {}
+
+fn Take(p: Pair) {}
+
+fn Main() {
+    let p = Pair { A: D { Id: 1 }, B: D { Id: 2 } };
+    Consume(p.A);
+    Take(p);
+}

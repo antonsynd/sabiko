@@ -1,0 +1,25 @@
+// Drop-liveness: a tuple holding a reference and a droppable value is dropped at the end of
+// `Main`, after the referent `d` (declared later, dropped first). The tuple's drop only
+// drops its elements, and a reference has no drop glue, so the drop does not use the
+// borrow: only uses of the tuple keep it alive. Likewise `m`'s `&mut x` is dead when `x`
+// is reassigned, although `m` is dropped later. A drop elaboration that treats a drop of
+// the tuple as a use of every region in its type would reject this.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let t;
+    let d = D { Id: 1 };
+    t = (&d, D { Id: 2 });
+    PrintLine(t.0.Id + t.1.Id);
+    let mut x = D { Id: 3 };
+    let m = (&mut x, D { Id: 4 });
+    m.0.Id += 1;
+    x = D { Id: 5 };
+    PrintLine(x.Id);
+}

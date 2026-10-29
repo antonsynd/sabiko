@@ -1,0 +1,18 @@
+// A droppable value is dropped at the end of its block while a reference to it, stored in
+// a variable of the enclosing block, is still used afterwards.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let r;
+    {
+        let d = D { Id: 1 };
+        r = &d;
+    }
+    PrintLine(r.Id);
+}

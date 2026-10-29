@@ -1,0 +1,62 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+make 1
+make 2
+consume 1
+drop 1
+end of MaybeConsume
+drop 2
+--
+make 1
+make 2
+end of MaybeConsume
+drop 2
+drop 1
+--
+make 3
+make 4
+end of MaybeInit
+drop 3
+drop 4
+--
+make 3
+end of MaybeInit
+drop 3
+--
+make 5
+make 6
+consume 5
+drop 5
+end of OneOrTheOther
+drop 6
+--
+make 5
+make 6
+consume 6
+drop 6
+end of OneOrTheOther
+drop 5
+--
+make 7
+consume 7
+drop 7
+make 8
+end of ReinitOnOneBranch
+drop 8
+--
+make 7
+consume 7
+drop 7
+end of ReinitOnOneBranch
+--
+make 10
+drop 10
+make 11
+consume 11
+drop 11
+make 12
+drop 12
+make 13
+consume 13
+drop 13
+end of Main

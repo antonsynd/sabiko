@@ -1,0 +1,9 @@
+// A type that implements `Drop` cannot be `Copy` (a copy would be dropped twice).
+#[derive(Copy, Clone)]
+struct D { Id: i32 } //~ rustc E0184: the trait `Copy` cannot be implemented for this type; the type has a destructor [`Copy` not allowed on types with destructors]
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
