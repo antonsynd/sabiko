@@ -137,6 +137,19 @@ impl Printer {
                 self.ty(inner);
             }
             TypeKind::Unit => self.out.push_str("()"),
+            TypeKind::Tuple(elems) => {
+                self.out.push('(');
+                for (i, t) in elems.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push_str(", ");
+                    }
+                    self.ty(t);
+                }
+                if elems.len() == 1 {
+                    self.out.push(',');
+                }
+                self.out.push(')');
+            }
             TypeKind::Infer => self.out.push('_'),
         }
     }
@@ -150,6 +163,19 @@ impl Printer {
                 self.out.push_str(&name.name);
             }
             PatKind::Wild => self.out.push('_'),
+            PatKind::Tuple(elems) => {
+                self.out.push('(');
+                for (i, p) in elems.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push_str(", ");
+                    }
+                    self.pat(p);
+                }
+                if elems.len() == 1 {
+                    self.out.push(',');
+                }
+                self.out.push(')');
+            }
         }
     }
 
@@ -234,6 +260,19 @@ impl Printer {
             ExprKind::Lit(l) => self.out.push_str(&lit_str(l)),
             ExprKind::Path(p) => self.out.push_str(&path_str(p)),
             ExprKind::Unit => self.out.push_str("()"),
+            ExprKind::Tuple(elems) => {
+                self.out.push('(');
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push_str(", ");
+                    }
+                    self.expr(e, 0);
+                }
+                if elems.len() == 1 {
+                    self.out.push(',');
+                }
+                self.out.push(')');
+            }
             ExprKind::Paren(e) => {
                 self.out.push('(');
                 self.expr(e, 0);
@@ -299,6 +338,12 @@ impl Printer {
             }
             ExprKind::Field(e, name) => {
                 self.expr(e, POSTFIX_PRECEDENCE);
+                // `1 .0`: without the space, `1.0` would lex as a float literal.
+                if matches!(e.kind, ExprKind::Lit(Lit::Int { .. } | Lit::Float { .. }))
+                    && name.name.starts_with(|c: char| c.is_ascii_digit())
+                {
+                    self.out.push(' ');
+                }
                 let _ = write!(self.out, ".{}", name.name);
             }
             ExprKind::Index(e, i) => {
@@ -482,6 +527,7 @@ fn precedence(e: &Expr) -> u8 {
         ExprKind::Lit(_)
         | ExprKind::Path(_)
         | ExprKind::Unit
+        | ExprKind::Tuple(_)
         | ExprKind::Paren(_)
         | ExprKind::Block(_)
         | ExprKind::If { .. }

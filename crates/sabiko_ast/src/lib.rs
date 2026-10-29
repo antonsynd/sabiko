@@ -167,6 +167,9 @@ pub enum TypeKind {
     Ref { mutable: bool, inner: Box<Type> },
     /// `()`
     Unit,
+    /// `(A,)`, `(A, B)`, ...: at least one element (`()` is [`TypeKind::Unit`]). A
+    /// parenthesised type without a comma, `(A)`, is just `A`.
+    Tuple(Vec<Type>),
     /// `_` in a type position: ask inference.
     Infer,
 }
@@ -184,6 +187,9 @@ pub enum PatKind {
     Ident { mutable: bool, name: Ident },
     /// `_`
     Wild,
+    /// `(a, (b, _))`, `(a,)`, `()`: irrefutable tuple destructuring. `(p)` without a comma
+    /// is just `p`.
+    Tuple(Vec<Pat>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -236,6 +242,8 @@ pub enum ExprKind {
     Path(Path),
     /// `()`
     Unit,
+    /// `(a,)`, `(a, b)`, ...: at least one element (`()` is [`ExprKind::Unit`]).
+    Tuple(Vec<Expr>),
     Paren(Box<Expr>),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
@@ -252,6 +260,8 @@ pub enum ExprKind {
         method: Ident,
         args: Vec<Expr>,
     },
+    /// `e.Name`, or `e.0` on a tuple: the name is the index as written (`0`, `01`, `0x1`;
+    /// only a plain decimal one names a tuple field).
     Field(Box<Expr>, Ident),
     Index(Box<Expr>, Box<Expr>),
     /// `&e` or `&mut e`

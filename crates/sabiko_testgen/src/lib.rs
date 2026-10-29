@@ -9,17 +9,21 @@
 //! compilers exit with 101 and the harness compares the messages.
 //!
 //! The subset: `fn` with parameters and return types (including a reference into the
-//! single reference parameter), `struct` with primitive or struct fields, optionally
-//! `#[derive(Copy, Clone)]`, `const` items, `let`/`let mut`, `if`/`else` as statement and
-//! expression, bounded `while` and `loop` (with `break`, `break value`, `continue`),
-//! `return`, struct literals, nested field reads and writes, `&`/`&mut` borrows passed to
-//! functions and held in locals, `*r`, writes through `&mut`, all arithmetic, bitwise,
-//! shift, comparison and logical operators (comparisons also between references to
-//! primitives, which compare the referents), unary `-`/`!`, `as` casts between every
-//! integer type (`i128`/`u128` included), `f32`/`f64`, `bool` and ASCII `char`, suffixed
-//! literals and compound assignment. Not generated: methods, tuples, arrays, enums, `match`,
-//! generics, closures, `&str` other than literals passed to `Print`/`PrintLine`/`Panic`,
-//! references in struct fields, recursion, shadowing, unbounded loops, and reads of
+//! single reference parameter), `struct` with primitive, struct or tuple fields, optionally
+//! `#[derive(Copy, Clone)]`, tuples of primitives, structs and tuples (1 to 3 elements,
+//! occasionally 8 or 9) as locals, parameters, return values and fields, `const` items,
+//! `let`/`let mut` and destructuring `let (a, (b, _), mut c)` (also of a reference to a
+//! tuple, binding references), `if`/`else` as statement and expression, bounded `while`
+//! and `loop` (with `break`, `break value`, `continue`), `return`, struct and tuple
+//! literals, nested field and element reads and writes (`p.A.0`, `t.1.X`), `&`/`&mut`
+//! borrows passed to functions and held in locals, `*r`, writes through `&mut`, all
+//! arithmetic, bitwise, shift, comparison and logical operators (comparisons also between
+//! references to primitives, which compare the referents), unary `-`/`!`, `as` casts
+//! between every integer type (`i128`/`u128` included), `f32`/`f64`, `bool` and ASCII
+//! `char`, suffixed literals and compound assignment. Not generated: methods, arrays,
+//! enums, `match`, generics, closures, `&str` other than literals passed to
+//! `Print`/`PrintLine`/`Panic`, references in struct fields or tuples, `()` values,
+//! comparisons of tuples, recursion, shadowing, unbounded loops, and reads of
 //! uninitialised locals.
 //!
 //! With [`Knobs::default`] a small fraction of the scope-model checks are skipped on
@@ -47,6 +51,8 @@ pub struct Knobs {
     pub min_fns: usize,
     pub max_fns: usize,
     pub max_structs: usize,
+    /// Number of distinct tuple types.
+    pub max_tuples: usize,
     pub max_consts: usize,
     /// A soft limit on the total line count: bodies stop generating statements once it
     /// is reached, so a program exceeds it by at most a few closing lines.
@@ -66,6 +72,7 @@ impl Default for Knobs {
             min_fns: 2,
             max_fns: 6,
             max_structs: 3,
+            max_tuples: 3,
             max_consts: 3,
             max_lines: 60,
             max_expr_depth: 3,

@@ -1,0 +1,57 @@
+// Tuples and `()` values (decision 52): construction, element access, destructuring, nested
+// and wide tuples, default binding modes, parameter patterns.
+struct Holder { Unit: (), N: i32 }
+
+fn Make(a: i32, b: bool) -> (i32, bool) {
+    (a, b)
+}
+
+fn Swap(p: (u8, u8)) -> (u8, u8) {
+    (p.1, p.0)
+}
+
+fn Nested(t: ((i32, i32), i64)) -> i64 {
+    (t.0.0 + t.0.1) as i64 + t.1
+}
+
+fn Destructure(t: (i32, (bool, u8))) -> u8 {
+    let (a, (b, c)) = t;
+    let (_, d) = (a, c);
+    if b { d } else { c }
+}
+
+fn ByRef(p: &mut (i32, i32)) {
+    let (a, b) = p;
+    *a += *b;
+}
+
+fn Params((a, b): (i32, i32), (c,): (i32,)) -> i32 {
+    a + b + c
+}
+
+fn Unit(u: (), h: Holder) -> ((), i32) {
+    let v = u;
+    (v, h.N)
+}
+
+fn Wide() -> i32 {
+    let mut t = (1, 2, 3, 4, 5, 6, 7, 8, 9);
+    t.8 += t.7;
+    t.8
+}
+
+fn Fib(n: i32) -> u64 {
+    let mut pair = (0u64, 1u64);
+    let mut i = 0;
+    while i < n {
+        pair = (pair.1, pair.0 + pair.1);
+        i += 1;
+    }
+    pair.0
+}
+
+fn Refs(x: &i32, y: &mut i32) -> i32 {
+    let r = (x, y);
+    *r.1 += *r.0;
+    *r.1
+}

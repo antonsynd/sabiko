@@ -460,13 +460,42 @@ helpers keep `FibRecursive` too large to inline into itself. Gaps: struct litera
 use `initobj`+`stfld`; the shapes for Phase 5 constructs (part 3 of #29) are tracked on
 #6, #8, #9 and #12.
 
+Update (2026-10-29), tuples (#6, decision 52): tuple types, expressions, `.0` access
+(`t.0.1` split as in rustc) and tuple patterns in `let` and parameters (nested, `_`,
+`mut`, annotated) go through every stage. Tuples without references are
+`System.ValueTuple` (nested in `Rest` past seven elements), tuples holding references a
+generated `ref struct`, both built by `newobj`; `()` parameters, struct fields and tuple
+elements are `Sabiko.Runtime.Unit`, lifting decision 35's E0500 for them. Tuple elements
+are ordinary field projections in MIR, so moves, partial moves, re-initialisation,
+disjoint loans and mutability work on them as on struct fields; tuples of references carry
+their loans (`RegionTy::Tuple`) and count for elision. Default binding modes are
+implemented for tuple patterns (`let (a, b) = &mut t;` binds `&mut` elements; `mut x`
+there binds by value, as in Rust 2021), and temporary lifetime extension reaches through
+tuple elements of a `let` initialiser. All 31 staged compile-time and 16 of the 17 staged
+run-time programs agree with rustc; the generator produces tuples (types, literals, element
+reads and writes, destructuring by value and by reference, parameters, returns, fields)
+and 2000 seeds at each of the bases 1200000, 4400000 and 8800000 agree with rustc
+(verdicts, output, panics, determinism, reorderings). A `tuples` benchmark (pairs by value,
+`System.ValueTuple` in the C#) runs at 0.99–1.00x C# in process and 1.03–1.05x per launch,
+allocating nothing; the other benchmarks did not move beyond noise. Gaps: comparing tuples (`==`, `<`, ...) and
+destructuring assignment (`(a, b) = (b, a)`) are E0107 (the comparison traits are Phase 6;
+`tests/pending/tuples/known_gap/equality.sabi`); `&&T` and `&()`, also as tuple elements,
+stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`); the two-phase
+reborrow `Use(m, m.0)` waits for #15; a tuple holding a reference cannot be a struct field
+(lifetimes, Phase 9); constants cannot be tuples (E0315); literal and other refutable
+patterns are E0107 until `match`. Pre-existing and unchanged: `let _ = place;` reads the
+place where rustc only mentions it, so Sabiko rejects `let _ = p; Take(p);` (a TODO in
+`sabiko_mir::build`). The generator does not produce tuples of references, `()` values or
+tuple comparisons.
+
 ### Phase 5: Data types
 
 Work
 Order (decision 46): tuples and `()` values, then `impl` blocks and methods (with two-phase
 borrows), then drop elaboration, then enums and `match`, so that match lowering is written
 against drops rather than retrofitted.
-- Tuples; `()` as a value with real storage where it is a parameter or field type.
+- Tuples; `()` as a value with real storage where it is a parameter or field type. Done
+  (#6, decision 52; see the status note above).
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
   `&mut` reborrows in argument position.

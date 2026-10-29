@@ -1,0 +1,16 @@
+// Valid Rust that Sabiko rejects for now, each with a "not yet supported" error rather than
+// different semantics: comparing tuples (the comparison traits arrive in Phase 6, as for
+// structs; `tests/pending/tuples/known_gap/equality.sabi` keeps rustc's behaviour), also
+// through references, and destructuring assignment (`(a, b) = (b, a)`).
+fn Main() {
+    let a = (1, 'b', true);
+    let b = (1, 'b', true);
+    let eq = a == b; //~ ERROR E0107 not yet supported: comparing tuples
+    let lt = (2, 0) > (1, 99); //~ ERROR E0107 not yet supported: comparing tuples
+    let refs = &a != &b; //~ ERROR E0107 not yet supported: comparing tuples
+    let nested = (1, (2, 3)) <= (1, (2, 3)); //~ ERROR E0107 not yet supported: comparing tuples
+    let unit = () == (); // `()` compares (it has one value)
+    let mut x = 1;
+    let mut y = 2;
+    (x, y) = (y, x); //~ ERROR E0107 not yet supported: destructuring assignment
+}

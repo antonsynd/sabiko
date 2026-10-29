@@ -50,6 +50,8 @@ pub enum Ty {
     /// A user struct.
     Adt(DefId),
     Ref(Mutability, Box<Ty>),
+    /// `(A,)`, `(A, B)`, ...: never empty, since `()` is [`Ty::Unit`].
+    Tuple(Box<Vec<Ty>>),
     /// The zero-sized type of a function item; only callable.
     FnDef(DefId),
     Infer(TyVid),
@@ -83,13 +85,15 @@ impl Ty {
         matches!(self, Ty::Never)
     }
 
-    /// `!`, or a reference to an uninhabited type (`&!`, the type of `&loop {}`): no
-    /// value of it is ever produced, so code generation gives it no storage.
+    /// `!`, a reference to an uninhabited type (`&!`, the type of `&loop {}`), or a tuple
+    /// with an uninhabited element: no value of it is ever produced, so code generation
+    /// gives it no storage.
     #[must_use]
     pub fn is_uninhabited(&self) -> bool {
         match self {
             Ty::Never => true,
             Ty::Ref(_, inner) => inner.is_uninhabited(),
+            Ty::Tuple(elems) => elems.iter().any(Ty::is_uninhabited),
             _ => false,
         }
     }
@@ -118,14 +122,15 @@ impl Ty {
     }
 
     /// Whether values of this type are copied rather than moved, ignoring
-    /// `#[derive(Copy)]`: primitives, `()`, shared references and function items are
-    /// `Copy`; `&mut T` is not, and structs are reported as not `Copy` here. Use
-    /// `ItemTypes::is_copy` for the item-aware answer.
+    /// `#[derive(Copy)]`: primitives, `()`, shared references, function items and tuples
+    /// of `Copy` elements are `Copy`; `&mut T` is not, and structs are reported as not
+    /// `Copy` here. Use `ItemTypes::is_copy` for the item-aware answer.
     #[must_use]
     pub fn is_copy(&self) -> bool {
         match self {
             Ty::Prim(_) | Ty::Unit | Ty::Never | Ty::FnDef(_) | Ty::Error => true,
             Ty::Ref(m, _) => !m.is_mut(),
+            Ty::Tuple(elems) => elems.iter().all(Ty::is_copy),
             Ty::Adt(_) | Ty::Infer(_) => false,
         }
     }
@@ -135,6 +140,17 @@ impl Ty {
         match self {
             Ty::Infer(_) => true,
             Ty::Ref(_, inner) => inner.has_infer(),
+            Ty::Tuple(elems) => elems.iter().any(Ty::has_infer),
+            _ => false,
+        }
+    }
+
+    /// Whether the type contains a reference anywhere (directly, or in a tuple element).
+    #[must_use]
+    pub fn has_ref(&self) -> bool {
+        match self {
+            Ty::Ref(..) => true,
+            Ty::Tuple(elems) => elems.iter().any(Ty::has_ref),
             _ => false,
         }
     }
@@ -157,6 +173,19 @@ impl Ty {
                 out.push('&');
                 out.push_str(m.prefix_str());
                 inner.write(resolve, out);
+            }
+            Ty::Tuple(elems) => {
+                out.push('(');
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    e.write(resolve, out);
+                }
+                if elems.len() == 1 {
+                    out.push(',');
+                }
+                out.push(')');
             }
             Ty::FnDef(d) => {
                 out.push_str("fn item `");

@@ -1,0 +1,27 @@
+[E0206] Error: recursive type `S` has infinite size
+   ╭─[ tests/ui/typeck/tuple_item_types.sabi:5:8 ]
+   │
+ 5 │ struct S { A: (i32, S) } //~ ERROR E0206 recursive type `S` has infinite size
+   │        ┬  
+   │        ╰── recursive type has infinite size
+   │ 
+   │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+───╯
+[E0107] Error: not yet supported: references in struct fields
+   ╭─[ tests/ui/typeck/tuple_item_types.sabi:7:15 ]
+   │
+ 7 │ struct T { B: (&i32,) } //~ ERROR E0107 not yet supported: references in struct fields
+   │               ───┬───  
+   │                  ╰───── a struct holding a reference needs a lifetime parameter
+   │ 
+   │ Note: planned for Phase 9; see docs/PLAN.md
+───╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/tuple_item_types.sabi:9:9 ]
+   │
+ 9 │ fn F(x: (str, i32)) {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+   │         ─────┬────  
+   │              ╰────── doesn't have a size known at compile-time
+   │ 
+   │ Note: string values are used behind a reference: `&str`
+───╯

@@ -1,0 +1,57 @@
+[E0306] Error: binary operation `+` cannot be applied to type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/tuple_operators.sabi:6:13 ]
+   │
+ 6 │     let a = t + (3, 4); //~ ERROR E0306 binary operation `+` cannot be applied to type `({integer}, {integer})`
+   │             ─────┬────  
+   │                  ╰────── no implementation for `({integer}, {integer}) + ({integer}, {integer})`
+───╯
+[E0307] Error: cannot apply unary operator `-` to type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/tuple_operators.sabi:7:14 ]
+   │
+ 7 │     let b = -t; //~ ERROR E0307 cannot apply unary operator `-` to type `({integer}, {integer})`
+   │              ┬  
+   │              ╰── cannot apply unary operator `-`
+───╯
+[E0300] Error: `PrintLine` cannot print a value of type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/tuple_operators.sabi:8:15 ]
+   │
+ 8 │     PrintLine(t); //~ ERROR E0300 `PrintLine` cannot print a value of type `({integer}, {integer})`
+   │               ┬  
+   │               ╰── expected a printable value, found `({integer}, {integer})`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+───╯
+[E0300] Error: `Print` cannot print a value of type `()`
+   ╭─[ tests/ui/typeck/tuple_operators.sabi:9:11 ]
+   │
+ 9 │     Print(()); //~ ERROR E0300 `Print` cannot print a value of type `()`
+   │           ─┬  
+   │            ╰── expected a printable value, found `()`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+───╯
+[E0308] Error: non-primitive cast: `(i32, i32)` as `i32`
+    ╭─[ tests/ui/typeck/tuple_operators.sabi:10:13 ]
+    │
+ 10 │     let c = t as i32; //~ ERROR E0308 non-primitive cast: `(i32, i32)` as `i32`
+    │             ────┬───  
+    │                 ╰───── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_operators.sabi:11:23 ]
+    │
+ 11 │     let d = (1, 2) == (1, 2, 3); //~ ERROR E0300 mismatched types
+    │                       ────┬────  
+    │                           ╰────── expected `({integer}, {integer})`, found `({integer}, {integer}, {integer})`
+    │ 
+    │ Note: expected a tuple with 2 elements, found one with 3 elements
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_operators.sabi:12:28 ]
+    │
+ 12 │     let e = (1, 'a') < (1, 2); //~ ERROR E0300 mismatched types
+    │                            ┬  
+    │                            ╰── expected `char`, found `{integer}`
+────╯

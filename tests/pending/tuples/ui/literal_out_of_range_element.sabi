@@ -1,8 +1,0 @@
-// A literal element must fit the element type the tuple's expected type gives it (rustc's
-// deny-by-default `overflowing_literals` lint, uncoded; Sabiko's E0314 today for scalars).
-fn Takes(t: (u8, i8)) {}
-
-fn Main() {
-    Takes((300, 1)); //~ rustc -: literal out of range for `u8`
-    let t: (bool, (i8,)) = (true, (-129,)); //~ rustc -: literal out of range for `i8`
-}

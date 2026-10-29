@@ -21,9 +21,10 @@ same output. The workloads are sized to take roughly 50–250 ms per process lau
 | `nbody` | Five planets as fields of a struct passed by `&mut`, disjoint field borrows, `f64` |
 | `primes` | Prime counting below 600,000 by trial division: remainder by a variable divisor |
 | `lcg_hash` | A MINSTD generator feeding a polynomial hash: `u64` multiply and remainder by constants |
+| `tuples` | Pairs passed and returned by value, a quotient-and-remainder pair, destructuring and a three-element accumulator rebuilt per iteration; the C# uses `System.ValueTuple`, which Sabiko's tuples lower to (decision 52) |
 
-They stay inside today's subset (integers, floats, `bool`, structs, references, functions,
-`if`/`while`/`loop`): no arrays, methods, tuples, enums or generics. Two consequences: the
+They stay inside today's subset (integers, floats, `bool`, structs, tuples, references,
+functions, `if`/`while`/`loop`): no arrays, methods, enums or generics. Two consequences: the
 n-body bodies are spelled out as struct fields with the ten pairs written out, and its
 square root is a Newton iteration (there is no `f64::sqrt` without methods). The C#
 programs use the same Newton function and the same struct-of-fields shape, so the

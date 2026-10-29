@@ -8,8 +8,9 @@
 use sabiko_borrowck::moves::check_moves;
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
-    BasicBlock, BasicBlockData, Body, ConstValue, Constant, Local, LocalDecl, LocalKind,
-    Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty,
+    AggregateKind, BasicBlock, BasicBlockData, Body, ConstValue, Constant, Local, LocalDecl,
+    LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
+    TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, ResolveResults};
 use sabiko_span::{FileId, Span};
@@ -314,7 +315,7 @@ fn use_move(place: Place) -> Rvalue {
 }
 
 fn point_aggregate(fx: &Fixture) -> Rvalue {
-    Rvalue::Aggregate(fx.point, vec![int(1), int(2)])
+    Rvalue::Aggregate(AggregateKind::Adt(fx.point), vec![int(1), int(2)])
 }
 
 /// `l.A` / `l.B` of a `Line`.
@@ -988,7 +989,7 @@ fn copy_struct_is_never_reported() {
     mir.assign(
         bb0,
         local(v),
-        Rvalue::Aggregate(fx.vec2, vec![int(1), int(2)]),
+        Rvalue::Aggregate(AggregateKind::Adt(fx.vec2), vec![int(1), int(2)]),
     );
     mir.call(bb0, fx.take_vec, vec![copy(local(v))], local(t1), bb1);
     mir.call(bb1, fx.take_vec, vec![copy(local(v))], local(t2), bb2);

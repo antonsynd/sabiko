@@ -6,6 +6,24 @@ input_file: crates/sabiko_parser/tests/fixtures/errors_unsupported.sabi
 SourceFile
   Fn F
     Block
+      Let
+        TuplePat
+          Pat a
+          Pat b
+        Init
+          Path t
+      Let
+        Pat t
+        Init
+          Field 0
+            Path x
+  Fn I
+    Param
+      Pat x
+      TupleType
+        Type i32
+        Type i32
+    Block
   Fn L
     Param
       Pat t
@@ -14,6 +32,12 @@ SourceFile
       Pat x
       Type i64
     Block
+      Let
+        Pat a
+        Init
+          Field 1
+            Field 0
+              Path t
 --- diagnostics ---
 [E0107] Error: not yet supported: `match` expressions
    ╭─[ errors_unsupported.sabi:2:5 ]
@@ -33,30 +57,12 @@ SourceFile
    │ 
    │ Note: planned for Phase 5; see docs/PLAN.md
 ───╯
-[E0107] Error: not yet supported: tuple patterns
-   ╭─[ errors_unsupported.sabi:4:9 ]
-   │
- 4 │     let (a, b) = t;
-   │         ┬  
-   │         ╰── not supported in this version of Sabiko
-   │ 
-   │ Note: planned for Phase 5; see docs/PLAN.md
-───╯
 [E0107] Error: not yet supported: the `?` operator
    ╭─[ errors_unsupported.sabi:5:14 ]
    │
  5 │     let r = x?;
    │              ┬  
    │              ╰── not supported in this version of Sabiko
-   │ 
-   │ Note: planned for Phase 5; see docs/PLAN.md
-───╯
-[E0107] Error: not yet supported: tuple field access (`.0`)
-   ╭─[ errors_unsupported.sabi:6:15 ]
-   │
- 6 │     let t = x.0;
-   │               ┬  
-   │               ╰── not supported in this version of Sabiko
    │ 
    │ Note: planned for Phase 5; see docs/PLAN.md
 ───╯
@@ -159,15 +165,6 @@ SourceFile
     │ 
     │ Note: planned for Phase 6; see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: tuple types
-    ╭─[ errors_unsupported.sabi:19:9 ]
-    │
- 19 │ fn I(x: (i32, i32)) {}
-    │         ┬  
-    │         ╰── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
-────╯
 [E0107] Error: not yet supported: array and slice types
     ╭─[ errors_unsupported.sabi:20:9 ]
     │
@@ -255,15 +252,6 @@ SourceFile
  29 │ struct Tuple(i32);
     │             ┬  
     │             ╰── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
-────╯
-[E0107] Error: not yet supported: tuple field access (`.0`)
-    ╭─[ errors_unsupported.sabi:30:35 ]
-    │
- 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
-    │                                   ─┬─  
-    │                                    ╰─── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 5; see docs/PLAN.md
 ────╯

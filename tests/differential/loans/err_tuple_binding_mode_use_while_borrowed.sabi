@@ -1,0 +1,9 @@
+// `let (a, b) = &mut t;` borrows `t` mutably through the bindings (default binding
+// modes): reading `t.0` while `b` is still used conflicts.
+fn F() {
+    let mut t = (1, 2);
+    let (a, b) = &mut t;
+    *a += 1;
+    PrintLine(t.0);
+    *b += 1;
+}

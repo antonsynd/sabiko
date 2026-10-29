@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use polonius_engine::{Algorithm, Output};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_mir::{Body, Local, LocalKind, Place, PlaceElem, TerminatorKind};
+use sabiko_mir::{Body, Local, LocalKind, Place, TerminatorKind, Ty};
 use sabiko_resolve::{DefKind, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{FnSig, TypeckResults};
@@ -32,7 +32,7 @@ use sabiko_types::{FnSig, TypeckResults};
 use crate::dataflow::Location;
 use crate::describe_place;
 use facts::{AccessKind, Facts, FactsError, LocationTable, SabikoFacts};
-use regions::{signature_regions, Loan, Origin, OriginSupply, Point};
+use regions::{signature_regions, Loan, Origin, OriginSupply, Point, SiteElem};
 
 /// Reports E0416 for every user function whose return type borrows when elision cannot
 /// say from which parameter. Runs on signatures alone, in definition order, so it does
@@ -381,13 +381,22 @@ impl Reporter<'_> {
     }
 
     /// The reference in the signature with this universal origin, as a place: `x` for
-    /// `x: &T`, `*x` for the inner reference of `x: &mut &T`.
+    /// `x: &T`, `*x` for the inner reference of `x: &mut &T`, `t.1` for `t: (i32, &T)`.
     fn universal_place(&self, origin: Origin) -> Option<String> {
         let site = self.facts.universal.iter().find(|u| u.origin == origin)?;
-        let place = Place {
-            local: site.param,
-            projection: vec![PlaceElem::Deref; site.depth],
-        };
+        let mut place = Place::local(site.param);
+        for elem in &site.path {
+            place = match *elem {
+                SiteElem::Deref => place.deref(),
+                SiteElem::Field(index) => {
+                    let ty = match place.ty(self.body) {
+                        Ty::Tuple(elems) => elems.get(index).cloned().unwrap_or(Ty::Error),
+                        _ => Ty::Error,
+                    };
+                    place.field(index, ty)
+                }
+            };
+        }
         Some(self.describe(&place))
     }
 

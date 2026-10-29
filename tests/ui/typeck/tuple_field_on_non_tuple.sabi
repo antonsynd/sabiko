@@ -1,0 +1,16 @@
+// `.0` on values that are not tuples (primitives, structs with named fields, references to
+// them), and a named field on a tuple. rustc: E0610 for primitives, E0609 otherwise.
+struct P { X: i32 }
+
+fn Main() {
+    let x = 5;
+    let a = x.0; //~ ERROR E0301 no field `0` on type `{integer}`
+    let p = P { X: 1 };
+    let b = p.0; //~ ERROR E0301 no field `0` on type `P`
+    let r = &p;
+    let c = r.0; //~ ERROR E0301 no field `0` on type `&P`
+    let f = 1.5f64;
+    let d = f.0; //~ ERROR E0301 no field `0` on type `f64`
+    let t = (1, 2);
+    let e = t.X; //~ ERROR E0301 no field `X` on type `({integer}, {integer})`
+}

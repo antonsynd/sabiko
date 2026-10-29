@@ -35,7 +35,10 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   numbers agree; `Panic` is `#[track_caller]` there, so it reports its call site.
 - Generated programs (`crates/sabiko_testgen`, `crates/sabikoc/tests/generated.rs`): a
   seeded generator produces random programs in the Phase 4 subset (every integer type,
-  `i128`/`u128` included); both oracles above, panic locations included, are
+  `i128`/`u128` included) plus tuples (#6: tuple types of primitives, structs and tuples,
+  wide ones past `System.ValueTuple`'s seven direct elements, as locals, parameters,
+  returns and struct fields; element reads and writes; destructuring lets by value and
+  through a reference); both oracles above, panic locations included, are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
   nightly), and to reorderings of them (see Properties). A failure prints the seed and the
   program; `SABIKO_GENERATED_BASE_SEED` selects the range.

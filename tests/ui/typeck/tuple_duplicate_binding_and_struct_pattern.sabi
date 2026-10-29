@@ -1,0 +1,9 @@
+// A binding name may appear once per tuple pattern (rustc E0416), and a tuple pattern
+// cannot destructure a struct (rustc E0308).
+struct P { X: i32 }
+
+fn Main() {
+    let t = (1, 2);
+    let (x, x) = t; //~ ERROR E0209 identifier `x` is bound more than once in the same pattern
+    let (p,) = P { X: 1 }; //~ ERROR E0300 mismatched types
+}

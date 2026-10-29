@@ -21,8 +21,14 @@ names which phase owns which section.
   nested expression (parentheses, a block's statement, a call argument, an `else if`), a
   prefix operator, each binary operator or cast of a chain, each postfix call, index or
   field access, or a `&` in a type; `&&` counts twice
-- Patterns
-- Types: primitives, references, tuples, arrays, slices, named types, generics
+- Patterns. Implemented (Phase 5, #6): `x`, `mut x`, `_` and tuple patterns `(p, ..)`
+  (`(p,)` for one element, `()`), nested, in `let` and in parameters; `(p)` is `p`. Literal,
+  `ref`, `&`, struct and enum patterns are E0107 until `match` arrives
+- Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays,
+  slices, named types, generics
+- Tuple expressions `(a,)`, `(a, b)`; `(e)` is a parenthesised expression. Element access
+  `t.0` takes a decimal index as written; `t.0.1` (lexed as `t`, `.`, the float `0.1`) is
+  two accesses, as in rustc, and a suffixed index (`t.0u8`) is a syntax error (E0100)
 
 ## 3. Names and modules (Phase 2, 9)
 
@@ -100,10 +106,20 @@ usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value
 `valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
 `modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
 value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
-`&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
-`void` as a return type; locals and temporaries of type `()`, `!` or a reference to `!`
-(`&!`, `&&!`, ...) have no storage (decisions 32 and 44), and assignments to them are
-dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and fields.
+`&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. A tuple
+(decision 52) is a `System.ValueTuple` instantiation, as in C#: arities 1 to 7 hold their
+elements in `Item1`..`Item7`, a longer tuple is the eight-parameter `ValueTuple` whose
+`Rest` holds the tuple of the remaining elements (`t.7` is `t.Rest.Item1`); a tuple with a
+reference anywhere among its elements (also `&str`, or a nested tuple holding one) cannot
+be a generic argument and is instead a `ref struct` (`IsByRefLikeAttribute`) generated
+into the module, named after the Sabiko type (`'(&mut i64, &i64)'`), with fields
+`Item1`..`ItemN` and a constructor taking the elements. `()` is `void` as a return type;
+where a `()` value must be stored (a parameter, a struct field, a tuple element) it is a
+`Sabiko.Runtime.Unit`, an empty struct; locals and temporaries of type `()`, `!`, a
+reference to `!` (`&!`, `&&!`, ...) or a tuple with such an element have no storage
+(decisions 32, 44 and 52), and assignments to them are dropped. No `()` value is ever
+loaded or stored; a call or tuple-constructor argument of type `()` loads a zero-initialised
+`Unit` local instead. Not lowered yet (E0500): `&&T` and `&()`, also as tuple elements.
 
 Statements and expressions. After borrow checking, copy forwarding (decision 51,
 `sabiko_mir::forward`) replaces a compiler temporary that holds a copy of a place
@@ -116,7 +132,7 @@ nothing reads are deleted. `--emit=mir` prints the MIR before this pass, as the 
 checker sees it. The backend then walks the MIR (§11); every statement and terminator
 becomes an instruction sequence. MIR locals become IL locals (`.locals init`, listing only
 the locals the code uses) and MIR arguments IL arguments, except that a user local or
-temporary assigned once (not by a struct literal) and read once by a whole-local operand,
+temporary assigned once (not by a struct literal; a tuple is fine) and read once by a whole-local operand,
 never borrowed or projected, keeps its value on the evaluation stack when the statement
 that reads it starts by loading it (decision 51): the `stloc`/`ldloc` pair is dropped.
 Otherwise the value is stored after all (`stloc`, or `dup; stloc` when the reader loads it
@@ -130,11 +146,19 @@ reverse postorder of a depth-first walk from `bb0` (a `switchInt`'s `otherwise` 
 falling through), so the only backward branches are loop back edges: the JIT compiles a
 method with a backward branch as a loop (instrumented Tier0, OSR). A jump to a block that
 only returns is emitted as `ldloc; ret` in place. A place is accessed through its address: `ldloca`/`ldarga` for a local or
-argument, `ldflda` for a field, the pointer value itself for `*r`; the final load or store
-is `ldloc`/`stloc`, `ldfld`/`stfld` or `ldind.*`/`stind.*` (`ldobj`/`stobj` for structs).
+argument, `ldflda` for a field (a tuple element past the seventh first goes through
+`ldflda Rest`), the pointer value itself for `*r`; the final load or store is
+`ldloc`/`stloc`, `ldfld`/`stfld` or `ldind.*`/`stind.*` (`ldobj`/`stobj` for structs and
+tuples). The fields of a `ValueTuple` instantiation are referenced by their generic
+declaration, as C# does (`ldfld !1` of `Item2`, whose declared type is the second type
+parameter).
 `&place` is that address; `&mut *r` is `r` itself. A struct literal is built in its
-destination local with `initobj` and one `stfld` per field, or staged through a temporary
-when the destination is a projection or is read by one of the fields. Calls are `call`
+destination local with `initobj` and one `stfld` per field (none for a `()` field), or
+staged through a temporary when the destination is a projection or is read by one of the
+fields. A tuple is built on the stack, as Roslyn builds one: its elements are pushed left
+to right and `newobj` calls the tuple type's constructor (an eight-parameter `ValueTuple`
+first builds its `Rest` the same way); every element is read before the tuple is stored,
+so `p = (p.1, p.0)` reads both elements first. Calls are `call`
 with the callee's full signature; `Print`/`PrintLine` select the runtime overload by the
 argument's type and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cannot return,
 and `unreachable`, are followed by `call Sabiko.Runtime.Checks::Unreachable()`, `ldnull`,
@@ -214,7 +238,7 @@ verify every assembly they run; a verification error is a compiler bug.
 ## 11. Static semantics (Phase 2 subset)
 
 What the compiler enforces today for the Phase 1 language subset (`fn`, `struct`, `const`,
-no methods, generics, enums, tuples or arrays). This section is folded into §3, §4 and §6
+no methods, generics, enums or arrays; tuples since #6). This section is folded into §3, §4 and §6
 as they fill in. Error codes are in `crates/sabiko_diagnostics`; each rule has a UI test
 under `tests/ui/resolve` or `tests/ui/typeck`.
 
@@ -225,6 +249,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - Items share one namespace: a struct, function and constant may not have the same name
   (E0200). Field names must be unique within a struct (E0204) and parameter names within
   a parameter list (E0205).
+- A name may be bound once per pattern: `let (x, x) = t;` is E0209 (rustc's E0416), and
+  in a parameter list, across all parameters' patterns, E0205.
 - A `let` binding is visible from the statement after it to the end of its block and
   shadows earlier bindings and items of the same name. Its initialiser is resolved before
   the binding is introduced, so `let x = x + 1;` reads the outer `x`. A local is not
@@ -239,8 +265,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 ### 11.2 Types and inference
 
 - Types: `i8`–`i128`, `isize`, `u8`–`u128`, `usize` (`isize`/`usize` are 64-bit), `f32`,
-  `f64`, `bool`, `char`, `()`, `str` (only behind a reference, E0208), named structs,
-  `&T`, `&mut T`. A struct may not contain itself by value, directly or through other
+  `f64`, `bool`, `char`, `()`, `str` (only behind a reference, E0208, also not as a tuple
+  element), named structs, tuples `(A,)`, `(A, B)`, ..., `&T`, `&mut T`. A struct field
+  may be a tuple, but not one holding a reference (references in fields wait for Phase 9,
+  E0107). A struct may not contain itself by value, directly or through other
   structs (E0206). `!` is the type of `break`, `continue`, `return` and of a `loop`
   without `break`; it coerces to any type. The borrow of a diverging expression (`&loop {}`,
   `&mut return 1`) has type `&!` (`&mut !`), as in rustc: a borrow is not a coercion site,
@@ -262,6 +290,28 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   (`-129` as `i8`) and when the type comes from a cast (`300 as u8`).
 - A `let` whose type nothing constrains is an error (E0313). Deferred initialisation
   (`let x; x = 1;`) is allowed; the type comes from the assignment.
+- Tuples. `(a, b)` has type `(A, B)`. Against an expected tuple type of the same arity
+  (an annotation, a parameter, a return type, an assignment target), each element is
+  checked and coerced against its expected element type, so the elements are coercion
+  sites (`let p: (&i32, u8) = (&mut x, 1);` coerces, and a `&mut` place element is
+  reborrowed, not moved); without one an element keeps its own type, and an element of
+  type `!` gets a fresh type falling back to `()`, as a diverging `let` initialiser does.
+  An arity mismatch is E0300 with a note "expected a tuple with N elements, found one with
+  M elements". `t.i` is element `i` of a tuple, auto-dereferencing through references;
+  an index that is out of range, not plain decimal (`t.01`, `t.0x1`) or used on a
+  non-tuple is E0301 ("no field `2` on type `(i32, bool)`"). Tuples are not printable,
+  have no arithmetic and do not cast (E0300, E0306/E0307, E0308). Comparing tuples
+  (`==`, `<`, ... also through references) is valid Rust but not yet supported (E0107):
+  the comparison traits arrive in Phase 6, as for structs. `()` compares. Destructuring
+  assignment (`(a, b) = (b, a)`) is E0107 too. A `const` cannot be a tuple yet (E0315).
+- Patterns. A tuple pattern matches a tuple of its arity (E0300 otherwise: "expected
+  `(i32, i32, i32)`, found a tuple with 2 elements"), `()` matches `()`, `_` matches
+  anything and binds nothing, and an identifier binds the whole value. A tuple pattern
+  matched against a reference to a tuple (`let (a, b) = &t;`) looks through the reference
+  and binds references to the elements, `&` or `&mut` like the reference (a `&` anywhere
+  outside makes every inner binding `&`): Rust 2021's default binding modes. A `mut x`
+  binding there binds by value again, as in Rust 2021 (a copy, or a move, which E0407
+  rejects out of a reference).
 - Coercions: `!` to any type, and `&mut T` to `&T`. Nothing else: no `&T` to `&mut T`, no
   numeric widening, no autoref.
 - Operators, by operand type:
@@ -291,7 +341,7 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   | `bool` | yes | no | identity | no |
   | `char` | yes | no | no | identity |
 
-  Anything else, including references, structs and `()`, is E0308. An unsuffixed literal
+  Anything else, including references, structs, tuples and `()`, is E0308. An unsuffixed literal
   takes the target type when the families agree.
 - `if c { a } else { b }`: `c` is `bool`; both branches have the same type, a diverging
   branch taking the other's. `if` without `else` is `()`, so its block must be `()`.
@@ -305,7 +355,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - A function body is a block checked against the declared return type (`()` when
   omitted); `return;` has the value `()`.
 - Field access `e.f` auto-dereferences through any number of references (E0301 for an
-  unknown field or a non-struct). A struct literal must name every field exactly once
+  unknown field or a non-struct, naming the type as written, references included:
+  "no field `W` on type `&Point`"). A struct literal must name every field exactly once
   (E0301, E0302, E0303). A unit struct's name is a value; a named struct's is not (E0203).
   A function name is only callable, not a value (E0317); calls check arity (E0304) and
   argument types.
@@ -327,6 +378,8 @@ Checked on the MIR by `sabiko_borrowck` (E0400–E0405):
 - A binding declared without `mut` is assigned at most once: its initialiser, or one
   deferred assignment on each path (E0400 otherwise). Reading a binding that may not have
   been assigned on every path is E0405.
+- A pattern's bindings are separate locals: in `let (a, mut b) = t;` only `b` is
+  mutable. Tuple elements are fields: everything below about `p.X` holds for `t.0`.
 - Field mutability follows the binding: `p.X = 1` and `&mut p.X` require `p` to be
   declared `mut` (E0401, E0402). A `mut` binding allows assignment and `&mut` borrows of
   itself and of any field.
@@ -343,14 +396,21 @@ initialisation rules of §11.3. Every rule below is also a rule of Rust, and
 
 Moves (E0406, E0407):
 
-- Primitives, `&T` and structs with `#[derive(Copy)]` are `Copy`: using them copies.
+- Primitives, `&T`, `()`, structs with `#[derive(Copy)]` and tuples whose elements are
+  all `Copy` are `Copy`: using them copies.
   `#[derive(Copy)]` requires every field to be `Copy` (E0417); `Clone` may be named
   alongside it. Every other struct and `&mut T` is a move type: a by-value use (a `let`
   initialiser, assignment right-hand side, call argument, struct literal field, return
   value) moves the place, and any later read, borrow or move of it, or of a place that
   contains or is contained in it, is a use of a moved value (E0406). A move in one branch
   counts as a move after the `if`; a move inside a loop is a use-after-move on the next
-  iteration. Moving a field leaves the sibling fields usable but the parent struct not.
+  iteration. Moving a field (or tuple element) leaves the sibling fields usable but the
+  parent not; assigning the moved field again makes the parent whole.
+- A destructuring `let` whose initialiser is a place binds each name to its element of the
+  place: only the bound elements are moved or copied, `_` touches nothing (`let (a, _) =
+  t;` leaves `t.1` usable). Any other initialiser is evaluated into a temporary first.
+  Temporary lifetime extension follows rustc through tuples: in `let p = (&f(), 1);` and
+  `let (a, b) = &(x, y);` the borrowed temporary lives as long as the bindings.
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
@@ -373,14 +433,18 @@ Loans (E0408–E0413):
   second `&mut`, E0411 for a use, E0410 for a write, E0412 for a move). Reborrows through
   the reference (`&mut *r`, `&*r`, `&mut r.X`) are allowed and suspend the original until
   the reborrow's last use.
-- Loans of disjoint fields (`&mut p.X` and `&mut p.Y`) do not conflict; two loans of the
+- A tuple holding references holds their loans (`let p = (&a, &mut b);` borrows both
+  until `p`'s last use); its elements' origins are tracked one by one.
+- Loans of disjoint fields (`&mut p.X` and `&mut p.Y`, `&mut t.0` and `&mut t.1`) do not
+  conflict; two loans of the
   same field do.
 - A referent must outlive every reference to it: a reference to an inner-block local used
   after the block ends is E0413.
 
 Signatures and lifetimes (E0414–E0416):
 
-- Lifetimes are elided only: a function returning a reference must have exactly one
+- Lifetimes are elided only (a reference inside a tuple counts like any other, in the
+  parameters and in the return type): a function returning a reference must have exactly one
   reference parameter (nested references count once per parameter), and the returned
   reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`; reported from the
   signature alone, so also when the body has other errors). A reference

@@ -78,14 +78,21 @@ fn ty() -> impl Strategy<Value = Type> {
         span: SP,
     })
     .prop_recursive(3, 8, 2, |inner| {
-        (any::<bool>(), inner).prop_map(|(mutable, t)| Type {
-            id: ID,
-            kind: TypeKind::Ref {
-                mutable,
-                inner: Box::new(t),
-            },
-            span: SP,
-        })
+        prop_oneof![
+            (any::<bool>(), inner.clone()).prop_map(|(mutable, t)| Type {
+                id: ID,
+                kind: TypeKind::Ref {
+                    mutable,
+                    inner: Box::new(t),
+                },
+                span: SP,
+            }),
+            prop::collection::vec(inner, 1..4).prop_map(|elems| Type {
+                id: ID,
+                kind: TypeKind::Tuple(elems),
+                span: SP,
+            }),
+        ]
     })
 }
 
@@ -102,6 +109,23 @@ fn pat() -> impl Strategy<Value = Pat> {
         kind,
         span: SP,
     })
+    .prop_recursive(3, 8, 3, |inner| {
+        prop::collection::vec(inner, 0..4).prop_map(|elems| Pat {
+            id: ID,
+            kind: PatKind::Tuple(elems),
+            span: SP,
+        })
+    })
+}
+
+/// A field name: an identifier, or a tuple index.
+fn field_name() -> impl Strategy<Value = String> {
+    prop_oneof![
+        name(),
+        Just("0".to_owned()),
+        Just("1".to_owned()),
+        Just("12".to_owned())
+    ]
 }
 
 fn binop() -> impl Strategy<Value = BinOp> {
@@ -185,7 +209,9 @@ fn expr() -> impl Strategy<Value = Expr> {
                     method: ident(&m),
                     args
                 })),
-            (inner.clone(), name()).prop_map(|(e, f)| mk(ExprKind::Field(Box::new(e), ident(&f)))),
+            (inner.clone(), field_name())
+                .prop_map(|(e, f)| mk(ExprKind::Field(Box::new(e), ident(&f)))),
+            prop::collection::vec(inner.clone(), 1..4).prop_map(|elems| mk(ExprKind::Tuple(elems))),
             (inner.clone(), inner.clone())
                 .prop_map(|(e, i)| mk(ExprKind::Index(Box::new(e), Box::new(i)))),
             (any::<bool>(), inner.clone()).prop_map(|(mutable, e)| mk(ExprKind::Ref {
@@ -421,6 +447,7 @@ fn strip_parens_expr(e: &mut Expr) {
             strip_parens_expr(callee);
             args.iter_mut().for_each(strip_parens_expr);
         }
+        ExprKind::Tuple(elems) => elems.iter_mut().for_each(strip_parens_expr),
         ExprKind::MethodCall { receiver, args, .. } => {
             strip_parens_expr(receiver);
             args.iter_mut().for_each(strip_parens_expr);

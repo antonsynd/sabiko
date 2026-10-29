@@ -1,0 +1,13 @@
+// Tuple field indices beyond the arity, nested, through a reference, and on `()`.
+// rustc: E0609, and E0610 for the integer element.
+fn Main() {
+    let t = (1, true);
+    let a = t.2; //~ ERROR E0301 no field `2` on type `({integer}, bool)`
+    let n = ((1, 2), 3);
+    let b = n.0.2; //~ ERROR E0301 no field `2` on type `({integer}, {integer})`
+    let c = n.1.0; //~ ERROR E0301 no field `0` on type `{integer}`
+    let r = &t;
+    let d = r.5; //~ ERROR E0301 no field `5` on type `&({integer}, bool)`
+    let u = ();
+    let e = u.0; //~ ERROR E0301 no field `0` on type `()`
+}

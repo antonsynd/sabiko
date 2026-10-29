@@ -1,9 +1,0 @@
-// A binding name may appear once per tuple pattern, and a tuple pattern cannot destructure a
-// struct.
-struct P { X: i32 }
-
-fn Main() {
-    let t = (1, 2);
-    let (x, x) = t; //~ rustc E0416: identifier `x` is bound more than once in the same pattern
-    let (p,) = P { X: 1 }; //~ rustc E0308: mismatched types [this expression has type `P`]
-}

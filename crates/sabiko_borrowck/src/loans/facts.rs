@@ -24,15 +24,16 @@ use std::collections::HashMap;
 
 use polonius_engine::{AllFacts, FactTypes};
 use sabiko_mir::{
-    BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue,
-    StatementKind, TerminatorKind,
+    AggregateKind, BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem,
+    Rvalue, StatementKind, TerminatorKind,
 };
 use sabiko_resolve::Builtin;
 use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use super::regions::{
-    signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy, SigRegions, Variable,
+    signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy, SigRegions, SiteElem,
+    Variable,
 };
 use crate::dataflow::Location;
 
@@ -159,12 +160,12 @@ pub struct Invalidation {
 }
 
 /// A universal (signature) origin and where it comes from.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct UniversalOrigin {
     pub origin: Origin,
-    /// The parameter local and how many references enclose the one with this origin.
+    /// The parameter local and the path from it to the reference with this origin.
     pub param: Local,
-    pub depth: usize,
+    pub path: Vec<SiteElem>,
 }
 
 /// Everything the diagnostics need next to the engine's output.
@@ -285,14 +286,14 @@ impl Generator<'_> {
     /// implied bounds.
     fn universal_regions(&mut self, sig: &SigRegions) -> Vec<UniversalOrigin> {
         let mut universal = Vec::new();
-        for (origin, param, depth) in sig.input_origin_sites() {
+        for (origin, param, path) in sig.input_origin_sites() {
             let loan = Loan(self.loans.len() + universal.len());
             self.all.universal_region.push(origin);
             self.all.placeholder.push((origin, loan));
             universal.push(UniversalOrigin {
                 origin,
                 param: Local(u32::try_from(param + 1).expect("fewer than 2^32 locals")),
-                depth,
+                path,
             });
         }
         self.all.known_placeholder_subset = sig.implied_bounds();
@@ -453,11 +454,20 @@ impl Generator<'_> {
                 self.operand(rhs, location);
                 RegionTy::Other
             }
-            Rvalue::Aggregate(_, fields) => {
+            Rvalue::Aggregate(AggregateKind::Adt(_), fields) => {
                 for field in fields {
                     self.operand(field, location);
                 }
                 RegionTy::Other
+            }
+            // A tuple carries its elements' origins: `(&a, 1)` holds the loan of `a`.
+            Rvalue::Aggregate(AggregateKind::Tuple, elems) => {
+                let tys: Vec<RegionTy> = elems.iter().map(|e| self.operand(e, location)).collect();
+                if tys.iter().all(|t| *t == RegionTy::Other) {
+                    RegionTy::Other
+                } else {
+                    RegionTy::Tuple(tys)
+                }
             }
             Rvalue::Ref(mutability, place) => self.borrow(*mutability, place, location),
         }
@@ -525,14 +535,21 @@ impl Generator<'_> {
     /// `subset_base(src, dst)` for each pair of corresponding references: the value's
     /// origin must outlive the destination's. Below a `&mut` the referent is invariant.
     fn relate(&mut self, src: &RegionTy, dst: &RegionTy, point: Point, invariant: bool) {
-        if let (RegionTy::Ref(m, src_origin, src_inner), RegionTy::Ref(_, dst_origin, dst_inner)) =
-            (src, dst)
-        {
-            self.all.subset_base.push((*src_origin, *dst_origin, point));
-            if invariant {
-                self.all.subset_base.push((*dst_origin, *src_origin, point));
+        match (src, dst) {
+            (RegionTy::Ref(m, src_origin, src_inner), RegionTy::Ref(_, dst_origin, dst_inner)) => {
+                self.all.subset_base.push((*src_origin, *dst_origin, point));
+                if invariant {
+                    self.all.subset_base.push((*dst_origin, *src_origin, point));
+                }
+                self.relate(src_inner, dst_inner, point, invariant || m.is_mut());
             }
-            self.relate(src_inner, dst_inner, point, invariant || m.is_mut());
+            // Element by element; a tuple is covariant in its elements.
+            (RegionTy::Tuple(src_elems), RegionTy::Tuple(dst_elems)) => {
+                for (s, d) in src_elems.iter().zip(dst_elems) {
+                    self.relate(s, d, point, invariant);
+                }
+            }
+            _ => {}
         }
     }
 

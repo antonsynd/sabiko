@@ -92,6 +92,7 @@ pub fn emit_il(
         sink,
         class_name,
         had_error: false,
+        byref_tuples: Vec::new(),
     };
 
     let mut out = String::new();
@@ -130,6 +131,7 @@ pub fn emit_il(
         }
     }
     out.push_str("}\n");
+    cx.byref_tuple_structs(&mut out);
     if cx.had_error {
         None
     } else {
@@ -147,6 +149,9 @@ pub(crate) struct Cx<'a> {
     /// The static class holding the functions.
     pub(crate) class_name: String,
     pub(crate) had_error: bool,
+    /// Tuple types containing references, each lowered to a generated `ref struct`
+    /// (decision 52), in order of first use, with their type names.
+    byref_tuples: Vec<(Ty, String)>,
 }
 
 impl Cx<'_> {
@@ -203,6 +208,79 @@ impl Cx<'_> {
         );
     }
 
+    /// The name of the generated `ref struct` for `ty`, a tuple type containing a
+    /// reference: the tuple type as Sabiko writes it (`(&mut i64, &i64)`), which no
+    /// user type can be called. Registers the type for [`Cx::byref_tuple_structs`].
+    ///
+    /// On first use the element types are lowered at `span`, so an element the backend
+    /// cannot lower (`(&&i32, u8)`) is reported where the tuple is used.
+    pub(crate) fn byref_tuple(&mut self, ty: &Ty, span: Span) -> String {
+        if let Some((_, name)) = self.byref_tuples.iter().find(|(t, _)| t == ty) {
+            return name.clone();
+        }
+        let name = ty.display(self.resolve);
+        self.byref_tuples.push((ty.clone(), name.clone()));
+        if let Ty::Tuple(elems) = ty {
+            for e in elems.iter() {
+                types::cil_type(self, e, span);
+            }
+        }
+        name
+    }
+
+    /// Emits the generated `ref struct` of every tuple type with references that the
+    /// module used: a field `Item1`.. per element (no `Rest`: the type is ours) and a
+    /// constructor taking the elements in order, like `System.ValueTuple`'s, so a tuple is
+    /// built the same way whichever type lowers it. An element type may register another
+    /// such tuple, which is emitted in turn.
+    fn byref_tuple_structs(&mut self, out: &mut String) {
+        if self.had_error {
+            // Nothing is emitted; an unsupported element was reported where it was used.
+            return;
+        }
+        let mut next = 0;
+        while next < self.byref_tuples.len() {
+            let (ty, name) = self.byref_tuples[next].clone();
+            next += 1;
+            let Ty::Tuple(elems) = &ty else {
+                continue;
+            };
+            let span = Span::dummy();
+            let class = types::quote(&name);
+            let field_tys: Vec<String> = elems
+                .iter()
+                .map(|e| types::cil_type(self, e, span))
+                .collect();
+            let _ = writeln!(
+                out,
+                "\n.class public sequential ansi sealed beforefieldinit {class} extends [System.Runtime]System.ValueType\n{{\n  {}",
+                types::IS_BYREF_LIKE_ATTR
+            );
+            for (i, cil) in field_tys.iter().enumerate() {
+                let _ = writeln!(out, "  .field public {cil} 'Item{}'", i + 1);
+            }
+            let params: Vec<String> = field_tys
+                .iter()
+                .enumerate()
+                .map(|(i, cil)| format!("{cil} 'item{}'", i + 1))
+                .collect();
+            let _ = writeln!(
+                out,
+                "  .method public hidebysig specialname rtspecialname instance void .ctor({}) cil managed\n  {{\n    .maxstack 2",
+                params.join(", ")
+            );
+            for (i, cil) in field_tys.iter().enumerate() {
+                let _ = writeln!(
+                    out,
+                    "    ldarg.0\n    ldarg {}\n    stfld {cil} {class}::'Item{}'",
+                    i + 1,
+                    i + 1
+                );
+            }
+            out.push_str("    ret\n  }\n}\n");
+        }
+    }
+
     fn structs(&mut self, out: &mut String) {
         let defs: Vec<_> = self.resolve.defs_of_kind(DefKind::Struct).collect();
         for def in defs {
@@ -217,10 +295,7 @@ impl Cx<'_> {
                 out.push_str("  .pack 0\n  .size 1\n");
             }
             for field in &adt.fields {
-                if field.ty.is_unit() || field.ty.is_never() {
-                    self.unsupported("a struct field of type `()`", field.span);
-                    continue;
-                }
+                // A `()` field is a `Sabiko.Runtime.Unit` (decision 52).
                 let ty = types::cil_type(self, &field.ty, field.span);
                 let _ = writeln!(out, "  .field public {ty} {}", types::quote(&field.name));
             }

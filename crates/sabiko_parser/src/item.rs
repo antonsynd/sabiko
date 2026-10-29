@@ -439,8 +439,13 @@ impl Parser<'_, '_> {
                 if self.eat(TokenKind::RParen).is_some() {
                     TypeKind::Unit
                 } else {
-                    let span = start;
-                    return Err(self.error_unsupported("tuple types", span, "planned for Phase 5"));
+                    let (mut elems, trailing_comma) =
+                        self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_type))?;
+                    if elems.len() == 1 && !trailing_comma {
+                        // `(T)` is `T`.
+                        return Ok(elems.pop().expect("one element"));
+                    }
+                    TypeKind::Tuple(elems)
                 }
             }
             TokenKind::LBracket => {
@@ -513,6 +518,27 @@ impl Parser<'_, '_> {
         })
     }
 
+    /// Parses `elem, elem, ...` up to and including `close` (the opening delimiter has been
+    /// consumed). Returns the elements and whether the last one was followed by a comma,
+    /// which tells a 1-tuple `(a,)` from a parenthesised `(a)`.
+    pub(crate) fn parse_comma_list<T>(
+        &mut self,
+        close: TokenKind,
+        mut elem: impl FnMut(&mut Self) -> PResult<T>,
+    ) -> PResult<(Vec<T>, bool)> {
+        let mut elems = Vec::new();
+        let mut trailing_comma = false;
+        while !self.at(close) && !self.at_eof() {
+            elems.push(elem(self)?);
+            trailing_comma = self.eat(TokenKind::Comma).is_some();
+            if !trailing_comma {
+                break;
+            }
+        }
+        self.expect(close)?;
+        Ok((elems, trailing_comma))
+    }
+
     // ---- patterns --------------------------------------------------------------------------
 
     pub(crate) fn parse_pat(&mut self) -> PResult<Pat> {
@@ -560,7 +586,14 @@ impl Parser<'_, '_> {
                 ))
             }
             TokenKind::LParen => {
-                return Err(self.error_unsupported("tuple patterns", start, "planned for Phase 5"))
+                self.bump();
+                let (mut elems, trailing_comma) =
+                    self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_pat))?;
+                if elems.len() == 1 && !trailing_comma {
+                    // `(p)` is `p`.
+                    return Ok(elems.pop().expect("one element"));
+                }
+                PatKind::Tuple(elems)
             }
             TokenKind::Int
             | TokenKind::Str

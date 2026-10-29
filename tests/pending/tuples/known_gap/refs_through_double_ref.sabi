@@ -1,0 +1,10 @@
+// KNOWN GAP (`&&T` in code generation, PLAN.md Phase 5 "`Ref<T>`"): auto-deref through two
+// references to a tuple. rustc prints 3; Sabiko type-checks and borrow-checks it but code
+// generation rejects the `&&(..)` local (E0500, "a reference to a reference"). Split out of
+// `differential/run/tuples/refs.sabi`; belongs back there once `&&T` lowers.
+fn Main() {
+    let t = (1, (2, 3));
+    let r = &t;
+    let rr = &r;
+    PrintLine(rr.1.1);
+}

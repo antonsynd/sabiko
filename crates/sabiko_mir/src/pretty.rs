@@ -20,7 +20,9 @@ use std::fmt::Write as _;
 use sabiko_resolve::ResolveResults;
 use sabiko_types::TypeckResults;
 
-use crate::{Body, Local, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind};
+use crate::{
+    AggregateKind, Body, Local, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
+};
 
 /// Prints every body, separated by blank lines.
 #[must_use]
@@ -146,7 +148,15 @@ impl Printer<'_> {
                 format!("{op:?}({}, {})", self.operand(lhs), self.operand(rhs))
             }
             Rvalue::Cast(op, ty) => format!("{} as {}", self.operand(op), self.ty(ty)),
-            Rvalue::Aggregate(def, fields) => {
+            Rvalue::Aggregate(AggregateKind::Tuple, elems) => {
+                let ops: Vec<String> = elems.iter().map(|op| self.operand(op)).collect();
+                if ops.len() == 1 {
+                    format!("({},)", ops[0])
+                } else {
+                    format!("({})", ops.join(", "))
+                }
+            }
+            Rvalue::Aggregate(AggregateKind::Adt(def), fields) => {
                 let adt = self.typeck.items.adt(*def);
                 if fields.is_empty() {
                     return adt.name.clone();

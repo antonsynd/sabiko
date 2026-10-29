@@ -1,0 +1,18 @@
+[E0301] Error: no field `01` on type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/tuple_index_not_decimal.sabi:6:15 ]
+   │
+ 6 │     let b = t.01; //~ ERROR E0301 no field `01` on type `({integer}, {integer})`
+   │               ─┬  
+   │                ╰── unknown field
+   │ 
+   │ Note: the tuple has 2 elements, `.0` to `.1`
+───╯
+[E0301] Error: no field `0x1` on type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/tuple_index_not_decimal.sabi:7:15 ]
+   │
+ 7 │     let c = t.0x1; //~ ERROR E0301 no field `0x1` on type `({integer}, {integer})`
+   │               ─┬─  
+   │                ╰─── unknown field
+   │ 
+   │ Note: the tuple has 2 elements, `.0` to `.1`
+───╯

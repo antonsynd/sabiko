@@ -1,0 +1,7 @@
+// `let` takes irrefutable patterns only: a literal inside a tuple pattern is refutable
+// (rustc E0005, "refutable pattern in local binding"). Sabiko has no literal patterns yet,
+// so the parser rejects it first.
+fn Main() {
+    let t = (1, 2);
+    let (1, b) = t; //~ ERROR E0107 not yet supported: literal patterns
+}

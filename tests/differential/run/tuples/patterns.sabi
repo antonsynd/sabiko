@@ -1,0 +1,67 @@
+// Tuple patterns in parameters, default binding modes (`let (a, b) = &t;`, `&mut t`, a
+// `&mut` parameter, `mut` binding by value), temporary lifetime extension through tuples,
+// `&str` and `()` elements, tuples of references passed and returned, deferred `let (a, b);`.
+fn Add((a, b): (i32, i32)) -> i32 { a + b }
+
+fn Inc((mut x, _): (u8, bool), (y,): (u8,)) -> u8 { x += y; x }
+
+fn SumRef(p: &(i32, i32)) -> i32 {
+    let (a, b) = p;
+    *a + *b
+}
+
+fn Both(p: &mut (i32, (i64, bool))) {
+    let (a, (b, c)) = p;
+    *a += 1;
+    *b *= 2;
+    *c = !*c;
+}
+
+fn Units(t: ((), i32)) -> ((), i32) { (t.0, t.1 + 1) }
+
+fn PairRef(x: &i32) -> (&i32, i32) { (x, *x + 1) }
+
+fn Id(p: (&mut i32, i32)) -> (&mut i32, i32) { p }
+
+fn Main() {
+    PrintLine(Add((3, 4)));
+    PrintLine(Inc((1, true), (5,)));
+    let t = (10, 20);
+    PrintLine(SumRef(&t));
+    let mut u = (1, (2i64, false));
+    Both(&mut u);
+    Print(u.0); Print(' '); Print(u.1.0); Print(' '); PrintLine(u.1.1);
+    let ((a, b), c) = (&(1, 2), 3);
+    PrintLine(*a + *b + c);
+    let (d, (e, f)) = &(1, (2, 3));
+    PrintLine(*d + *e + *f);
+    let mut pair = (5, 6);
+    let (x, y) = &mut pair;
+    *x += 100;
+    *y += 200;
+    Print(pair.0); Print(' '); PrintLine(pair.1);
+    let (mut m, n) = &pair;
+    m += 1;
+    Print(m); Print(' '); PrintLine(*n);
+    let s = ("hi", 3);
+    Print(s.0); Print(' '); PrintLine(s.1);
+    let w = Units(((), 41));
+    PrintLine(w.1);
+    let k = 7;
+    let pr = PairRef(&k);
+    PrintLine(*pr.0 + pr.1);
+    let mut z = 1;
+    let q = Id((&mut z, 9));
+    *q.0 += q.1;
+    PrintLine(z);
+    let refs = (&t, 1);
+    PrintLine(refs.0.1 + refs.1);
+    let uu = ((), 5);
+    let v = uu.0;
+    let ww = (v, uu.1);
+    PrintLine(ww.1);
+    let (g, h);
+    g = 1;
+    h = (2, 3);
+    PrintLine(g + h.0 + h.1);
+}

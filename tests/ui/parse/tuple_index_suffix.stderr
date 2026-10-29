@@ -1,0 +1,21 @@
+[E0100] Error: suffixes on a tuple index are invalid
+   ╭─[ tests/ui/parse/tuple_index_suffix.sabi:6:15 ]
+   │
+ 6 │     let a = t.0u8; //~ ERROR E0100 suffixes on a tuple index are invalid
+   │               ─┬─  
+   │                ╰─── invalid suffix `u8`
+───╯
+[E0100] Error: suffixes on a tuple index are invalid
+   ╭─[ tests/ui/parse/tuple_index_suffix.sabi:7:15 ]
+   │
+ 7 │     let b = t.1.2f32; //~ ERROR E0100 suffixes on a tuple index are invalid
+   │               ───┬──  
+   │                  ╰──── invalid suffix `f32`
+───╯
+[E0100] Error: invalid tuple index `1e1`
+   ╭─[ tests/ui/parse/tuple_index_suffix.sabi:8:15 ]
+   │
+ 8 │     let c = t.1e1; //~ ERROR E0100 invalid tuple index `1e1`
+   │               ─┬─  
+   │                ╰─── expected an unsuffixed decimal integer, as in `t.0`
+───╯

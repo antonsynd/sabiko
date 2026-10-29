@@ -1,0 +1,7 @@
+// Rust 2021: `mut` in a pattern under a reference default binding mode binds by value, so
+// a non-Copy element is moved out of the reference.
+struct P { X: i32 }
+
+fn F(r: &(P, i32)) {
+    let (mut a, b) = r;
+}

@@ -1,0 +1,19 @@
+// Element types must match the expected tuple type, element by element (rustc E0308 for
+// each, reported at the element).
+fn Takes(t: (u8, bool)) {}
+
+fn Gives() -> (i32, char) {
+    (1, "c") //~ ERROR E0300 mismatched types
+}
+
+fn Main() {
+    let t: (i32, bool) = (1, 2); //~ ERROR E0300 mismatched types
+    Takes((1u16, true)); //~ ERROR E0300 mismatched types
+    let mut u = (1, 'a');
+    u.1 = 2; //~ ERROR E0300 mismatched types
+    let mut w = (1, 'a');
+    w = ('a', 1); //~ ERROR E0300 mismatched types
+    //~^ ERROR E0300 mismatched types
+    let (x, y): (i32, i32) = (1, false); //~ ERROR E0300 mismatched types
+    let unit: () = (1,); //~ ERROR E0300 mismatched types
+}

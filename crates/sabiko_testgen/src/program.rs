@@ -103,6 +103,9 @@ pub struct FnSig {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub structs: Vec<StructDef>,
+    /// The tuple types the program uses, by element types; `ValTy::Tuple(i)` is
+    /// `tuples[i]`. Never empty tuples, and no tuple contains itself.
+    pub tuples: Vec<Vec<ValTy>>,
     pub consts: Vec<ConstDef>,
     pub fns: Vec<FnSig>,
 }
@@ -112,6 +115,7 @@ impl Program {
         match ty {
             Ty::Val(ValTy::Prim(_)) | Ty::Ref { mutable: false, .. } => true,
             Ty::Val(ValTy::Struct(s)) => self.structs[s].copy,
+            Ty::Val(ValTy::Tuple(t)) => self.tuples[t].iter().all(|e| self.is_copy(Ty::Val(*e))),
             Ty::Ref { mutable: true, .. } => false,
         }
     }
@@ -120,6 +124,14 @@ impl Program {
         match v {
             ValTy::Prim(p) => p.name().to_owned(),
             ValTy::Struct(s) => self.structs[s].name.clone(),
+            ValTy::Tuple(t) => {
+                let elems: Vec<String> = self.tuples[t].iter().map(|e| self.val_name(*e)).collect();
+                if elems.len() == 1 {
+                    format!("({},)", elems[0])
+                } else {
+                    format!("({})", elems.join(", "))
+                }
+            }
         }
     }
 
@@ -159,6 +171,11 @@ impl Program {
                     self.collect_leaves(f.ty, format!("{prefix}.{}", f.name), out);
                 }
             }
+            ValTy::Tuple(t) => {
+                for (i, e) in self.tuples[t].iter().enumerate() {
+                    self.collect_leaves(*e, format!("{prefix}.{i}"), out);
+                }
+            }
         }
     }
 
@@ -181,10 +198,18 @@ impl Program {
         if depth >= 3 {
             return;
         }
-        if let ValTy::Struct(s) = v {
-            for f in &self.structs[s].fields {
-                self.collect_sub_places(f.ty, &format!("{prefix}.{}", f.name), depth + 1, out);
+        match v {
+            ValTy::Struct(s) => {
+                for f in &self.structs[s].fields {
+                    self.collect_sub_places(f.ty, &format!("{prefix}.{}", f.name), depth + 1, out);
+                }
             }
+            ValTy::Tuple(t) => {
+                for (i, e) in self.tuples[t].iter().enumerate() {
+                    self.collect_sub_places(*e, &format!("{prefix}.{i}"), depth + 1, out);
+                }
+            }
+            ValTy::Prim(_) => {}
         }
     }
 
@@ -354,12 +379,12 @@ pub fn random_literal(rng: &mut Rng, p: Prim) -> (String, ConstValue) {
     }
 }
 
-/// Generates the structs: each struct's fields are primitives or earlier structs, and a
-/// `Copy` struct only contains `Copy` fields.
-fn gen_structs(rng: &mut Rng, knobs: &Knobs) -> Vec<StructDef> {
+/// Generates the structs: each struct's fields are primitives, earlier structs or tuples
+/// of primitives (`program.tuples` holds those so far), and a `Copy` struct only contains
+/// `Copy` fields.
+fn gen_structs(rng: &mut Rng, knobs: &Knobs, program: &mut Program) {
     let count = rng.index(knobs.max_structs + 1);
     let mut used = Vec::new();
-    let mut structs: Vec<StructDef> = Vec::new();
     for _ in 0..count {
         let name = unique_name(rng, STRUCT_NAMES, &mut used);
         let copy = rng.chance(50);
@@ -368,7 +393,8 @@ fn gen_structs(rng: &mut Rng, knobs: &Knobs) -> Vec<StructDef> {
         let mut fields = Vec::new();
         for _ in 0..n_fields {
             let fname = unique_name(rng, FIELD_NAMES, &mut field_names);
-            let candidates: Vec<usize> = structs
+            let candidates: Vec<usize> = program
+                .structs
                 .iter()
                 .enumerate()
                 .filter(|(_, s)| !copy || s.copy)
@@ -376,14 +402,51 @@ fn gen_structs(rng: &mut Rng, knobs: &Knobs) -> Vec<StructDef> {
                 .collect();
             let ty = if !candidates.is_empty() && rng.chance(30) {
                 ValTy::Struct(*rng.pick(&candidates))
+            } else if !program.tuples.is_empty() && rng.chance(15) {
+                // Tuples of primitives so far: always `Copy`.
+                ValTy::Tuple(rng.index(program.tuples.len()))
             } else {
                 ValTy::Prim(random_prim(rng))
             };
             fields.push(Field { name: fname, ty });
         }
-        structs.push(StructDef { name, copy, fields });
+        program.structs.push(StructDef { name, copy, fields });
     }
-    structs
+}
+
+/// Generates up to `count` tuple types. With `aggregates`, elements may also be structs and
+/// earlier tuples (nesting); otherwise they are primitives. Now and then a tuple is wider
+/// than seven elements, past `System.ValueTuple`'s direct fields.
+fn gen_tuples(rng: &mut Rng, count: usize, aggregates: bool, program: &mut Program) {
+    for _ in 0..count {
+        let n = if rng.chance(8) {
+            rng.range(8, 10)
+        } else {
+            rng.range(1, 4)
+        };
+        let mut elems = Vec::new();
+        for _ in 0..n {
+            let ty = match rng.weighted(&[
+                70,
+                if aggregates && !program.structs.is_empty() {
+                    15
+                } else {
+                    0
+                },
+                if aggregates && !program.tuples.is_empty() {
+                    15
+                } else {
+                    0
+                },
+            ]) {
+                0 => ValTy::Prim(random_prim(rng)),
+                1 => ValTy::Struct(rng.index(program.structs.len())),
+                _ => ValTy::Tuple(rng.index(program.tuples.len())),
+            };
+            elems.push(ty);
+        }
+        program.tuples.push(elems);
+    }
 }
 
 fn eval_int_binop(op: &str, a: i128, b: i128, ty: IntTy) -> Option<i128> {
@@ -479,25 +542,30 @@ fn gen_consts(rng: &mut Rng, knobs: &Knobs) -> Vec<ConstDef> {
 }
 
 /// A random parameter or local type.
-fn random_ty(rng: &mut Rng, structs: &[StructDef], allow_refs: bool) -> Ty {
-    let has_structs = !structs.is_empty();
+fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
+    let has_structs = !program.structs.is_empty();
+    let has_tuples = !program.tuples.is_empty();
     let choice = rng.weighted(&[
         55,
         if has_structs { 15 } else { 0 },
+        if has_tuples { 12 } else { 0 },
         if allow_refs { 15 } else { 0 },
         if allow_refs { 15 } else { 0 },
     ]);
     let inner = |rng: &mut Rng| {
-        if has_structs && rng.chance(60) {
-            ValTy::Struct(rng.index(structs.len()))
+        if has_tuples && rng.chance(20) {
+            ValTy::Tuple(rng.index(program.tuples.len()))
+        } else if has_structs && rng.chance(60) {
+            ValTy::Struct(rng.index(program.structs.len()))
         } else {
             ValTy::Prim(random_prim(rng))
         }
     };
     match choice {
         0 => Ty::prim(random_prim(rng)),
-        1 => Ty::Val(ValTy::Struct(rng.index(structs.len()))),
-        2 => Ty::Ref {
+        1 => Ty::Val(ValTy::Struct(rng.index(program.structs.len()))),
+        2 => Ty::Val(ValTy::Tuple(rng.index(program.tuples.len()))),
+        3 => Ty::Ref {
             mutable: false,
             inner: inner(rng),
         },
@@ -526,7 +594,7 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool) -> FnS
     let mut params = Vec::new();
     for _ in 0..n_params {
         let pname = unique_name(rng, LOCAL_NAMES, &mut used);
-        let ty = random_ty(rng, &program.structs, true);
+        let ty = random_ty(rng, program, true);
         let mutable = !ty.is_ref() && rng.chance(25);
         params.push(Param {
             name: pname,
@@ -540,10 +608,12 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool) -> FnS
         50,
         if program.structs.is_empty() { 0 } else { 12 },
         if ref_params.len() == 1 { 25 } else { 0 },
+        if program.tuples.is_empty() { 0 } else { 12 },
     ]) {
         0 => RetTy::Unit,
         1 => RetTy::Val(ValTy::Prim(random_prim(rng))),
         2 => RetTy::Val(ValTy::Struct(rng.index(program.structs.len()))),
+        4 => RetTy::Val(ValTy::Tuple(rng.index(program.tuples.len()))),
         _ => {
             let Ty::Ref { mutable, inner } = ref_params[0].ty else {
                 unreachable!()
@@ -559,15 +629,21 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool) -> FnS
     FnSig { name, params, ret }
 }
 
-/// Generates the whole skeleton.
+/// Generates the whole skeleton: tuples of primitives, structs (which may hold them), more
+/// tuples over everything so far, constants, then the signatures.
 pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
-    let structs = gen_structs(rng, knobs);
-    let consts = gen_consts(rng, knobs);
     let mut program = Program {
-        structs,
-        consts,
+        structs: Vec::new(),
+        tuples: Vec::new(),
+        consts: Vec::new(),
         fns: Vec::new(),
     };
+    let count = rng.index(knobs.max_tuples / 2 + 1);
+    gen_tuples(rng, count, false, &mut program);
+    gen_structs(rng, knobs, &mut program);
+    let count = rng.index(knobs.max_tuples.saturating_sub(program.tuples.len()) + 1);
+    gen_tuples(rng, count, true, &mut program);
+    program.consts = gen_consts(rng, knobs);
     let n_fns = rng.range(
         i64::try_from(knobs.min_fns.max(1)).expect("fits"),
         i64::try_from(knobs.max_fns.max(knobs.min_fns).max(1)).expect("fits"),

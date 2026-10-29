@@ -2,8 +2,8 @@
 //!
 //! Sabiko has no lifetime syntax yet, so every reference type gets an inferred origin:
 //! a [`RegionTy`] mirrors a [`Ty`] and carries one [`Origin`] per `Ref` node. Struct
-//! fields never hold references in this phase, so origins only ever appear along a chain
-//! of `Ref`s (`&&T`, `&mut &T`).
+//! fields never hold references in this phase, so origins appear along chains of `Ref`s
+//! (`&&T`, `&mut &T`) and in the elements of tuples (`(&T, &mut U)`).
 //!
 //! Function signatures use *universal* origins: one per reference in the parameter types.
 //! The return type follows Rust's elision rule for functions without `self`: when exactly
@@ -89,6 +89,8 @@ impl OriginSupply {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RegionTy {
     Ref(Mutability, Origin, Box<RegionTy>),
+    /// A tuple with references among its elements.
+    Tuple(Vec<RegionTy>),
     /// Anything without references: primitives, structs, `()`, `!`, errors.
     Other,
 }
@@ -101,6 +103,9 @@ impl RegionTy {
                 let origin = supply.fresh();
                 Self::Ref(*m, origin, Box::new(Self::fresh(inner, supply)))
             }
+            Ty::Tuple(elems) if ty.has_ref() => {
+                Self::Tuple(elems.iter().map(|e| Self::fresh(e, supply)).collect())
+            }
             _ => Self::Other,
         }
     }
@@ -110,20 +115,44 @@ impl RegionTy {
     pub fn uniform(ty: &Ty, origin: Origin) -> Self {
         match ty {
             Ty::Ref(m, inner) => Self::Ref(*m, origin, Box::new(Self::uniform(inner, origin))),
+            Ty::Tuple(elems) if ty.has_ref() => {
+                Self::Tuple(elems.iter().map(|e| Self::uniform(e, origin)).collect())
+            }
             _ => Self::Other,
         }
     }
 
-    /// Every origin in the type, outermost first.
+    /// Every origin in the type, depth first, outermost first along each chain of
+    /// references, tuple elements left to right.
     #[must_use]
     pub fn origins(&self) -> Vec<Origin> {
         let mut out = Vec::new();
-        let mut cur = self;
-        while let Self::Ref(_, origin, inner) = cur {
-            out.push(*origin);
-            cur = inner;
-        }
+        self.sites(&mut Vec::new(), &mut |origin, _: &[SiteElem]| {
+            out.push(origin);
+        });
         out
+    }
+
+    /// Calls `f` with every origin in the type and the projection from a value of this
+    /// type to the reference carrying it (`[]` for the outermost reference, `[Deref]` for
+    /// the one it points to, `[Field(1)]` for the second element of a tuple).
+    pub fn sites(&self, path: &mut Vec<SiteElem>, f: &mut impl FnMut(Origin, &[SiteElem])) {
+        match self {
+            Self::Ref(_, origin, inner) => {
+                f(*origin, path);
+                path.push(SiteElem::Deref);
+                inner.sites(path, f);
+                path.pop();
+            }
+            Self::Tuple(elems) => {
+                for (i, e) in elems.iter().enumerate() {
+                    path.push(SiteElem::Field(i));
+                    e.sites(path, f);
+                    path.pop();
+                }
+            }
+            Self::Other => {}
+        }
     }
 
     /// The type of `*self`; `Other` when `self` is not a reference.
@@ -131,28 +160,34 @@ impl RegionTy {
     pub fn referent(&self) -> &RegionTy {
         match self {
             Self::Ref(_, _, inner) => inner,
-            Self::Other => self,
+            Self::Tuple(_) | Self::Other => &Self::Other,
         }
     }
 
-    /// The type of a place built from `self` by `projection`. A field access yields
-    /// `Other`: fields hold no references.
+    /// The type of a place built from `self` by `projection`. A field of a struct is
+    /// `Other` (struct fields hold no references); a tuple element has its own origins.
     #[must_use]
     pub fn project(&self, projection: &[PlaceElem]) -> RegionTy {
         let mut cur = self;
         for elem in projection {
-            match elem {
-                PlaceElem::Deref => cur = cur.referent(),
-                PlaceElem::Field(..) => return Self::Other,
+            match (elem, cur) {
+                (PlaceElem::Deref, _) => cur = cur.referent(),
+                (PlaceElem::Field(index, _), Self::Tuple(elems)) => match elems.get(*index) {
+                    Some(e) => cur = e,
+                    None => return Self::Other,
+                },
+                (PlaceElem::Field(..), _) => return Self::Other,
             }
         }
         cur.clone()
     }
 }
 
-/// Whether `ty` contains a reference anywhere.
-fn has_ref(ty: &Ty) -> bool {
-    matches!(ty, Ty::Ref(..))
+/// One step of the path from a parameter to a reference in its type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SiteElem {
+    Deref,
+    Field(usize),
 }
 
 /// The origins of one function signature.
@@ -167,27 +202,39 @@ pub struct SigRegions {
 }
 
 impl SigRegions {
-    /// `(origin, parameter index, depth)` for every parameter origin: `depth` is how
-    /// many references enclose the one with this origin (`0` for `x: &T`, `1` for the
-    /// inner reference of `x: &mut &T`).
-    pub fn input_origin_sites(&self) -> impl Iterator<Item = (Origin, usize, usize)> + '_ {
-        self.inputs.iter().enumerate().flat_map(|(param, ty)| {
-            ty.origins()
-                .into_iter()
-                .enumerate()
-                .map(move |(depth, origin)| (origin, param, depth))
-        })
+    /// `(origin, parameter index, path)` for every parameter origin: `path` leads from
+    /// the parameter to the reference with this origin (`[]` for `x: &T`, `[Deref]` for
+    /// the inner reference of `x: &mut &T`, `[Field(1)]` for `t.1` of `t: (i32, &T)`).
+    #[must_use]
+    pub fn input_origin_sites(&self) -> Vec<(Origin, usize, Vec<SiteElem>)> {
+        let mut out = Vec::new();
+        for (param, ty) in self.inputs.iter().enumerate() {
+            ty.sites(&mut Vec::new(), &mut |origin, path| {
+                out.push((origin, param, path.to_vec()));
+            });
+        }
+        out
     }
 
-    /// Implied bounds: inside `&'a &'b T` the referent outlives the reference, `'b: 'a`,
-    /// returned as `(longer, shorter)` pairs, i.e. Polonius' `known_placeholder_subset`.
+    /// Implied bounds: inside `&'a &'b T` (or `&'a (&'b T, U)`) the referent outlives the
+    /// reference, `'b: 'a`, returned as `(longer, shorter)` pairs, i.e. Polonius'
+    /// `known_placeholder_subset`.
     pub fn implied_bounds(&self) -> Vec<(Origin, Origin)> {
+        fn walk(ty: &RegionTy, out: &mut Vec<(Origin, Origin)>) {
+            match ty {
+                RegionTy::Ref(_, outer, inner) => {
+                    for inner_origin in inner.origins() {
+                        out.push((inner_origin, *outer));
+                    }
+                    walk(inner, out);
+                }
+                RegionTy::Tuple(elems) => elems.iter().for_each(|e| walk(e, out)),
+                RegionTy::Other => {}
+            }
+        }
         let mut out = Vec::new();
         for ty in &self.inputs {
-            let origins = ty.origins();
-            for pair in origins.windows(2) {
-                out.push((pair[1], pair[0]));
-            }
+            walk(ty, &mut out);
         }
         out
     }
@@ -201,7 +248,7 @@ pub fn signature_regions(sig: &FnSig, supply: &mut OriginSupply) -> SigRegions {
         .map(|ty| RegionTy::fresh(ty, supply))
         .collect();
     let input_origins: Vec<Origin> = inputs.iter().flat_map(RegionTy::origins).collect();
-    let output = if !has_ref(&sig.output) {
+    let output = if !sig.output.has_ref() {
         Some(RegionTy::Other)
     } else if let [single] = input_origins[..] {
         Some(RegionTy::uniform(&sig.output, single))

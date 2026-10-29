@@ -1,0 +1,41 @@
+[E0301] Error: no field `2` on type `({integer}, bool)`
+   ╭─[ tests/ui/typeck/tuple_field_out_of_range.sabi:5:15 ]
+   │
+ 5 │     let a = t.2; //~ ERROR E0301 no field `2` on type `({integer}, bool)`
+   │               ┬  
+   │               ╰── unknown field
+   │ 
+   │ Note: the tuple has 2 elements, `.0` to `.1`
+───╯
+[E0301] Error: no field `2` on type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/tuple_field_out_of_range.sabi:7:17 ]
+   │
+ 7 │     let b = n.0.2; //~ ERROR E0301 no field `2` on type `({integer}, {integer})`
+   │                 ┬  
+   │                 ╰── unknown field
+   │ 
+   │ Note: the tuple has 2 elements, `.0` to `.1`
+───╯
+[E0301] Error: no field `0` on type `{integer}`
+   ╭─[ tests/ui/typeck/tuple_field_out_of_range.sabi:8:17 ]
+   │
+ 8 │     let c = n.1.0; //~ ERROR E0301 no field `0` on type `{integer}`
+   │                 ┬  
+   │                 ╰── unknown field
+───╯
+[E0301] Error: no field `5` on type `&({integer}, bool)`
+    ╭─[ tests/ui/typeck/tuple_field_out_of_range.sabi:10:15 ]
+    │
+ 10 │     let d = r.5; //~ ERROR E0301 no field `5` on type `&({integer}, bool)`
+    │               ┬  
+    │               ╰── unknown field
+    │ 
+    │ Note: the tuple has 2 elements, `.0` to `.1`
+────╯
+[E0301] Error: no field `0` on type `()`
+    ╭─[ tests/ui/typeck/tuple_field_out_of_range.sabi:12:15 ]
+    │
+ 12 │     let e = u.0; //~ ERROR E0301 no field `0` on type `()`
+    │               ┬  
+    │               ╰── unknown field
+────╯

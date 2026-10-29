@@ -274,6 +274,7 @@ impl Evaluator<'_, '_> {
                 Err(non_const(expr.span, "function calls"))
             }
             ExprKind::Struct { .. } => Err(non_const(expr.span, "struct values")),
+            ExprKind::Tuple(_) => Err(non_const(expr.span, "tuple values")),
             ExprKind::Field(..) => Err(non_const(expr.span, "field accesses")),
             ExprKind::Ref { .. } => Err(non_const(expr.span, "references")),
             ExprKind::Deref(_) => Err(non_const(expr.span, "dereferences")),

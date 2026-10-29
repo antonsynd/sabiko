@@ -1,0 +1,10 @@
+// Storing a reference to an inner-block local in a tuple element that outlives it.
+fn F() {
+    let a = 1;
+    let mut p = (&a, 2);
+    {
+        let b = 3;
+        p.0 = &b;
+    }
+    PrintLine(*p.0);
+}

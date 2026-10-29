@@ -9,8 +9,8 @@ use sabiko_resolve::{Builtin, PrimTy};
 use sabiko_types::{is_printable, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
-    BasicBlock, BinOp, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue, Statement,
-    StatementKind, Terminator, TerminatorKind,
+    AggregateKind, BasicBlock, BinOp, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue,
+    Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Checks one body, returning every violation found.
@@ -50,6 +50,11 @@ fn compatible(from: &Ty, to: &Ty) -> bool {
         _ if from == to => true,
         (Ty::Never | Ty::Error, _) | (_, Ty::Error) => true,
         (Ty::Ref(Mutability::Mut, a), Ty::Ref(Mutability::Not, b)) => a == b,
+        // A tuple aggregate's elements were coerced one by one (`(&mut a,)` built as an
+        // `(&A,)`), and a diverging element leaves a `!` operand in dead code.
+        (Ty::Tuple(a), Ty::Tuple(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| compatible(x, y))
+        }
         _ => false,
     }
 }
@@ -145,6 +150,28 @@ impl Validator<'_> {
                         }
                     }
                 }
+                (PlaceElem::Field(index, field_ty), Ty::Tuple(elems)) => match elems.get(*index) {
+                    Some(t) if t == field_ty => field_ty.clone(),
+                    Some(t) => {
+                        self.err(
+                            bb,
+                            format!(
+                                "element {index} of a tuple has type {t:?}, projection says {field_ty:?}"
+                            ),
+                        );
+                        return None;
+                    }
+                    None => {
+                        self.err(
+                            bb,
+                            format!(
+                                "element index {index} out of range for a tuple of {}",
+                                elems.len()
+                            ),
+                        );
+                        return None;
+                    }
+                },
                 (PlaceElem::Field(index, _), other) => {
                     self.err(bb, format!("field {index} of non-struct type {other:?}"));
                     return None;
@@ -213,7 +240,17 @@ impl Validator<'_> {
                 self.operand_ty(bb, op);
                 Some(ty.clone())
             }
-            Rvalue::Aggregate(def, operands) => {
+            Rvalue::Aggregate(AggregateKind::Tuple, operands) => {
+                if operands.is_empty() {
+                    self.err(bb, "tuple aggregate without elements (`()` is a constant)");
+                }
+                let mut tys = Vec::with_capacity(operands.len());
+                for op in operands {
+                    tys.push(self.operand_ty(bb, op).unwrap_or(Ty::Error));
+                }
+                Some(Ty::Tuple(tys.into()))
+            }
+            Rvalue::Aggregate(AggregateKind::Adt(def), operands) => {
                 let adt = self.typeck.items.adt(*def);
                 if operands.len() != adt.fields.len() {
                     self.err(

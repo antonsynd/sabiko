@@ -1,0 +1,13 @@
+// Temporaries borrowed in a tuple in a `let` initialiser live as long as the binding, as
+// do those of `let (a, b) = &<tuple>;`.
+fn G() -> (i32, i32) { (1, 2) }
+
+fn F() {
+    let p = (&5, 1);
+    let q = ((&G(), 3), &mut 4);
+    *q.1 += 1;
+    let (a, b) = &G();
+    let (c, d) = (&mut 1, &mut 2);
+    *c += *d;
+    PrintLine(*p.0 + p.1 + q.0.0.1 + *a + *b + *c);
+}

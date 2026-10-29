@@ -1,0 +1,18 @@
+[E0209] Error: identifier `x` is bound more than once in the same pattern
+   ╭─[ tests/ui/typeck/tuple_duplicate_binding_and_struct_pattern.sabi:7:13 ]
+   │
+ 7 │     let (x, x) = t; //~ ERROR E0209 identifier `x` is bound more than once in the same pattern
+   │          ┬  ┬  
+   │          │  ╰── used in a pattern more than once
+   │          │     
+   │          ╰───── first use of the name
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_duplicate_binding_and_struct_pattern.sabi:8:9 ]
+   │
+ 8 │     let (p,) = P { X: 1 }; //~ ERROR E0300 mismatched types
+   │         ──┬─   ─────┬────  
+   │           ╰──────────────── expected `P`, found a tuple with 1 element
+   │                     │      
+   │                     ╰────── this expression has type `P`
+───╯
