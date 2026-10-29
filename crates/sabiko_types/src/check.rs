@@ -26,6 +26,17 @@ pub struct FieldAccess {
     pub autoderefs: usize,
 }
 
+/// The function a method call `e.Name(..)` calls, and how the receiver `e` becomes its
+/// first argument: `autoderefs` dereferences, then a borrow (`autoref`) or, for a
+/// by-value `self`, a copy or move of the place reached. A receiver reached by value
+/// through a reference is reborrowed (`&*r`, `&mut *m`), as in rustc.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MethodCallee {
+    pub def: DefId,
+    pub autoderefs: usize,
+    pub autoref: Option<Mutability>,
+}
+
 /// Per-body results, with every inference variable resolved.
 #[derive(Clone, Debug, Default)]
 pub struct BodyTypes {
@@ -46,6 +57,8 @@ pub struct BodyTypes {
     /// element is a coercion site (a `&mut` place there is reborrowed, not moved), as in
     /// rustc. Keyed by the `ExprKind::Tuple` node.
     pub coerced_tuples: HashSet<NodeId>,
+    /// The callee of every method call, keyed by the `ExprKind::MethodCall` node.
+    pub method_calls: HashMap<NodeId, MethodCallee>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
 }
@@ -99,6 +112,7 @@ pub(crate) struct FnCtxt<'a> {
     pat_derefs: HashMap<NodeId, usize>,
     ref_bindings: HashMap<NodeId, Mutability>,
     coerced_tuples: HashSet<NodeId>,
+    method_calls: HashMap<NodeId, MethodCallee>,
     ret_ty: Ty,
     loops: Vec<LoopCtxt>,
     diverges: bool,
@@ -135,6 +149,7 @@ impl<'a> FnCtxt<'a> {
             pat_derefs: HashMap::new(),
             ref_bindings: HashMap::new(),
             coerced_tuples: HashSet::new(),
+            method_calls: HashMap::new(),
             ret_ty,
             loops: Vec::new(),
             diverges: false,
@@ -149,9 +164,19 @@ impl<'a> FnCtxt<'a> {
     }
 
     pub(crate) fn check_fn(mut self, f: &FnDecl, def: DefId) -> BodyTypes {
-        let sig = self.items.fn_sig(def);
-        for (p, ty) in f.params.iter().zip(sig.inputs.clone()) {
-            self.check_pat(&p.pat, &ty, None);
+        let sig = self.items.fn_sig(def).clone();
+        let mut inputs = sig.inputs.iter();
+        if let Some(sp) = &f.self_param {
+            let ty = inputs
+                .next()
+                .expect("a method's signature starts with its receiver");
+            if let Some(local) = self.resolve.local_of_pat(sp.id) {
+                self.local_types.insert(local, ty.clone());
+                self.local_spans.insert(local, sp.span);
+            }
+        }
+        for (p, ty) in f.params.iter().zip(inputs) {
+            self.check_pat(&p.pat, ty, None);
         }
         let ret = self.ret_ty.clone();
         self.check_block(&f.body, Some(&ret));
@@ -411,14 +436,7 @@ impl<'a> FnCtxt<'a> {
                 receiver,
                 method,
                 args,
-            } => {
-                self.check_expr(receiver, None);
-                for a in args {
-                    self.check_expr(a, None);
-                }
-                self.unsupported("method calls", method.span, "planned for Phase 5");
-                Ty::Error
-            }
+            } => self.check_method_call(expr, receiver, method, args),
             ExprKind::Field(base, name) => {
                 let base_ty = self.check_expr(base, None);
                 self.check_field(expr, &base_ty, &name.name, name.span)
@@ -1178,7 +1196,7 @@ impl<'a> FnCtxt<'a> {
         }
         let sig = self.items.fn_sig(def).clone();
         if sig.inputs.len() != args.len() {
-            let d = Self::wrong_arg_count(sig.inputs.len(), args.len(), span);
+            let d = Self::wrong_arg_count("function", sig.inputs.len(), args.len(), span);
             let name = self.resolve.def(def).name.clone();
             // A builtin has no source to point at.
             let d = if sig.name_span.is_dummy() {
@@ -1198,7 +1216,162 @@ impl<'a> FnCtxt<'a> {
         sig.output
     }
 
-    fn wrong_arg_count(expected: usize, found: usize, span: Span) -> Diagnostic {
+    /// `e.Name(args)`. The receiver is checked first, then the method is found by
+    /// [`Self::probe_method`], then the arguments are checked against the parameters
+    /// after the receiver, as in a call.
+    fn check_method_call(
+        &mut self,
+        expr: &Expr,
+        receiver: &Expr,
+        method: &sabiko_ast::Ident,
+        args: &[Expr],
+    ) -> Ty {
+        let recv_ty = self.check_expr(receiver, None);
+        let Some(callee) = self.probe_method(&recv_ty, method) else {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            return Ty::Error;
+        };
+        let sig = self.items.fn_sig(callee.def).clone();
+        let params = &sig.inputs[1..];
+        if params.len() != args.len() {
+            let d = Self::wrong_arg_count("method", params.len(), args.len(), expr.span)
+                .with_label(
+                    sig.name_span,
+                    format!("method `{}` defined here", method.name),
+                );
+            self.error(d);
+        }
+        for (i, a) in args.iter().enumerate() {
+            let expected = params.get(i).cloned();
+            self.check_expr(a, expected.as_ref());
+        }
+        self.method_calls.insert(expr.id, callee);
+        if sig.output.is_never() {
+            self.diverges = true;
+        }
+        sig.output
+    }
+
+    /// Finds the method `name` for a receiver of type `recv_ty`, as rustc's probe does
+    /// for inherent methods: the receiver is dereferenced step by step (`&&P`, `&P`,
+    /// `P`), and at each step the method's receiver type (`P`, `&P` or `&mut P`) is
+    /// matched against the step's type by value, then against `&step`, then against
+    /// `&mut step`. Only structs have methods, so the method itself is the innermost
+    /// type's; the steps decide how the receiver is adjusted. Reports and returns `None`
+    /// when there is no such method.
+    fn probe_method(&mut self, recv_ty: &Ty, name: &sabiko_ast::Ident) -> Option<MethodCallee> {
+        let mut steps = vec![self.infer.resolve(recv_ty)];
+        while let Ty::Ref(_, inner) = steps.last().expect("one step").clone() {
+            steps.push(*inner);
+        }
+        let base = steps.last().expect("one step").clone();
+        let adt = match base {
+            Ty::Error => return None,
+            Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(
+                        name.span,
+                        "the receiver's type must be known to call a method",
+                    ),
+                );
+                return None;
+            }
+            Ty::Adt(adt) => adt,
+            _ => {
+                self.unknown_method(recv_ty, name, None, "method not found");
+                return None;
+            }
+        };
+        let Some(def) = self.resolve.assoc_fn(adt, &name.name) else {
+            let is_field = self.items.adt(adt).field_index(&name.name).is_some();
+            let label = if is_field {
+                "field, not a method"
+            } else {
+                "method not found"
+            };
+            self.unknown_method(recv_ty, name, Some(adt), label);
+            return None;
+        };
+        let sig = self.items.fn_sig(def);
+        if sig.self_kind.is_none() {
+            self.unknown_method(
+                recv_ty,
+                name,
+                Some(adt),
+                "this is an associated function, not a method",
+            );
+            return None;
+        }
+        let self_ty = sig.inputs[0].clone();
+        for (autoderefs, step) in steps.iter().enumerate() {
+            if *step == self_ty {
+                // A reference receiver is reborrowed, not copied or moved: `&*r`, `&mut *m`.
+                return Some(match step {
+                    Ty::Ref(m, _) => MethodCallee {
+                        def,
+                        autoderefs: autoderefs + 1,
+                        autoref: Some(*m),
+                    },
+                    _ => MethodCallee {
+                        def,
+                        autoderefs,
+                        autoref: None,
+                    },
+                });
+            }
+            for m in [Mutability::Not, Mutability::Mut] {
+                if Ty::Ref(m, Box::new(step.clone())) == self_ty {
+                    return Some(MethodCallee {
+                        def,
+                        autoderefs,
+                        autoref: Some(m),
+                    });
+                }
+            }
+        }
+        unreachable!("a method of the innermost struct matches by value or by autoref")
+    }
+
+    /// E0319: no method `name` for a receiver of type `recv_ty`.
+    fn unknown_method(
+        &mut self,
+        recv_ty: &Ty,
+        name: &sabiko_ast::Ident,
+        adt: Option<DefId>,
+        label: &str,
+    ) {
+        let shown = self.ty_str(recv_ty);
+        let what = match (self.shallow(recv_ty), adt) {
+            (Ty::Ref(..), _) => format!("reference `{shown}`"),
+            (_, Some(_)) => format!("struct `{shown}`"),
+            _ => format!("type `{shown}`"),
+        };
+        let mut d = Diagnostic::error(
+            ErrorCode::UNKNOWN_METHOD,
+            format!("no method named `{}` found for {what}", name.name),
+        )
+        .with_label(name.span, label);
+        if let Some(adt) = adt {
+            let owner = self.items.adt(adt).name.clone();
+            if self.resolve.assoc_fn(adt, &name.name).is_some() {
+                d = d.with_note(format!(
+                    "call it as an associated function: `{owner}::{}(..)`",
+                    name.name
+                ));
+            }
+        } else {
+            d = d.with_note("only structs have methods (inherent `impl` blocks)");
+        }
+        self.error(d);
+    }
+
+    fn wrong_arg_count(what: &str, expected: usize, found: usize, span: Span) -> Diagnostic {
         let plural = |n: usize, s: &str| {
             if n == 1 {
                 s.to_owned()
@@ -1209,7 +1382,7 @@ impl<'a> FnCtxt<'a> {
         Diagnostic::error(
             ErrorCode::WRONG_ARG_COUNT,
             format!(
-                "this function takes {expected} {} but {found} {} supplied",
+                "this {what} takes {expected} {} but {found} {} supplied",
                 plural(expected, "argument"),
                 if found == 1 {
                     "argument was"
@@ -1229,7 +1402,7 @@ impl<'a> FnCtxt<'a> {
     /// return `()`.
     fn check_print_call(&mut self, builtin: Builtin, args: &[Expr], span: Span) -> Ty {
         if args.len() != 1 {
-            let d = Self::wrong_arg_count(1, args.len(), span);
+            let d = Self::wrong_arg_count("function", 1, args.len(), span);
             self.error(d);
         }
         for arg in args {
@@ -1304,6 +1477,21 @@ impl<'a> FnCtxt<'a> {
                     adt.fields.iter().map(|f| format!("`{}`", f.name)).collect();
                 // The type as written, references included (`&P`), as rustc reports it.
                 let shown = self.ty_str(base_ty);
+                let is_method = self
+                    .resolve
+                    .assoc_fn(d, name)
+                    .is_some_and(|m| self.items.fn_sig(m).self_kind.is_some());
+                if is_method {
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::METHOD_AS_FIELD,
+                            format!("attempted to take value of method `{name}` on type `{shown}`"),
+                        )
+                        .with_label(name_span, "method, not a field")
+                        .with_note(format!("use parentheses to call the method: `{name}(..)`")),
+                    );
+                    return Ty::Error;
+                }
                 let mut d = Diagnostic::error(
                     ErrorCode::UNKNOWN_FIELD,
                     format!("no field `{name}` on type `{shown}`"),
@@ -1648,6 +1836,7 @@ impl<'a> FnCtxt<'a> {
             pat_derefs: self.pat_derefs,
             ref_bindings: self.ref_bindings,
             coerced_tuples: self.coerced_tuples,
+            method_calls: self.method_calls,
             has_errors,
         }
     }
