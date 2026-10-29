@@ -1,0 +1,34 @@
+// `()` as a value: a parameter, a struct field, a tuple element, a local, an explicit
+// return value, and compared with `==` (the E0500s for `()` parameters and fields go away).
+#[derive(Copy, Clone)]
+struct Tagged { Tag: (), N: i32 }
+
+struct Holder { Unit: (), Pair: ((), u8) }
+
+fn TakeUnit(u: (), n: i32) -> i32 { n + 1 }
+
+fn GiveUnit(n: i32) -> () {
+    PrintLine(n);
+    ()
+}
+
+fn Echo(u: ()) -> () { u }
+
+fn Main() {
+    let u = ();
+    PrintLine(TakeUnit(u, 1));
+    PrintLine(TakeUnit((), 2));
+    PrintLine(TakeUnit(GiveUnit(3), 4));
+    let t = Tagged { Tag: (), N: 5 };
+    let c = t;
+    PrintLine(c.N + t.N);
+    let h = Holder { Unit: Echo(()), Pair: ((), 6) };
+    PrintLine(h.Pair.1);
+    PrintLine(h.Unit == ());
+    PrintLine(Echo(h.Pair.0) == c.Tag);
+    let units = ((), ((), ()), 7);
+    PrintLine(units.2);
+    let mut slot: () = ();
+    slot = GiveUnit(8);
+    PrintLine(slot != u);
+}

@@ -1,0 +1,12 @@
+// Moving one field out of a tuple and then using the whole tuple.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn TakeBoth(t: (P, P)) {}
+
+fn Main() {
+    let t = (P { X: 1 }, P { X: 2 });
+    Take(t.1);
+    TakeBoth(t);
+}

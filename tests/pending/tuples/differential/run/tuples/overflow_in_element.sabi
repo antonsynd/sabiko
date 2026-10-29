@@ -1,0 +1,11 @@
+// Debug-build overflow in a tuple element's arithmetic panics at that element.
+fn Pair(a: u8, b: u8) -> (u8, u8) {
+    (a + 1, a + b)
+}
+
+fn Main() {
+    let p = Pair(100, 100);
+    Print(p.0); Print(' '); PrintLine(p.1);
+    let q = Pair(200, 100);
+    PrintLine(q.1);
+}

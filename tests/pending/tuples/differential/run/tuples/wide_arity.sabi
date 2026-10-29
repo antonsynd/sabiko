@@ -1,0 +1,21 @@
+// Tuples longer than seven elements (`System.ValueTuple` nests its eighth element in `TRest`)
+// and a sixteen-element one, passed, returned, nested and destructured.
+fn Rotate(t: (i32, i32, i32, i32, i32, i32, i32, i32)) -> (i32, i32, i32, i32, i32, i32, i32, i32) {
+    (t.7, t.0, t.1, t.2, t.3, t.4, t.5, t.6)
+}
+
+fn Main() {
+    let mut t = (1, 2, 3, 4, 5, 6, 7, 8);
+    t = Rotate(Rotate(t));
+    Print(t.0); Print(t.1); Print(t.2); Print(t.3); Print(t.4); Print(t.5); Print(t.6); PrintLine(t.7);
+    t.7 += 90;
+    PrintLine(t.7);
+    let nine = (1u8, 2i16, 3u32, 4i64, 5u64, 6i8, 7u16, 8i32, (9.5, 'n'));
+    Print(nine.7); Print(' '); Print(nine.8.0); Print(' '); PrintLine(nine.8.1);
+    let (_, _, _, _, _, _, _, h, (i, _)) = nine;
+    Print(h); Print(' '); PrintLine(i);
+    let mut big = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    big.15 = big.14 + big.13;
+    big.9 = big.15 * 2;
+    Print(big.9); Print(' '); PrintLine(big.15);
+}

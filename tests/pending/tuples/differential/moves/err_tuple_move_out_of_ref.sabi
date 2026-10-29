@@ -1,0 +1,12 @@
+// Moving a non-Copy field, or the whole tuple, out from behind a reference.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Field(r: &(P, i32)) {
+    Take(r.0);
+}
+
+fn Whole(r: &mut (P, P)) {
+    let (a, b) = *r;
+}

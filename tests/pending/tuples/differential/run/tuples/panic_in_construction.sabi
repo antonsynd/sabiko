@@ -1,0 +1,16 @@
+// A panic while building a tuple: the elements before it ran, the ones after did not.
+fn Show(n: i32) -> i32 {
+    PrintLine(n);
+    n
+}
+
+fn Check(n: i32) -> i32 {
+    if n > 2 { Panic("element too large") } else { n }
+}
+
+fn Main() {
+    let ok = (Show(1), Check(2), Show(2));
+    PrintLine(ok.1);
+    let bad = (Show(3), (Show(4), Check(5)), Show(6));
+    PrintLine("not reached");
+}

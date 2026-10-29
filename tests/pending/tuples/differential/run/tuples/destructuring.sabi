@@ -1,0 +1,32 @@
+// Irrefutable tuple patterns in `let`: flat, nested, `_`, `mut`, with a type annotation,
+// deferred initialisation, and swapping through `let (x, y) = (y, x);`.
+fn DivRem(a: u32, b: u32) -> (u32, u32) { (a / b, a % b) }
+
+fn Main() {
+    let (q, r) = DivRem(47, 5);
+    Print(q); Print(' '); PrintLine(r);
+    let (a, (b, c), _) = (1, (2.5, 'k'), false);
+    Print(a); Print(' '); Print(b); Print(' '); PrintLine(c);
+    let (mut x, y): (i64, u8) = (10, 3);
+    x *= y as i64;
+    Print(x); Print(' '); PrintLine(y);
+    let (x, y) = (y, x);
+    Print(x); Print(' '); PrintLine(y);
+    let (_, _) = (PrintLine(1), PrintLine(2));
+    let ((p,), ((), q2)) = ((7,), ((), 8));
+    PrintLine(p * q2);
+    let mut s = 1;
+    let mut t = 2;
+    let mut i = 0;
+    while i < 5 {
+        let (ns, nt) = (t, s + t);
+        s = ns;
+        t = nt;
+        i += 1;
+    }
+    Print(s); Print(' '); PrintLine(t);
+    let w;
+    let (left, right) = if s > 5 { (true, s) } else { (false, 0) };
+    w = (right, left);
+    Print(w.0); Print(' '); PrintLine(w.1);
+}

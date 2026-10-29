@@ -1,0 +1,9 @@
+// A live borrow of one field conflicts with a mutable borrow of the whole tuple.
+fn Bump(t: &mut (i32, i32)) { t.0 += 1; }
+
+fn Main() {
+    let mut t = (1, 2);
+    let a = &t.1;
+    Bump(&mut t);
+    PrintLine(*a);
+}

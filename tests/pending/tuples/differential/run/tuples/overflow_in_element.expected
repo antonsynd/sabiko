@@ -1,0 +1,6 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 101
+// --- stdout
+101 200
+// --- stderr (thread id and directory removed)
+thread 'main' (ID) panicked at prog.rs:3:13:
+attempt to add with overflow

@@ -1,0 +1,42 @@
+// Tuples of structs, structs with tuple fields, copy semantics of Copy tuples, and moves of
+// non-Copy tuples into and out of functions.
+#[derive(Copy, Clone)]
+struct Point { X: f64, Y: f64 }
+
+struct Segment { Ends: (Point, Point), Label: (char, u32) }
+
+struct Counter { N: i32 }
+
+fn Length2(s: &Segment) -> f64 {
+    let dx = s.Ends.1.X - s.Ends.0.X;
+    let dy = s.Ends.1.Y - s.Ends.0.Y;
+    dx * dx + dy * dy
+}
+
+fn Swap(t: (Counter, Counter)) -> (Counter, Counter) {
+    let (a, b) = t;
+    (b, a)
+}
+
+fn Main() {
+    let mut s = Segment { Ends: (Point { X: 0.0, Y: 0.0 }, Point { X: 3.0, Y: 4.0 }), Label: ('s', 1) };
+    PrintLine(Length2(&s));
+    s.Ends.1.Y = 0.0;
+    s.Label.1 += 1;
+    Print(s.Label.0); Print(s.Label.1); Print(' '); PrintLine(Length2(&s));
+    let copy = s.Ends;
+    s.Ends.0.X = -1.0;
+    Print(copy.0.X); Print(' '); PrintLine(s.Ends.0.X);
+    let mut pts = (Point { X: 1.0, Y: 2.0 }, Point { X: 3.0, Y: 4.0 });
+    let snapshot = pts;
+    pts.0 = pts.1;
+    pts.1.X = 9.0;
+    Print(snapshot.0.X); Print(' '); Print(pts.0.X); Print(' '); PrintLine(pts.1.X);
+    let cs = Swap((Counter { N: 1 }, Counter { N: 2 }));
+    Print(cs.0.N); Print(' '); PrintLine(cs.1.N);
+    let mut moved = Swap(cs);
+    moved.1.N *= 10;
+    Print(moved.0.N); Print(' '); PrintLine(moved.1.N);
+    let (first, second) = moved;
+    PrintLine(first.N + second.N);
+}

@@ -1,0 +1,35 @@
+// Tuple literals of mixed element types, nested tuples, 1-tuples, chained `t.0.1` access,
+// tuple-typed parameters and returns, and printing elements one by one (tuples are not
+// `Display`).
+fn MinMax(a: i32, b: i32) -> (i32, i32) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+fn Sum3(t: (i64, i64, i64)) -> i64 { t.0 + t.1 + t.2 }
+
+fn Wrap(x: u8) -> (u8,) { (x,) }
+
+fn Nest(a: char, b: bool, c: f64) -> (char, (bool, (f64,))) { (a, (b, (c,))) }
+
+fn Main() {
+    let t = (1, -2i8, 3u64, 4.5f32, true, 'x', 170141183460469231731687303715884105727i128);
+    Print(t.0); Print(' '); Print(t.1); Print(' '); Print(t.2); Print(' '); Print(t.3);
+    Print(' '); Print(t.4); Print(' '); Print(t.5); Print(' '); PrintLine(t.6);
+    let m = MinMax(9, -3);
+    Print(m.0); Print(' '); PrintLine(m.1);
+    PrintLine(MinMax(1, 2).1);
+    PrintLine(Sum3((10, 20, 30)));
+    let one = Wrap(7);
+    PrintLine(one.0);
+    let n = Nest('q', false, 0.25);
+    Print(n.0); Print(' '); Print(n.1.0); Print(' '); PrintLine(n.1.1.0);
+    let deep = ((1, 2), ((3, 4), 5));
+    PrintLine(deep.0.1 + deep.1.0.1 * 10 + deep.1.1 * 100);
+    let chained = Nest('z', true, -1.5).1.1.0;
+    PrintLine(chained);
+    let paren = (5);
+    PrintLine(paren + 1);
+    let empty = ();
+    let typed: (u16, (i32,), ()) = (65535, (-1,), ());
+    Print(typed.0); Print(' '); PrintLine(typed.1.0);
+}

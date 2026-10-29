@@ -1,0 +1,15 @@
+// A function may return a reference into a field of its tuple parameter's referent.
+fn Second(t: &(i32, (u8, bool))) -> &u8 {
+    &t.1.0
+}
+
+fn SecondMut(t: &mut (i32, i32)) -> &mut i32 {
+    &mut t.1
+}
+
+fn Main() {
+    let mut t = (1, 2);
+    *SecondMut(&mut t) += 5;
+    let u = (7, (8u8, true));
+    PrintLine(*Second(&u));
+}

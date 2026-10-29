@@ -1,0 +1,9 @@
+// KNOWN GAP (two-phase borrows, PLAN.md Phase 5 "methods"): rustc accepts reading `m.0` in
+// a later argument after the implicit two-phase reborrow `&mut *m` of an earlier one; Sabiko
+// rejects it. Belongs in `differential/loans/` once two-phase borrows land, not with #6.
+fn Use(r: &mut (i32, i32), n: i32) { r.1 += n; }
+
+fn Twice(m: &mut (i32, i32)) {
+    Use(m, m.0);
+    Use(m, m.1);
+}

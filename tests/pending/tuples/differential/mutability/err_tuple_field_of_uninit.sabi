@@ -1,0 +1,6 @@
+// A declared but uninitialised tuple cannot be initialised field by field.
+fn Main() {
+    let mut t: (i32, i32);
+    t.0 = 1;
+    t.1 = 2;
+}
