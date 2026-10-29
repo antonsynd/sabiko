@@ -18,12 +18,17 @@
 //! - at most one of them has an observable effect or may panic: a call (`Print`,
 //!   `PrintLine`, `Panic`, a user function or a method, which may print, panic or write
 //!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation or a
-//!   compound assignment;
+//!   compound assignment, or a value with drop glue (whose `drop` prints): a `let` of one,
+//!   which fixes where it is dropped at the end of the block and whether a panic in
+//!   between drops it, an assignment that drops the old one, or an expression statement
+//!   that drops its value;
 //! - they do not both touch memory that may be aliased, unless both only read it. A
 //!   statement touches aliased memory when it borrows (`&` reads, `&mut` writes, and so
 //!   does a method call's autoref'd receiver), dereferences, mentions a reference local
-//!   (`&mut` locals count as writes), or mentions a local whose address is taken anywhere
-//!   in the function (a write, `&mut` borrow or move of it counts as a write).
+//!   (`&mut` locals count as writes, and so do `&` locals that may hold a mutable loan:
+//!   `let d = &*m;` for `m: &mut T` keeps `m`'s loan alive while `d` is used), or mentions
+//!   a local whose address is taken anywhere in the function (a write, `&mut` borrow or
+//!   move of it counts as a write).
 //!
 //! Method bodies are analysed like function bodies.
 //!
@@ -75,6 +80,7 @@ pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
             typeck: &typeck,
             types: typeck.body(def),
             address_taken: HashSet::new(),
+            mut_derived: HashSet::new(),
             lines: &lines,
             pairs: &mut pairs,
         };
@@ -207,6 +213,10 @@ struct FnCx<'a, 'p> {
     types: &'a BodyTypes,
     /// Locals borrowed anywhere in the function: any access to one may alias a reference.
     address_taken: HashSet<LocalId>,
+    /// `&` locals that may hold a mutable loan: assigned from an expression with a `&mut`
+    /// borrow, a `&mut` local or another such local in it. A use of one keeps the mutable
+    /// loan alive, so it counts as a write to aliased memory.
+    mut_derived: HashSet<LocalId>,
     lines: &'a Lines<'a>,
     pairs: &'p mut Vec<usize>,
 }
@@ -220,6 +230,20 @@ impl FnCx<'_, '_> {
                 StmtKind::Let(l) => {
                     if let Some(init) = &l.init {
                         self.collect_address_taken(init);
+                        if self.may_hold_mut_loan(init) {
+                            let mut pats = vec![&l.pat];
+                            while let Some(pat) = pats.pop() {
+                                match &pat.kind {
+                                    PatKind::Ident { .. } => {
+                                        if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                                            self.mut_derived.insert(local);
+                                        }
+                                    }
+                                    PatKind::Tuple(elems) => pats.extend(elems),
+                                    PatKind::Wild => {}
+                                }
+                            }
+                        }
                     }
                 }
                 StmtKind::Expr { expr, .. } => self.collect_address_taken(expr),
@@ -245,10 +269,46 @@ impl FnCx<'_, '_> {
         if let Some(local) = borrowed.and_then(|x| self.root_local(x)) {
             self.address_taken.insert(local);
         }
+        if let ExprKind::Assign(lhs, rhs) = &e.kind {
+            if let ExprKind::Path(_) = lhs.kind {
+                if let Res::Local(local) = self.resolve.res(lhs.id) {
+                    if self.may_hold_mut_loan(rhs) {
+                        self.mut_derived.insert(local);
+                    }
+                }
+            }
+        }
         for_each_child(e, |child| match child {
             Child::Expr(x) => self.collect_address_taken(x),
             Child::Block(b) => self.collect_address_taken_block(b),
         });
+    }
+
+    /// Whether the value of `e` may carry a mutable loan: it borrows mutably (explicitly
+    /// or through an autoref'd receiver), or mentions a `&mut` local or an `&` local that
+    /// may hold one. Conservative: the loan may be dropped on the way.
+    fn may_hold_mut_loan(&self, e: &Expr) -> bool {
+        let here = match &e.kind {
+            ExprKind::Ref { mutable: true, .. } => true,
+            ExprKind::MethodCall { .. } => self.types.method_calls[&e.id]
+                .autoref
+                .is_some_and(sabiko_types::Mutability::is_mut),
+            ExprKind::Path(_) => match self.resolve.res(e.id) {
+                Res::Local(local) => {
+                    matches!(self.types.local_ty(local), Ty::Ref(m, _) if m.is_mut())
+                        || self.mut_derived.contains(&local)
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        let mut found = here;
+        for_each_child(e, |child| {
+            if let Child::Expr(x) = child {
+                found = found || self.may_hold_mut_loan(x);
+            }
+        });
+        found
     }
 
     /// The local a place expression starts from, through fields and parentheses (and
@@ -322,20 +382,29 @@ impl FnCx<'_, '_> {
                     }
                 }
                 if let Some(init) = &l.init {
+                    s.effect |= self.needs_drop(init);
                     self.expr(init, Mode::Read, &mut s);
                 }
             }
-            StmtKind::Expr { expr, .. } => self.expr(expr, Mode::Read, &mut s),
+            StmtKind::Expr { expr, .. } => {
+                s.effect |= self.needs_drop(expr);
+                self.expr(expr, Mode::Read, &mut s);
+            }
             StmtKind::Empty => {}
         }
         s
+    }
+
+    /// Whether the value of `e` has drop glue.
+    fn needs_drop(&self, e: &Expr) -> bool {
+        self.typeck.items.needs_drop(self.types.expr_ty(e.id))
     }
 
     fn local(&self, local: LocalId, mode: Mode, s: &mut Summary) {
         s.locals.insert(local);
         let ty = self.types.local_ty(local);
         if let Ty::Ref(m, _) = ty {
-            s.touch(if m.is_mut() {
+            s.touch(if m.is_mut() || self.mut_derived.contains(&local) {
                 Alias::Write
             } else {
                 Alias::Read
@@ -376,6 +445,8 @@ impl FnCx<'_, '_> {
                 self.expr(b, Mode::Read, s);
             }
             ExprKind::Assign(lhs, rhs) => {
+                // The old value is dropped.
+                s.effect |= self.needs_drop(lhs);
                 self.expr(lhs, Mode::Write, s);
                 self.expr(rhs, Mode::Read, s);
             }
@@ -602,6 +673,23 @@ mod tests {
         // `let z = t.A` / `PrintLine(x)` swap (`x` is never borrowed). `s.Bump()` /
         // `let y = t.Get()` are two calls as well.
         assert_eq!(pairs(src), vec![6, 19]);
+    }
+
+    #[test]
+    fn shared_reborrows_of_mutable_borrows_count_as_writes() {
+        // `d` reborrows through `a = &mut f`: a use of `d` keeps the mutable loan of `f`
+        // alive, so `let e = &*d;` must not move before `let x = f;` (seed 5701200).
+        let src = "fn Main() {\n    let mut f = 1i32;\n    let a = &mut f;\n    let d = &*a;\n    let e = &*d;\n    let x = f;\n    let y = 2i32;\n}\n";
+        assert_eq!(pairs(src), vec![5]);
+    }
+
+    #[test]
+    fn values_with_drop_glue_are_effects() {
+        let src = "struct D {\n    A: i32,\n}\n\nimpl Drop for D {\n    fn drop(&mut self) {\n        PrintLine(self.A);\n    }\n}\n\nfn Main() {\n    let a = D { A: 1i32 };\n    let b = D { A: 2i32 };\n    let n = 3i32;\n    let mut c = D { A: 4i32 };\n    c = D { A: 5i32 };\n    let m = 6i32;\n    let _ = D { A: 7i32 };\n    PrintLine(n);\n}\n";
+        // `let a` / `let b` would swap their drops at the end of `Main`; `let n` may swap
+        // with either neighbour; `c = ..` drops the old `c`; `let _ = D {..}` drops at once,
+        // and only `let m` (no effect) may swap with it.
+        assert_eq!(pairs(src), vec![12, 13, 15, 16]);
     }
 
     #[test]
