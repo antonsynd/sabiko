@@ -1,0 +1,39 @@
+// A `&mut` place where a `&` is expected is reborrowed shared (`&*r`), so other shared
+// borrows of `*r` stay usable beside it. Found by the generated programs at seed 100021:
+// `Weigh(&*tmp, m, tmp)` with `tmp: &mut Rect` and `&Rect` parameters.
+struct Rect {
+    W: i32,
+}
+
+fn Two(a: &i32, b: &i32) -> i32 {
+    *a + *b
+}
+
+fn Area(a: &Rect, b: &Rect) -> i32 {
+    a.W * b.W
+}
+
+fn View(p: &mut i32) -> &i32 {
+    p
+}
+
+fn Main() {
+    let mut x = 1;
+    let r = &mut x;
+    let n = Two(&*r, r);
+    let m = Two(r, r);
+    let s: &i32 = r;
+    let t = &*r;
+    let k = *s + *t;
+    let mut u: &i32 = &n;
+    u = r;
+    let v = &*r;
+    let j = *u + *v;
+    let w = View(r);
+    let i = *w + *r;
+    let mut rect = Rect { W: 3 };
+    let q = &mut rect;
+    let area = Area(q, &*q);
+    *r = n + m + k + j + i;
+    q.W = area;
+}

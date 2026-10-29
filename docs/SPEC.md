@@ -295,8 +295,9 @@ Moves (E0406, E0407):
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
 - A `&mut T` is implicitly reborrowed (`&mut *r`) where the expected type is `&mut`:
-  call arguments, struct literal fields, assignment, annotated `let`, `return`. A plain
-  `let s = r;` moves it (as in Rust).
+  call arguments, struct literal fields, assignment, annotated `let`, `return`. Where the
+  expected type is `&T` the reborrow is shared (`&*r`), so `F(&*r, r)` with two `&T`
+  parameters is accepted. A plain `let s = r;` moves it (as in Rust).
 
 Loans (E0408–E0413):
 
@@ -321,7 +322,8 @@ Signatures and lifetimes (E0414–E0416):
 
 - Lifetimes are elided only: a function returning a reference must have exactly one
   reference parameter (nested references count once per parameter), and the returned
-  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`). A reference
+  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`; reported from the
+  signature alone, so also when the body has other errors). A reference
   returned may therefore only point into that parameter's referent; returning a reference
   to a local or to a by-value parameter is E0414.
 - Inside a body, references with different elided lifetimes are unrelated: storing `y` in

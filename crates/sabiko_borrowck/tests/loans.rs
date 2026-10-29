@@ -5,7 +5,7 @@
 //! [`BodyBuilder`] and run through `loans::check_loans` alone, so these tests depend
 //! neither on MIR lowering nor on the other borrow checks.
 
-use sabiko_borrowck::loans::check_loans;
+use sabiko_borrowck::loans::{check_loans, check_signatures};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
     BasicBlock, BasicBlockData, Body, ConstValue, Constant, Local, LocalDecl, LocalKind,
@@ -1050,6 +1050,8 @@ fn call_to_unelidable_signature_constrains_nothing() {
 #[test]
 fn missing_lifetime_specifier() {
     // fn Two(a: &i32, b: &i32) -> &i32 { a }
+    // E0416 is a property of the signature: `check_signatures` reports it once per
+    // function, and `check_loans` stays silent on the body so it is not reported twice.
     let fx = Fixture::new();
     let mut mir = BodyBuilder::for_fn(fx.two, "Two", Ty::shared_ref(Ty::I32));
     let a = mir.arg("a", Ty::shared_ref(Ty::I32), Mutability::Not);
@@ -1057,9 +1059,11 @@ fn missing_lifetime_specifier() {
     let bb0 = mir.block();
     mir.assign(bb0, local(Local::RETURN), use_copy(local(a)));
     mir.ret(bb0);
-    let body = mir.finish();
+    fx.assert_clean(&mir.finish());
 
-    let diags = fx.check(&body);
+    let mut sink = DiagnosticSink::new();
+    check_signatures(&fx.resolve, &fx.typeck, &mut sink);
+    let diags = sink.into_vec();
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
         ["E0416 missing lifetime specifier"]

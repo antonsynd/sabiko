@@ -18,11 +18,15 @@ cargo run -q -p sabikoc -- file.sabi --emit=exe -o out/x.dll && dotnet out/x.dll
 cargo run -q -p sabikoc -- file.sabi --emit=mir|il|ast|pretty|tokens
 scripts/build-runtime.sh      # after editing runtime/Sabiko.Runtime/*.cs
 scripts/check-runtime.sh      # pins the runtime's formatting and panic behaviour
+cargo install cargo-deny --locked --version 0.20.2
+cargo deny check              # deny.toml: licences, bans, sources (CI) and advisories (nightly)
 ```
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy, build and test on Linux, macOS and Windows
 with the .NET toolchain installed and `SABIKO_REQUIRE_DOTNET=1`, so the run-pass and
 run-time differential tests must run there, not skip. Run all four checks before pushing.
+A separate Linux job runs `cargo deny check licenses bans sources`; run it when you add or
+update a dependency (a new licence must be added to `deny.toml`'s allow list on purpose).
 
 ## Tests and how to update expectations
 

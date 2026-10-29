@@ -1,0 +1,56 @@
+# cargo-deny configuration (https://embarkstudios.github.io/cargo-deny/).
+#
+#   cargo install cargo-deny --locked --version 0.20.2
+#   cargo deny check                               # everything
+#   cargo deny check licenses bans sources         # what CI runs on every push
+#   cargo deny check advisories                    # what the nightly workflow runs
+#
+# Advisories run nightly rather than on every push (decision 45): a new RUSTSEC entry
+# against a dependency must not turn unrelated pull requests red. The graph is the same on
+# every platform, so CI checks it on Linux only. `fuzz/` is a separate workspace that is
+# never distributed and is not checked.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# Unmaintained crates are reported for the whole graph; yanked versions are errors.
+unmaintained = "all"
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Sabiko is MIT OR Apache-2.0 (decision 10, LICENSE-MIT, LICENSE-APACHE), so every
+# dependency must be usable under permissive terms. Copyleft licences are not listed and so
+# are rejected; an `OR` expression passes when one of its alternatives is allowed (the
+# graph has crates offering `LGPL-2.1-or-later` next to `MIT`, `Unlicense` next to `MIT`).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    # `unicode-ident`'s Unicode data tables: a permissive licence required in addition to
+    # MIT OR Apache-2.0 (`(MIT OR Apache-2.0) AND Unicode-3.0`).
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+
+[licenses.private]
+# The workspace's own crates are MIT OR Apache-2.0 and are checked like any other crate.
+ignore = false
+
+[bans]
+# Two versions of one crate in the graph are worth knowing about but not worth failing a
+# build over: they usually come from a dependency's dependencies.
+multiple-versions = "warn"
+# The workspace's crates depend on each other by path without a version, which cargo-deny
+# counts as wildcards (its `allow-wildcard-paths` only covers `publish = false` crates).
+# Every registry dependency names a version, and `Cargo.lock` pins it.
+wildcards = "allow"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -12,9 +12,10 @@
 //!
 //! A loan is live at a point when some variable whose type holds an origin containing the
 //! loan may still be used, so a borrow ends at its last use, not at the end of its scope.
-//! `E0416` (missing lifetime specifier) is reported here too, since it is the signature's
-//! origins that cannot be built; only functions that reached MIR are checked, which is
-//! fine for Phase 3 because the type checker rejects the rest of the body first anyway.
+//!
+//! `E0416` (missing lifetime specifier) depends only on a signature, so it is reported by
+//! [`check_signatures`], which the driver runs for every function whether or not its body
+//! type-checked; [`check_loans`] skips a body whose signature elision cannot resolve.
 
 pub mod facts;
 pub mod regions;
@@ -24,14 +25,34 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use polonius_engine::{Algorithm, Output};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{Body, Local, LocalKind, Place, PlaceElem, TerminatorKind};
-use sabiko_resolve::ResolveResults;
+use sabiko_resolve::{DefKind, ResolveResults};
 use sabiko_span::Span;
-use sabiko_types::TypeckResults;
+use sabiko_types::{FnSig, TypeckResults};
 
 use crate::dataflow::Location;
 use crate::describe_place;
 use facts::{AccessKind, Facts, FactsError, LocationTable, SabikoFacts};
-use regions::{Loan, Origin, Point};
+use regions::{signature_regions, Loan, Origin, OriginSupply, Point};
+
+/// Reports E0416 for every user function whose return type borrows when elision cannot
+/// say from which parameter. Runs on signatures alone, in definition order, so it does
+/// not need the body to have type-checked or reached MIR.
+pub fn check_signatures(
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
+    for def in resolve.defs_of_kind(DefKind::Fn) {
+        if resolve.builtin(def).is_some() {
+            continue;
+        }
+        let sig = typeck.items.fn_sig(def);
+        let regions = signature_regions(sig, &mut OriginSupply::default());
+        if regions.output.is_none() {
+            report_missing_lifetime(sig, regions.input_origins, sink);
+        }
+    }
+}
 
 /// Reports conflicting borrows and references that outlive their referents.
 pub fn check_loans(
@@ -42,10 +63,8 @@ pub fn check_loans(
 ) {
     let facts = match facts::generate(body, typeck) {
         Ok(facts) => facts,
-        Err(FactsError::MissingLifetime { input_origins }) => {
-            report_missing_lifetime(body, typeck, input_origins, sink);
-            return;
-        }
+        // The signature cannot be used; `check_signatures` reports it (E0416).
+        Err(FactsError::MissingLifetime { .. }) => return,
     };
     let output = Output::compute(&facts.all, Algorithm::DatafrogOpt, true);
     let mut successors: HashMap<Point, Vec<Point>> = HashMap::new();
@@ -67,13 +86,7 @@ pub fn check_loans(
 }
 
 /// E0416: the return type borrows but the signature cannot say from which parameter.
-fn report_missing_lifetime(
-    body: &Body,
-    typeck: &TypeckResults,
-    input_origins: usize,
-    sink: &mut DiagnosticSink,
-) {
-    let sig = typeck.items.fn_sig(body.def);
+fn report_missing_lifetime(sig: &FnSig, input_origins: usize, sink: &mut DiagnosticSink) {
     let why = if input_origins == 0 {
         "but there is no value for it to be borrowed from"
     } else {

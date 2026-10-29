@@ -7,13 +7,17 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# The front end is only used by `reorder`, which analyses generated programs; the
+# generator itself produces text without it.
 [dependencies]
-
-[dev-dependencies]
+sabiko_ast = { workspace = true }
 sabiko_diagnostics = { workspace = true }
 sabiko_parser = { workspace = true }
 sabiko_resolve = { workspace = true }
+sabiko_span = { workspace = true }
 sabiko_types = { workspace = true }
+
+[dev-dependencies]
 sabiko_driver = { workspace = true }
 
 [lints]

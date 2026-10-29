@@ -225,18 +225,35 @@ fn config() -> ProptestConfig {
 
 /// Runs the pipeline to IL (and, since it is a separate code path over the same bodies,
 /// the MIR printer). Returns the IL compilation.
+///
+/// The two runs share every stage before code generation, so their diagnostics up to
+/// borrow checking must be identical, in the same order: a determinism check for free
+/// (each run hashes with its own random state).
 fn compile(src: &str) -> Compilation {
     let mir = Options {
         emit: Emit::Mir,
         ..Options::default()
     };
-    let _ = compile_str("prop.sabi", src, mir);
+    let mir_run = compile_str("prop.sabi", src, mir);
     let il = Options {
         emit: Emit::Il,
         output_kind: OutputKind::Library,
         ..Options::default()
     };
-    compile_str("prop.sabi", src, il)
+    let il_run = compile_str("prop.sabi", src, il);
+    let front_end = |c: &Compilation| -> Vec<String> {
+        c.diagnostics
+            .iter()
+            .filter(|d| !(500..600).contains(&d.code.0))
+            .map(|d| format!("{d:?}"))
+            .collect()
+    };
+    assert_eq!(
+        front_end(&mir_run),
+        front_end(&il_run),
+        "diagnostics differ between two runs of the same front end:\n{src}"
+    );
+    il_run
 }
 
 fn check(src: &str) {
