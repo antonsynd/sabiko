@@ -26,7 +26,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   or a borrow-family error. Any other error on either side fails the test. `ok_` files must
   be accepted and `err_` files rejected by both.
 - Run-time behaviour (`crates/sabikoc/tests/differential_run.rs`): programs under
-  `tests/differential/run/` are built as executables by both compilers and run; stdout and
+  `tests/differential/run/` are built as executables by both compilers (in release mode,
+  wrapping arithmetic, for a program with a `//@ release` line) and run; stdout and
   exit codes must match, and so must the panic message line when both panic (Sabiko's
   generic "attempt to perform arithmetic with overflow" is accepted for rustc's per-operator
   overflow messages, because the `.ovf` opcodes do not know the operator).

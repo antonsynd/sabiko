@@ -1,0 +1,9 @@
+// A negative `i128` shift amount panics in debug builds for a right shift of a `u128`.
+fn Shr(x: u128, n: i128) -> u128 { x >> n }
+
+fn Main() {
+    PrintLine(Shr(340282366920938463463374607431768211455, 120));
+    PrintLine("about to shift by a negative amount");
+    PrintLine(Shr(1, -1));
+    PrintLine("not reached");
+}

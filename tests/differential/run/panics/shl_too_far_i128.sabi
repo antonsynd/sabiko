@@ -1,0 +1,10 @@
+// Shifting an `i128` left by 128 panics in debug builds.
+fn Shl(x: i128, n: u32) -> i128 { x << n }
+
+fn Main() {
+    PrintLine(Shl(1, 127));
+    PrintLine(Shl(-1, 100));
+    PrintLine("about to shift too far");
+    PrintLine(Shl(1, 128));
+    PrintLine("not reached");
+}

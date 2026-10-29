@@ -17,13 +17,7 @@ fn Main() {
     let rr = &r; //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     //~^ ERROR E0500 a reference to a reference is not yet supported by code generation
-    let big = n as i128; //~ ERROR E0500 the type `i128` is not yet supported by code generation
-    //~^ ERROR E0500 a cast involving 128-bit integers is not yet supported by code generation
-    Print(big); //~ ERROR E0500 printing a value of this type is not yet supported by code generation
-    //~^ ERROR E0500 the type `i128` is not yet supported by code generation
-    let literal: i128 = 5; //~ ERROR E0500 the type `i128` is not yet supported by code generation
-    //~^ ERROR E0500 the type `i128` is not yet supported by code generation
-    let _ = literal; //~ ERROR E0500 the type `i128` is not yet supported by code generation
+    Print(n);
     let unit = ();
     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     //~^ ERROR E0500 a reference to `()` is not yet supported by code generation

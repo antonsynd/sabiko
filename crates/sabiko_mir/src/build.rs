@@ -405,7 +405,12 @@ impl<'a> Builder<'a> {
         let value = match lit {
             Lit::Int { value, .. } => {
                 if ty.as_prim().is_some_and(PrimTy::is_signed_int) {
-                    ConstValue::Int(i128::try_from(*value).unwrap_or(i128::MAX))
+                    // The type checker only lets `2^127` through as the operand of a
+                    // negation (`-170141183460469231731687303715884105728i128`); wrapping
+                    // it to `i128::MIN` keeps `-MIN == MIN` exact. Saturating it to
+                    // `i128::MAX` made that literal `MIN + 1`.
+                    #[allow(clippy::cast_possible_wrap)]
+                    ConstValue::Int(*value as i128)
                 } else {
                     ConstValue::Uint(*value)
                 }

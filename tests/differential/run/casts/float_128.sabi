@@ -1,0 +1,38 @@
+// Float to `i128`/`u128` saturates (NaN gives 0); `i128`/`u128` to float rounds once, to
+// nearest with ties to even, including values a detour through `f64` would round twice.
+fn ToF32(x: i128) -> f32 { x as f32 }
+fn ToF64(x: i128) -> f64 { x as f64 }
+fn UToF32(x: u128) -> f32 { x as f32 }
+fn UToF64(x: u128) -> f64 { x as f64 }
+
+fn Main() {
+    let zero: f64 = 0.0;
+    let nan = zero / zero;
+    let inf = 1.0 / zero;
+    PrintLine(nan as i128); PrintLine(nan as u128); PrintLine(inf as i128); PrintLine(inf as u128);
+    PrintLine(-inf as i128); PrintLine(-inf as u128); PrintLine(1e40 as i128); PrintLine(-1e40 as i128);
+    PrintLine(1e40 as u128); PrintLine(-1.5 as u128); PrintLine(-0.9 as i128); PrintLine(123.9 as i128);
+    PrintLine(-123.9 as i128); PrintLine(1.7e38 as i128); PrintLine(1.7014118346046923e38 as i128);
+    PrintLine(-1.7014118346046923e38 as i128); PrintLine(3.4e38 as u128); PrintLine(3.4e38 as i128);
+    let zero32: f32 = 0.0;
+    let nan32 = zero32 / zero32;
+    PrintLine(nan32 as i128); PrintLine(nan32 as u128); PrintLine(3.4028235e38f32 as i128);
+    PrintLine(3.4028235e38f32 as u128); PrintLine(-1e38f32 as i128); PrintLine(-1e38f32 as u128);
+    PrintLine(2.5f32 as u128); PrintLine(-2.5f32 as i128);
+    PrintLine(ToF32(9007199791611905)); PrintLine(ToF32(-9007199791611905));
+    PrintLine(UToF32(9007199791611905)); PrintLine(UToF64(9007199791611905));
+    PrintLine(UToF64(27670116110564329473)); PrintLine(ToF64(-27670116110564329473));
+    PrintLine(UToF32(27670116110564329473));
+    PrintLine(UToF32(1267650675786093127411026624512)); PrintLine(UToF32(1267650675786093127411026624513));
+    PrintLine(UToF32(1267650826901820579239673462784)); PrintLine(UToF64(1267650675786093127411026624513));
+    PrintLine(UToF32(340282366920938463463374607431768211455));
+    PrintLine(UToF32(340282346638528859811704183484516925440));
+    PrintLine(UToF64(340282366920938463463374607431768211455));
+    PrintLine(ToF32(-170141183460469231731687303715884105728));
+    PrintLine(ToF64(-170141183460469231731687303715884105728));
+    PrintLine(ToF64(170141183460469231731687303715884105727));
+    PrintLine(ToF32(170141183460469231731687303715884105727));
+    PrintLine(ToF64(0)); PrintLine(ToF32(-1)); PrintLine(UToF32(16777217)); PrintLine(UToF32(16777219));
+    PrintLine(UToF64(4611686018427387903)); PrintLine(UToF64(9223372036854775809));
+    PrintLine(UToF64(18446744073709551615)); PrintLine(ToF32(4611686018427387905));
+}

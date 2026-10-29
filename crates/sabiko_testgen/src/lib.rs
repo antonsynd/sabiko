@@ -15,8 +15,8 @@
 //! `return`, struct literals, nested field reads and writes, `&`/`&mut` borrows passed to
 //! functions and held in locals, `*r`, writes through `&mut`, all arithmetic, bitwise,
 //! shift, comparison and logical operators, unary `-`/`!`, `as` casts between every
-//! integer type but `i128`/`u128`, `f32`/`f64`, `bool` and ASCII `char`, suffixed literals
-//! and compound assignment. Not generated: methods, tuples, arrays, enums, `match`,
+//! integer type (`i128`/`u128` included), `f32`/`f64`, `bool` and ASCII `char`, suffixed
+//! literals and compound assignment. Not generated: methods, tuples, arrays, enums, `match`,
 //! generics, closures, `&str` other than literals passed to `Print`/`PrintLine`/`Panic`,
 //! references in struct fields, comparisons of references, recursion, shadowing,
 //! unbounded loops, and reads of uninitialised locals.

@@ -1,0 +1,28 @@
+// Every comparison operator on `i128` and `u128`, across the sign bit and the 64-bit halves.
+fn I(a: i128, b: i128) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn U(a: u128, b: u128) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn Main() {
+    I(-1, 0); I(0, -1); I(5, 5);
+    I(-170141183460469231731687303715884105728, 170141183460469231731687303715884105727);
+    I(18446744073709551616, 18446744073709551615);
+    I(-18446744073709551616, -18446744073709551615);
+    I(-18446744073709551616, 18446744073709551616);
+    U(0, 340282366920938463463374607431768211455);
+    U(18446744073709551616, 18446744073709551615);
+    U(7, 7);
+    U(170141183460469231731687303715884105728, 170141183460469231731687303715884105727);
+    let x: i128 = 3;
+    if x > 2 && x < 4 { PrintLine("in range"); }
+    let mut n: u128 = 0;
+    while n < 5 { n += 1; }
+    PrintLine(n);
+    PrintLine(if n == 5 { 'y' } else { 'n' });
+}

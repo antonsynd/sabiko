@@ -1,0 +1,14 @@
+//@ release
+// Division checks are not overflow checks: `i128::MIN % -1` panics in release builds too,
+// after wrapping arithmetic printed its results.
+fn Rem(a: i128, b: i128) -> i128 { a % b }
+fn Dec(a: i128) -> i128 { a - 1 }
+
+fn Main() {
+    let min: i128 = -170141183460469231731687303715884105728;
+    PrintLine(Dec(min));
+    PrintLine(Rem(min, 3));
+    PrintLine("about to overflow");
+    PrintLine(Rem(min, -1));
+    PrintLine("not reached");
+}

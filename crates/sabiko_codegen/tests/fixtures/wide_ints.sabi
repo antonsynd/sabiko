@@ -1,0 +1,36 @@
+// `i128`/`u128` are `System.Int128`/`System.UInt128` (decision 42): constants are built
+// from their 64-bit halves, every operator is a call to the type's operator method, and
+// conversions go through `op_Implicit`/`op_Explicit` (to floats: `Sabiko.Runtime.Arithmetic`).
+struct Holder { Small: u8, Big: i128 }
+
+fn Arith(a: i128, b: i128) -> i128 { a + b - a * b / b % a }
+
+fn Unsigned(a: u128, b: u128) -> u128 { (a + b) / b % a - b * a }
+
+fn Unary(a: i128, u: u128) -> i128 { -a + !a + !(u as i128) }
+
+fn Bits(a: u128, b: u128, n: u32, w: i128) -> u128 { (a & b | a ^ b) << n >> w }
+
+fn Signed(a: i128, n: i8) -> i128 { a >> n }
+
+fn Compare(a: i128, b: u128) -> bool { a < 0 && a <= 1 && a > -2 && a >= -3 && a != 4 && b == 5 }
+
+fn Casts(a: i64, b: u32, c: i128, f: f64) -> f32 {
+    let _ = a as i128 + b as i128 + true as i128 + 'x' as i128;
+    let _ = a as u128 + b as u128 + c as u128;
+    let _ = c as i8 as i128 + (c as u128) as i128 + f as i128 + (f as f32) as i128;
+    let _ = (f as u128) as f64;
+    c as f32
+}
+
+fn Store(h: &mut Holder, r: &mut u128) -> i128 {
+    h.Big = -170141183460469231731687303715884105728;
+    *r = 340282366920938463463374607431768211455;
+    *r += 1;
+    h.Big
+}
+
+fn Main() {
+    PrintLine(Arith(3, -2));
+    Print(Unsigned(18446744073709551616, 7));
+}

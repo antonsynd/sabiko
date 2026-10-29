@@ -1,0 +1,12 @@
+// `*=` on an `i128` behind `&mut` checks for overflow like the plain operator.
+fn Grow(x: &mut i128) { *x *= 3; }
+
+fn Main() {
+    let mut x: i128 = 1;
+    let mut steps = 0;
+    while steps < 80 { Grow(&mut x); steps += 1; }
+    PrintLine(x);
+    PrintLine("about to overflow");
+    Grow(&mut x);
+    PrintLine("not reached");
+}

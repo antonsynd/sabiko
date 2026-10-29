@@ -1,0 +1,9 @@
+// An `i128` product below `MIN` panics in debug builds (`MIN * -1` overflows).
+fn Mul(a: i128, b: i128) -> i128 { a * b }
+
+fn Main() {
+    PrintLine(Mul(-170141183460469231731687303715884105728, 1));
+    PrintLine("about to overflow");
+    PrintLine(Mul(-170141183460469231731687303715884105728, -1));
+    PrintLine("not reached");
+}

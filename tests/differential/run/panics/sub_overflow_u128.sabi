@@ -1,0 +1,10 @@
+// Unsigned `u128` subtraction below zero panics in debug builds.
+fn Sub(a: u128, b: u128) -> u128 { a - b }
+
+fn Main() {
+    PrintLine(Sub(340282366920938463463374607431768211455, 340282366920938463463374607431768211455));
+    PrintLine(Sub(18446744073709551616, 1));
+    PrintLine("about to underflow");
+    PrintLine(Sub(18446744073709551615, 18446744073709551616));
+    PrintLine("not reached");
+}

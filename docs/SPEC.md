@@ -86,15 +86,16 @@ Every user identifier is quoted in the IL. An executable additionally has a priv
 `()` (E0501).
 
 Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u32 u64
-usize` are `uint8 uint16 uint32 uint64 native uint`; `f32`/`f64` are `float32`/`float64`;
+usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value types
+`System.Int128`/`System.UInt128` (decision 42); `f32`/`f64` are `float32`/`float64`;
 `bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
 `valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
 `modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
 value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
 `&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
 `void` as a return type; locals and temporaries of type `()` or `!` have no storage, and
-assignments to them are dropped. Not lowered yet (E0500): `i128`/`u128`, `&&T`, `()`-typed
-parameters and fields.
+assignments to them are dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and
+fields.
 
 Statements and expressions. The backend walks the MIR (§11); every statement and
 terminator becomes an instruction sequence that leaves the evaluation stack empty, so basic
@@ -135,6 +136,24 @@ narrow type clamps with `System.Math.Clamp` first, because the CLR only saturate
 bits. Constants are `ldc.i4`/`ldc.i8` (with `conv.i`/`conv.u` for the native widths),
 `ldc.r4`/`ldc.r8` (non-finite values by bit pattern), and `ldstr` converted with
 `String::op_Implicit` for `&str`. `.maxstack` is computed exactly.
+
+128-bit integers (decision 42). An `i128`/`u128` constant is `newobj
+Int128::.ctor(uint64 upper, uint64 lower)`. Every operator is a `call` to the operator
+method of `System.Int128`/`System.UInt128`: `op_Addition`, `op_Subtraction`,
+`op_Multiply` and `op_UnaryNegation` in release builds, `op_CheckedAddition`,
+`op_CheckedSubtraction`, `op_CheckedMultiply` and `op_CheckedUnaryNegation` in debug builds;
+`op_Division`/`op_Modulus` behind the same explicit zero and `MIN / -1` checks as the other
+widths (comparing with `op_Inequality`); `op_BitwiseAnd`, `op_BitwiseOr`, `op_ExclusiveOr`,
+`op_OnesComplement`; the six comparison operators. Shifts check (debug) or mask (release)
+the amount as for the other widths, a 128-bit amount being compared as `u128` before it is
+truncated to `int32`, then call `op_LeftShift`/`op_RightShift` (arithmetic for `Int128`,
+logical for `UInt128`). Casts call `op_Implicit` (a widening that cannot lose information:
+any integer into `Int128`, unsigned ones into `UInt128`) or `op_Explicit` (signed into
+`UInt128`, which sign-extends; 128-bit to a narrower type, which truncates; `i128` to and
+from `u128`, which reinterprets; floats into 128-bit, which saturates with NaN as 0).
+128-bit to `f32`/`f64` calls `Sabiko.Runtime.Arithmetic::ToSingle`/`ToDouble`, which
+round once to nearest-even (the BCL's `Int128` to `float` goes through `double` and can
+round twice). `bool` and `char` convert as `uint8` and `char`.
 
 Verifiability. Every emitted assembly passes ILVerify with `ReturnPtrToStack` ignored
 (decision 30): ECMA-335 has no rule that lets a function return a managed pointer it

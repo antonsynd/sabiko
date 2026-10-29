@@ -1,0 +1,10 @@
+// Negating `i128::MIN` panics in debug builds.
+fn Neg(x: i128) -> i128 { -x }
+
+fn Main() {
+    PrintLine(Neg(170141183460469231731687303715884105727));
+    PrintLine(Neg(-170141183460469231731687303715884105727));
+    PrintLine("about to negate the minimum");
+    PrintLine(Neg(-170141183460469231731687303715884105728));
+    PrintLine("not reached");
+}

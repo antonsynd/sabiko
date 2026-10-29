@@ -30,10 +30,20 @@ public static class Panic
 public static class Console
 {
     // One Print (no newline) and one PrintLine ("\n", never Environment.NewLine) per type:
-    //   sbyte short int long nint  byte ushort uint ulong nuint  float double  bool char
-    //   string ReadOnlySpan<char>
+    //   sbyte short int long nint Int128  byte ushort uint ulong nuint UInt128
+    //   float double  bool char  string ReadOnlySpan<char>
     public static void Print(T value);
     public static void PrintLine(T value);
+}
+
+public static class Arithmetic
+{
+    // `i128`/`u128` `as f32`/`as f64`, rounded once to nearest-even like Rust (the BCL's
+    // Int128 -> float conversion rounds twice, through double).
+    public static float ToSingle(Int128 value);
+    public static float ToSingle(UInt128 value);
+    public static double ToDouble(Int128 value);
+    public static double ToDouble(UInt128 value);
 }
 ```
 
@@ -60,12 +70,13 @@ call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime
 ```
 
 Parameter types in IL: `int8 int16 int32 int64 native int uint8 uint16 uint32 uint64
-native uint float32 float64 bool char string` and
+native uint float32 float64 bool char string`,
+`valuetype [System.Runtime]System.Int128`, `valuetype [System.Runtime]System.UInt128` and
 `valuetype [System.Runtime]System.ReadOnlySpan`1<char>`.
 
 ## Formatting rules (Rust `Display`)
 
-- Integers: decimal, `-` sign, invariant culture.
+- Integers (128-bit ones included): decimal, `-` sign, invariant culture.
 - `bool`: `true` / `false`.
 - `char`: the UTF-16 code unit itself.
 - `f64` / `f32` (`Format.cs`): the shortest digit string that round-trips (for `f32`, in

@@ -1,7 +1,7 @@
-//! The type universe of the generated subset: the primitive types without `i128`/`u128`,
-//! user structs, and references to either (never to references).
+//! The type universe of the generated subset: the primitive types, user structs, and
+//! references to either (never to references).
 
-/// The ten integer types of the shared subset.
+/// The twelve integer types of the shared subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntTy {
     I8,
@@ -14,10 +14,12 @@ pub enum IntTy {
     U32,
     U64,
     Usize,
+    I128,
+    U128,
 }
 
 impl IntTy {
-    pub const ALL: [IntTy; 10] = [
+    pub const ALL: [IntTy; 12] = [
         IntTy::I8,
         IntTy::I16,
         IntTy::I32,
@@ -28,6 +30,8 @@ impl IntTy {
         IntTy::U32,
         IntTy::U64,
         IntTy::Usize,
+        IntTy::I128,
+        IntTy::U128,
     ];
 
     pub fn name(self) -> &'static str {
@@ -42,13 +46,15 @@ impl IntTy {
             IntTy::U32 => "u32",
             IntTy::U64 => "u64",
             IntTy::Usize => "usize",
+            IntTy::I128 => "i128",
+            IntTy::U128 => "u128",
         }
     }
 
     pub fn signed(self) -> bool {
         matches!(
             self,
-            IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64 | IntTy::Isize
+            IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64 | IntTy::Isize | IntTy::I128
         )
     }
 
@@ -59,20 +65,24 @@ impl IntTy {
             IntTy::I16 | IntTy::U16 => 16,
             IntTy::I32 | IntTy::U32 => 32,
             IntTy::I64 | IntTy::Isize | IntTy::U64 | IntTy::Usize => 64,
+            IntTy::I128 | IntTy::U128 => 128,
         }
     }
 
     pub fn min(self) -> i128 {
         if self.signed() {
-            -(1i128 << (self.bits() - 1))
+            i128::MIN >> (128 - self.bits())
         } else {
             0
         }
     }
 
+    /// The largest value the generator uses. Values are modelled as `i128`, so for `u128`
+    /// this is `i128::MAX`: literals and constants stay below `2^127` (run-time values can
+    /// exceed it; both compilers compute those).
     pub fn max(self) -> i128 {
-        if self.signed() {
-            (1i128 << (self.bits() - 1)) - 1
+        if self.signed() || self.bits() == 128 {
+            i128::MAX >> (128 - self.bits())
         } else {
             (1i128 << self.bits()) - 1
         }
@@ -82,15 +92,27 @@ impl IntTy {
         v >= self.min() && v <= self.max()
     }
 
-    /// `v` reduced into the type's range the way an `as` cast does.
+    /// `v` reduced into the type's range the way an `as` cast does. Panics when the result
+    /// is outside the generator's value model (a negative value cast to `u128`).
     pub fn wrap(self, v: i128) -> i128 {
+        self.wrap_checked(v)
+            .expect("a negative value as `u128` is outside the i128 value model")
+    }
+
+    /// [`IntTy::wrap`], or `None` when the result does not fit the `i128` value model.
+    pub fn wrap_checked(self, v: i128) -> Option<i128> {
+        match self {
+            IntTy::I128 => return Some(v),
+            IntTy::U128 => return (v >= 0).then_some(v),
+            _ => {}
+        }
         let modulus = 1i128 << self.bits();
         let low = v.rem_euclid(modulus);
-        if self.signed() && low > self.max() {
+        Some(if self.signed() && low > self.max() {
             low - modulus
         } else {
             low
-        }
+        })
     }
 }
 

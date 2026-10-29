@@ -1,0 +1,9 @@
+// `u128` division by zero panics; a divisor of `2^64` (low half zero) does not.
+fn Div(a: u128, b: u128) -> u128 { a / b }
+
+fn Main() {
+    PrintLine(Div(340282366920938463463374607431768211455, 18446744073709551616));
+    PrintLine("about to divide by zero");
+    PrintLine(Div(340282366920938463463374607431768211455, 0));
+    PrintLine("not reached");
+}

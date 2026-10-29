@@ -52,7 +52,10 @@ Programs under `run/` have a `fn Main()` and print. `crates/sabikoc/tests/differ
 builds each one as an executable with both compilers (rustc gets the prelude plus
 `fn main() { Main() }`; sabikoc compiles in debug mode, matching rustc's default overflow
 checks), runs both, and requires identical stdout and exit codes (both compilers exit with
-101 on a panic, including arithmetic overflow). Standard error is compared too:
+101 on a panic, including arithmetic overflow). A program whose header has a `//@ release`
+line is built in release mode by both instead (`sabikoc --release`, `rustc -C
+overflow-checks=off`): arithmetic wraps, division and shift checks stay
+(`run/release/`). Standard error is compared too:
 
 - after a clean exit (code 0) neither program may have written to stderr;
 - after a panic (code 101) the panic *message* lines must match. rustc prints
@@ -77,7 +80,7 @@ The hand-written corpus is complemented by random programs from `sabiko_testgen`
 violation percentage). Every program is valid in both languages up to borrow checking and
 prints its results, so both oracles above apply to it. The subset is the one listed above
 plus `const` items, nested field paths, `break value`, compound assignment and casts between
-every integer type but `i128`/`u128`, floats, `bool` and ASCII `char`; see the crate
+every integer type (`i128`/`u128` included), floats, `bool` and ASCII `char`; see the crate
 documentation for the exact list and the exclusions. `Knobs::default()` lets a few per cent
 of the generator's borrow-model checks be skipped so that some programs contain a use after
 move, a conflicting borrow, an assignment to an immutable binding or a write through `&`;

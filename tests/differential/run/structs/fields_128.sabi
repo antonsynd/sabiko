@@ -1,0 +1,32 @@
+// Structs with `i128`/`u128` fields beside narrow ones: copies, field arithmetic, updates
+// through `&mut`, and references to 128-bit places.
+#[derive(Copy, Clone)]
+struct Wide { Lo: u8, Big: i128, Mid: u32, Huge: u128 }
+
+struct Pair { First: Wide, Second: Wide }
+
+fn Bump(w: &mut Wide) { w.Big += 1; w.Huge = w.Huge * 3; }
+
+fn Sum(w: &Wide) -> i128 { w.Big + w.Lo as i128 + w.Mid as i128 + w.Huge as i128 }
+
+fn Swap(a: &mut i128, b: &mut i128) { let t = *a; *a = *b; *b = t; }
+
+fn Biggest(p: &Pair) -> &u128 { if p.First.Huge > p.Second.Huge { &p.First.Huge } else { &p.Second.Huge } }
+
+fn Main() {
+    let mut w = Wide { Lo: 7, Big: -170141183460469231731687303715884105727, Mid: 4000000000, Huge: 1 << 100 };
+    let copy = w;
+    Bump(&mut w);
+    PrintLine(w.Big); PrintLine(w.Huge); PrintLine(copy.Big); PrintLine(copy.Huge);
+    PrintLine(Sum(&copy));
+    let mut x: i128 = 1;
+    let mut y: i128 = -1 << 100;
+    Swap(&mut x, &mut y);
+    PrintLine(x); PrintLine(y);
+    let p = Pair { First: w, Second: copy };
+    PrintLine(*Biggest(&p));
+    let r = &mut w.Huge;
+    *r += 5;
+    PrintLine(w.Huge);
+    PrintLine(w.Lo); PrintLine(w.Mid);
+}

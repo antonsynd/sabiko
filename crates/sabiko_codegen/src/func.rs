@@ -225,6 +225,54 @@ impl FnCx<'_, '_> {
                 }
                 self.op(if signed { "conv.i" } else { "conv.u" }, 1, 1);
             }
+            StackWidth::Wide => {
+                // `new Int128(upper, lower)`: the two 64-bit halves of the bit pattern.
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                let upper = (bits >> 64) as u64 as i64;
+                self.ldc_i8(upper);
+                self.ldc_i8(low64);
+                self.op(
+                    format!(
+                        "newobj instance void {}::.ctor(uint64, uint64)",
+                        types::wide_class(p)
+                    ),
+                    2,
+                    1,
+                );
+            }
+        }
+    }
+
+    /// Calls the static method `name` of the 128-bit integer type `p` (an operator such as
+    /// `op_Addition`), which takes `params` and returns `ret`.
+    fn wide_call(&mut self, p: PrimTy, ret: &str, name: &str, params: &[&str]) {
+        let class = types::wide_class(p);
+        self.op(
+            format!("call {ret} {class}::{name}({})", params.join(", ")),
+            params.len(),
+            1,
+        );
+    }
+
+    /// A binary operator method of the 128-bit type `p` (`T op(T, T)`).
+    fn wide_binary(&mut self, p: PrimTy, name: &str) {
+        let ty = types::prim_type(p).expect("128-bit types are lowered");
+        self.wide_call(p, ty, name, &[ty, ty]);
+    }
+
+    /// A comparison operator method of the 128-bit type `p` (`bool op(T, T)`).
+    fn wide_compare(&mut self, p: PrimTy, name: &str) {
+        let ty = types::prim_type(p).expect("128-bit types are lowered");
+        self.wide_call(p, "bool", name, &[ty, ty]);
+    }
+
+    /// Pops two values of the integer type `p` and branches to `label` when they differ.
+    fn branch_ne(&mut self, p: PrimTy, label: &str) {
+        if types::stack_width(p) == StackWidth::Wide {
+            self.wide_compare(p, "op_Inequality");
+            self.op(format!("brtrue {label}"), 1, 0);
+        } else {
+            self.op(format!("bne.un {label}"), 2, 0);
         }
     }
 
@@ -295,6 +343,12 @@ impl FnCx<'_, '_> {
                     for (value, target) in targets {
                         self.operand(discr, term.span);
                         match discr_ty.as_prim() {
+                            Some(p) if types::stack_width(p) == StackWidth::Wide => {
+                                self.int_const(*value, p);
+                                self.wide_compare(p, "op_Equality");
+                                self.op(format!("brtrue BB{}", target.0), 1, 0);
+                                continue;
+                            }
                             Some(p) if p.is_integer() => self.int_const(*value, p),
                             _ => {
                                 #[allow(
@@ -560,7 +614,7 @@ impl FnCx<'_, '_> {
 
     fn typed_int_const(&mut self, bits: u128, ty: &Ty, span: Span) {
         match ty.as_prim() {
-            Some(p) if p.is_integer() && types::prim_type(p).is_some() => self.int_const(bits, p),
+            Some(p) if p.is_integer() => self.int_const(bits, p),
             Some(PrimTy::Char | PrimTy::Bool) => {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                 self.ldc_i4(bits as u32 as i32);
@@ -678,6 +732,21 @@ impl FnCx<'_, '_> {
                     }
                 }
             }
+            UnOp::Neg if types::stack_width(p) == StackWidth::Wide => {
+                self.operand(operand, span);
+                let name = if self.checks() {
+                    "op_CheckedUnaryNegation"
+                } else {
+                    "op_UnaryNegation"
+                };
+                let ty = types::prim_type(p).expect("128-bit types are lowered");
+                self.wide_call(p, ty, name, &[ty]);
+            }
+            UnOp::Not if types::stack_width(p) == StackWidth::Wide => {
+                self.operand(operand, span);
+                let ty = types::prim_type(p).expect("128-bit types are lowered");
+                self.wide_call(p, ty, "op_OnesComplement", &[ty]);
+            }
             UnOp::Neg if self.checks() => {
                 // `0 - x`, so that negating the minimum value traps like Rust's debug mode.
                 self.zero(p);
@@ -724,9 +793,13 @@ impl FnCx<'_, '_> {
         }
         self.operand(lhs, span);
         self.operand(rhs, span);
+        let wide = types::stack_width(lp) == StackWidth::Wide;
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul => self.arith(op, lp),
             BinOp::Div | BinOp::Rem => unreachable!(),
+            BinOp::BitAnd if wide => self.wide_binary(lp, "op_BitwiseAnd"),
+            BinOp::BitOr if wide => self.wide_binary(lp, "op_BitwiseOr"),
+            BinOp::BitXor if wide => self.wide_binary(lp, "op_ExclusiveOr"),
             BinOp::BitAnd => self.op("and", 2, 1),
             BinOp::BitOr => self.op("or", 2, 1),
             BinOp::BitXor => self.op("xor", 2, 1),
@@ -753,6 +826,17 @@ impl FnCx<'_, '_> {
         }
         let checked = self.checks();
         match types::stack_width(p) {
+            StackWidth::Wide => {
+                let method = match (op, checked) {
+                    (BinOp::Add, true) => "op_CheckedAddition",
+                    (BinOp::Add, false) => "op_Addition",
+                    (BinOp::Sub, true) => "op_CheckedSubtraction",
+                    (BinOp::Sub, false) => "op_Subtraction",
+                    (BinOp::Mul, true) => "op_CheckedMultiply",
+                    _ => "op_Multiply",
+                };
+                self.wide_binary(p, method);
+            }
             StackWidth::Narrow => {
                 // Computed at `int32` width; the result fits, so overflow of the narrow
                 // type is caught (or wrapped) by the conversion.
@@ -830,14 +914,20 @@ impl FnCx<'_, '_> {
             None => {
                 let ok = self.fresh_label();
                 self.operand(rhs, span);
-                self.op(format!("brtrue {ok}"), 1, 0);
+                if types::stack_width(p) == StackWidth::Wide {
+                    self.zero(p);
+                    self.branch_ne(p, &ok);
+                } else {
+                    self.op(format!("brtrue {ok}"), 1, 0);
+                }
                 self.panic(zero_msg);
                 self.label(&ok);
             }
         }
+        // `MIN` of the signed type, by sign extension (`-(1 << 127)` would overflow).
         let min = p
             .int_bits()
-            .map_or(i128::MIN, |bits| -(1i128 << (bits - 1)));
+            .map_or(i128::MIN, |bits| i128::MIN >> (128 - bits));
         let may_overflow = p.is_signed_int()
             && rhs_const.is_none_or(|r| r == -1)
             && lhs_const.is_none_or(|l| l == min);
@@ -846,21 +936,30 @@ impl FnCx<'_, '_> {
             if rhs_const.is_none() {
                 self.operand(rhs, span);
                 self.int_const(u128::MAX, p);
-                self.op(format!("bne.un {ok}"), 2, 0);
+                self.branch_ne(p, &ok);
             }
             if lhs_const.is_none() {
                 self.operand(lhs, span);
                 #[allow(clippy::cast_sign_loss)]
                 self.int_const(min as u128, p);
-                self.op(format!("bne.un {ok}"), 2, 0);
+                self.branch_ne(p, &ok);
             }
             self.panic(overflow_msg);
             self.label(&ok);
         }
         self.operand(lhs, span);
         self.operand(rhs, span);
-        let un = if p.is_unsigned_int() { ".un" } else { "" };
-        self.op(format!("{name}{un}"), 2, 1);
+        if types::stack_width(p) == StackWidth::Wide {
+            let method = if op == BinOp::Div {
+                "op_Division"
+            } else {
+                "op_Modulus"
+            };
+            self.wide_binary(p, method);
+        } else {
+            let un = if p.is_unsigned_int() { ".un" } else { "" };
+            self.op(format!("{name}{un}"), 2, 1);
+        }
     }
 
     fn shift(&mut self, op: BinOp, lp: PrimTy, rp: PrimTy) {
@@ -879,21 +978,41 @@ impl FnCx<'_, '_> {
                     self.op("conv.i", 1, 1);
                 }
                 StackWidth::Narrow | StackWidth::I32 => self.ldc_i4(bits as i32),
+                StackWidth::Wide => {
+                    // Compare as `u128`: reinterpret a signed amount first.
+                    if rp == PrimTy::I128 {
+                        self.wide_call(rp, types::UINT128, "op_Explicit", &[types::INT128]);
+                    }
+                    self.int_const(u128::from(bits), PrimTy::U128);
+                    self.wide_compare(PrimTy::U128, "op_LessThan");
+                }
             }
-            self.op(format!("blt.un {ok}"), 2, 0);
+            if rwidth == StackWidth::Wide {
+                self.op(format!("brtrue {ok}"), 1, 0);
+            } else {
+                self.op(format!("blt.un {ok}"), 2, 0);
+            }
             let dir = if op == BinOp::Shl { "left" } else { "right" };
             self.panic(&format!("attempt to shift {dir} with overflow"));
             self.label(&ok);
-            if matches!(rwidth, StackWidth::I64 | StackWidth::Native) {
-                self.op("conv.i4", 1, 1);
-            }
+            self.shift_amount_to_i4(rp);
         } else {
-            if matches!(rwidth, StackWidth::I64 | StackWidth::Native) {
-                self.op("conv.i4", 1, 1);
-            }
+            self.shift_amount_to_i4(rp);
             #[allow(clippy::cast_possible_wrap)]
             self.ldc_i4((bits - 1) as i32);
             self.op("and", 2, 1);
+        }
+        if types::stack_width(lp) == StackWidth::Wide {
+            // The operator methods mask the amount with 127 themselves; it is in range.
+            let ty = types::prim_type(lp).expect("128-bit types are lowered");
+            let method = if op == BinOp::Shl {
+                "op_LeftShift"
+            } else {
+                // Arithmetic for `Int128`, logical for `UInt128`.
+                "op_RightShift"
+            };
+            self.wide_call(lp, ty, method, &[ty, "int32"]);
+            return;
         }
         match op {
             BinOp::Shl => {
@@ -906,7 +1025,32 @@ impl FnCx<'_, '_> {
         }
     }
 
+    /// Truncates a shift amount of type `rp` on the stack to `int32`.
+    fn shift_amount_to_i4(&mut self, rp: PrimTy) {
+        match types::stack_width(rp) {
+            StackWidth::I64 | StackWidth::Native => self.op("conv.i4", 1, 1),
+            StackWidth::Wide => {
+                let ty = types::prim_type(rp).expect("128-bit types are lowered");
+                self.wide_call(rp, "int32", "op_Explicit", &[ty]);
+            }
+            StackWidth::Narrow | StackWidth::I32 => {}
+        }
+    }
+
     fn compare(&mut self, op: BinOp, p: PrimTy) {
+        if types::stack_width(p) == StackWidth::Wide {
+            let method = match op {
+                BinOp::Eq => "op_Equality",
+                BinOp::Ne => "op_Inequality",
+                BinOp::Lt => "op_LessThan",
+                BinOp::Le => "op_LessThanOrEqual",
+                BinOp::Gt => "op_GreaterThan",
+                BinOp::Ge => "op_GreaterThanOrEqual",
+                _ => unreachable!(),
+            };
+            self.wide_compare(p, method);
+            return;
+        }
         let float = p.is_float();
         // Unsigned comparisons for unsigned integers, `bool` and `char`; the `.un` forms
         // on floats are the "unordered" ones, which make `<=`/`>=` false for NaN.
@@ -950,9 +1094,9 @@ impl FnCx<'_, '_> {
             self.cx.unsupported("this cast", span);
             return;
         };
-        if types::prim_type(fp).is_none() || types::prim_type(tp).is_none() {
-            self.cx
-                .unsupported("a cast involving 128-bit integers", span);
+        if types::stack_width(fp) == StackWidth::Wide || types::stack_width(tp) == StackWidth::Wide
+        {
+            self.wide_cast(fp, tp);
             return;
         }
         // `bool` and `char` behave as unsigned integers on the stack.
@@ -1008,6 +1152,50 @@ impl FnCx<'_, '_> {
                     self.op(format!("conv.{}", types::conv_suffix(tp)), 1, 1);
                 }
             }
+        }
+    }
+
+    /// A cast from or to `i128`/`u128`, through the conversion operators of
+    /// `System.Int128`/`System.UInt128`. Integer conversions follow Rust: widening
+    /// sign-extends a signed source (`op_Implicit` into `Int128`, `op_Explicit` into
+    /// `UInt128`) and zero-extends an unsigned one, narrowing truncates; float to 128-bit
+    /// saturates with NaN as 0, as the BCL operators do. 128-bit to float goes through
+    /// `Sabiko.Runtime.Arithmetic`, because the BCL rounds twice (via `double`) on the way
+    /// to `float`.
+    fn wide_cast(&mut self, fp: PrimTy, tp: PrimTy) {
+        // `bool` sits on the stack as `int32` 0/1; pass it as a `uint8`.
+        let from_ty = if fp == PrimTy::Bool {
+            "uint8"
+        } else {
+            types::prim_type(fp).expect("primitive casts are lowered")
+        };
+        let to_ty = types::prim_type(tp).expect("primitive casts are lowered");
+        if types::stack_width(fp) == StackWidth::Wide && types::stack_width(tp) == StackWidth::Wide
+        {
+            // `Int128` declares the conversion to `UInt128` and vice versa: a reinterpretation.
+            self.wide_call(fp, to_ty, "op_Explicit", &[from_ty]);
+        } else if types::stack_width(tp) == StackWidth::Wide {
+            let method = if fp.is_float() || (tp == PrimTy::U128 && fp.is_signed_int()) {
+                "op_Explicit"
+            } else {
+                "op_Implicit"
+            };
+            self.wide_call(tp, to_ty, method, &[from_ty]);
+        } else if tp.is_float() {
+            let method = if tp == PrimTy::F32 {
+                "ToSingle"
+            } else {
+                "ToDouble"
+            };
+            self.op(
+                format!(
+                    "call {to_ty} [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Arithmetic::{method}({from_ty})"
+                ),
+                1,
+                1,
+            );
+        } else {
+            self.wide_call(fp, to_ty, "op_Explicit", &[from_ty]);
         }
     }
 

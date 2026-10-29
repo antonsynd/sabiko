@@ -253,6 +253,18 @@ pub struct Run {
 
 /// Builds `prelude + src` with rustc as an executable in `dir` and runs it.
 pub fn run_rust(rustc: &Path, prelude: &str, src: &str, dir: &Path) -> Result<Run, String> {
+    run_rust_with(rustc, prelude, src, dir, false)
+}
+
+/// [`run_rust`], with overflow checks off when `release` (Sabiko's `--release`: wrapping
+/// arithmetic; division and shift checks stay, as in Rust).
+pub fn run_rust_with(
+    rustc: &Path,
+    prelude: &str,
+    src: &str,
+    dir: &Path,
+    release: bool,
+) -> Result<Run, String> {
     let rs = dir.join("prog.rs");
     std::fs::write(&rs, format!("{prelude}{src}")).unwrap();
     let exe = dir.join(if cfg!(windows) { "prog.exe" } else { "prog" });
@@ -264,6 +276,12 @@ pub fn run_rust(rustc: &Path, prelude: &str, src: &str, dir: &Path) -> Result<Ru
             "bin",
             "-A",
             "warnings",
+            "-C",
+            if release {
+                "overflow-checks=off"
+            } else {
+                "overflow-checks=on"
+            },
             "-o",
         ])
         .arg(&exe)
@@ -291,8 +309,18 @@ pub fn run_rust(rustc: &Path, prelude: &str, src: &str, dir: &Path) -> Result<Ru
 /// Builds the Sabiko program at `path` as an executable in `dir` (debug mode), verifies it
 /// and runs it.
 pub fn run_sabiko(tc: &Toolchain, path: &Path, dir: &Path) -> Result<Run, String> {
+    run_sabiko_with(tc, path, dir, false)
+}
+
+/// [`run_sabiko`], compiled with `--release` when `release`.
+pub fn run_sabiko_with(
+    tc: &Toolchain,
+    path: &Path,
+    dir: &Path,
+    release: bool,
+) -> Result<Run, String> {
     let dll = dir.join("prog.dll");
-    compile_exe(tc, path, &dll, false)?;
+    compile_exe(tc, path, &dll, release)?;
     ilverify(tc, &dll)?;
     let out = run_dll(tc, &dll)?;
     Ok(Run {

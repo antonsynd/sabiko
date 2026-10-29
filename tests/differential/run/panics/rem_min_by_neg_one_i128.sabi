@@ -1,0 +1,11 @@
+// `i128::MIN % -1` overflows and panics, although the mathematical remainder is 0.
+fn Rem(a: i128, b: i128) -> i128 { a % b }
+
+fn Main() {
+    let min: i128 = -170141183460469231731687303715884105728;
+    PrintLine(Rem(min, -2));
+    PrintLine(Rem(min + 1, -1));
+    PrintLine("about to overflow");
+    PrintLine(Rem(min, -1));
+    PrintLine("not reached");
+}
