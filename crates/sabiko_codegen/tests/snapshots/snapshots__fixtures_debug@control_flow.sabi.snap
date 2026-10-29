@@ -54,7 +54,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   BB4:
     ldloc.1
     stloc.0
-  BB5:
     ldloc.0
     ret
   BB6:
@@ -78,7 +77,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   BB9:
     ldloc.s 6
     brfalse BB10
-    br BB11
+  BB11:
+    ldc.i4.1
+    stloc.s 5
+    br BB12
   BB10:
     ldarg.2
     stloc.s 11
@@ -87,10 +89,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     clt
     stloc.s 10
     ldloc.s 10
-    stloc.s 5
-    br BB12
-  BB11:
-    ldc.i4.1
     stloc.s 5
   BB12:
     ldloc.s 5
@@ -137,7 +135,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     conv.i4
     stloc.0
   BB15:
-    br BB5
+    ldloc.0
+    ret
   }
 
   .method public hidebysig static int32 'IfStmt'(bool 'c') cil managed
@@ -239,7 +238,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   BB7:
     ldloc.1
     stloc.0
-  BB8:
     ldloc.0
     ret
   }
@@ -307,9 +305,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     stloc.s 6
     ldloc.s 6
     brfalse BB5
-    br BB4
-  BB3:
-    br BB7
   BB4:
     br BB1
   BB5:
@@ -322,10 +317,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.s 9
     brfalse BB8
   BB6:
-  BB7:
-    ldloc.2
-    stloc.0
-    br BB9
+    br BB7
   BB8:
     ldloc.1
     stloc.s 11
@@ -347,7 +339,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     conv.i4
     stloc.2
     br BB1
-  BB9:
+  BB3:
+  BB7:
+    ldloc.2
+    stloc.0
     ldloc.0
     ret
   }
@@ -385,7 +380,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   BB3:
     ldloc.2
     stloc.0
-    br BB5
+    ldloc.0
+    ret
   BB4:
     ldloc.1
     stloc.s 7
@@ -409,9 +405,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.s 6
     stloc.1
     br BB1
-  BB5:
-    ldloc.0
-    ret
   }
 
   .method public hidebysig static int32 'Nested'(int32 'n') cil managed
@@ -451,9 +444,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   BB2:
     ldc.i4.0
     stloc.s 6
-    br BB4
-  BB3:
-    br BB8
   BB4:
     ldloc.s 6
     stloc.s 8
@@ -542,10 +532,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     conv.i4
     stloc.s 6
     br BB4
+  BB3:
   BB8:
     ldloc.1
     stloc.0
-  BB9:
     ldloc.0
     ret
   }
@@ -575,14 +565,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.0
     brfalse BB3
   BB1:
-  BB2:
     ret
   BB3:
     ldc.i4.1
     stloc.1
     ldloc.1
     stloc.2
-    br BB2
+    ret
   }
 
   .method public hidebysig static bool 'Logical'(bool 'a', bool 'b', bool 'c') cil managed
@@ -621,22 +610,24 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     stloc.s 5
     ldloc.s 5
     brfalse BB4
-    br BB5
+  BB5:
+    ldc.i4.1
+    stloc.s 4
+    br BB6
   BB4:
     ldarg.1
     stloc.s 6
     ldloc.s 6
-    stloc.s 4
-    br BB6
-  BB5:
-    ldc.i4.1
     stloc.s 4
   BB6:
     ldloc.1
     stloc.s 7
     ldloc.s 7
     brfalse BB7
-    br BB8
+  BB8:
+    ldc.i4.1
+    stloc.0
+    br BB12
   BB7:
     ldloc.s 4
     stloc.s 10
@@ -646,11 +637,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     stloc.s 9
     ldloc.s 9
     brfalse BB10
-    br BB9
-  BB8:
-    ldc.i4.1
-    stloc.0
-    br BB12
   BB9:
     ldarg.2
     stloc.s 11
@@ -664,7 +650,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.s 8
     stloc.0
   BB12:
-  BB13:
     ldloc.0
     ret
   }

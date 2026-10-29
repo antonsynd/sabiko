@@ -56,7 +56,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
   L1:
     conv.i4
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -92,7 +91,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     ldloca.s 0
     ldloc.1
     stfld int32 'Point'::'Y'
-  BB3:
     ldloc.0
     ret
   }
@@ -150,7 +148,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
   L2:
     conv.i4
     stfld int32 'Point'::'Y'
-  BB1:
     ret
   }
 
@@ -284,7 +281,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
   L5:
     conv.i4
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -384,7 +380,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     stloc.s 18
     ldloc.s 16
     stloc.s 19
-  BB5:
     ret
   }
 

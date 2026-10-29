@@ -39,12 +39,118 @@ pub(crate) fn emit_body(cx: &mut Cx<'_>, body: &Body, out: &mut String) {
         max_depth: 0,
         next_label: 0,
         scratch: Vec::new(),
+        layout: Layout::new(body),
     };
     f.assign_slots();
-    for bb in body.block_ids() {
-        f.block(bb);
+    for i in 0..f.layout.order.len() {
+        let bb = f.layout.order[i];
+        if f.layout.emitted(bb) {
+            f.block(bb);
+        }
     }
     f.write_method(out);
+}
+
+/// The order blocks are emitted in, and which blocks need a label of their own.
+///
+/// Blocks are laid out in reverse postorder of a depth-first walk from `bb0`, so every
+/// branch goes forward except the back edges of loops: the JIT treats a method with a
+/// backward branch as a loop, which sends it to instrumented Tier0 instead of plain Tier0.
+/// The walk visits a block's successors in terminator order (a `switchInt`'s `otherwise`
+/// last), which places the last unvisited successor right after the block, where it is
+/// reached by falling through. A jump to a block that only returns is emitted as the
+/// return itself, so such a block is emitted only when a `switchInt` branches to it.
+struct Layout {
+    order: Vec<BasicBlock>,
+    /// The block emitted after each block (indexed by block), if any.
+    next: Vec<Option<BasicBlock>>,
+    /// Blocks with no statements of their own that end in `return`.
+    return_only: Vec<bool>,
+    /// Blocks that some `switchInt` branches to.
+    switch_target: Vec<bool>,
+}
+
+impl Layout {
+    fn new(body: &Body) -> Self {
+        let n = body.blocks.len();
+        let mut visited = vec![false; n];
+        let mut post = Vec::with_capacity(n);
+        let mut stack: Vec<(BasicBlock, Vec<BasicBlock>, usize)> = Vec::new();
+        if n > 0 {
+            visited[0] = true;
+            stack.push((
+                BasicBlock::START,
+                Self::successors(body, BasicBlock::START),
+                0,
+            ));
+        }
+        while let Some((bb, succs, i)) = stack.last_mut() {
+            if let Some(&s) = succs.get(*i) {
+                *i += 1;
+                if !visited[s.index()] {
+                    visited[s.index()] = true;
+                    let next = Self::successors(body, s);
+                    stack.push((s, next, 0));
+                }
+            } else {
+                post.push(*bb);
+                stack.pop();
+            }
+        }
+        let mut order: Vec<BasicBlock> = post.into_iter().rev().collect();
+        // Simplification leaves no unreachable blocks; keep any anyway, at the end.
+        order.extend(body.block_ids().filter(|bb| !visited[bb.index()]));
+        let return_only: Vec<bool> = body
+            .blocks
+            .iter()
+            .map(|data| {
+                matches!(data.terminator().kind, TerminatorKind::Return)
+                    && data.statements.iter().all(|s| {
+                        matches!(
+                            s.kind,
+                            StatementKind::StorageLive(_)
+                                | StatementKind::StorageDead(_)
+                                | StatementKind::Nop
+                        )
+                    })
+            })
+            .collect();
+        let mut switch_target = vec![false; n];
+        for data in &body.blocks {
+            if let TerminatorKind::SwitchInt { .. } = &data.terminator().kind {
+                for s in data.terminator().kind.successors() {
+                    switch_target[s.index()] = true;
+                }
+            }
+        }
+        let mut layout = Self {
+            order: Vec::new(),
+            next: vec![None; n],
+            return_only,
+            switch_target,
+        };
+        // Blocks that are never emitted do not separate their neighbours.
+        let emitted: Vec<BasicBlock> = order.into_iter().filter(|&bb| layout.emitted(bb)).collect();
+        for pair in emitted.windows(2) {
+            layout.next[pair[0].index()] = Some(pair[1]);
+        }
+        layout.order = emitted;
+        layout
+    }
+
+    fn successors(body: &Body, bb: BasicBlock) -> Vec<BasicBlock> {
+        body.block(bb).terminator().kind.successors()
+    }
+
+    /// Whether `bb` gets code of its own: a block that only returns is inlined into the
+    /// jumps to it, unless it is the entry or a `switchInt` target.
+    fn emitted(&self, bb: BasicBlock) -> bool {
+        !self.return_only[bb.index()] || bb == BasicBlock::START || self.switch_target[bb.index()]
+    }
+
+    fn is_next(&self, from: BasicBlock, to: BasicBlock) -> bool {
+        self.next[from.index()] == Some(to)
+    }
 }
 
 struct FnCx<'a, 'b> {
@@ -59,6 +165,7 @@ struct FnCx<'a, 'b> {
     next_label: u32,
     /// Compiler-introduced IL locals that stage struct literals, one per struct type.
     scratch: Vec<(Ty, u16)>,
+    layout: Layout,
 }
 
 impl FnCx<'_, '_> {
@@ -322,10 +429,23 @@ impl FnCx<'_, '_> {
         self.store(place, span, |this| this.rvalue(rvalue, &ty, span));
     }
 
-    /// Branches to `target` unless it is the block emitted next.
+    /// Branches to `target` unless it is the block emitted next; a jump to a block that
+    /// only returns is the return itself.
     fn jump(&mut self, target: BasicBlock, from: BasicBlock) {
-        if target.0 != from.0 + 1 {
+        if self.layout.return_only[target.index()] {
+            self.ret();
+        } else if !self.layout.is_next(from, target) {
             self.op(format!("br BB{}", target.0), 0, 0);
+        }
+    }
+
+    /// Loads the return place, if it has storage, and returns.
+    fn ret(&mut self) {
+        if let Slot::Local(i) = self.slots[Local::RETURN.index()] {
+            self.ldloc(i);
+            self.op("ret", 1, 0);
+        } else {
+            self.op("ret", 0, 0);
         }
     }
 
@@ -340,6 +460,12 @@ impl FnCx<'_, '_> {
                 let discr_ty = discr.ty(self.body);
                 if let [(0, zero_target)] = targets[..] {
                     self.operand(discr, term.span);
+                    if self.layout.is_next(bb, zero_target) && !self.layout.is_next(bb, *otherwise)
+                    {
+                        // Fall through to the zero target instead of jumping to it.
+                        self.op(format!("brtrue BB{}", otherwise.0), 1, 0);
+                        return;
+                    }
                     self.op(format!("brfalse BB{}", zero_target.0), 1, 0);
                 } else {
                     for (value, target) in targets {
@@ -377,12 +503,7 @@ impl FnCx<'_, '_> {
                     None => self.unreachable(),
                 }
             }
-            TerminatorKind::Return => {
-                if let Slot::Local(i) = self.slots[Local::RETURN.index()] {
-                    self.ldloc(i);
-                }
-                self.op("ret", usize::from(self.depth > 0), 0);
-            }
+            TerminatorKind::Return => self.ret(),
             TerminatorKind::Unreachable => self.unreachable(),
         }
     }

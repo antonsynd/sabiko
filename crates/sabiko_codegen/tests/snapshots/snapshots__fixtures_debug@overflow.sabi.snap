@@ -626,7 +626,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
   L28:
     conv.i4
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -1013,7 +1012,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
   L19:
     ldloc.s 54
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -1155,7 +1153,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 26
     or
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -1222,7 +1219,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 12
     add
     stloc.0
-  BB1:
     ldloc.0
     ret
   }

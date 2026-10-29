@@ -87,7 +87,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/native_ints.sabi
     ldloc.s 13
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native int)
   BB7:
-  BB8:
     ret
   }
 

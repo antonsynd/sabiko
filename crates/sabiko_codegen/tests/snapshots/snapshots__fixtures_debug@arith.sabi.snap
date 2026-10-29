@@ -387,7 +387,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     conv.i4
     stloc.0
   BB3:
-  BB4:
     ldloc.0
     ret
   }
@@ -440,7 +439,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     ldc.i4.0
     stloc.0
   BB3:
-  BB4:
     ldloc.0
     ret
   }
@@ -485,7 +483,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     ldc.r8 2.0
     add
     stloc.0
-  BB1:
     ldloc.0
     ret
   }

@@ -39,7 +39,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/diverging.sabi
   BB2:
     ldarg.0
     stloc.0
-  BB3:
     ldloc.0
     ret
   }
@@ -69,7 +68,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/diverging.sabi
   BB1:
     ldloc.0
     stloc.1
-  BB2:
     ret
   }
 

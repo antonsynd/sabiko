@@ -39,7 +39,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ldind.u1
     clt.un
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -67,7 +66,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ldc.i4.0
     ceq
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -97,7 +95,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ldc.i4.0
     ceq
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -127,7 +124,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ldind.i8
     ceq
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -183,7 +179,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ldloc.s 5
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(bool)
   BB3:
-  BB4:
     ret
   }
 

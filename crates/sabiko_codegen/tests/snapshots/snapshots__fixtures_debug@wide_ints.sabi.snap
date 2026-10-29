@@ -147,7 +147,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   L7:
     ldloc.s 11
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -248,7 +247,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   L5:
     ldloc.s 11
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -322,7 +320,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   L3:
     ldloc.s 9
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -397,7 +394,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     call int32 [System.Runtime]System.Int128::op_Explicit(valuetype [System.Runtime]System.Int128)
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_RightShift(valuetype [System.Runtime]System.UInt128, int32)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -427,7 +423,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   L1:
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_RightShift(valuetype [System.Runtime]System.Int128, int32)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -559,7 +554,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldc.i4.0
     stloc.0
   BB15:
-  BB16:
     ldloc.0
     ret
   }
@@ -777,7 +771,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldloc.s 35
     call float32 [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::ToSingle(valuetype [System.Runtime]System.Int128)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -822,7 +815,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldarg.0
     ldfld valuetype [System.Runtime]System.Int128 'Holder'::'Big'
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -862,7 +854,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldloc.2
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.UInt128)
   BB4:
-  BB5:
     ret
   }
 

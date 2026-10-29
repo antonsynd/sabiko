@@ -228,7 +228,6 @@ expression: il
     add
     stloc.0
   BB3:
-  BB4:
     ldloc.0
     ret
   }
@@ -275,7 +274,6 @@ expression: il
     ldc.i4.0
     stloc.0
   BB3:
-  BB4:
     ldloc.0
     ret
   }
@@ -320,7 +318,6 @@ expression: il
     ldc.r8 2.0
     add
     stloc.0
-  BB1:
     ldloc.0
     ret
   }

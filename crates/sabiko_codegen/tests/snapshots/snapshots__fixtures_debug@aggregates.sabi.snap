@@ -54,7 +54,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
     stloc.1
     ldloc.1
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -173,7 +172,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
     stloc.s 14
     ldloc.1
     stloc.s 15
-  BB2:
     ret
   }
 

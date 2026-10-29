@@ -121,7 +121,6 @@ expression: il
     ldloc.s 4
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Subtraction(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -197,7 +196,6 @@ expression: il
     ldloc.s 8
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Subtraction(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -243,7 +241,6 @@ expression: il
     ldloc.s 6
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Addition(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -302,7 +299,6 @@ expression: il
     and
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_RightShift(valuetype [System.Runtime]System.UInt128, int32)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -326,7 +322,6 @@ expression: il
     and
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_RightShift(valuetype [System.Runtime]System.Int128, int32)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -458,7 +453,6 @@ expression: il
     ldc.i4.0
     stloc.0
   BB15:
-  BB16:
     ldloc.0
     ret
   }
@@ -610,7 +604,6 @@ expression: il
     ldloc.s 35
     call float32 [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::ToSingle(valuetype [System.Runtime]System.Int128)
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -646,7 +639,6 @@ expression: il
     ldarg.0
     ldfld valuetype [System.Runtime]System.Int128 'Holder'::'Big'
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -686,7 +678,6 @@ expression: il
     ldloc.2
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.UInt128)
   BB4:
-  BB5:
     ret
   }
 
