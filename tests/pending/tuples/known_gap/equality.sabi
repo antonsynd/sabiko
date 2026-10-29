@@ -1,3 +1,8 @@
+// KNOWN GAP (tuple comparison, Phase 6 operator traits): rustc runs this; Sabiko rejects
+// every tuple comparison with E0107 "not yet supported: comparing tuples"
+// (`tests/ui/typeck/tuple_unsupported.sabi`), as it does for structs. Belongs in
+// `differential/run/tuples/` once comparison traits land; the NaN cases are the
+// interesting part (rustc's lexicographic `<=` is not `!(b < a)`).
 // Possibly beyond issue #6: tuple `==`, `!=` and lexicographic `<`/`>` (Rust implements
 // `PartialEq`/`PartialOrd` for tuples of comparable elements, up to twelve of them).
 fn Main() {
