@@ -20,6 +20,7 @@ scripts/build-runtime.sh      # after editing runtime/Sabiko.Runtime/*.cs
 scripts/check-runtime.sh      # pins the runtime's formatting and panic behaviour
 cargo install cargo-deny --locked --version 0.20.2
 cargo deny check              # deny.toml: licences, bans, sources (CI) and advisories (nightly)
+python3 benchmarks/run_benchmarks.py [--smoke] [name...]   # Sabiko vs C# runtime/memory (nightly)
 ```
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy, build and test on Linux, macOS and Windows
@@ -53,6 +54,10 @@ update a dependency (a new licence must be added to `deny.toml`'s allow list on 
 - Mutation testing: `scripts/mutants.sh sabiko_borrowck` (slow; thresholds inside);
   triage survivors into tests or the equivalent-mutant list in `docs/TESTING.md`.
 - Hand-built MIR unit tests for the borrow checker live in `crates/sabiko_borrowck/tests`.
+- Benchmarks (nightly): `benchmarks/<name>/bench.sabi` + `bench.cs`, same output; see
+  `benchmarks/README.md`. The nightly fails when a Sabiko benchmark allocates >10% over
+  `benchmarks/allocation-baseline.json`; `python3 benchmarks/allocation_gate.py update
+  --results <run_benchmarks.py --json output>` changes it, deliberately.
 - `docs/TESTING.md` describes every layer; CI runs the fast parts on every push, the
   nightly workflow runs fuzzing, thousands of generated seeds and mutation testing.
 

@@ -1,0 +1,34 @@
+// The longest Collatz chain starting below a limit: 64-bit integer arithmetic,
+// unpredictable branches, a data-dependent loop.
+
+const Limit: u64 = 300_000;
+
+fn ChainLength(start: u64) -> u32 {
+    let mut n = start;
+    let mut steps: u32 = 1;
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        steps += 1;
+    }
+    steps
+}
+
+fn Main() {
+    let mut best: u64 = 1;
+    let mut bestLength: u32 = 1;
+    let mut i: u64 = 1;
+    while i < Limit {
+        let length = ChainLength(i);
+        if length > bestLength {
+            bestLength = length;
+            best = i;
+        }
+        i += 1;
+    }
+    PrintLine(best);
+    PrintLine(bestLength);
+}

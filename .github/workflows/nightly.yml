@@ -1,7 +1,7 @@
 # Nightly soak: a fuzzing budget over the whole pipeline and the property tests at a much
-# higher case count than a PR run can afford, mutation testing, and the RustSec advisory
-# check. Any crash is a compiler bug: the reproducer is uploaded as a workflow artifact and
-# the job fails.
+# higher case count than a PR run can afford, mutation testing, the RustSec advisory check,
+# and the runtime/memory benchmarks against C# (benchmarks/README.md). Any crash is a
+# compiler bug: the reproducer is uploaded as a workflow artifact and the job fails.
 name: Nightly
 
 on:
@@ -92,6 +92,47 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked --version 0.20.2
       - run: cargo deny check advisories
+
+  # Runtime and memory of Sabiko-compiled programs against the same programs in C# (and
+  # rustc for reference); see benchmarks/README.md. The report goes to the job summary and,
+  # with the raw samples, to an artifact; nothing is committed. Only allocations are gated:
+  # they are exact, while timings on a shared runner are too noisy to fail a build on.
+  benchmarks:
+    name: benchmarks (Sabiko vs C#, runtime and memory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
+        run: scripts/setup-dotnet.sh
+      - name: Run the benchmarks
+        run: >
+          python3 benchmarks/run_benchmarks.py
+          --json bench-out/results.json --markdown bench-out/report.md
+          --machine-label "GitHub Actions ubuntu-latest (shared runner)"
+      - name: Publish the report to the job summary
+        if: always()
+        run: if [ -f bench-out/report.md ]; then cat bench-out/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Allocation gate (fails on a >10% increase over benchmarks/allocation-baseline.json)
+        run: |
+          status=0
+          python3 benchmarks/allocation_gate.py check --results bench-out/results.json > bench-out/gate.txt 2>&1 || status=$?
+          cat bench-out/gate.txt
+          { echo '## Allocation gate'; echo '```'; cat bench-out/gate.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: bench-out/
+          if-no-files-found: warn
+          retention-days: 90
 
   mutants:
     name: mutation testing (${{ matrix.crate }})

@@ -1,0 +1,38 @@
+// Fibonacci, recursively (call overhead) and iteratively (a tight integer loop).
+// The iterative sum is reduced modulo a prime so it never overflows.
+
+const Modulus: i64 = 1_000_000_007;
+
+fn FibRecursive(n: i64) -> i64 {
+    if n <= 1 {
+        return n;
+    }
+    FibRecursive(n - 1) + FibRecursive(n - 2)
+}
+
+fn FibIterative(n: i64) -> i64 {
+    if n <= 1 {
+        return n;
+    }
+    let mut a: i64 = 0;
+    let mut b: i64 = 1;
+    let mut i: i64 = 2;
+    while i <= n {
+        let next = a + b;
+        a = b;
+        b = next;
+        i += 1;
+    }
+    b
+}
+
+fn Main() {
+    PrintLine(FibRecursive(32));
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 300_000 {
+        sum = (sum + FibIterative(i % 90) % Modulus) % Modulus;
+        i += 1;
+    }
+    PrintLine(sum);
+}

@@ -58,6 +58,14 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
       - run: cargo test --workspace
+      # The benchmarks run nightly; this keeps the harness from rotting in between: its
+      # unit tests, then every build and measurement path once with tiny sample counts.
+      - name: Benchmark harness (unit tests and a smoke run)
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m unittest discover -s benchmarks -p 'test_*.py'
+          python3 benchmarks/run_benchmarks.py --smoke fibonacci --json target/bench-smoke/results.json --markdown target/bench-smoke/report.md
+          python3 benchmarks/allocation_gate.py check --results target/bench-smoke/results.json
 
   # Dependency licences, banned or duplicated crates and crate sources (`deny.toml`). The
   # dependency graph is the same on every OS, so one runner checks it. Advisories run in
