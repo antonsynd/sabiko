@@ -439,6 +439,15 @@ compares full panic reports, including locations, and supports `//@ release`; th
 emits 128-bit types; run-pass pins `.stderr`. Still E0500: `&&T` and `()`-typed parameters
 and fields. Generated `u128` literals stay below 2^127.
 
+Update (2026-10-29), benchmarks (decision 50): `benchmarks/` compares six Sabiko programs
+with the same algorithms in hand-written C# (rustc as a reference) nightly, in
+whole-process and in-process modes, reporting time, peak RSS and allocations with
+p50/p90/p99 over 100 samples after warmup; allocations are gated against
+`benchmarks/allocation-baseline.json`. Steady state is within about 6% of C# except
+recursive fibonacci (1.39x); start-up is 1.6–3.8x C# on call-heavy programs because the IL
+is temporary-heavy and an early-placed return block makes the JIT see a loop, and #28's
+explicit checks slowed debug-build start-up further. The codegen fixes are #29.
+
 ### Phase 5: Data types
 
 Work
