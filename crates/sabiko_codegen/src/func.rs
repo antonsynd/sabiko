@@ -2294,8 +2294,9 @@ fn is_mut_ref(ty: &Ty) -> bool {
 fn negation_fits(value: &ConstValue, p: PrimTy) -> bool {
     match value {
         ConstValue::Int(i) if p.is_signed_int() => {
-            let (min, _) = sabiko_types::consts::int_bounds(p);
-            i.checked_neg().is_some_and(|n| n >= min && n <= -(min + 1))
+            let (min, max) = sabiko_types::consts::int_bounds(p);
+            let max = i128::try_from(max).expect("a signed maximum fits i128");
+            i.checked_neg().is_some_and(|n| (min..=max).contains(&n))
         }
         _ => true,
     }

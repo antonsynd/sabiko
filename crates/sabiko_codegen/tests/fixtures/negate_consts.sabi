@@ -1,0 +1,23 @@
+// Negating a constant item (MIR building folds a negated literal into one constant): the
+// negation is folded when it fits, and done at run time, where it panics in a checked
+// build, when the constant holds the type's minimum.
+const SMALL: i32 = 5;
+const MIN: i32 = -2147483648;
+const WIDE: i128 = 7;
+const WIDE_MIN: i128 = -170141183460469231731687303715884105728;
+
+fn Folded() -> i32 {
+    -SMALL
+}
+
+fn FoldedWide() -> i128 {
+    -WIDE
+}
+
+fn Checked() -> i32 {
+    -MIN
+}
+
+fn CheckedWide() -> i128 {
+    -WIDE_MIN
+}
