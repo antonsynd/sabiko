@@ -247,11 +247,55 @@ pub struct Constant {
 // `ConstValue` holds floats; constants compare by bit pattern for the derived `Eq`s above.
 impl Eq for Constant {}
 
+/// What kind of reference an [`Rvalue::Ref`] creates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BorrowKind {
+    /// `&place`.
+    Shared,
+    /// `&mut place`. A *two-phase* borrow (`two_phase`) is only reserved where it is
+    /// created and activated at its single use, the call it is an argument of: until then
+    /// it acts as a shared borrow, so the call's later arguments may still read the place.
+    /// MIR building makes only the implicit `&mut` borrows of a call two-phase: an
+    /// autoref'd `&mut self` receiver and the reborrow of a `&mut` argument (rustc's
+    /// rules, #15).
+    Mut { two_phase: bool },
+}
+
+impl BorrowKind {
+    /// A plain (not two-phase) borrow of the given mutability.
+    #[must_use]
+    pub fn new(mutability: Mutability) -> Self {
+        match mutability {
+            Mutability::Not => Self::Shared,
+            Mutability::Mut => Self::Mut { two_phase: false },
+        }
+    }
+
+    #[must_use]
+    pub fn mutability(self) -> Mutability {
+        match self {
+            Self::Shared => Mutability::Not,
+            Self::Mut { .. } => Mutability::Mut,
+        }
+    }
+
+    #[must_use]
+    pub fn is_two_phase(self) -> bool {
+        matches!(self, Self::Mut { two_phase: true })
+    }
+}
+
+impl From<Mutability> for BorrowKind {
+    fn from(mutability: Mutability) -> Self {
+        Self::new(mutability)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Rvalue {
     Use(Operand),
     /// `&place` / `&mut place`.
-    Ref(Mutability, Place),
+    Ref(BorrowKind, Place),
     UnaryOp(UnOp, Operand),
     /// `BinOp::And` and `BinOp::Or` never appear: lowering short-circuits them.
     BinaryOp(BinOp, Operand, Operand),
@@ -277,7 +321,7 @@ impl Rvalue {
     pub fn ty(&self, body: &Body) -> Ty {
         match self {
             Rvalue::Use(op) | Rvalue::UnaryOp(_, op) => op.ty(body),
-            Rvalue::Ref(m, place) => Ty::Ref(*m, Box::new(place.ty(body))),
+            Rvalue::Ref(kind, place) => Ty::Ref(kind.mutability(), Box::new(place.ty(body))),
             Rvalue::BinaryOp(op, lhs, _) => {
                 if op.is_comparison() {
                     Ty::BOOL

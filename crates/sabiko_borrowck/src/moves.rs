@@ -30,7 +30,7 @@ use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use crate::check::describe_place;
-use crate::dataflow::{self, Analysis, BitSet, Location, ResultsCursor};
+use crate::dataflow::{self, Analysis, BitSet, Dominators, Location, ResultsCursor};
 
 /// Index into [`MovePaths`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -341,8 +341,8 @@ pub fn check_moves(
     let paths = MovePaths::build(body);
     let analysis = MaybeMovedAnalysis::new(&paths);
     let results = dataflow::iterate_to_fixpoint(body, &analysis);
-    let predecessors = predecessors(body);
-    let dominators = dominators(body, &predecessors);
+    let predecessors = dataflow::predecessors(body);
+    let dominators = Dominators::new(body, &predecessors);
     let mut checker = MoveChecker {
         body,
         resolve,
@@ -367,48 +367,6 @@ pub fn check_moves(
             checker.check_terminator(terminator, location);
         }
     }
-}
-
-/// The predecessor blocks of every block.
-fn predecessors(body: &Body) -> Vec<Vec<BasicBlock>> {
-    let mut preds = vec![Vec::new(); body.blocks.len()];
-    for bb in body.block_ids() {
-        if let Some(terminator) = &body.block(bb).terminator {
-            for succ in terminator.kind.successors() {
-                preds[succ.index()].push(bb);
-            }
-        }
-    }
-    preds
-}
-
-/// `dominators[b]` is the set of blocks that dominate `b` (including `b`), by the classic
-/// iterative data-flow formulation. Unreachable blocks keep the full set.
-fn dominators(body: &Body, predecessors: &[Vec<BasicBlock>]) -> Vec<BitSet> {
-    let n = body.blocks.len();
-    let mut doms = vec![BitSet::new_filled(n); n];
-    if n == 0 {
-        return doms;
-    }
-    let start = BasicBlock::START.index();
-    doms[start] = BitSet::new_empty(n);
-    doms[start].insert(start);
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for bb in 1..n {
-            let mut new = BitSet::new_filled(n);
-            for pred in &predecessors[bb] {
-                new.intersect_with(&doms[pred.index()]);
-            }
-            new.insert(bb);
-            if new != doms[bb] {
-                doms[bb] = new;
-                changed = true;
-            }
-        }
-    }
-    doms
 }
 
 /// How a place is being used; selects the wording of `E0406`.
@@ -458,7 +416,7 @@ struct MoveChecker<'a> {
     paths: &'a MovePaths,
     cursor: ResultsCursor<'a, MaybeMovedAnalysis<'a>>,
     predecessors: Vec<Vec<BasicBlock>>,
-    dominators: Vec<BitSet>,
+    dominators: Dominators,
     /// The sets of move sites already reported, as sorted `(location, path)` pairs.
     reported: HashSet<Vec<(Location, MovePathIndex)>>,
 }
@@ -772,11 +730,7 @@ impl MoveChecker<'_> {
 
     /// Whether every path from the start to `b` passes through `a`.
     fn dominates(&self, a: Location, b: Location) -> bool {
-        if a.block == b.block {
-            a.statement_index <= b.statement_index
-        } else {
-            self.dominators[b.block.index()].contains(a.block.index())
-        }
+        self.dominators.dominates(a, b)
     }
 
     fn span_of(&self, location: Location) -> Span {

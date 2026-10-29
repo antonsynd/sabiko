@@ -48,7 +48,12 @@ pub fn print_body(body: &Body, resolve: &ResolveResults, typeck: &TypeckResults,
         .map(|l| format!("_{}: {}", l.0, p.ty(&body.local_decl(l).ty)))
         .collect();
     let ret = body.return_ty();
-    let _ = write!(out, "fn {}({})", body.name, params.join(", "));
+    let _ = write!(
+        out,
+        "fn {}({})",
+        resolve.qualified_name(body.def),
+        params.join(", ")
+    );
     if !ret.is_unit() {
         let _ = write!(out, " -> {}", p.ty(ret));
     }
@@ -140,7 +145,18 @@ impl Printer<'_> {
     fn rvalue(&self, rv: &Rvalue) -> String {
         match rv {
             Rvalue::Use(op) => self.operand(op),
-            Rvalue::Ref(m, place) => format!("&{}{}", m.prefix_str(), self.place(place)),
+            Rvalue::Ref(kind, place) => {
+                let two_phase = if kind.is_two_phase() {
+                    "two_phase "
+                } else {
+                    ""
+                };
+                format!(
+                    "&{two_phase}{}{}",
+                    kind.mutability().prefix_str(),
+                    self.place(place)
+                )
+            }
             Rvalue::UnaryOp(op, operand) => {
                 format!("{op:?}({})", self.operand(operand))
             }
@@ -221,7 +237,7 @@ impl Printer<'_> {
                 format!(
                     "{} = {}({}) -> {target}",
                     self.place(destination),
-                    self.resolve.def(*func).name,
+                    self.resolve.qualified_name(*func),
                     args.join(", ")
                 )
             }

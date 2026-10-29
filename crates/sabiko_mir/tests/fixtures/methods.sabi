@@ -1,0 +1,35 @@
+// Methods (#7) and two-phase borrows (#15): an associated constructor, receivers by
+// `&self`, `&mut self` and by value, autoref of a place (two-phase for `&mut self`), the
+// reborrow of a `&mut P` receiver, a path call, the implicit two-phase reborrow of a
+// `&mut` argument, a chained call through a returned `&mut`, and a by-value Copy receiver
+// read before a later argument changes it.
+#[derive(Clone, Copy)]
+struct P { X: i32 }
+
+impl P {
+    fn New(x: i32) -> Self { Self { X: x } }
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+    fn XMut(&mut self) -> &mut i32 { &mut self.X }
+    fn Plus(self, n: i32) -> i32 { self.X + n }
+}
+
+fn Change(p: &mut P) -> i32 {
+    p.X = 50;
+    7
+}
+
+fn Use(m: &mut P, n: i32) {
+    m.Add(m.Get() + n);
+}
+
+fn Main() {
+    let mut v = P::New(1);
+    v.Add(v.Get());
+    let m = &mut v;
+    m.Add(m.X);
+    Use(m, m.X);
+    *v.XMut() += P::Get(&v);
+    let n = v.Plus(Change(&mut v));
+    PrintLine(n);
+}

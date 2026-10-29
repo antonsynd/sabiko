@@ -522,7 +522,10 @@ mod tests {
                 assign(2, Rvalue::Use(copy(1))),
                 assign(3, Rvalue::Use(copy(2))),
                 assign(0, add(copy(3), one())),
-                assign(4, Rvalue::Ref(Mutability::Mut, Place::local(Local(2)))),
+                assign(
+                    4,
+                    Rvalue::Ref(Mutability::Mut.into(), Place::local(Local(2))),
+                ),
             ])],
         );
         let out = forwarded(b);
@@ -564,7 +567,10 @@ mod tests {
         // A write to a borrowed local may write the referent: `_1` may point to `_3`.
         assert!(deref_copy_kept_with(
             vec![
-                assign(4, Rvalue::Ref(Mutability::Mut, Place::local(Local(3)))),
+                assign(
+                    4,
+                    Rvalue::Ref(Mutability::Mut.into(), Place::local(Local(3)))
+                ),
                 assign(3, Rvalue::Use(one())),
             ],
             vec![USER, (LocalKind::User, r)]
@@ -627,7 +633,10 @@ mod tests {
             &[TEMP, (LocalKind::Temp, r)],
             vec![ret(vec![
                 assign(2, Rvalue::Use(copy(1))),
-                assign(3, Rvalue::Ref(Mutability::Not, Place::local(Local(2)))),
+                assign(
+                    3,
+                    Rvalue::Ref(Mutability::Not.into(), Place::local(Local(2))),
+                ),
                 assign(0, add(copy(2), one())),
             ])],
         );
