@@ -1967,7 +1967,7 @@ impl FnCx<'_, '_> {
                     .collect();
                 let callee = format!(
                     "call {ret} {}::{}({})",
-                    types::quote(&self.cx.class_name),
+                    self.cx.owner_class(func),
                     types::quote(&name),
                     params.join(", ")
                 );
