@@ -45,7 +45,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
 - Parser: `parse(pretty(parse(s)))` round-trips; the parser never panics on arbitrary text
   or token soup (`crates/sabiko_parser/tests`, proptest).
 - Whole pipeline never panics on arbitrary text, token soup, or random mutations of every
-  corpus program; accepted programs produce non-empty IL
+  corpus program; accepted programs produce non-empty IL; the two runs per input (to MIR
+  and to IL) report identical diagnostics, in the same order, up to code generation
   (`crates/sabiko_driver/tests/no_panic.rs`, proptest; `PROPTEST_CASES` scales it).
 - Determinism and idempotence: compiling a generated program twice gives identical
   diagnostics, MIR and IL; inserting no-op statements at random statement boundaries leaves

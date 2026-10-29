@@ -149,7 +149,15 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                         let resolve = sabiko_resolve::resolve(&ast, &mut sink);
                         if options.stop_after > Stage::Resolve {
                             let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
-                            if options.stop_after == Stage::Full && !sink.has_errors() {
+                            // Signature elision (E0416) depends on signatures alone, so it
+                            // is checked even when a body has errors and never reaches
+                            // MIR, as rustc does; its errors do not keep MIR from being
+                            // built and borrow-checked for the other bodies.
+                            let body_errors = sink.has_errors();
+                            if options.stop_after == Stage::Full {
+                                sabiko_borrowck::check_signatures(&resolve, &typeck, &mut sink);
+                            }
+                            if options.stop_after == Stage::Full && !body_errors {
                                 let mut bodies = sabiko_mir::build::build_bodies(
                                     &ast, &resolve, &typeck, &mut sink,
                                 );

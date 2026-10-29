@@ -296,7 +296,8 @@ Signatures and lifetimes (E0414–E0416):
 
 - Lifetimes are elided only: a function returning a reference must have exactly one
   reference parameter (nested references count once per parameter), and the returned
-  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`). A reference
+  reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`; reported from the
+  signature alone, so also when the body has other errors). A reference
   returned may therefore only point into that parameter's referent; returning a reference
   to a local or to a by-value parameter is E0414.
 - Inside a body, references with different elided lifetimes are unrelated: storing `y` in
