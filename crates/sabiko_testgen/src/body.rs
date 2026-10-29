@@ -1237,6 +1237,17 @@ impl<'a> BodyGen<'a> {
         }
     }
 
+    /// Joins the current state with another path's: a local moved on either is
+    /// maybe-moved, which the borrow checker treats as moved. A re-initialisation inside an
+    /// `if` without `else` or a loop body is only definite on some paths (the condition
+    /// may be false, the loop may run zero times or `break` before it), so the state from
+    /// before the construct is joined in afterwards.
+    fn join_moved(&mut self, other: &[bool]) {
+        for (v, &m) in self.vars.iter_mut().zip(other) {
+            v.moved |= m;
+        }
+    }
+
     fn block_body(&mut self, max_stmts: i64) {
         self.open_block();
         let n = self.rng.range(1, max_stmts);
@@ -1259,9 +1270,9 @@ impl<'a> BodyGen<'a> {
             self.restore_moved(&before);
             self.line("} else {");
             self.block_body(3);
-            for (v, &m) in self.vars.iter_mut().zip(&after_then) {
-                v.moved |= m;
-            }
+            self.join_moved(&after_then);
+        } else {
+            self.join_moved(&before);
         }
         self.line("}");
         true
@@ -1277,6 +1288,7 @@ impl<'a> BodyGen<'a> {
     fn stmt_while(&mut self, depth: u32) -> bool {
         let i = self.counter();
         let bound = self.rng.range(1, 4);
+        let before = self.snapshot_moved();
         self.loops.push(LoopKind::Stmt);
         let extra = if self.rng.chance(30) {
             let c = self.prim_expr(Prim::Bool, depth.saturating_sub(1));
@@ -1296,6 +1308,7 @@ impl<'a> BodyGen<'a> {
         }
         self.close_block();
         self.loops.pop();
+        self.join_moved(&before);
         self.line("}");
         true
     }
@@ -1317,6 +1330,7 @@ impl<'a> BodyGen<'a> {
             }
             _ => self.line("loop {"),
         }
+        let before = self.snapshot_moved();
         self.loops.push(kind);
         self.open_block();
         self.line(&format!("{k} += 1i32;"));
@@ -1336,6 +1350,7 @@ impl<'a> BodyGen<'a> {
         }
         self.close_block();
         self.loops.pop();
+        self.join_moved(&before);
         match (name, result) {
             (Some(name), Some(ty)) => {
                 self.line("};");
@@ -1474,5 +1489,71 @@ impl<'a> BodyGen<'a> {
             self.line(&line);
             printed += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BodyGen, Ty, ValTy};
+    use crate::program::gen_program;
+    use crate::rng::Rng;
+    use crate::Knobs;
+
+    /// Seed 906 (borrow-clean) moved a struct local, re-initialised it inside a `loop`
+    /// after the loop's first `break`, and used it after the loop: rustc rejects that
+    /// (E0382), since the local is maybe-moved there. A re-initialisation in a loop body or
+    /// an `if` without `else` must not count as definite afterwards.
+    #[test]
+    fn reinitialisation_in_a_block_is_not_definite_afterwards() {
+        let knobs = Knobs::borrow_clean();
+        let mut reinitialised = 0;
+        for seed in 0..400 {
+            let mut rng = Rng::new(seed);
+            let prog = gen_program(&mut rng, &knobs);
+            let Some(s) = prog.structs.iter().position(|s| !s.copy) else {
+                continue;
+            };
+            let mut gen = BodyGen::new(&prog, &knobs, &mut rng, 0, 1000);
+            let name = "moved".to_owned();
+            gen.used_names.push(name.clone());
+            let v = gen.declare(name.clone(), Ty::Val(ValTy::Struct(s)), true, false);
+            gen.vars[v].moved = true;
+            let block = seed % 4;
+            match block {
+                0 => gen.stmt_while(2),
+                1 => gen.stmt_loop(false),
+                2 => gen.stmt_loop(true),
+                _ => gen.stmt_if(2),
+            };
+            let reinit = |lines: &[String]| {
+                lines
+                    .iter()
+                    .any(|l| l.trim_start().starts_with(&format!("{name} = ")))
+            };
+            reinitialised += usize::from(reinit(&gen.lines));
+            // An `if` with an `else` whose branches both re-initialise at their top level
+            // (not in a nested block) is definite.
+            let top_level = |lines: &[String]| {
+                lines
+                    .iter()
+                    .any(|l| l.starts_with(&format!("        {name} = ")))
+            };
+            let both_branches = gen
+                .lines
+                .iter()
+                .position(|l| l == "    } else {")
+                .is_some_and(|e| top_level(&gen.lines[..e]) && top_level(&gen.lines[e..]));
+            assert_eq!(
+                gen.vars[v].moved,
+                !both_branches,
+                "seed {seed}, block kind {block}:\n{}",
+                gen.lines.join("\n")
+            );
+        }
+        // The property is only exercised when a block re-initialises the local.
+        assert!(
+            reinitialised >= 5,
+            "only {reinitialised} re-initialisations"
+        );
     }
 }
