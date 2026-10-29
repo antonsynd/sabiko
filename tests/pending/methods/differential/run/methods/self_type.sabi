@@ -1,0 +1,15 @@
+// POSSIBLY BEYOND #7: `Self` inside an impl block as a type (`-> Self`, `other: &Self`),
+// in a struct literal (`Self { .. }`) and in a path (`Self::New(..)`).
+struct P { X: i32 }
+
+impl P {
+    fn New(x: i32) -> Self { Self { X: x } }
+    fn Twice(&self) -> Self { Self::New(self.X * 2) }
+    fn Plus(&self, other: &Self) -> Self { P { X: self.X + other.X } }
+}
+
+fn Main() {
+    let p = P::New(3);
+    let q = p.Twice().Plus(&p);
+    PrintLine(q.X);
+}

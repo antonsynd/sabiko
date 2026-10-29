@@ -1,0 +1,15 @@
+// A `&mut self` method cannot be called through `&P`, nor on `self` inside a `&self`
+// method.
+struct P { X: i32 }
+
+impl P {
+    fn Inc(&mut self) { self.X += 1; }
+    fn Peek(&self) -> i32 {
+        self.Inc();
+        self.X
+    }
+}
+
+fn Read(r: &P) {
+    r.Inc();
+}

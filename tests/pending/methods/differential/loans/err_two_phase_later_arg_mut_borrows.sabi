@@ -1,0 +1,13 @@
+// While the `&mut self` receiver is reserved, a later argument may read it but not borrow
+// it mutably again: `v.Add(v.Bump())` is two mutable borrows.
+struct P { X: i32 }
+
+impl P {
+    fn Bump(&mut self) -> i32 { self.X += 1; self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Main() {
+    let mut v = P { X: 1 };
+    v.Add(v.Bump());
+}

@@ -1,0 +1,18 @@
+// Called as an associated function, `P::Merge(p, ..)` moves `p` in the first argument,
+// so the field must be read before: `let x = p.X; P::Merge(p, x)` and `Merge` with the
+// receiver last both work.
+struct P { X: i32 }
+
+impl P {
+    fn Merge(self, n: i32) -> i32 { self.X + n }
+    fn MergeInto(n: i32, p: P) -> i32 { p.X + n }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    let x = p.X;
+    let a = P::Merge(p, x);
+    let q = P { X: 2 };
+    let b = P::MergeInto(q.X, q);
+    PrintLine(a + b);
+}

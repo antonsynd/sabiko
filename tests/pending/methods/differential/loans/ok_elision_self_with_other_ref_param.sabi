@@ -1,0 +1,28 @@
+// With a `&self` or `&mut self` receiver, the output reference's lifetime is `self`'s even
+// when other parameters are references too: no E0106, and the other arguments are not
+// borrowed by the result, so they may be written while it is live.
+struct P { X: i32 }
+
+impl P {
+    fn Pick(&self, other: &P) -> &i32 {
+        if other.X > 0 { &self.X } else { &self.X }
+    }
+    fn PickMut(&mut self, other: &P, n: &i32) -> &mut i32 {
+        self.X += other.X + *n;
+        &mut self.X
+    }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    let mut q = P { X: 2 };
+    let r = p.Pick(&q);
+    q.X = 5;
+    PrintLine(*r);
+    let mut m = P { X: 3 };
+    let mut n = 4;
+    let w = m.PickMut(&q, &n);
+    n = 6;
+    q.X = 7;
+    *w += n;
+}

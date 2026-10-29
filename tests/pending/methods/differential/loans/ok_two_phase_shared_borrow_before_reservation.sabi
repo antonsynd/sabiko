@@ -1,0 +1,16 @@
+// A shared borrow taken before the two-phase reservation may still be used by a later
+// argument, as long as it is dead when the call activates the `&mut self` borrow.
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Main() {
+    let mut v = P { X: 1 };
+    let s = &v;
+    v.Add(s.Get());
+    let x = &v.X;
+    v.Add(*x);
+}

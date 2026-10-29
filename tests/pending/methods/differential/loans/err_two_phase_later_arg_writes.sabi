@@ -1,0 +1,12 @@
+// A reserved two-phase borrow acts as a shared one until the call: a later argument that
+// assigns to the receiver conflicts with it.
+struct P { X: i32 }
+
+impl P {
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Main() {
+    let mut v = P { X: 1 };
+    v.Add({ v.X = 5; 2 });
+}

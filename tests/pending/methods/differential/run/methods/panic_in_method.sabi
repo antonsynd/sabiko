@@ -1,0 +1,18 @@
+// A panic raised inside a `&mut self` method is located at the `Panic` call in the method
+// (the builtin is `#[track_caller]`); output before it is kept.
+struct Account { Balance: i32 }
+
+impl Account {
+    fn Withdraw(&mut self, n: i32) {
+        if n > self.Balance { Panic("insufficient funds"); }
+        self.Balance -= n;
+    }
+}
+
+fn Main() {
+    let mut a = Account { Balance: 10 };
+    a.Withdraw(3);
+    PrintLine(a.Balance);
+    a.Withdraw(8);
+    PrintLine(a.Balance);
+}

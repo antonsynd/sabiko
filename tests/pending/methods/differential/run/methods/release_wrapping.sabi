@@ -1,0 +1,26 @@
+//@ release
+// Release builds wrap the arithmetic in methods: `+`, `*` and `-` on fields through
+// `&mut self`, `&self` and by-value `self`, and in an associated function.
+#[derive(Clone, Copy)]
+struct W { A: u8, B: i32 }
+
+impl W {
+    fn Max() -> W { W { A: 255, B: 2147483647 } }
+    fn Next(self) -> W { W { A: self.A + 1, B: self.B + 1 } }
+    fn Times(&self, k: i32) -> i32 { self.B * k }
+    fn Down(&mut self) {
+        self.A -= 1;
+        self.B = -self.B - 2;
+    }
+    fn Square(x: u8) -> u8 { x * x }
+}
+
+fn Main() {
+    let w = W::Max().Next();
+    Print(w.A); Print(' '); PrintLine(w.B);
+    PrintLine(W::Max().Times(3));
+    let mut v = w;
+    v.Down();
+    Print(v.A); Print(' '); PrintLine(v.B);
+    PrintLine(W::Square(200));
+}

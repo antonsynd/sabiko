@@ -1,0 +1,25 @@
+// Through `&mut P` the receiver is mutable whatever the binding's mutability: a non-`mut`
+// `&mut P` binding or parameter can call `&mut self` methods, and so can `self` inside a
+// `&mut self` method.
+struct P { X: i32 }
+
+impl P {
+    fn Inc(&mut self) { self.X += 1; }
+    fn IncTwice(&mut self) {
+        self.Inc();
+        self.Inc();
+    }
+}
+
+fn Bump(m: &mut P) {
+    m.Inc();
+    m.IncTwice();
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let r = &mut p;
+    r.Inc();
+    Bump(r);
+    p.IncTwice();
+}

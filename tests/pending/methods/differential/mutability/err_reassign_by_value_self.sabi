@@ -1,0 +1,9 @@
+// `self` is a parameter like any other: without `mut` it cannot be reassigned.
+struct P { X: i32 }
+
+impl P {
+    fn Reset(self) -> P {
+        self = P { X: 0 };
+        self
+    }
+}

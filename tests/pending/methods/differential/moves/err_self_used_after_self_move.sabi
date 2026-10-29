@@ -1,0 +1,11 @@
+// Inside a by-value `self` method, `self` is an ordinary owned local: passing it on moves
+// it, and later uses are errors.
+struct P { X: i32 }
+
+impl P {
+    fn Consume(self) -> i32 { self.X }
+    fn Twice(self) -> i32 {
+        let a = self.Consume();
+        a + self.X
+    }
+}

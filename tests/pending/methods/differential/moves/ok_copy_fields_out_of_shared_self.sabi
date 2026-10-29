@@ -1,0 +1,15 @@
+// Copy fields (primitives and a Copy struct) can be read out of `&self`.
+#[derive(Clone, Copy)]
+struct Q { N: i32 }
+struct P { X: i32, Inner: Q }
+
+impl P {
+    fn Inner(&self) -> Q { self.Inner }
+    fn X(&self) -> i32 { self.X }
+}
+
+fn Main() {
+    let p = P { X: 1, Inner: Q { N: 2 } };
+    let q = p.Inner();
+    PrintLine(q.N + p.X() + p.Inner.N);
+}

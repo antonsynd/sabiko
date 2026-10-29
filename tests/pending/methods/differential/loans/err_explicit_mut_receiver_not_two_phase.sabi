@@ -1,0 +1,13 @@
+// `(&mut v).Add(v.Get())`: the receiver is an explicit `&mut v`, not an autoref, so the
+// borrow is not two-phase and the argument's read conflicts with it.
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Main() {
+    let mut v = P { X: 1 };
+    (&mut v).Add(v.Get());
+}

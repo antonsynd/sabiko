@@ -1,0 +1,14 @@
+// A method called on a temporary borrows the temporary, which dies at the end of the
+// statement (no lifetime extension through a receiver): keeping the result is an error.
+struct P { X: i32 }
+
+impl P {
+    fn XRef(&self) -> &i32 { &self.X }
+}
+
+fn Make() -> P { P { X: 1 } }
+
+fn Main() {
+    let r = Make().XRef();
+    PrintLine(*r);
+}

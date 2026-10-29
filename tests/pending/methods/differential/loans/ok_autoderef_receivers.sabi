@@ -1,0 +1,24 @@
+// Method calls auto-dereference the receiver through any number of references (`&P`,
+// `&&P`, `&mut P`, `&mut &mut P`), and autoref a place for `&self`/`&mut self`.
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    p.Inc();
+    let r = &p;
+    let rr = &r;
+    PrintLine(r.Get() + rr.Get() + p.Get());
+    let m = &mut p;
+    m.Inc();
+    let mut inner = &mut *m;
+    let mm = &mut inner;
+    mm.Inc();
+    PrintLine(mm.Get());
+    m.Inc();
+    PrintLine(m.Get());
+}

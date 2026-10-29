@@ -1,0 +1,13 @@
+// Primitives have no user methods: calling one is E0599, and an inherent impl for a
+// primitive type is rejected (E0390).
+impl i32 { //~ rustc E0390: cannot define inherent `impl` for primitive types
+    fn Double(self) -> i32 { self * 2 }
+}
+
+fn Main() {
+    let x: i32 = 5;
+    let a = x.Triple(); //~ rustc E0599: no method named `Triple` found for type `i32` in the current scope [method not found in `i32`]
+    let b = 5.Triple(); //~ rustc E0599: no method named `Triple` found for type `{integer}` in the current scope [method not found in `{integer}`]
+    let c = true.Not(); //~ rustc E0599: no method named `Not` found for type `bool` in the current scope
+    let d = 1.5f64.Half(); //~ rustc E0599: no method named `Half` found for type `f64` in the current scope [method not found in `f64`]
+}

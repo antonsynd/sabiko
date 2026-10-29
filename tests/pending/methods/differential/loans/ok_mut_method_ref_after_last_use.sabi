@@ -1,0 +1,20 @@
+// The borrow made by a `&mut self` method returning `&mut` ends at the result's last use
+// (NLL): afterwards the receiver can be written, read and borrowed again.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn XMut(&mut self) -> &mut i32 { &mut self.X }
+    fn Inc(&mut self) { self.Y += 1; }
+}
+
+fn Main() {
+    let mut p = P { X: 1, Y: 2 };
+    let x = p.XMut();
+    *x += 1;
+    p.Y = 5;
+    p.Inc();
+    *p.XMut() += p.Y;
+    let y = p.XMut();
+    *y = 0;
+    PrintLine(p.X);
+}

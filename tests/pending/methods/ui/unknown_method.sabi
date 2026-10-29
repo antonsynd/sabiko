@@ -1,0 +1,17 @@
+// Method lookup failures: no method of that name (on a struct, through `&P`, on `self`),
+// a field called as a method, and a method used as a field.
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Twice(&self) -> i32 { self.Nope() } //~ rustc E0599: no method named `Nope` found for reference `&P` in the current scope [method not found in `&P`]
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    p.Nope(); //~ rustc E0599: no method named `Nope` found for struct `P` in the current scope [method not found in `P`]
+    let r = &p;
+    r.Nope(1); //~ rustc E0599: no method named `Nope` found for reference `&P` in the current scope
+    let a = p.X(); //~ rustc E0599: no method named `X` found for struct `P` in the current scope
+    let b = p.Get; //~ rustc E0615: attempted to take value of method `Get` on type `P` [method, not a field]
+}

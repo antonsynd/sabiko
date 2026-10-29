@@ -1,0 +1,17 @@
+// `a.B.Inc()` autorefs `&mut a.B`, which needs `a` to be `mut`; through `&A` it is not
+// allowed either.
+struct P { X: i32 }
+struct A { B: P }
+
+impl P {
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Read(r: &A) {
+    r.B.Inc();
+}
+
+fn Main() {
+    let a = A { B: P { X: 1 } };
+    a.B.Inc();
+}

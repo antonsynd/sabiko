@@ -1,0 +1,50 @@
+// Chained calls: by-value builders (`V::New().WithX(3).WithY(4)`), `&mut self` methods
+// returning `&mut` into `self` used as the next receiver and assigned through
+// (`*w.Bump().XMut() *= 2`), `&self` getters on the results, and a by-value `self` call
+// through a reference on a Copy struct.
+#[derive(Clone, Copy)]
+struct V { X: i32, Y: i32 }
+struct Pair { L: V, R: V }
+
+impl V {
+    fn New() -> V { V { X: 0, Y: 0 } }
+    fn WithX(self, x: i32) -> V { V { X: x, Y: self.Y } }
+    fn WithY(mut self, y: i32) -> V {
+        self.Y = y;
+        self
+    }
+    fn Sum(self) -> i32 { self.X + self.Y }
+    fn XMut(&mut self) -> &mut i32 { &mut self.X }
+    fn Bump(&mut self) -> &mut V {
+        self.X += 1;
+        self.Y += 1;
+        self
+    }
+}
+
+impl Pair {
+    fn Left(&mut self) -> &mut V { &mut self.L }
+    fn Right(&self) -> &V { &self.R }
+    fn Pick(&mut self, left: bool) -> &mut V {
+        if left { &mut self.L } else { &mut self.R }
+    }
+}
+
+fn Main() {
+    let v = V::New().WithX(3).WithY(4);
+    PrintLine(v.Sum());
+    PrintLine(V::New().WithY(5).Sum());
+    let mut w = v;
+    *w.XMut() += 10;
+    w.Bump().Bump().Bump();
+    *w.Bump().XMut() *= 2;
+    Print(w.X); Print(' '); PrintLine(w.Y);
+    PrintLine(v.Sum());
+    let mut p = Pair { L: v, R: w };
+    p.Left().Bump();
+    *p.Pick(false).XMut() = 1;
+    p.Pick(true).Bump().Bump();
+    PrintLine(p.Right().Sum());
+    PrintLine(p.Left().Sum());
+    PrintLine(p.L.WithX(100).Sum() + p.R.Sum());
+}

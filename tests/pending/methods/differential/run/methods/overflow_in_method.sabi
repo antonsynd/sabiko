@@ -1,0 +1,16 @@
+// Debug-build overflow in a `&self` method's arithmetic panics at that expression, in the
+// method body.
+struct Scale { K: i16 }
+
+impl Scale {
+    fn Apply(&self, n: i16) -> i16 {
+        let r = n * self.K;
+        r
+    }
+}
+
+fn Main() {
+    let s = Scale { K: 100 };
+    PrintLine(s.Apply(300));
+    PrintLine(s.Apply(-400));
+}

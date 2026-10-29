@@ -1,0 +1,7 @@
+// A `&self` method cannot move a non-Copy field out of `*self`.
+struct Q { N: i32 }
+struct P { Inner: Q }
+
+impl P {
+    fn Take(&self) -> Q { self.Inner }
+}

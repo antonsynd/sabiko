@@ -1,0 +1,48 @@
+// Recursion through methods: a `&self` method calling itself, an associated function
+// calling itself, mutual recursion between two `&self` methods, a `&mut self` method
+// recursing with its reborrowed receiver, and a by-value `self` passed on to itself.
+struct Math { Base: u64 }
+struct Walker { Steps: i32 }
+
+impl Math {
+    fn Fact(&self, n: u64) -> u64 {
+        if n == 0 { self.Base } else { n * self.Fact(n - 1) }
+    }
+    fn Fib(n: u32) -> u64 {
+        if n < 2 { n as u64 } else { Math::Fib(n - 1) + Math::Fib(n - 2) }
+    }
+    fn IsEven(&self, n: u32) -> bool {
+        if n == 0 { true } else { self.IsOdd(n - 1) }
+    }
+    fn IsOdd(&self, n: u32) -> bool {
+        if n == 0 { false } else { self.IsEven(n - 1) }
+    }
+}
+
+impl Walker {
+    fn Walk(&mut self, n: i32) -> i32 {
+        if n > 0 {
+            self.Steps += 1;
+            self.Walk(n - 1) + 1
+        } else {
+            0
+        }
+    }
+    fn Gcd(self, a: u32, b: u32) -> u32 {
+        if b == 0 { a } else { self.Gcd(b, a % b) }
+    }
+}
+
+fn Main() {
+    let m = Math { Base: 1 };
+    PrintLine(m.Fact(20));
+    PrintLine(Math { Base: 3 }.Fact(5));
+    PrintLine(Math::Fib(20));
+    PrintLine(m.IsEven(10));
+    PrintLine(m.IsOdd(7));
+    PrintLine(m.IsEven(7));
+    let mut w = Walker { Steps: 0 };
+    PrintLine(w.Walk(25));
+    PrintLine(w.Walk(5) + w.Steps);
+    PrintLine(w.Gcd(1071, 462));
+}
