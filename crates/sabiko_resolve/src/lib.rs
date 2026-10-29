@@ -449,7 +449,9 @@ impl Resolver<'_> {
         let mut seen: HashMap<&str, Span> = HashMap::new();
         for p in &f.params {
             self.resolve_type(&p.ty, true);
-            if let PatKind::Ident { name, .. } = &p.pat.kind {
+            let mut names = Vec::new();
+            pat_bindings(&p.pat, &mut names);
+            for name in names {
                 if let Some(&prev) = seen.get(name.name.as_str()) {
                     self.sink.emit(
                         Diagnostic::error(
@@ -497,7 +499,38 @@ impl Resolver<'_> {
                     .push((name.name.clone(), id));
             }
             PatKind::Wild => {}
+            PatKind::Tuple(elems) => {
+                for p in elems {
+                    self.bind_pat(p, is_param);
+                }
+            }
         }
+    }
+
+    /// Binds a `let` pattern. A name bound twice in one pattern (`let (x, x) = t;`) is an
+    /// error; both bindings are still made, the second shadowing the first.
+    fn bind_let_pat(&mut self, pat: &Pat) {
+        let mut names = Vec::new();
+        pat_bindings(pat, &mut names);
+        let mut seen: HashMap<&str, Span> = HashMap::new();
+        for name in names {
+            if let Some(&prev) = seen.get(name.name.as_str()) {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_BINDING,
+                        format!(
+                            "identifier `{}` is bound more than once in the same pattern",
+                            name.name
+                        ),
+                    )
+                    .with_label(name.span, "used in a pattern more than once")
+                    .with_label(prev, "first use of the name"),
+                );
+            } else {
+                seen.insert(&name.name, name.span);
+            }
+        }
+        self.bind_pat(pat, false);
     }
 
     fn lookup_local(&self, name: &str) -> Option<LocalId> {
@@ -518,6 +551,11 @@ impl Resolver<'_> {
                 self.results.res.insert(ty.id, res);
             }
             TypeKind::Ref { inner, .. } => self.resolve_type(inner, in_signature),
+            TypeKind::Tuple(elems) => {
+                for t in elems {
+                    self.resolve_type(t, in_signature);
+                }
+            }
             TypeKind::Unit => {}
             TypeKind::Infer => {
                 if in_signature {
@@ -673,7 +711,7 @@ impl Resolver<'_> {
                 if let Some(init) = &l.init {
                     self.resolve_expr(init);
                 }
-                self.bind_pat(&l.pat, false);
+                self.bind_let_pat(&l.pat);
             }
             StmtKind::Expr { expr, .. } => self.resolve_expr(expr),
             StmtKind::Empty => {}
@@ -683,6 +721,11 @@ impl Resolver<'_> {
     fn resolve_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Lit(_) | ExprKind::Unit | ExprKind::Continue => {}
+            ExprKind::Tuple(elems) => {
+                for e in elems {
+                    self.resolve_expr(e);
+                }
+            }
             ExprKind::Path(path) => {
                 let res = self.resolve_value_path(path);
                 self.results.res.insert(expr.id, res);
@@ -739,6 +782,19 @@ impl Resolver<'_> {
                 for f in fields {
                     self.resolve_expr(&f.value);
                 }
+            }
+        }
+    }
+}
+
+/// The identifiers a pattern binds, left to right.
+fn pat_bindings<'p>(pat: &'p Pat, out: &mut Vec<&'p sabiko_ast::Ident>) {
+    match &pat.kind {
+        PatKind::Ident { name, .. } => out.push(name),
+        PatKind::Wild => {}
+        PatKind::Tuple(elems) => {
+            for p in elems {
+                pat_bindings(p, out);
             }
         }
     }

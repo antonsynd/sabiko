@@ -2,8 +2,12 @@
 //!
 //! Every MIR statement and terminator is lowered to a short instruction sequence. Places
 //! are accessed through their address: `ldloca`/`ldarga` for locals and arguments,
-//! `ldflda` for fields, the pointer value itself for `*r`. Locals of type `()` or `!` get
-//! no storage: assignments to them vanish and reads push nothing.
+//! `ldflda` for fields (through `Rest` for the elements of a `System.ValueTuple` past the
+//! seventh), the pointer value itself for `*r`. Locals of type `()` or `!` get no storage:
+//! assignments to them vanish and reads push nothing. A `()` value is stateless, so no
+//! `()` is ever loaded or stored, even where it has storage (a parameter, a struct field, a
+//! tuple element); where the IL needs one (a call argument, a tuple constructor argument)
+//! a default `Sabiko.Runtime.Unit` is pushed instead (decision 52).
 //!
 //! Single-use locals stay on the evaluation stack (decision 51): a local assigned once
 //! and read once (a temporary, usually) is not stored when it is assigned; its value
@@ -21,8 +25,8 @@ use std::fmt::Write as _;
 
 use sabiko_diagnostics::ErrorCode;
 use sabiko_mir::{
-    BasicBlock, BinOp, Body, ConstValue, Constant, Local, LocalKind, Operand, Place, PlaceElem,
-    Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty, UnOp,
+    AggregateKind, BasicBlock, BinOp, Body, ConstValue, Constant, Local, LocalKind, Operand, Place,
+    PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty, UnOp,
 };
 use sabiko_resolve::{Builtin, DefId, PrimTy};
 use sabiko_span::Span;
@@ -261,7 +265,8 @@ struct Pending {
 
 /// MIR locals whose value may stay on the evaluation stack: user locals and temporaries
 /// with storage, assigned exactly once as a whole (not by a struct literal, which is built
-/// in place) and read exactly once by a whole-local operand, never borrowed or projected.
+/// in place; a tuple is built on the stack by its constructor) and read exactly once by a
+/// whole-local operand, never borrowed or projected.
 fn stackable_locals(body: &Body) -> Vec<bool> {
     let n = body.locals.len();
     let (mut defs, mut uses, mut other) = (vec![0usize; n], vec![0usize; n], vec![0usize; n]);
@@ -279,7 +284,7 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             let StatementKind::Assign(place, rvalue) = &stmt.kind else {
                 continue;
             };
-            if place.is_local() && !matches!(rvalue, Rvalue::Aggregate(..)) {
+            if place.is_local() && !matches!(rvalue, Rvalue::Aggregate(AggregateKind::Adt(_), _)) {
                 defs[place.local.index()] += 1;
             } else {
                 other[place.local.index()] += 1;
@@ -346,10 +351,8 @@ impl FnCx<'_, '_> {
             // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
             let elided = decl.ty.is_unit() || decl.ty.is_uninhabited();
             let slot = match decl.kind {
+                // A `()` parameter is a `Sabiko.Runtime.Unit` (decision 52); nothing reads it.
                 LocalKind::Arg => {
-                    if elided {
-                        self.cx.unsupported("a parameter of type `()`", decl.span);
-                    }
                     Slot::Arg(u16::try_from(i - 1).expect("fewer than 2^16 parameters"))
                 }
                 _ if elided => Slot::None,
@@ -388,7 +391,7 @@ impl FnCx<'_, '_> {
 
     fn write_method(&mut self, out: &mut String) {
         let body = self.body;
-        let ret = types::sig_type(self.cx, body.return_ty(), body.span);
+        let ret = types::ret_type(self.cx, body.return_ty(), body.span);
         let mut params = Vec::new();
         let mut readonly_params = Vec::new();
         if Cx::is_byref(body.return_ty()) && !is_mut_ref(body.return_ty()) {
@@ -396,7 +399,7 @@ impl FnCx<'_, '_> {
         }
         for (i, local) in body.args().enumerate() {
             let decl = body.local_decl(local);
-            let ty = types::sig_type(self.cx, &decl.ty, decl.span);
+            let ty = types::param_type(self.cx, &decl.ty, decl.span);
             let name = decl.name.clone().unwrap_or_else(|| format!("_{}", local.0));
             if Cx::is_byref(&decl.ty) && !is_mut_ref(&decl.ty) {
                 readonly_params.push(i + 1);
@@ -769,7 +772,7 @@ impl FnCx<'_, '_> {
             // Rvalues have no side effects; a unit store is nothing.
             return;
         }
-        if let Rvalue::Aggregate(def, operands) = rvalue {
+        if let Rvalue::Aggregate(AggregateKind::Adt(def), operands) = rvalue {
             self.aggregate(place, *def, operands, span);
             return;
         }
@@ -944,6 +947,48 @@ impl FnCx<'_, '_> {
         format!("{cil} {struct_name}::{field_name}")
     }
 
+    /// The field reference of element `index` of a tuple of type `base_ty`, after the
+    /// `Rest` fields to go through first (a `System.ValueTuple` holds seven elements; `t.7`
+    /// is `t.Rest.Item1`, `t.15` is `t.Rest.Rest.Item2`). The fields of a generic
+    /// instantiation are referenced by their declared type, the type parameter (`!0`).
+    fn tuple_field_ref(&mut self, base_ty: &Ty, index: usize, span: Span) -> (Vec<String>, String) {
+        let Ty::Tuple(elems) = base_ty else {
+            panic!("element projection on non-tuple {base_ty:?}");
+        };
+        if types::is_byref_tuple(base_ty) {
+            let class = types::quote(&self.cx.byref_tuple(base_ty, span));
+            let cil = types::cil_type(self.cx, &elems[index], span);
+            return (Vec::new(), format!("{cil} {class}::'Item{}'", index + 1));
+        }
+        let mut rest = Vec::new();
+        let mut elems: &[Ty] = elems;
+        let mut index = index;
+        while index >= types::VALUE_TUPLE_DIRECT {
+            let class = types::value_tuple_type(self.cx, elems, span);
+            rest.push(format!("!{} {class}::Rest", types::VALUE_TUPLE_DIRECT));
+            elems = &elems[types::VALUE_TUPLE_DIRECT..];
+            index -= types::VALUE_TUPLE_DIRECT;
+        }
+        let class = types::value_tuple_type(self.cx, elems, span);
+        (rest, format!("!{index} {class}::Item{}", index + 1))
+    }
+
+    /// Pushes the address of `parent` and goes to the field `index` of it: returns the
+    /// field reference for the final `ldfld`/`ldflda`/`stfld`.
+    fn field_base(&mut self, parent: &Place, index: usize, field_ty: &Ty, span: Span) -> String {
+        let base_ty = parent.ty(self.body);
+        self.addr(parent, span);
+        if let Ty::Tuple(_) = base_ty {
+            let (rest, field) = self.tuple_field_ref(&base_ty, index, span);
+            for hop in rest {
+                self.op(format!("ldflda {hop}"), 1, 1);
+            }
+            field
+        } else {
+            self.field_ref(&base_ty, index, field_ty, span)
+        }
+    }
+
     fn parent(place: &Place) -> Place {
         Place {
             local: place.local,
@@ -965,9 +1010,7 @@ impl FnCx<'_, '_> {
             },
             Some(PlaceElem::Field(index, field_ty)) => {
                 let parent = Self::parent(place);
-                let base_ty = parent.ty(self.body);
-                self.addr(&parent, span);
-                let field = self.field_ref(&base_ty, *index, field_ty, span);
+                let field = self.field_base(&parent, *index, field_ty, span);
                 self.op(format!("ldfld {field}"), 1, 1);
             }
             Some(PlaceElem::Deref) => {
@@ -1016,9 +1059,7 @@ impl FnCx<'_, '_> {
             },
             Some(PlaceElem::Field(index, field_ty)) => {
                 let parent = Self::parent(place);
-                let base_ty = parent.ty(self.body);
-                self.addr(&parent, span);
-                let field = self.field_ref(&base_ty, *index, field_ty, span);
+                let field = self.field_base(&parent, *index, field_ty, span);
                 self.op(format!("ldflda {field}"), 1, 1);
             }
             Some(PlaceElem::Deref) => {
@@ -1044,10 +1085,8 @@ impl FnCx<'_, '_> {
             }
             Some(PlaceElem::Field(index, field_ty)) => {
                 let parent = Self::parent(place);
-                let base_ty = parent.ty(self.body);
-                self.addr(&parent, span);
+                let field = self.field_base(&parent, *index, field_ty, span);
                 push(self);
-                let field = self.field_ref(&base_ty, *index, field_ty, span);
                 self.op(format!("stfld {field}"), 2, 0);
             }
             Some(PlaceElem::Deref) => {
@@ -1068,6 +1107,62 @@ impl FnCx<'_, '_> {
             Operand::Copy(place) | Operand::Move(place) => self.load(place, span),
             Operand::Constant(c) => self.constant(c),
         }
+    }
+
+    /// Like [`Self::operand`], for a position that needs a value even for `()` (a call
+    /// argument, a tuple element): a `()` operand pushes a default `Sabiko.Runtime.Unit`
+    /// instead of nothing. Reading a `()` place has no effect, so none is read.
+    fn operand_value(&mut self, operand: &Operand, span: Span) {
+        if operand.ty(self.body).is_unit() {
+            let unit = self.scratch(&Ty::Unit, span);
+            self.ldloc(unit);
+        } else {
+            self.operand(operand, span);
+        }
+    }
+
+    /// Pushes a tuple of type `ty` built from `operands` (left to right) by its
+    /// constructor: `System.ValueTuple`'s, whose eighth argument is the tuple of the
+    /// remaining elements, built first; or the generated `ref struct`'s for a tuple with
+    /// references (decision 52). Every operand is read before the tuple is stored, so an
+    /// operand may read the destination (`p = (p.1, p.0)`).
+    fn tuple(&mut self, ty: &Ty, operands: &[Operand], span: Span) {
+        let Ty::Tuple(elems) = ty else {
+            panic!("tuple aggregate of non-tuple type {ty:?}");
+        };
+        if types::is_byref_tuple(ty) {
+            let class = types::quote(&self.cx.byref_tuple(ty, span));
+            let params: Vec<String> = elems
+                .iter()
+                .map(|e| types::cil_type(self.cx, e, span))
+                .collect();
+            for op in operands {
+                self.operand_value(op, span);
+            }
+            self.op(
+                format!("newobj instance void {class}::.ctor({})", params.join(", ")),
+                operands.len(),
+                1,
+            );
+            return;
+        }
+        let direct = operands.len().min(types::VALUE_TUPLE_DIRECT);
+        for op in &operands[..direct] {
+            self.operand_value(op, span);
+        }
+        let mut arity = direct;
+        if operands.len() > types::VALUE_TUPLE_DIRECT {
+            let rest = Ty::Tuple(elems[types::VALUE_TUPLE_DIRECT..].to_vec().into());
+            self.tuple(&rest, &operands[types::VALUE_TUPLE_DIRECT..], span);
+            arity += 1;
+        }
+        let class = types::value_tuple_type(self.cx, elems, span);
+        let params: Vec<String> = (0..arity).map(|i| format!("!{i}")).collect();
+        self.op(
+            format!("newobj instance void {class}::.ctor({})", params.join(", ")),
+            arity,
+            1,
+        );
     }
 
     fn constant(&mut self, c: &Constant) {
@@ -1158,9 +1253,11 @@ impl FnCx<'_, '_> {
                 self.operand(operand, span);
                 self.cast(&from, to, span);
             }
-            Rvalue::Aggregate(..) => {
+            Rvalue::Aggregate(AggregateKind::Tuple, operands) => {
+                self.tuple(result_ty, operands, span);
+            }
+            Rvalue::Aggregate(AggregateKind::Adt(_), _) => {
                 // Handled by `assign`; an aggregate elsewhere would need staging.
-                let _ = result_ty;
                 self.cx
                     .unsupported("a struct literal in this position", span);
                 self.ldc_i4(0);
@@ -1283,6 +1380,12 @@ impl FnCx<'_, '_> {
     fn binary(&mut self, op: BinOp, lhs: &Operand, rhs: &Operand, span: Span) {
         let lty = lhs.ty(self.body);
         let rty = rhs.ty(self.body);
+        if lty.is_unit() && rty.is_unit() && op.is_comparison() {
+            // `()` has one value: `==`, `<=`, `>=` hold, `!=`, `<`, `>` do not. Reading a
+            // `()` operand has no effect, so neither is read.
+            self.ldc_i4(i32::from(matches!(op, BinOp::Eq | BinOp::Le | BinOp::Ge)));
+            return;
+        }
         let (Some(lp), Some(rp)) = (lty.as_prim(), rty.as_prim()) else {
             self.cx.unsupported("this binary operation", span);
             self.ldc_i4(0);
@@ -1856,11 +1959,11 @@ impl FnCx<'_, '_> {
             None => {
                 let sig = self.cx.typeck.items.fn_sig(func).clone();
                 let name = self.cx.resolve.def(func).name.clone();
-                let ret = types::sig_type(self.cx, &sig.output, span);
+                let ret = types::ret_type(self.cx, &sig.output, span);
                 let params: Vec<String> = sig
                     .inputs
                     .iter()
-                    .map(|t| types::sig_type(self.cx, t, span))
+                    .map(|t| types::param_type(self.cx, t, span))
                     .collect();
                 let callee = format!(
                     "call {ret} {}::{}({})",
@@ -1872,13 +1975,13 @@ impl FnCx<'_, '_> {
                 if returns_value {
                     self.store(destination, span, |this| {
                         for a in args {
-                            this.operand(a, span);
+                            this.operand_value(a, span);
                         }
                         this.op(callee, args.len(), 1);
                     });
                 } else {
                     for a in args {
-                        self.operand(a, span);
+                        self.operand_value(a, span);
                     }
                     self.op(callee, args.len(), 0);
                 }

@@ -108,6 +108,7 @@ impl ItemTypes {
     pub fn is_copy(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Adt(def) => self.adts.get(def).is_some_and(|a| a.is_copy),
+            Ty::Tuple(elems) => elems.iter().all(|e| self.is_copy(e)),
             _ => ty.is_copy(),
         }
     }
@@ -144,9 +145,10 @@ fn derives_copy(item: &sabiko_ast::Item, sink: &mut DiagnosticSink) -> bool {
     is_copy
 }
 
-/// References inside struct fields need lifetime parameters, which arrive in Phase 9.
+/// References inside struct fields (also inside a tuple-typed field) need lifetime
+/// parameters, which arrive in Phase 9.
 fn check_no_reference(ty: &Ty, span: Span, sink: &mut DiagnosticSink) {
-    if matches!(ty, Ty::Ref(..)) {
+    if ty.has_ref() {
         sink.emit(
             Diagnostic::error(
                 ErrorCode::UNSUPPORTED_SYNTAX,
@@ -176,12 +178,23 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults) -> Ty {
             Box::new(lower_sig_type(inner, resolve)),
         ),
         TypeKind::Unit => Ty::Unit,
+        TypeKind::Tuple(elems) => Ty::Tuple(
+            elems
+                .iter()
+                .map(|t| lower_sig_type(t, resolve))
+                .collect::<Vec<_>>()
+                .into(),
+        ),
         TypeKind::Infer => Ty::Error,
     }
 }
 
-/// `str` is only valid behind a reference. Reports and returns `false` otherwise.
+/// `str` is only valid behind a reference, not by value nor as a tuple element. Reports
+/// and returns `false` otherwise.
 pub(crate) fn check_sized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> bool {
+    if let Ty::Tuple(elems) = ty {
+        return elems.iter().all(|e| check_sized(e, span, sink));
+    }
     if *ty == Ty::Prim(PrimTy::Str) {
         sink.emit(
             Diagnostic::error(
@@ -377,6 +390,19 @@ fn check_recursive_structs(resolve: &ResolveResults, items: &ItemTypes, sink: &m
     }
 }
 
+/// The structs `ty` holds by value: itself, or the elements of a tuple, recursively.
+fn structs_by_value(ty: &Ty, out: &mut Vec<DefId>) {
+    match ty {
+        Ty::Adt(def) => out.push(*def),
+        Ty::Tuple(elems) => {
+            for e in elems.iter() {
+                structs_by_value(e, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Depth-first search for a by-value cycle starting at `current` (already on `stack`).
 /// Returns the members of the cycle, in source order.
 fn find_cycle(
@@ -386,7 +412,9 @@ fn find_cycle(
     done: &mut HashSet<DefId>,
 ) -> Option<Vec<DefId>> {
     for field in &items.adt(current).fields {
-        if let Ty::Adt(next) = &field.ty {
+        let mut contained = Vec::new();
+        structs_by_value(&field.ty, &mut contained);
+        for next in &contained {
             if let Some(pos) = stack.iter().position(|d| d == next) {
                 let mut members = stack[pos..].to_vec();
                 members.sort();

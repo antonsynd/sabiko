@@ -24,8 +24,8 @@
 use std::collections::HashMap;
 
 use sabiko_ast::{
-    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, PatKind, SourceFile, Stmt,
-    StmtKind,
+    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, Pat, PatKind, SourceFile,
+    Stmt, StmtKind,
 };
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
@@ -33,8 +33,8 @@ use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
-    BasicBlock, BasicBlockData, Body, Constant, Local, LocalDecl, LocalKind, Operand, Place,
-    Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
+    AggregateKind, BasicBlock, BasicBlockData, Body, Constant, Local, LocalDecl, LocalKind,
+    Operand, Place, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
@@ -127,7 +127,8 @@ impl<'a> Builder<'a> {
                     Mutability::from_bool(*mutable),
                     resolve.local_of_pat(param.pat.id),
                 ),
-                PatKind::Wild => (None, Mutability::Not, None),
+                // A tuple pattern destructures the argument at the start of the body.
+                PatKind::Wild | PatKind::Tuple(_) => (None, Mutability::Not, None),
             };
             let local = Local(u32::try_from(locals.len()).expect("fewer than 2^32 locals"));
             if let Some(id) = source {
@@ -167,7 +168,18 @@ impl<'a> Builder<'a> {
 
     fn build(mut self, f: &FnDecl) -> Option<Body> {
         let span = f.body.span;
+        // Bindings of tuple-pattern parameters live for the whole body.
+        self.push_scope();
+        self.push_scope();
+        for (i, param) in f.params.iter().enumerate() {
+            if let PatKind::Tuple(_) = param.pat.kind {
+                let arg = Local(u32::try_from(i + 1).expect("fewer than 2^32 locals"));
+                self.bind_pattern(&param.pat, Place::local(arg));
+            }
+        }
+        self.pop_scope(param_span(f));
         self.lower_block_into(&Place::local(Local::RETURN), &f.body);
+        self.pop_scope(span);
         let ret = self.return_block();
         self.terminate(TerminatorKind::Goto { target: ret }, span);
         self.current = ret;
@@ -603,6 +615,7 @@ impl<'a> Builder<'a> {
                 let op = self.as_operand(expr);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
             }
+            ExprKind::Tuple(_) => self.tuple_into(dest, expr, false),
             // A place read straight into the destination (`let x = p.A;`), as rustc does:
             // only operands of a larger expression go through a temporary.
             ExprKind::Field(..) | ExprKind::Deref(_) => {
@@ -621,7 +634,11 @@ impl<'a> Builder<'a> {
                         self.assign(dest.clone(), Rvalue::Use(op), span);
                     }
                     DefKind::Struct => {
-                        self.assign(dest.clone(), Rvalue::Aggregate(def, Vec::new()), span);
+                        self.assign(
+                            dest.clone(),
+                            Rvalue::Aggregate(AggregateKind::Adt(def), Vec::new()),
+                            span,
+                        );
                     }
                     DefKind::Fn => unreachable!("function items as values are rejected"),
                 },
@@ -738,12 +755,92 @@ impl<'a> Builder<'a> {
                     .into_iter()
                     .map(|op| op.expect("every field is initialised in a checked body"))
                     .collect();
-                self.assign(dest.clone(), Rvalue::Aggregate(def, operands), span);
+                self.assign(
+                    dest.clone(),
+                    Rvalue::Aggregate(AggregateKind::Adt(def), operands),
+                    span,
+                );
             }
             ExprKind::MethodCall { .. } | ExprKind::Index(..) => {
                 unreachable!("method calls and indexing are rejected by the type checker")
             }
         }
+    }
+
+    /// `(a, b, ...)` into `dest`. Elements run left to right; at a coercion site each is
+    /// coerced to its element type (a `&mut` place is reborrowed), elsewhere a `&mut` place
+    /// element is moved, as in rustc. In a `let` initialiser (`extending`), the operand of
+    /// an element `&<rvalue>` lives as long as the binding, and so on into nested tuples
+    /// (rustc's temporary lifetime extension: `let p = (&f(), 1);` keeps `f()`'s value).
+    fn tuple_into(&mut self, dest: &Place, expr: &Expr, extending: bool) {
+        let span = self.span_of(expr);
+        let ExprKind::Tuple(elems) = &strip_parens(expr).kind else {
+            unreachable!("not a tuple expression")
+        };
+        let Ty::Tuple(elem_tys) = self.ty(expr).clone() else {
+            unreachable!("a tuple expression has a tuple type in a checked body")
+        };
+        let coerced = self
+            .types
+            .coerced_tuples
+            .contains(&strip_parens(expr).id);
+        let operands = elems
+            .iter()
+            .zip(elem_tys.iter())
+            .map(|(e, ty)| {
+                if extending {
+                    if let Some(op) = self.extended_operand(e) {
+                        return op;
+                    }
+                }
+                if coerced {
+                    self.coerced_operand(e, Some(ty))
+                } else {
+                    self.as_operand(e)
+                }
+            })
+            .collect();
+        self.assign(
+            dest.clone(),
+            Rvalue::Aggregate(AggregateKind::Tuple, operands),
+            span,
+        );
+    }
+
+    /// An operand of a `let` initialiser whose temporary rustc extends to the binding's
+    /// block: `&<rvalue>` (the rvalue goes into a block-scoped temporary) or a tuple
+    /// holding one. `None` for anything else, which is lowered as usual.
+    fn extended_operand(&mut self, e: &Expr) -> Option<Operand> {
+        if let Some(temp) = self.extended_ref(e) {
+            return Some(self.place_operand(Place::local(temp)));
+        }
+        if let ExprKind::Tuple(_) = strip_parens(e).kind {
+            let ty = self.ty(e).clone();
+            let temp = self.new_temp(ty, e.span);
+            self.tuple_into(&Place::local(temp), e, true);
+            return Some(self.place_operand(Place::local(temp)));
+        }
+        None
+    }
+
+    /// `&<rvalue>` in a `let` initialiser: evaluates the rvalue into a temporary that lives
+    /// as long as the enclosing block, and returns a statement temporary holding the
+    /// reference to it. `None` when `e` is not such a borrow (or borrows a diverging
+    /// expression, which has nothing to keep).
+    fn extended_ref(&mut self, e: &Expr) -> Option<Local> {
+        let (mutable, inner) =
+            Self::ref_of_temporary(e).filter(|(_, inner)| !self.ty(inner).is_never())?;
+        let ty = self.ty(inner).clone();
+        let referent = self.new_temp_in_block_scope(ty, inner.span);
+        self.expr_into_dest(&Place::local(referent), inner);
+        let ref_ty = self.ty(e).clone();
+        let temp = self.new_temp(ref_ty, e.span);
+        self.assign(
+            Place::local(temp),
+            Rvalue::Ref(Mutability::from_bool(mutable), Place::local(referent)),
+            e.span,
+        );
+        Some(temp)
     }
 
     /// Lowers an expression whose value is not needed (an expression statement). The
@@ -1048,6 +1145,89 @@ impl<'a> Builder<'a> {
         self.pop_scope(block.span);
     }
 
+    /// `let (a, (b, _)) = init;`. A place initialiser is destructured where it is, as in
+    /// rustc: each binding copies or moves its own element out of it, and `_` touches
+    /// nothing (`let (a, _) = t;` leaves `t.1` usable). Any other initialiser is
+    /// evaluated into a temporary first; the referent of `&<rvalue>` lives as long as the
+    /// bindings (temporary lifetime extension, as for `let r = &<rvalue>;`). Without an
+    /// initialiser the bindings are only declared.
+    fn lower_let_tuple(&mut self, pat: &Pat, init: Option<&Expr>) {
+        let Some(init) = init else {
+            self.declare_pattern_locals(pat);
+            return;
+        };
+        let place = if is_place_expr(self.resolve, init) {
+            self.as_place(init)
+        } else if let Some(temp) = self.extended_ref(init) {
+            Place::local(temp)
+        } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
+            let ty = self.ty(init).clone();
+            let temp = self.new_temp(ty, init.span);
+            self.tuple_into(&Place::local(temp), init, true);
+            Place::local(temp)
+        } else {
+            Place::local(self.as_temp(init))
+        };
+        if self.ty(init).is_uninhabited() {
+            // `let (a, b) = return;`: nothing to bind; the code after it is unreachable.
+            self.declare_pattern_locals(pat);
+            return;
+        }
+        self.bind_pattern(pat, place);
+    }
+
+    /// Binds the names of `pat` to the parts of `place`, which holds a value of the
+    /// pattern's type (or a reference to it, for default binding modes).
+    fn bind_pattern(&mut self, pat: &Pat, place: Place) {
+        match &pat.kind {
+            PatKind::Ident { .. } => {
+                let id = self
+                    .resolve
+                    .local_of_pat(pat.id)
+                    .expect("identifier patterns introduce locals");
+                let local = self.declare_user_local(id, pat.span);
+                let rvalue = match self.types.ref_bindings.get(&pat.id) {
+                    Some(&m) => Rvalue::Ref(m, place),
+                    None => Rvalue::Use(self.place_operand(place)),
+                };
+                self.assign(Place::local(local), rvalue, pat.span);
+            }
+            PatKind::Wild => {}
+            PatKind::Tuple(elems) => {
+                let mut place = place;
+                for _ in 0..self.types.pat_derefs.get(&pat.id).copied().unwrap_or(0) {
+                    place = place.deref();
+                }
+                let elem_tys = match place.ty(&self.body) {
+                    Ty::Tuple(tys) => *tys,
+                    _ => Vec::new(),
+                };
+                for (i, (p, ty)) in elems.iter().zip(elem_tys).enumerate() {
+                    self.bind_pattern(p, place.clone().field(i, ty));
+                }
+            }
+        }
+    }
+
+    /// Declares every binding of `pat` without initialising it (`let (a, b);`).
+    fn declare_pattern_locals(&mut self, pat: &Pat) {
+        match &pat.kind {
+            PatKind::Ident { .. } => {
+                let id = self
+                    .resolve
+                    .local_of_pat(pat.id)
+                    .expect("identifier patterns introduce locals");
+                self.declare_user_local(id, pat.span);
+            }
+            PatKind::Wild => {}
+            PatKind::Tuple(elems) => {
+                for p in elems {
+                    self.declare_pattern_locals(p);
+                }
+            }
+        }
+    }
+
     /// Lowers one statement. Temporaries it creates die when it ends.
     fn lower_stmt(&mut self, stmt: &Stmt) {
         self.push_scope();
@@ -1078,6 +1258,9 @@ impl<'a> Builder<'a> {
                                 Rvalue::Ref(Mutability::from_bool(mutable), Place::local(temp)),
                                 init.span,
                             );
+                        } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
+                            // `let p = (&<rvalue>, ..);` extends the rvalue too.
+                            self.tuple_into(&Place::local(local), init, true);
                         } else {
                             self.expr_into_dest(&Place::local(local), init);
                         }
@@ -1088,12 +1271,28 @@ impl<'a> Builder<'a> {
                         self.as_temp(init);
                     }
                 }
+                PatKind::Tuple(_) => self.lower_let_tuple(&l.pat, l.init.as_ref()),
             },
             StmtKind::Expr { expr, .. } => self.lower_expr_discard(expr),
             StmtKind::Empty => {}
         }
         self.pop_scope(stmt.span);
     }
+}
+
+/// Whether `expr` denotes a place (a local, a field of a place, a dereference) rather than
+/// a value to evaluate.
+fn is_place_expr(resolve: &ResolveResults, expr: &Expr) -> bool {
+    match &strip_parens(expr).kind {
+        ExprKind::Path(_) => matches!(resolve.res(strip_parens(expr).id), Res::Local(_)),
+        ExprKind::Field(..) | ExprKind::Deref(_) => true,
+        _ => false,
+    }
+}
+
+/// The span after the parameters' end, for the storage markers of their bindings.
+fn param_span(f: &FnDecl) -> Span {
+    f.params.last().map_or(f.name.span, |p| p.span)
 }
 
 fn strip_parens(mut e: &Expr) -> &Expr {

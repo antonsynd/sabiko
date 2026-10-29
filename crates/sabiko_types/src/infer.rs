@@ -85,6 +85,13 @@ impl InferCtxt {
     pub fn resolve(&mut self, ty: &Ty) -> Ty {
         match ty {
             Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(self.resolve(inner))),
+            Ty::Tuple(elems) => Ty::Tuple(
+                elems
+                    .iter()
+                    .map(|e| self.resolve(e))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
             Ty::Infer(_) => match self.shallow_resolve(ty) {
                 t @ Ty::Infer(_) => t,
                 t => self.resolve(&t),
@@ -99,6 +106,13 @@ impl InferCtxt {
     pub fn resolve_with_defaults(&mut self, ty: &Ty) -> Ty {
         match ty {
             Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(self.resolve_with_defaults(inner))),
+            Ty::Tuple(elems) => Ty::Tuple(
+                elems
+                    .iter()
+                    .map(|e| self.resolve_with_defaults(e))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
             Ty::Infer(_) => match self.shallow_resolve(ty) {
                 Ty::Infer(v) => match self.kind(v) {
                     VarKind::Int => Ty::I32,
@@ -122,6 +136,11 @@ impl InferCtxt {
         match self.shallow_resolve(ty) {
             Ty::Infer(v) => self.bind(v, Ty::Error),
             Ty::Ref(_, inner) => self.bind_error(&inner),
+            Ty::Tuple(elems) => {
+                for e in elems.iter() {
+                    self.bind_error(e);
+                }
+            }
             _ => {}
         }
     }
@@ -132,6 +151,7 @@ impl InferCtxt {
         match self.shallow_resolve(ty) {
             Ty::Infer(w) => self.root(v) == self.root(w),
             Ty::Ref(_, inner) => self.occurs(v, &inner),
+            Ty::Tuple(elems) => elems.iter().any(|e| self.occurs(v, e)),
             _ => false,
         }
     }
@@ -145,6 +165,9 @@ impl InferCtxt {
                 self.kind(v) == VarKind::General && self.occurs(v, &other)
             }
             (Ty::Ref(_, ia), Ty::Ref(_, ib)) => self.is_cyclic(&ia, &ib),
+            (Ty::Tuple(ea), Ty::Tuple(eb)) if ea.len() == eb.len() => {
+                ea.iter().zip(eb.iter()).any(|(a, b)| self.is_cyclic(a, b))
+            }
             _ => false,
         }
     }
@@ -198,6 +221,17 @@ impl InferCtxt {
                     return Err(UnifyError);
                 }
                 self.unify(ia, ib)
+            }
+            // Element by element; a failure may leave earlier elements unified, which only
+            // matters for the diagnostic that follows.
+            (Ty::Tuple(ea), Ty::Tuple(eb)) => {
+                if ea.len() != eb.len() {
+                    return Err(UnifyError);
+                }
+                for (x, y) in ea.iter().zip(eb.iter()) {
+                    self.unify(x, y)?;
+                }
+                Ok(())
             }
             _ if a == b => Ok(()),
             _ => Err(UnifyError),

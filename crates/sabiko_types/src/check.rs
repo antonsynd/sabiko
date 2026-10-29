@@ -5,11 +5,11 @@
 //! unification flows information back up. The only coercions are `!` to anything and
 //! `&mut T` to `&T`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{
-    BinOp, Block, Expr, ExprKind, FnDecl, Lit, NodeId, PatKind, Stmt, StmtKind, Type, TypeKind,
-    UnOp,
+    BinOp, Block, Expr, ExprKind, FnDecl, Lit, NodeId, Pat, PatKind, Stmt, StmtKind, Type,
+    TypeKind, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
@@ -34,6 +34,18 @@ pub struct BodyTypes {
     pub local_types: HashMap<LocalId, Ty>,
     /// Keyed by the `ExprKind::Field` node.
     pub field_accesses: HashMap<NodeId, FieldAccess>,
+    /// How many references a tuple pattern looked through before matching (Rust's default
+    /// binding modes: `let (a, b) = &t;`), keyed by the `PatKind::Tuple` node; absent
+    /// for none.
+    pub pat_derefs: HashMap<NodeId, usize>,
+    /// Identifier patterns that bind a reference to the matched place instead of its
+    /// value (`ref`/`ref mut` by default binding mode), keyed by the `PatKind::Ident`
+    /// node; absent for a by-value binding.
+    pub ref_bindings: HashMap<NodeId, Mutability>,
+    /// Tuple expressions checked against an expected tuple type of their arity: each
+    /// element is a coercion site (a `&mut` place there is reborrowed, not moved), as in
+    /// rustc. Keyed by the `ExprKind::Tuple` node.
+    pub coerced_tuples: HashSet<NodeId>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
 }
@@ -84,6 +96,9 @@ pub(crate) struct FnCtxt<'a> {
     /// Pattern spans of locals, for "type annotations needed".
     local_spans: HashMap<LocalId, Span>,
     field_accesses: HashMap<NodeId, FieldAccess>,
+    pat_derefs: HashMap<NodeId, usize>,
+    ref_bindings: HashMap<NodeId, Mutability>,
+    coerced_tuples: HashSet<NodeId>,
     ret_ty: Ty,
     loops: Vec<LoopCtxt>,
     diverges: bool,
@@ -117,6 +132,9 @@ impl<'a> FnCtxt<'a> {
             local_types: HashMap::new(),
             local_spans: HashMap::new(),
             field_accesses: HashMap::new(),
+            pat_derefs: HashMap::new(),
+            ref_bindings: HashMap::new(),
+            coerced_tuples: HashSet::new(),
             ret_ty,
             loops: Vec::new(),
             diverges: false,
@@ -133,10 +151,7 @@ impl<'a> FnCtxt<'a> {
     pub(crate) fn check_fn(mut self, f: &FnDecl, def: DefId) -> BodyTypes {
         let sig = self.items.fn_sig(def);
         for (p, ty) in f.params.iter().zip(sig.inputs.clone()) {
-            if let Some(local) = self.resolve.local_of_pat(p.pat.id) {
-                self.local_types.insert(local, ty);
-                self.local_spans.insert(local, p.pat.span);
-            }
+            self.check_pat(&p.pat, &ty, None);
         }
         let ret = self.ret_ty.clone();
         self.check_block(&f.body, Some(&ret));
@@ -160,6 +175,14 @@ impl<'a> FnCtxt<'a> {
                 VarKind::General => "_".to_owned(),
             },
             Ty::Ref(m, inner) => format!("&{}{}", m.prefix_str(), self.ty_str(&inner)),
+            Ty::Tuple(elems) => {
+                let parts: Vec<String> = elems.iter().map(|e| self.ty_str(e)).collect();
+                if parts.len() == 1 {
+                    format!("({},)", parts[0])
+                } else {
+                    format!("({})", parts.join(", "))
+                }
+            }
             t => t.display(self.resolve),
         }
     }
@@ -170,10 +193,18 @@ impl<'a> FnCtxt<'a> {
 
     fn mismatch(&mut self, span: Span, expected: &Ty, found: &Ty) {
         let (e, f) = (self.ty_str(expected), self.ty_str(found));
-        self.error(
-            Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
-                .with_label(span, format!("expected `{e}`, found `{f}`")),
-        );
+        let mut d = Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+            .with_label(span, format!("expected `{e}`, found `{f}`"));
+        if let (Ty::Tuple(ee), Ty::Tuple(fe)) = (self.shallow(expected), self.shallow(found)) {
+            if ee.len() != fe.len() {
+                d = d.with_note(format!(
+                    "expected a tuple with {}, found one with {}",
+                    elements(ee.len()),
+                    elements(fe.len())
+                ));
+            }
+        }
+        self.error(d);
     }
 
     fn unsupported(&mut self, what: &str, span: Span, phase: &str) {
@@ -242,6 +273,13 @@ impl<'a> FnCtxt<'a> {
                 let inner = self.lower_type_unchecked(inner);
                 Ty::Ref(Mutability::from_bool(*mutable), Box::new(inner))
             }
+            TypeKind::Tuple(elems) => Ty::Tuple(
+                elems
+                    .iter()
+                    .map(|t| self.lower_type_unchecked(t))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
             _ => collect::lower_sig_type(ty, self.resolve),
         }
     }
@@ -305,14 +343,8 @@ impl<'a> FnCtxt<'a> {
                     }
                     (None, None) => self.infer.new_var(VarKind::General),
                 };
-                if let PatKind::Ident { .. } = l.pat.kind {
-                    let local = self
-                        .resolve
-                        .local_of_pat(l.pat.id)
-                        .expect("identifier patterns introduce locals");
-                    self.local_types.insert(local, ty);
-                    self.local_spans.insert(local, l.pat.span);
-                }
+                let init_span = l.init.as_ref().map(|e| e.span);
+                self.check_pat(&l.pat, &ty, init_span);
             }
             StmtKind::Expr { expr, semi } => {
                 if *semi {
@@ -349,6 +381,7 @@ impl<'a> FnCtxt<'a> {
         match &expr.kind {
             ExprKind::Lit(lit) => self.check_lit(lit, expr.span, expected),
             ExprKind::Unit => Ty::Unit,
+            ExprKind::Tuple(elems) => self.check_tuple(expr.id, elems, expected),
             ExprKind::Path(_) => self.check_path(expr, false),
             ExprKind::Paren(inner) => self.check_expr(inner, expected),
             ExprKind::Unary(op, operand) => self.check_unary(*op, operand, expected),
@@ -545,6 +578,139 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// `(a, b, ...)`. With an expected tuple type of the same arity, each element is
+    /// checked (and coerced) against its expected element type, which becomes the
+    /// element's type, so the tuple as a whole matches the expectation (rustc's
+    /// expectation flows into tuple elements the same way). An element that diverges
+    /// without an expectation gets a fresh variable that falls back to `()`, as a
+    /// diverging `let` initialiser does: `!` itself never becomes an element type.
+    fn check_tuple(&mut self, id: NodeId, elems: &[Expr], expected: Option<&Ty>) -> Ty {
+        let expected_elems = match expected.map(|e| self.shallow(e)) {
+            Some(Ty::Tuple(tys)) if tys.len() == elems.len() => Some(tys),
+            _ => None,
+        };
+        if expected_elems.is_some() {
+            self.coerced_tuples.insert(id);
+        }
+        let mut tys = Vec::with_capacity(elems.len());
+        for (i, e) in elems.iter().enumerate() {
+            let exp = expected_elems.as_ref().map(|tys| tys[i].clone());
+            let found = self.check_expr(e, exp.as_ref());
+            let ty = match exp {
+                Some(exp) => exp,
+                None if self.shallow(&found).is_never() => {
+                    let v = self.infer.new_var(VarKind::General);
+                    self.diverging_vars.push(v.clone());
+                    v
+                }
+                None => found,
+            };
+            tys.push(ty);
+        }
+        Ty::Tuple(tys.into())
+    }
+
+    /// Checks a binding pattern against the type of the value it binds, recording the
+    /// type of every local it introduces. `init_span` points at the initialiser, for
+    /// diagnostics. A tuple pattern matched against a reference to a tuple looks through
+    /// the reference and binds references to the elements (Rust 2021's default binding
+    /// modes: `let (a, b) = &t;` gives `a: &A`); a `mut x` binding in that mode binds by
+    /// value again, as in Rust 2021.
+    fn check_pat(&mut self, pat: &Pat, ty: &Ty, init_span: Option<Span>) {
+        self.check_pat_in_mode(pat, ty, None, init_span);
+    }
+
+    fn check_pat_in_mode(
+        &mut self,
+        pat: &Pat,
+        ty: &Ty,
+        by_ref: Option<Mutability>,
+        init_span: Option<Span>,
+    ) {
+        match &pat.kind {
+            PatKind::Ident { mutable, .. } => {
+                let Some(local) = self.resolve.local_of_pat(pat.id) else {
+                    return;
+                };
+                let binding_ty = match by_ref {
+                    Some(m) if !mutable => {
+                        self.ref_bindings.insert(pat.id, m);
+                        Ty::Ref(m, Box::new(ty.clone()))
+                    }
+                    _ => ty.clone(),
+                };
+                self.local_types.insert(local, binding_ty);
+                self.local_spans.insert(local, pat.span);
+            }
+            PatKind::Wild => {}
+            PatKind::Tuple(elems) => {
+                let mut ty = self.shallow(ty);
+                let mut by_ref = by_ref;
+                let mut derefs = 0;
+                while let Ty::Ref(m, inner) = ty {
+                    // `&mut` keeps `ref mut` unless an outer `&` already made it `ref`.
+                    by_ref = Some(match by_ref {
+                        Some(Mutability::Not) => Mutability::Not,
+                        _ => m,
+                    });
+                    derefs += 1;
+                    ty = self.shallow(&inner);
+                }
+                if derefs > 0 {
+                    self.pat_derefs.insert(pat.id, derefs);
+                }
+                let elem_tys = match ty {
+                    Ty::Tuple(tys) if tys.len() == elems.len() => *tys,
+                    Ty::Unit if elems.is_empty() => Vec::new(),
+                    Ty::Error => vec![Ty::Error; elems.len()],
+                    Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                        let tys: Vec<Ty> = elems
+                            .iter()
+                            .map(|_| self.infer.new_var(VarKind::General))
+                            .collect();
+                        let tuple = if tys.is_empty() {
+                            Ty::Unit
+                        } else {
+                            Ty::Tuple(tys.clone().into())
+                        };
+                        let _ = self.infer.unify(&Ty::Infer(v), &tuple);
+                        tys
+                    }
+                    other => {
+                        self.pat_mismatch(pat, elems.len(), &other, init_span);
+                        vec![Ty::Error; elems.len()]
+                    }
+                };
+                for (p, t) in elems.iter().zip(&elem_tys) {
+                    self.check_pat_in_mode(p, t, by_ref, init_span);
+                }
+            }
+        }
+    }
+
+    /// A tuple pattern of `arity` elements against a value of type `found`.
+    fn pat_mismatch(&mut self, pat: &Pat, arity: usize, found: &Ty, init_span: Option<Span>) {
+        let f = self.ty_str(found);
+        let pat_ty = if arity == 0 {
+            "`()`".to_owned()
+        } else {
+            format!("a tuple with {}", elements(arity))
+        };
+        let mut d = Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+            .with_label(pat.span, format!("expected `{f}`, found {pat_ty}"));
+        if let Ty::Tuple(tys) = found {
+            d = d.with_note(format!(
+                "expected a tuple with {}, found one with {}",
+                elements(tys.len()),
+                elements(arity)
+            ));
+        }
+        if let Some(span) = init_span {
+            d = d.with_label(span, format!("this expression has type `{f}`"));
+        }
+        self.error(d);
+    }
+
     fn check_lit(&mut self, lit: &Lit, span: Span, expected: Option<&Ty>) -> Ty {
         match lit {
             Lit::Int { value, suffix } => {
@@ -721,8 +887,13 @@ impl<'a> FnCtxt<'a> {
                     self.check_ref_comparison(op, &l, rhs, span);
                     return Ty::BOOL;
                 }
+                let errors_before = self.sink.error_count();
                 self.check_expr(rhs, Some(&l));
                 let resolved = self.shallow(&l);
+                if matches!(resolved, Ty::Tuple(_)) && self.sink.error_count() > errors_before {
+                    // `(1, 2) == (1, 2, 3)`: the mismatch is the problem worth reporting.
+                    return Ty::BOOL;
+                }
                 if let Ty::Infer(v) = resolved {
                     if self.infer.kind(v) == VarKind::General {
                         // Judged once the variable is known (`finish`).
@@ -888,6 +1059,25 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn binary_op_error(&mut self, op: BinOp, ty: &Ty, span: Span) {
+        let mut referent = self.shallow(ty);
+        while let Ty::Ref(_, inner) = referent {
+            referent = self.shallow(&inner);
+        }
+        if op.is_comparison() && matches!(referent, Ty::Tuple(_)) {
+            // Valid Rust (tuples of comparable elements are `PartialEq`/`PartialOrd`), but
+            // the comparison traits arrive in Phase 6, as for structs.
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::UNSUPPORTED_SYNTAX,
+                    "not yet supported: comparing tuples",
+                )
+                .with_label(span, format!("`{}` on tuples is not yet supported", op.as_str()))
+                .with_note(
+                    "tuple comparison arrives with the comparison traits in Phase 6; see docs/PLAN.md. Compare the elements one by one instead",
+                ),
+            );
+            return;
+        }
         let s = self.ty_str(ty);
         self.error(
             Diagnostic::error(
@@ -907,6 +1097,23 @@ impl<'a> FnCtxt<'a> {
     /// Checks an assignment target and returns its type.
     fn check_place(&mut self, expr: &Expr) -> Ty {
         let target = strip_parens(expr);
+        if let ExprKind::Tuple(elems) = &target.kind {
+            // `(a, b) = (b, a)` is valid Rust (destructuring assignment) but not Sabiko yet.
+            for e in elems {
+                self.check_expr(e, None);
+            }
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::UNSUPPORTED_SYNTAX,
+                    "not yet supported: destructuring assignment",
+                )
+                .with_label(expr.span, "a tuple on the left of `=` is not yet supported")
+                .with_note(
+                    "assign each element (`t.0 = ...`), or bind new names with `let (a, b) = ...;`",
+                ),
+            );
+            return self.record(expr, Ty::Error);
+        }
         let is_place = match &target.kind {
             ExprKind::Path(_) => matches!(self.resolve.res(target.id), Res::Local(_) | Res::Err),
             ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => true,
@@ -1028,10 +1235,7 @@ impl<'a> FnCtxt<'a> {
         for arg in args {
             let ty = self.check_expr(arg, None);
             let ty = self.infer.resolve(&ty);
-            let known = match &ty {
-                Ty::Infer(v) => self.infer.kind(*v) != VarKind::General,
-                other => !other.has_infer(),
-            };
+            let known = self.has_no_general_var(&ty);
             if !known {
                 self.error(
                     Diagnostic::error(
@@ -1070,6 +1274,17 @@ impl<'a> FnCtxt<'a> {
         Ty::Unit
     }
 
+    /// Whether `ty` (resolved) holds no general inference variable: literal variables
+    /// (`{integer}`, `{float}`) count as known.
+    fn has_no_general_var(&mut self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Infer(v) => self.infer.kind(*v) != VarKind::General,
+            Ty::Ref(_, inner) => self.has_no_general_var(inner),
+            Ty::Tuple(elems) => elems.iter().all(|e| self.has_no_general_var(e)),
+            _ => true,
+        }
+    }
+
     fn check_field(&mut self, expr: &Expr, base_ty: &Ty, name: &str, name_span: Span) -> Ty {
         let mut ty = self.shallow(base_ty);
         let mut autoderefs = 0;
@@ -1087,10 +1302,11 @@ impl<'a> FnCtxt<'a> {
                 }
                 let available: Vec<String> =
                     adt.fields.iter().map(|f| format!("`{}`", f.name)).collect();
-                let adt_name = adt.name.clone();
+                // The type as written, references included (`&P`), as rustc reports it.
+                let shown = self.ty_str(base_ty);
                 let mut d = Diagnostic::error(
                     ErrorCode::UNKNOWN_FIELD,
-                    format!("no field `{name}` on type `{adt_name}`"),
+                    format!("no field `{name}` on type `{shown}`"),
                 )
                 .with_label(name_span, "unknown field");
                 if !available.is_empty() {
@@ -1099,11 +1315,38 @@ impl<'a> FnCtxt<'a> {
                 self.error(d);
                 Ty::Error
             }
+            Ty::Tuple(elems) => {
+                // Only a plain decimal index names an element: `t.01` and `t.0x1` do not.
+                let index = name
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|i| i.to_string() == name && *i < elems.len());
+                if let Some(index) = index {
+                    self.field_accesses
+                        .insert(expr.id, FieldAccess { index, autoderefs });
+                    return elems[index].clone();
+                }
+                let s = self.ty_str(base_ty);
+                let n = elems.len();
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::UNKNOWN_FIELD,
+                        format!("no field `{name}` on type `{s}`"),
+                    )
+                    .with_label(name_span, "unknown field")
+                    .with_note(format!(
+                        "the tuple has {}, `.0` to `.{}`",
+                        elements(n),
+                        n - 1
+                    )),
+                );
+                Ty::Error
+            }
             Ty::Error => Ty::Error,
             // `!` has no fields (rustc's E0609); `loop {}.Y` must not reach MIR building
             // without a recorded field access.
-            other => {
-                let s = self.ty_str(&other);
+            _ => {
+                let s = self.ty_str(base_ty);
                 self.error(
                     Diagnostic::error(
                         ErrorCode::UNKNOWN_FIELD,
@@ -1402,6 +1645,9 @@ impl<'a> FnCtxt<'a> {
             expr_types,
             local_types,
             field_accesses: self.field_accesses,
+            pat_derefs: self.pat_derefs,
+            ref_bindings: self.ref_bindings,
+            coerced_tuples: self.coerced_tuples,
             has_errors,
         }
     }
@@ -1511,6 +1757,15 @@ fn strip_parens(mut e: &Expr) -> &Expr {
         e = inner;
     }
     e
+}
+
+/// `1 element`, `3 elements`.
+fn elements(n: usize) -> String {
+    if n == 1 {
+        "1 element".to_owned()
+    } else {
+        format!("{n} elements")
+    }
 }
 
 pub(crate) fn int_suffix_prim(s: sabiko_ast::IntSuffix) -> PrimTy {

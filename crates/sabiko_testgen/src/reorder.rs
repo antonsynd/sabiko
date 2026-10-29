@@ -298,9 +298,16 @@ impl FnCx<'_, '_> {
         let mut s = Summary::default();
         match &stmt.kind {
             StmtKind::Let(l) => {
-                if let PatKind::Ident { .. } = l.pat.kind {
-                    if let Some(local) = self.resolve.local_of_pat(l.pat.id) {
-                        self.local(local, Mode::Write, &mut s);
+                let mut pats = vec![&l.pat];
+                while let Some(pat) = pats.pop() {
+                    match &pat.kind {
+                        PatKind::Ident { .. } => {
+                            if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                                self.local(local, Mode::Write, &mut s);
+                            }
+                        }
+                        PatKind::Tuple(elems) => pats.extend(elems),
+                        PatKind::Wild => {}
                     }
                 }
                 if let Some(init) = &l.init {
@@ -395,6 +402,11 @@ impl FnCx<'_, '_> {
                     self.expr(&f.value, Mode::Read, s);
                 }
             }
+            ExprKind::Tuple(elems) => {
+                for e in elems {
+                    self.expr(e, Mode::Read, s);
+                }
+            }
             // A branch inside an expression stays inside the statement; its blocks may
             // only hold a value.
             ExprKind::If { cond, then, els } => {
@@ -442,6 +454,11 @@ enum Child<'e> {
 fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
     match &e.kind {
         ExprKind::Lit(_) | ExprKind::Path(_) | ExprKind::Unit | ExprKind::Continue => {}
+        ExprKind::Tuple(elems) => {
+            for e in elems {
+                f(Child::Expr(e));
+            }
+        }
         ExprKind::Paren(x)
         | ExprKind::Unary(_, x)
         | ExprKind::Field(x, _)

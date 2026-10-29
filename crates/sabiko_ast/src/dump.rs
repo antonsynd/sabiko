@@ -134,6 +134,14 @@ impl Dumper {
                 self.nested(|d| d.ty(inner));
             }
             TypeKind::Unit => self.line("Type ()"),
+            TypeKind::Tuple(elems) => {
+                self.line("TupleType");
+                self.nested(|d| {
+                    for t in elems {
+                        d.ty(t);
+                    }
+                });
+            }
             TypeKind::Infer => self.line("Type _"),
         }
     }
@@ -148,6 +156,14 @@ impl Dumper {
                 ));
             }
             PatKind::Wild => self.line("Pat _"),
+            PatKind::Tuple(elems) => {
+                self.line("TuplePat");
+                self.nested(|d| {
+                    for p in elems {
+                        d.pat(p);
+                    }
+                });
+            }
         }
     }
 
@@ -205,6 +221,14 @@ impl Dumper {
             ExprKind::Lit(l) => self.line(&format!("Lit {}", lit_str(l))),
             ExprKind::Path(p) => self.line(&format!("Path {}", path_str(p))),
             ExprKind::Unit => self.line("Unit"),
+            ExprKind::Tuple(elems) => {
+                self.line("Tuple");
+                self.nested(|d| {
+                    for e in elems {
+                        d.expr(e);
+                    }
+                });
+            }
             ExprKind::Paren(e) => {
                 self.line("Paren");
                 self.nested(|d| d.expr(e));

@@ -326,15 +326,9 @@ impl Parser<'_, '_> {
                 TokenKind::Dot => {
                     self.descend()?;
                     self.bump();
-                    // `t.0.1` lexes as a float literal `0.1`; report it as the tuple access
-                    // it is meant to be.
                     if matches!(self.peek_kind(), TokenKind::Int | TokenKind::Float) {
-                        let span = self.peek().span;
-                        return Err(self.error_unsupported(
-                            "tuple field access (`.0`)",
-                            span,
-                            "planned for Phase 5",
-                        ));
+                        e = self.parse_tuple_index(e, start)?;
+                        continue;
                     }
                     let name = self.parse_ident()?;
                     if self.at(TokenKind::PathSep) {
@@ -370,6 +364,74 @@ impl Parser<'_, '_> {
                 _ => return Ok(e),
             }
         }
+    }
+
+    /// `base.0` after the `.`: a tuple field index. The index is kept as written (`01` and
+    /// `0x1` name no field; the type checker says so, as rustc does), but a suffix is a
+    /// syntax error. `t.0.1` lexes as `t`, `.`, `0.1`: the float literal is split into two
+    /// field accesses, as rustc does.
+    fn parse_tuple_index(&mut self, base: Expr, start: Span) -> PResult<Expr> {
+        let tok = self.bump();
+        let text = self.text(tok);
+        let bad_suffix = |s: &str| {
+            s.find(|c: char| c.is_ascii_alphabetic())
+                .filter(|_| !s.starts_with("0x") && !s.starts_with("0o") && !s.starts_with("0b"))
+        };
+        let pieces: Vec<&str> = if tok.kind == TokenKind::Float {
+            text.split('.').collect()
+        } else {
+            vec![text]
+        };
+        let well_formed = pieces.len() <= 2
+            && pieces.iter().all(|p| !p.is_empty())
+            && pieces.iter().all(|p| bad_suffix(p).is_none())
+            && (tok.kind == TokenKind::Int
+                || pieces
+                    .iter()
+                    .all(|p| p.chars().all(|c| c.is_ascii_digit() || c == '_')));
+        if !well_formed {
+            let suffix = pieces
+                .iter()
+                .find_map(|p| bad_suffix(p).map(|at| &p[at..]))
+                .filter(|_| tok.kind == TokenKind::Int || !text.contains(['e', 'E']));
+            let d = match suffix {
+                Some(suffix) => Diagnostic::error(
+                    ErrorCode::UNEXPECTED_TOKEN,
+                    "suffixes on a tuple index are invalid",
+                )
+                .with_label(tok.span, format!("invalid suffix `{suffix}`")),
+                None => Diagnostic::error(
+                    ErrorCode::UNEXPECTED_TOKEN,
+                    format!("invalid tuple index `{text}`"),
+                )
+                .with_label(
+                    tok.span,
+                    "expected an unsuffixed decimal integer, as in `t.0`",
+                ),
+            };
+            return Err(self.emit_at(d, tok.span));
+        }
+        let mut e = base;
+        let mut offset = tok.span.start;
+        for (i, piece) in pieces.iter().enumerate() {
+            if i > 0 {
+                // The second index of `t.0.1` is one more level of nesting.
+                self.descend()?;
+            }
+            let len = u32::try_from(piece.len()).expect("token fits in u32");
+            let name = sabiko_ast::Ident {
+                name: (*piece).to_owned(),
+                span: Span::new(self.file, offset, offset + len),
+            };
+            offset += len + 1;
+            let id = self.new_id();
+            e = Expr {
+                id,
+                kind: ExprKind::Field(Box::new(e), name.clone()),
+                span: start.to(name.span),
+            };
+        }
+        Ok(e)
     }
 
     /// Parses `args)` after the opening parenthesis has been consumed.
@@ -427,20 +489,14 @@ impl Parser<'_, '_> {
                 if self.eat(TokenKind::RParen).is_some() {
                     return Ok(self.mk(ExprKind::Unit, start));
                 }
-                let inner = self.in_delimited(TokenKind::RParen, |p| {
-                    let inner = p.parse_expr()?;
-                    if p.at(TokenKind::Comma) {
-                        let span = p.peek().span;
-                        return Err(p.error_unsupported(
-                            "tuple expressions",
-                            span,
-                            "planned for Phase 5",
-                        ));
-                    }
-                    p.expect(TokenKind::RParen)?;
-                    Ok(inner)
+                let (mut elems, trailing_comma) = self.in_delimited(TokenKind::RParen, |p| {
+                    p.parse_comma_list(TokenKind::RParen, Self::parse_expr)
                 })?;
-                Ok(self.mk(ExprKind::Paren(Box::new(inner)), start))
+                if elems.len() == 1 && !trailing_comma {
+                    let inner = elems.pop().expect("one element");
+                    return Ok(self.mk(ExprKind::Paren(Box::new(inner)), start));
+                }
+                Ok(self.mk(ExprKind::Tuple(elems), start))
             }
             TokenKind::LBrace => {
                 let block = self.parse_block()?;

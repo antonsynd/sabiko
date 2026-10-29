@@ -7,8 +7,9 @@
 use sabiko_borrowck::{check_all, check_body, describe_place};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
-    BasicBlock, BasicBlockData, BinOp, Body, ConstValue, Constant, Local, LocalDecl, LocalKind,
-    Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty,
+    AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, ConstValue, Constant, Local, LocalDecl,
+    LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
+    TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, LocalId, ResolveResults};
 use sabiko_span::{FileId, Span};
@@ -277,7 +278,7 @@ fn local(l: Local) -> Place {
 }
 
 fn point_aggregate(fx: &Fixture) -> Rvalue {
-    Rvalue::Aggregate(fx.point, vec![int(1), int(2)])
+    Rvalue::Aggregate(AggregateKind::Adt(fx.point), vec![int(1), int(2)])
 }
 
 // ----------------------------------------------------------------------------------------

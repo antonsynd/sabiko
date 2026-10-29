@@ -103,10 +103,16 @@ fn methods(il: &str) -> Vec<(String, Vec<&str>)> {
             if let Some(m) = current.take() {
                 out.push(m);
             }
-            // `... 'Name'(params) cil managed`: the quoted name right before `(`.
-            let end = t.find("'(").expect("method name");
-            let start = t[..end].rfind('\'').expect("quoted method name") + 1;
-            current = Some((t[start..end].to_owned(), Vec::new()));
+            // `... 'Name'(params) cil managed`: the quoted name right before `(`; the
+            // constructor of a generated tuple type is `.ctor`.
+            let name = if let Some(end) = t.find("'(") {
+                let start = t[..end].rfind('\'').expect("quoted method name") + 1;
+                t[start..end].to_owned()
+            } else {
+                assert!(t.contains(" .ctor("), "unquoted method name in `{t}`");
+                ".ctor".to_owned()
+            };
+            current = Some((name, Vec::new()));
         } else if let Some((_, lines)) = &mut current {
             lines.push(t);
         }

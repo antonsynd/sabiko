@@ -18,6 +18,21 @@ pub(crate) const UINT128_CLASS: &str = "[System.Runtime]System.UInt128";
 pub(crate) const INT128: &str = "valuetype [System.Runtime]System.Int128";
 pub(crate) const UINT128: &str = "valuetype [System.Runtime]System.UInt128";
 
+/// `Sabiko.Runtime.Unit`, the storage of a `()` value where one is needed: a parameter,
+/// a struct field, a tuple element (decision 52). `-> ()` stays `void`, and locals of type
+/// `()` still get no storage (decision 32).
+pub(crate) const UNIT: &str = "valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit";
+
+/// `System.ValueTuple`, the lowering of a tuple without references (decision 52).
+const VALUE_TUPLE: &str = "[System.Runtime]System.ValueTuple";
+
+/// `System.ValueTuple` holds this many elements directly; an eighth goes into `Rest`, a
+/// nested tuple of the remaining elements.
+pub(crate) const VALUE_TUPLE_DIRECT: usize = 7;
+
+/// The custom attribute that makes a value type a `ref struct`.
+pub(crate) const IS_BYREF_LIKE_ATTR: &str = ".custom instance void [System.Runtime]System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor() = ( 01 00 00 00 )";
+
 /// The `modreq` that marks a managed pointer as read-only (`in` in C#).
 pub(crate) const IN_MODREQ: &str =
     "modreq([System.Runtime]System.Runtime.InteropServices.InAttribute)";
@@ -121,8 +136,10 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             }
             _ => format!("{}&", cil_type(cx, inner, span)),
         },
-        Ty::Unit | Ty::Never => {
-            cx.unsupported("a value of type `()` here", span);
+        Ty::Unit => UNIT.to_owned(),
+        Ty::Tuple(elems) => tuple_type(cx, ty, elems, span),
+        Ty::Never => {
+            cx.unsupported("a value of type `!` here", span);
             "int32".to_owned()
         }
         Ty::FnDef(_) | Ty::Infer(_) | Ty::Error => {
@@ -132,15 +149,59 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
     }
 }
 
-/// The CIL type as it appears in a method signature (definition and call sites alike):
-/// shared references carry the `in` modreq; `()`/`!` returns are `void`.
-pub(crate) fn sig_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
+/// The CIL type of a tuple: `System.ValueTuple` (nesting the elements past the seventh
+/// in `Rest`, as C# does) unless an element is or contains a reference, which no generic
+/// argument can be; such a tuple is a `ref struct` generated into the module
+/// ([`Cx::byref_tuple`]).
+fn tuple_type(cx: &mut Cx<'_>, ty: &Ty, elems: &[Ty], span: Span) -> String {
+    if ty.has_ref() {
+        return format!("valuetype {}", quote(&cx.byref_tuple(ty, span)));
+    }
+    value_tuple_type(cx, elems, span)
+}
+
+/// The `System.ValueTuple` instantiation (``ValueTuple`2<int32, bool>``, written with its
+/// `valuetype` prefix) for the elements of a tuple without references; the same text names
+/// the class in member references.
+pub(crate) fn value_tuple_type(cx: &mut Cx<'_>, elems: &[Ty], span: Span) -> String {
+    let direct = elems.len().min(VALUE_TUPLE_DIRECT);
+    let mut args: Vec<String> = elems[..direct]
+        .iter()
+        .map(|e| cil_type(cx, e, span))
+        .collect();
+    let arity = if elems.len() > VALUE_TUPLE_DIRECT {
+        let rest = Ty::Tuple(elems[VALUE_TUPLE_DIRECT..].to_vec().into());
+        args.push(cil_type(cx, &rest, span));
+        VALUE_TUPLE_DIRECT + 1
+    } else {
+        direct
+    };
+    format!("valuetype {VALUE_TUPLE}`{arity}<{}>", args.join(", "))
+}
+
+/// Whether a tuple type is lowered to a generated `ref struct` rather than a
+/// `System.ValueTuple`.
+pub(crate) fn is_byref_tuple(ty: &Ty) -> bool {
+    matches!(ty, Ty::Tuple(_)) && ty.has_ref()
+}
+
+/// The CIL type of a parameter in a method signature (definition and call sites alike):
+/// shared references carry the `in` modreq; a `()` parameter is a `Sabiko.Runtime.Unit`.
+pub(crate) fn param_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
     match ty {
-        Ty::Unit | Ty::Never => "void".to_owned(),
         Ty::Ref(m, inner) if !m.is_mut() && !is_str(inner) => {
             format!("{} {IN_MODREQ}", cil_type(cx, ty, span))
         }
         _ => cil_type(cx, ty, span),
+    }
+}
+
+/// The CIL return type in a method signature: like [`param_type`], but `()` and `!`
+/// returns are `void`.
+pub(crate) fn ret_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
+    match ty {
+        Ty::Unit | Ty::Never => "void".to_owned(),
+        _ => param_type(cx, ty, span),
     }
 }
 

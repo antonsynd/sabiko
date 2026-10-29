@@ -48,6 +48,7 @@ impl ErrorCode {
     pub const RECURSIVE_TYPE: Self = Self(206);
     pub const PLACEHOLDER_IN_SIGNATURE: Self = Self(207);
     pub const UNSIZED_TYPE: Self = Self(208);
+    pub const DUPLICATE_BINDING: Self = Self(209);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);

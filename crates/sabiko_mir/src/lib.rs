@@ -204,8 +204,9 @@ impl Place {
 pub enum PlaceElem {
     /// `*place`; the base must have a reference type.
     Deref,
-    /// `.field`; the base must be a struct. The field's type is recorded so places can be
-    /// typed without consulting item tables.
+    /// `.field`; the base must be a struct or a tuple (whose elements are numbered from
+    /// 0). The field's type is recorded so places can be typed without consulting item
+    /// tables.
     Field(usize, Ty),
 }
 
@@ -256,8 +257,18 @@ pub enum Rvalue {
     BinaryOp(BinOp, Operand, Operand),
     /// `operand as ty`, primitive casts only.
     Cast(Operand, Ty),
-    /// A struct value from its fields, in declaration order.
-    Aggregate(DefId, Vec<Operand>),
+    /// A struct value from its fields, in declaration order, or a tuple from its elements.
+    Aggregate(AggregateKind, Vec<Operand>),
+}
+
+/// What an [`Rvalue::Aggregate`] builds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AggregateKind {
+    /// A struct (a unit struct has no operands).
+    Adt(DefId),
+    /// A tuple of at least one element; its type is the tuple of the operands' types
+    /// (`()` is a constant, never an aggregate).
+    Tuple,
 }
 
 impl Rvalue {
@@ -275,7 +286,10 @@ impl Rvalue {
                 }
             }
             Rvalue::Cast(_, ty) => ty.clone(),
-            Rvalue::Aggregate(def, _) => Ty::Adt(*def),
+            Rvalue::Aggregate(AggregateKind::Adt(def), _) => Ty::Adt(*def),
+            Rvalue::Aggregate(AggregateKind::Tuple, ops) => {
+                Ty::Tuple(ops.iter().map(|op| op.ty(body)).collect::<Vec<_>>().into())
+            }
         }
     }
 }
