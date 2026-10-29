@@ -1,0 +1,13 @@
+// After moving a non-Copy field out of `p`, `p` cannot be passed as a by-value `self`.
+struct Q { N: i32 }
+struct P { Inner: Q, X: i32 }
+
+impl P {
+    fn Consume(self) -> i32 { self.X }
+}
+
+fn Main() {
+    let p = P { Inner: Q { N: 1 }, X: 2 };
+    let q = p.Inner;
+    let n = p.Consume();
+}

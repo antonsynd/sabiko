@@ -33,8 +33,8 @@ use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
-    AggregateKind, BasicBlock, BasicBlockData, Body, Constant, Local, LocalDecl, LocalKind,
-    Operand, Place, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
+    AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, Constant, Local, LocalDecl,
+    LocalKind, Operand, Place, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
@@ -50,7 +50,7 @@ pub fn build_bodies(
     _sink: &mut DiagnosticSink,
 ) -> Vec<Body> {
     let mut bodies = Vec::new();
-    for item in &file.items {
+    for item in file.all_items() {
         let ItemKind::Fn(f) = &item.kind else {
             continue;
         };
@@ -120,7 +120,28 @@ impl<'a> Builder<'a> {
             source: None,
         }];
         let mut local_map = HashMap::new();
-        for (param, ty) in f.params.iter().zip(&sig.inputs) {
+        let mut inputs = sig.inputs.iter();
+        if let Some(sp) = &f.self_param {
+            let ty = inputs
+                .next()
+                .expect("a method's signature starts with its receiver");
+            let source = resolve.local_of_pat(sp.id);
+            if let Some(id) = source {
+                local_map.insert(id, Local(1));
+            }
+            locals.push(LocalDecl {
+                ty: ty.clone(),
+                mutability: Mutability::from_bool(matches!(
+                    sp.kind,
+                    sabiko_ast::SelfKind::Value { mutable: true }
+                )),
+                kind: LocalKind::Arg,
+                name: Some("self".to_owned()),
+                span: sp.span,
+                source,
+            });
+        }
+        for (param, ty) in f.params.iter().zip(inputs) {
             let (name, mutability, source) = match &param.pat.kind {
                 PatKind::Ident { mutable, name } => (
                     Some(name.name.clone()),
@@ -147,7 +168,7 @@ impl<'a> Builder<'a> {
             def,
             name: f.name.name.clone(),
             locals,
-            arg_count: f.params.len(),
+            arg_count: f.params.len() + usize::from(f.self_param.is_some()),
             blocks: vec![BasicBlockData::default()],
             span: item.span,
         };
@@ -171,9 +192,10 @@ impl<'a> Builder<'a> {
         // Bindings of tuple-pattern parameters live for the whole body.
         self.push_scope();
         self.push_scope();
+        let first_param = 1 + usize::from(f.self_param.is_some());
         for (i, param) in f.params.iter().enumerate() {
             if let PatKind::Tuple(_) = param.pat.kind {
-                let arg = Local(u32::try_from(i + 1).expect("fewer than 2^32 locals"));
+                let arg = Local(u32::try_from(i + first_param).expect("fewer than 2^32 locals"));
                 self.bind_pattern(&param.pat, Place::local(arg));
             }
         }
@@ -380,8 +402,10 @@ impl<'a> Builder<'a> {
     /// `target` (`None` when there is none, as for `Print`'s argument). Like rustc, a
     /// `&mut T` place is reborrowed instead of moved there, so passing a mutable reference
     /// to a function does not consume it: `&mut *p`, or `&*p` when `target` is `&T` (the
-    /// `&mut T` to `&T` coercion), which leaves other shared borrows of `*p` usable.
-    fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>) -> Operand {
+    /// `&mut T` to `&T` coercion), which leaves other shared borrows of `*p` usable. A
+    /// call argument (`call_arg`) is reborrowed two-phase, as rustc does at that coercion
+    /// site only: `Use(m, m.X)` reads `*m` after the reborrow, before the call.
+    fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>, call_arg: bool) -> Operand {
         let is_place_expr = matches!(
             strip_parens(expr).kind,
             ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
@@ -396,9 +420,15 @@ impl<'a> Builder<'a> {
                 let place = self.as_place(expr);
                 if place.local != Local::RETURN || !place.projection.is_empty() {
                     let temp = self.new_temp(Ty::Ref(mutability, Box::new(referent)), expr.span);
+                    let kind = match mutability {
+                        Mutability::Mut => BorrowKind::Mut {
+                            two_phase: call_arg,
+                        },
+                        Mutability::Not => BorrowKind::Shared,
+                    };
                     self.assign(
                         Place::local(temp),
-                        Rvalue::Ref(mutability, place.deref()),
+                        Rvalue::Ref(kind, place.deref()),
                         expr.span,
                     );
                     return self.place_operand(Place::local(temp));
@@ -677,26 +707,9 @@ impl<'a> Builder<'a> {
                 let args: Vec<Operand> = args
                     .iter()
                     .enumerate()
-                    .map(|(i, a)| self.coerced_operand(a, inputs.get(i)))
+                    .map(|(i, a)| self.coerced_operand(a, inputs.get(i), true))
                     .collect();
-                let next = self.new_block();
-                // A callee returning `!` (`Panic`) has no return edge; what follows lands
-                // in an unreachable block, as after `return`.
-                let target = if self.ty(expr).is_never() {
-                    None
-                } else {
-                    Some(next)
-                };
-                self.terminate(
-                    TerminatorKind::Call {
-                        func,
-                        args,
-                        destination: dest.clone(),
-                        target,
-                    },
-                    span,
-                );
-                self.current = next;
+                self.call_into(dest, expr, func, args, span);
             }
             ExprKind::Ref {
                 mutable,
@@ -711,7 +724,7 @@ impl<'a> Builder<'a> {
                     let place = self.as_place(inner);
                     self.assign(
                         dest.clone(),
-                        Rvalue::Ref(Mutability::from_bool(*mutable), place),
+                        Rvalue::Ref(BorrowKind::new(Mutability::from_bool(*mutable)), place),
                         span,
                     );
                 }
@@ -749,7 +762,8 @@ impl<'a> Builder<'a> {
                     .collect();
                 for (field, index) in fields.iter().zip(indices) {
                     let field_ty = adt.fields[index].ty.clone();
-                    operands[index] = Some(self.coerced_operand(&field.value, Some(&field_ty)));
+                    operands[index] =
+                        Some(self.coerced_operand(&field.value, Some(&field_ty), false));
                 }
                 let operands = operands
                     .into_iter()
@@ -761,10 +775,93 @@ impl<'a> Builder<'a> {
                     span,
                 );
             }
-            ExprKind::MethodCall { .. } | ExprKind::Index(..) => {
-                unreachable!("method calls and indexing are rejected by the type checker")
+            ExprKind::MethodCall { receiver, args, .. } => {
+                self.lower_method_call(dest, expr, receiver, args, span);
             }
+            ExprKind::Index(..) => unreachable!("indexing is rejected by the type checker"),
         }
+    }
+
+    /// Ends the current block with a call of `func` writing into `dest`, and continues
+    /// after it. A callee returning `!` (`Panic`) has no return edge; what follows lands
+    /// in an unreachable block, as after `return`.
+    fn call_into(
+        &mut self,
+        dest: &Place,
+        expr: &Expr,
+        func: DefId,
+        args: Vec<Operand>,
+        span: Span,
+    ) {
+        let next = self.new_block();
+        let target = if self.ty(expr).is_never() {
+            None
+        } else {
+            Some(next)
+        };
+        self.terminate(
+            TerminatorKind::Call {
+                func,
+                args,
+                destination: dest.clone(),
+                target,
+            },
+            span,
+        );
+        self.current = next;
+    }
+
+    /// `receiver.Name(args)`: a call of the method the type checker picked, whose first
+    /// argument is the receiver after its adjustments (decision 53). The receiver is
+    /// evaluated first, then the arguments left to right, as in rustc:
+    /// - an autoref'd receiver is a borrow of the receiver place (of a temporary for any
+    ///   other expression), dereferenced `autoderefs` times. A `&mut` one is two-phase
+    ///   (#15): only reserved here and activated by the call, so the arguments may still
+    ///   read the place (`v.Push(v.Len())`);
+    /// - a by-value receiver is copied or moved into a temporary before the arguments run
+    ///   (decision 36): `c.Plus(Change(&mut c))` passes the old `c`.
+    fn lower_method_call(
+        &mut self,
+        dest: &Place,
+        expr: &Expr,
+        receiver: &Expr,
+        args: &[Expr],
+        span: Span,
+    ) {
+        let callee = self.types.method_calls[&expr.id];
+        let inputs = self.typeck.items.fn_sig(callee.def).inputs.clone();
+        let recv = match callee.autoref {
+            Some(m) => {
+                let mut place = self.as_place(receiver);
+                for _ in 0..callee.autoderefs {
+                    place = place.deref();
+                }
+                let ty = Ty::Ref(m, Box::new(place.ty(&self.body)));
+                let temp = self.new_temp(ty, receiver.span);
+                let kind = match m {
+                    Mutability::Mut => BorrowKind::Mut { two_phase: true },
+                    Mutability::Not => BorrowKind::Shared,
+                };
+                self.assign(Place::local(temp), Rvalue::Ref(kind, place), receiver.span);
+                self.place_operand(Place::local(temp))
+            }
+            None if callee.autoderefs == 0 => self.as_operand(receiver),
+            None => {
+                let mut place = self.as_place(receiver);
+                for _ in 0..callee.autoderefs {
+                    place = place.deref();
+                }
+                let temp = self.new_temp(place.ty(&self.body), receiver.span);
+                let op = self.place_operand(place);
+                self.assign(Place::local(temp), Rvalue::Use(op), receiver.span);
+                self.place_operand(Place::local(temp))
+            }
+        };
+        let mut operands = vec![recv];
+        for (i, a) in args.iter().enumerate() {
+            operands.push(self.coerced_operand(a, inputs.get(i + 1), true));
+        }
+        self.call_into(dest, expr, callee.def, operands, span);
     }
 
     /// `(a, b, ...)` into `dest`. Elements run left to right; at a coercion site each is
@@ -791,7 +888,7 @@ impl<'a> Builder<'a> {
                     }
                 }
                 if coerced {
-                    self.coerced_operand(e, Some(ty))
+                    self.coerced_operand(e, Some(ty), false)
                 } else {
                     self.as_operand(e)
                 }
@@ -834,7 +931,10 @@ impl<'a> Builder<'a> {
         let temp = self.new_temp(ref_ty, e.span);
         self.assign(
             Place::local(temp),
-            Rvalue::Ref(Mutability::from_bool(mutable), Place::local(referent)),
+            Rvalue::Ref(
+                BorrowKind::new(Mutability::from_bool(mutable)),
+                Place::local(referent),
+            ),
             e.span,
         );
         Some(temp)
@@ -925,7 +1025,7 @@ impl<'a> Builder<'a> {
         let temp = self.new_temp(Ty::shared_ref(*referent), expr.span);
         self.assign(
             Place::local(temp),
-            Rvalue::Ref(Mutability::Not, place.deref()),
+            Rvalue::Ref(BorrowKind::Shared, place.deref()),
             expr.span,
         );
         Place::local(temp)
@@ -938,7 +1038,7 @@ impl<'a> Builder<'a> {
         match &expr.kind {
             ExprKind::Assign(lhs, rhs) => {
                 let target = self.ty(lhs).clone();
-                let rhs = self.coerced_operand(rhs, Some(&target));
+                let rhs = self.coerced_operand(rhs, Some(&target), false);
                 let place = self.as_place(lhs);
                 self.assign(place, Rvalue::Use(rhs), span);
             }
@@ -1099,7 +1199,7 @@ impl<'a> Builder<'a> {
         match value {
             Some(value) if self.is_mut_ref_place_expr(value) => {
                 let target = ret.ty(&self.body);
-                let op = self.coerced_operand(value, Some(&target));
+                let op = self.coerced_operand(value, Some(&target), false);
                 self.assign(ret, Rvalue::Use(op), span);
             }
             Some(value) => self.expr_into_dest(&ret, value),
@@ -1184,7 +1284,7 @@ impl<'a> Builder<'a> {
                     .expect("identifier patterns introduce locals");
                 let local = self.declare_user_local(id, pat.span);
                 let rvalue = match self.types.ref_bindings.get(&pat.id) {
-                    Some(&m) => Rvalue::Ref(m, place),
+                    Some(&m) => Rvalue::Ref(BorrowKind::new(m), place),
                     None => Rvalue::Use(self.place_operand(place)),
                 };
                 self.assign(Place::local(local), rvalue, pat.span);
@@ -1240,7 +1340,7 @@ impl<'a> Builder<'a> {
                         if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
                             let target = Place::local(local).ty(&self.body);
-                            let op = self.coerced_operand(init, Some(&target));
+                            let op = self.coerced_operand(init, Some(&target), false);
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
                         } else if let Some((mutable, inner)) = Self::ref_of_temporary(init)
                             .filter(|(_, inner)| !self.ty(inner).is_never())
@@ -1252,7 +1352,10 @@ impl<'a> Builder<'a> {
                             self.expr_into_dest(&Place::local(temp), inner);
                             self.assign(
                                 Place::local(local),
-                                Rvalue::Ref(Mutability::from_bool(mutable), Place::local(temp)),
+                                Rvalue::Ref(
+                                    BorrowKind::new(Mutability::from_bool(mutable)),
+                                    Place::local(temp),
+                                ),
                                 init.span,
                             );
                         } else if let ExprKind::Tuple(_) = strip_parens(init).kind {

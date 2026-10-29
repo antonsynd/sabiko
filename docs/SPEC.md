@@ -15,6 +15,18 @@ names which phase owns which section.
 - Outer attributes as in Rust: `#[path]`, `#[path(tokens)]` (or `[...]`, `{...}`) and
   `#[path = tokens]`, with delimiters that nest and match (E0100 otherwise); only
   `derive(Copy, Clone)` is interpreted so far
+- Inherent `impl` blocks (Phase 5, #7): `impl Type { fn ... }`, any number per type,
+  before or after the struct. The members are functions (attributes, doc comments and
+  `pub` as on items); a member may take `self`, `mut self`, `&self` or `&mut self` as its
+  first parameter (a method). A `self` parameter outside an `impl` block, or not first, is
+  E0110. Not yet supported (E0107): generic impls, trait impls (`impl Trait for Type`),
+  associated constants and types, `self: Type`, `&'a self`
+- Paths: `Type::Name` (exactly two segments) names an associated function; `Self` (in a
+  type, a struct literal, a path or as a unit-struct value) and `self` (a value) begin a
+  path like an identifier. Longer paths and `::` in types and struct literals are E0107
+  until modules (Phase 9)
+- Method calls `e.Name(args)`; a struct literal may be a receiver outside `if`/`while`
+  conditions (`Math { Base: 3 }.Fact(5)`), and `5.Triple()` lexes as `5`, `.`, `Triple`
 - Statements and expressions
 - Nesting is limited to 256 levels (`sabiko_parser::MAX_NESTING`, clang's default bracket
   depth); deeper input is a fatal E0109, where rustc has no fixed limit. A level is a
@@ -31,6 +43,15 @@ names which phase owns which section.
   two accesses, as in rustc, and a suffixed index (`t.0u8`) is a syntax error (E0100)
 
 ## 3. Names and modules (Phase 2, 9)
+
+Associated items (#7): the functions of a struct's `impl` blocks live in the struct's own
+namespace, not in the file's item namespace: `Point::New(1, 2)`, `p.Dot(&q)`. Unqualified,
+they are not in scope, inside the block either (E0202, with a note naming `Point::New`).
+Two of one name for the same struct are E0210, also across two blocks (reported, as rustc
+does, at the later definition within one block and at the earlier one across blocks). A
+field and a method may share a name (`c.Count` and `c.Count()`). Inside an `impl` block,
+`Self` is the struct; outside one it is E0201. `self` is a value only in a method with a
+`self` parameter (E0213 elsewhere, rustc's E0424).
 
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System
@@ -87,6 +108,14 @@ unwinding for free.
 ## 10. Lowering to CIL (Phase 4 onward)
 
 Implemented by `sabiko_codegen` (textual IL assembled by `ilasm`; decision 3).
+
+Methods (decision 53). Every function of a struct's `impl` blocks, method or not, is a
+`public static` method of the struct's own value type, its receiver the first parameter:
+`&self` is `[in] valuetype P&` with `IsReadOnlyAttribute`, `&mut self` a `valuetype P&`,
+`self` a `valuetype P`, as any parameter of those types (decision 32). A call, method
+syntax or `P::Name(..)`, is a direct `call ... 'P'::'Name'(..)`. A field and a method of
+one name coexist (CLI member names are per kind). `Main` is the entry point only as a free
+function.
 
 Assembly and module layout. One source file is one assembly and one module, named after
 the file stem; the assembly references `System.Runtime` and `Sabiko.Runtime`. Each `struct`
@@ -238,7 +267,8 @@ verify every assembly they run; a verification error is a compiler bug.
 ## 11. Static semantics (Phase 2 subset)
 
 What the compiler enforces today for the Phase 1 language subset (`fn`, `struct`, `const`,
-no methods, generics, enums or arrays; tuples since #6). This section is folded into §3, §4 and §6
+no generics, enums or arrays; tuples since #6, inherent `impl` blocks and methods since
+#7). This section is folded into §3, §4 and §6
 as they fill in. Error codes are in `crates/sabiko_diagnostics`; each rule has a UI test
 under `tests/ui/resolve` or `tests/ui/typeck`.
 
@@ -260,7 +290,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   primitive within the file. A primitive name is never a value (E0202).
 - A name used in the wrong position (a function as a type, a constant in a struct literal,
   a non-unit struct as a value) is E0203. `_` as a type is allowed only inside bodies
-  (E0207). Paths with `::` are rejected until modules arrive (E0107).
+  (E0207). A path `A::B` in value or call position names the associated function `B` of
+  the struct `A` (E0201 or E0203 when `A` names no type, E0212 when the struct, or a
+  primitive, has no such function); other paths with `::` are rejected until modules
+  arrive (E0107).
+- An `impl` block is for a struct of the file (E0211 for a primitive, a reference, a
+  tuple or `()`; E0201/E0203 for an unknown name or a non-type). Its functions are
+  resolved like free functions, with `Self` naming the struct and, in a method, `self`
+  bound as the first parameter (mutable for `mut self`).
 
 ### 11.2 Types and inference
 
@@ -313,7 +350,23 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   binding there binds by value again, as in Rust 2021 (a copy, or a move, which E0407
   rejects out of a reference).
 - Coercions: `!` to any type, and `&mut T` to `&T`. Nothing else: no `&T` to `&mut T`, no
-  numeric widening, no autoref.
+  numeric widening, no autoref outside method receivers.
+- Method calls `e.Name(args)` (#7, decision 53). The receiver is checked first. Only
+  structs have methods; the method is the innermost type's (`e` dereferenced through every
+  reference), and the receiver is adjusted as rustc's probe does: the receiver's type and
+  then each type reached by one more dereference is matched against the method's receiver
+  type (`P`, `&P` or `&mut P`) by value, then as `&step`, then as `&mut step`, the first
+  match deciding. A reference matched by value is reborrowed (`r.Get()` for `r: &P` is
+  `P::Get(&*r)`, `m.Inc()` for `m: &mut P` is `P::Inc(&mut *m)`), a place matched by an
+  autoref is borrowed (`p.Inc()` is `P::Inc(&mut p)`, a temporary for any other
+  expression), and a by-value `self` reached through a reference copies (or, not `Copy`,
+  is E0407). The arguments are then checked against the parameters after the receiver
+  ("this method takes N arguments", E0304). No method of that name, or a receiver that is
+  not a struct, is E0319 (rustc's E0599), labelled "field, not a method" or "this is an
+  associated function, not a method" when that is the case; `e.Name` naming a method is
+  E0320 (rustc's E0615); a receiver of unknown type is E0313. Called as `P::Name(..)`, a
+  method takes its receiver as an ordinary first argument: no autoref or autoderef
+  (E0300 for `P::Get(p)` where `&P` is expected).
 - Operators, by operand type:
   - `+ - * / %`: both operands the same integer or float type; result that type.
   - `& | ^`: both operands the same integer type, or both `bool`.
@@ -387,6 +440,11 @@ Checked on the MIR by `sabiko_borrowck` (E0400–E0405):
   rejected whatever the binding's mutability (E0403, E0404).
 - Through `&mut T` the target is mutable regardless of whether the reference binding
   itself is `mut`: `*r = 1` and `&mut r.X` are fine for `r: &mut T`.
+- A method's receiver follows the same rules: `p.Inc()` with `Inc(&mut self)` borrows `p`
+  mutably, so `p` must be `mut` (E0402), and through `r: &P` it is E0404. In a method,
+  `self` is a parameter: a by-value `self` is immutable unless written `mut self`
+  (`self.X = 1` is E0401, `self = ..` E0400); `&self` and `&mut self` make `self` a `&P`
+  or `&mut P`.
 
 ### 11.4 Borrow checking (Phase 3 subset)
 
@@ -418,6 +476,10 @@ Moves (E0406, E0407):
   call arguments, struct literal fields, assignment, annotated `let`, `return`. Where the
   expected type is `&T` the reborrow is shared (`&*r`), so `F(&*r, r)` with two `&T`
   parameters is accepted. A plain `let s = r;` moves it (as in Rust).
+- A method call evaluates its receiver before its arguments: a by-value receiver is moved
+  (or copied) first, so `p.Merge(p.X)` for a non-`Copy` `p` is E0406 at `p.X`, while
+  `P::Merge(p, x)` after `let x = p.X` is fine; a receiver reached by a `&mut` (`m.Inc()`)
+  is reborrowed, not moved.
 
 Loans (E0408–E0413):
 
@@ -439,7 +501,26 @@ Loans (E0408–E0413):
   conflict; two loans of the
   same field do.
 - A referent must outlive every reference to it: a reference to an inner-block local used
-  after the block ends is E0413.
+  after the block ends is E0413. A temporary receiver dies with its statement:
+  `let r = Make().XRef();` followed by a use of `r` is E0413 (rustc's E0716).
+
+Two-phase borrows (#15, decision 54). Two borrows a call makes implicitly are two-phase:
+an autoref'd `&mut self` receiver (`v.Add(..)`, also `m.Add(..)` for `m: &mut P`,
+`a.B.Add(..)` and `self.Add(..)`) and the reborrow of a `&mut` argument passed where a
+`&mut` is expected (`Use(m, ..)`, `P::Add(m, ..)`). Such a borrow is *reserved* where it is
+made and *activated* by the call:
+- while it is reserved, the later arguments may read its place, directly, through fields
+  or through `&self` methods (`v.Add(v.Get())`, `Use(m, m.X)`), but not write it (E0410),
+  move out of it (E0412) or borrow it mutably, two-phase or not (E0409);
+- at the activation no other borrow of the place may be live: a shared borrow passed to the
+  call conflicts (`v.AddFrom(&v)`, E0408), and so does one taken before the reservation
+  and used after the call (`let s = &v; v.Add(s.Get()); s.X` is E0408; without the last
+  use it is accepted);
+- explicit borrows are never two-phase: `P::Add(&mut v, v.Get())` and
+  `(&mut v).Add(v.Get())` are E0408, `Use(&mut *m, m.X)` is E0411, and so is
+  `a.BMut().Add(a.N)`, whose receiver is borrowed by the call `a.BMut()`. A `&self`
+  receiver is a plain shared borrow held through the call (`p.Plus({ p.X = 5; 2 })` is
+  E0410).
 
 Signatures and lifetimes (E0414–E0416):
 
@@ -447,7 +528,11 @@ Signatures and lifetimes (E0414–E0416):
   parameters and in the return type): a function returning a reference must have exactly one
   reference parameter (nested references count once per parameter), and the returned
   reference is tied to it (E0416 otherwise, until Phase 9 adds `'a`; reported from the
-  signature alone, so also when the body has other errors). A reference
+  signature alone, so also when the body has other errors). A method taking `&self` or
+  `&mut self` returns references tied to `self` whatever its other parameters, so the
+  result borrows the whole receiver (`let x = p.XMut(); p.Y = 5; *x += 1;` is E0410) and
+  returning a reference into another parameter is E0415; a by-value `self` takes no part
+  (`fn Larger(self, n: &i32) -> &i32` borrows `n`). A reference
   returned may therefore only point into that parameter's referent; returning a reference
   to a local or to a by-value parameter is E0414.
 - Inside a body, references with different elided lifetimes are unrelated: storing `y` in
@@ -455,6 +540,7 @@ Signatures and lifetimes (E0414–E0416):
   References in struct fields stay rejected until Phase 9.
 
 The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
-↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597; E0414 ↔ E0515; E0415 ↔ the uncoded
-"lifetime may not live long enough"; E0416 ↔ E0106; E0417 ↔ E0204. The differential harness
-compares verdicts (accept vs borrow error), not codes.
+↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597 (E0716 for a temporary); E0414 ↔ E0515;
+E0415 ↔ the uncoded "lifetime may not live long enough"; E0416 ↔ E0106; E0417 ↔ E0204.
+The differential harness compares verdicts (accept vs borrow error), not codes. The
+mutability family maps as E0400 ↔ E0384, E0401/E0403 ↔ E0594, E0402/E0404 ↔ E0596.

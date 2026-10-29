@@ -1,0 +1,14 @@
+// The autoref of a `&self` receiver reads the receiver: it conflicts with a live `&mut`
+// borrow of it.
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let m = &mut p;
+    let n = p.Get();
+    m.X = n;
+}

@@ -39,11 +39,13 @@ Restrictions of the shared subset today: `fn`, `struct` with named fields,
 the builtins `Print(x)`, `PrintLine(x)` (any integer, float, `bool`, `char` or `&str`) and
 `Panic(msg: &str) -> !`. A corpus program must not define its own `Print`, `PrintLine` or
 `Panic`: Sabiko lets a user item shadow the builtin, rustc sees a duplicate of the
-prelude's. No methods, traits, generics, tuples, arrays, enums, `match`, closures,
-modules, macros, explicit lifetimes or references in struct fields, and no `char` literal
-above U+FFFF (a Sabiko `char` is one UTF-16 code unit, so those are E0318). Function names are
-PascalCase, locals camelCase. A function returning a reference must have exactly one
-reference parameter (the one elision rule both compilers share).
+prelude's. Tuples (#6), inherent `impl` blocks with methods and associated functions,
+`Type::Name` paths and `Self` (#7) are in the subset too. No traits, generics, arrays,
+enums, `match`, closures, modules, macros, associated constants, explicit lifetimes or
+references in struct fields, and no `char` literal above U+FFFF (a Sabiko `char` is one
+UTF-16 code unit, so those are E0318). Function names are PascalCase, locals camelCase. A
+function returning a reference must have exactly one reference parameter, or be a method
+taking `&self` or `&mut self` (the elision rules both compilers share).
 
 Run: `cargo test -p sabiko_driver --test differential`. The one-line summary per file is
 on stderr (`-- --nocapture` to see it when the test passes).

@@ -1,0 +1,16 @@
+[E0213] Error: cannot find value `self` in this scope
+   ╭─[ tests/ui/resolve/self_value_outside_method.sabi:8:16 ]
+   │
+ 8 │         P { X: self.X } //~ ERROR E0213 cannot find value `self` in this scope
+   │                ──┬─  
+   │                  ╰─── `self` value is a keyword only available in methods with a `self` parameter
+   │ 
+   │ Note: add a `self` receiver parameter to make this a method: `&self`, `&mut self` or `self`
+───╯
+[E0213] Error: cannot find value `self` in this scope
+    ╭─[ tests/ui/resolve/self_value_outside_method.sabi:13:5 ]
+    │
+ 13 │     self.X //~ ERROR E0213 cannot find value `self` in this scope
+    │     ──┬─  
+    │       ╰─── `self` value is a keyword only available in methods with a `self` parameter
+────╯

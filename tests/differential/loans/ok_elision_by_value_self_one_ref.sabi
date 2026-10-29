@@ -1,0 +1,16 @@
+// A by-value `self` is not a reference, so it plays no part in elision: with exactly one
+// reference parameter the output borrows from that one, not from the receiver.
+#[derive(Clone, Copy)]
+struct P { X: i32 }
+
+impl P {
+    fn Larger(self, n: &i32) -> &i32 { n }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let n = 7;
+    let r = p.Larger(&n);
+    p.X = 2;
+    PrintLine(*r);
+}

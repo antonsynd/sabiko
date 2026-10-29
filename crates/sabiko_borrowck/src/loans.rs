@@ -125,11 +125,36 @@ impl Reporter<'_> {
         }
         errors.sort_unstable();
         errors.dedup();
+        let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
         for (location, point, loan) in errors {
+            if self.repeats_reservation_error(point, loan, &reported) {
+                continue;
+            }
             if let Some(diag) = self.loan_error(location, point, loan) {
                 sink.emit(diag);
             }
         }
+    }
+
+    /// Whether the error is the activation of a two-phase borrow conflicting with a loan
+    /// its reservation already conflicted with (`v.Add(v.Bump())`): one report is enough.
+    fn repeats_reservation_error(
+        &self,
+        point: Point,
+        loan: Loan,
+        reported: &HashSet<(Point, Loan)>,
+    ) -> bool {
+        let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) else {
+            return false;
+        };
+        let Some(activated) = invalidation.activated else {
+            return false;
+        };
+        let reservation = self
+            .facts
+            .table
+            .start(self.facts.loans[activated.index()].location);
+        reported.contains(&(reservation, loan))
     }
 
     fn loan_error(&self, location: Location, point: Point, loan: Loan) -> Option<Diagnostic> {
@@ -139,20 +164,26 @@ impl Reporter<'_> {
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
         let diag = match invalidation.kind {
-            AccessKind::MutBorrow if data.mutability.is_mut() => Diagnostic::error(
-                ErrorCode::MULTIPLE_MUT_BORROWS,
-                format!("cannot borrow `{accessed}` as mutable more than once at a time"),
-            )
-            .with_label(span, "second mutable borrow occurs here")
-            .with_label(data.span, "first mutable borrow occurs here"),
-            AccessKind::MutBorrow => Diagnostic::error(
-                ErrorCode::BORROW_CONFLICT,
-                format!(
+            AccessKind::MutBorrow | AccessKind::Reservation | AccessKind::Activation
+                if data.mutability.is_mut() =>
+            {
+                Diagnostic::error(
+                    ErrorCode::MULTIPLE_MUT_BORROWS,
+                    format!("cannot borrow `{accessed}` as mutable more than once at a time"),
+                )
+                .with_label(span, "second mutable borrow occurs here")
+                .with_label(data.span, "first mutable borrow occurs here")
+            }
+            AccessKind::MutBorrow | AccessKind::Reservation | AccessKind::Activation => {
+                Diagnostic::error(
+                    ErrorCode::BORROW_CONFLICT,
+                    format!(
                     "cannot borrow `{accessed}` as mutable because it is also borrowed as immutable"
                 ),
-            )
-            .with_label(span, "mutable borrow occurs here")
-            .with_label(data.span, "immutable borrow occurs here"),
+                )
+                .with_label(span, "mutable borrow occurs here")
+                .with_label(data.span, "immutable borrow occurs here")
+            }
             AccessKind::SharedBorrow => Diagnostic::error(
                 ErrorCode::BORROW_CONFLICT,
                 format!(

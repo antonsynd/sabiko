@@ -344,26 +344,23 @@ fn item() -> impl Strategy<Value = Item> {
         0..2,
     );
     let kind = prop_oneof![
-        (
-            name(),
-            prop::collection::vec((pat(), ty()), 0..3),
-            prop::option::of(ty()),
-            block_with(expr().boxed())
-        )
-            .prop_map(|(n, params, ret, body)| ItemKind::Fn(FnDecl {
-                name: ident(&n),
-                params: params
+        fn_decl(false).prop_map(ItemKind::Fn),
+        (ty(), prop::collection::vec((meta(), fn_decl(true)), 0..3)).prop_map(
+            |(self_ty, members)| ItemKind::Impl(ImplDecl {
+                self_ty,
+                items: members
                     .into_iter()
-                    .map(|(pat, ty)| Param {
+                    .map(|((attrs, docs, vis), f)| Item {
                         id: ID,
-                        pat,
-                        ty,
-                        span: SP
+                        attrs,
+                        docs,
+                        vis,
+                        kind: ItemKind::Fn(f),
+                        span: SP,
                     })
                     .collect(),
-                ret,
-                body,
-            })),
+            })
+        ),
         (
             name(),
             prop::option::of(prop::collection::vec((name(), ty(), any::<bool>()), 0..3))
@@ -404,6 +401,64 @@ fn item() -> impl Strategy<Value = Item> {
         kind,
         span: SP,
     })
+}
+
+/// Attributes, doc lines and visibility of an `impl` block's member.
+fn meta() -> impl Strategy<Value = (Vec<Attribute>, Vec<String>, Visibility)> {
+    (
+        prop::collection::vec(
+            Just(Attribute {
+                path: path("inline"),
+                args: String::new(),
+                span: SP,
+            }),
+            0..2,
+        ),
+        prop::collection::vec(" doc [a-z ]*", 0..2),
+        prop_oneof![Just(Visibility::Private), Just(Visibility::Public)],
+    )
+}
+
+/// A function; with `methods`, one that may take `self`, `mut self`, `&self` or
+/// `&mut self` first.
+fn fn_decl(methods: bool) -> impl Strategy<Value = FnDecl> {
+    let self_param = if methods {
+        prop::option::of(prop_oneof![
+            Just(SelfKind::Value { mutable: false }),
+            Just(SelfKind::Value { mutable: true }),
+            Just(SelfKind::Ref { mutable: false }),
+            Just(SelfKind::Ref { mutable: true }),
+        ])
+        .boxed()
+    } else {
+        Just(None).boxed()
+    };
+    (
+        name(),
+        self_param,
+        prop::collection::vec((pat(), ty()), 0..3),
+        prop::option::of(ty()),
+        block_with(expr().boxed()),
+    )
+        .prop_map(|(n, self_kind, params, ret, body)| FnDecl {
+            name: ident(&n),
+            self_param: self_kind.map(|kind| SelfParam {
+                id: ID,
+                kind,
+                span: SP,
+            }),
+            params: params
+                .into_iter()
+                .map(|(pat, ty)| Param {
+                    id: ID,
+                    pat,
+                    ty,
+                    span: SP,
+                })
+                .collect(),
+            ret,
+            body,
+        })
 }
 
 fn source_file() -> impl Strategy<Value = SourceFile> {
@@ -495,11 +550,16 @@ fn strip_parens_block(b: &mut Block) {
 
 fn strip_parens_file(f: &mut SourceFile) {
     for item in &mut f.items {
-        match &mut item.kind {
-            ItemKind::Fn(func) => strip_parens_block(&mut func.body),
-            ItemKind::Const(c) => strip_parens_expr(&mut c.value),
-            ItemKind::Struct(_) => {}
-        }
+        strip_parens_item(item);
+    }
+}
+
+fn strip_parens_item(item: &mut Item) {
+    match &mut item.kind {
+        ItemKind::Fn(func) => strip_parens_block(&mut func.body),
+        ItemKind::Const(c) => strip_parens_expr(&mut c.value),
+        ItemKind::Impl(imp) => imp.items.iter_mut().for_each(strip_parens_item),
+        ItemKind::Struct(_) => {}
     }
 }
 
@@ -574,6 +634,7 @@ fn cast_before_lt_roundtrips() {
                 vis: Visibility::Private,
                 kind: ItemKind::Fn(FnDecl {
                     name: ident("f"),
+                    self_param: None,
                     params: vec![],
                     ret: None,
                     body: Block {

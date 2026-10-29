@@ -1,0 +1,35 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/receiver_type_mismatch.sabi:16:20 ]
+    │
+ 16 │     let a = P::Get(p); //~ ERROR E0300 mismatched types
+    │                    ┬  
+    │                    ╰── expected `&P`, found `P`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/receiver_type_mismatch.sabi:17:20 ]
+    │
+ 17 │     let b = P::Get(5); //~ ERROR E0300 mismatched types
+    │                    ┬  
+    │                    ╰── expected `&P`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/receiver_type_mismatch.sabi:18:12 ]
+    │
+ 18 │     P::Inc(&p); //~ ERROR E0300 mismatched types
+    │            ─┬  
+    │             ╰── expected `&mut P`, found `&P`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/receiver_type_mismatch.sabi:19:21 ]
+    │
+ 19 │     let c = P::Get(&q); //~ ERROR E0300 mismatched types
+    │                     ┬  
+    │                     ╰── expected `P`, found `Q`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/receiver_type_mismatch.sabi:20:24 ]
+    │
+ 20 │     let d = P::Consume(&p); //~ ERROR E0300 mismatched types
+    │                        ─┬  
+    │                         ╰── expected `P`, found `&P`
+────╯

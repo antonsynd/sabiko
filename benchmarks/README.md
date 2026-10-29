@@ -22,18 +22,20 @@ same output. The workloads are sized to take roughly 50–250 ms per process lau
 | `primes` | Prime counting below 600,000 by trial division: remainder by a variable divisor |
 | `lcg_hash` | A MINSTD generator feeding a polynomial hash: `u64` multiply and remainder by constants |
 | `tuples` | Pairs passed and returned by value, a quotient-and-remainder pair, destructuring and a three-element accumulator rebuilt per iteration; the C# uses `System.ValueTuple`, which Sabiko's tuples lower to (decision 52) |
+| `methods` | Structs with methods in a hot loop: a generator stepped through `&mut self`, a Copy vector type with by-value, `&self` and `&mut self` methods and a constructor, particles and a world calling methods on their fields (one call a two-phase borrow); Sabiko's methods are static methods of the struct (decision 53), the C# uses instance methods on structs |
 
 They stay inside today's subset (integers, floats, `bool`, structs, tuples, references,
-functions, `if`/`while`/`loop`): no arrays, methods, enums or generics. Two consequences: the
-n-body bodies are spelled out as struct fields with the ten pairs written out, and its
-square root is a Newton iteration (there is no `f64::sqrt` without methods). The C#
+functions, methods, `if`/`while`/`loop`): no arrays, enums or generics. Two consequences:
+the n-body bodies are spelled out as struct fields with the ten pairs written out, and its
+square root is a Newton iteration (there is no `f64::sqrt`: methods on primitives come
+with traits). The C#
 programs use the same Newton function and the same struct-of-fields shape, so the
 comparison measures code generation, not libraries; otherwise the C# is what a developer
 would write (`for` loops, `const`, `ref`/`in` parameters, `Console.WriteLine`).
 Arithmetic never overflows in any benchmark, so the checked configuration computes the
 same results; there are no `wrapping_*` methods yet.
 
-To add when Phase 5 (arrays, slices, methods) lands: a sieve of Eratosthenes, spectral
+To add when the rest of Phase 5 (arrays, slices) lands: a sieve of Eratosthenes, spectral
 norm, sorting (quicksort and insertion sort over an array), matrix multiply, and n-body
 over an array of bodies with `f64::sqrt`; with Phase 7's `Box`, `String` and `Vec`,
 binary trees (allocation) and string building. Each of those is where Sabiko's bounds
@@ -143,12 +145,14 @@ essentially the second-largest sample; with fewer it is just the maximum. Read i
 slowest run or two", and prefer p50 and p90 for comparisons; more samples would make p99
 a real tail estimate but would not fit the nightly budget.
 
-Budget: the full run (6 benchmarks × 2 configurations × 3 languages × 105 launches, plus
-120 in-process iterations per benchmark, configuration and .NET language) took 552 s,
-builds included, on a loaded 4-core machine (`results/latest.md`). Add 3–4 minutes of
-setup on a runner (Rust and .NET toolchains, building `sabikoc`): about 13 minutes, within
-a 15-minute target and the job's 30-minute timeout.
-Lower `--process-runs` before adding benchmarks that would push it over.
+Budget: the full run (8 benchmarks × 2 configurations × 3 languages × 105 launches, plus
+120 in-process iterations per benchmark, configuration and .NET language) took 810 s,
+builds included, on an otherwise idle 4-core container when `methods` was added (6
+benchmarks took 552 s on a loaded one, `results/latest.md`). Add 3–4 minutes of setup on a
+runner (Rust and .NET toolchains, building `sabikoc`): about 17 minutes, over the
+15-minute target but within the job's 30-minute timeout. Lower `--process-runs` (decision
+50 keeps 100 for the p99) or split the run before adding benchmarks that would approach
+the timeout.
 
 ## Allocation gate
 

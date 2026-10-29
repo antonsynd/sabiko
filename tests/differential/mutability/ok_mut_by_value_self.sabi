@@ -1,0 +1,17 @@
+// `mut self` makes the by-value receiver a mutable local; the caller's binding needs no
+// `mut`, because the method gets its own copy (or the moved value).
+#[derive(Clone, Copy)]
+struct P { X: i32 }
+
+impl P {
+    fn Plus(mut self, n: i32) -> P {
+        self.X += n;
+        self
+    }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    let q = p.Plus(2);
+    PrintLine(p.X + q.X);
+}

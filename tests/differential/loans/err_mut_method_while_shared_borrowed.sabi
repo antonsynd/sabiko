@@ -1,0 +1,14 @@
+// The autoref of a `&mut self` receiver is a mutable borrow like any other: it conflicts
+// with a live shared borrow of a field.
+struct P { X: i32 }
+
+impl P {
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let x = &p.X;
+    p.Inc();
+    PrintLine(*x);
+}

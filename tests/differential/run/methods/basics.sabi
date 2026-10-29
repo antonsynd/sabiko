@@ -1,0 +1,67 @@
+// Inherent impl blocks: associated functions as constructors (`Counter::New`), methods by
+// `self`, `&self` and `&mut self`, methods calling methods and associated functions,
+// methods called as associated functions (`Point::Dot(&p, &q)`), two impl blocks for one
+// type (the first before the struct), and a field and a method sharing a name.
+impl Counter {
+    fn Zero() -> Counter {
+        Counter { Count: 0, Step: 1 }
+    }
+}
+
+struct Counter { Count: i64, Step: i64 }
+
+impl Counter {
+    fn New(step: i64) -> Counter {
+        let mut c = Counter::Zero();
+        c.Step = step;
+        c
+    }
+    fn Count(&self) -> i64 { self.Count }
+    fn Tick(&mut self) { self.Count += self.Step; }
+    fn TickN(&mut self, n: i32) {
+        let mut i = 0;
+        while i < n {
+            self.Tick();
+            i += 1;
+        }
+    }
+    fn Doubled(&self) -> i64 { self.Count() * 2 }
+    fn Finish(self) -> i64 { self.Count + Counter::Bonus(self.Step) }
+    fn Bonus(step: i64) -> i64 { step * 100 }
+}
+
+struct Point { X: f64, Y: f64 }
+
+impl Point {
+    fn Origin() -> Point { Point { X: 0.0, Y: 0.0 } }
+    fn New(x: f64, y: f64) -> Point { Point { X: x, Y: y } }
+    fn Dot(&self, other: &Point) -> f64 { self.X * other.X + self.Y * other.Y }
+    fn Scale(&mut self, k: f64) {
+        self.X *= k;
+        self.Y *= k;
+    }
+    fn IsOrigin(&self) -> bool { self.X == 0.0 && self.Y == 0.0 }
+}
+
+fn Main() {
+    let mut c = Counter::New(3);
+    c.Tick();
+    c.TickN(4);
+    PrintLine(c.Count());
+    PrintLine(c.Count);
+    PrintLine(c.Doubled());
+    Counter::TickN(&mut c, 2);
+    PrintLine(Counter::Count(&c));
+    PrintLine(c.Finish());
+    let z = Counter::Zero();
+    PrintLine(z.Count() + z.Step);
+    let mut p = Point::New(1.5, -2.0);
+    let q = Point::Origin();
+    PrintLine(p.Dot(&p));
+    PrintLine(p.Dot(&q));
+    p.Scale(2.0);
+    Print(p.X); Print(' '); PrintLine(p.Y);
+    PrintLine(q.IsOrigin());
+    PrintLine(p.IsOrigin());
+    PrintLine(Point::Dot(&p, &Point::New(1.0, 1.0)));
+}

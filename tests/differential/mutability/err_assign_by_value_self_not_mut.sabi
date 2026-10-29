@@ -1,0 +1,9 @@
+// A by-value `self` without `mut` is an immutable binding: its fields cannot be assigned.
+struct P { X: i32 }
+
+impl P {
+    fn Set(self, n: i32) -> P {
+        self.X = n;
+        self
+    }
+}

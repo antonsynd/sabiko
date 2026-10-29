@@ -1,0 +1,14 @@
+// A `&mut self` method returning `&mut self.X` borrows all of `*self` (the signature says
+// so, not the body): writing the disjoint field `p.Y` while the result is live conflicts.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn XMut(&mut self) -> &mut i32 { &mut self.X }
+}
+
+fn Main() {
+    let mut p = P { X: 1, Y: 2 };
+    let x = p.XMut();
+    p.Y = 5;
+    *x += 1;
+}

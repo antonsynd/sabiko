@@ -133,9 +133,9 @@ impl Checker<'_> {
                     self.check_operand(field, span);
                 }
             }
-            Rvalue::Ref(mutability, place) => {
+            Rvalue::Ref(kind, place) => {
                 self.check_read(place, span);
-                if *mutability == Mutability::Mut {
+                if kind.mutability() == Mutability::Mut {
                     self.check_borrow_mut(place, span);
                 }
             }

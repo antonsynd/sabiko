@@ -1,0 +1,16 @@
+[E0212] Error: no associated function named `Nope` found for struct `P`
+    ╭─[ tests/ui/typeck/unknown_associated_function.sabi:11:16 ]
+    │
+ 11 │     let p = P::Nope(); //~ ERROR E0212 no associated function named `Nope` found for struct `P`
+    │                ──┬─  
+    │                  ╰─── associated function not found in struct `P`
+────╯
+[E0319] Error: no method named `New` found for struct `P`
+    ╭─[ tests/ui/typeck/unknown_associated_function.sabi:13:15 ]
+    │
+ 13 │     let r = q.New(); //~ ERROR E0319 no method named `New` found for struct `P`
+    │               ─┬─  
+    │                ╰─── this is an associated function, not a method
+    │ 
+    │ Note: call it as an associated function: `P::New(..)`
+────╯

@@ -105,6 +105,91 @@ impl Validator<'_> {
                 None => self.err(bb, "block has no terminator"),
             }
         }
+        self.two_phase_borrows();
+    }
+
+    /// A two-phase borrow is assigned to a temporary that nothing but one call reads
+    /// (`move _t` among its arguments): the borrow checker activates it at that use.
+    fn two_phase_borrows(&mut self) {
+        let mut uses = vec![0usize; self.body.locals.len()];
+        let mut call_uses = vec![0usize; self.body.locals.len()];
+        let mut reservations = Vec::new();
+        let count = |place: &Place, uses: &mut Vec<usize>| {
+            if let Some(n) = uses.get_mut(place.local.index()) {
+                *n += 1;
+            }
+        };
+        for bb in self.body.block_ids() {
+            let data = self.body.block(bb);
+            for stmt in &data.statements {
+                let StatementKind::Assign(dest, rvalue) = &stmt.kind else {
+                    continue;
+                };
+                if let Rvalue::Ref(kind, _) = rvalue {
+                    if kind.is_two_phase() {
+                        reservations.push((bb, dest.clone()));
+                    }
+                }
+                if !dest.is_local() {
+                    count(dest, &mut uses);
+                }
+                for place in rvalue_places(rvalue) {
+                    count(place, &mut uses);
+                }
+            }
+            let Some(term) = &data.terminator else {
+                continue;
+            };
+            match &term.kind {
+                TerminatorKind::Call {
+                    args, destination, ..
+                } => {
+                    for arg in args {
+                        if let Operand::Move(p) = arg {
+                            if p.is_local() {
+                                count(p, &mut call_uses);
+                            }
+                        }
+                        if let Some(p) = arg.place() {
+                            count(p, &mut uses);
+                        }
+                    }
+                    if !destination.is_local() {
+                        count(destination, &mut uses);
+                    }
+                }
+                TerminatorKind::SwitchInt { discr, .. } => {
+                    if let Some(p) = discr.place() {
+                        count(p, &mut uses);
+                    }
+                }
+                TerminatorKind::Goto { .. }
+                | TerminatorKind::Return
+                | TerminatorKind::Unreachable => {}
+            }
+        }
+        for (bb, dest) in reservations {
+            let local = dest.local.index();
+            let is_temp = self
+                .body
+                .locals
+                .get(local)
+                .is_some_and(|d| d.kind == LocalKind::Temp);
+            if !dest.is_local() || !is_temp {
+                self.err(
+                    bb,
+                    format!("two-phase borrow into {dest:?}, not a temporary"),
+                );
+            } else if uses[local] != 1 || call_uses[local] != 1 {
+                self.err(
+                    bb,
+                    format!(
+                        "two-phase borrow into _{local}, which is used {} times, {} of them as a moved call argument",
+                        uses[local], call_uses[local]
+                    ),
+                );
+            }
+        }
     }
 
     fn check_target(&mut self, bb: BasicBlock, target: BasicBlock) {
@@ -212,9 +297,9 @@ impl Validator<'_> {
     fn rvalue_ty(&mut self, bb: BasicBlock, rvalue: &Rvalue) -> Option<Ty> {
         match rvalue {
             Rvalue::Use(op) | Rvalue::UnaryOp(_, op) => self.operand_ty(bb, op),
-            Rvalue::Ref(m, place) => {
+            Rvalue::Ref(kind, place) => {
                 let ty = self.place_ty(bb, place)?;
-                Some(Ty::Ref(*m, Box::new(ty)))
+                Some(Ty::Ref(kind.mutability(), Box::new(ty)))
             }
             Rvalue::BinaryOp(op, lhs, rhs) => {
                 if matches!(op, BinOp::And | BinOp::Or) {
@@ -423,5 +508,17 @@ impl Validator<'_> {
         if let Some(target) = target {
             self.check_target(bb, target);
         }
+    }
+}
+
+/// The places an rvalue reads or borrows.
+fn rvalue_places(rvalue: &Rvalue) -> Vec<&Place> {
+    match rvalue {
+        Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+            op.place().into_iter().collect()
+        }
+        Rvalue::BinaryOp(_, l, r) => l.place().into_iter().chain(r.place()).collect(),
+        Rvalue::Aggregate(_, ops) => ops.iter().filter_map(Operand::place).collect(),
+        Rvalue::Ref(_, place) => vec![place],
     }
 }

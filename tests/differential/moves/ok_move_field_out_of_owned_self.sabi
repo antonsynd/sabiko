@@ -1,0 +1,16 @@
+// A by-value `self` owns the receiver, so its non-Copy fields can be moved out.
+struct Q { N: i32 }
+struct P { Inner: Q, Other: Q }
+
+impl P {
+    fn Take(self) -> Q {
+        let o = self.Other;
+        self.Inner
+    }
+}
+
+fn Main() {
+    let p = P { Inner: Q { N: 1 }, Other: Q { N: 2 } };
+    let q = p.Take();
+    PrintLine(q.N);
+}

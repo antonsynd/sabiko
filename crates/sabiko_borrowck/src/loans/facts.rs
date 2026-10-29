@@ -19,6 +19,13 @@
 //!   the stale loan stops producing more.
 //! - `Return` invalidates every loan of local data (a place without `Deref`): data owned
 //!   by the frame is gone once the function returns.
+//! - A two-phase borrow (#15) is *reserved* where it is created and *activated* at its one
+//!   use, the call it is an argument of. The reservation is checked like a shared borrow
+//!   that also conflicts with every other mutable loan (rustc's `Reservation` access); in
+//!   between, the loan tolerates reads and shared borrows of its place (they see it as a
+//!   shared loan) but nothing else; the activation is checked as a mutable borrow of the
+//!   place against every other live loan. "In between" is rustc's dominance test: the
+//!   point is dominated by the reservation's successor but not by the activation.
 
 use std::collections::HashMap;
 
@@ -35,7 +42,7 @@ use super::regions::{
     signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy, SigRegions, SiteElem,
     Variable,
 };
-use crate::dataflow::Location;
+use crate::dataflow::{self, Dominators, Location};
 
 /// The atom types the engine is instantiated with.
 #[derive(Clone, Copy, Debug)]
@@ -112,6 +119,26 @@ pub struct LoanData {
     pub location: Location,
     /// The span of the borrowing statement.
     pub span: Span,
+    /// For a two-phase borrow, the location of the use that activates it (a call). `None`
+    /// for an ordinary borrow, which is active from its creation.
+    pub activation: Option<Location>,
+}
+
+impl LoanData {
+    /// Whether the loan is only reserved at `location`: a two-phase borrow between its
+    /// creation and its activation. As in rustc, that is every point the reservation's
+    /// successor dominates and the activation does not.
+    #[must_use]
+    pub fn is_reserved_at(&self, location: Location, dominators: &Dominators) -> bool {
+        let Some(activation) = self.activation else {
+            return false;
+        };
+        if dominators.dominates(activation, location) {
+            return false;
+        }
+        let after = Location::new(self.location.block, self.location.statement_index + 1);
+        dominators.dominates(after, location)
+    }
 }
 
 /// What a statement does to a place, for conflict detection and error wording.
@@ -131,6 +158,11 @@ pub enum AccessKind {
     StorageDead,
     /// `return`, which ends every local's storage.
     Return,
+    /// The creation of a two-phase borrow: a deep read that also conflicts with every
+    /// other mutable loan, reserved or active.
+    Reservation,
+    /// The use that activates a two-phase borrow: a mutable borrow of its place.
+    Activation,
 }
 
 impl AccessKind {
@@ -145,9 +177,14 @@ impl AccessKind {
     #[must_use]
     pub fn conflicts_with(self, loan_mutability: Mutability) -> bool {
         match self {
-            // Readers only clash with mutable loans.
-            Self::Read | Self::SharedBorrow => loan_mutability.is_mut(),
-            Self::Move | Self::Write | Self::MutBorrow | Self::StorageDead | Self::Return => true,
+            // Readers (and reservations) only clash with mutable loans.
+            Self::Read | Self::SharedBorrow | Self::Reservation => loan_mutability.is_mut(),
+            Self::Move
+            | Self::Write
+            | Self::MutBorrow
+            | Self::StorageDead
+            | Self::Return
+            | Self::Activation => true,
         }
     }
 }
@@ -157,6 +194,8 @@ impl AccessKind {
 pub struct Invalidation {
     pub kind: AccessKind,
     pub place: Place,
+    /// For an [`AccessKind::Activation`], the two-phase loan being activated.
+    pub activated: Option<Loan>,
 }
 
 /// A universal (signature) origin and where it comes from.
@@ -223,13 +262,16 @@ pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError
         locals.push(region_ty);
     }
 
+    let predecessors = dataflow::predecessors(body);
     let mut generator = Generator {
         body,
         typeck,
         supply,
         table: LocationTable::new(body),
+        dominators: Dominators::new(body, &predecessors),
         loans: Vec::new(),
         loan_at: HashMap::new(),
+        activations: HashMap::new(),
         locals,
         all: AllFacts::default(),
         invalidations: HashMap::new(),
@@ -254,8 +296,11 @@ struct Generator<'a> {
     typeck: &'a TypeckResults,
     supply: OriginSupply,
     table: LocationTable,
+    dominators: Dominators,
     loans: Vec<LoanData>,
     loan_at: HashMap<Location, Loan>,
+    /// The two-phase loans each location activates.
+    activations: HashMap<Location, Vec<Loan>>,
     locals: Vec<RegionTy>,
     all: AllFacts<SabikoFacts>,
     invalidations: HashMap<(Point, Loan), Invalidation>,
@@ -263,19 +308,32 @@ struct Generator<'a> {
 }
 
 impl Generator<'_> {
-    /// Numbers every borrow in the body; accesses anywhere may invalidate any of them.
+    /// Numbers every borrow in the body; accesses anywhere may invalidate any of them. A
+    /// two-phase borrow is activated where its temporary is used: MIR building gives it
+    /// exactly one use, as a call argument (the validator checks this). Without such a
+    /// use it is treated as an ordinary mutable borrow.
     fn collect_loans(&mut self) {
+        let uses = operand_uses(self.body);
         for bb in self.body.block_ids() {
             for (index, statement) in self.body.block(bb).statements.iter().enumerate() {
-                if let StatementKind::Assign(_, Rvalue::Ref(mutability, place)) = &statement.kind {
+                if let StatementKind::Assign(dest, Rvalue::Ref(kind, place)) = &statement.kind {
                     let location = Location::new(bb, index);
-                    self.loan_at.insert(location, Loan(self.loans.len()));
+                    let loan = Loan(self.loans.len());
+                    let activation = match uses.get(&dest.local).map(Vec::as_slice) {
+                        Some(&[at]) if kind.is_two_phase() && dest.is_local() => Some(at),
+                        _ => None,
+                    };
+                    if let Some(at) = activation {
+                        self.activations.entry(at).or_default().push(loan);
+                    }
+                    self.loan_at.insert(location, loan);
                     self.loans.push(LoanData {
                         place: place.clone(),
-                        mutability: *mutability,
+                        mutability: kind.mutability(),
                         origin: self.supply.fresh(),
                         location,
                         span: statement.span,
+                        activation,
                     });
                 }
             }
@@ -376,6 +434,11 @@ impl Generator<'_> {
                 destination,
                 ..
             } => {
+                // Activating a two-phase borrow is a mutable borrow of its place.
+                for loan in self.activations.get(&location).cloned().unwrap_or_default() {
+                    let place = self.loans[loan.index()].place.clone();
+                    self.access_except(&place, AccessKind::Activation, location, Some(loan));
+                }
                 let arg_tys: Vec<RegionTy> =
                     args.iter().map(|arg| self.operand(arg, location)).collect();
                 if matches!(
@@ -416,6 +479,7 @@ impl Generator<'_> {
                             .or_insert_with(|| Invalidation {
                                 kind: AccessKind::Return,
                                 place: loan.place.clone(),
+                                activated: None,
                             });
                     }
                 }
@@ -469,20 +533,22 @@ impl Generator<'_> {
                     RegionTy::Tuple(tys)
                 }
             }
-            Rvalue::Ref(mutability, place) => self.borrow(*mutability, place, location),
+            Rvalue::Ref(kind, place) => self.borrow(kind.mutability(), place, location),
         }
     }
 
     /// `&place` / `&mut place`: issues the loan and adds the reborrow constraints.
     fn borrow(&mut self, mutability: Mutability, place: &Place, location: Location) -> RegionTy {
         self.use_local(place.local, location);
-        let kind = if mutability.is_mut() {
+        let loan = self.loan_at[&location];
+        let kind = if self.loans[loan.index()].activation.is_some() {
+            AccessKind::Reservation
+        } else if mutability.is_mut() {
             AccessKind::MutBorrow
         } else {
             AccessKind::SharedBorrow
         };
         self.access(place, kind, location);
-        let loan = self.loan_at[&location];
         let origin = self.loans[loan.index()].origin;
         let mid = self.table.mid(location);
         self.all.loan_issued_at.push((origin, loan, mid));
@@ -571,15 +637,38 @@ impl Generator<'_> {
 
     /// Invalidates every loan the access conflicts with, at `Start`.
     fn access(&mut self, place: &Place, kind: AccessKind, location: Location) {
+        self.access_except(place, kind, location, None);
+    }
+
+    /// [`Self::access`], ignoring the loan `except` (the one an activation activates). A
+    /// two-phase loan that is only reserved here counts as shared for a read or a shared
+    /// borrow, which is all it tolerates.
+    fn access_except(
+        &mut self,
+        place: &Place,
+        kind: AccessKind,
+        location: Location,
+        except: Option<Loan>,
+    ) {
         let start = self.table.start(location);
         for (index, loan) in self.loans.iter().enumerate() {
-            if places_conflict(place, kind, &loan.place, loan.mutability) {
+            if except == Some(Loan(index)) {
+                continue;
+            }
+            let reading = matches!(kind, AccessKind::Read | AccessKind::SharedBorrow);
+            let mutability = if reading && loan.is_reserved_at(location, &self.dominators) {
+                Mutability::Not
+            } else {
+                loan.mutability
+            };
+            if places_conflict(place, kind, &loan.place, mutability) {
                 self.all.loan_invalidated_at.push((start, Loan(index)));
                 self.invalidations
                     .entry((start, Loan(index)))
                     .or_insert_with(|| Invalidation {
                         kind,
                         place: place.clone(),
+                        activated: except,
                     });
             }
         }
@@ -593,6 +682,51 @@ impl Generator<'_> {
             }
         }
     }
+}
+
+/// The locations where each local is used as an operand or as the base of a borrowed
+/// place.
+fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
+    let mut uses: HashMap<Local, Vec<Location>> = HashMap::new();
+    let mut add = |place: &Place, at: Location| uses.entry(place.local).or_default().push(at);
+    for bb in body.block_ids() {
+        let data = body.block(bb);
+        for (index, statement) in data.statements.iter().enumerate() {
+            let at = Location::new(bb, index);
+            let StatementKind::Assign(_, rvalue) = &statement.kind else {
+                continue;
+            };
+            match rvalue {
+                Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+                    op.place().into_iter().for_each(|p| add(p, at));
+                }
+                Rvalue::BinaryOp(_, l, r) => {
+                    l.place()
+                        .into_iter()
+                        .chain(r.place())
+                        .for_each(|p| add(p, at));
+                }
+                Rvalue::Aggregate(_, ops) => ops
+                    .iter()
+                    .filter_map(Operand::place)
+                    .for_each(|p| add(p, at)),
+                Rvalue::Ref(_, place) => add(place, at),
+            }
+        }
+        let at = Location::terminator_of(body, bb);
+        match data.terminator.as_ref().map(|t| &t.kind) {
+            Some(TerminatorKind::Call { args, .. }) => {
+                args.iter()
+                    .filter_map(Operand::place)
+                    .for_each(|p| add(p, at));
+            }
+            Some(TerminatorKind::SwitchInt { discr, .. }) => {
+                discr.place().into_iter().for_each(|p| add(p, at));
+            }
+            _ => {}
+        }
+    }
+    uses
 }
 
 /// Whether an access of `access` with `kind` conflicts with a loan of `borrowed`.

@@ -14,9 +14,10 @@ pub mod ty;
 
 use std::collections::HashMap;
 
-pub use check::{BodyTypes, FieldAccess};
+pub use check::{BodyTypes, FieldAccess, MethodCallee};
 pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes};
 pub use consts::ConstValue;
+pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{DefId, ResolveResults};
@@ -52,7 +53,10 @@ pub fn typeck(
 ) -> TypeckResults {
     let items = collect::collect(file, resolve, sink);
     let mut bodies = HashMap::new();
-    for item in &file.items {
+    for item in file.all_items() {
+        if let ItemKind::Impl(_) = item.kind {
+            continue;
+        }
         let def = resolve.def_of_item(item.id);
         match &item.kind {
             ItemKind::Fn(f) => {
@@ -65,7 +69,7 @@ pub fn typeck(
                 let cx = check::FnCtxt::new(resolve, &items, sink, ty);
                 bodies.insert(def, cx.check_const(&c.value));
             }
-            ItemKind::Struct(_) => {}
+            ItemKind::Struct(_) | ItemKind::Impl(_) => {}
         }
     }
     let const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = file

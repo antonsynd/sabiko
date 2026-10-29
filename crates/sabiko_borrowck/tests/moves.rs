@@ -554,7 +554,7 @@ fn borrow_after_move() {
     let (bb0, bb1) = (mir.block(), mir.block());
     mir.assign(bb0, local(p), point_aggregate(&fx));
     let moved = mir.call(bb0, fx.take, vec![mv(local(p))], local(t), bb1);
-    let used = mir.assign(bb1, local(r), Rvalue::Ref(Mutability::Not, local(p)));
+    let used = mir.assign(bb1, local(r), Rvalue::Ref(Mutability::Not.into(), local(p)));
     mir.ret(bb1);
     let body = mir.finish();
 
@@ -697,7 +697,7 @@ fn partial_move_then_borrow_of_parent() {
     );
     let bb1 = make_line(&mut mir, &fx, l);
     mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
-    let used = mir.assign(bb1, local(r), Rvalue::Ref(Mutability::Not, local(l)));
+    let used = mir.assign(bb1, local(r), Rvalue::Ref(Mutability::Not.into(), local(l)));
     mir.ret(bb1);
     let body = mir.finish();
 

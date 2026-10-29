@@ -1,0 +1,33 @@
+// The two-phase shapes of #15 at run time: `s.Push(s.Len())` reads the length before the
+// push; so do `m.Push(m.Len())` through `m: &mut Stack`, the implicit reborrow in
+// `PushTwice(m, m.Len())` and `Stack::Push(m, m.Len() + 100)`.
+struct Stack { Len: i32, Sum: i64 }
+
+impl Stack {
+    fn New() -> Stack { Stack { Len: 0, Sum: 0 } }
+    fn Len(&self) -> i32 { self.Len }
+    fn Push(&mut self, v: i32) {
+        self.Len += 1;
+        self.Sum += v as i64;
+        Print("push "); PrintLine(v);
+    }
+}
+
+fn PushTwice(s: &mut Stack, v: i32) {
+    s.Push(v);
+    s.Push(v);
+}
+
+fn Main() {
+    let mut s = Stack::New();
+    s.Push(s.Len());
+    s.Push(s.Len() * 10);
+    s.Push(s.Len() + s.Len());
+    let m = &mut s;
+    m.Push(m.Len());
+    PushTwice(m, m.Len());
+    Stack::Push(m, m.Len() + 100);
+    m.Push(m.Sum as i32);
+    PrintLine(s.Len());
+    PrintLine(s.Sum);
+}

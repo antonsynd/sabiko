@@ -1,0 +1,70 @@
+// The receiver is evaluated before the arguments, and the arguments left to right, also
+// when the receiver is a call (`MakeP(..)`, `t.Pick(..)`); a by-value Copy receiver is
+// read before a later argument changes it; a two-phase `&mut self` receiver is read by the
+// arguments before the call mutates it; compound assignment runs its right side (a
+// `&mut self` call on the same struct) before reading the place.
+struct Log { N: i32 }
+#[derive(Clone, Copy)]
+struct P { X: i32 }
+struct Two { L: P, R: P }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, a: i32, b: i32) -> i32 {
+        self.X += a * 10 + b;
+        self.X
+    }
+    fn Plus(self, n: i32) -> i32 { self.X + n }
+    fn Bump(&mut self) -> i32 {
+        self.X += 100;
+        1
+    }
+    fn Show(&self, a: i32, b: i32) {
+        Print(self.X); Print(' '); Print(a); Print(' '); PrintLine(b);
+    }
+}
+
+impl Two {
+    fn Pick(&mut self, log: &mut Log, left: bool) -> &mut P {
+        Tag(log, 'p');
+        if left { &mut self.L } else { &mut self.R }
+    }
+}
+
+fn Tag(log: &mut Log, t: char) -> i32 {
+    log.N += 1;
+    Print(t); Print(log.N); Print(' ');
+    log.N
+}
+
+fn MakeP(log: &mut Log) -> P {
+    Tag(log, 'r');
+    P { X: log.N }
+}
+
+fn Change(p: &mut P) -> i32 {
+    p.X = 50;
+    7
+}
+
+fn Main() {
+    let mut log = Log { N: 0 };
+    let p = MakeP(&mut log);
+    let r = MakeP(&mut log).Add(Tag(&mut log, 'a'), Tag(&mut log, 'b'));
+    PrintLine(r);
+    p.Show(Tag(&mut log, 'c'), Tag(&mut log, 'd'));
+    let mut t = Two { L: P { X: 0 }, R: P { X: 0 } };
+    let s = t.Pick(&mut log, false).Add(Tag(&mut log, 'e'), Tag(&mut log, 'f'));
+    PrintLine(s);
+    Print(t.L.X); Print(' '); PrintLine(t.R.X);
+    let mut c = P { X: 1 };
+    let n = c.Plus(Change(&mut c));
+    Print(n); Print(' '); PrintLine(c.X);
+    let mut v = P { X: 5 };
+    let m = v.Add(v.Get(), v.X);
+    PrintLine(m);
+    v.X += v.Bump();
+    PrintLine(v.X);
+    v.X = v.Bump() + v.X;
+    PrintLine(v.X);
+}

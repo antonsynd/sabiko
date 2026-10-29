@@ -1,0 +1,20 @@
+// Argument counts: a method call counts the arguments after the receiver ("this method
+// takes"); called as an associated function, the receiver is the first argument ("this
+// function takes").
+// rustc: E0061 (checked with the pinned rustc).
+struct P { X: i32 }
+
+impl P {
+    fn New(x: i32) -> P { P { X: x } }
+    fn Add(&mut self, n: i32) { self.X += n; }
+    fn Get(&self) -> i32 { self.X }
+}
+
+fn Main() {
+    let mut p = P::New(); //~ ERROR E0304 this function takes 1 argument but 0 arguments were supplied
+    p.Add(); //~ ERROR E0304 this method takes 1 argument but 0 arguments were supplied
+    p.Add(1, 2); //~ ERROR E0304 this method takes 1 argument but 2 arguments were supplied
+    let n = p.Get(3); //~ ERROR E0304 this method takes 0 arguments but 1 argument was supplied
+    P::Add(&mut p); //~ ERROR E0304 this function takes 2 arguments but 1 argument was supplied
+    let m = P::Get(); //~ ERROR E0304 this function takes 1 argument but 0 arguments were supplied
+}

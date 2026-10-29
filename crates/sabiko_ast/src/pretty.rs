@@ -81,8 +81,11 @@ impl Printer {
         match &item.kind {
             ItemKind::Fn(f) => {
                 let _ = write!(self.out, "fn {}(", f.name.name);
+                if let Some(sp) = &f.self_param {
+                    self.out.push_str(sp.kind.as_str());
+                }
                 for (i, p) in f.params.iter().enumerate() {
-                    if i > 0 {
+                    if i > 0 || f.self_param.is_some() {
                         self.out.push_str(", ");
                     }
                     self.pat(&p.pat);
@@ -125,6 +128,21 @@ impl Printer {
                 self.out.push_str(" = ");
                 self.expr(&c.value, 0);
                 self.out.push_str(";\n");
+            }
+            ItemKind::Impl(imp) => {
+                self.out.push_str("impl ");
+                self.ty(&imp.self_ty);
+                self.out.push_str(" {");
+                self.indent += 1;
+                for member in &imp.items {
+                    self.newline();
+                    self.item(member);
+                    // A member ends with a newline at column 0; the next line is indented.
+                    self.out.pop();
+                }
+                self.indent -= 1;
+                self.newline();
+                self.out.push_str("}\n");
             }
         }
     }

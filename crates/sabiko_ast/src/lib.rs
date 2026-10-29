@@ -75,6 +75,20 @@ pub struct SourceFile {
     pub span: Span,
 }
 
+impl SourceFile {
+    /// Every item in source order, the members of an `impl` block right after the block
+    /// itself.
+    pub fn all_items(&self) -> impl Iterator<Item = &Item> {
+        self.items.iter().flat_map(|item| {
+            let members: &[Item] = match &item.kind {
+                ItemKind::Impl(imp) => &imp.items,
+                _ => &[],
+            };
+            std::iter::once(item).chain(members)
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
     pub id: NodeId,
@@ -91,15 +105,60 @@ pub enum ItemKind {
     Fn(FnDecl),
     Struct(StructDecl),
     Const(ConstDecl),
+    /// `impl Type { fn ... }`: an inherent impl block.
+    Impl(ImplDecl),
 }
 
 impl Item {
+    /// The item's name; `None` for an `impl` block.
     #[must_use]
-    pub fn name(&self) -> &Ident {
+    pub fn name(&self) -> Option<&Ident> {
         match &self.kind {
-            ItemKind::Fn(f) => &f.name,
-            ItemKind::Struct(s) => &s.name,
-            ItemKind::Const(c) => &c.name,
+            ItemKind::Fn(f) => Some(&f.name),
+            ItemKind::Struct(s) => Some(&s.name),
+            ItemKind::Const(c) => Some(&c.name),
+            ItemKind::Impl(_) => None,
+        }
+    }
+}
+
+/// `impl Type { ... }`. Its members are items of their own (each with a [`NodeId`]);
+/// only functions are allowed, with or without a `self` parameter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImplDecl {
+    /// The implemented type as written: a path naming a struct (or `Self`) in a valid
+    /// program.
+    pub self_ty: Type,
+    /// The associated functions, each an [`ItemKind::Fn`] item.
+    pub items: Vec<Item>,
+}
+
+/// `self`, `mut self`, `&self` or `&mut self`, the first parameter of a method.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelfParam {
+    /// The node the resolver records the `self` binding under.
+    pub id: NodeId,
+    pub kind: SelfKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SelfKind {
+    /// `self` or `mut self`: the receiver by value, the binding mutable with `mut`.
+    Value { mutable: bool },
+    /// `&self` or `&mut self`.
+    Ref { mutable: bool },
+}
+
+impl SelfKind {
+    /// The parameter as written: `self`, `mut self`, `&self`, `&mut self`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Value { mutable: false } => "self",
+            Self::Value { mutable: true } => "mut self",
+            Self::Ref { mutable: false } => "&self",
+            Self::Ref { mutable: true } => "&mut self",
         }
     }
 }
@@ -107,6 +166,9 @@ impl Item {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDecl {
     pub name: Ident,
+    /// The receiver of a method; only inside an `impl` block.
+    pub self_param: Option<SelfParam>,
+    /// The parameters after the receiver.
     pub params: Vec<Param>,
     /// `None` means the function returns `()`.
     pub ret: Option<Type>,

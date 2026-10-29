@@ -1,8 +1,9 @@
 //! Items, attributes, types, patterns, blocks and statements.
 
 use sabiko_ast::{
-    Attribute, Block, ConstDecl, FieldDef, FnDecl, Ident, Item, ItemKind, LetStmt, Param, Pat,
-    PatKind, Path, SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type, TypeKind, Visibility,
+    Attribute, Block, ConstDecl, FieldDef, FnDecl, Ident, ImplDecl, Item, ItemKind, LetStmt, Param,
+    Pat, PatKind, Path, SelfKind, SelfParam, SourceFile, Stmt, StmtKind, StructDecl, StructKind,
+    Type, TypeKind, Visibility,
 };
 use sabiko_lexer::TokenKind;
 use sabiko_span::Span;
@@ -43,6 +44,12 @@ impl Parser<'_, '_> {
     }
 
     fn parse_item(&mut self) -> PResult<Item> {
+        self.parse_item_in(false)
+    }
+
+    /// An item, or (`in_impl`) a member of an `impl` block: only a function there, which
+    /// may take a `self` parameter.
+    fn parse_item_in(&mut self, in_impl: bool) -> PResult<Item> {
         let start = self.peek().span;
         let mut docs = Vec::new();
         let mut attrs = Vec::new();
@@ -63,15 +70,33 @@ impl Parser<'_, '_> {
         };
         let id = self.new_id();
         let kind = match self.peek_kind() {
-            TokenKind::Fn => ItemKind::Fn(self.parse_fn()?),
+            TokenKind::Fn => ItemKind::Fn(self.parse_fn(in_impl)?),
+            TokenKind::Const if in_impl => {
+                return Err(self.unsupported_item(
+                    "associated constants",
+                    "a later step after inherent `impl` blocks (#7)",
+                ))
+            }
+            TokenKind::Type if in_impl => {
+                return Err(self.unsupported_item("associated types", "planned for Phase 6"))
+            }
+            _ if in_impl => {
+                let d = sabiko_diagnostics::Diagnostic::error(
+                    sabiko_diagnostics::ErrorCode::EXPECTED_ITEM,
+                    format!(
+                        "expected a function in this `impl` block, found {}",
+                        self.describe_current_pub()
+                    ),
+                )
+                .with_label(self.peek().span, "expected `fn` here");
+                return Err(self.emit(d));
+            }
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()?),
             TokenKind::Const => ItemKind::Const(self.parse_const()?),
             TokenKind::Enum => {
                 return Err(self.unsupported_item("`enum` items", "planned for Phase 5"))
             }
-            TokenKind::Impl => {
-                return Err(self.unsupported_item("`impl` blocks", "planned for Phase 5"))
-            }
+            TokenKind::Impl => ItemKind::Impl(self.parse_impl()?),
             TokenKind::Trait => {
                 return Err(self.unsupported_item("`trait` items", "planned for Phase 6"))
             }
@@ -94,7 +119,7 @@ impl Parser<'_, '_> {
                 let d = sabiko_diagnostics::Diagnostic::error(
                     sabiko_diagnostics::ErrorCode::EXPECTED_ITEM,
                     format!(
-                        "expected an item (`fn`, `struct` or `const`), found {}",
+                        "expected an item (`fn`, `struct`, `const` or `impl`), found {}",
                         self.describe_current_pub()
                     ),
                 )
@@ -212,8 +237,18 @@ impl Parser<'_, '_> {
         }
     }
 
+    /// `A::B::C`. The first segment may be `Self` (the type of the enclosing `impl`) or
+    /// `self` (the receiver, as a value); the resolver gives both their meaning.
     pub(crate) fn parse_path(&mut self) -> PResult<Path> {
-        let first = self.parse_ident()?;
+        let first = if matches!(self.peek_kind(), TokenKind::SelfType | TokenKind::SelfValue) {
+            let t = self.bump();
+            Ident {
+                name: self.text(t).to_owned(),
+                span: t.span,
+            }
+        } else {
+            self.parse_ident()?
+        };
         let start = first.span;
         let mut segments = vec![first];
         while self.at(TokenKind::PathSep) {
@@ -234,7 +269,110 @@ impl Parser<'_, '_> {
         })
     }
 
-    fn parse_fn(&mut self) -> PResult<FnDecl> {
+    /// `impl Type { fn ... }`, after any attributes and visibility.
+    fn parse_impl(&mut self) -> PResult<ImplDecl> {
+        self.expect(TokenKind::Impl)?;
+        if self.at(TokenKind::Lt) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported("generic parameters", span, "planned for Phase 6"));
+        }
+        let self_ty = self.parse_type()?;
+        if self.at(TokenKind::For) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported(
+                "trait implementations",
+                span,
+                "planned for Phase 6",
+            ));
+        }
+        if self.at(TokenKind::Where) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported("`where` clauses", span, "planned for Phase 6"));
+        }
+        self.expect(TokenKind::LBrace)?;
+        let mut items = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at_eof() {
+            match self.parse_item_in(true) {
+                Ok(item) => items.push(item),
+                Err(_) => self.recover_to_impl_member(),
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(ImplDecl { self_ty, items })
+    }
+
+    /// `self`, `mut self`, `&self`, `&mut self` at the start of a parameter list, or one
+    /// of them later in it.
+    fn at_self_param(&self) -> bool {
+        match self.peek_kind() {
+            TokenKind::SelfValue => true,
+            TokenKind::Mut => self.nth_kind(1) == TokenKind::SelfValue,
+            TokenKind::Amp => {
+                // `&'a self` and `&'a mut self` too, which `parse_self_param` rejects.
+                let at = if self.nth_kind(1) == TokenKind::Lifetime {
+                    2
+                } else {
+                    1
+                };
+                match self.nth_kind(at) {
+                    TokenKind::SelfValue => true,
+                    TokenKind::Mut => self.nth_kind(at + 1) == TokenKind::SelfValue,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// The receiver of a method. Outside an `impl` block it is reported (rustc: "`self`
+    /// parameter is only allowed in associated functions") and dropped, so the rest of
+    /// the function still parses.
+    fn parse_self_param(&mut self, in_impl: bool) -> PResult<Option<SelfParam>> {
+        let start = self.peek().span;
+        let kind = if self.eat(TokenKind::Amp).is_some() {
+            if self.at(TokenKind::Lifetime) {
+                let span = self.peek().span;
+                return Err(self.error_unsupported(
+                    "explicit lifetimes",
+                    span,
+                    "planned for Phase 9",
+                ));
+            }
+            let mutable = self.eat(TokenKind::Mut).is_some();
+            self.expect(TokenKind::SelfValue)?;
+            SelfKind::Ref { mutable }
+        } else {
+            let mutable = self.eat(TokenKind::Mut).is_some();
+            self.expect(TokenKind::SelfValue)?;
+            SelfKind::Value { mutable }
+        };
+        let span = self.span_from(start);
+        if self.at(TokenKind::Colon) {
+            let at = self.peek().span;
+            return Err(self.error_unsupported(
+                "explicit `self` types (`self: Type`)",
+                at,
+                "planned for Phase 6",
+            ));
+        }
+        if !in_impl {
+            let d = sabiko_diagnostics::Diagnostic::error(
+                sabiko_diagnostics::ErrorCode::MISPLACED_SELF_PARAM,
+                "`self` parameter is only allowed in associated functions",
+            )
+            .with_label(span, "not semantically valid as function parameter")
+            .with_note("associated functions are those in `impl` blocks");
+            let _ = self.emit(d);
+            return Ok(None);
+        }
+        Ok(Some(SelfParam {
+            id: self.new_id(),
+            kind,
+            span,
+        }))
+    }
+
+    fn parse_fn(&mut self, in_impl: bool) -> PResult<FnDecl> {
         self.expect(TokenKind::Fn)?;
         let name = self.parse_ident()?;
         if self.at(TokenKind::Lt) {
@@ -242,7 +380,14 @@ impl Parser<'_, '_> {
             return Err(self.error_unsupported("generic parameters", span, "planned for Phase 6"));
         }
         self.expect(TokenKind::LParen)?;
+        let mut self_param = None;
         let mut params = Vec::new();
+        if self.at_self_param() {
+            self_param = self.parse_self_param(in_impl)?;
+            if self.eat(TokenKind::Comma).is_none() && !self.at(TokenKind::RParen) {
+                return Err(self.error_expected("`,` or `)`"));
+            }
+        }
         while !self.at(TokenKind::RParen) && !self.at_eof() {
             params.push(self.parse_param()?);
             if self.eat(TokenKind::Comma).is_none() {
@@ -270,6 +415,7 @@ impl Parser<'_, '_> {
         let body = self.parse_block()?;
         Ok(FnDecl {
             name,
+            self_param,
             params,
             ret,
             body,
@@ -278,17 +424,16 @@ impl Parser<'_, '_> {
 
     fn parse_param(&mut self) -> PResult<Param> {
         let start = self.peek().span;
-        if matches!(self.peek_kind(), TokenKind::SelfValue)
-            || (self.at(TokenKind::Amp) && matches!(self.nth_kind(1), TokenKind::SelfValue))
-            || (self.at(TokenKind::Amp)
-                && self.nth_kind(1) == TokenKind::Mut
-                && self.nth_kind(2) == TokenKind::SelfValue)
-        {
-            return Err(self.error_unsupported(
-                "`self` parameters (methods)",
+        if self.at_self_param() {
+            let d = sabiko_diagnostics::Diagnostic::error(
+                sabiko_diagnostics::ErrorCode::MISPLACED_SELF_PARAM,
+                "unexpected `self` parameter in function",
+            )
+            .with_label(
                 start,
-                "planned for Phase 5",
-            ));
+                "must be the first parameter of an associated function",
+            );
+            return Err(self.emit(d));
         }
         let id = self.new_id();
         let pat = self.parse_pat()?;
@@ -487,10 +632,7 @@ impl Parser<'_, '_> {
                     "planned for Phase 6",
                 ))
             }
-            TokenKind::SelfType => {
-                return Err(self.error_unsupported("`Self` types", start, "planned for Phase 5"))
-            }
-            TokenKind::Ident => {
+            TokenKind::Ident | TokenKind::SelfType => {
                 let path = self.parse_path()?;
                 if generics && self.at(TokenKind::Lt) {
                     let span = self.peek().span;

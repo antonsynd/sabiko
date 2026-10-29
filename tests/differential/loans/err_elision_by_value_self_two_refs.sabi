@@ -1,0 +1,9 @@
+// A by-value `self` does not supply the output lifetime: with two other reference
+// parameters the returned reference cannot be elided.
+struct P { X: i32 }
+
+impl P {
+    fn Pick(self, a: &i32, b: &i32) -> &i32 {
+        if *a > *b { a } else { b }
+    }
+}

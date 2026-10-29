@@ -1,0 +1,34 @@
+[E0313] Error: type annotations needed
+   ╭─[ tests/ui/typeck/method_receivers.sabi:5:7 ]
+   │
+ 5 │     x.Foo(); //~ ERROR E0313 type annotations needed
+   │       ─┬─  
+   │        ╰─── the receiver's type must be known to call a method
+───╯
+[E0319] Error: no method named `Foo` found for type `!`
+   ╭─[ tests/ui/typeck/method_receivers.sabi:6:27 ]
+   │
+ 6 │     let y: i32 = (return).Foo(); //~ ERROR E0319 no method named `Foo` found for type `!`
+   │                           ─┬─  
+   │                            ╰─── method not found
+   │ 
+   │ Note: only structs have methods (inherent `impl` blocks)
+───╯
+[E0319] Error: no method named `Swap` found for type `({integer}, {integer})`
+   ╭─[ tests/ui/typeck/method_receivers.sabi:8:7 ]
+   │
+ 8 │     t.Swap(); //~ ERROR E0319 no method named `Swap` found for type `({integer}, {integer})`
+   │       ──┬─  
+   │         ╰─── method not found
+   │ 
+   │ Note: only structs have methods (inherent `impl` blocks)
+───╯
+[E0319] Error: no method named `Len` found for reference `&str`
+   ╭─[ tests/ui/typeck/method_receivers.sabi:9:12 ]
+   │
+ 9 │     "text".Len(); //~ ERROR E0319 no method named `Len` found for reference `&str`
+   │            ─┬─  
+   │             ╰─── method not found
+   │ 
+   │ Note: only structs have methods (inherent `impl` blocks)
+───╯

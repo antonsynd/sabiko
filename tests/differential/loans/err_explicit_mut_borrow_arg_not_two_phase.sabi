@@ -1,0 +1,14 @@
+// Calling a `&mut self` method as an associated function with an explicit `&mut v`
+// argument is an ordinary mutable borrow, not a two-phase one: reading `v` in a later
+// argument conflicts (only autoref'd receivers and implicit reborrows are two-phase).
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Main() {
+    let mut v = P { X: 1 };
+    P::Add(&mut v, v.Get());
+}

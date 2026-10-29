@@ -1,0 +1,66 @@
+[E0304] Error: this function takes 1 argument but 0 arguments were supplied
+    ╭─[ tests/ui/typeck/wrong_arg_count.sabi:14:17 ]
+    │
+  8 │     fn New(x: i32) -> P { P { X: x } }
+    │        ─┬─  
+    │         ╰─── function `New` defined here
+    │ 
+ 14 │     let mut p = P::New(); //~ ERROR E0304 this function takes 1 argument but 0 arguments were supplied
+    │                 ────┬───  
+    │                     ╰───── expected 1 argument
+────╯
+[E0304] Error: this method takes 1 argument but 0 arguments were supplied
+    ╭─[ tests/ui/typeck/wrong_arg_count.sabi:15:5 ]
+    │
+  9 │     fn Add(&mut self, n: i32) { self.X += n; }
+    │        ─┬─  
+    │         ╰─── method `Add` defined here
+    │ 
+ 15 │     p.Add(); //~ ERROR E0304 this method takes 1 argument but 0 arguments were supplied
+    │     ───┬───  
+    │        ╰───── expected 1 argument
+────╯
+[E0304] Error: this method takes 1 argument but 2 arguments were supplied
+    ╭─[ tests/ui/typeck/wrong_arg_count.sabi:16:5 ]
+    │
+  9 │     fn Add(&mut self, n: i32) { self.X += n; }
+    │        ─┬─  
+    │         ╰─── method `Add` defined here
+    │ 
+ 16 │     p.Add(1, 2); //~ ERROR E0304 this method takes 1 argument but 2 arguments were supplied
+    │     ─────┬─────  
+    │          ╰─────── expected 1 argument
+────╯
+[E0304] Error: this method takes 0 arguments but 1 argument was supplied
+    ╭─[ tests/ui/typeck/wrong_arg_count.sabi:17:13 ]
+    │
+ 10 │     fn Get(&self) -> i32 { self.X }
+    │        ─┬─  
+    │         ╰─── method `Get` defined here
+    │ 
+ 17 │     let n = p.Get(3); //~ ERROR E0304 this method takes 0 arguments but 1 argument was supplied
+    │             ────┬───  
+    │                 ╰───── expected 0 arguments
+────╯
+[E0304] Error: this function takes 2 arguments but 1 argument was supplied
+    ╭─[ tests/ui/typeck/wrong_arg_count.sabi:18:5 ]
+    │
+  9 │     fn Add(&mut self, n: i32) { self.X += n; }
+    │        ─┬─  
+    │         ╰─── function `Add` defined here
+    │ 
+ 18 │     P::Add(&mut p); //~ ERROR E0304 this function takes 2 arguments but 1 argument was supplied
+    │     ───────┬──────  
+    │            ╰──────── expected 2 arguments
+────╯
+[E0304] Error: this function takes 1 argument but 0 arguments were supplied
+    ╭─[ tests/ui/typeck/wrong_arg_count.sabi:19:13 ]
+    │
+ 10 │     fn Get(&self) -> i32 { self.X }
+    │        ─┬─  
+    │         ╰─── function `Get` defined here
+    │ 
+ 19 │     let m = P::Get(); //~ ERROR E0304 this function takes 1 argument but 0 arguments were supplied
+    │             ────┬───  
+    │                 ╰───── expected 1 argument
+────╯

@@ -1,0 +1,17 @@
+// Autoref on a `&mut P` binding reborrows `&mut *m` instead of moving `m`, for method
+// calls and implicit argument reborrows alike: `m` stays usable after both.
+struct P { X: i32 }
+
+impl P {
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Bump(r: &mut P) { r.X += 1; }
+
+fn Twice(m: &mut P) {
+    m.Inc();
+    m.Inc();
+    P::Inc(m);
+    Bump(m);
+    m.X += 1;
+}

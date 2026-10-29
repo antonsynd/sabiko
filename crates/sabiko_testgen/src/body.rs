@@ -12,8 +12,8 @@
 use std::fmt::Write as _;
 
 use crate::program::{
-    float_literal, int_literal, random_literal, random_prim, unique_name, FnSig, Program, RetTy,
-    LOCAL_NAMES,
+    float_literal, int_literal, random_literal, random_prim, unique_name, FnSig, Program, Receiver,
+    RetTy, LOCAL_NAMES,
 };
 use crate::rng::Rng;
 use crate::ty::{IntTy, Prim, Ty, ValTy};
@@ -32,11 +32,6 @@ struct Var {
     block: usize,
     shared_locks: u32,
     mut_locks: u32,
-    /// Locks held until the end of the current statement (see `deref_call` and `call`); a
-    /// variable with one is excluded from every candidate list, violation knob or not.
-    stmt_locks: u32,
-    /// Read in the current statement (see `apply`): no `&mut` borrow or write of it may
-    /// follow in the same statement, violation knob or not.
     /// Loop counters are never touched by generated statements.
     hidden: bool,
     /// A reference local whose region ended: never used again.
@@ -110,8 +105,12 @@ pub struct BodyGen<'a> {
     indent: usize,
     used_names: Vec<String>,
     budget: usize,
-    /// Variables whose `stmt_locks` must be released when the statement ends.
-    stmt_locked: Vec<usize>,
+    /// While a call's value arguments are generated: the variable its receiver (or a
+    /// reborrowed `&mut` argument) borrows, which places then prefer, so that the shapes
+    /// two-phase borrows allow (`v.Add(v.Get())`, `Use(m, m.X)`) come up.
+    prefer_root: Option<usize>,
+    /// Set by `stmt_method_call`: the next call of a method uses method syntax on a place.
+    force_method: bool,
 }
 
 const INDENT: &str = "    ";
@@ -141,7 +140,8 @@ impl<'a> BodyGen<'a> {
             indent: 1,
             used_names: Vec::new(),
             budget,
-            stmt_locked: Vec::new(),
+            prefer_root: None,
+            force_method: false,
         };
         for p in &sig.params {
             gen.used_names.push(p.name.clone());
@@ -154,7 +154,6 @@ impl<'a> BodyGen<'a> {
                 block: 0,
                 shared_locks: 0,
                 mut_locks: 0,
-                stmt_locks: 0,
                 hidden: false,
                 dead: false,
                 borrows: Vec::new(),
@@ -237,7 +236,6 @@ impl<'a> BodyGen<'a> {
             block: self.cur_block(),
             shared_locks: 0,
             mut_locks: 0,
-            stmt_locks: 0,
             hidden,
             dead: false,
             borrows: Vec::new(),
@@ -332,7 +330,6 @@ impl<'a> BodyGen<'a> {
         for v in block.first_var..self.vars.len() {
             self.kill(v);
         }
-        self.stmt_locked.retain(|&v| v < block.first_var);
         self.vars.truncate(block.first_var);
         self.indent -= 1;
     }
@@ -342,7 +339,7 @@ impl<'a> BodyGen<'a> {
     fn candidates(&self) -> Vec<Place> {
         let mut out = Vec::new();
         for (i, var) in self.vars.iter().enumerate() {
-            if var.hidden || var.dead || var.stmt_locks > 0 {
+            if var.hidden || var.dead {
                 continue;
             }
             match var.ty {
@@ -411,11 +408,6 @@ impl<'a> BodyGen<'a> {
         }
     }
 
-    /// Accesses that are never generated, violation knob or not: see the TODO in `call`.
-    fn hard_blocked(&self, place: &Place, _access: Access) -> bool {
-        self.vars[place.root].stmt_locks > 0
-    }
-
     /// Records the effect of an access: a move, or a re-initialisation.
     fn apply(&mut self, place: &Place, access: Access) {
         let copy = self.prog.is_copy(Ty::Val(place.ty));
@@ -449,11 +441,16 @@ impl<'a> BodyGen<'a> {
         let typed: Vec<Place> = self
             .candidates()
             .into_iter()
-            .filter(|p| p.ty == ty && !self.hard_blocked(p, access))
+            .filter(|p| p.ty == ty)
             .collect();
         let (ok, bad): (Vec<Place>, Vec<Place>) =
             typed.into_iter().partition(|p| self.permitted(p, access));
-        let pool = self.choose_pool(ok, bad)?;
+        let mut pool = self.choose_pool(ok, bad)?;
+        if let Some(root) = self.prefer_root {
+            if pool.iter().any(|p| p.root == root) && self.rng.chance(60) {
+                pool.retain(|p| p.root == root);
+            }
+        }
         let place = self.rng.pick(&pool).clone();
         self.apply(&place, access);
         Some(place)
@@ -470,7 +467,7 @@ impl<'a> BodyGen<'a> {
         let typed: Vec<Place> = self
             .candidates()
             .into_iter()
-            .filter(|p| filter(p.ty) && !self.hard_blocked(p, access))
+            .filter(|p| filter(p.ty))
             .collect();
         let (ok, bad): (Vec<Place>, Vec<Place>) =
             typed.into_iter().partition(|p| self.permitted(p, access));
@@ -488,59 +485,175 @@ impl<'a> BodyGen<'a> {
             .collect()
     }
 
-    /// A call to function `callee`. Reference arguments are chosen first and their loans
-    /// held while the remaining arguments are generated, which forbids `F(&mut x, x.A)`
-    /// (an error in both languages) and, conservatively, `F(x.A, &mut x)` (fine in both).
+    /// A call to function `callee`: `F(args)`, `Type::F(args)` for an associated function,
+    /// or for a method also `receiver.F(args)`. Reference arguments (a method's `&self` or
+    /// `&mut self` receiver included) are chosen first and their loans held while the
+    /// value arguments are generated, which forbids `F(&mut x, x.A)` (an error in both
+    /// languages) and, conservatively, `F(x.A, &mut x)` (fine in both).
+    ///
+    /// A two-phase borrow (#15) is only held as shared while the value arguments are
+    /// generated, so they may read its place (`v.Add(v.Get())`, `Use(m, m.X)`) but not
+    /// write, move or borrow it mutably: an autoref'd `&mut self` receiver and a bare
+    /// `&mut` local passed where a `&mut` is expected (its implicit reborrow). An explicit
+    /// `&mut x` argument, and a receiver returned by a call, keep the mutable lock. The
+    /// other reference arguments are chosen while the two-phase loans are still held as
+    /// mutable: a shared borrow of the place passed to the call would conflict when the
+    /// call activates the borrow (`v.AddFrom(&v)`).
     fn call(&mut self, callee: usize, depth: u32) -> Option<Expr> {
         let prog = self.prog;
         let sig = &prog.fns[callee];
+        let receiver = sig.owner.and_then(|o| o.receiver);
+        let forced = std::mem::take(&mut self.force_method);
+        let method_syntax = receiver.is_some() && (forced || self.rng.chance(75));
+        let returns_ref = matches!(sig.ret, RetTy::Ref { .. });
         let mut args: Vec<Option<Expr>> = vec![None; sig.params.len()];
         let mut held: Vec<(usize, bool)> = Vec::new();
+        let mut two_phase: Vec<usize> = Vec::new();
         let mut result_roots = Vec::new();
         let mut ok = true;
         for (i, p) in sig.params.iter().enumerate() {
-            if let Ty::Ref { mutable, inner } = p.ty {
-                let Some(e) = self.ref_expr(mutable, inner, depth.saturating_sub(1)) else {
-                    ok = false;
-                    break;
-                };
-                self.lock(&e.roots);
-                held.extend(e.roots.iter().copied());
+            let Ty::Ref { mutable, inner } = p.ty else {
+                continue;
+            };
+            let found = if i == 0 && method_syntax {
+                let temporary = !returns_ref && !forced;
+                self.receiver_ref(mutable, inner, depth.saturating_sub(1), temporary)
+            } else {
+                self.ref_expr(mutable, inner, depth.saturating_sub(1))
+                    .map(|e| {
+                        // A bare `&mut` local is reborrowed implicitly, two-phase.
+                        let bare = matches!(e.roots[..], [(root, true)]
+                            if e.text == self.vars[root].name
+                                && matches!(self.vars[root].ty, Ty::Ref { mutable: true, .. }));
+                        (e, mutable && bare)
+                    })
+            };
+            let Some((e, is_two_phase)) = found else {
+                ok = false;
+                break;
+            };
+            self.lock(&e.roots);
+            held.extend(e.roots.iter().copied());
+            // A `&self`/`&mut self` method's result borrows `self` only.
+            if i == 0 || !matches!(receiver, Some(Receiver::Ref { .. })) {
                 result_roots.extend(e.roots.iter().copied());
-                if let [(root, _)] = e.roots[..] {
-                    if e.text == self.vars[root].name {
-                        // TODO(gen-bugs/README.md #4): a bare `&mut` local passed as an
-                        // argument is an implicit reborrow, which rustc treats as a
-                        // two-phase borrow (later arguments may read through it) and
-                        // Sabiko does not. Until that is fixed the local is unusable for
-                        // the rest of the statement, whatever the violation knob says.
-                        self.hold_for_stmt(root);
-                    }
-                }
-                args[i] = Some(e);
             }
+            if is_two_phase {
+                two_phase.extend(e.roots.iter().map(|&(root, _)| root));
+            }
+            args[i] = Some(e);
         }
         if ok {
-            for (i, p) in sig.params.iter().enumerate() {
-                if let Ty::Val(v) = p.ty {
-                    args[i] = Some(self.val_expr(v, depth.saturating_sub(1)));
+            for &root in &two_phase {
+                self.unlock(&[(root, true)]);
+                self.lock(&[(root, false)]);
+                if let Some(h) = held.iter_mut().find(|h| **h == (root, true)) {
+                    h.1 = false;
                 }
             }
+            let receiver_root = args
+                .first()
+                .and_then(Option::as_ref)
+                .filter(|_| method_syntax)
+                .and_then(|e| e.roots.first().map(|&(root, _)| root));
+            let saved = self.prefer_root;
+            self.prefer_root = two_phase.first().copied().or(receiver_root).or(saved);
+            for (i, p) in sig.params.iter().enumerate() {
+                if let Ty::Val(v) = p.ty {
+                    let mut e = self.val_expr(v, depth.saturating_sub(1));
+                    if i == 0 && method_syntax {
+                        e.text = receiver_text(&e.text);
+                    }
+                    args[i] = Some(e);
+                }
+            }
+            self.prefer_root = saved;
         }
         self.unlock(&held);
         if !ok {
             return None;
         }
-        let texts: Vec<String> = args.into_iter().map(|a| a.expect("filled").text).collect();
-        let roots = if matches!(sig.ret, RetTy::Ref { .. }) {
+        let mut texts: Vec<String> = args.into_iter().map(|a| a.expect("filled").text).collect();
+        let roots = if returns_ref {
             result_roots
         } else {
             Vec::new()
         };
-        Some(Expr {
-            text: format!("{}({})", sig.name, texts.join(", ")),
-            roots,
-        })
+        let text = match sig.owner {
+            Some(_) if method_syntax => {
+                let recv = texts.remove(0);
+                format!("{recv}.{}({})", sig.name, texts.join(", "))
+            }
+            Some(owner) => format!(
+                "{}::{}({})",
+                prog.structs[owner.strukt].name,
+                sig.name,
+                texts.join(", ")
+            ),
+            None => format!("{}({})", sig.name, texts.join(", ")),
+        };
+        Some(Expr { text, roots })
+    }
+
+    /// The receiver of a `&self` (or, `mutable`, `&mut self`) method call on a value of
+    /// type `inner`, as written before `.Name(..)`, with whether its borrow is two-phase:
+    /// a place, autoref'd (`p.X`, `(*r)`); a reference local, reborrowed (`r`); a call
+    /// returning a reference (`p.Left()`); or, when the method's result does not borrow
+    /// it (`temporary`), a struct literal or value call as a temporary.
+    fn receiver_ref(
+        &mut self,
+        mutable: bool,
+        inner: ValTy,
+        depth: u32,
+        temporary: bool,
+    ) -> Option<(Expr, bool)> {
+        let fns = self.callables(
+            |r| matches!(r, RetTy::Ref { mutable: m, inner: t } if t == inner && (m || !mutable)),
+        );
+        let first = self.rng.weighted(&[
+            50,
+            25,
+            if fns.is_empty() || depth == 0 { 0 } else { 25 },
+            if temporary && matches!(inner, ValTy::Struct(_)) {
+                8
+            } else {
+                0
+            },
+        ]);
+        for kind in (0..4).map(|k| (first + k) % 4) {
+            let found = match kind {
+                0 => self.place_of(inner, Access::Borrow(mutable)).map(|place| {
+                    let e = Expr {
+                        text: receiver_text(&place.text),
+                        roots: vec![(place.root, mutable)],
+                    };
+                    (e, mutable)
+                }),
+                1 => self.ref_var(mutable, inner).map(|e| (e, mutable)),
+                2 if !fns.is_empty() && depth > 0 => {
+                    let callee = *self.rng.pick(&fns);
+                    // The call's own loans are ordinary ones (`a.BMut().Add(a.N)`).
+                    self.call(callee, depth).map(|e| (e, false))
+                }
+                3 if temporary => match inner {
+                    ValTy::Struct(s) => {
+                        let e = if self.rng.chance(60) {
+                            self.struct_literal(s, depth)
+                        } else {
+                            self.value_call(inner, depth)
+                                .unwrap_or_else(|| self.struct_literal(s, depth))
+                        };
+                        Some((Expr::value(format!("({})", e.text)), false))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
     }
 
     fn val_expr(&mut self, ty: ValTy, depth: u32) -> Expr {
@@ -904,7 +1017,7 @@ impl<'a> BodyGen<'a> {
             else {
                 continue;
             };
-            if v.hidden || v.dead || v.stmt_locks > 0 || t != inner || (mutable && !m) {
+            if v.hidden || v.dead || t != inner || (mutable && !m) {
                 continue;
             }
             let free = !v.moved && v.mut_locks == 0 && (!mutable || v.shared_locks == 0);
@@ -1013,26 +1126,13 @@ impl<'a> BodyGen<'a> {
                 done = true;
                 break;
             }
-            self.release_stmt_locks();
         }
         if !done {
             let e = self.prim_leaf(Prim::Int(IntTy::I32));
             self.line(&format!("PrintLine({});", e.text));
         }
-        self.release_stmt_locks();
         let block = self.cur_block();
         self.blocks[block].stmt_index += 1;
-    }
-
-    fn release_stmt_locks(&mut self) {
-        for v in std::mem::take(&mut self.stmt_locked) {
-            self.vars[v].stmt_locks -= 1;
-        }
-    }
-
-    fn hold_for_stmt(&mut self, root: usize) {
-        self.vars[root].stmt_locks += 1;
-        self.stmt_locked.push(root);
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1059,6 +1159,7 @@ impl<'a> BodyGen<'a> {
             if has_fns { 5 } else { 0 }, // 13 write through a returned reference
             1,                           // 14 guarded panic
             if self.prog.tuples.is_empty() { 0 } else { 10 }, // 15 destructuring let
+            if self.has_methods() { 14 } else { 0 }, // 16 method call
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1082,6 +1183,7 @@ impl<'a> BodyGen<'a> {
                     self.stmt_let_tuple(depth)
                 }
             }
+            16 => self.stmt_method_call(depth),
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));
@@ -1254,9 +1356,7 @@ impl<'a> BodyGen<'a> {
         };
         // Rust evaluates the right-hand side first.
         let e = self.val_expr(place.ty, depth);
-        if !self.hard_blocked(&place, Access::Write)
-            && (violation || self.permitted(&place, Access::Write))
-        {
+        if violation || self.permitted(&place, Access::Write) {
             self.apply(&place, Access::Write);
             self.line(&format!("{} = {};", place.text, e.text));
         } else {
@@ -1296,9 +1396,7 @@ impl<'a> BodyGen<'a> {
             _ => self.prim_expr(p, depth),
         };
         let moved = self.vars[place.root].moved;
-        if !self.hard_blocked(&place, Access::Write)
-            && (violation || (!moved && self.permitted(&place, Access::Write)))
-        {
+        if violation || (!moved && self.permitted(&place, Access::Write)) {
             self.line(&format!("{} {op} {};", place.text, e.text));
         } else {
             let name = self.fresh_name();
@@ -1356,6 +1454,47 @@ impl<'a> BodyGen<'a> {
             }
         }
         out
+    }
+
+    /// The methods (functions with a receiver) this body may call.
+    fn methods(&self) -> Vec<usize> {
+        (0..self.fn_index)
+            .filter(|&i| self.prog.fns[i].owner.is_some_and(|o| o.receiver.is_some()))
+            .collect()
+    }
+
+    fn has_methods(&self) -> bool {
+        !self.methods().is_empty()
+    }
+
+    /// `p.Name(args);`: a method called with method syntax on a place (or reference local)
+    /// in scope, its arguments preferring to read that place, as in `v.Add(v.Get())`.
+    fn stmt_method_call(&mut self, depth: u32) -> bool {
+        let methods = self.methods();
+        if methods.is_empty() {
+            return false;
+        }
+        let callee = *self.rng.pick(&methods);
+        let owner = self.prog.fns[callee].owner.expect("a method");
+        let ty = ValTy::Struct(owner.strukt);
+        let in_scope = self.candidates().iter().any(|p| p.ty == ty);
+        if !in_scope || self.rng.chance(30) {
+            // A fresh local to call it on.
+            let e = self.val_expr(ty, self.knobs.max_expr_depth.saturating_sub(1));
+            let name = self.fresh_name();
+            self.line(&format!("let mut {name} = {};", e.text));
+            self.declare(name, Ty::Val(ty), true, false);
+        }
+        self.force_method = true;
+        let e = self.call(callee, depth);
+        self.force_method = false;
+        match e {
+            Some(e) => {
+                self.line(&format!("{};", e.text));
+                true
+            }
+            None => false,
+        }
     }
 
     fn stmt_call(&mut self, depth: u32) -> bool {
@@ -1634,9 +1773,29 @@ impl<'a> BodyGen<'a> {
     }
 }
 
+/// `text` as a method receiver: a plain path of names (`p`, `p.A.X`) as it is, anything
+/// else parenthesised (`(*r)`, `(t.0)`, `(F(x))`), so that `*r.Get()` cannot read as
+/// `*(r.Get())` and a tuple index cannot run into the method name.
+fn receiver_text(text: &str) -> String {
+    let plain = text.split('.').all(|segment| {
+        segment
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && segment
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    });
+    if plain {
+        text.to_owned()
+    } else {
+        format!("({text})")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BodyGen, Ty, ValTy, INDENT};
+    use super::{receiver_text, BodyGen, Ty, ValTy, INDENT};
     use crate::program::gen_program;
     use crate::rng::Rng;
     use crate::Knobs;
@@ -1706,5 +1865,14 @@ mod tests {
             definite > 0,
             "no `if`/`else` re-initialises in both branches"
         );
+    }
+
+    #[test]
+    fn receivers_are_parenthesised_unless_plain_paths() {
+        assert_eq!(receiver_text("p"), "p");
+        assert_eq!(receiver_text("self.A.X"), "self.A.X");
+        assert_eq!(receiver_text("*self"), "(*self)");
+        assert_eq!(receiver_text("t.0"), "(t.0)");
+        assert_eq!(receiver_text("F(x)"), "(F(x))");
     }
 }

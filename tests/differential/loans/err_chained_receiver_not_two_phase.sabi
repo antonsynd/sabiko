@@ -1,0 +1,20 @@
+// `a.BMut().Add(a.N)`: the receiver of `Add` is the result of `a.BMut()`, an ordinary
+// mutable borrow of `a` made before the arguments run (only the final reborrow of it is
+// two-phase), so reading `a.N` in the argument conflicts. Binding the argument first works.
+struct P { X: i32 }
+struct A { B: P, N: i32 }
+
+impl P {
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+impl A {
+    fn BMut(&mut self) -> &mut P { &mut self.B }
+}
+
+fn Main() {
+    let mut a = A { B: P { X: 1 }, N: 2 };
+    let n = a.N;
+    a.BMut().Add(n);
+    a.BMut().Add(a.N);
+}

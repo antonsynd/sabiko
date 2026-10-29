@@ -110,9 +110,10 @@ fn programs_have_the_expected_shape() {
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
         assert!(src.contains("fn Main() {"), "seed {seed}");
-        // Output is observable: something is printed (seed 138 only uses `Print`).
+        // Output is observable: something is printed (seed 138 only uses `Print`), or the
+        // program panics (seed 390 does nothing else).
         assert!(
-            src.contains("PrintLine(") || src.contains("Print("),
+            src.contains("PrintLine(") || src.contains("Print(") || src.contains("Panic("),
             "seed {seed}:\n{src}"
         );
         let lines = src.lines().count();
@@ -146,4 +147,51 @@ fn programs_use_128_bit_integers() {
         "i128 in {signed}, u128 in {unsigned} of {SEEDS} programs"
     );
     assert!(min_literal > 0, "no program uses the `i128::MIN` literal");
+}
+
+/// Methods are part of the subset: a fair share of programs declare `impl` blocks and call
+/// methods, some of them in the shapes two-phase borrows allow, an argument reading the
+/// receiver (`v.Add(v.X)`).
+#[test]
+fn programs_use_methods() {
+    let knobs = Knobs::default();
+    let (mut impls, mut calls, mut reads_receiver) = (0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        impls += usize::from(src.contains("\nimpl "));
+        let mut called = false;
+        let mut read = false;
+        for line in src.lines() {
+            // `name.Method(...)` with `name` a plain local: the receiver, then the rest.
+            for (at, _) in line.match_indices('.') {
+                let recv: String = line[..at]
+                    .chars()
+                    .rev()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                let tail = &line[at + 1..];
+                let method: String = tail
+                    .chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect();
+                let is_call = !recv.is_empty()
+                    && recv.starts_with(|c: char| c.is_ascii_lowercase())
+                    && method.starts_with(|c: char| c.is_ascii_uppercase())
+                    && tail[method.len()..].starts_with('(');
+                if is_call {
+                    called = true;
+                    read |= tail.contains(&format!("{recv}."));
+                }
+            }
+        }
+        calls += usize::from(called);
+        reads_receiver += usize::from(read);
+    }
+    assert!(
+        impls >= 150 && calls >= 100 && reads_receiver >= 20,
+        "impl blocks in {impls}, method calls in {calls}, arguments reading the receiver in {reads_receiver} of {SEEDS} programs"
+    );
 }

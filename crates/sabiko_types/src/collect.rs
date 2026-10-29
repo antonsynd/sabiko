@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sabiko_ast::{ItemKind, SourceFile, StructKind, Type, TypeKind};
+use sabiko_ast::{ItemKind, SelfKind, SourceFile, StructKind, Type, TypeKind};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
@@ -24,8 +24,12 @@ pub fn is_printable(ty: &Ty) -> bool {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnSig {
+    /// The parameter types, the receiver's (`P`, `&P` or `&mut P`) first for a method.
     pub inputs: Vec<Ty>,
     pub output: Ty,
+    /// How a method takes its receiver, `inputs[0]`; `None` for a function without a
+    /// `self` parameter.
+    pub self_kind: Option<SelfKind>,
     /// Span of the whole `fn` header's name, for "function defined here" labels.
     pub name_span: Span,
     /// Spans of the parameters, for arity diagnostics.
@@ -209,41 +213,63 @@ pub(crate) fn check_sized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> boo
     true
 }
 
+/// The signature of a function; a method's receiver type is its first input.
+fn fn_sig(
+    def: DefId,
+    f: &sabiko_ast::FnDecl,
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> FnSig {
+    let mut inputs = Vec::new();
+    let mut param_spans = Vec::new();
+    if let Some(sp) = &f.self_param {
+        // `Self` is the struct of the `impl` block; an error type when that failed to
+        // resolve (reported with the block).
+        let self_ty = resolve.def(def).parent.map_or(Ty::Error, Ty::Adt);
+        inputs.push(match sp.kind {
+            SelfKind::Value { .. } => self_ty,
+            SelfKind::Ref { mutable } => Ty::Ref(Mutability::from_bool(mutable), Box::new(self_ty)),
+        });
+        param_spans.push(sp.span);
+    }
+    for p in &f.params {
+        let ty = lower_sig_type(&p.ty, resolve);
+        check_sized(&ty, p.ty.span, sink);
+        inputs.push(ty);
+        param_spans.push(p.span);
+    }
+    let output = match &f.ret {
+        Some(t) => {
+            let ty = lower_sig_type(t, resolve);
+            check_sized(&ty, t.span, sink);
+            ty
+        }
+        None => Ty::Unit,
+    };
+    FnSig {
+        inputs,
+        output,
+        self_kind: f.self_param.as_ref().map(|sp| sp.kind),
+        name_span: f.name.span,
+        param_spans,
+    }
+}
+
 pub(crate) fn collect(
     file: &SourceFile,
     resolve: &ResolveResults,
     sink: &mut DiagnosticSink,
 ) -> ItemTypes {
     let mut items = ItemTypes::default();
-    for item in &file.items {
+    for item in file.all_items() {
+        if let ItemKind::Impl(_) = item.kind {
+            continue;
+        }
         let def = resolve.def_of_item(item.id);
         match &item.kind {
+            ItemKind::Impl(_) => unreachable!("skipped above"),
             ItemKind::Fn(f) => {
-                let mut inputs = Vec::new();
-                let mut param_spans = Vec::new();
-                for p in &f.params {
-                    let ty = lower_sig_type(&p.ty, resolve);
-                    check_sized(&ty, p.ty.span, sink);
-                    inputs.push(ty);
-                    param_spans.push(p.span);
-                }
-                let output = match &f.ret {
-                    Some(t) => {
-                        let ty = lower_sig_type(t, resolve);
-                        check_sized(&ty, t.span, sink);
-                        ty
-                    }
-                    None => Ty::Unit,
-                };
-                items.fn_sigs.insert(
-                    def,
-                    FnSig {
-                        inputs,
-                        output,
-                        name_span: f.name.span,
-                        param_spans,
-                    },
-                );
+                items.fn_sigs.insert(def, fn_sig(def, f, resolve, sink));
             }
             ItemKind::Struct(s) => {
                 let (fields, is_unit) = match &s.kind {
@@ -302,6 +328,7 @@ pub(crate) fn collect(
                     FnSig {
                         inputs: vec![Ty::shared_ref(Ty::Prim(PrimTy::Str))],
                         output: Ty::Never,
+                        self_kind: None,
                         name_span: Span::dummy(),
                         param_spans: vec![Span::dummy()],
                     },

@@ -1,0 +1,9 @@
+[E0110] Error: `self` parameter is only allowed in associated functions
+   ╭─[ tests/ui/parse/self_param_in_free_function.sabi:6:9 ]
+   │
+ 6 │ fn Free(self) -> i32 { //~ ERROR E0110 `self` parameter is only allowed in associated functions
+   │         ──┬─  
+   │           ╰─── not semantically valid as function parameter
+   │ 
+   │ Note: associated functions are those in `impl` blocks
+───╯

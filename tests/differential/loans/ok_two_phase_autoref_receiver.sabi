@@ -1,0 +1,20 @@
+// `v.Add(v.Get())`: the autoref'd `&mut self` receiver is a two-phase borrow, reserved
+// before the arguments run and activated at the call, so a later argument may read the
+// receiver through a `&self` method, a field or a field path.
+struct P { X: i32, Y: i32 }
+struct A { B: P, N: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X + self.Y }
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Main() {
+    let mut v = P { X: 1, Y: 2 };
+    v.Add(v.Get());
+    v.Add(v.X);
+    v.Add(v.Get() + v.Y * v.Get());
+    let mut a = A { B: P { X: 3, Y: 4 }, N: 5 };
+    a.B.Add(a.B.Get());
+    a.B.Add(a.N + a.B.X);
+}

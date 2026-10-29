@@ -1,0 +1,16 @@
+// Associated functions and methods are not in scope unqualified, inside the impl block
+// either: they need `P::` (or `self.`).
+// rustc: E0425 (checked with the pinned rustc).
+struct P { X: i32 }
+
+impl P {
+    fn New() -> P { P { X: 0 } }
+    fn Get(&self) -> i32 { self.X }
+    fn Make() -> P {
+        let p = New(); //~ ERROR E0202 cannot find value `New` in this scope
+        p
+    }
+    fn Twice(&self) -> i32 {
+        Get(self) * 2 //~ ERROR E0202 cannot find value `Get` in this scope
+    }
+}

@@ -1,0 +1,12 @@
+// `self` in a `&self` method is a shared reference: fields cannot be assigned or
+// mutably borrowed through it.
+struct P { X: i32 }
+
+impl P {
+    fn Set(&self, n: i32) {
+        self.X = n;
+    }
+    fn Borrow(&self) -> &mut i32 {
+        &mut self.X
+    }
+}

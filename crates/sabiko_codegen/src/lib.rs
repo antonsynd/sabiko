@@ -2,7 +2,9 @@
 //!
 //! [`emit_il`] turns the MIR of one source file into one `.il` module. Structs become
 //! `sequential` value types; functions become static methods of one static class named
-//! after the module; an executable gets an entry-point wrapper that runs `Main` and turns
+//! after the module, and the functions of a struct's `impl` blocks (methods included)
+//! static methods of the struct's own type, the receiver an ordinary first parameter
+//! (decision 53); an executable gets an entry-point wrapper that runs `Main` and turns
 //! an escaping exception into a Rust-style panic report with exit code 101.
 //!
 //! The lowering is a direct stack-machine walk over the MIR (see [`func`]): blocks in
@@ -97,7 +99,7 @@ pub fn emit_il(
 
     let mut out = String::new();
     cx.header(&mut out);
-    cx.structs(&mut out);
+    cx.structs(bodies, &mut out);
     let _ = writeln!(
         out,
         ".class public abstract auto ansi sealed beforefieldinit {} extends [System.Runtime]System.Object\n{{",
@@ -105,6 +107,10 @@ pub fn emit_il(
     );
     let mut main: Option<&Body> = None;
     for body in bodies {
+        if resolve.def(body.def).parent.is_some() {
+            // Emitted with its struct.
+            continue;
+        }
         if body.name == "Main" {
             main = Some(body);
         }
@@ -281,7 +287,8 @@ impl Cx<'_> {
         }
     }
 
-    fn structs(&mut self, out: &mut String) {
+    /// Every struct, with the functions of its `impl` blocks as static methods.
+    fn structs(&mut self, bodies: &[Body], out: &mut String) {
         let defs: Vec<_> = self.resolve.defs_of_kind(DefKind::Struct).collect();
         for def in defs {
             let adt = self.typeck.items.adt(def).clone();
@@ -298,6 +305,11 @@ impl Cx<'_> {
                 // A `()` field is a `Sabiko.Runtime.Unit` (decision 52).
                 let ty = types::cil_type(self, &field.ty, field.span);
                 let _ = writeln!(out, "  .field public {ty} {}", types::quote(&field.name));
+            }
+            for body in bodies {
+                if self.resolve.def(body.def).parent == Some(def) {
+                    func::emit_body(self, body, out);
+                }
             }
             out.push_str("}\n\n");
         }
@@ -333,6 +345,15 @@ impl Cx<'_> {
   }}
 "
         );
+    }
+
+    /// The class a function is a static method of: its struct's for a function of an
+    /// `impl` block, the module class otherwise.
+    pub(crate) fn owner_class(&self, def: sabiko_resolve::DefId) -> String {
+        match self.resolve.def(def).parent {
+            Some(adt) => types::quote(&self.typeck.items.adt(adt).name),
+            None => types::quote(&self.class_name),
+        }
     }
 
     /// Whether `ty` is lowered to a CIL managed pointer (`T&`). `&str` is a span, not a

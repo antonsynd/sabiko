@@ -155,6 +155,76 @@ impl Location {
     }
 }
 
+/// The predecessor blocks of every block.
+#[must_use]
+pub fn predecessors(body: &Body) -> Vec<Vec<BasicBlock>> {
+    let mut preds = vec![Vec::new(); body.blocks.len()];
+    for bb in body.block_ids() {
+        if let Some(terminator) = &body.block(bb).terminator {
+            for succ in terminator.kind.successors() {
+                preds[succ.index()].push(bb);
+            }
+        }
+    }
+    preds
+}
+
+/// The dominator sets of a body's blocks: `b` is dominated by `a` when every path from
+/// the start block to `b` passes through `a`.
+#[derive(Clone, Debug)]
+pub struct Dominators {
+    /// `sets[b]` holds every block that dominates `b` (including `b`); an unreachable
+    /// block keeps the full set.
+    sets: Vec<BitSet>,
+}
+
+impl Dominators {
+    /// The classic iterative data-flow formulation.
+    #[must_use]
+    pub fn new(body: &Body, predecessors: &[Vec<BasicBlock>]) -> Self {
+        let n = body.blocks.len();
+        let mut sets = vec![BitSet::new_filled(n); n];
+        if n == 0 {
+            return Self { sets };
+        }
+        let start = BasicBlock::START.index();
+        sets[start] = BitSet::new_empty(n);
+        sets[start].insert(start);
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for bb in 1..n {
+                let mut new = BitSet::new_filled(n);
+                for pred in &predecessors[bb] {
+                    new.intersect_with(&sets[pred.index()]);
+                }
+                new.insert(bb);
+                if new != sets[bb] {
+                    sets[bb] = new;
+                    changed = true;
+                }
+            }
+        }
+        Self { sets }
+    }
+
+    /// Whether block `a` dominates block `b`.
+    #[must_use]
+    pub fn block_dominates(&self, a: BasicBlock, b: BasicBlock) -> bool {
+        self.sets[b.index()].contains(a.index())
+    }
+
+    /// Whether every path from the start to location `b` passes through location `a`.
+    #[must_use]
+    pub fn dominates(&self, a: Location, b: Location) -> bool {
+        if a.block == b.block {
+            a.statement_index <= b.statement_index
+        } else {
+            self.block_dominates(a.block, b.block)
+        }
+    }
+}
+
 /// A forward dataflow problem over bitsets.
 ///
 /// Implementations supply the lattice (`bottom_value`, `join`) and the transfer

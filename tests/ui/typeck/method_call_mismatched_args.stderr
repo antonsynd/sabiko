@@ -1,0 +1,35 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/method_call_mismatched_args.sabi:14:11 ]
+    │
+ 14 │     p.Add(true); //~ ERROR E0300 mismatched types
+    │           ──┬─  
+    │             ╰─── expected `i32`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/method_call_mismatched_args.sabi:15:11 ]
+    │
+ 15 │     p.Add(1u8); //~ ERROR E0300 mismatched types
+    │           ─┬─  
+    │            ╰─── expected `i32`, found `u8`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/method_call_mismatched_args.sabi:16:19 ]
+    │
+ 16 │     let a: bool = p.Get(); //~ ERROR E0300 mismatched types
+    │                   ───┬───  
+    │                      ╰───── expected `bool`, found `i32`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/method_call_mismatched_args.sabi:17:18 ]
+    │
+ 17 │     let b: i32 = p.Add(2); //~ ERROR E0300 mismatched types
+    │                  ────┬───  
+    │                      ╰───── expected `i32`, found `()`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/method_call_mismatched_args.sabi:18:18 ]
+    │
+ 18 │     let c: i32 = p.Flag(); //~ ERROR E0300 mismatched types
+    │                  ────┬───  
+    │                      ╰───── expected `i32`, found `bool`
+────╯

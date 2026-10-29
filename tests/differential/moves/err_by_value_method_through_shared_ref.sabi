@@ -1,0 +1,11 @@
+// Calling a by-value `self` method on a non-Copy struct through `&P` would move out of
+// the reference.
+struct P { X: i32 }
+
+impl P {
+    fn Consume(self) -> i32 { self.X }
+}
+
+fn Read(r: &P) -> i32 {
+    r.Consume()
+}

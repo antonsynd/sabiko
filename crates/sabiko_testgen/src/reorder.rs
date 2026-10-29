@@ -16,13 +16,16 @@
 //! - they mention disjoint sets of locals (reads count: a by-value read of a non-`Copy`
 //!   local is a move, and a reference local's use extends its loans);
 //! - at most one of them has an observable effect or may panic: a call (`Print`,
-//!   `PrintLine`, `Panic` or a user function, which may print, panic or write through
-//!   its `&mut` arguments), arithmetic, a shift, a negation or a compound assignment;
+//!   `PrintLine`, `Panic`, a user function or a method, which may print, panic or write
+//!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation or a
+//!   compound assignment;
 //! - they do not both touch memory that may be aliased, unless both only read it. A
-//!   statement touches aliased memory when it borrows (`&` reads, `&mut` writes),
-//!   dereferences, mentions a reference local (`&mut` locals count as writes), or mentions
-//!   a local whose address is taken anywhere in the function (a write, `&mut` borrow or
-//!   move of it counts as a write).
+//!   statement touches aliased memory when it borrows (`&` reads, `&mut` writes, and so
+//!   does a method call's autoref'd receiver), dereferences, mentions a reference local
+//!   (`&mut` locals count as writes), or mentions a local whose address is taken anywhere
+//!   in the function (a write, `&mut` borrow or move of it counts as a write).
+//!
+//! Method bodies are analysed like function bodies.
 //!
 //! The last rule keeps the loans of the program as they were: swapping `*r = 1;` with
 //! `let c = a;` when `r` borrows `a` would turn an accepted program into a rejected one
@@ -62,7 +65,7 @@ pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
     }
     let lines = Lines::new(program);
     let mut pairs = Vec::new();
-    for item in &ast.items {
+    for item in ast.all_items() {
         let ItemKind::Fn(f) = &item.kind else {
             continue;
         };
@@ -229,10 +232,18 @@ impl FnCx<'_, '_> {
     }
 
     fn collect_address_taken(&mut self, e: &Expr) {
-        if let ExprKind::Ref { expr, .. } = &e.kind {
-            if let Some(local) = self.root_local(expr) {
-                self.address_taken.insert(local);
+        let borrowed = match &e.kind {
+            ExprKind::Ref { expr, .. } => Some(expr),
+            // An autoref'd receiver is borrowed.
+            ExprKind::MethodCall { receiver, .. }
+                if self.types.method_calls[&e.id].autoref.is_some() =>
+            {
+                Some(receiver)
             }
+            _ => None,
+        };
+        if let Some(local) = borrowed.and_then(|x| self.root_local(x)) {
+            self.address_taken.insert(local);
         }
         for_each_child(e, |child| match child {
             Child::Expr(x) => self.collect_address_taken(x),
@@ -380,6 +391,24 @@ impl FnCx<'_, '_> {
                     self.expr(a, Mode::Read, s);
                 }
             }
+            // The receiver is borrowed as the method takes it, or read by value.
+            ExprKind::MethodCall { receiver, args, .. } => {
+                s.effect = true;
+                match self.types.method_calls[&e.id].autoref {
+                    Some(m) if m.is_mut() => {
+                        s.touch(Alias::Write);
+                        self.expr(receiver, Mode::BorrowMut, s);
+                    }
+                    Some(_) => {
+                        s.touch(Alias::Read);
+                        self.expr(receiver, Mode::BorrowShared, s);
+                    }
+                    None => self.expr(receiver, Mode::Read, s),
+                }
+                for a in args {
+                    self.expr(a, Mode::Read, s);
+                }
+            }
             ExprKind::Ref { mutable, expr } => {
                 if *mutable {
                     s.touch(Alias::Write);
@@ -422,7 +451,6 @@ impl FnCx<'_, '_> {
             | ExprKind::Break(_)
             | ExprKind::Continue
             | ExprKind::Return(_)
-            | ExprKind::MethodCall { .. }
             | ExprKind::Index(..) => s.control = true,
         }
     }
@@ -564,6 +592,16 @@ mod tests {
     fn control_flow_and_multi_line_statements_never_swap() {
         let src = "fn Main() {\n    let a = 1i32;\n    if true { return; }\n    let b = 2i32;\n    if a > 0i32 {\n        PrintLine(a);\n    }\n    let c = 3i32;\n}\n";
         assert_eq!(pairs(src), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn method_calls_borrow_their_receivers() {
+        let src = "struct S {\n    A: i32,\n}\n\nimpl S {\n    fn Get(&self) -> i32 {\n        let a = 1i32;\n        let b = 2i32;\n        self.A\n    }\n    fn Bump(&mut self) {}\n}\n\nfn Main() {\n    let mut s = S { A: 1i32 };\n    let t = S { A: 2i32 };\n    let x = s.A;\n    s.Bump();\n    let y = t.Get();\n    let z = t.A;\n    PrintLine(x);\n}\n";
+        // In `Get`, `let a` / `let b` swap. In `Main`, `s` and `t` are borrowed by their
+        // receivers, so every statement naming them may alias the other's memory: only
+        // `let z = t.A` / `PrintLine(x)` swap (`x` is never borrowed). `s.Bump()` /
+        // `let y = t.Get()` are two calls as well.
+        assert_eq!(pairs(src), vec![6, 19]);
     }
 
     #[test]

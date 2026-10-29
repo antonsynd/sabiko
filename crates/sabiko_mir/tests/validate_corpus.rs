@@ -5,8 +5,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_mir::{Body, Operand, StatementKind, TerminatorKind};
+use sabiko_mir::{
+    Body, Constant, LocalKind, Operand, Place, Rvalue, Statement, StatementKind, TerminatorKind,
+};
 use sabiko_span::FileId;
+use sabiko_types::{ConstValue, Ty};
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
@@ -168,6 +171,64 @@ fn validator_rejects_switch_on_float() {
         errors
             .iter()
             .any(|e| e.contains("switchInt on non-integer type")),
+        "{errors:#?}"
+    );
+}
+
+/// A two-phase borrow must go into a temporary that exactly one call reads: the borrow
+/// checker activates it at that use. Another use, or a user local as the destination, is
+/// reported.
+#[test]
+fn validator_rejects_misused_two_phase_borrow() {
+    let src = "struct P { X: i32 }\nimpl P { fn Inc(&mut self) { self.X += 1; } }\nfn F(mut p: P) { p.Inc(); }";
+    let (bodies, typeck) = lower(src).expect("valid program");
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let f = bodies.iter().position(|b| b.name == "F").expect("F");
+    let (bb, index, temp) = bodies[f]
+        .blocks
+        .iter()
+        .enumerate()
+        .find_map(|(bb, data)| {
+            data.statements
+                .iter()
+                .enumerate()
+                .find_map(|(i, s)| match &s.kind {
+                    StatementKind::Assign(dest, Rvalue::Ref(kind, _)) if kind.is_two_phase() => {
+                        Some((bb, i, dest.local))
+                    }
+                    _ => None,
+                })
+        })
+        .expect("the autoref'd `&mut self` receiver is two-phase");
+
+    // `(*_t).X = 1;` after the borrow: a second use.
+    let mut used_twice = bodies.clone();
+    let span = used_twice[f].blocks[bb].statements[index].span;
+    used_twice[f].blocks[bb].statements.insert(
+        index + 1,
+        Statement {
+            kind: StatementKind::Assign(
+                Place::local(temp).deref().field(0, Ty::I32),
+                Rvalue::Use(Operand::Constant(Constant {
+                    ty: Ty::I32,
+                    value: ConstValue::Int(1),
+                    span,
+                })),
+            ),
+            span,
+        },
+    );
+    let errors = sabiko_mir::validate::validate_all(&used_twice, &typeck);
+    assert!(
+        errors.iter().any(|e| e.contains("used 2 times")),
+        "{errors:#?}"
+    );
+
+    let mut into_user = bodies.clone();
+    into_user[f].locals[temp.index()].kind = LocalKind::User;
+    let errors = sabiko_mir::validate::validate_all(&into_user, &typeck);
+    assert!(
+        errors.iter().any(|e| e.contains("not a temporary")),
         "{errors:#?}"
     );
 }

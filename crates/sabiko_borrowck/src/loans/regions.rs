@@ -6,15 +6,17 @@
 //! (`&&T`, `&mut &T`) and in the elements of tuples (`(&T, &mut U)`).
 //!
 //! Function signatures use *universal* origins: one per reference in the parameter types.
-//! The return type follows Rust's elision rule for functions without `self`: when exactly
-//! one origin occurs across all parameters, every reference in the return type uses it;
-//! otherwise the signature is unusable and the caller reports E0416.
+//! The return type follows Rust's elision rules: in a method taking `&self` or `&mut self`
+//! every reference in the return type has `self`'s origin; otherwise, when exactly one
+//! origin occurs across all parameters, every reference in the return type uses it; failing
+//! both, the signature is unusable and the caller reports E0416.
 //!
 //! This module also defines the atom newtypes the Polonius engine indexes its facts with.
 
 use polonius_engine::Atom;
 use sabiko_mir::{Mutability, PlaceElem, Ty};
-use sabiko_types::FnSig;
+
+use sabiko_types::{FnSig, SelfKind};
 
 macro_rules! atom {
     ($(#[$doc:meta])* $name:ident) => {
@@ -240,7 +242,10 @@ impl SigRegions {
     }
 }
 
-/// Assigns fresh origins to the parameters of `sig` and elides the return type.
+/// Assigns fresh origins to the parameters of `sig` and elides the return type, by Rust's
+/// rules: a method taking `&self` or `&mut self` returns references with `self`'s origin,
+/// whatever its other parameters; otherwise the one origin of the parameters, if there is
+/// exactly one.
 pub fn signature_regions(sig: &FnSig, supply: &mut OriginSupply) -> SigRegions {
     let inputs: Vec<RegionTy> = sig
         .inputs
@@ -248,8 +253,14 @@ pub fn signature_regions(sig: &FnSig, supply: &mut OriginSupply) -> SigRegions {
         .map(|ty| RegionTy::fresh(ty, supply))
         .collect();
     let input_origins: Vec<Origin> = inputs.iter().flat_map(RegionTy::origins).collect();
+    let self_origin = match (sig.self_kind, inputs.first()) {
+        (Some(SelfKind::Ref { .. }), Some(RegionTy::Ref(_, origin, _))) => Some(*origin),
+        _ => None,
+    };
     let output = if !sig.output.has_ref() {
         Some(RegionTy::Other)
+    } else if let Some(origin) = self_origin {
+        Some(RegionTy::uniform(&sig.output, origin))
     } else if let [single] = input_origins[..] {
         Some(RegionTy::uniform(&sig.output, single))
     } else {

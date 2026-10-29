@@ -17,6 +17,8 @@ SourceFile
             Lit "ok"
   Fn Fourth
     Block
+  Fn Fifth
+    Block
 --- diagnostics ---
 [E0100] Error: expected `;`, found `let`
    ╭─[ errors_recovery.sabi:2:14 ]
@@ -99,12 +101,12 @@ SourceFile
     │ 
     │ Note: planned for Phase 5; see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: `self` parameters (methods)
+[E0110] Error: `self` parameter is only allowed in associated functions
     ╭─[ errors_recovery.sabi:26:10 ]
     │
  26 │ fn Fifth(self) {}
     │          ──┬─  
-    │            ╰─── not supported in this version of Sabiko
+    │            ╰─── not semantically valid as function parameter
     │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
+    │ Note: associated functions are those in `impl` blocks
 ────╯

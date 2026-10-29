@@ -8,8 +8,8 @@
 use sabiko_borrowck::loans::{check_loans, check_signatures};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
-    AggregateKind, BasicBlock, BasicBlockData, Body, ConstValue, Constant, Local, LocalDecl,
-    LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
+    AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, ConstValue, Constant, Local,
+    LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
     TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, ResolveResults};
@@ -40,6 +40,20 @@ fn Ret(p: &i32) -> &i32 {
     p
 }
 
+fn Add(p: &mut Point, n: i32) {}
+
+fn AddFrom(p: &mut Point, o: &Point) {}
+
+fn XMut(p: &mut Point) -> &mut i32 {
+    &mut p.X
+}
+
+impl Point {
+    fn Pick(&self, other: &Point) -> &i32 {
+        &self.X
+    }
+}
+
 fn Main() {
     let mut x = 1;
     let r = &x;
@@ -57,6 +71,10 @@ struct Fixture {
     short: DefId,
     deep: DefId,
     ret: DefId,
+    add: DefId,
+    add_from: DefId,
+    x_mut: DefId,
+    pick: DefId,
     main: DefId,
 }
 
@@ -84,6 +102,10 @@ impl Fixture {
             short: def(DefKind::Fn, "Short"),
             deep: def(DefKind::Fn, "Deep"),
             ret: def(DefKind::Fn, "Ret"),
+            add: def(DefKind::Fn, "Add"),
+            add_from: def(DefKind::Fn, "AddFrom"),
+            x_mut: def(DefKind::Fn, "XMut"),
+            pick: def(DefKind::Fn, "Pick"),
             main: def(DefKind::Fn, "Main"),
             resolve,
             typeck,
@@ -302,11 +324,15 @@ fn deref(l: Local) -> Place {
 }
 
 fn shared(place: Place) -> Rvalue {
-    Rvalue::Ref(Mutability::Not, place)
+    Rvalue::Ref(Mutability::Not.into(), place)
 }
 
 fn mutable(place: Place) -> Rvalue {
-    Rvalue::Ref(Mutability::Mut, place)
+    Rvalue::Ref(Mutability::Mut.into(), place)
+}
+
+fn two_phase(place: Place) -> Rvalue {
+    Rvalue::Ref(BorrowKind::Mut { two_phase: true }, place)
 }
 
 fn point_aggregate(fx: &Fixture) -> Rvalue {
@@ -1272,5 +1298,481 @@ fn reborrow_through_shared_references_constrains_only_the_innermost() {
             assign,
             "requires that the data `*y` points to outlives the data `*x` points to"
         )]
+    );
+}
+
+// ----------------------------------------------------------------------------------------
+// Two-phase borrows (#15): reserved where created, activated by the call that uses them
+// ----------------------------------------------------------------------------------------
+
+/// The shape MIR building gives `p.Add(<arg>)` (or `Add(m, <arg>)` for `m: &mut Point`):
+/// `_t = &two_phase mut <place>` in `bb0`, then what `between` builds in `bb0` (which may
+/// end it and continue in a later block), then `Add(move _t, move _n)`. Returns the
+/// builder, the call's block and the span of the call.
+struct TwoPhaseCall {
+    mir: BodyBuilder,
+    p: Local,
+    t: Local,
+    n: Local,
+    bb0: BasicBlock,
+    reservation: Span,
+}
+
+impl TwoPhaseCall {
+    /// `let mut p = Point { .. }; _t = &two_phase mut p;` (`two_phase: false` makes the
+    /// borrow an ordinary `&mut p`, as an explicit `&mut p` argument is).
+    fn new(fx: &Fixture, is_two_phase: bool) -> Self {
+        let mut mir = BodyBuilder::new(fx);
+        let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+        let t = mir.temp(Ty::mut_ref(fx.point_ty()));
+        let n = mir.temp(Ty::I32);
+        let bb0 = mir.block();
+        mir.live(bb0, p);
+        mir.assign(bb0, local(p), point_aggregate(fx));
+        mir.live(bb0, t);
+        let borrow = if is_two_phase {
+            two_phase(local(p))
+        } else {
+            mutable(local(p))
+        };
+        let reservation = mir.assign(bb0, local(t), borrow);
+        mir.live(bb0, n);
+        Self {
+            mir,
+            p,
+            t,
+            n,
+            bb0,
+            reservation,
+        }
+    }
+
+    /// Ends `bb` with `Add(move _t, move _n)` and the function after it.
+    fn finish(mut self, fx: &Fixture, bb: BasicBlock) -> (Body, Span) {
+        let next = self.mir.block();
+        let call = self.mir.call(
+            bb,
+            fx.add,
+            vec![mv(local(self.t)), copy(local(self.n))],
+            local(Local::RETURN),
+            next,
+        );
+        self.mir.finish_unit(next);
+        (self.mir.finish(), call)
+    }
+}
+
+fn x_of(p: Local) -> Place {
+    local(p).field(0, Ty::I32)
+}
+
+#[test]
+fn two_phase_reservation_lets_later_arguments_read() {
+    // Rule 1: `p.Add(p.X)`.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    c.mir.assign(bb0, local(n), use_copy(x_of(p)));
+    let (body, _) = c.finish(&fx, bb0);
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn two_phase_reservation_lets_later_arguments_borrow_shared() {
+    // Rule 1: `p.Add(p.Get())`, `Get` taking `&self`: a shared borrow of the reserved
+    // place, dead by the activation.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    let s = c.mir.temp(Ty::shared_ref(fx.point_ty()));
+    let s_x = c.mir.temp(Ty::shared_ref(Ty::I32));
+    let bb1 = c.mir.block();
+    c.mir.assign(bb0, local(s), shared(local(p)));
+    c.mir
+        .call(bb0, fx.first, vec![copy(local(s))], local(s_x), bb1);
+    c.mir.assign(bb1, local(n), use_copy(deref(s_x)));
+    let (body, _) = c.finish(&fx, bb1);
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn explicit_mut_borrow_is_not_two_phase() {
+    // Rule 3: `Point::Add(&mut p, p.X)`.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, false);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    let read = c.mir.assign(bb0, local(n), use_copy(x_of(p)));
+    let reservation = c.reservation;
+    let (body, call) = c.finish(&fx, bb0);
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0411 cannot use `p.X` because it was mutably borrowed"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (read, "use of borrowed `p.X`"),
+            (reservation, "`p` is borrowed here"),
+            (call, "borrow later used here"),
+        ]
+    );
+}
+
+#[test]
+fn two_phase_reservation_rejects_a_write() {
+    // Rule 4: `p.Add({ p.X = 5; 2 })`.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    let write = c.mir.assign(bb0, x_of(p), use_int(5));
+    c.mir.assign(bb0, local(n), use_int(2));
+    let reservation = c.reservation;
+    let (body, call) = c.finish(&fx, bb0);
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0410 cannot assign to `p.X` because it is borrowed"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (write, "assignment to borrowed `p.X` occurs here"),
+            (reservation, "`p` is borrowed here"),
+            (call, "borrow later used here"),
+        ]
+    );
+}
+
+#[test]
+fn two_phase_reservation_rejects_a_move() {
+    // Rule 4: a later argument moving the reserved place.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    let q = c.mir.temp(fx.point_ty());
+    let moved = c.mir.assign(bb0, local(q), Rvalue::Use(mv(local(p))));
+    c.mir.assign(bb0, local(n), use_int(2));
+    let (body, _) = c.finish(&fx, bb0);
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0412 cannot move out of `p` because it is borrowed"]
+    );
+    assert_eq!(diags[0].labels[0].span, moved);
+}
+
+#[test]
+fn second_reservation_of_a_reserved_place_is_reported_once() {
+    // Rule 4: `p.Add(p.Bump())`, both receivers two-phase. The inner reservation conflicts
+    // with the outer one; so does its activation, which is not reported again.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    let u = c.mir.temp(Ty::mut_ref(fx.point_ty()));
+    let bb1 = c.mir.block();
+    let inner = c.mir.assign(bb0, local(u), two_phase(local(p)));
+    let one = c.mir.temp(Ty::I32);
+    c.mir.assign(bb0, local(one), use_int(1));
+    c.mir.call(
+        bb0,
+        fx.add,
+        vec![mv(local(u)), copy(local(one))],
+        local(Local::RETURN),
+        bb1,
+    );
+    c.mir.assign(bb1, local(n), use_int(2));
+    let reservation = c.reservation;
+    let (body, _) = c.finish(&fx, bb1);
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0409 cannot borrow `p` as mutable more than once at a time"]
+    );
+    assert_eq!(
+        labels(&diags[0])[..2],
+        [
+            (inner, "second mutable borrow occurs here"),
+            (reservation, "first mutable borrow occurs here"),
+        ]
+    );
+}
+
+#[test]
+fn reservation_conflicts_with_a_live_mutable_borrow() {
+    // `let m = &mut p; p.Add(1); m.X = 2;`: the reservation is a mutable borrow's start.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(fx.point_ty()), Mutability::Not);
+    let t = mir.temp(Ty::mut_ref(fx.point_ty()));
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(m), mutable(local(p)));
+    let reservation = mir.assign(bb0, local(t), two_phase(local(p)));
+    mir.call(
+        bb0,
+        fx.add,
+        vec![mv(local(t)), int(1)],
+        local(Local::RETURN),
+        bb1,
+    );
+    mir.assign(bb1, deref(m).field(0, Ty::I32), use_int(2));
+    mir.finish_unit(bb1);
+    let body = mir.finish();
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0409 cannot borrow `p` as mutable more than once at a time"]
+    );
+    assert_eq!(diags[0].labels[0].span, reservation);
+}
+
+#[test]
+fn activation_conflicts_with_a_shared_borrow_passed_to_the_call() {
+    // Rule 5: `p.AddFrom(&p)`.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t = mir.temp(Ty::mut_ref(fx.point_ty()));
+    let a = mir.temp(Ty::shared_ref(fx.point_ty()));
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(t), two_phase(local(p)));
+    let shared_borrow = mir.assign(bb0, local(a), shared(local(p)));
+    let call = mir.call(
+        bb0,
+        fx.add_from,
+        vec![mv(local(t)), copy(local(a))],
+        local(Local::RETURN),
+        bb1,
+    );
+    mir.finish_unit(bb1);
+    let body = mir.finish();
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0408 cannot borrow `p` as mutable because it is also borrowed as immutable"]
+    );
+    assert_eq!(
+        labels(&diags[0])[..2],
+        [
+            (call, "mutable borrow occurs here"),
+            (shared_borrow, "immutable borrow occurs here"),
+        ]
+    );
+}
+
+/// `let s = &p; p.Add((*s).X); [if used_after { (*s).Y }]`: rule 6.
+fn shared_borrow_before_reservation(used_after: bool) -> (Fixture, Body, Span, Span) {
+    let fx = Fixture::new();
+    let mut call_mir = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (call_mir.bb0, call_mir.n, call_mir.p);
+    let shared_ref = call_mir
+        .mir
+        .user("s", Ty::shared_ref(fx.point_ty()), Mutability::Not);
+    // The shared borrow comes first: move the reservation after it.
+    let statements = &mut call_mir.mir.body.blocks[bb0.index()].statements;
+    let reservation = statements.remove(3);
+    let shared_span = Span::new(FileId(0), 1, 2);
+    statements.push(Statement {
+        kind: StatementKind::Assign(local(shared_ref), shared(local(p))),
+        span: shared_span,
+    });
+    statements.push(reservation);
+    call_mir
+        .mir
+        .assign(bb0, local(n), use_copy(deref(shared_ref).field(0, Ty::I32)));
+    let next = call_mir.mir.block();
+    let call = call_mir.mir.call(
+        bb0,
+        fx.add,
+        vec![mv(local(call_mir.t)), copy(local(n))],
+        local(Local::RETURN),
+        next,
+    );
+    if used_after {
+        let later = call_mir.mir.temp(Ty::I32);
+        call_mir.mir.assign(
+            next,
+            local(later),
+            use_copy(deref(shared_ref).field(1, Ty::I32)),
+        );
+    }
+    call_mir.mir.finish_unit(next);
+    (fx, call_mir.mir.finish(), shared_span, call)
+}
+
+#[test]
+fn shared_borrow_before_the_reservation_dead_at_activation_is_fine() {
+    let (fx, body, _, _) = shared_borrow_before_reservation(false);
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn shared_borrow_before_the_reservation_live_after_activation() {
+    let (fx, body, shared_span, call) = shared_borrow_before_reservation(true);
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0408 cannot borrow `p` as mutable because it is also borrowed as immutable"]
+    );
+    assert_eq!(
+        labels(&diags[0])[..2],
+        [
+            (call, "mutable borrow occurs here"),
+            (shared_span, "immutable borrow occurs here"),
+        ]
+    );
+}
+
+#[test]
+fn two_phase_reservation_spans_blocks() {
+    // `p.Add(if c { p.X } else { p.Y })`: the reads are in blocks the reservation
+    // dominates and the activation does not.
+    let fx = Fixture::new();
+    let mut c = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (c.bb0, c.n, c.p);
+    let then = c.mir.block();
+    let els = c.mir.block();
+    let join = c.mir.block();
+    c.mir.terminate(
+        bb0,
+        TerminatorKind::SwitchInt {
+            discr: Operand::Constant(Constant {
+                ty: Ty::BOOL,
+                value: ConstValue::Bool(true),
+                span: Span::new(FileId(0), 0, 0),
+            }),
+            targets: vec![(0, els)],
+            otherwise: then,
+        },
+    );
+    c.mir.assign(then, local(n), use_copy(x_of(p)));
+    c.mir.goto(then, join);
+    c.mir
+        .assign(els, local(n), use_copy(local(p).field(1, Ty::I32)));
+    c.mir.goto(els, join);
+    let (body, _) = c.finish(&fx, join);
+    fx.assert_clean(&body);
+}
+
+/// `let r = p.XMut(); <read p.X>; *r = 1;` with the receiver two-phase: after its
+/// activation the loan is an ordinary mutable one, kept alive by `r`.
+fn activated_then_read(read_before_last_use: bool) -> (Fixture, Body) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t = mir.temp(Ty::mut_ref(fx.point_ty()));
+    let r = mir.user("r", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let n = mir.user("n", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(t), two_phase(local(p)));
+    mir.call(bb0, fx.x_mut, vec![mv(local(t))], local(r), bb1);
+    if read_before_last_use {
+        mir.assign(bb1, local(n), use_copy(local(p).field(1, Ty::I32)));
+        mir.assign(bb1, deref(r), use_int(1));
+    } else {
+        mir.assign(bb1, deref(r), use_int(1));
+        mir.assign(bb1, local(n), use_copy(local(p).field(1, Ty::I32)));
+    }
+    mir.finish_unit(bb1);
+    (fx, mir.finish())
+}
+
+#[test]
+fn two_phase_borrow_is_active_after_its_activation() {
+    let (fx, body) = activated_then_read(true);
+    assert_eq!(
+        fx.messages(&body),
+        ["E0411 cannot use `p.Y` because it was mutably borrowed"]
+    );
+    let (fx, body) = activated_then_read(false);
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn two_phase_borrow_without_a_single_use_is_an_ordinary_borrow() {
+    // A two-phase borrow nothing activates (no use) is checked as a plain `&mut`: a later
+    // read of the place conflicts while the reference is live.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t = mir.user("t", Ty::mut_ref(fx.point_ty()), Mutability::Not);
+    let n = mir.temp(Ty::I32);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(t), two_phase(local(p)));
+    mir.assign(bb0, local(n), use_copy(x_of(p)));
+    mir.assign(bb0, deref(t).field(0, Ty::I32), use_int(1));
+    mir.assign(bb0, deref(t).field(1, Ty::I32), use_int(2));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+    assert_eq!(
+        fx.messages(&body),
+        ["E0411 cannot use `p.X` because it was mutably borrowed"]
+    );
+}
+
+// ----------------------------------------------------------------------------------------
+// Elision from `&self` (#7)
+// ----------------------------------------------------------------------------------------
+
+/// `let r = p.Pick(&q); <write>; let u = *r;` where `Pick(&self, other: &Point) -> &i32`.
+fn pick_then_write(write_p: bool) -> (Fixture, Body) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let q = mir.user("q", fx.point_ty(), Mutability::Mut);
+    let self_ref = mir.temp(Ty::shared_ref(fx.point_ty()));
+    let other_ref = mir.temp(Ty::shared_ref(fx.point_ty()));
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let value = mir.user("u", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(q), point_aggregate(&fx));
+    mir.assign(bb0, local(self_ref), shared(local(p)));
+    mir.assign(bb0, local(other_ref), shared(local(q)));
+    mir.call(
+        bb0,
+        fx.pick,
+        vec![copy(local(self_ref)), copy(local(other_ref))],
+        local(r),
+        bb1,
+    );
+    let written = if write_p { p } else { q };
+    mir.assign(bb1, x_of(written), use_int(5));
+    mir.assign(bb1, local(value), use_copy(deref(r)));
+    mir.finish_unit(bb1);
+    (fx, mir.finish())
+}
+
+#[test]
+fn method_result_borrows_self_only() {
+    // `fn Pick(&self, other: &Point) -> &i32` has the elided output lifetime of `self`
+    // (no E0416), so `q` is free again after the call while `p` is still borrowed.
+    let (fx, body) = pick_then_write(false);
+    fx.assert_clean(&body);
+    let mut sink = DiagnosticSink::new();
+    check_signatures(&fx.resolve, &fx.typeck, &mut sink);
+    let pick = fx.resolve.def(fx.pick).span;
+    // `Two` is unelidable on purpose; `Pick` is fine.
+    assert!(
+        sink.diagnostics()
+            .iter()
+            .all(|d| d.labels.iter().all(|l| l.span != pick)),
+        "{:?}",
+        sink.diagnostics()
+    );
+    assert_eq!(sink.diagnostics().len(), 1);
+    let (fx, body) = pick_then_write(true);
+    assert_eq!(
+        fx.messages(&body),
+        ["E0410 cannot assign to `p.X` because it is borrowed"]
     );
 }

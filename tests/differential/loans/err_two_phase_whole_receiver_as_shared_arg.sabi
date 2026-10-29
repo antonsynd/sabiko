@@ -1,0 +1,12 @@
+// `v.AddFrom(&v)`: the shared borrow `&v` in the argument is live when the reserved
+// `&mut self` borrow activates.
+struct P { X: i32 }
+
+impl P {
+    fn AddFrom(&mut self, o: &P) { self.X += o.X; }
+}
+
+fn Main() {
+    let mut v = P { X: 1 };
+    v.AddFrom(&v);
+}

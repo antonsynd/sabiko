@@ -1,0 +1,18 @@
+[E0202] Error: cannot find value `New` in this scope
+    ╭─[ tests/ui/resolve/unqualified_associated_function.sabi:10:17 ]
+    │
+ 10 │         let p = New(); //~ ERROR E0202 cannot find value `New` in this scope
+    │                 ─┬─  
+    │                  ╰─── not found in this scope
+    │ 
+    │ Note: `New` is an associated function of `P`: call it as `P::New(..)`
+────╯
+[E0202] Error: cannot find value `Get` in this scope
+    ╭─[ tests/ui/resolve/unqualified_associated_function.sabi:14:9 ]
+    │
+ 14 │         Get(self) * 2 //~ ERROR E0202 cannot find value `Get` in this scope
+    │         ─┬─  
+    │          ╰─── not found in this scope
+    │ 
+    │ Note: `Get` is an associated function of `P`: call it as `P::Get(..)`
+────╯

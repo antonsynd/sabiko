@@ -1,0 +1,18 @@
+// Methods may borrow a temporary receiver, `&mut self` ones included (a temporary is a
+// mutable place), as long as the result is used within the statement.
+struct P { X: i32 }
+
+impl P {
+    fn XRef(&self) -> &i32 { &self.X }
+    fn XMut(&mut self) -> &mut i32 { &mut self.X }
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Make() -> P { P { X: 1 } }
+
+fn Main() {
+    PrintLine(*Make().XRef());
+    let n = *Make().XMut() + 1;
+    Make().Inc();
+    *Make().XMut() = n;
+}

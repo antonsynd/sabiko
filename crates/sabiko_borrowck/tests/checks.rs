@@ -540,7 +540,7 @@ fn writes_through_mut_ref_with_immutable_binding_are_fine() {
     b.assign(
         bb0,
         local(q),
-        Rvalue::Ref(Mutability::Mut, local(p).deref()),
+        Rvalue::Ref(Mutability::Mut.into(), local(p).deref()),
     );
     b.assign(bb0, local(q).deref().field(0, Ty::I32), use_int(2));
     b.assign(bb0, local(n).deref(), use_int(1));
@@ -637,7 +637,7 @@ fn borrow_mut_of_immutable_local() {
     let bb0 = b.block();
     b.live(bb0, x);
     b.assign(bb0, local(x), use_int(1));
-    let span = b.assign(bb0, local(t), Rvalue::Ref(Mutability::Mut, local(x)));
+    let span = b.assign(bb0, local(t), Rvalue::Ref(Mutability::Mut.into(), local(x)));
     b.ret(bb0);
     let diags = fx.check(&b.finish());
     assert_eq!(
@@ -667,7 +667,7 @@ fn borrow_mut_of_field_of_immutable_argument() {
     b.assign(
         bb0,
         local(t),
-        Rvalue::Ref(Mutability::Mut, local(p).field(0, Ty::I32)),
+        Rvalue::Ref(Mutability::Mut.into(), local(p).field(0, Ty::I32)),
     );
     b.ret(bb0);
     assert_eq!(
@@ -686,13 +686,13 @@ fn borrow_mut_of_mutable_places_is_fine() {
     let bb0 = b.block();
     b.live(bb0, x);
     b.assign(bb0, local(x), use_int(1));
-    b.assign(bb0, local(t), Rvalue::Ref(Mutability::Mut, local(x)));
+    b.assign(bb0, local(t), Rvalue::Ref(Mutability::Mut.into(), local(x)));
     b.live(bb0, p);
     b.assign(bb0, local(p), point_aggregate(&fx));
     b.assign(
         bb0,
         local(t),
-        Rvalue::Ref(Mutability::Mut, local(p).field(1, Ty::I32)),
+        Rvalue::Ref(Mutability::Mut.into(), local(p).field(1, Ty::I32)),
     );
     // Shared borrows never care about mutability.
     let shared = b.temp(Ty::shared_ref(Ty::I32));
@@ -702,7 +702,7 @@ fn borrow_mut_of_mutable_places_is_fine() {
     b.assign(
         bb0,
         local(shared),
-        Rvalue::Ref(Mutability::Not, local(other)),
+        Rvalue::Ref(Mutability::Not.into(), local(other)),
     );
     b.ret(bb0);
     fx.assert_clean(&b.finish());
@@ -719,7 +719,7 @@ fn reborrow_mut_through_shared_ref() {
     let span = b.assign(
         bb0,
         local(m),
-        Rvalue::Ref(Mutability::Mut, local(r).deref()),
+        Rvalue::Ref(Mutability::Mut.into(), local(r).deref()),
     );
     b.assign(bb0, local(m).deref(), use_int(2));
     b.ret(bb0);
@@ -747,7 +747,7 @@ fn reborrow_mut_field_through_shared_ref() {
     b.assign(
         bb0,
         local(t),
-        Rvalue::Ref(Mutability::Mut, local(p).deref().field(1, Ty::I32)),
+        Rvalue::Ref(Mutability::Mut.into(), local(p).deref().field(1, Ty::I32)),
     );
     b.ret(bb0);
     assert_eq!(
@@ -767,12 +767,12 @@ fn reborrow_mut_through_mut_ref_is_fine() {
     b.assign(
         bb0,
         local(t),
-        Rvalue::Ref(Mutability::Mut, local(r).deref()),
+        Rvalue::Ref(Mutability::Mut.into(), local(r).deref()),
     );
     b.assign(
         bb0,
         local(t),
-        Rvalue::Ref(Mutability::Mut, local(p).deref().field(1, Ty::I32)),
+        Rvalue::Ref(Mutability::Mut.into(), local(p).deref().field(1, Ty::I32)),
     );
     b.ret(bb0);
     fx.assert_clean(&b.finish());
@@ -839,7 +839,7 @@ fn borrow_of_uninitialised_local() {
     let bb0 = b.block();
     b.live(bb0, x);
     b.live(bb0, r);
-    b.assign(bb0, local(r), Rvalue::Ref(Mutability::Not, local(x)));
+    b.assign(bb0, local(r), Rvalue::Ref(Mutability::Not.into(), local(x)));
     b.ret(bb0);
     assert_eq!(
         fx.messages(&b.finish()),

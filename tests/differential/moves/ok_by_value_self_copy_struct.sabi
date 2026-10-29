@@ -1,0 +1,17 @@
+// A by-value `self` method on a Copy struct copies the receiver: it stays usable, also
+// when the call goes through a reference (`r.Consume()` copies `*r`).
+#[derive(Clone, Copy)]
+struct P { X: i32 }
+
+impl P {
+    fn Consume(self) -> i32 { self.X }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    let a = p.Consume();
+    let b = p.Consume();
+    let r = &p;
+    let c = r.Consume();
+    PrintLine(a + b + c + p.X + r.X);
+}

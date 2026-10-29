@@ -1,0 +1,12 @@
+// The receiver is evaluated before the arguments: for a by-value `self` method on a
+// non-Copy struct, `p.Merge(p.X)` has already moved `p` when `p.X` is read.
+struct P { X: i32 }
+
+impl P {
+    fn Merge(self, n: i32) -> i32 { self.X + n }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    let n = p.Merge(p.X);
+}

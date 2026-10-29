@@ -19,7 +19,7 @@ fn H(x: Vec<i32>) {}
 fn I(x: (i32, i32)) {}
 fn J(x: [i32; 3]) {}
 fn K() -> i32;
-impl Foo { }
+impl Foo for Bar { }
 trait Bar { }
 mod baz;
 use std::Foo;
