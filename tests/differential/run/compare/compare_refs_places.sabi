@@ -1,0 +1,51 @@
+// References compared from struct fields, through parameters, from calls returning
+// references and after writes through `&mut`: the referents are read when compared.
+#[derive(Copy, Clone)]
+struct Point {
+    X: i32,
+    Y: f64,
+    On: bool,
+}
+
+fn Larger(p: &Point) -> &i32 {
+    &p.X
+}
+
+fn SameX(p: &Point, q: &Point) -> bool {
+    &p.X == &q.X
+}
+
+fn Ordered(p: &Point, q: &mut Point) -> bool {
+    &p.Y < &q.Y && Larger(p) <= &q.X
+}
+
+fn Bump(r: &mut i32) -> &mut i32 {
+    *r += 10;
+    r
+}
+
+fn Main() {
+    let p = Point { X: 3, Y: 1.5, On: true };
+    let mut q = Point { X: 3, Y: -0.5, On: false };
+    PrintLine(SameX(&p, &q));
+    PrintLine(Ordered(&p, &mut q));
+    q.Y = 2.0;
+    PrintLine(Ordered(&p, &mut q));
+    PrintLine(&p.On != &q.On);
+    let rp = &p;
+    PrintLine(&rp.X == Larger(&q));
+    let mut n = 1;
+    let mut m = 11;
+    PrintLine(Bump(&mut n) == &mut m);
+    PrintLine(n);
+    let rn = &mut n;
+    PrintLine(rn == &11);
+    *rn = 12;
+    PrintLine(rn > &mut 11);
+    PrintLine(&*rn >= &m);
+    let mut count = 0;
+    while &count < &3 {
+        count += 1;
+    }
+    PrintLine(count);
+}

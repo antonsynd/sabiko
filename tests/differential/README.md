@@ -16,7 +16,8 @@ The test passes when the two verdicts agree for every file. A file named `ok_*` 
 `accept` in both; `err_*` must be `borrow-error` in both. Error codes are reported but not
 compared (the two compilers number their diagnostics differently), nor are positions. One
 concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` pairs side
-by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`.
+by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`, and
+`never/` (borrows of diverging expressions, typed `&!`).
 
 The harness prepends this prelude, which defines Sabiko's builtin functions for rustc:
 
@@ -39,7 +40,8 @@ the builtins `Print(x)`, `PrintLine(x)` (any integer, float, `bool`, `char` or `
 `Panic(msg: &str) -> !`. A corpus program must not define its own `Print`, `PrintLine` or
 `Panic`: Sabiko lets a user item shadow the builtin, rustc sees a duplicate of the
 prelude's. No methods, traits, generics, tuples, arrays, enums, `match`, closures,
-modules, macros, explicit lifetimes or references in struct fields. Function names are
+modules, macros, explicit lifetimes or references in struct fields, and no `char` literal
+above U+FFFF (a Sabiko `char` is one UTF-16 code unit, so those are E0318). Function names are
 PascalCase, locals camelCase. A function returning a reference must have exactly one
 reference parameter (the one elision rule both compilers share).
 

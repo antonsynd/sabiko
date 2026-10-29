@@ -68,6 +68,9 @@ impl ErrorCode {
     pub const NON_CONSTANT_EXPRESSION: Self = Self(315);
     pub const CONST_EVAL_FAILED: Self = Self(316);
     pub const FN_ITEM_AS_VALUE: Self = Self(317);
+    /// A `char` literal outside the Basic Multilingual Plane: `char` is one UTF-16 code
+    /// unit (decision 31).
+    pub const NON_BMP_CHAR: Self = Self(318);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

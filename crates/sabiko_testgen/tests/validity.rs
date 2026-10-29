@@ -110,7 +110,11 @@ fn programs_have_the_expected_shape() {
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
         assert!(src.contains("fn Main() {"), "seed {seed}");
-        assert!(src.contains("PrintLine("), "seed {seed}:\n{src}");
+        // Output is observable: something is printed (seed 138 only uses `Print`).
+        assert!(
+            src.contains("PrintLine(") || src.contains("Print("),
+            "seed {seed}:\n{src}"
+        );
         let lines = src.lines().count();
         total_lines += lines;
         assert!(

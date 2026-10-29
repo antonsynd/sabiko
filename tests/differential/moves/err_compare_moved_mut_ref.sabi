@@ -1,0 +1,9 @@
+// A `&mut` moved into another binding cannot be compared afterwards (rustc E0382).
+fn Main() {
+    let mut a = 1;
+    let b = 2;
+    let r = &mut a;
+    let s = r;
+    let same = r == &b;
+    *s = 4;
+}

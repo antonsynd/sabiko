@@ -1,0 +1,19 @@
+// A `char` is one UTF-16 code unit (decision 31): literals outside the Basic Multilingual
+// Plane are rejected by the type checker (E0318), wherever they appear. Rust accepts them,
+// so the differential corpus must avoid them. String literals may hold any character.
+const SMILE: char = '\u{1F600}'; //~ ERROR E0318 character literal `U+1F600` does not fit in a `char`
+
+fn Takes(c: char) -> bool {
+    c == '😀' //~ ERROR E0318 character literal `U+1F600` does not fit in a `char`
+}
+
+fn Main() {
+    let first = '\u{10000}'; //~ ERROR E0318 character literal `U+10000` does not fit in a `char`
+    let last = '\u{10FFFF}'; //~ ERROR E0318 character literal `U+10FFFF` does not fit in a `char`
+    PrintLine('𝄞'); //~ ERROR E0318 character literal `U+1D11E` does not fit in a `char`
+    let fine = '\u{FFFF}';
+    let alsoFine = '\u{D7FF}';
+    let text = "😀 𝄞";
+    PrintLine(text);
+    PrintLine(Takes(fine) && Takes(alsoFine));
+}
