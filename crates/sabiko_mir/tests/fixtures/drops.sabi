@@ -41,6 +41,12 @@ fn EarlyReturn(flag: bool) -> D {
     a
 }
 
+// A tuple holding a value with drop glue has drop glue: dropped whole at scope end.
+fn Tuple() -> i32 {
+    let t = (Make(11), 12);
+    t.1
+}
+
 fn Fields() {
     let p = Pair { A: Make(8), B: Make(9), N: 10 };
     Consume(p.A);

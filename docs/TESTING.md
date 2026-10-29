@@ -217,6 +217,22 @@ current construct can reach, unit loads and stores that emit nothing either way,
 runtime overload guard typeck already enforces. Review `missed.txt` under
 `target/mutants/<crate>/mutants.out` when the score moves.
 
+Drops (#12) were checked with `cargo mutants --in-diff` on the lines they changed, with the
+same test packages: `sabiko_borrowck` 18 of 18 viable, `sabiko_types` 22 of 24 and
+`sabiko_codegen` 105 of 116 (timeouts counted as caught). Killing tests were added for
+the real gaps: a method named `drop` on a struct without `Drop` (`drop_not_a_method`), a
+tuple holding a value with drop glue (MIR `drops` fixture), a branch whose two targets
+leave a protected region (`ContinueLeaves` in the IL `drops` fixture) and the negation of
+constant items (`negate_consts`). Six backend survivors are equivalent: `negation_fits`'s
+`is_signed_int` guard (an `Int` constant always has a signed type); given the MIR that
+building produces, `emitted` never sees a return-only entry block and `block` never a
+`Return` block with statements (the entry block assigns `_0`, and the one return block
+holds nothing else); and the three counts in `stackable_locals` for dropped places,
+cleanup places and drop flags only repeat what the emitter already enforces, since a
+local's cleanup scope opens in a new block after its write and no value crosses a
+protected region's boundary on the evaluation stack (flags are written more than once
+anyway).
+
 ## Dependencies
 
 `cargo deny check` (`deny.toml`; setup: `cargo install cargo-deny --locked --version

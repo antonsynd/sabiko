@@ -1,0 +1,14 @@
+[E0319] Error: no method named `drop` found for struct `P`
+    ╭─[ tests/ui/typeck/drop_not_a_method.sabi:16:7 ]
+    │
+ 16 │     p.drop(); //~ ERROR E0319 no method named `drop` found for struct `P`
+    │       ──┬─  
+    │         ╰─── method not found
+────╯
+[E0319] Error: no method named `Close` found for struct `D`
+    ╭─[ tests/ui/typeck/drop_not_a_method.sabi:17:7 ]
+    │
+ 17 │     d.Close(); //~ ERROR E0319 no method named `Close` found for struct `D`
+    │       ──┬──  
+    │         ╰──── method not found
+────╯

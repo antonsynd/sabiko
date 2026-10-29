@@ -1,0 +1,18 @@
+// Only a type with `impl Drop` has a destructor to refuse (E0323): `drop` on any other
+// struct is an unknown method, and so is any other unknown method of a type with
+// `impl Drop`.
+// Checked against rustc: E0599 (the Sabiko code is annotated).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+struct P { Id: i32 }
+
+fn Main() {
+    let mut p = P { Id: 1 };
+    let mut d = D { Id: 2 };
+    p.drop(); //~ ERROR E0319 no method named `drop` found for struct `P`
+    d.Close(); //~ ERROR E0319 no method named `Close` found for struct `D`
+}

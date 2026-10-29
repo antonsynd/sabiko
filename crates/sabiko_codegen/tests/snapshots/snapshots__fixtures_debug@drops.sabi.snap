@@ -323,6 +323,98 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     ret
   }
 
+  .method public hidebysig static int32 'ContinueLeaves'(int32 'n') cil managed
+  {
+    .maxstack 3
+    .locals init (
+      [0] int32 'i',
+      [1] int32 'total',
+      [2] valuetype 'D' 'd',
+      [3] int32 '_13'
+    )
+  BB0:
+    ldc.i4.0
+    stloc.0
+    ldc.i4.0
+    stloc.1
+  BB1:
+    ldloc.0
+    ldarg.0
+    clt
+    brfalse BB5
+  BB2:
+    ldloc.0
+    conv.i8
+    ldc.i4.1
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "drops.sabi:69:13"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L1:
+    conv.i4
+    stloc.0
+    ldloc.0
+    call valuetype 'D' 'Drops'::'Make'(int32)
+    stloc.2
+    .try
+    {
+  BB3:
+    ldloc.1
+    ldloca.s 2
+    call int32 'Drops'::'Peek'(valuetype 'D'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    stloc.3
+  BB4:
+    conv.i8
+    ldloc.3
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L2
+    ldstr "drops.sabi:71:17"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L2:
+    conv.i4
+    stloc.1
+    ldloc.1
+    ldc.i4.s 10
+    cgt
+    brfalse L3
+    leave BB7
+  L3:
+    leave BB8
+    }
+    fault
+    {
+    call void [Sabiko.Runtime]Sabiko.Runtime.Panic::BeginCleanup()
+    ldloca.s 2
+    call void 'D'::'Drop.drop'(valuetype 'D'&)
+    endfault
+    }
+  BB7:
+    ldloca.s 2
+    call void 'D'::'Drop.drop'(valuetype 'D'&)
+    br BB1
+  BB8:
+    ldloca.s 2
+    call void 'D'::'Drop.drop'(valuetype 'D'&)
+    br BB1
+  BB5:
+    ldloc.1
+    ret
+  }
+
   .method public hidebysig static void 'Main'() cil managed
   {
     .maxstack 3
@@ -349,7 +441,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "drops.sabi:64:15"
+    ldstr "drops.sabi:81:15"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
@@ -359,6 +451,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
   BB4:
     call void 'Drops'::'Nested'()
   BB5:
+    ldc.i4.3
+    call int32 'Drops'::'ContinueLeaves'(int32)
+  BB6:
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
+  BB7:
     ret
   }
 

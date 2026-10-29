@@ -59,8 +59,26 @@ fn Nested() {
     Consume(p.B);
 }
 
+// `continue` as the last statement of a loop body whose local is live across a call: both
+// targets of the branch on `total > 10` leave the local's protected region (the
+// conditional one through a `leave` trampoline).
+fn ContinueLeaves(n: i32) -> i32 {
+    let mut i = 0;
+    let mut total = 0;
+    while i < n {
+        i = i + 1;
+        let d = Make(i);
+        total = total + Peek(&d);
+        if total > 10 {
+            continue;
+        }
+    }
+    total
+}
+
 fn Main() {
     TwoLocals();
     PrintLine(Flagged(true) + Sum(1, 2));
     Nested();
+    PrintLine(ContinueLeaves(3));
 }
