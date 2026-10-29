@@ -1,0 +1,34 @@
+// Shadowing does not end a binding's life: the shadowed value is dropped at the end of its
+// scope with the others, in reverse declaration order, not where the new binding appears.
+// `let y = y;` moves the old binding's value into the new one, so it is dropped once.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Main() {
+    let x = Make(1);
+    PrintLine("shadowing x");
+    let x = Make(2);
+    PrintLine(x.Id);
+    {
+        let x = Make(3);
+        PrintLine("end of inner block");
+    }
+    PrintLine(x.Id);
+    let x = x.Id * 10;
+    PrintLine(x);
+    let y = Make(4);
+    let y = y;
+    PrintLine("end of Main");
+}

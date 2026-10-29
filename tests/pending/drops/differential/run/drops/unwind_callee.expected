@@ -1,0 +1,39 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 101
+// --- stdout
+make 1000
+make 501
+make 101
+make 201
+make 1
+make 10
+drop 10
+drop 1
+drop 201
+202
+drop 101
+drop 501
+make 502
+make 102
+make 202
+make 2
+make 20
+drop 20
+drop 2
+drop 202
+204
+drop 102
+drop 502
+make 503
+make 103
+make 203
+make 3
+make 30
+drop 30
+drop 3
+drop 203
+drop 103
+drop 503
+drop 1000
+// --- stderr (thread id and directory removed)
+thread 'main' (ID) panicked at prog.rs:23:9:
+too large

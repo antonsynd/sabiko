@@ -1,0 +1,64 @@
+// Drops through methods (#7): a by-value `self` is dropped at the end of the method unless
+// it is moved out (returned); `&self`/`&mut self` receivers are not dropped by the call; a
+// temporary receiver is dropped at the end of the statement; `drop` itself may call
+// methods of its type. Constructed with an associated function.
+struct D { Id: i32 }
+
+impl D {
+    fn New(id: i32) -> D {
+        Print("make ");
+        PrintLine(id);
+        D { Id: id }
+    }
+
+    fn Get(&self) -> i32 {
+        self.Id
+    }
+
+    fn Bump(&mut self) {
+        self.Id += 100;
+    }
+
+    fn Take(self) -> i32 {
+        PrintLine("in Take");
+        self.Id
+    }
+
+    fn With(mut self, id: i32) -> D {
+        PrintLine("in With");
+        self.Id = id;
+        self
+    }
+
+    fn Replace(&mut self, id: i32) {
+        *self = D::New(id);
+        PrintLine("replaced");
+    }
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Get());
+    }
+}
+
+fn Main() {
+    let a = D::New(1);
+    PrintLine(a.Get());
+    PrintLine(D::New(2).Get());
+    PrintLine("--");
+    let n = D::New(3).Take();
+    PrintLine(n);
+    PrintLine("--");
+    let b = D::New(4).With(5);
+    PrintLine(b.Get());
+    PrintLine("--");
+    let mut c = D::New(6);
+    c.Bump();
+    D::New(7).Bump();
+    PrintLine("--");
+    c.Replace(8);
+    PrintLine(c.Get());
+    PrintLine("end of Main");
+}

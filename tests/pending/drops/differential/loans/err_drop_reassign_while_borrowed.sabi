@@ -1,0 +1,16 @@
+// Assigning a new value to a droppable variable drops the old one: a write to the whole
+// place, which conflicts with a live borrow of its field.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let mut d = D { Id: 1 };
+    let r = &d.Id;
+    d = D { Id: 2 };
+    PrintLine(*r);
+}

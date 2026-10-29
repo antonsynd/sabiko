@@ -1,0 +1,14 @@
+// Reassigning an immutable droppable binding (which would drop the old value) needs `mut`.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let d = D { Id: 1 };
+    PrintLine(d.Id);
+    d = D { Id: 2 };
+}

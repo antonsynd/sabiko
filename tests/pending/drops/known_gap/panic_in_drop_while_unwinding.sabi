@@ -1,0 +1,38 @@
+// KNOWN GAP (no harness can express the expected outcome): a `drop` that panics while a
+// panic is already unwinding. rustc aborts the process ("panic in a destructor during
+// cleanup", then "thread caused non-unwinding panic. aborting."): SIGABRT, exit status 134
+// in a shell, no exit code at all for `std::process::Command` (the run harness would see
+// -1), and the drops after the second panic never run. Under decision 12 the drop runs in
+// a `finally`, and a .NET exception thrown from a `finally` replaces the one in flight:
+// the remaining `finally` blocks run and the process would report the *second* panic and
+// exit 101. Matching rustc means catching a panic escaping a drop on the unwinding path and
+// aborting (`Environment.FailFast`, or printing both reports and exiting 134), which needs a
+// decision. Stdout up to the abort is `make 1`, `make 2`, `drop 2 (bomb)` (see the
+// `.expected` note).
+struct Bomb { Id: i32 }
+
+impl Drop for Bomb {
+    fn drop(&mut self) {
+        Print("drop ");
+        Print(self.Id);
+        PrintLine(" (bomb)");
+        Panic("second panic, in drop");
+    }
+}
+
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    PrintLine("make 1");
+    let a = D { Id: 1 };
+    PrintLine("make 2");
+    let b = Bomb { Id: 2 };
+    Panic("first panic");
+}

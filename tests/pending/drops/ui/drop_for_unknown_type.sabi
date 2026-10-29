@@ -1,0 +1,5 @@
+// `impl Drop` for a name that is not a type (alone, since it is a resolve error and the
+// other `impl Drop` errors come later).
+impl Drop for Nope { //~ rustc E0425: cannot find type `Nope` in this scope [not found in this scope]
+    fn drop(&mut self) {}
+}

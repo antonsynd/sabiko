@@ -1,0 +1,79 @@
+// Temporaries are dropped at the end of the enclosing statement, in reverse order of
+// creation. A temporary in an `if` or `while` condition is dropped before the branch or the
+// body runs. `let r = &Make(..);` extends the temporary to the end of the block. In edition
+// 2021 (the harness's), the temporaries of a block's tail expression outlive the block's
+// locals: they are dropped at the end of the statement holding the block, or after the
+// function's locals for a function body. The operand of an explicit `return` is not a
+// tail expression: its temporaries are dropped before the locals.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Id(d: &D) -> i32 {
+    d.Id
+}
+
+fn Sum(a: &D, b: &D) -> i32 {
+    a.Id + b.Id
+}
+
+fn Bump(d: &mut D) -> i32 {
+    d.Id += 1;
+    d.Id
+}
+
+fn TailTemporary() -> i32 {
+    let a = Make(40);
+    Make(41).Id
+}
+
+fn ReturnTemporary() -> i32 {
+    let a = Make(50);
+    return Make(51).Id;
+}
+
+fn Main() {
+    PrintLine(Id(&Make(1)));
+    PrintLine("--");
+    let n = Sum(&Make(2), &Make(3));
+    PrintLine(n);
+    PrintLine("--");
+    let m = Make(4).Id + Bump(&mut Make(5));
+    PrintLine(m);
+    PrintLine("--");
+    if Make(6).Id == 6 {
+        PrintLine("then");
+    }
+    PrintLine("--");
+    let mut i = 0;
+    while Make(10 + i).Id < 12 {
+        PrintLine("body");
+        i += 1;
+    }
+    PrintLine("--");
+    let r = &Make(20);
+    PrintLine("extended");
+    PrintLine(r.Id);
+    PrintLine("--");
+    let k = {
+        let a = Make(30);
+        Make(31).Id
+    };
+    PrintLine(k);
+    PrintLine("--");
+    PrintLine(TailTemporary());
+    PrintLine("--");
+    PrintLine(ReturnTemporary());
+    PrintLine("end of Main");
+}

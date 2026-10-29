@@ -1,0 +1,19 @@
+// A temporary is dropped at the end of its statement; here the borrow is assigned, not
+// bound by `let`, so no temporary lifetime extension applies and the later use is an error.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Main() {
+    let r: &D;
+    r = &Make(1);
+    PrintLine(r.Id);
+}

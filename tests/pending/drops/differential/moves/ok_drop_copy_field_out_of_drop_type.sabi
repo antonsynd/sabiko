@@ -1,0 +1,31 @@
+// Reading a Copy field (here an `i32` and a Copy struct) out of a value whose type
+// implements `Drop` copies it: no E0509, and the value stays whole.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Pos { X: i32, Y: i32 }
+
+struct Owner { Id: i32, At: Pos, Inner: D }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Take(o: Owner) {}
+
+fn Main() {
+    let o = Owner { Id: 1, At: Pos { X: 2, Y: 3 }, Inner: D { Id: 4 } };
+    let n = o.Id;
+    let at = o.At;
+    let inner = o.Inner.Id;
+    PrintLine(n + at.X + at.Y + inner);
+    Take(o);
+}

@@ -1,0 +1,40 @@
+// A panic while a struct literal is being evaluated drops the fields already evaluated, in
+// reverse order of evaluation (the literal's order, `C` then `A`), before the enclosing
+// locals. The unfinished `Trio`'s own `drop` does not run, since it was never built; the
+// finished one (`ok`) runs its `drop` and then drops its fields, as at a normal scope end.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Trio { A: D, B: D, C: D }
+
+impl Drop for Trio {
+    fn drop(&mut self) {
+        PrintLine("drop trio");
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Fail(id: i32) -> D {
+    Print("fail ");
+    PrintLine(id);
+    Panic("cannot build")
+}
+
+fn Main() {
+    let x = Make(1);
+    let ok = Trio { A: Make(2), B: Make(3), C: Make(4) };
+    PrintLine("built one");
+    let t = Trio { C: Make(5), A: Make(6), B: Fail(7) };
+    PrintLine("unreachable");
+}

@@ -1,0 +1,45 @@
+// A panic inside `drop` while no other panic is in flight (here at the normal end of a
+// block) is an ordinary panic: it unwinds from inside the drop. The fields of the value
+// whose `drop` panicked are still dropped, then the remaining locals of the block, then
+// those of the enclosing scopes. Exit code 101.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Bomb { Id: i32, Inner: D }
+
+impl Drop for Bomb {
+    fn drop(&mut self) {
+        Print("bomb ");
+        PrintLine(self.Id);
+        if self.Id == 2 {
+            Panic("bomb went off");
+        }
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Main() {
+    let a = Make(1);
+    {
+        let quiet = Bomb { Id: 1, Inner: Make(5) };
+    }
+    PrintLine("--");
+    {
+        let b = Make(10);
+        let bomb = Bomb { Id: 2, Inner: Make(20) };
+        let c = Make(30);
+        PrintLine("end of block");
+    }
+    PrintLine("unreachable");
+}

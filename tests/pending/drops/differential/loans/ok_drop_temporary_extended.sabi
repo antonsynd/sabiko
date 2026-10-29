@@ -1,0 +1,20 @@
+// `let r = &Make(1);` extends the temporary to the end of the enclosing block (it is
+// dropped there, not at the end of the statement), and so does `let t = (&Make(2), 3);`:
+// the operand of `&` inside a tuple expression in a `let` initialiser is extended too.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Main() {
+    let r = &Make(1);
+    let t = (&Make(2), 3);
+    PrintLine(r.Id + t.0.Id + t.1);
+}

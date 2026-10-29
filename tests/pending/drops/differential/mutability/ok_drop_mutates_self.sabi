@@ -1,0 +1,30 @@
+// Inside `drop`, `self` is a `&mut Self`: fields can be assigned, borrowed mutably and
+// passed on as `&mut`, including droppable fields (assigning one drops its old value).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Owner { Count: i32, Inner: D }
+
+fn Bump(d: &mut D) {
+    d.Id += 1;
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.Count += 1;
+        let c = &mut self.Count;
+        *c *= 2;
+        Bump(&mut self.Inner);
+        self.Inner = D { Id: self.Count };
+        PrintLine(self.Count);
+    }
+}
+
+fn Main() {
+    let o = Owner { Count: 1, Inner: D { Id: 10 } };
+}

@@ -1,0 +1,36 @@
+// KNOWN GAP (pre-existing, PLAN.md Phase 5 status note and a TODO in `sabiko_mir::build`):
+// `let _ = place;` only mentions the place in rustc. It neither moves nor drops it: `d` is
+// still usable afterwards and is dropped at the end of `Main`, in its turn. Sabiko reads
+// the place (a move for a non-Copy type), so it rejects `Consume(d)` after it, and with
+// drops it would also drop the value early. (`let (a, _, c) = t;` already leaves `t.1` in
+// `t`, decision 52; `partial_moves.sabi` relies on it.) Belongs in `differential/run/drops/`
+// when the TODO is fixed; #12 may fix it, since drops make the difference observable.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Main() {
+    let d = Make(1);
+    let e = Make(2);
+    let _ = d;
+    PrintLine("after let _ = d");
+    let _ = e;
+    Consume(e);
+    PrintLine("end of Main");
+}

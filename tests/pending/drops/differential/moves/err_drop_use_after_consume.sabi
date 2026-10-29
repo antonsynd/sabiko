@@ -1,0 +1,17 @@
+// Passing a droppable value to a by-value parameter moves it (the callee drops it); using
+// it afterwards is a use of a moved value.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {}
+
+fn Main() {
+    let d = D { Id: 1 };
+    Consume(d);
+    PrintLine(d.Id);
+}

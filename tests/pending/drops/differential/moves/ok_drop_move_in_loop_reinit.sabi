@@ -1,0 +1,35 @@
+// A value moved in a loop body and reinitialised before the next iteration (and before
+// the loop exits) is initialised at every use; one moved on some iterations and
+// reinitialised on the same ones is too. The drop at the end of `Main` is unconditional.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {}
+
+fn Main() {
+    let mut d = D { Id: 1 };
+    let mut i = 0;
+    while i < 3 {
+        Consume(d);
+        d = D { Id: i };
+        i += 1;
+    }
+    PrintLine(d.Id);
+    let mut e = D { Id: 10 };
+    loop {
+        if i % 2 == 0 {
+            Consume(e);
+            e = D { Id: i };
+        }
+        i += 1;
+        if i > 8 {
+            break;
+        }
+    }
+    PrintLine(e.Id);
+}

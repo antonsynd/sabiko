@@ -1,0 +1,17 @@
+// The counterpart of `ok_drop_tuple_reference_not_drop_live`: a later *use* of the tuple,
+// even of its other element, keeps the whole tuple live and with it the `&mut x` inside,
+// so reassigning `x` (which drops its old value) conflicts.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let mut x = D { Id: 3 };
+    let m = (&mut x, D { Id: 4 });
+    x = D { Id: 5 };
+    PrintLine(m.1.Id);
+}

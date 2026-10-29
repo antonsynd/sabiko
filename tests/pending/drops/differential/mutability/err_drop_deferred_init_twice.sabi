@@ -1,0 +1,15 @@
+// A binding declared without a value may be assigned once without `mut`; the second
+// assignment (which would drop the first value) is a reassignment of an immutable binding.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let d: D;
+    d = D { Id: 1 };
+    d = D { Id: 2 };
+}

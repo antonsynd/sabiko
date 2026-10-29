@@ -1,0 +1,23 @@
+// `drop` takes `&mut self`, but the implicit drop at the end of a scope needs no `mut`
+// binding: immutable locals, immutable by-value parameters and temporaries are all dropped.
+// The mutability check must not treat the drop as a `&mut` borrow of the binding.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        self.Id += 1;
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {
+    PrintLine(d.Id);
+}
+
+fn Main() {
+    let d = D { Id: 1 };
+    let e: D;
+    e = D { Id: 2 };
+    Consume(D { Id: 3 });
+    PrintLine(d.Id + e.Id);
+}

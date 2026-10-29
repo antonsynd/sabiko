@@ -1,0 +1,19 @@
+// A value moved on one branch is "maybe moved" after the `if`: its drop at the end of the
+// scope needs a drop flag, and any use of it is an error.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {}
+
+fn Run(flag: bool) {
+    let d = D { Id: 1 };
+    if flag {
+        Consume(d);
+    }
+    PrintLine(d.Id);
+}

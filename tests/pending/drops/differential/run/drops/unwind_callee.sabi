@@ -1,0 +1,47 @@
+// A panic in a callee unwinds frame by frame: the callee's locals, then its parameters,
+// then the caller's temporaries (`&Make(200 + n)`, alive until the end of the caller's
+// statement), then the caller's locals, up to `Main`'s. Earlier iterations returned
+// normally and dropped everything on the way.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Check(d: D, limit: i32) -> i32 {
+    let local = Make(d.Id * 10);
+    if d.Id > limit {
+        Panic("too large");
+    }
+    d.Id
+}
+
+fn Plus(a: &D, b: i32) -> i32 {
+    a.Id + b
+}
+
+fn Middle(n: i32) -> i32 {
+    let m = Make(100 + n);
+    let r = Plus(&Make(200 + n), Check(Make(n), 2));
+    PrintLine(r);
+    r
+}
+
+fn Main() {
+    let a = Make(1000);
+    let mut i = 1;
+    while i < 5 {
+        let it = Make(500 + i);
+        Middle(i);
+        i += 1;
+    }
+}

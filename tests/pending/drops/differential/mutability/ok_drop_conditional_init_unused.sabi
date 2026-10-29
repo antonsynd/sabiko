@@ -1,0 +1,24 @@
+// A droppable binding assigned on some paths only, and never used, is accepted: the drop
+// at the end of the scope is not a use, it runs only where the binding holds a value
+// (a drop flag). The same for a binding assigned on both branches of an `if`, and used.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Run(flag: bool) {
+    let d: D;
+    if flag {
+        d = D { Id: 1 };
+    }
+    let e: D;
+    if flag {
+        e = D { Id: 2 };
+    } else {
+        e = D { Id: 3 };
+    }
+    PrintLine(e.Id);
+}
