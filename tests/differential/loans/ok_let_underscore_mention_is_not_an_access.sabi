@@ -1,0 +1,15 @@
+// A mention is not an access: `let _ = x;` while `x` is mutably borrowed conflicts with
+// nothing, and a mention before the conflicting write leaves the loan dead there.
+fn Main() {
+    let mut x = 1;
+    let m = &mut x;
+    let _ = x;
+    *m = 2;
+    let r = &x;
+    let _ = r;
+    x = 3;
+    let mut y = 4;
+    let n = &mut y;
+    let _ = *n;
+    y = 5;
+}

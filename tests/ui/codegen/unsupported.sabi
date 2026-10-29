@@ -17,7 +17,7 @@ fn Main() {
     let unit = ();
     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     //~^ ERROR E0500 a reference to `()` is not yet supported by code generation
-    let _ = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    let again = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     // A tuple element is no different.
     let pair = (r, 2);
     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation

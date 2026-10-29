@@ -100,7 +100,11 @@ impl Checker<'_> {
                 self.check_rvalue(rvalue, statement.span);
                 self.check_write(place, statement.span);
             }
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // `let _ = place;` needs no initialised or mutable place: it touches nothing.
+            StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::PlaceMention(_)
+            | StatementKind::Nop => {}
         }
     }
 

@@ -469,6 +469,14 @@ Moves (E0406, E0407):
   t;` leaves `t.1` usable). Any other initialiser is evaluated into a temporary first.
   Temporary lifetime extension follows rustc through tuples: in `let p = (&f(), 1);` and
   `let (a, b) = &(x, y);` the borrowed temporary lives as long as the bindings.
+- `let _ = place;` (a place initialiser: a local, a field of a place, a dereference) only
+  mentions the place (#37, rustc's `PlaceMention`): nothing is read, moved, copied or
+  required to be initialised, so `let _ = p; Take(p);` is fine for a non-`Copy` `p`, and so
+  is `let _ = p;` after `p` was moved or before it is initialised. The mention is a use of
+  the local for liveness only: a reference mentioned there keeps its loans live up to it
+  (`let r = &x; x = 2; let _ = r;` and `let _ = *r;` there are E0410), but the mention
+  itself conflicts with no loan. A value initialiser (`let _ = F();`) is evaluated into a
+  temporary that dies at the end of the statement.
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).

@@ -1203,3 +1203,24 @@ fn mut_ref_moved_into_a_deref_gets_no_reborrow_hint() {
         ["move occurs because `r` has type `&mut i32`, which does not implement the `Copy` trait"]
     );
 }
+
+#[test]
+fn place_mention_is_not_a_use_or_a_move() {
+    // let p = Point {..}; let _ = p; let q = p; let _ = p; let _ = p.X;
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let q = mir.user("q", fx.point_ty(), Mutability::Not);
+    let bb0 = mir.block();
+    mir.live(bb0, p);
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.stmt(bb0, StatementKind::PlaceMention(local(p)));
+    mir.live(bb0, q);
+    mir.assign(bb0, local(q), use_move(local(p)));
+    mir.stmt(bb0, StatementKind::PlaceMention(local(p)));
+    mir.stmt(bb0, StatementKind::PlaceMention(point_x(local(p))));
+    mir.dead(bb0, q);
+    mir.dead(bb0, p);
+    mir.ret(bb0);
+    fx.assert_clean(&mir.finish());
+}

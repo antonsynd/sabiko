@@ -200,6 +200,7 @@ impl Printer<'_> {
             }
             StatementKind::StorageLive(l) => format!("StorageLive(_{})", l.0),
             StatementKind::StorageDead(l) => format!("StorageDead(_{})", l.0),
+            StatementKind::PlaceMention(place) => format!("PlaceMention({})", self.place(place)),
             StatementKind::Nop => "nop".to_owned(),
         }
     }

@@ -1,0 +1,40 @@
+// `let _ = place;` only mentions the place (#37): it reads, moves and initialises
+// nothing, so it is fine on a moved, partially moved or uninitialised place, and it leaves
+// a non-Copy value usable afterwards.
+struct P { X: i32 }
+
+struct Pair { A: P, B: P }
+
+fn Take(p: P) {}
+
+fn MentionThenMove() {
+    let p = P { X: 1 };
+    let _ = p;
+    Take(p);
+}
+
+fn MentionMoved() {
+    let p = P { X: 1 };
+    Take(p);
+    let _ = p;
+    let q = Pair { A: P { X: 1 }, B: P { X: 2 } };
+    Take(q.A);
+    let _ = q;
+    let _ = q.A;
+}
+
+fn MentionUninitialised() {
+    let x: i32;
+    let _ = x;
+    let p: P;
+    let _ = p.X;
+}
+
+fn MentionThroughMovedReference() {
+    let mut x = 1;
+    let m = &mut x;
+    let n = m;
+    let _ = *m;
+    let _ = m;
+    *n = 2;
+}

@@ -1366,12 +1366,18 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                // TODO: rustc only mentions a place initialiser here (a liveness use of its
-                // local, no read, move or initialisation check: `let _ = p;` leaves a
-                // non-Copy `p` usable); Sabiko reads it, which rejects some valid programs.
+                // `let _ = place;` only mentions the place, as in rustc (#37): no read, move
+                // or initialisation check, a liveness use of its local (`let _ = p;` leaves
+                // a non-Copy `p` usable). Any other initialiser is evaluated into a
+                // temporary that dies with the statement.
                 PatKind::Wild => {
                     if let Some(init) = &l.init {
-                        self.as_temp(init);
+                        if is_place_expr(self.resolve, init) {
+                            let place = self.as_place(init);
+                            self.push_stmt(StatementKind::PlaceMention(place), init.span);
+                        } else {
+                            self.as_temp(init);
+                        }
                     }
                 }
                 PatKind::Tuple(_) => self.lower_let_tuple(&l.pat, l.init.as_ref()),

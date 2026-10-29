@@ -133,6 +133,7 @@ impl Layout {
                             s.kind,
                             StatementKind::StorageLive(_)
                                 | StatementKind::StorageDead(_)
+                                | StatementKind::PlaceMention(_)
                                 | StatementKind::Nop
                         )
                     })
@@ -713,6 +714,7 @@ impl FnCx<'_, '_> {
                         s.kind,
                         StatementKind::StorageLive(_)
                             | StatementKind::StorageDead(_)
+                            | StatementKind::PlaceMention(_)
                             | StatementKind::Nop
                     )
                 });
@@ -762,7 +764,11 @@ impl FnCx<'_, '_> {
     fn stmt(&mut self, stmt: &Statement) {
         match &stmt.kind {
             StatementKind::Assign(place, rvalue) => self.assign(place, rvalue, stmt.span),
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // A mention reads nothing (`let _ = place;`).
+            StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::PlaceMention(_)
+            | StatementKind::Nop => {}
         }
     }
 

@@ -419,6 +419,10 @@ impl Generator<'_> {
                 self.access(&Place::local(*local), AccessKind::StorageDead, location);
                 self.kill_loans_of_local(*local, location);
             }
+            // `let _ = place;`: a use of the local for liveness only (rustc's
+            // `PlaceMention`), so a reference mentioned there keeps its loans live, but no
+            // access: nothing is read, so no loan is invalidated.
+            StatementKind::PlaceMention(place) => self.use_local(place.local, location),
             StatementKind::Nop => {}
         }
     }

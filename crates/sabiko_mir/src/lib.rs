@@ -147,6 +147,11 @@ pub enum StatementKind {
     StorageLive(Local),
     /// The local's storage ends. Drop elaboration (Phase 3) inserts drops before this.
     StorageDead(Local),
+    /// `let _ = place;`: the place is only mentioned (rustc's `PlaceMention`). Nothing is
+    /// read, moved or required to be initialised; the borrow checker counts it as a use
+    /// of the local for liveness only, so a loan held by a reference that is mentioned is
+    /// live there. Code generation emits nothing.
+    PlaceMention(Place),
     Nop,
 }
 

@@ -363,6 +363,20 @@ fn deferred_init_is_accepted() {
 }
 
 #[test]
+fn place_mention_of_an_uninitialised_local_is_accepted() {
+    // let x; let _ = x;
+    let fx = Fixture::new();
+    let mut b = BodyBuilder::new(&fx, Ty::Unit);
+    let x = b.user(&fx, "x", Ty::I32, Mutability::Not);
+    let bb0 = b.block();
+    b.live(bb0, x);
+    b.stmt(bb0, StatementKind::PlaceMention(local(x)));
+    b.dead(bb0, x);
+    b.ret(bb0);
+    fx.assert_clean(&b.finish());
+}
+
+#[test]
 fn deferred_init_in_both_arms_is_accepted() {
     // let x; if flag { x = 1 } else { x = 2 } ; _0 = x
     let fx = Fixture::new();

@@ -396,7 +396,6 @@ fn EarlyReturn(_1: bool) {
     let mut _0: ();
     let mut _2: bool;
     let _3: i32;                         // x
-    let mut _4: i32;
 
     bb0: {
         switchInt(copy _1) -> [0: bb3, otherwise: bb1];
@@ -414,6 +413,7 @@ fn EarlyReturn(_1: bool) {
     bb3: {
         StorageLive(_3);
         _3 = const 1_i32;
+        PlaceMention(_3);
         _0 = const ();
         StorageDead(_3);
         goto -> bb2;

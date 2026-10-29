@@ -483,10 +483,11 @@ destructuring assignment (`(a, b) = (b, a)`) are E0107 (the comparison traits ar
 stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`); the two-phase
 reborrow `Use(m, m.0)` waits for #15; a tuple holding a reference cannot be a struct field
 (lifetimes, Phase 9); constants cannot be tuples (E0315); literal and other refutable
-patterns are E0107 until `match`. Pre-existing and unchanged: `let _ = place;` reads the
-place where rustc only mentions it, so Sabiko rejects `let _ = p; Take(p);` (a TODO in
-`sabiko_mir::build`). The generator does not produce tuples of references, `()` values or
-tuple comparisons.
+patterns are E0107 until `match`. Pre-existing then: `let _ = place;` read the place where
+rustc only mentions it, so Sabiko rejected `let _ = p; Take(p);`; #37 fixed it: the
+statement is a MIR `PlaceMention`, a liveness use of the local and nothing else, as in
+rustc. The generator does not produce tuples of references, `()` values or tuple
+comparisons.
 
 Update (2026-10-29), methods and two-phase borrows (#7, #15, decision 53): inherent `impl`
 blocks (any number per struct, before or after it) hold associated functions, methods

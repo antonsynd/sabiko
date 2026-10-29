@@ -35,16 +35,15 @@ fn Nested(_1: i32) -> i32 {
     let mut _12: i32;
     let mut _13: i32;
     let mut _14: i32;
-    let mut _15: i32;
-    let _16: i32;                        // late
-    let mut _17: bool;
+    let _15: i32;                        // late
+    let mut _16: bool;
+    let mut _17: i32;
     let mut _18: i32;
     let mut _19: i32;
     let mut _20: i32;
     let mut _21: i32;
     let mut _22: i32;
     let mut _23: i32;
-    let mut _24: i32;
 
     bb0: {
         StorageLive(_2);
@@ -85,58 +84,56 @@ fn Nested(_1: i32) -> i32 {
         StorageDead(_13);
         StorageDead(_12);
         StorageDead(_11);
-        StorageLive(_15);
-        _15 = copy _10;
-        StorageDead(_15);
+        PlaceMention(_10);
         StorageDead(_10);
         StorageDead(_9);
+        StorageLive(_15);
         StorageLive(_16);
         StorageLive(_17);
-        StorageLive(_18);
-        _18 = copy _1;
-        _17 = Gt(copy _18, const 0_i32);
-        switchInt(copy _17) -> [0: bb3, otherwise: bb2];
+        _17 = copy _1;
+        _16 = Gt(copy _17, const 0_i32);
+        switchInt(copy _16) -> [0: bb3, otherwise: bb2];
     }
 
     bb2: {
-        StorageLive(_19);
-        _19 = copy _2;
-        _16 = copy _19;
-        StorageDead(_19);
+        StorageLive(_18);
+        _18 = copy _2;
+        _15 = copy _18;
+        StorageDead(_18);
         goto -> bb4;
     }
 
     bb3: {
-        StorageLive(_20);
-        _20 = copy _4;
-        _16 = copy _20;
-        StorageDead(_20);
+        StorageLive(_19);
+        _19 = copy _4;
+        _15 = copy _19;
+        StorageDead(_19);
         goto -> bb4;
     }
 
     bb4: {
-        StorageDead(_18);
         StorageDead(_17);
+        StorageDead(_16);
+        StorageLive(_20);
         StorageLive(_21);
-        StorageLive(_22);
-        _22 = copy _16;
-        _21 = Twice(copy _22) -> bb5;
+        _21 = copy _15;
+        _20 = Twice(copy _21) -> bb5;
     }
 
     bb5: {
+        StorageLive(_22);
         StorageLive(_23);
-        StorageLive(_24);
-        _24 = copy _2;
-        _23 = Twice(copy _24) -> bb6;
+        _23 = copy _2;
+        _22 = Twice(copy _23) -> bb6;
     }
 
     bb6: {
-        _0 = Add(copy _21, copy _23);
-        StorageDead(_24);
+        _0 = Add(copy _20, copy _22);
         StorageDead(_23);
         StorageDead(_22);
         StorageDead(_21);
-        StorageDead(_16);
+        StorageDead(_20);
+        StorageDead(_15);
         StorageDead(_4);
         StorageDead(_2);
         goto -> bb7;

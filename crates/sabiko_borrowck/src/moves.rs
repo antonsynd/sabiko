@@ -179,7 +179,7 @@ fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
                 StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                     f(&Place::local(*local));
                 }
-                StatementKind::Nop => {}
+                StatementKind::PlaceMention(_) | StatementKind::Nop => {}
             }
         }
         if let Some(terminator) = &data.terminator {
@@ -244,7 +244,7 @@ fn written_place(body: &Body, location: Location) -> Option<Place> {
             StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                 Some(Place::local(*local))
             }
-            StatementKind::Nop => None,
+            StatementKind::PlaceMention(_) | StatementKind::Nop => None,
         },
         None => match &data.terminator().kind {
             TerminatorKind::Call { destination, .. } => Some(destination.clone()),
@@ -317,7 +317,7 @@ impl Analysis for MaybeMovedAnalysis<'_> {
             StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                 self.kill_write(state, &Place::local(*local));
             }
-            StatementKind::Nop => {}
+            StatementKind::PlaceMention(_) | StatementKind::Nop => {}
         }
     }
 
@@ -436,7 +436,11 @@ impl MoveChecker<'_> {
                 }
                 self.check_write(dest, location, statement.span);
             }
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // A mention is not a use: `let _ = p;` after a move of `p` is fine.
+            StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::PlaceMention(_)
+            | StatementKind::Nop => {}
         }
     }
 

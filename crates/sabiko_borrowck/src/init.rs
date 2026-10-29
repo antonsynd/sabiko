@@ -92,7 +92,7 @@ impl Analysis for InitAnalysis {
                     state.remove(local.index());
                 }
             }
-            StatementKind::Nop => {}
+            StatementKind::PlaceMention(_) | StatementKind::Nop => {}
         }
     }
 

@@ -1776,3 +1776,59 @@ fn method_result_borrows_self_only() {
         ["E0410 cannot assign to `p.X` because it is borrowed"]
     );
 }
+
+// ----------------------------------------------------------------------------------------
+// `let _ = place;` (#37): a mention is a liveness use, not an access
+// ----------------------------------------------------------------------------------------
+
+/// `let r = &x; [mention]; x = 2; [mention]`, mentioning `*r` (`deref_r`) or `r` before
+/// or after the write.
+fn mention_around_write(after: bool, deref_r: bool) -> (Fixture, Body) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(r), shared(local(x)));
+    let mentioned = if deref_r { deref(r) } else { local(r) };
+    if !after {
+        mir.stmt(bb0, StatementKind::PlaceMention(mentioned.clone()));
+    }
+    mir.assign(bb0, local(x), use_int(2));
+    if after {
+        mir.stmt(bb0, StatementKind::PlaceMention(mentioned));
+    }
+    mir.finish_unit(bb0);
+    (fx, mir.finish())
+}
+
+#[test]
+fn place_mention_keeps_a_borrow_live() {
+    for deref_r in [false, true] {
+        let (fx, body) = mention_around_write(true, deref_r);
+        assert_eq!(
+            fx.messages(&body),
+            ["E0410 cannot assign to `x` because it is borrowed"],
+            "deref: {deref_r}"
+        );
+        let (fx, body) = mention_around_write(false, deref_r);
+        fx.assert_clean(&body);
+    }
+}
+
+#[test]
+fn place_mention_of_a_mutably_borrowed_place_is_not_an_access() {
+    // let m = &mut x; let _ = x; *m = 2;
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), mutable(local(x)));
+    mir.stmt(bb0, StatementKind::PlaceMention(local(x)));
+    mir.assign(bb0, deref(m), use_int(2));
+    mir.finish_unit(bb0);
+    fx.assert_clean(&mir.finish());
+}
