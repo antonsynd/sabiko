@@ -27,7 +27,7 @@ use sabiko_ast::{
     BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, PatKind, SourceFile, Stmt, StmtKind,
 };
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
@@ -359,26 +359,32 @@ impl<'a> Builder<'a> {
     }
 
     /// An operand for a coercion site: a call argument, struct field initialiser, assignment
-    /// right-hand side, annotated `let` initialiser or return value. Like rustc, a `&mut T`
-    /// place is reborrowed (`&mut *p`) instead of moved there, so passing a mutable
-    /// reference to a function does not consume it.
-    fn coerced_operand(&mut self, expr: &Expr) -> Operand {
+    /// right-hand side, annotated `let` initialiser or return value, whose expected type is
+    /// `target` (`None` when there is none, as for `Print`'s argument). Like rustc, a
+    /// `&mut T` place is reborrowed instead of moved there, so passing a mutable reference
+    /// to a function does not consume it: `&mut *p`, or `&*p` when `target` is `&T` (the
+    /// `&mut T` to `&T` coercion), which leaves other shared borrows of `*p` usable.
+    fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>) -> Operand {
         let is_place_expr = matches!(
             strip_parens(expr).kind,
             ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
         );
         if is_place_expr {
-            if let Ty::Ref(Mutability::Mut, _) = self.ty(expr) {
-                let ty = self.ty(expr).clone();
+            if let Ty::Ref(Mutability::Mut, referent) = self.ty(expr) {
+                let referent = (**referent).clone();
+                let mutability = match target {
+                    Some(Ty::Ref(Mutability::Not, _)) => Mutability::Not,
+                    _ => Mutability::Mut,
+                };
                 let place = self.as_place(expr);
                 if place.local != Local::RETURN || !place.projection.is_empty() {
-                    let temp = self.new_temp(ty, expr.span);
+                    let temp = self.new_temp(Ty::Ref(mutability, Box::new(referent)), expr.span);
                     self.assign(
                         Place::local(temp),
-                        Rvalue::Ref(Mutability::Mut, place.deref()),
+                        Rvalue::Ref(mutability, place.deref()),
                         expr.span,
                     );
-                    return Operand::Move(Place::local(temp));
+                    return self.place_operand(Place::local(temp));
                 }
             }
         }
@@ -607,7 +613,16 @@ impl<'a> Builder<'a> {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
                     unreachable!("callees are function paths in a checked body")
                 };
-                let args: Vec<Operand> = args.iter().map(|a| self.coerced_operand(a)).collect();
+                // `Print` and `PrintLine` are overloaded and have no signature.
+                let inputs = match self.typeck.items.builtin(func) {
+                    Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
+                    _ => self.typeck.items.fn_sig(func).inputs.clone(),
+                };
+                let args: Vec<Operand> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| self.coerced_operand(a, inputs.get(i)))
+                    .collect();
                 let next = self.new_block();
                 // A callee returning `!` (`Panic`) has no return edge; what follows lands
                 // in an unreachable block, as after `return`.
@@ -676,7 +691,8 @@ impl<'a> Builder<'a> {
                     })
                     .collect();
                 for (field, index) in fields.iter().zip(indices) {
-                    operands[index] = Some(self.coerced_operand(&field.value));
+                    let field_ty = adt.fields[index].ty.clone();
+                    operands[index] = Some(self.coerced_operand(&field.value, Some(&field_ty)));
                 }
                 let operands = operands
                     .into_iter()
@@ -719,7 +735,8 @@ impl<'a> Builder<'a> {
         let span = expr.span;
         match &expr.kind {
             ExprKind::Assign(lhs, rhs) => {
-                let rhs = self.coerced_operand(rhs);
+                let target = self.ty(lhs).clone();
+                let rhs = self.coerced_operand(rhs, Some(&target));
                 let place = self.as_place(lhs);
                 self.assign(place, Rvalue::Use(rhs), span);
             }
@@ -879,7 +896,8 @@ impl<'a> Builder<'a> {
         let ret = Place::local(Local::RETURN);
         match value {
             Some(value) if self.is_mut_ref_place_expr(value) => {
-                let op = self.coerced_operand(value);
+                let target = ret.ty(&self.body);
+                let op = self.coerced_operand(value, Some(&target));
                 self.assign(ret, Rvalue::Use(op), span);
             }
             Some(value) => self.expr_into_dest(&ret, value),
@@ -936,7 +954,8 @@ impl<'a> Builder<'a> {
                     if let Some(init) = &l.init {
                         if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
-                            let op = self.coerced_operand(init);
+                            let target = Place::local(local).ty(&self.body);
+                            let op = self.coerced_operand(init, Some(&target));
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
                         } else if let Some((mutable, inner)) =
                             Self::ref_of_temporary(init).filter(|_| !self.ty(init).is_never())

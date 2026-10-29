@@ -84,6 +84,14 @@ levels (E0109) and `crates/sabiko_driver/tests/nesting.rs` checks each kind of n
 the limit, through code generation, and one level past it. Its slow units (deeply nested
 `&`) exposed type resolution quartic in the depth of a type.
 
+Adding the statement-reordering property (2026-10-29) and running the generated programs
+from a new base seed (100000) found a false rejection: a `&mut T` place passed where a `&T`
+is expected was reborrowed mutably, so `Weigh(&*tmp, m, tmp)` was E0408 where rustc
+accepts it. Coercion sites now reborrow with the target's mutability
+(`tests/differential/loans/ok_coerce_mut_to_shared.sabi`,
+`tests/differential/run/regressions/coerce_mut_to_shared.sabi`, the `coercions` MIR
+snapshot).
+
 ## Fuzzing
 
 `fuzz/` holds libFuzzer targets (nightly Rust): `parse` (parser plus pretty-printer
