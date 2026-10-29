@@ -1,0 +1,7 @@
+// An explicit `&mut t` argument is not two-phase: reading `t.0` in a later argument conflicts.
+fn Use(r: &mut (i32, i32), n: i32) { r.1 += n; }
+
+fn Main() {
+    let mut t = (1, 2);
+    Use(&mut t, t.0);
+}

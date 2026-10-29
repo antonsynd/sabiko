@@ -1,0 +1,8 @@
+// A `&mut` element is moved, not copied, when read out of the tuple by value.
+fn Main() {
+    let mut a = 1;
+    let t = (&mut a, 2);
+    let r = t.0;
+    *r += 1;
+    *t.0 += 1;
+}

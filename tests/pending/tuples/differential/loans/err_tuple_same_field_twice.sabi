@@ -1,0 +1,8 @@
+// Two mutable borrows of the same tuple field conflict.
+fn Main() {
+    let mut t = (1, 2);
+    let a = &mut t.0;
+    let b = &mut t.0;
+    *a += 1;
+    *b += 1;
+}

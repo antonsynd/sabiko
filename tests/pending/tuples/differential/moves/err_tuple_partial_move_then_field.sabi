@@ -1,0 +1,10 @@
+// Moving a non-Copy field out of a tuple and then using that field again.
+struct P { X: i32 }
+
+fn Take(p: P) {}
+
+fn Main() {
+    let t = (P { X: 1 }, P { X: 2 });
+    Take(t.0);
+    PrintLine(t.0.X);
+}

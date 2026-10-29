@@ -1,0 +1,37 @@
+// Assignment to tuple fields: plain, compound, nested, whole tuples and tuple-valued fields,
+// and an update whose right-hand side reads the place it overwrites.
+fn Show(t: (i32, (u8, bool), i64)) {
+    Print(t.0); Print(' '); Print(t.1.0); Print(' '); Print(t.1.1); Print(' '); PrintLine(t.2);
+}
+
+fn Main() {
+    let mut t = (1, (2u8, false), 3i64);
+    t.0 = 10;
+    Show(t);
+    t.1.0 += 40;
+    t.1.1 = !t.1.1;
+    t.2 -= 100;
+    Show(t);
+    t.1 = (t.1.0 * 2, t.1.1 && false);
+    Show(t);
+    t = (t.0 + 1, (t.1.0 / 3, !t.1.1), t.2 * t.0 as i64);
+    Show(t);
+    let mut pair = (1u64, 1u64);
+    let mut i = 0;
+    while i < 10 {
+        pair = (pair.1, pair.0 + pair.1);
+        i += 1;
+    }
+    Print(pair.0); Print(' '); PrintLine(pair.1);
+    let mut acc = (0, 0);
+    let mut n = 1;
+    while n <= 10 {
+        if n % 2 == 0 { acc.0 += n; } else { acc.1 += n; }
+        n += 1;
+    }
+    Print(acc.0); Print(' '); PrintLine(acc.1);
+    acc.0 <<= 2;
+    acc.1 %= 7;
+    acc.0 ^= acc.1;
+    Print(acc.0); Print(' '); PrintLine(acc.1);
+}

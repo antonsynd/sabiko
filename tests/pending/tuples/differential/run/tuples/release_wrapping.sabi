@@ -1,0 +1,17 @@
+//@ release
+// Release builds wrap arithmetic on tuple elements, in literals and compound assignments.
+fn Step(t: (u8, i8, u64)) -> (u8, i8, u64) {
+    (t.0 + 200, t.1 - 100, t.2 * 3)
+}
+
+fn Main() {
+    let mut t = (100u8, -100i8, 18446744073709551615u64);
+    t = Step(t);
+    Print(t.0); Print(' '); Print(t.1); Print(' '); PrintLine(t.2);
+    t.0 *= 7;
+    t.1 = -(t.1 + 72);
+    t.2 += 10;
+    Print(t.0); Print(' '); Print(t.1); Print(' '); PrintLine(t.2);
+    let (a, b) = (t.0 << 1, t.1 >> 1);
+    Print(a); Print(' '); PrintLine(b);
+}

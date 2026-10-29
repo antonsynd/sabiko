@@ -1,0 +1,7 @@
+// Assigning to a nested tuple field while a shared borrow of it is live.
+fn Main() {
+    let mut t = (1, (2, 3));
+    let r = &t.1.0;
+    t.1.0 = 5;
+    PrintLine(*r);
+}

@@ -1,0 +1,6 @@
+// A tuple cannot hold a mutable and a shared reference to the same local.
+fn Main() {
+    let mut a = 1;
+    let p = (&mut a, &a);
+    *p.0 += *p.1;
+}

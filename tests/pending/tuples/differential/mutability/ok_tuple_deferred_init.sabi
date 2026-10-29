@@ -1,0 +1,11 @@
+// A tuple binding without `mut` may be initialised once, later, on every path.
+fn Main() {
+    let c = true;
+    let t: (i32, bool);
+    if c {
+        t = (1, true);
+    } else {
+        t = (2, false);
+    }
+    PrintLine(t.0);
+}

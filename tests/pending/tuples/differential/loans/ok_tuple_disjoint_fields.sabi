@@ -1,0 +1,13 @@
+// Mutable borrows of different fields of one tuple, nested ones included, do not conflict.
+fn Main() {
+    let mut t = (1, 2, (3, 4));
+    let a = &mut t.0;
+    let b = &mut t.1;
+    let c = &mut t.2.0;
+    let d = &t.2.1;
+    *a += *d;
+    *b += *d;
+    *c += *d;
+    let e = &mut t.2.1;
+    *e = *a;
+}

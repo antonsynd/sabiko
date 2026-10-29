@@ -1,0 +1,12 @@
+// Possibly beyond issue #6: destructuring a *reference* to a tuple binds references (Rust
+// 2021's default binding modes), so `let (a, b) = &t;` gives `a: &i32` and `b: &bool`.
+fn Main() {
+    let mut t = (1, true);
+    let (a, b) = &t;
+    PrintLine(*a + 1);
+    PrintLine(*b);
+    let (x, y) = &mut t;
+    *x += 10;
+    *y = false;
+    Print(t.0); Print(' '); PrintLine(t.1);
+}

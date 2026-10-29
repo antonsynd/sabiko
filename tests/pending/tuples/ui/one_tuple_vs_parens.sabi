@@ -1,0 +1,10 @@
+// `(e)` is not a 1-tuple and `(e,)` is not its element; `(i32)` is the type `i32`.
+fn Wants(t: (i32,)) {}
+
+fn Main() {
+    let a: (i32,) = (5); //~ rustc E0308: mismatched types [expected `(i32,)`, found integer]
+    let b: i32 = (5,); //~ rustc E0308: mismatched types [expected `i32`, found `({integer},)`]
+    let c = (5).0; //~ rustc E0610: `{integer}` is a primitive type and therefore doesn't have fields
+    Wants(7); //~ rustc E0308: mismatched types [expected `(i32,)`, found integer]
+    let d: (i32) = (1,); //~ rustc E0308: mismatched types [expected `i32`, found `({integer},)`]
+}

@@ -1,0 +1,5 @@
+// Returning a reference into a field of a local tuple copied out of the parameter.
+fn First(t: &(i32, i32)) -> &i32 {
+    let u = *t;
+    &u.0
+}

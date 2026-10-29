@@ -1,0 +1,18 @@
+// `(e)` is just `e` while `(e,)` is a 1-tuple; `(t).0`, `((t,),)` and `(t.0,).0` nest as
+// written.
+fn Inc(t: (i32,)) -> (i32,) { (t.0 + 1,) }
+
+fn Main() {
+    let x = (5);
+    let one = (5,);
+    PrintLine(x * 2);
+    PrintLine(one.0 * 3);
+    PrintLine(Inc(Inc(one)).0);
+    let nested = ((one,),);
+    PrintLine(nested.0.0.0);
+    let p = (one).0;
+    let q = (one.0,).0;
+    PrintLine(p + q);
+    let t = ((1, 2), (3));
+    PrintLine(t.0.1 + t.1);
+}

@@ -1,0 +1,10 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+a=1 b=2 c=3 d=4 
+1234
+e=5 
+4 5 5
+f=6 g=7 
+60 7
+101 109
+216 209

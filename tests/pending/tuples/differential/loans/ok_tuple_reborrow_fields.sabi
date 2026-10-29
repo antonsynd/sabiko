@@ -1,0 +1,20 @@
+// Disjoint reborrows of the fields behind a `&mut` tuple, and a reborrow through `&mut r.0`.
+struct P { X: i32 }
+
+fn Split(t: &mut (P, P)) {
+    let a = &mut t.0;
+    let b = &mut t.1;
+    a.X += b.X;
+    b.X = 0;
+}
+
+fn Main() {
+    let mut t = (P { X: 1 }, P { X: 2 });
+    let r = &mut t;
+    Split(r);
+    let f = &mut r.0;
+    let x = &mut f.X;
+    *x += 1;
+    Split(&mut t);
+    PrintLine(t.0.X);
+}

@@ -1,0 +1,8 @@
+// `mut` bindings inside nested tuple patterns can be assigned and mutably borrowed.
+fn Main() {
+    let (mut a, (b, mut c)) = (1, (2, 3));
+    a += b;
+    let r = &mut c;
+    *r += a;
+    PrintLine(c);
+}

@@ -1,0 +1,39 @@
+// Tuples as the values of `if`, `loop`/`break value`, blocks and early returns.
+fn Classify(n: i32) -> (bool, i32) {
+    if n < 0 {
+        return (false, -n);
+    }
+    (true, n)
+}
+
+fn FirstSquareAbove(limit: u32) -> (u32, u32) {
+    let mut i = 0;
+    loop {
+        if i * i > limit {
+            break (i, i * i);
+        }
+        i += 1;
+    }
+}
+
+fn Main() {
+    let a = Classify(-4);
+    let b = Classify(9);
+    Print(a.0); Print(' '); Print(a.1); Print(' '); Print(b.0); Print(' '); PrintLine(b.1);
+    let s = FirstSquareAbove(50);
+    Print(s.0); Print(' '); PrintLine(s.1);
+    let pick = { let base = 3; (base, base * base) };
+    Print(pick.0); Print(' '); PrintLine(pick.1);
+    let chosen = if pick.1 > 5 { (1u8, 'y') } else { (0u8, 'n') };
+    Print(chosen.0); Print(' '); PrintLine(chosen.1);
+    let mut best = (0, 0);
+    let mut n = 1;
+    while n < 30 {
+        let score = (n * 7) % 11;
+        if score > best.1 {
+            best = (n, score);
+        }
+        n += 1;
+    }
+    Print(best.0); Print(' '); PrintLine(best.1);
+}
