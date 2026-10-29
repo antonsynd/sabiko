@@ -53,6 +53,15 @@ python3 benchmarks/run_benchmarks.py --json out/r.json --markdown out/r.md --mac
 python3 -m unittest discover -s benchmarks -p 'test_*.py'      # the harness's unit tests
 ```
 
+To see what the JIT made of a program, `scripts/jit-summary.sh [--release] [--disasm
+METHOD] file.sabi` compiles it and prints one line per compiled method with its tier
+(`Tier0`, `Instrumented Tier0`, `Tier1`, `Tier1-OSR`), IL size and code size
+(`DOTNET_JitDisasmSummary`), plus the disassembly of `METHOD` at each tier with
+`--disasm`. It is a diagnostic, not a test: tiering and machine code change between
+runtime versions. A method with a backward branch starts in instrumented Tier0 (the JIT
+treats it as a loop), and IL size drives the inliner, so the summary is the first thing to
+check when a benchmark's start-up or steady state moves.
+
 Options: `--modes process,inprocess`, `--process-warmup`, `--process-runs`,
 `--inproc-warmup`, `--inproc-iterations`, `--no-rust`, `--sabikoc PATH` (skip the cargo
 build), `--build-dir` (default `target/benchmarks`), `--note TEXT` (repeatable, printed in
