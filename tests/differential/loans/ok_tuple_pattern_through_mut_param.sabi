@@ -1,0 +1,6 @@
+// Destructuring a `&mut` parameter reborrows its elements; one of them may be returned.
+fn F(p: &mut (i32, i32)) -> &mut i32 {
+    let (a, b) = p;
+    *b += 1;
+    a
+}

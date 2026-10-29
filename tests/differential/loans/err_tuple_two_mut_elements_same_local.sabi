@@ -1,0 +1,7 @@
+// A tuple argument holding two `&mut` borrows of the same local.
+fn Pick(t: (&mut i32, &mut i32)) -> i32 { *t.0 + *t.1 }
+
+fn F() {
+    let mut a = 1;
+    Pick((&mut a, &mut a));
+}

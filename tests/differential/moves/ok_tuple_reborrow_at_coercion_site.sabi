@@ -1,0 +1,9 @@
+// An annotated tuple is a coercion site element by element: a `&mut` local in it is
+// reborrowed, not moved, so it is usable again after the tuple's last use.
+fn F() {
+    let mut a = 1;
+    let m = &mut a;
+    let p: (&mut i32, i32) = (m, 1);
+    *p.0 += 1;
+    *m += 1;
+}

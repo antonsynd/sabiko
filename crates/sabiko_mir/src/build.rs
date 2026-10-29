@@ -780,10 +780,7 @@ impl<'a> Builder<'a> {
         let Ty::Tuple(elem_tys) = self.ty(expr).clone() else {
             unreachable!("a tuple expression has a tuple type in a checked body")
         };
-        let coerced = self
-            .types
-            .coerced_tuples
-            .contains(&strip_parens(expr).id);
+        let coerced = self.types.coerced_tuples.contains(&strip_parens(expr).id);
         let operands = elems
             .iter()
             .zip(elem_tys.iter())
@@ -1266,6 +1263,9 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
+                // TODO: rustc only mentions a place initialiser here (a liveness use of its
+                // local, no read, move or initialisation check: `let _ = p;` leaves a
+                // non-Copy `p` usable); Sabiko reads it, which rejects some valid programs.
                 PatKind::Wild => {
                     if let Some(init) = &l.init {
                         self.as_temp(init);

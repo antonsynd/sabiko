@@ -105,12 +105,30 @@ fn methods(il: &str) -> Vec<(String, Vec<&str>)> {
             }
             // `... 'Name'(params) cil managed`: the quoted name right before `(`; the
             // constructor of a generated tuple type is `.ctor`.
-            let name = if let Some(end) = t.find("'(") {
-                let start = t[..end].rfind('\'').expect("quoted method name") + 1;
-                t[start..end].to_owned()
-            } else {
-                assert!(t.contains(" .ctor("), "unquoted method name in `{t}`");
+            // Generated tuple types are quoted names with parentheses (`'(&i32, u8)'`) and
+            // may appear in the return and parameter types, so the parameter list is found
+            // as the balanced parentheses ending the line.
+            let head = t.trim_end_matches(" cil managed");
+            let mut depth = 0;
+            let open = head
+                .char_indices()
+                .rev()
+                .find(|&(_, c)| {
+                    match c {
+                        ')' => depth += 1,
+                        '(' => depth -= 1,
+                        _ => {}
+                    }
+                    depth == 0
+                })
+                .map(|(i, _)| i)
+                .expect("parameter list");
+            let name = if head[..open].ends_with(" .ctor") {
                 ".ctor".to_owned()
+            } else {
+                let end = open - 1;
+                let start = head[..end].rfind('\'').expect("quoted method name") + 1;
+                head[start..end].to_owned()
             };
             current = Some((name, Vec::new()));
         } else if let Some((_, lines)) = &mut current {

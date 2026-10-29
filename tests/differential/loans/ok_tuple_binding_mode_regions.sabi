@@ -1,0 +1,12 @@
+// The bindings of `let (a, b) = &mut t;` are references to disjoint elements; once both
+// are dead, `t` is usable again. A shared destructuring borrows shared.
+fn F() {
+    let mut t = (1, (2, 3));
+    let (a, (b, c)) = &mut t;
+    *a += *b;
+    *c += 1;
+    PrintLine(t.0);
+    let (d, e) = &t;
+    let f = &t.1;
+    PrintLine(*d + e.0 + f.1);
+}

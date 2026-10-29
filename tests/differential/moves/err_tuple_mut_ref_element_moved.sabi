@@ -1,0 +1,9 @@
+// Without an expected type the elements of a tuple are not coercion sites: a `&mut` local
+// is moved into the tuple.
+fn F() {
+    let mut a = 1;
+    let m = &mut a;
+    let p = (m, 1);
+    *p.0 += 1;
+    *m += 1;
+}

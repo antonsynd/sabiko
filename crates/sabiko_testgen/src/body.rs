@@ -1043,21 +1043,21 @@ impl<'a> BodyGen<'a> {
         let has_fns = self.fn_index > 0;
         let returns = self.sig.ret != RetTy::Unit;
         let weights = [
-            18,                             // 0 let
-            10,                             // 1 let ref
-            12,                             // 2 assign
-            10,                             // 3 compound
-            16,                             // 4 print
-            6,                              // 5 show struct
-            if has_fns { 10 } else { 0 },   // 6 call statement
-            if nesting_ok { 9 } else { 0 }, // 7 if
-            if nesting_ok { 6 } else { 0 }, // 8 while
-            if nesting_ok { 4 } else { 0 }, // 9 loop
-            if nesting_ok { 4 } else { 0 }, // 10 let = loop { break v }
-            if in_loop { 7 } else { 0 },    // 11 guarded break/continue
-            if returns { 3 } else { 1 },    // 12 guarded return
-            if has_fns { 5 } else { 0 },    // 13 write through a returned reference
-            1,                              // 14 guarded panic
+            18,                                               // 0 let
+            10,                                               // 1 let ref
+            12,                                               // 2 assign
+            10,                                               // 3 compound
+            16,                                               // 4 print
+            6,                                                // 5 show struct
+            if has_fns { 10 } else { 0 },                     // 6 call statement
+            if nesting_ok { 9 } else { 0 },                   // 7 if
+            if nesting_ok { 6 } else { 0 },                   // 8 while
+            if nesting_ok { 4 } else { 0 },                   // 9 loop
+            if nesting_ok { 4 } else { 0 },                   // 10 let = loop { break v }
+            if in_loop { 7 } else { 0 },                      // 11 guarded break/continue
+            if returns { 3 } else { 1 },                      // 12 guarded return
+            if has_fns { 5 } else { 0 }, // 13 write through a returned reference
+            1,                           // 14 guarded panic
             if self.prog.tuples.is_empty() { 0 } else { 10 }, // 15 destructuring let
         ];
         match self.rng.weighted(&weights) {
@@ -1186,8 +1186,7 @@ impl<'a> BodyGen<'a> {
     fn stmt_let_tuple_ref(&mut self) -> bool {
         let t = self.rng.index(self.prog.tuples.len());
         let mutable = self.rng.chance(50);
-        let Some(mut e) = self.ref_expr(mutable, ValTy::Tuple(t), self.knobs.max_expr_depth)
-        else {
+        let Some(mut e) = self.ref_expr(mutable, ValTy::Tuple(t), self.knobs.max_expr_depth) else {
             return false;
         };
         // As in `stmt_let_ref`: a bare reference local is reborrowed explicitly.

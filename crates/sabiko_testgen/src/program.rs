@@ -428,8 +428,16 @@ fn gen_tuples(rng: &mut Rng, count: usize, aggregates: bool, program: &mut Progr
         for _ in 0..n {
             let ty = match rng.weighted(&[
                 70,
-                if aggregates && !program.structs.is_empty() { 15 } else { 0 },
-                if aggregates && !program.tuples.is_empty() { 15 } else { 0 },
+                if aggregates && !program.structs.is_empty() {
+                    15
+                } else {
+                    0
+                },
+                if aggregates && !program.tuples.is_empty() {
+                    15
+                } else {
+                    0
+                },
             ]) {
                 0 => ValTy::Prim(random_prim(rng)),
                 1 => ValTy::Struct(rng.index(program.structs.len())),
