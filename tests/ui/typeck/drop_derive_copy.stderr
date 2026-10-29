@@ -1,0 +1,9 @@
+[E0324] Error: the trait `Copy` cannot be implemented for this type; the type has a destructor
+   ╭─[ tests/ui/typeck/drop_derive_copy.sabi:4:8 ]
+   │
+ 4 │ struct D { Id: i32 } //~ ERROR E0324 the trait `Copy` cannot be implemented for this type; the type has a destructor
+   │        ┬  
+   │        ╰── `Copy` not allowed on types with destructors
+   │ 
+   │ Note: `D` implements `Drop`; a copy would be dropped twice
+───╯

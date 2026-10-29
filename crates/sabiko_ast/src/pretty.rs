@@ -131,6 +131,9 @@ impl Printer {
             }
             ItemKind::Impl(imp) => {
                 self.out.push_str("impl ");
+                if let Some(t) = &imp.trait_ref {
+                    let _ = write!(self.out, "{} for ", t.name);
+                }
                 self.ty(&imp.self_ty);
                 self.out.push_str(" {");
                 self.indent += 1;

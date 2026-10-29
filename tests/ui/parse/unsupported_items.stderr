@@ -7,12 +7,12 @@
    │ 
    │ Note: planned for Phase 5; see docs/PLAN.md
 ───╯
-[E0107] Error: not yet supported: trait implementations
-   ╭─[ tests/ui/parse/unsupported_items.sabi:3:11 ]
+[E0107] Error: not yet supported: trait implementations other than `impl Drop`
+   ╭─[ tests/ui/parse/unsupported_items.sabi:3:12 ]
    │
- 3 │ impl Drop for Shape { } //~ ERROR E0107 not yet supported: trait implementations
-   │           ─┬─  
-   │            ╰─── not supported in this version of Sabiko
+ 3 │ impl Clone for Shape { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
+   │            ─┬─  
+   │             ╰─── not supported in this version of Sabiko
    │ 
    │ Note: planned for Phase 6; see docs/PLAN.md
 ───╯

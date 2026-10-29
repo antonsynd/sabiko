@@ -74,3 +74,8 @@ SourceFile
       Pat x
       Type _
     Block
+  Impl Drop for
+    Type Marker
+    Fn drop
+      SelfParam &mut self
+      Block

@@ -345,8 +345,14 @@ fn item() -> impl Strategy<Value = Item> {
     );
     let kind = prop_oneof![
         fn_decl(false).prop_map(ItemKind::Fn),
-        (ty(), prop::collection::vec((meta(), fn_decl(true)), 0..3)).prop_map(
-            |(self_ty, members)| ItemKind::Impl(ImplDecl {
+        (
+            any::<bool>(),
+            ty(),
+            prop::collection::vec((meta(), fn_decl(true)), 0..3)
+        )
+            .prop_map(|(is_drop, self_ty, members)| ItemKind::Impl(ImplDecl {
+                // `impl Drop for T`, the one trait impl (decision 46).
+                trait_ref: is_drop.then(|| ident("Drop")),
                 self_ty,
                 items: members
                     .into_iter()
@@ -359,8 +365,7 @@ fn item() -> impl Strategy<Value = Item> {
                         span: SP,
                     })
                     .collect(),
-            })
-        ),
+            })),
         (
             name(),
             prop::option::of(prop::collection::vec((name(), ty(), any::<bool>()), 0..3))

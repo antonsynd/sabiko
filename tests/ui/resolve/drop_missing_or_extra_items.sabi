@@ -1,0 +1,18 @@
+// An `impl Drop` must define `drop` (lowercase: the trait's method keeps Rust's name, not
+// Sabiko's PascalCase convention) and nothing else: an empty impl misses it, and `Drop` or
+// any other name is not a member of the trait.
+// Checked against rustc: E0046, E0407 (the Sabiko codes are annotated).
+struct A { Id: i32 }
+struct B { Id: i32 }
+struct C { Id: i32 }
+
+impl Drop for A {} //~ ERROR E0216 not all trait items implemented, missing: `drop`
+
+impl Drop for B { //~ ERROR E0216 not all trait items implemented, missing: `drop`
+    fn Drop(&mut self) {} //~ ERROR E0217 method `Drop` is not a member of trait `Drop`
+}
+
+impl Drop for C {
+    fn drop(&mut self) {}
+    fn Extra(&self) {} //~ ERROR E0217 method `Extra` is not a member of trait `Drop`
+}

@@ -29,8 +29,8 @@
 use std::collections::HashMap;
 
 use sabiko_ast::{
-    Block, Expr, ExprKind, FnDecl, Item, ItemKind, NodeId, Pat, PatKind, Path, SourceFile, Stmt,
-    StmtKind, StructKind, Type, TypeKind,
+    Block, Expr, ExprKind, FnDecl, ImplDecl, Item, ItemKind, NodeId, Pat, PatKind, Path,
+    SourceFile, Stmt, StmtKind, StructKind, Type, TypeKind,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_span::Span;
@@ -273,6 +273,10 @@ pub struct ResolveResults {
     assoc_fns: HashMap<(DefId, String), DefId>,
     /// The `self` binding of each method, keyed by its function's definition.
     self_locals: HashMap<DefId, LocalId>,
+    /// The `drop` function of each struct with an `impl Drop` (decision 46). It is not an
+    /// associated function: method calls and `Type::Name` paths do not find it, except to
+    /// report an explicit destructor call.
+    drop_impls: HashMap<DefId, DefId>,
 }
 
 impl ResolveResults {
@@ -321,6 +325,18 @@ impl ResolveResults {
     #[must_use]
     pub fn assoc_fn(&self, adt: DefId, name: &str) -> Option<DefId> {
         self.assoc_fns.get(&(adt, name.to_owned())).copied()
+    }
+
+    /// The `drop` function of the struct `adt`'s `impl Drop`, if it has one.
+    #[must_use]
+    pub fn drop_impl(&self, adt: DefId) -> Option<DefId> {
+        self.drop_impls.get(&adt).copied()
+    }
+
+    /// Whether `def` is the `drop` function of an `impl Drop`.
+    #[must_use]
+    pub fn is_drop_fn(&self, def: DefId) -> bool {
+        self.drop_impls.values().any(|&d| d == def)
     }
 
     /// The `self` binding of a method; `None` for a function without a `self` parameter.
@@ -500,10 +516,16 @@ impl Resolver<'_> {
     fn collect_impls(&mut self, file: &SourceFile) {
         // The first definition of each `(struct, name)`, with the index of its block.
         let mut first: HashMap<(DefId, String), (DefId, usize)> = HashMap::new();
+        // The span of the first `impl Drop` header of each struct.
+        let mut drop_headers: HashMap<DefId, Span> = HashMap::new();
         for (index, item) in file.items.iter().enumerate() {
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
+            if imp.trait_ref.is_some() {
+                self.collect_drop_impl(item, imp, &mut drop_headers);
+                continue;
+            }
             let Some(adt) = self.resolve_impl_target(&imp.self_ty) else {
                 continue;
             };
@@ -535,6 +557,126 @@ impl Resolver<'_> {
                     .with_label(other, format!("other definition for `{name}`")),
                 );
             }
+        }
+    }
+
+    /// `impl Drop for S { fn drop(&mut self) { .. } }` (decision 46): `S` must be a struct
+    /// of the file (E0214, rustc's E0120/E0117), with one `impl Drop` (E0215, E0119), which
+    /// defines `drop` (E0216, E0046) and nothing else (E0217, E0407). The signature of
+    /// `drop` is the type checker's business. Members get the struct as their parent, so
+    /// `Self` and `self` work in them, but none becomes an associated function.
+    fn collect_drop_impl(
+        &mut self,
+        item: &Item,
+        imp: &ImplDecl,
+        drop_headers: &mut HashMap<DefId, Span>,
+    ) {
+        let header = Span::new(item.span.file, item.span.start, imp.self_ty.span.end);
+        if let Some(trait_name) = &imp.trait_ref {
+            if let Some(&def) = self.items.get(&trait_name.name) {
+                if self.results.def(def).builtin.is_none() {
+                    let kind = self.results.def(def).kind.describe();
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::WRONG_NAMESPACE,
+                            format!("expected trait, found {kind} `{}`", trait_name.name),
+                        )
+                        .with_label(trait_name.span, "not a trait")
+                        .with_note("`Drop` is the only trait that can be implemented for now; an item of this file shadows it"),
+                    );
+                    // The members are still resolved, against whatever the type names.
+                    self.resolve_type(&imp.self_ty, true);
+                    return;
+                }
+            }
+        }
+        let Some(adt) = self.resolve_drop_target(&imp.self_ty) else {
+            return;
+        };
+        let name = self.results.def(adt).name.clone();
+        if let Some(&first) = drop_headers.get(&adt) {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::CONFLICTING_DROP_IMPLS,
+                    format!("conflicting implementations of trait `Drop` for type `{name}`"),
+                )
+                .with_label(header, format!("conflicting implementation for `{name}`"))
+                .with_label(first, "first implementation here"),
+            );
+            return;
+        }
+        drop_headers.insert(adt, header);
+        let mut has_drop = false;
+        for member in &imp.items {
+            let ItemKind::Fn(f) = &member.kind else {
+                continue;
+            };
+            let def = self.results.def_of_item(member.id);
+            self.results.defs[def.0 as usize].parent = Some(adt);
+            if f.name.name != "drop" {
+                let mut d = Diagnostic::error(
+                    ErrorCode::NOT_A_DROP_MEMBER,
+                    format!("method `{}` is not a member of trait `Drop`", f.name.name),
+                )
+                .with_label(f.name.span, "not a member of trait `Drop`");
+                if f.name.name.eq_ignore_ascii_case("drop") {
+                    d = d.with_note(
+                        "the trait's method is `drop`, lowercase: it keeps Rust's name, unlike Sabiko's PascalCase methods",
+                    );
+                }
+                self.sink.emit(d);
+                continue;
+            }
+            if has_drop {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_ASSOC_ITEM,
+                        "duplicate definitions with name `drop`",
+                    )
+                    .with_label(f.name.span, "duplicate definitions for `drop`"),
+                );
+                continue;
+            }
+            has_drop = true;
+            self.results.drop_impls.insert(adt, def);
+        }
+        if !has_drop {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::MISSING_DROP_FN,
+                    "not all trait items implemented, missing: `drop`",
+                )
+                .with_label(header, "missing `drop` in implementation")
+                .with_note("`impl Drop` must define `fn drop(&mut self)`"),
+            );
+        }
+    }
+
+    /// The struct an `impl Drop` is for, reporting anything else: a primitive, a tuple, a
+    /// reference or `()` (E0214). An unknown name is reported by type resolution.
+    fn resolve_drop_target(&mut self, ty: &Type) -> Option<DefId> {
+        // `None` for a tuple, a reference or `()`.
+        let res = if let TypeKind::Path(path) = &ty.kind {
+            let res = self.resolve_type_path(path);
+            self.results.res.insert(ty.id, res);
+            Some(res)
+        } else {
+            self.resolve_type(ty, true);
+            None
+        };
+        match res {
+            Some(Res::Def(def)) => Some(def),
+            None | Some(Res::Prim(_)) => {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::INVALID_DROP_TARGET,
+                        "the `Drop` trait may only be implemented for structs of this file",
+                    )
+                    .with_label(ty.span, "must be a struct defined in this file"),
+                );
+                None
+            }
+            Some(Res::Local(_) | Res::Err) => None,
         }
     }
 
@@ -954,6 +1096,12 @@ impl Resolver<'_> {
         };
         if let Some(def) = self.results.assoc_fn(adt, &item.name) {
             return Res::Def(def);
+        }
+        if item.name == "drop" {
+            // `D::drop(&mut d)`: the type checker reports the explicit destructor call.
+            if let Some(def) = self.results.drop_impl(adt) {
+                return Res::Def(def);
+            }
         }
         let what = format!("struct `{}`", self.results.def(adt).name);
         self.unknown_assoc_item(item, &what);

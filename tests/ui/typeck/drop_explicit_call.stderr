@@ -1,0 +1,18 @@
+[E0323] Error: explicit use of destructor method
+    ╭─[ tests/ui/typeck/drop_explicit_call.sabi:14:7 ]
+    │
+ 14 │     d.drop(); //~ ERROR E0323 explicit use of destructor method
+    │       ──┬─  
+    │         ╰─── explicit destructor calls not allowed
+    │ 
+    │ Note: a value is dropped at the end of its scope; to drop it earlier, pass it by value to a function
+────╯
+[E0323] Error: explicit use of destructor method
+    ╭─[ tests/ui/typeck/drop_explicit_call.sabi:15:5 ]
+    │
+ 15 │     D::drop(&mut d); //~ ERROR E0323 explicit use of destructor method
+    │     ───┬───  
+    │        ╰───── explicit destructor calls not allowed
+    │ 
+    │ Note: a value is dropped at the end of its scope; to drop it earlier, pass it by value to a function
+────╯

@@ -1,6 +1,7 @@
 // A struct holding a droppable (hence neither Copy nor Clone) field cannot derive `Copy`
 // or `Clone`. rustc's E0204 is in the differential harness's borrow family, but the
 // `Clone` error that comes with it is not, so this is a UI test.
+// Checked against rustc: E0204, E0277 (the Sabiko codes are annotated).
 struct D { Id: i32 }
 
 impl Drop for D {
@@ -10,4 +11,4 @@ impl Drop for D {
 }
 
 #[derive(Copy, Clone)]
-struct W { Inner: D, N: i32 } //~ rustc E0204: the trait `Copy` cannot be implemented for this type [this field does not implement `Copy`] //~ rustc E0277: the trait bound `D: Clone` is not satisfied [the trait `Clone` is not implemented for `D`]
+struct W { Inner: D, N: i32 } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `W`
