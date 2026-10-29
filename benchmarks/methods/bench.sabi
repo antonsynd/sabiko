@@ -1,0 +1,82 @@
+// Methods in a hot loop (#7): a random generator stepped through `&mut self`, a Copy
+// vector type with by-value (`Plus`), `&self` (`Dot`) and `&mut self` (`Damp`) methods and
+// an associated constructor, particles stepped through `&mut self` with a `&mut Rng`
+// argument, and a world whose `Tick` calls methods on its fields and adds their energies
+// to itself (`self.Add(self.A.Energy() + ..)`, a two-phase borrow). The C# program uses
+// instance methods on structs, as a C# developer would. Every intermediate stays far
+// below 2^63, so nothing overflows in a checked build.
+
+const Rounds: u64 = 6_000_000;
+const Modulus: i64 = 1_000_003;
+
+struct Rng { State: u64 }
+
+impl Rng {
+    fn New(seed: u64) -> Rng { Rng { State: seed } }
+
+    fn Next(&mut self) -> i64 {
+        self.State = self.State * 48271 % 2147483647;
+        (self.State % 1000) as i64 - 500
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Vec2 { X: i64, Y: i64 }
+
+impl Vec2 {
+    fn New(x: i64, y: i64) -> Vec2 { Vec2 { X: x, Y: y } }
+
+    fn Plus(self, other: Vec2) -> Vec2 {
+        Vec2::New((self.X + other.X) % Modulus, (self.Y + other.Y) % Modulus)
+    }
+
+    fn Dot(&self, other: &Vec2) -> i64 { (self.X * other.X + self.Y * other.Y) % Modulus }
+
+    fn Damp(&mut self) {
+        self.X = self.X * 15 / 16;
+        self.Y = self.Y * 15 / 16;
+    }
+}
+
+struct Particle { Pos: Vec2, Vel: Vec2 }
+
+impl Particle {
+    fn At(x: i64, y: i64) -> Particle {
+        Particle { Pos: Vec2::New(x, y), Vel: Vec2::New(0, 0) }
+    }
+
+    fn Step(&mut self, rng: &mut Rng) {
+        self.Vel = self.Vel.Plus(Vec2::New(rng.Next(), rng.Next()));
+        self.Vel.Damp();
+        self.Pos = self.Pos.Plus(self.Vel);
+    }
+
+    fn Energy(&self) -> i64 { self.Vel.Dot(&self.Vel) }
+}
+
+struct World { A: Particle, B: Particle, Total: i64 }
+
+impl World {
+    fn Tick(&mut self, rng: &mut Rng) {
+        self.A.Step(rng);
+        self.B.Step(rng);
+        self.Add(self.A.Energy() + self.B.Energy());
+    }
+
+    fn Add(&mut self, energy: i64) { self.Total = (self.Total + energy) % Modulus; }
+}
+
+fn Main() {
+    let mut rng = Rng::New(42);
+    let mut world = World { A: Particle::At(1, 2), B: Particle::At(-3, 4), Total: 0 };
+    let mut i: u64 = 0;
+    while i < Rounds {
+        world.Tick(&mut rng);
+        i += 1;
+    }
+    PrintLine(world.Total);
+    PrintLine(world.A.Pos.X);
+    PrintLine(world.A.Pos.Y);
+    PrintLine(world.B.Pos.X);
+    PrintLine(world.B.Pos.Y);
+}

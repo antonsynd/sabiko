@@ -26,6 +26,12 @@
     "mandelbrot/release": {
       "allocated_bytes": 0
     },
+    "methods/checked": {
+      "allocated_bytes": 0
+    },
+    "methods/release": {
+      "allocated_bytes": 0
+    },
     "nbody/checked": {
       "allocated_bytes": 1312
     },
