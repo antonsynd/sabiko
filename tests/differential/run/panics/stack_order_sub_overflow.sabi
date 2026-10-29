@@ -1,0 +1,18 @@
+// Reduced from generated seed 9000542. `cur` and the left operand of `-1.5f64 - cur` both
+// waited on the evaluation stack (decision 51) and were taken in the wrong order, so the
+// condition computed `cur - -1.5`, the branch was skipped and the overflow panic lost.
+fn Settle(x: i32) -> bool { x > 0 }
+fn Not(x: i32) -> i32 { !x }
+
+fn Main() {
+    let cur: f64 = (((-2.5f64) * (0.1f64 + 64.0f64)) - (if (false || true) { (3.75f64 / -33.25f64) } else { (64.0f64 * -1.5f64) }));
+    if (((-1.5f64 - cur) / -1.5f64) <= 0.5f64) {
+        let mut delta: i32 = 0i32;
+        loop {
+            delta += 1i32;
+            if delta > 2i32 { break; }
+            PrintLine(delta);
+            Settle((Not(2147483646i32) - (1287500301i32 + -983i32)));
+        }
+    }
+}

@@ -205,7 +205,8 @@ struct FnCx<'a, 'b> {
     /// While the current statement is taking pending values in order: the index in
     /// `pending` of the first one taken and of the one expected next.
     matching: Option<(usize, usize)>,
-    /// `code.len()` when the current statement (or terminator) started.
+    /// `code.len()` when the current statement (or terminator) started; `usize::MAX` once
+    /// it has taken values from the stack up to the top, after which it may take no more.
     stmt_start: usize,
     /// Whether an assignment to the return place in the current statement is followed only
     /// by the return, which reads it at once.
@@ -878,6 +879,9 @@ impl FnCx<'_, '_> {
                 if at + 1 == self.pending.len() {
                     self.pending.truncate(start);
                     self.matching = None;
+                    // The statement has taken every value down to `start`; a value below
+                    // it is under the ones taken, so a later load must not take it too.
+                    self.stmt_start = usize::MAX;
                 } else {
                     self.matching = Some((start, at + 1));
                 }
