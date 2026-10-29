@@ -144,6 +144,22 @@ impl SourceFile {
         }
     }
 
+    /// The 1-based column of `offset` as rustc's `std::panic::Location::column` reports it
+    /// (rustc's `col_display`): one more than the display width of the text before it on
+    /// its line, where a tab is 4 columns, a control character 1, and any other character
+    /// as wide as Unicode says (0 for combining marks and zero-width characters, 2 for East
+    /// Asian wide ones). Panic locations use it so that they match rustc's.
+    #[must_use]
+    pub fn rust_column(&self, offset: u32) -> u32 {
+        let pos = self.line_col(offset);
+        let start = (offset - (pos.col - 1)) as usize;
+        let width: usize = self.src[start..offset as usize]
+            .chars()
+            .map(rust_char_width)
+            .sum();
+        u32::try_from(width + 1).expect("a line wider than u32::MAX columns")
+    }
+
     /// The source text of the given 1-based line, without its terminator.
     #[must_use]
     pub fn line_text(&self, line: u32) -> &str {
@@ -165,6 +181,16 @@ impl SourceFile {
     pub fn text(&self, span: Span) -> &str {
         debug_assert_eq!(span.file, self.id);
         &self.src[span.range()]
+    }
+}
+
+/// The width rustc gives `ch` when it computes a column (`rustc_span::char_width`).
+fn rust_char_width(ch: char) -> usize {
+    match ch {
+        '\t' => 4,
+        // rustc replaces these with visible characters before printing, one column each.
+        '\u{0}'..='\u{1f}' | '\u{7f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' => 1,
+        _ => unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1),
     }
 }
 
@@ -211,6 +237,33 @@ mod tests {
         assert_eq!(f.line_col(16), LineCol { line: 2, col: 5 });
         assert_eq!(f.line_text(2), "    let x = 1;");
         assert_eq!(f.line_count(), 4);
+    }
+
+    /// The expected columns are what rustc 1.99 reports through `Location::caller()` for
+    /// a call after the given text on a line.
+    #[test]
+    fn rust_columns_match_rustc() {
+        let cases: &[(&str, u32)] = &[
+            ("    let x = ", 13),
+            ("\tlet a = ", 13),
+            ("    let s = \"a\tb\"; let h = ", 31),
+            ("    let s = \"中文\"; let b = ", 29),
+            ("    let s = \"é\"; let c = ", 26),
+            ("    let s = \"😀\"; let f = ", 27),
+            ("    let s = \"e\u{301}\"; let v = ", 26),
+            ("    let s = \"\u{200b}\"; let v = ", 25),
+            ("    let s = \"\u{7}\"; let v = ", 26),
+            ("    let s = \"\u{ad}\"; let v = ", 25),
+            ("    let s = \"\u{ff21}\"; let v = ", 27),
+            ("    let s = \"\u{2764}\u{fe0f}\"; let v = ", 26),
+        ];
+        for (prefix, expected) in cases {
+            let mut sm = SourceMap::new();
+            let src = format!("// first line\n{prefix}F();\n");
+            let id = sm.add("a.sabi", src);
+            let offset = u32::try_from("// first line\n".len() + prefix.len()).unwrap();
+            assert_eq!(sm.get(id).rust_column(offset), *expected, "{prefix:?}");
+        }
     }
 
     #[test]

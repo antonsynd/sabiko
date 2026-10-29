@@ -27,7 +27,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 '_2',
@@ -41,8 +41,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ldfld int32 'Point'::'Y'
     stloc.2
     ldloc.1
+    conv.i8
     ldloc.2
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "refs.sabi:14:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.0
   BB1:
     ldloc.0
@@ -51,7 +64,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
 
   .method public hidebysig static void 'Bump'(valuetype 'Point'& 'p') cil managed
   {
-    .maxstack 3
+    .maxstack 4
     .locals init (
       [0] int32 '_2',
       [1] int32 '_3'
@@ -60,15 +73,41 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ldarg.0
     ldarg.0
     ldfld int32 'Point'::'X'
+    conv.i8
     ldc.i4.1
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "refs.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stfld int32 'Point'::'X'
     ldarg.0
     ldfld int32 'Point'::'Y'
     stloc.1
     ldloc.1
+    conv.i8
     ldc.i4.2
-    mul.ovf
+    conv.i8
+    mul
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L2
+    ldstr "attempt to multiply with overflow"
+    ldstr "refs.sabi:19:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
+    conv.i4
     stloc.0
     ldarg.0
     ldloc.0
@@ -157,7 +196,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
 
   .method public hidebysig static void 'Main'() cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] valuetype 'Point' 'p',
       [1] valuetype 'Point'& '_3',
@@ -275,8 +314,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ldfld int32 'Point'::'X'
     stloc.s 23
     ldloc.s 21
+    conv.i8
     ldloc.s 23
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "refs.sabi:54:13"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.s 20
     ldloc.s 20
     stloc.s 24

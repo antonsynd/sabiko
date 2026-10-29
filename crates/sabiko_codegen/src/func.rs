@@ -693,12 +693,10 @@ impl FnCx<'_, '_> {
         self.cx.options.overflow_checks
     }
 
-    /// Re-narrows a stack value to a narrow integer type after arithmetic: trapping on
-    /// overflow when `checked`, truncating otherwise.
-    fn narrow(&mut self, p: PrimTy, checked: bool) {
+    /// Truncates a stack value to a narrow integer type after wrapping arithmetic.
+    fn narrow(&mut self, p: PrimTy) {
         if types::stack_width(p) == StackWidth::Narrow {
-            let ovf = if checked { ".ovf" } else { "" };
-            self.op(format!("conv{ovf}.{}", types::conv_suffix(p)), 1, 1);
+            self.op(format!("conv.{}", types::conv_suffix(p)), 1, 1);
         }
     }
 
@@ -709,6 +707,7 @@ impl FnCx<'_, '_> {
             self.ldc_i4(0);
             return;
         };
+        let wide = types::stack_width(p) == StackWidth::Wide;
         match op {
             UnOp::Neg if p.is_float() => {
                 self.operand(operand, span);
@@ -732,36 +731,32 @@ impl FnCx<'_, '_> {
                     }
                 }
             }
-            UnOp::Neg if types::stack_width(p) == StackWidth::Wide => {
-                self.operand(operand, span);
-                let name = if self.checks() {
-                    "op_CheckedUnaryNegation"
-                } else {
-                    "op_UnaryNegation"
-                };
-                let ty = types::prim_type(p).expect("128-bit types are lowered");
-                self.wide_call(p, ty, name, &[ty]);
-            }
-            UnOp::Not if types::stack_width(p) == StackWidth::Wide => {
-                self.operand(operand, span);
-                let ty = types::prim_type(p).expect("128-bit types are lowered");
-                self.wide_call(p, ty, "op_OnesComplement", &[ty]);
-            }
             UnOp::Neg if self.checks() => {
-                // `0 - x`, so that negating the minimum value traps like Rust's debug mode.
-                self.zero(p);
+                // `0 - x`, checked like a subtraction: negating the minimum value panics,
+                // as in Rust's debug builds.
+                self.checked_arith(
+                    BinOp::Sub,
+                    p,
+                    None,
+                    operand,
+                    "attempt to negate with overflow",
+                    span,
+                );
+            }
+            UnOp::Neg if wide => {
                 self.operand(operand, span);
-                if types::stack_width(p) == StackWidth::Narrow {
-                    self.op("sub", 2, 1);
-                    self.narrow(p, true);
-                } else {
-                    self.op("sub.ovf", 2, 1);
-                }
+                let ty = types::prim_type(p).expect("128-bit types are lowered");
+                self.wide_call(p, ty, "op_UnaryNegation", &[ty]);
             }
             UnOp::Neg => {
                 self.operand(operand, span);
                 self.op("neg", 1, 1);
-                self.narrow(p, false);
+                self.narrow(p);
+            }
+            UnOp::Not if wide => {
+                self.operand(operand, span);
+                let ty = types::prim_type(p).expect("128-bit types are lowered");
+                self.wide_call(p, ty, "op_OnesComplement", &[ty]);
             }
             UnOp::Not if p == PrimTy::Bool => {
                 self.operand(operand, span);
@@ -773,7 +768,7 @@ impl FnCx<'_, '_> {
                 self.op("not", 1, 1);
                 // The complement of a zero-extended value has high bits set.
                 if p.is_unsigned_int() {
-                    self.narrow(p, false);
+                    self.narrow(p);
                 }
             }
         }
@@ -791,6 +786,15 @@ impl FnCx<'_, '_> {
             self.div_rem(op, lp, lhs, rhs, span);
             return;
         }
+        if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) && lp.is_integer() && self.checks() {
+            let message = match op {
+                BinOp::Add => "attempt to add with overflow",
+                BinOp::Sub => "attempt to subtract with overflow",
+                _ => "attempt to multiply with overflow",
+            };
+            self.checked_arith(op, lp, Some(lhs), rhs, message, span);
+            return;
+        }
         self.operand(lhs, span);
         self.operand(rhs, span);
         let wide = types::stack_width(lp) == StackWidth::Wide;
@@ -803,7 +807,7 @@ impl FnCx<'_, '_> {
             BinOp::BitAnd => self.op("and", 2, 1),
             BinOp::BitOr => self.op("or", 2, 1),
             BinOp::BitXor => self.op("xor", 2, 1),
-            BinOp::Shl | BinOp::Shr => self.shift(op, lp, rp),
+            BinOp::Shl | BinOp::Shr => self.shift(op, lp, rp, span),
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 self.compare(op, lp);
             }
@@ -813,51 +817,149 @@ impl FnCx<'_, '_> {
         }
     }
 
+    /// `+`, `-`, `*` on floats, and on integers in release builds: wrapping.
     fn arith(&mut self, op: BinOp, p: PrimTy) {
-        let name = match op {
-            BinOp::Add => "add",
-            BinOp::Sub => "sub",
-            BinOp::Mul => "mul",
+        let (name, method) = match op {
+            BinOp::Add => ("add", "op_Addition"),
+            BinOp::Sub => ("sub", "op_Subtraction"),
+            BinOp::Mul => ("mul", "op_Multiply"),
             _ => unreachable!(),
         };
-        if p.is_float() {
+        if types::stack_width(p) == StackWidth::Wide {
+            self.wide_binary(p, method);
+        } else {
+            // Narrow types compute at `int32` width and truncate.
             self.op(name, 2, 1);
-            return;
-        }
-        let checked = self.checks();
-        match types::stack_width(p) {
-            StackWidth::Wide => {
-                let method = match (op, checked) {
-                    (BinOp::Add, true) => "op_CheckedAddition",
-                    (BinOp::Add, false) => "op_Addition",
-                    (BinOp::Sub, true) => "op_CheckedSubtraction",
-                    (BinOp::Sub, false) => "op_Subtraction",
-                    (BinOp::Mul, true) => "op_CheckedMultiply",
-                    _ => "op_Multiply",
-                };
-                self.wide_binary(p, method);
-            }
-            StackWidth::Narrow => {
-                // Computed at `int32` width; the result fits, so overflow of the narrow
-                // type is caught (or wrapped) by the conversion.
-                self.op(name, 2, 1);
-                self.narrow(p, checked);
-            }
-            _ if checked => {
-                let un = if p.is_unsigned_int() { ".un" } else { "" };
-                self.op(format!("{name}.ovf{un}"), 2, 1);
-            }
-            _ => self.op(name, 2, 1),
+            self.narrow(p);
         }
     }
 
-    /// Throws a `PanicException` with `message`; `throw` empties the stack, so the
-    /// continuation after the panic sees whatever it had before.
+    /// `lhs op rhs` on an integer type in a debug build: panics with `message` at `span`
+    /// when the exact result does not fit `p` (decision 43). `lhs` is `None` for negation,
+    /// which is `0 - rhs`. Narrow types compute exactly at `int32` width and 32-bit types
+    /// at `int64` width, then check that the result survives truncation; 64- and 128-bit
+    /// types call `Sabiko.Runtime.Arithmetic`'s `AddOverflows`/`SubOverflows`/
+    /// `MulOverflows`, which return the wrapped result through a scratch local.
+    fn checked_arith(
+        &mut self,
+        op: BinOp,
+        p: PrimTy,
+        lhs: Option<&Operand>,
+        rhs: &Operand,
+        message: &str,
+        span: Span,
+    ) {
+        let (name, helper) = match op {
+            BinOp::Add => ("add", "AddOverflows"),
+            BinOp::Sub => ("sub", "SubOverflows"),
+            BinOp::Mul => ("mul", "MulOverflows"),
+            _ => unreachable!(),
+        };
+        match types::stack_width(p) {
+            StackWidth::Narrow => {
+                match lhs {
+                    Some(l) => self.operand(l, span),
+                    None => self.ldc_i4(0),
+                }
+                self.operand(rhs, span);
+                self.op(name, 2, 1);
+                self.check_fits(p, message, span);
+            }
+            StackWidth::I32 => {
+                let widen = if p.is_signed_int() {
+                    "conv.i8"
+                } else {
+                    "conv.u8"
+                };
+                match lhs {
+                    Some(l) => {
+                        self.operand(l, span);
+                        self.op(widen, 1, 1);
+                    }
+                    None => self.ldc_i8(0),
+                }
+                self.operand(rhs, span);
+                self.op(widen, 1, 1);
+                self.op(name, 2, 1);
+                self.check_fits(p, message, span);
+            }
+            StackWidth::I64 | StackWidth::Native | StackWidth::Wide => {
+                match lhs {
+                    Some(l) => self.operand(l, span),
+                    None => self.zero(p),
+                }
+                self.operand(rhs, span);
+                let result = self.scratch(&Ty::Prim(p), span);
+                self.short("ldloca", result, 0, 1);
+                let ty = types::prim_type(p).expect("integer types are lowered");
+                self.op(
+                    format!(
+                        "call bool [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Arithmetic::{helper}({ty}, {ty}, {ty}&)"
+                    ),
+                    3,
+                    1,
+                );
+                let ok = self.fresh_label();
+                self.op(format!("brfalse {ok}"), 1, 0);
+                self.panic_at(message, span);
+                self.label(&ok);
+                self.ldloc(result);
+            }
+        }
+    }
+
+    /// The debug-build check after an exact computation in a wider stack type (`int32` for
+    /// the narrow types, `int64` for the 32-bit ones): panics unless truncating the result
+    /// to `p` and extending it back gives the same value, then leaves it as a `p` value.
+    fn check_fits(&mut self, p: PrimTy, message: &str, span: Span) {
+        let suffix = types::conv_suffix(p);
+        let wide_stack = types::stack_width(p) == StackWidth::I32;
+        let ok = self.fresh_label();
+        self.op("dup", 1, 2);
+        self.op("dup", 1, 2);
+        self.op(format!("conv.{suffix}"), 1, 1);
+        if wide_stack {
+            self.op(
+                if p.is_signed_int() {
+                    "conv.i8"
+                } else {
+                    "conv.u8"
+                },
+                1,
+                1,
+            );
+        }
+        self.op(format!("beq {ok}"), 2, 0);
+        self.panic_at(message, span);
+        self.label(&ok);
+        if wide_stack {
+            self.op(format!("conv.{suffix}"), 1, 1);
+        }
+    }
+
+    /// Throws a `PanicException` with `message` and no location (`unreachable`); `throw`
+    /// empties the stack, so the continuation after the panic sees whatever it had before.
     fn panic(&mut self, message: &str) {
-        self.op(format!("ldstr \"{message}\""), 0, 1);
+        self.op(format!("ldstr {}", types::il_string(message)), 0, 1);
         self.op(
             format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string)"),
             1,
+            1,
+        );
+        self.op("throw", 1, 0);
+    }
+
+    /// Throws a `PanicException` with `message`, raised at `span` (`file:line:column`).
+    fn panic_at(&mut self, message: &str, span: Span) {
+        let Some(location) = self.cx.location(span) else {
+            self.panic(message);
+            return;
+        };
+        self.op(format!("ldstr {}", types::il_string(message)), 0, 1);
+        self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+        self.op(
+            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string, string)"),
+            2,
             1,
         );
         self.op("throw", 1, 0);
@@ -905,7 +1007,7 @@ impl FnCx<'_, '_> {
         let lhs_const = Self::const_int(lhs);
         match rhs_const {
             Some(0) => {
-                self.panic(zero_msg);
+                self.panic_at(zero_msg, span);
                 // Unreachable, but the store that follows expects a value.
                 self.ldc_i4(0);
                 return;
@@ -920,7 +1022,7 @@ impl FnCx<'_, '_> {
                 } else {
                     self.op(format!("brtrue {ok}"), 1, 0);
                 }
-                self.panic(zero_msg);
+                self.panic_at(zero_msg, span);
                 self.label(&ok);
             }
         }
@@ -944,7 +1046,7 @@ impl FnCx<'_, '_> {
                 self.int_const(min as u128, p);
                 self.branch_ne(p, &ok);
             }
-            self.panic(overflow_msg);
+            self.panic_at(overflow_msg, span);
             self.label(&ok);
         }
         self.operand(lhs, span);
@@ -962,7 +1064,7 @@ impl FnCx<'_, '_> {
         }
     }
 
-    fn shift(&mut self, op: BinOp, lp: PrimTy, rp: PrimTy) {
+    fn shift(&mut self, op: BinOp, lp: PrimTy, rp: PrimTy, span: Span) {
         let bits = lp.int_bits().unwrap_or(32);
         let rwidth = types::stack_width(rp);
         if self.checks() {
@@ -993,7 +1095,7 @@ impl FnCx<'_, '_> {
                 self.op(format!("blt.un {ok}"), 2, 0);
             }
             let dir = if op == BinOp::Shl { "left" } else { "right" };
-            self.panic(&format!("attempt to shift {dir} with overflow"));
+            self.panic_at(&format!("attempt to shift {dir} with overflow"), span);
             self.label(&ok);
             self.shift_amount_to_i4(rp);
         } else {
@@ -1018,7 +1120,7 @@ impl FnCx<'_, '_> {
             BinOp::Shl => {
                 self.op("shl", 2, 1);
                 // Shifting left never panics on the result; it truncates.
-                self.narrow(lp, false);
+                self.narrow(lp);
             }
             _ if lp.is_unsigned_int() => self.op("shr.un", 2, 1),
             _ => self.op("shr", 2, 1),
@@ -1223,11 +1325,24 @@ impl FnCx<'_, '_> {
             }
             Some(Builtin::Panic) => {
                 self.operand(&args[0], span);
-                self.op(
-                    format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail({STR_SPAN})"),
-                    1,
-                    0,
-                );
+                if let Some(location) = self.cx.location(span) {
+                    self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+                    self.op(
+                        format!(
+                            "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail({STR_SPAN}, string)"
+                        ),
+                        2,
+                        0,
+                    );
+                } else {
+                    self.op(
+                        format!(
+                            "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail({STR_SPAN})"
+                        ),
+                        1,
+                        0,
+                    );
+                }
             }
             None => {
                 let sig = self.cx.typeck.items.fn_sig(func).clone();

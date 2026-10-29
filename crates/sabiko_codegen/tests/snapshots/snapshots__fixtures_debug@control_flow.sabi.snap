@@ -13,7 +13,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
 {
   .method public hidebysig static int32 'IfExpr'(bool 'c', int32 'a', int32 'b') cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 'x',
@@ -99,16 +99,42 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.1
     stloc.s 12
     ldloc.s 12
+    conv.i8
     ldc.i4.1
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:8:30"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.0
     br BB15
   BB14:
     ldloc.1
     stloc.s 13
     ldloc.s 13
+    conv.i8
     ldc.i4.1
-    sub.ovf
+    conv.i8
+    sub
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L2
+    ldstr "attempt to subtract with overflow"
+    ldstr "control_flow.sabi:8:45"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
+    conv.i4
     stloc.0
   BB15:
     br BB5
@@ -116,7 +142,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
 
   .method public hidebysig static int32 'IfStmt'(bool 'c') cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 'n',
@@ -147,8 +173,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     brfalse BB4
   BB3:
     ldloc.1
+    conv.i8
     ldc.i4.2
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:17:9"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.1
     br BB7
   BB4:
@@ -162,14 +201,40 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     brfalse BB6
   BB5:
     ldloc.1
+    conv.i8
     ldc.i4.3
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L2
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:19:9"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
+    conv.i4
     stloc.1
     br BB7
   BB6:
     ldloc.1
+    conv.i8
     ldc.i4.4
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L3
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:21:9"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L3:
+    conv.i4
     stloc.1
   BB7:
     ldloc.1
@@ -181,7 +246,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
 
   .method public hidebysig static int32 'WhileLoop'(int32 'n') cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 'i',
@@ -214,8 +279,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     brfalse BB3
   BB2:
     ldloc.1
+    conv.i8
     ldc.i4.1
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:30:9"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.1
     ldloc.1
     stloc.s 8
@@ -252,8 +330,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.1
     stloc.s 11
     ldloc.2
+    conv.i8
     ldloc.s 11
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L2
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:33:9"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
+    conv.i4
     stloc.2
     br BB1
   BB9:
@@ -263,7 +354,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
 
   .method public hidebysig static int32 'LoopValue'(int32 'limit') cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 'n',
@@ -299,8 +390,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.1
     stloc.s 7
     ldloc.s 7
+    conv.i8
     ldc.i4.2
-    mul.ovf
+    conv.i8
+    mul
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to multiply with overflow"
+    ldstr "control_flow.sabi:42:13"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.s 6
     ldloc.s 6
     stloc.1
@@ -312,7 +416,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
 
   .method public hidebysig static int32 'Nested'(int32 'n') cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 'total',
@@ -364,26 +468,78 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   BB5:
   BB6:
     ldloc.2
+    conv.i8
     ldc.i4.1
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:58:9"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.2
     br BB1
   BB7:
     ldloc.s 6
     stloc.s 11
     ldloc.s 11
+    conv.i8
     ldc.i4.2
-    mul.ovf
+    conv.i8
+    mul
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L2
+    ldstr "attempt to multiply with overflow"
+    ldstr "control_flow.sabi:54:24"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
+    conv.i4
     stloc.s 10
     ldloc.s 10
     stloc.s 12
     ldloc.1
+    conv.i8
     ldloc.s 12
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L3
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:55:13"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L3:
+    conv.i4
     stloc.1
     ldloc.s 6
+    conv.i8
     ldc.i4.1
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L4
+    ldstr "attempt to add with overflow"
+    ldstr "control_flow.sabi:56:13"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L4:
+    conv.i4
     stloc.s 6
     br BB4
   BB8:

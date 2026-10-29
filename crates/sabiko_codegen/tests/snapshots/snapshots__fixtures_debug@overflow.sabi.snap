@@ -103,7 +103,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.2
     ldloc.3
     add
-    conv.ovf.i1
+    dup
+    dup
+    conv.i1
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:4:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
     stloc.1
     ldarg.1
     stloc.s 5
@@ -112,7 +120,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 5
     ldloc.s 6
     mul
-    conv.ovf.u1
+    dup
+    dup
+    conv.u1
+    beq L2
+    ldstr "attempt to multiply with overflow"
+    ldstr "overflow.sabi:5:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
     stloc.s 4
     ldarg.2
     stloc.s 8
@@ -121,7 +137,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 8
     ldloc.s 9
     sub
-    conv.ovf.i2
+    dup
+    dup
+    conv.i2
+    beq L3
+    ldstr "attempt to subtract with overflow"
+    ldstr "overflow.sabi:6:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L3:
     stloc.s 7
     ldarg.3
     stloc.s 11
@@ -130,14 +154,30 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 11
     ldloc.s 12
     add
-    conv.ovf.u2
+    dup
+    dup
+    conv.u2
+    beq L4
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:7:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L4:
     stloc.s 10
     ldarg.0
     stloc.s 14
     ldc.i4.0
     ldloc.s 14
     sub
-    conv.ovf.i1
+    dup
+    dup
+    conv.i1
+    beq L5
+    ldstr "attempt to negate with overflow"
+    ldstr "overflow.sabi:8:13"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L5:
     stloc.s 13
     ldarg.1
     stloc.s 16
@@ -162,21 +202,23 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldc.i4.s -3
     stloc.s 23
     ldloc.s 23
-    brtrue L1
+    brtrue L6
     ldstr "attempt to calculate the remainder with a divisor of zero"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:12:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L1:
+  L6:
     ldloc.s 23
     ldc.i4.m1
-    bne.un L2
+    bne.un L7
     ldloc.s 22
     ldc.i4.s -128
-    bne.un L2
+    bne.un L7
     ldstr "attempt to calculate the remainder with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:12:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L2:
+  L7:
     ldloc.s 22
     ldloc.s 23
     rem
@@ -188,24 +230,34 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 27
     ldc.i4.1
     add
-    conv.ovf.i2
+    dup
+    dup
+    conv.i2
+    beq L8
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:13:18"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L8:
     stloc.s 26
     ldloc.s 26
-    brtrue L3
+    brtrue L9
     ldstr "attempt to calculate the remainder with a divisor of zero"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:13:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L3:
+  L9:
     ldloc.s 26
     ldc.i4.m1
-    bne.un L4
+    bne.un L10
     ldloc.s 25
     ldc.i4 -32768
-    bne.un L4
+    bne.un L10
     ldstr "attempt to calculate the remainder with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:13:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L4:
+  L10:
     ldloc.s 25
     ldloc.s 26
     rem
@@ -218,21 +270,23 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i2
     stloc.s 30
     ldloc.s 30
-    brtrue L5
+    brtrue L11
     ldstr "attempt to divide by zero"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:14:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L5:
+  L11:
     ldloc.s 30
     ldc.i4.m1
-    bne.un L6
+    bne.un L12
     ldloc.s 29
     ldc.i4 -32768
-    bne.un L6
+    bne.un L12
     ldstr "attempt to divide with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:14:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L6:
+  L12:
     ldloc.s 29
     ldloc.s 30
     div
@@ -242,11 +296,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldarg.1
     stloc.s 34
     ldloc.s 34
-    brtrue L7
+    brtrue L13
     ldstr "attempt to divide by zero"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:15:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L7:
+  L13:
     ldloc.s 33
     ldloc.s 34
     div.un
@@ -257,11 +312,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldc.i4.2
     dup
     ldc.i4.8
-    blt.un L8
+    blt.un L14
     ldstr "attempt to shift left with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:16:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L8:
+  L14:
     shl
     conv.u1
     stloc.s 35
@@ -271,11 +327,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldc.i4.1
     dup
     ldc.i4.8
-    blt.un L9
+    blt.un L15
     ldstr "attempt to shift right with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:17:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L9:
+  L15:
     shr
     stloc.s 37
     ldloc.1
@@ -289,8 +346,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 53
     ldloc.s 51
+    conv.i8
     ldloc.s 53
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L16
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L16:
+    conv.i4
     stloc.s 50
     ldloc.s 7
     stloc.s 56
@@ -298,8 +368,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 55
     ldloc.s 50
+    conv.i8
     ldloc.s 55
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L17
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L17:
+    conv.i4
     stloc.s 49
     ldloc.s 10
     stloc.s 58
@@ -307,8 +390,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 57
     ldloc.s 49
+    conv.i8
     ldloc.s 57
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L18
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L18:
+    conv.i4
     stloc.s 48
     ldloc.s 13
     stloc.s 60
@@ -316,8 +412,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 59
     ldloc.s 48
+    conv.i8
     ldloc.s 59
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L19
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L19:
+    conv.i4
     stloc.s 47
     ldloc.s 15
     stloc.s 62
@@ -325,8 +434,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 61
     ldloc.s 47
+    conv.i8
     ldloc.s 61
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L20
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L20:
+    conv.i4
     stloc.s 46
     ldloc.s 17
     stloc.s 64
@@ -334,8 +456,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 63
     ldloc.s 46
+    conv.i8
     ldloc.s 63
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L21
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L21:
+    conv.i4
     stloc.s 45
     ldloc.s 19
     stloc.s 66
@@ -343,8 +478,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 65
     ldloc.s 45
+    conv.i8
     ldloc.s 65
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L22
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L22:
+    conv.i4
     stloc.s 44
     ldloc.s 21
     stloc.s 68
@@ -352,8 +500,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 67
     ldloc.s 44
+    conv.i8
     ldloc.s 67
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L23
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L23:
+    conv.i4
     stloc.s 43
     ldloc.s 24
     stloc.s 70
@@ -361,8 +522,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 69
     ldloc.s 43
+    conv.i8
     ldloc.s 69
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L24
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L24:
+    conv.i4
     stloc.s 42
     ldloc.s 28
     stloc.s 72
@@ -370,8 +544,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 71
     ldloc.s 42
+    conv.i8
     ldloc.s 71
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L25
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L25:
+    conv.i4
     stloc.s 41
     ldloc.s 32
     stloc.s 74
@@ -379,8 +566,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 73
     ldloc.s 41
+    conv.i8
     ldloc.s 73
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L26
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L26:
+    conv.i4
     stloc.s 40
     ldloc.s 35
     stloc.s 76
@@ -388,8 +588,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 75
     ldloc.s 40
+    conv.i8
     ldloc.s 75
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L27
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L27:
+    conv.i4
     stloc.s 39
     ldloc.s 37
     stloc.s 78
@@ -397,8 +610,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     stloc.s 77
     ldloc.s 39
+    conv.i8
     ldloc.s 77
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L28
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:18:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L28:
+    conv.i4
     stloc.0
   BB1:
     ldloc.0
@@ -462,27 +688,55 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
       [50] int64 '_55',
       [51] int64 '_56',
       [52] uint64 '_57',
-      [53] int64 '_58'
+      [53] int64 '_58',
+      [54] int64 '$tmp0',
+      [55] uint64 '$tmp1',
+      [56] native int '$tmp2',
+      [57] native uint '$tmp3'
     )
   BB0:
     ldarg.0
     stloc.2
     ldloc.2
     ldc.i8 3
-    mul.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(int64, int64, int64&)
+    brfalse L1
+    ldstr "attempt to multiply with overflow"
+    ldstr "overflow.sabi:23:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    ldloc.s 54
     stloc.1
     ldarg.1
     stloc.s 4
     ldloc.s 4
     ldc.i8 1
-    add.ovf.un
+    ldloca.s 55
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(uint64, uint64, uint64&)
+    brfalse L2
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:24:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L2:
+    ldloc.s 55
     stloc.3
     ldarg.2
     stloc.s 6
     ldloc.s 6
     ldc.i4.2
     conv.i
-    sub.ovf
+    ldloca.s 56
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(native int, native int, native int&)
+    brfalse L3
+    ldstr "attempt to subtract with overflow"
+    ldstr "overflow.sabi:25:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L3:
+    ldloc.s 56
     stloc.s 5
     ldarg.3
     stloc.s 8
@@ -490,21 +744,50 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 9
     ldloc.s 8
     ldloc.s 9
-    mul.ovf.un
+    ldloca.s 57
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(native uint, native uint, native uint&)
+    brfalse L4
+    ldstr "attempt to multiply with overflow"
+    ldstr "overflow.sabi:26:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L4:
+    ldloc.s 57
     stloc.s 7
     ldarg.s 4
     stloc.s 11
     ldarg.s 4
     stloc.s 12
     ldloc.s 11
+    conv.u8
     ldloc.s 12
-    add.ovf.un
+    conv.u8
+    add
+    dup
+    dup
+    conv.u4
+    conv.u8
+    beq L5
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:27:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L5:
+    conv.u4
     stloc.s 10
     ldarg.0
     stloc.s 14
     ldc.i8 0
     ldloc.s 14
-    sub.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
+    brfalse L6
+    ldstr "attempt to negate with overflow"
+    ldstr "overflow.sabi:28:13"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L6:
+    ldloc.s 54
     stloc.s 13
     ldarg.1
     stloc.s 16
@@ -528,11 +811,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     dup
     ldc.i4.s 64
     conv.i
-    blt.un L1
+    blt.un L7
     ldstr "attempt to shift left with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:31:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L1:
+  L7:
     conv.i4
     shl
     stloc.s 19
@@ -542,11 +826,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldc.i4.1
     dup
     ldc.i4.s 64
-    blt.un L2
+    blt.un L8
     ldstr "attempt to shift right with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:32:14"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L2:
+  L8:
     shr.un
     stloc.s 22
     ldarg.0
@@ -557,11 +842,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldloc.s 26
     dup
     ldc.i4.s 64
-    blt.un L3
+    blt.un L9
     ldstr "attempt to shift right with overflow"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    ldstr "overflow.sabi:33:15"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
     throw
-  L3:
+  L9:
     shr
     stloc.s 24
     ldloc.1
@@ -573,7 +859,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 37
     ldloc.s 36
     ldloc.s 37
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L10
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L10:
+    ldloc.s 54
     stloc.s 35
     ldloc.s 5
     stloc.s 40
@@ -582,7 +876,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 39
     ldloc.s 35
     ldloc.s 39
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L11
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L11:
+    ldloc.s 54
     stloc.s 34
     ldloc.s 7
     stloc.s 42
@@ -591,7 +893,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 41
     ldloc.s 34
     ldloc.s 41
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L12
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L12:
+    ldloc.s 54
     stloc.s 33
     ldloc.s 10
     stloc.s 44
@@ -600,13 +910,29 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 43
     ldloc.s 33
     ldloc.s 43
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L13
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L13:
+    ldloc.s 54
     stloc.s 32
     ldloc.s 13
     stloc.s 45
     ldloc.s 32
     ldloc.s 45
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L14
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L14:
+    ldloc.s 54
     stloc.s 31
     ldloc.s 15
     stloc.s 47
@@ -615,7 +941,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 46
     ldloc.s 31
     ldloc.s 46
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L15
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L15:
+    ldloc.s 54
     stloc.s 30
     ldloc.s 17
     stloc.s 49
@@ -624,13 +958,29 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 48
     ldloc.s 30
     ldloc.s 48
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L16
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L16:
+    ldloc.s 54
     stloc.s 29
     ldloc.s 19
     stloc.s 50
     ldloc.s 29
     ldloc.s 50
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L17
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L17:
+    ldloc.s 54
     stloc.s 28
     ldloc.s 22
     stloc.s 52
@@ -639,13 +989,29 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     stloc.s 51
     ldloc.s 28
     ldloc.s 51
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L18
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L18:
+    ldloc.s 54
     stloc.s 27
     ldloc.s 24
     stloc.s 53
     ldloc.s 27
     ldloc.s 53
-    add.ovf
+    ldloca.s 54
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
+    brfalse L19
+    ldstr "attempt to add with overflow"
+    ldstr "overflow.sabi:34:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L19:
+    ldloc.s 54
     stloc.0
   BB1:
     ldloc.0

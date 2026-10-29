@@ -1,0 +1,11 @@
+// Columns are display columns, as rustc counts them (wide characters 2, combining marks 0),
+// not bytes: the overflow follows non-ASCII text on its line.
+fn Id(x: u8) -> u8 { x }
+
+fn Main() {
+    let a: u8 = 200;
+    let b: u8 = 100;
+    PrintLine("é → ü");
+    Print("ñ中😀é"); let c = Id(a) + b; PrintLine(c);
+    PrintLine("not reached");
+}

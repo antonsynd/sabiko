@@ -6,7 +6,10 @@
 //! - `//@ exit-code: N` — the expected exit code (default 0; panics exit with 101);
 //! - `//@ release` — compile with `--release` (wrapping arithmetic).
 //!
-//! Expected stdout lives in `<name>.stdout` next to the program; `BLESS=1` writes it.
+//! Expected stdout lives in `<name>.stdout` next to the program; `BLESS=1` writes it. A
+//! program that panics also has `<name>.stderr`, its exact panic report with the source
+//! path written relative to the repository (`tests/run-pass/...`); `BLESS=1` writes that
+//! too. A program without one must leave stderr empty.
 
 mod common;
 
@@ -55,6 +58,9 @@ fn run_one(tc: &Toolchain, root: &Path, path: &Path) -> Result<(), String> {
     common::ilverify(tc, &dll)?;
     let out = common::run_dll(tc, &dll)?;
     let stdout = text(&out.stdout);
+    // The panic location names the source as sabikoc was given it (an absolute path).
+    let repo_relative = format!("tests/run-pass/{}", rel.replace('\\', "/"));
+    let stderr = text(&out.stderr).replace(&path.display().to_string(), &repo_relative);
     let code = out.status.code().unwrap_or(-1);
     let expected_path = path.with_extension("stdout");
     let bless = std::env::var_os("BLESS").is_some();
@@ -90,6 +96,32 @@ fn run_one(tc: &Toolchain, root: &Path, path: &Path) -> Result<(), String> {
                 expected_path.display()
             );
         }
+    }
+    let stderr_path = path.with_extension("stderr");
+    let expected_stderr = std::fs::read_to_string(&stderr_path)
+        .ok()
+        .map(|s| s.replace("\r\n", "\n"));
+    match expected_stderr {
+        Some(e) if e == stderr => {}
+        _ if bless && failures.is_empty() && code == 101 => {
+            std::fs::write(&stderr_path, &stderr).unwrap();
+            eprintln!("blessed {}", stderr_path.display());
+        }
+        Some(e) => {
+            let _ = writeln!(
+                failures,
+                "stderr differs from {}\n--- expected\n{e}--- actual\n{stderr}---",
+                stderr_path.display()
+            );
+        }
+        None if !stderr.is_empty() => {
+            let _ = writeln!(
+                failures,
+                "unexpected stderr (a panicking program needs {}; BLESS=1 creates it)\n{stderr}",
+                stderr_path.display()
+            );
+        }
+        None => {}
     }
     if failures.is_empty() {
         Ok(())

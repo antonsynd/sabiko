@@ -24,7 +24,8 @@
 use std::collections::HashMap;
 
 use sabiko_ast::{
-    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, PatKind, SourceFile, Stmt, StmtKind,
+    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, PatKind, SourceFile, Stmt,
+    StmtKind,
 };
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
@@ -95,6 +96,9 @@ struct Builder<'a> {
     current: BasicBlock,
     /// Set when a constant without a value was referenced; the body is discarded.
     failed: bool,
+    /// The span of the outermost parentheses around an expression, for the expressions
+    /// that have them (see [`Builder::span_of`]).
+    paren_spans: HashMap<NodeId, Span>,
 }
 
 impl<'a> Builder<'a> {
@@ -157,6 +161,7 @@ impl<'a> Builder<'a> {
             return_block: None,
             current: BasicBlock::START,
             failed: false,
+            paren_spans: HashMap::new(),
         }
     }
 
@@ -486,6 +491,21 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// The span statements lowered from `expr` carry: its own, or, inside parentheses, that
+    /// of the outermost parentheses, as rustc's HIR has it (`(a + b)` overflows at the
+    /// `(`), so panic locations agree with rustc's.
+    fn span_of(&self, expr: &Expr) -> Span {
+        self.paren_spans.get(&expr.id).copied().unwrap_or(expr.span)
+    }
+
+    /// Records that `inner`, the contents of the parenthesised `paren`, takes the span of
+    /// the outermost parentheses, and returns `inner`.
+    fn enter_paren<'e>(&mut self, paren: &Expr, inner: &'e Expr) -> &'e Expr {
+        let span = self.span_of(paren);
+        self.paren_spans.insert(inner.id, span);
+        inner
+    }
+
     fn def_kind(&self, def: DefId) -> DefKind {
         self.resolve.def(def).kind
     }
@@ -502,7 +522,10 @@ impl<'a> Builder<'a> {
     /// operand can read `n`.
     fn as_operand(&mut self, expr: &Expr) -> Operand {
         match &expr.kind {
-            ExprKind::Paren(inner) => self.as_operand(inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.as_operand(inner)
+            }
             ExprKind::Lit(lit) => {
                 let ty = self.ty(expr).clone();
                 Operand::Constant(self.lit_constant(lit, &ty, expr.span))
@@ -530,7 +553,10 @@ impl<'a> Builder<'a> {
     /// Lowers `expr` to a place. Non-place expressions are evaluated into a temporary.
     fn as_place(&mut self, expr: &Expr) -> Place {
         match &expr.kind {
-            ExprKind::Paren(inner) => self.as_place(inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.as_place(inner)
+            }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Local(id) => Place::local(self.mir_local(id)),
                 _ => Place::local(self.as_temp(expr)),
@@ -561,9 +587,12 @@ impl<'a> Builder<'a> {
     /// nothing and leave the builder in an unreachable block.
     #[allow(clippy::too_many_lines)]
     fn expr_into_dest(&mut self, dest: &Place, expr: &Expr) {
-        let span = expr.span;
+        let span = self.span_of(expr);
         match &expr.kind {
-            ExprKind::Paren(inner) => self.expr_into_dest(dest, inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.expr_into_dest(dest, inner);
+            }
             ExprKind::Lit(_) | ExprKind::Unit => {
                 let op = self.as_operand(expr);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
@@ -699,9 +728,12 @@ impl<'a> Builder<'a> {
     /// statement-like forms need no destination; anything else goes into a temporary that
     /// dies with the statement.
     fn lower_expr_discard(&mut self, expr: &Expr) {
-        let span = expr.span;
+        let span = self.span_of(expr);
         match &expr.kind {
-            ExprKind::Paren(inner) => self.lower_expr_discard(inner),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.lower_expr_discard(inner);
+            }
             ExprKind::Assign(..) | ExprKind::AssignOp(..) => self.lower_assign(expr),
             ExprKind::Block(block) => self.lower_block_discard(block),
             ExprKind::If { cond, then, els } => {
@@ -721,7 +753,7 @@ impl<'a> Builder<'a> {
     /// `p = e` and `p op= e`. The right-hand side is evaluated first, then the place, as
     /// in rustc.
     fn lower_assign(&mut self, expr: &Expr) {
-        let span = expr.span;
+        let span = self.span_of(expr);
         match &expr.kind {
             ExprKind::Assign(lhs, rhs) => {
                 let rhs = self.coerced_operand(rhs);

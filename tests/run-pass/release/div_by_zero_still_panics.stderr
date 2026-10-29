@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/release/div_by_zero_still_panics.sabi:4:33:
+attempt to calculate the remainder with a divisor of zero

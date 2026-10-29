@@ -9,7 +9,10 @@ ILVerify, run with `dotnet`, and compared with its expectations
 - Directives are `//@` comments at the top of the file: `//@ exit-code: 101` (default 0;
   panics, including overflow in debug builds, exit with 101) and `//@ release` (compile
   with `--release`, so arithmetic wraps).
-- Standard error is not compared (panic messages carry no source positions yet).
+- A program that panics has `<name>.stderr` with its exact panic report, `thread 'main'
+  panicked at tests/run-pass/<dir>/<name>.sabi:L:C:` and the message (the harness writes
+  the source path relative to the repository); `BLESS=1` creates it for a program that
+  exits with 101. Any other program must leave standard error empty.
 
 ILVerify runs with `ReturnPtrToStack` ignored: ECMA-335 forbids returning any managed
 pointer, which rejects every `fn ... -> &T` (and every C# `ref` return); the borrow

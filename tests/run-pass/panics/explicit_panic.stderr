@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/panics/explicit_panic.sabi:4:17:
+too large

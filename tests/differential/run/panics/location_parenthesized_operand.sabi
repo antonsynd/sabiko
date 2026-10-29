@@ -1,0 +1,9 @@
+// The outer operation of `(x) * y` is located at the `(` of its left operand.
+fn Mul(x: i16, y: i16) -> i16 { (x) * y }
+
+fn Main() {
+    PrintLine(Mul(181, 181));
+    PrintLine("about to overflow");
+    PrintLine(Mul(182, 181));
+    PrintLine("not reached");
+}

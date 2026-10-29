@@ -231,17 +231,60 @@ pub fn rustc_or_skip(test: &str) -> Option<PathBuf> {
     found
 }
 
-/// Prepended to a generated program before handing it to `rustc`: Sabiko's builtins, an
-/// entry point calling `Main`, and the lints that would otherwise turn a constant-visible
-/// overflow or division by zero into a compile error (both compilers panic at run time
-/// instead, which is what the comparison wants to see).
+/// The rustc prelude for generated programs: Sabiko's builtins, an entry point calling
+/// `Main`, and the lints that would otherwise turn a constant-visible overflow or division
+/// by zero into a compile error (both compilers panic at run time instead, which is what
+/// the comparison wants to see). See [`prelude_parts`] for how it is combined with the
+/// program.
 pub const RUSTC_GENERATED_PRELUDE: &str = "#![allow(nonstandard_style, unused, dead_code, \
                                             arithmetic_overflow, unconditional_panic)]
 fn Print<T: std::fmt::Display>(x: T) { print!(\"{x}\") }
 fn PrintLine<T: std::fmt::Display>(x: T) { println!(\"{x}\") }
+#[track_caller]
 fn Panic(msg: &str) -> ! { panic!(\"{msg}\") }
 fn main() { Main() }
 ";
+
+/// Splits a rustc prelude into the lints its `#![allow(...)]` lines name and its items.
+/// The harness passes the lints to rustc as `-A` flags and writes the items after the
+/// program, never before it, so that the program's lines keep their numbers and rustc's
+/// panic locations (`prog.rs:L:C`) can be compared with Sabiko's (`file.sabi:L:C`).
+pub fn prelude_parts(prelude: &str) -> (Vec<String>, String) {
+    let mut lints = Vec::new();
+    let mut items = String::new();
+    for line in prelude.lines() {
+        if let Some(list) = line
+            .trim()
+            .strip_prefix("#![allow(")
+            .and_then(|l| l.strip_suffix(")]"))
+        {
+            lints.extend(list.split(',').map(|l| l.trim().to_owned()));
+        } else {
+            assert!(
+                !line.trim_start().starts_with("#!["),
+                "only `#![allow(...)]` inner attributes can be moved out of a prelude: {line}"
+            );
+            items.push_str(line);
+            items.push('\n');
+        }
+    }
+    (lints, items)
+}
+
+/// The rustc source for `src` with `prelude` (see [`prelude_parts`]) and the `-A` flags.
+fn rustc_source(prelude: &str, src: &str) -> (Vec<String>, String) {
+    let (lints, items) = prelude_parts(prelude);
+    let flags = lints
+        .into_iter()
+        .flat_map(|l| ["-A".to_owned(), l])
+        .collect();
+    let mut full = src.to_owned();
+    if !full.ends_with('\n') {
+        full.push('\n');
+    }
+    full.push_str(&items);
+    (flags, full)
+}
 
 /// What one program did when run.
 #[derive(Debug, Clone)]
@@ -249,9 +292,12 @@ pub struct Run {
     pub stdout: String,
     pub stderr: String,
     pub code: i32,
+    /// The file name of the compiled source (`prog.rs`, `foo.sabi`), which a panic
+    /// location must name.
+    pub source: String,
 }
 
-/// Builds `prelude + src` with rustc as an executable in `dir` and runs it.
+/// Builds `src` with `prelude` with rustc as an executable in `dir` and runs it.
 pub fn run_rust(rustc: &Path, prelude: &str, src: &str, dir: &Path) -> Result<Run, String> {
     run_rust_with(rustc, prelude, src, dir, false)
 }
@@ -266,7 +312,8 @@ pub fn run_rust_with(
     release: bool,
 ) -> Result<Run, String> {
     let rs = dir.join("prog.rs");
-    std::fs::write(&rs, format!("{prelude}{src}")).unwrap();
+    let (lint_flags, full) = rustc_source(prelude, src);
+    std::fs::write(&rs, full).unwrap();
     let exe = dir.join(if cfg!(windows) { "prog.exe" } else { "prog" });
     let out = Command::new(rustc)
         .args([
@@ -282,8 +329,9 @@ pub fn run_rust_with(
             } else {
                 "overflow-checks=on"
             },
-            "-o",
         ])
+        .args(&lint_flags)
+        .arg("-o")
         .arg(&exe)
         .arg(&rs)
         .output()
@@ -303,6 +351,7 @@ pub fn run_rust_with(
         stdout: text(&out.stdout),
         stderr: text(&out.stderr),
         code: out.status.code().unwrap_or(-1),
+        source: "prog.rs".to_owned(),
     })
 }
 
@@ -327,40 +376,101 @@ pub fn run_sabiko_with(
         stdout: text(&out.stdout),
         stderr: text(&out.stderr),
         code: out.status.code().unwrap_or(-1),
+        source: path.file_name().unwrap().to_string_lossy().into_owned(),
     })
 }
 
-/// The panic message line from a panicking program's stderr. rustc writes
-/// `thread 'main' panicked at src/main.rs:L:C:` (newer versions insert the thread id),
-/// Sabiko writes `thread 'main' panicked:`; the message is the next line in both.
-pub fn panic_message(stderr: &str) -> Option<String> {
-    let mut lines = stderr.lines();
-    while let Some(line) = lines.next() {
-        if line.starts_with("thread 'main'") && line.contains("panicked") {
-            return lines.next().map(str::to_owned);
-        }
-    }
-    None
+/// The report of a panic: `thread 'main' panicked at FILE:LINE:COL:` followed by the
+/// message line. rustc writes the thread id after the name (`thread 'main' (1234)
+/// panicked at`); Sabiko does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanicReport {
+    /// The file name of the location, without its directories.
+    pub file: String,
+    pub line: u32,
+    pub col: u32,
+    pub message: String,
 }
 
-/// Rust's messages for the overflow checks of `+`, `-`, `*` and unary `-`. Sabiko lowers
-/// those to the CLR's `.ovf` opcodes, whose `OverflowException` does not say which
-/// operator overflowed, so its generic message is accepted for any of them.
-const RUST_OVERFLOW_MESSAGES: &[&str] = &[
-    "attempt to add with overflow",
-    "attempt to subtract with overflow",
-    "attempt to multiply with overflow",
-    "attempt to negate with overflow",
-];
-const SABIKO_GENERIC_OVERFLOW: &str = "attempt to perform arithmetic with overflow";
+/// Parses the panic report from a panicking program's stderr, or explains why it cannot.
+pub fn panic_report(stderr: &str) -> Result<PanicReport, String> {
+    let mut lines = stderr.lines();
+    while let Some(line) = lines.next() {
+        let Some(rest) = line.strip_prefix("thread 'main'") else {
+            continue;
+        };
+        // Skip rustc's thread id: ` (1234)`.
+        let rest = rest.trim_start();
+        let rest = match rest.strip_prefix('(') {
+            Some(r) => r.split_once(')').map_or(r, |(_, after)| after).trim_start(),
+            None => rest,
+        };
+        let Some(location) = rest
+            .strip_prefix("panicked at ")
+            .and_then(|l| l.strip_suffix(':'))
+        else {
+            return Err(format!("no `panicked at FILE:LINE:COL:` in `{line}`"));
+        };
+        let mut parts = location.rsplitn(3, ':');
+        let (Some(col), Some(row), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+            return Err(format!("malformed location `{location}`"));
+        };
+        let file = path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned();
+        let message = lines
+            .next()
+            .ok_or_else(|| format!("no message after `{line}`"))?
+            .to_owned();
+        return Ok(PanicReport {
+            file,
+            line: row
+                .parse()
+                .map_err(|_| format!("bad line in `{location}`"))?,
+            col: col
+                .parse()
+                .map_err(|_| format!("bad column in `{location}`"))?,
+            message,
+        });
+    }
+    Err("no `thread 'main' ... panicked` line".to_owned())
+}
 
-pub fn panic_messages_agree(rust: &str, sabiko: &str) -> bool {
-    rust == sabiko || (sabiko == SABIKO_GENERIC_OVERFLOW && RUST_OVERFLOW_MESSAGES.contains(&rust))
+/// Compares the panic reports of two panicking runs: the messages must be identical, the
+/// locations must have the same line and column, and each must name the file its compiler
+/// was given.
+pub fn compare_panics(rust: &Run, sabi: &Run) -> Result<(), String> {
+    let r = panic_report(&rust.stderr).map_err(|e| format!("rustc: {e}"))?;
+    let s = panic_report(&sabi.stderr).map_err(|e| format!("sabiko: {e}"))?;
+    let mut failures = Vec::new();
+    if r.message != s.message {
+        failures.push(format!(
+            "panic messages differ: rustc {:?} vs sabiko {:?}",
+            r.message, s.message
+        ));
+    }
+    if (r.line, r.col) != (s.line, s.col) {
+        failures.push(format!(
+            "panic locations differ: rustc {}:{} vs sabiko {}:{}",
+            r.line, r.col, s.line, s.col
+        ));
+    }
+    if r.file != rust.source || s.file != sabi.source {
+        failures.push(format!(
+            "panic locations name the wrong files: rustc `{}` (compiled `{}`), sabiko `{}` \
+             (compiled `{}`)",
+            r.file, rust.source, s.file, sabi.source
+        ));
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("\n"))
+    }
 }
 
 /// Compares two runs: exit codes and stdout must match; when both panicked (101) the panic
-/// message lines must agree (see [`panic_messages_agree`]); when both exited with 0 neither
-/// may have written to stderr. Returns the differences, or a one-line summary.
+/// reports must agree, message and location (see [`compare_panics`]); when both exited
+/// with 0 neither may have written to stderr. Returns the differences, or a one-line
+/// summary.
 pub fn compare_runs(rust: &Run, sabi: &Run) -> Result<String, String> {
     let mut failures = String::new();
     if rust.code != sabi.code {
@@ -379,16 +489,12 @@ pub fn compare_runs(rust: &Run, sabi: &Run) -> Result<String, String> {
     }
     if rust.code == sabi.code {
         if rust.code == 101 {
-            match (panic_message(&rust.stderr), panic_message(&sabi.stderr)) {
-                (Some(r), Some(s)) if panic_messages_agree(&r, &s) => {}
-                (r, s) => {
-                    let _ = write!(
-                        failures,
-                        "panic messages differ: rustc {r:?} vs sabiko {s:?}\nrust stderr:\n{}\
-                         sabiko stderr:\n{}",
-                        rust.stderr, sabi.stderr
-                    );
-                }
+            if let Err(e) = compare_panics(rust, sabi) {
+                let _ = write!(
+                    failures,
+                    "{e}\nrust stderr:\n{}sabiko stderr:\n{}",
+                    rust.stderr, sabi.stderr
+                );
             }
         } else if rust.code == 0 && !(rust.stderr.is_empty() && sabi.stderr.is_empty()) {
             let _ = write!(
@@ -486,7 +592,7 @@ pub fn rustc_error_codes(success: bool, stderr: &str) -> Vec<String> {
     codes
 }
 
-/// Type-checks `prelude + src` with rustc (`--crate-type lib --emit=metadata`) in `dir`
+/// Type-checks `src` with `prelude` (see [`prelude_parts`]) with rustc (`--crate-type lib --emit=metadata`) in `dir`
 /// and returns its verdict with the codes behind it and its stderr.
 pub fn rustc_verdict(
     rustc: &Path,
@@ -495,7 +601,8 @@ pub fn rustc_verdict(
     dir: &Path,
 ) -> (Verdict, Vec<String>, String) {
     let rs = dir.join("prog.rs");
-    std::fs::write(&rs, format!("{prelude}{src}")).unwrap();
+    let (lint_flags, full) = rustc_source(prelude, src);
+    std::fs::write(&rs, full).unwrap();
     let out = Command::new(rustc)
         .args([
             "--edition",
@@ -507,8 +614,9 @@ pub fn rustc_verdict(
             "warnings",
             "--crate-name",
             "prog",
-            "--out-dir",
         ])
+        .args(&lint_flags)
+        .arg("--out-dir")
         .arg(dir)
         .arg(&rs)
         .output()

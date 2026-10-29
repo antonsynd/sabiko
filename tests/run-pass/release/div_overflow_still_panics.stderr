@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/release/div_overflow_still_panics.sabi:4:33:
+attempt to divide with overflow

@@ -46,7 +46,7 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
         },
         overflow_checks,
     };
-    let il = sabiko_codegen::emit_il(&bodies, &resolve, &typeck, &options, &mut sink);
+    let il = sabiko_codegen::emit_il(&bodies, &resolve, &typeck, &sm, &options, &mut sink);
     assert!(
         !sink.has_errors(),
         "code generation reported errors:\n{}",

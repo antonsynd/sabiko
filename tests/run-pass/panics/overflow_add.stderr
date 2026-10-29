@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/panics/overflow_add.sabi:7:13:
+attempt to add with overflow

@@ -1,0 +1,12 @@
+// A panic in a call argument, and one inside a callee, are located where they happen.
+fn Twice(x: i32) -> i32 { x * 2 }
+fn Check(x: i32) -> i32 { if x > 100 { Panic("too large") } else { x } }
+
+fn Main() {
+    PrintLine(Twice(Twice(5) + 1));
+    PrintLine(Check(Twice(50)));
+    PrintLine(Check(Twice(Twice(3) - 7)));
+    PrintLine("about to panic");
+    PrintLine(Check(Twice(51) + 0));
+    PrintLine("not reached");
+}

@@ -1,0 +1,14 @@
+// An expression spread over several lines panics at the line and column it starts on.
+fn Total(a: u32, b: u32, c: u32) -> u32 {
+    let first = a
+        + b;
+    first
+        * c
+}
+
+fn Main() {
+    PrintLine(Total(1, 2, 3));
+    PrintLine("about to overflow");
+    PrintLine(Total(4294967295, 0, 2));
+    PrintLine("not reached");
+}
