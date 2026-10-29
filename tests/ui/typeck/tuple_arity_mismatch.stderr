@@ -1,0 +1,60 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_arity_mismatch.sabi:4:5 ]
+   │
+ 4 │     (t.0, t.1) //~ ERROR E0300 mismatched types
+   │     ─────┬────  
+   │          ╰────── expected `(i32, i32, i32)`, found `(i32, i32)`
+   │ 
+   │ Note: expected a tuple with 3 elements, found one with 2 elements
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_arity_mismatch.sabi:8:9 ]
+   │
+ 8 │     let (a, b) = (1, 2, 3); //~ ERROR E0300 mismatched types
+   │         ───┬──   ────┬────  
+   │            ╰──────────────── expected `({integer}, {integer}, {integer})`, found a tuple with 2 elements
+   │                      │      
+   │                      ╰────── this expression has type `({integer}, {integer}, {integer})`
+   │ 
+   │ Note: expected a tuple with 3 elements, found one with 2 elements
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_arity_mismatch.sabi:9:9 ]
+   │
+ 9 │     let (c, d, e) = (1, 2); //~ ERROR E0300 mismatched types
+   │         ────┬────   ───┬──  
+   │             ╰─────────────── expected `({integer}, {integer})`, found a tuple with 3 elements
+   │                        │    
+   │                        ╰──── this expression has type `({integer}, {integer})`
+   │ 
+   │ Note: expected a tuple with 2 elements, found one with 3 elements
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_arity_mismatch.sabi:10:25 ]
+    │
+ 10 │     let t: (i32, i32) = (1, 2, 3); //~ ERROR E0300 mismatched types
+    │                         ────┬────  
+    │                             ╰────── expected `(i32, i32)`, found `({integer}, {integer}, {integer})`
+    │ 
+    │ Note: expected a tuple with 2 elements, found one with 3 elements
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_arity_mismatch.sabi:11:18 ]
+    │
+ 11 │     let u = Pair((1, 2, 3)); //~ ERROR E0300 mismatched types
+    │                  ────┬────  
+    │                      ╰────── expected `(i32, i32)`, found `({integer}, {integer}, {integer})`
+    │ 
+    │ Note: expected a tuple with 2 elements, found one with 3 elements
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_arity_mismatch.sabi:12:10 ]
+    │
+ 12 │     let ((f, g), h) = ((1,), 2); //~ ERROR E0300 mismatched types
+    │          ───┬──       ────┬────  
+    │             ╰──────────────────── expected `({integer},)`, found a tuple with 2 elements
+    │                           │      
+    │                           ╰────── this expression has type `({integer},)`
+    │ 
+    │ Note: expected a tuple with 1 element, found one with 2 elements
+────╯

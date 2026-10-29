@@ -7,10 +7,10 @@
     │ 
     │ Note: available fields are: `X`, `Y`
 ────╯
-[E0301] Error: no field `W` on type `Point`
+[E0301] Error: no field `W` on type `&Point`
     ╭─[ tests/ui/typeck/fields.sabi:11:15 ]
     │
- 11 │     let b = r.W; //~ ERROR E0301 no field `W` on type `Point`
+ 11 │     let b = r.W; //~ ERROR E0301 no field `W` on type `&Point`
     │               ┬  
     │               ╰── unknown field
     │ 
@@ -69,10 +69,10 @@
     │                  ┬  
     │                  ╰── unknown field
 ────╯
-[E0301] Error: no field `X` on type `i32`
+[E0301] Error: no field `X` on type `&i32`
     ╭─[ tests/ui/typeck/fields.sabi:21:22 ]
     │
- 21 │     let j = (&typed).X; //~ ERROR E0301 no field `X` on type `i32`
+ 21 │     let j = (&typed).X; //~ ERROR E0301 no field `X` on type `&i32`
     │                      ┬  
     │                      ╰── unknown field
 ────╯

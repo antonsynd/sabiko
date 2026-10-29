@@ -1,5 +1,0 @@
-// `let` takes irrefutable patterns only: a literal inside a tuple pattern is refutable.
-fn Main() {
-    let t = (1, 2);
-    let (1, b) = t; //~ rustc E0005: refutable pattern in local binding
-}

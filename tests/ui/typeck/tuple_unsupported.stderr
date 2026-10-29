@@ -1,0 +1,45 @@
+[E0107] Error: not yet supported: comparing tuples
+   ╭─[ tests/ui/typeck/tuple_unsupported.sabi:8:14 ]
+   │
+ 8 │     let eq = a == b; //~ ERROR E0107 not yet supported: comparing tuples
+   │              ───┬──  
+   │                 ╰──── `==` on tuples is not yet supported
+   │ 
+   │ Note: tuple comparison arrives with the comparison traits in Phase 6; see docs/PLAN.md. Compare the elements one by one instead
+───╯
+[E0107] Error: not yet supported: comparing tuples
+   ╭─[ tests/ui/typeck/tuple_unsupported.sabi:9:14 ]
+   │
+ 9 │     let lt = (2, 0) > (1, 99); //~ ERROR E0107 not yet supported: comparing tuples
+   │              ────────┬───────  
+   │                      ╰───────── `>` on tuples is not yet supported
+   │ 
+   │ Note: tuple comparison arrives with the comparison traits in Phase 6; see docs/PLAN.md. Compare the elements one by one instead
+───╯
+[E0107] Error: not yet supported: comparing tuples
+    ╭─[ tests/ui/typeck/tuple_unsupported.sabi:10:16 ]
+    │
+ 10 │     let refs = &a != &b; //~ ERROR E0107 not yet supported: comparing tuples
+    │                ────┬───  
+    │                    ╰───── `!=` on tuples is not yet supported
+    │ 
+    │ Note: tuple comparison arrives with the comparison traits in Phase 6; see docs/PLAN.md. Compare the elements one by one instead
+────╯
+[E0107] Error: not yet supported: comparing tuples
+    ╭─[ tests/ui/typeck/tuple_unsupported.sabi:11:18 ]
+    │
+ 11 │     let nested = (1, (2, 3)) <= (1, (2, 3)); //~ ERROR E0107 not yet supported: comparing tuples
+    │                  ─────────────┬────────────  
+    │                               ╰────────────── `<=` on tuples is not yet supported
+    │ 
+    │ Note: tuple comparison arrives with the comparison traits in Phase 6; see docs/PLAN.md. Compare the elements one by one instead
+────╯
+[E0107] Error: not yet supported: destructuring assignment
+    ╭─[ tests/ui/typeck/tuple_unsupported.sabi:15:5 ]
+    │
+ 15 │     (x, y) = (y, x); //~ ERROR E0107 not yet supported: destructuring assignment
+    │     ───┬──  
+    │        ╰──── a tuple on the left of `=` is not yet supported
+    │ 
+    │ Note: assign each element (`t.0 = ...`), or bind new names with `let (a, b) = ...;`
+────╯

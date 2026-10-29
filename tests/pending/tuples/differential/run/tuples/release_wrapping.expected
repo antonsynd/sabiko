@@ -1,5 +1,0 @@
-// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0, release (-C overflow-checks=off)
-// --- stdout
-44 56 18446744073709551613
-52 -128 7
-104 -64

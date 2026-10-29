@@ -1,7 +1,0 @@
-// Tuple indices are plain decimal integers: no suffix, no leading zero, no hex.
-fn Main() {
-    let t = (1, 2);
-    let a = t.0u8; //~ rustc -: suffixes on a tuple index are invalid
-    let b = t.01; //~ rustc E0609: no field `01` on type `({integer}, {integer})`
-    let c = t.0x1; //~ rustc E0609: no field `0x1` on type `({integer}, {integer})`
-}

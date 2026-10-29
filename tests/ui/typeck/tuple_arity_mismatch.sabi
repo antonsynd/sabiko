@@ -1,0 +1,13 @@
+// Tuple arity mismatches: in a `let` pattern, an annotation, an argument and a return value.
+// rustc reports each as E0308 "expected a tuple with N elements, found one with M elements".
+fn Pair(t: (i32, i32)) -> (i32, i32, i32) {
+    (t.0, t.1) //~ ERROR E0300 mismatched types
+}
+
+fn Main() {
+    let (a, b) = (1, 2, 3); //~ ERROR E0300 mismatched types
+    let (c, d, e) = (1, 2); //~ ERROR E0300 mismatched types
+    let t: (i32, i32) = (1, 2, 3); //~ ERROR E0300 mismatched types
+    let u = Pair((1, 2, 3)); //~ ERROR E0300 mismatched types
+    let ((f, g), h) = ((1,), 2); //~ ERROR E0300 mismatched types
+}

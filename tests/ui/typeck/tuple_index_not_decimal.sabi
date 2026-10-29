@@ -1,0 +1,8 @@
+// A tuple index with a leading zero or in hexadecimal parses but names no element, as in
+// rustc (E0609 "no field `01` on type ..."). Split out of the staged
+// `tuple_index_syntax.sabi`, whose suffix error stops compilation at the parser.
+fn Main() {
+    let t = (1, 2);
+    let b = t.01; //~ ERROR E0301 no field `01` on type `({integer}, {integer})`
+    let c = t.0x1; //~ ERROR E0301 no field `0x1` on type `({integer}, {integer})`
+}

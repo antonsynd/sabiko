@@ -1,0 +1,9 @@
+// Tuple indices are plain decimal integers: a suffix is a syntax error, as in rustc
+// (uncoded "suffixes on a tuple index are invalid"). An index with a leading zero or in
+// hexadecimal parses, and names no field (`typeck/tuple_index_not_decimal.sabi`).
+fn Main() {
+    let t = (1, 2);
+    let a = t.0u8; //~ ERROR E0100 suffixes on a tuple index are invalid
+    let b = t.1.2f32; //~ ERROR E0100 suffixes on a tuple index are invalid
+    let c = t.1e1; //~ ERROR E0100 invalid tuple index `1e1`
+}

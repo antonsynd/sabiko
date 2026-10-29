@@ -1,0 +1,35 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_one_tuple_vs_parens.sabi:6:22 ]
+   │
+ 6 │     let a: (i32,) = (5); //~ ERROR E0300 mismatched types
+   │                      ┬  
+   │                      ╰── expected `(i32,)`, found `{integer}`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_one_tuple_vs_parens.sabi:7:18 ]
+   │
+ 7 │     let b: i32 = (5,); //~ ERROR E0300 mismatched types
+   │                  ──┬─  
+   │                    ╰─── expected `i32`, found `({integer},)`
+───╯
+[E0301] Error: no field `0` on type `{integer}`
+   ╭─[ tests/ui/typeck/tuple_one_tuple_vs_parens.sabi:8:17 ]
+   │
+ 8 │     let c = (5).0; //~ ERROR E0301 no field `0` on type `{integer}`
+   │                 ┬  
+   │                 ╰── unknown field
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_one_tuple_vs_parens.sabi:9:11 ]
+   │
+ 9 │     Wants(7); //~ ERROR E0300 mismatched types
+   │           ┬  
+   │           ╰── expected `(i32,)`, found `{integer}`
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_one_tuple_vs_parens.sabi:10:20 ]
+    │
+ 10 │     let d: (i32) = (1,); //~ ERROR E0300 mismatched types
+    │                    ──┬─  
+    │                      ╰─── expected `i32`, found `({integer},)`
+────╯

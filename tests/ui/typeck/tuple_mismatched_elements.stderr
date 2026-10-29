@@ -1,0 +1,56 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:6:9 ]
+   │
+ 6 │     (1, "c") //~ ERROR E0300 mismatched types
+   │         ─┬─  
+   │          ╰─── expected `char`, found `&str`
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:10:30 ]
+    │
+ 10 │     let t: (i32, bool) = (1, 2); //~ ERROR E0300 mismatched types
+    │                              ┬  
+    │                              ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:11:12 ]
+    │
+ 11 │     Takes((1u16, true)); //~ ERROR E0300 mismatched types
+    │            ──┬─  
+    │              ╰─── expected `u8`, found `u16`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:13:11 ]
+    │
+ 13 │     u.1 = 2; //~ ERROR E0300 mismatched types
+    │           ┬  
+    │           ╰── expected `char`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:15:10 ]
+    │
+ 15 │     w = ('a', 1); //~ ERROR E0300 mismatched types
+    │          ─┬─  
+    │           ╰─── expected `{integer}`, found `char`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:15:15 ]
+    │
+ 15 │     w = ('a', 1); //~ ERROR E0300 mismatched types
+    │               ┬  
+    │               ╰── expected `char`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:17:34 ]
+    │
+ 17 │     let (x, y): (i32, i32) = (1, false); //~ ERROR E0300 mismatched types
+    │                                  ──┬──  
+    │                                    ╰──── expected `i32`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/tuple_mismatched_elements.sabi:18:20 ]
+    │
+ 18 │     let unit: () = (1,); //~ ERROR E0300 mismatched types
+    │                    ──┬─  
+    │                      ╰─── expected `()`, found `({integer},)`
+────╯

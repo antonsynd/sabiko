@@ -8,7 +8,7 @@ struct Empty;
 
 fn Main(p: Point, r: &Point) {
     let a = p.Z; //~ ERROR E0301 no field `Z` on type `Point`
-    let b = r.W; //~ ERROR E0301 no field `W` on type `Point`
+    let b = r.W; //~ ERROR E0301 no field `W` on type `&Point`
     let c = Point { X: 1 }; //~ ERROR E0302 missing field `Y` in initializer of `Point`
     let d = Point {}; //~ ERROR E0302 missing fields `X` and `Y` in initializer of `Point`
     let e = Point { X: 1, Y: 2, Z: 3 }; //~ ERROR E0301 struct `Point` has no field named `Z`
@@ -18,7 +18,7 @@ fn Main(p: Point, r: &Point) {
     let h = n.X; //~ ERROR E0301 no field `X` on type `{integer}`
     let i = true.X; //~ ERROR E0301 no field `X` on type `bool`
     let typed: i32 = 5;
-    let j = (&typed).X; //~ ERROR E0301 no field `X` on type `i32`
+    let j = (&typed).X; //~ ERROR E0301 no field `X` on type `&i32`
     let k = Point; //~ ERROR E0203 expected value, found struct `Point`
     let l = Empty;
     let m = (&p).X + r.Y;

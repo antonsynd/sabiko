@@ -1,0 +1,13 @@
+// Tuples have no arithmetic, are not printable (neither is `()`), and do not cast;
+// comparison needs both tuples to have the same element types. rustc: E0369, E0600, E0277,
+// E0605, E0308.
+fn Main() {
+    let t = (1, 2);
+    let a = t + (3, 4); //~ ERROR E0306 binary operation `+` cannot be applied to type `({integer}, {integer})`
+    let b = -t; //~ ERROR E0307 cannot apply unary operator `-` to type `({integer}, {integer})`
+    PrintLine(t); //~ ERROR E0300 `PrintLine` cannot print a value of type `({integer}, {integer})`
+    Print(()); //~ ERROR E0300 `Print` cannot print a value of type `()`
+    let c = t as i32; //~ ERROR E0308 non-primitive cast: `(i32, i32)` as `i32`
+    let d = (1, 2) == (1, 2, 3); //~ ERROR E0300 mismatched types
+    let e = (1, 'a') < (1, 2); //~ ERROR E0300 mismatched types
+}

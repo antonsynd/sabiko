@@ -1,5 +1,0 @@
-// `t.0.1` lexes as `t` `.` `0.1`; it must still be reported as tuple field access.
-fn Main(t: Pair) {
-    let a = t.0; //~ ERROR E0107 not yet supported: tuple field access (`.0`)
-    let b = t.0.1; //~ ERROR E0107 not yet supported: tuple field access (`.0`)
-}

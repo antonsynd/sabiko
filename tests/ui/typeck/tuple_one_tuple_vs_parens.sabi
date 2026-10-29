@@ -1,0 +1,11 @@
+// `(e)` is not a 1-tuple and `(e,)` is not its element; `(i32)` is the type `i32`.
+// rustc: E0308, and E0610 for `(5).0`.
+fn Wants(t: (i32,)) {}
+
+fn Main() {
+    let a: (i32,) = (5); //~ ERROR E0300 mismatched types
+    let b: i32 = (5,); //~ ERROR E0300 mismatched types
+    let c = (5).0; //~ ERROR E0301 no field `0` on type `{integer}`
+    Wants(7); //~ ERROR E0300 mismatched types
+    let d: (i32) = (1,); //~ ERROR E0300 mismatched types
+}

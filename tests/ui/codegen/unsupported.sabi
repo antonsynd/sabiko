@@ -1,17 +1,13 @@
 // Constructs that pass type and borrow checking but the IL backend does not lower yet.
 // Each must be reported as E0500: the backend never compiles them to placeholder IL.
-
-struct Wrapper {
-    Unit: (), //~ ERROR E0500 a struct field of type `()` is not yet supported by code generation
-}
+// (`()`-typed struct fields and parameters were here until tuples and `()` values landed,
+// decision 52.)
 
 fn Nested(r: &&i32) -> i32 { //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     **r
 }
 
 fn Main() {
-    let w = Wrapper { Unit: () };
-    let _ = w;
     let a = 1;
     let r = &a;
     let rr = &r; //~ ERROR E0500 a reference to a reference is not yet supported by code generation
@@ -22,4 +18,12 @@ fn Main() {
     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     //~^ ERROR E0500 a reference to `()` is not yet supported by code generation
     let _ = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    // A tuple element is no different.
+    let pair = (r, 2);
+    let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+    //~^ ERROR E0500 a reference to a reference is not yet supported by code generation
+    //~^^ ERROR E0500 a reference to a reference is not yet supported by code generation
+    let units = ((), 4);
+    let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+    //~^ ERROR E0500 a reference to `()` is not yet supported by code generation
 }

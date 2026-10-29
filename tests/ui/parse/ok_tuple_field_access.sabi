@@ -1,0 +1,12 @@
+// Tuple syntax parses: `t.0.1` lexes as `t` `.` `0.1` and is split into two field
+// accesses, as in rustc; `(e)` is a parenthesised expression and `(e,)` a 1-tuple, in
+// expressions, types and patterns alike.
+fn Main(t: Pair, (a, (b,), _): (i32, (u8,), ((), bool))) {
+    let a = t.0;
+    let b = t.0.1;
+    let c = t.1.0.2.3;
+    let (d, mut e) = (1, (2,));
+    let f: ((i32), (i32,)) = ((3), (4,));
+    let () = ();
+    let g = (t).0 .1;
+}

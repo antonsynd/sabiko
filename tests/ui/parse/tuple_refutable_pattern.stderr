@@ -1,0 +1,9 @@
+[E0107] Error: not yet supported: literal patterns
+   ╭─[ tests/ui/parse/tuple_refutable_pattern.sabi:6:10 ]
+   │
+ 6 │     let (1, b) = t; //~ ERROR E0107 not yet supported: literal patterns
+   │          ┬  
+   │          ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: planned for Phase 5; see docs/PLAN.md
+───╯
