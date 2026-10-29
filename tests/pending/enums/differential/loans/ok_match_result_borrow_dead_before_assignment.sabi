@@ -1,0 +1,15 @@
+// The same reference, used up before the reassignment: the borrow is not live there.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Main() {
+    let zero = 0;
+    let mut s = Slot::Full(Token { Id: 1 });
+    let id = match &s {
+        Slot::Full(t) => &t.Id,
+        Slot::Empty => &zero,
+    };
+    PrintLine(*id);
+    s = Slot::Empty;
+}

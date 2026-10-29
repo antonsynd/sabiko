@@ -1,0 +1,13 @@
+// Matching reads the scrutinee's discriminant (and copies the bound payload): both are
+// uses, rejected while a mutable borrow of the scrutinee is live (E0503).
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    let m = &mut c;
+    match c {
+        Cell::Value(n) => PrintLine(n),
+        Cell::Empty => {}
+    }
+    *m = Cell::Empty;
+}

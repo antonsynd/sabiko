@@ -1,0 +1,23 @@
+// Integers are exhaustive only when the patterns cover the whole range of the type: E0004
+// names the gaps as ranges. A `u8` match covering 0..=255 and an `i8` match covering
+// -128..=127 are accepted (run/enums/literals_and_ranges.sabi).
+fn F(n: i32) -> i32 {
+    match n { //~ rustc E0004: non-exhaustive patterns: `i32::MIN..=-1_i32` and `3_i32..=i32::MAX` not covered
+        0 => 10,
+        1 | 2 => 20,
+    }
+}
+
+fn G(n: u8) -> i32 {
+    match n { //~ rustc E0004: non-exhaustive patterns: `u8::MAX` not covered
+        0..=9 => 1,
+        10..=254 => 2,
+    }
+}
+
+fn H(n: i8) -> i32 {
+    match n { //~ rustc E0004: non-exhaustive patterns: `0_i8` not covered
+        -128..=-1 => 1,
+        1..=127 => 2,
+    }
+}

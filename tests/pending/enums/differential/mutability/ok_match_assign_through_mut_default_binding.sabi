@@ -1,0 +1,24 @@
+// Matching a `&mut Cell` binds `n: &mut i32` (default binding mode `ref mut`): writing
+// through it changes the referent, and the reference binding need not be `mut`. A
+// `match &mut c` on a `mut` local does the same.
+enum Cell { Empty, Value(i32), Pair { A: i32, B: i32 } }
+
+fn F(c: &mut Cell) {
+    match c {
+        Cell::Value(n) => *n = 0,
+        Cell::Pair { A: a, B: b } => {
+            *a += 1;
+            *b += *a;
+        }
+        Cell::Empty => {}
+    }
+}
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    match &mut c {
+        Cell::Value(n) => *n += 1,
+        _ => {}
+    }
+    F(&mut c);
+}

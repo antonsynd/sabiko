@@ -1,0 +1,10 @@
+// Matching an unassigned local reads it: E0381.
+enum Light { Red, Green }
+
+fn F() -> i32 {
+    let l: Light;
+    match l {
+        Light::Red => 1,
+        Light::Green => 2,
+    }
+}

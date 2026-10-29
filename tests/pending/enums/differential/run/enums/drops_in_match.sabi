@@ -1,0 +1,75 @@
+// (drops, #12) Drops and match: a by-value binding moves the payload into the arm, and it
+// is dropped at the end of the arm; parts the pattern does not bind stay in the scrutinee
+// and are dropped with it at the end of its scope (also after a partial move). A
+// scrutinee that is a temporary lives until the end of the whole `match` statement (after
+// the arm), a value moved out of it is dropped where the arm leaves it.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Holder { Nothing, One(D), Two(D, D) }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn MakeTwo(a: i32, b: i32) -> Holder {
+    Holder::Two(Make(a), Make(b))
+}
+
+fn Main() {
+    {
+        let h = MakeTwo(1, 2);
+        match h {
+            Holder::Two(a, _) => {
+                Print("arm has ");
+                PrintLine(a.Id);
+            }
+            _ => {}
+        }
+        PrintLine("after match 1");
+    }
+    PrintLine("--");
+    {
+        let h = Holder::One(Make(3));
+        match h {
+            Holder::One(ref d) => {
+                Print("borrowed ");
+                PrintLine(d.Id);
+            }
+            _ => {}
+        }
+        PrintLine("after match 2");
+    }
+    PrintLine("--");
+    match MakeTwo(4, 5) {
+        Holder::Two(_, ref b) => {
+            Print("temporary arm ");
+            PrintLine(b.Id);
+        }
+        _ => {}
+    }
+    PrintLine("after match 3");
+    PrintLine("--");
+    let kept = match MakeTwo(6, 7) {
+        Holder::Two(a, _) => a,
+        _ => Make(0),
+    };
+    PrintLine("after match 4");
+    PrintLine("--");
+    let mut h = Holder::One(Make(8));
+    h = Holder::Nothing;
+    PrintLine("reassigned");
+    match h {
+        Holder::Nothing => PrintLine("nothing"),
+        _ => {}
+    }
+    PrintLine("end");
+}

@@ -1,0 +1,26 @@
+// `mut n` makes the binding (a copy of the payload) mutable; the scrutinee itself need
+// not be `mut`, and is unchanged. `mut` also works on a catch-all binding and after `@`.
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell) -> i32 {
+    match c {
+        Cell::Value(mut n) => {
+            n += 1;
+            n
+        }
+        Cell::Empty => 0,
+    }
+}
+
+fn G(k: i32) -> i32 {
+    match k {
+        mut small @ 0..=9 => {
+            small *= 2;
+            small
+        }
+        mut other => {
+            other -= 1;
+            other
+        }
+    }
+}

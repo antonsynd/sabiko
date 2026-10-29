@@ -1,0 +1,74 @@
+// Binding modes: matching a reference with non-reference patterns binds by reference
+// (`&` gives `&T`, `&mut` gives `&mut T`), `ref`/`ref mut` borrow from an owned
+// scrutinee, and `mut x` copies. Writes through `&mut` and `ref mut` bindings change the
+// scrutinee; writes to a `mut` copy do not.
+enum Cell { Empty, Value(i32), Pair { A: i32, B: i32 } }
+
+fn Show(c: &Cell) {
+    match c {
+        Cell::Empty => PrintLine("empty"),
+        Cell::Value(n) => {
+            Print("value ");
+            PrintLine(*n);
+        }
+        Cell::Pair { A: a, B: b } => {
+            Print("pair ");
+            Print(*a);
+            Print(' ');
+            PrintLine(*b);
+        }
+    }
+}
+
+fn Bump(c: &mut Cell) {
+    match c {
+        Cell::Empty => {}
+        Cell::Value(n) => *n += 1,
+        Cell::Pair { A: a, B: b } => {
+            *a += 10;
+            *b = *a * 2;
+        }
+    }
+}
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    Bump(&mut c);
+    Show(&c);
+    match c {
+        Cell::Value(ref mut n) => *n *= 7,
+        _ => {}
+    }
+    Show(&c);
+    match c {
+        Cell::Value(mut n) => {
+            n += 1000;
+            Print("copy ");
+            PrintLine(n);
+        }
+        _ => {}
+    }
+    Show(&c);
+    let mut p = Cell::Pair { A: 1, B: 2 };
+    Bump(&mut p);
+    Show(&p);
+    match &mut p {
+        Cell::Pair { A: a, .. } => *a = -1,
+        _ => {}
+    }
+    Show(&p);
+    let r = &p;
+    let total = match r {
+        Cell::Pair { A: a, B: b } => *a + *b,
+        _ => 0,
+    };
+    PrintLine(total);
+    match p {
+        Cell::Pair { A: ref a, B: ref mut b } => *b += *a,
+        _ => {}
+    }
+    Show(&p);
+    let mut e = Cell::Empty;
+    Bump(&mut e);
+    Show(&e);
+}

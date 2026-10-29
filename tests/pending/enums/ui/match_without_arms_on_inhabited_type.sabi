@@ -1,0 +1,15 @@
+// `match e {}` is only valid for a type without values (an empty enum,
+// run/enums/empty_enum.sabi); for an enum with variants E0004 lists them, for any other
+// type it says the type is non-empty.
+enum Light { Red, Green }
+
+struct P { X: i32 }
+
+fn F(l: Light) -> i32 {
+    match l {} //~ rustc E0004: non-exhaustive patterns: `Light::Red` and `Light::Green` not covered
+}
+
+fn G(n: i32, p: P) -> i32 {
+    match n {} //~ rustc E0004: non-exhaustive patterns: type `i32` is non-empty
+    match p {} //~ rustc E0004: non-exhaustive patterns: type `P` is non-empty
+}

@@ -1,0 +1,23 @@
+// An arm that moves out and then diverges (`return`, a panic) does not reach the code
+// after the match, so the scrutinee is still whole there.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token), Spare(Token) }
+
+fn Consume(t: Token) {}
+fn Take(s: Slot) {}
+
+fn F(s: Slot, stop: bool) {
+    match s {
+        Slot::Full(t) if stop => {
+            Consume(t);
+            return;
+        }
+        Slot::Spare(t) => {
+            Consume(t);
+            Panic("spare");
+        }
+        _ => {}
+    }
+    Take(s);
+}

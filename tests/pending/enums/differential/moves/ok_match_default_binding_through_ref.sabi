@@ -1,0 +1,27 @@
+// Default binding modes: matching a `&Slot` (a reference, not `*r`) against a non-reference
+// pattern dereferences it and binds by reference, so `t` is a `&Token` and nothing moves.
+// Copy payloads are bound as references too (`n: &i32`). `match &s` does the same for an
+// owned scrutinee, which stays usable.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token), Count(i32) }
+
+fn Take(s: Slot) {}
+
+fn F(r: &Slot) -> i32 {
+    match r {
+        Slot::Full(t) => t.Id,
+        Slot::Count(n) => *n,
+        Slot::Empty => 0,
+    }
+}
+
+fn Main() {
+    let s = Slot::Full(Token { Id: 4 });
+    let id = match &s {
+        Slot::Full(t) => t.Id,
+        _ => 0,
+    };
+    let n = F(&s);
+    Take(s);
+}

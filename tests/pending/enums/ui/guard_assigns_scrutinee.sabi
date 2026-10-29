@@ -1,0 +1,15 @@
+// Fake borrows: while a guard runs, the scrutinee may not be changed, since later arms
+// would test a different value. Assigning it or borrowing it mutably in a guard is E0510
+// (a borrow-checker error, but not in RUSTC_BORROW_CODES). With a binding in the arm,
+// rustc reports E0506 instead (differential/loans/err_match_guard_binding_blocks_assignment).
+enum Cell { Empty, Value(i32) }
+
+fn Clear(c: &mut Cell) {}
+
+fn F(mut c: Cell) -> i32 {
+    match c {
+        Cell::Value(_) if { c = Cell::Empty; false } => 1, //~ rustc E0510: cannot assign `c` in match guard [value is immutable in match guard]
+        Cell::Value(_) if { Clear(&mut c); false } => 2, //~ rustc E0510: cannot mutably borrow `c` in match guard
+        _ => 0,
+    }
+}

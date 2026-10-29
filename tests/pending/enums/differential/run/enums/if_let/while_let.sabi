@@ -1,0 +1,49 @@
+// `while let` loops while the pattern matches: draining a fixed-size stack whose `Pop`
+// returns a user `MaybeI32` (no generic `Option` before Phase 6), with `break` and
+// `continue` inside, and a `while let` over a state value reassigned in the body.
+enum MaybeI32 { None, Some(i32) }
+
+struct Stack { A: i32, B: i32, C: i32, Len: i32 }
+
+impl Stack {
+    fn Pop(&mut self) -> MaybeI32 {
+        if self.Len == 0 {
+            return MaybeI32::None;
+        }
+        self.Len -= 1;
+        match self.Len {
+            0 => MaybeI32::Some(self.A),
+            1 => MaybeI32::Some(self.B),
+            _ => MaybeI32::Some(self.C),
+        }
+    }
+}
+
+enum Countdown { Running(i32), Finished }
+
+fn Main() {
+    let mut s = Stack { A: 1, B: 2, C: 3, Len: 3 };
+    while let MaybeI32::Some(v) = s.Pop() {
+        PrintLine(v);
+    }
+    PrintLine(s.Len);
+    s.Len = 3;
+    while let MaybeI32::Some(v) = s.Pop() {
+        if v == 3 {
+            continue;
+        }
+        if v == 1 {
+            break;
+        }
+        Print("kept ");
+        PrintLine(v);
+    }
+    PrintLine(s.Len);
+    let mut c = Countdown::Running(3);
+    while let Countdown::Running(n) = c {
+        Print(n);
+        Print(' ');
+        c = if n == 1 { Countdown::Finished } else { Countdown::Running(n - 1) };
+    }
+    PrintLine("liftoff");
+}

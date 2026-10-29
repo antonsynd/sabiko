@@ -1,0 +1,12 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+dot
+square 4
+rect 5x3
+line -2..7 true
+16
+15
+0
+rect 13x12
+line 1..5 true
+900

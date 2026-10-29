@@ -1,0 +1,32 @@
+// A state machine driven by a `loop` over a `match`: states carry data, transitions
+// build new states, `break value` from inside an arm leaves the loop, `continue` from an
+// arm skips the rest of the body.
+enum State { Start, Counting(i32), Pausing { Left: i32, Resume: i32 }, Done(i32) }
+
+fn Run(limit: i32) -> i32 {
+    let mut state = State::Start;
+    let mut steps = 0;
+    loop {
+        steps += 1;
+        state = match state {
+            State::Start => State::Counting(0),
+            State::Counting(n) if n >= limit => State::Done(n),
+            State::Counting(n) if n % 4 == 3 => State::Pausing { Left: 2, Resume: n + 1 },
+            State::Counting(n) => State::Counting(n + 1),
+            State::Pausing { Left: 0, Resume: r } => State::Counting(r),
+            State::Pausing { Left: l, Resume: r } => {
+                Print("pause ");
+                PrintLine(l);
+                state = State::Pausing { Left: l - 1, Resume: r };
+                continue;
+            }
+            State::Done(n) => break n * 1000 + steps,
+        };
+    }
+}
+
+fn Main() {
+    PrintLine(Run(0));
+    PrintLine(Run(5));
+    PrintLine(Run(9));
+}

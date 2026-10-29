@@ -1,0 +1,18 @@
+// A `ref mut` binding is a mutable borrow of the payload: reading the scrutinee while the
+// binding is still used is E0502.
+struct Counter { N: i32 }
+
+enum Slot { Empty, Full(Counter) }
+
+fn Peek(s: &Slot) -> i32 { 0 }
+
+fn Main() {
+    let mut s = Slot::Full(Counter { N: 1 });
+    match s {
+        Slot::Full(ref mut c) => {
+            let seen = Peek(&s);
+            c.N += seen;
+        }
+        Slot::Empty => {}
+    }
+}

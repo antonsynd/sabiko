@@ -1,0 +1,16 @@
+// `if let` binds like a match arm: a by-value binding of a non-Copy payload moves it,
+// so the scrutinee is partially moved after the `if let`.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Consume(t: Token) {}
+fn Take(s: Slot) {}
+
+fn Main() {
+    let s = Slot::Full(Token { Id: 1 });
+    if let Slot::Full(t) = s {
+        Consume(t);
+    }
+    Take(s);
+}

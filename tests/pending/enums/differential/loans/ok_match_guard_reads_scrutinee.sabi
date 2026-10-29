@@ -1,0 +1,19 @@
+// A guard may read the scrutinee, its bindings and other locals, and assign other locals;
+// the arm body may then mutate the scrutinee (the guard's borrows end with the guard).
+enum Cell { Empty, Value(i32) }
+
+fn Peek(c: &Cell) -> i32 { 1 }
+
+fn Main() {
+    let mut c = Cell::Value(3);
+    let mut calls = 0;
+    match c {
+        Cell::Value(n) if { calls += 1; n > Peek(&c) } => {
+            c = Cell::Value(n - 1);
+        }
+        Cell::Value(ref n) if *n == 0 && Peek(&c) == 1 => {
+            c = Cell::Empty;
+        }
+        _ => {}
+    }
+}

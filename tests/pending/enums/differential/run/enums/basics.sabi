@@ -1,0 +1,69 @@
+// Unit, tuple and struct variants: construction with `E::V`, `E::V(..)` and
+// `E::V { .. }` (fields in any order), matching each shape, a match as a value, and
+// enums passed to and returned from functions.
+enum Shape {
+    Dot,
+    Square(i32),
+    Rect { W: i32, H: i32 },
+    Line(i32, i32, bool),
+}
+
+fn Area(s: Shape) -> i32 {
+    match s {
+        Shape::Dot => 0,
+        Shape::Square(side) => side * side,
+        Shape::Rect { W: w, H: h } => w * h,
+        Shape::Line(from, to, _) => 0 * (to - from),
+    }
+}
+
+fn Describe(s: Shape) {
+    match s {
+        Shape::Dot => PrintLine("dot"),
+        Shape::Square(side) => {
+            Print("square ");
+            PrintLine(side);
+        }
+        Shape::Rect { H: h, W: w } => {
+            Print("rect ");
+            Print(w);
+            Print('x');
+            PrintLine(h);
+        }
+        Shape::Line(from, to, dashed) => {
+            Print("line ");
+            Print(from);
+            Print("..");
+            Print(to);
+            Print(' ');
+            PrintLine(dashed);
+        }
+    }
+}
+
+fn Grow(s: Shape, by: i32) -> Shape {
+    match s {
+        Shape::Dot => Shape::Square(by),
+        Shape::Square(side) => Shape::Rect { W: side + by, H: side },
+        Shape::Rect { W: w, H: h } => Shape::Rect { H: h + by, W: w + by },
+        Shape::Line(a, b, d) => Shape::Line(a, b + by, !d),
+    }
+}
+
+fn Main() {
+    Describe(Shape::Dot);
+    Describe(Shape::Square(4));
+    Describe(Shape::Rect { H: 3, W: 5 });
+    Describe(Shape::Line(-2, 7, true));
+    PrintLine(Area(Shape::Square(4)));
+    PrintLine(Area(Shape::Rect { W: 5, H: 3 }));
+    PrintLine(Area(Shape::Dot));
+    let s = Grow(Grow(Grow(Shape::Dot, 2), 1), 10);
+    Describe(s);
+    Describe(Grow(Shape::Line(1, 2, false), 3));
+    let kind = match Grow(Shape::Dot, 9) {
+        Shape::Square(n) => n * 100,
+        _ => -1,
+    };
+    PrintLine(kind);
+}

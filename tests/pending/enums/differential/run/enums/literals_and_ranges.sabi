@@ -1,0 +1,94 @@
+// Literal patterns of every primitive kind, inclusive ranges and one exclusive range
+// (`4..10`, stable since Rust 1.80), negative bounds, or-patterns, `@` bindings with ranges and or-patterns, and integer matches that
+// are exhaustive without `_` because the ranges cover the whole type (`u8`, `i8`, `bool`).
+fn Classify(n: i32) -> i32 {
+    match n {
+        -2147483648..=-1 => -1,
+        0 => 0,
+        1 | 2 | 3 => 1,
+        4..10 => 2,
+        10..=99 => 3,
+        _ => 4,
+    }
+}
+
+fn Digit(c: char) -> i32 {
+    match c {
+        d @ '0'..='9' => d as i32 - '0' as i32,
+        'a'..='f' | 'A'..='F' => 10,
+        ' ' | '\t' | '\n' => -2,
+        _ => -1,
+    }
+}
+
+fn Byte(b: u8) -> i32 {
+    match b {
+        0 => 0,
+        1..=127 => 1,
+        128..=254 => 2,
+        255 => 3,
+    }
+}
+
+fn Signed(b: i8) -> i32 {
+    match b {
+        -128..=-1 => -1,
+        0..=127 => 1,
+    }
+}
+
+fn Flags(a: bool, b: bool) -> i32 {
+    match (a, b) {
+        (true, true) => 3,
+        (true, false) => 2,
+        (false, true) => 1,
+        (false, false) => 0,
+    }
+}
+
+fn Bucket(n: i64) -> i64 {
+    match n {
+        small @ (1 | 2 | 4 | 8) => small * 1000,
+        teen @ 13..=19 => teen + 100,
+        big @ 1_000_000..=999_999_999 => big / 1000,
+        other => other,
+    }
+}
+
+fn Main() {
+    PrintLine(Classify(-5));
+    PrintLine(Classify(0));
+    PrintLine(Classify(3));
+    PrintLine(Classify(4));
+    PrintLine(Classify(9));
+    PrintLine(Classify(10));
+    PrintLine(Classify(99));
+    PrintLine(Classify(100));
+    PrintLine(Classify(-2147483648));
+    PrintLine(Digit('7'));
+    PrintLine(Digit('c'));
+    PrintLine(Digit('F'));
+    PrintLine(Digit('\t'));
+    PrintLine(Digit('z'));
+    PrintLine(Byte(0));
+    PrintLine(Byte(127));
+    PrintLine(Byte(128));
+    PrintLine(Byte(255));
+    PrintLine(Signed(-128));
+    PrintLine(Signed(0));
+    PrintLine(Flags(true, false));
+    PrintLine(Flags(false, true));
+    PrintLine(Bucket(4));
+    PrintLine(Bucket(5));
+    PrintLine(Bucket(17));
+    PrintLine(Bucket(2_500_000));
+    let f = 2.5;
+    let half = match f > 2.0 {
+        true => "big",
+        false => "small",
+    };
+    PrintLine(half);
+    match () {
+        () => PrintLine("unit"),
+    }
+}

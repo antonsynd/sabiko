@@ -1,0 +1,12 @@
+// `match *r` with a by-value binding of a non-Copy payload would move out of a borrowed
+// value: E0507.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn F(r: &Slot) -> i32 {
+    match *r {
+        Slot::Full(t) => t.Id,
+        Slot::Empty => 0,
+    }
+}

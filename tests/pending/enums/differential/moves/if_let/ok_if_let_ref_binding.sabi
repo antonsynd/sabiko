@@ -1,0 +1,29 @@
+// `ref` bindings and `_` in `if let` and `while let` leave the scrutinee whole; a
+// by-value move in a `let else` is fine when the scrutinee is not used again.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Consume(t: Token) {}
+fn Take(s: Slot) {}
+
+fn F(s: Slot) -> i32 {
+    if let Slot::Full(ref t) = s {
+        PrintLine(t.Id);
+    }
+    if let Slot::Full(_) = s {
+        PrintLine("full");
+    }
+    let mut n = 0;
+    while let Slot::Full(ref t) = s {
+        n += t.Id;
+        if n > 3 {
+            break;
+        }
+    }
+    let Slot::Full(t) = s else {
+        return 0;
+    };
+    Consume(t);
+    n
+}

@@ -1,0 +1,12 @@
+// Rust 2021: `mut t` under a by-reference default binding mode binds by value again, so
+// a non-Copy payload is moved out of the reference (E0507).
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn F(r: &Slot) {
+    match r {
+        Slot::Full(mut t) => t.Id = 0,
+        Slot::Empty => {}
+    }
+}

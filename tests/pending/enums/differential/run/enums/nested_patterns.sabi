@@ -1,0 +1,58 @@
+// Nested patterns: enums inside tuples, structs and other enums' payloads, struct
+// patterns with `..` and field shorthand, tuple-variant `..` at the start, middle and end,
+// tuple scrutinees `match (a, b)`, and literals deep inside.
+#[derive(Copy, Clone)]
+enum Suit { Hearts, Spades }
+
+#[derive(Copy, Clone)]
+struct Card { Rank: i32, Suit: Suit }
+
+enum Hand { Empty, One(Card), Two(Card, Card), Many(i32, Card, Card, i32) }
+
+struct Player { Score: i32, Hand: Hand, Active: bool }
+
+fn Rate(p: Player) -> i32 {
+    match p {
+        Player { Active: false, .. } => -1,
+        Player { Hand: Hand::Empty, Score, .. } => Score,
+        Player { Hand: Hand::One(Card { Rank: 1, .. }), .. } => 100,
+        Player { Hand: Hand::One(Card { Rank: r, Suit: Suit::Hearts }), Score: s, .. } => r + s,
+        Player { Hand: Hand::One(c), .. } => c.Rank,
+        Player { Hand: Hand::Two(Card { Rank: a, .. }, Card { Rank: b, .. }), .. } if a == b => 50,
+        Player { Hand: Hand::Two(.., Card { Suit: Suit::Spades, Rank }), .. } => Rank * 2,
+        Player { Hand: Hand::Two(..), .. } => 2,
+        Player { Hand: Hand::Many(n, .., last), .. } => n + last,
+    }
+}
+
+fn Pair(a: Suit, b: Suit) -> i32 {
+    match (a, b) {
+        (Suit::Hearts, Suit::Hearts) => 1,
+        (Suit::Hearts, _) | (_, Suit::Hearts) => 2,
+        (Suit::Spades, Suit::Spades) => 3,
+    }
+}
+
+fn Main() {
+    let ace = Card { Rank: 1, Suit: Suit::Spades };
+    let seven = Card { Rank: 7, Suit: Suit::Hearts };
+    let nine = Card { Rank: 9, Suit: Suit::Spades };
+    PrintLine(Rate(Player { Score: 5, Hand: Hand::One(seven), Active: false }));
+    PrintLine(Rate(Player { Score: 5, Hand: Hand::Empty, Active: true }));
+    PrintLine(Rate(Player { Score: 5, Hand: Hand::One(ace), Active: true }));
+    PrintLine(Rate(Player { Score: 5, Hand: Hand::One(seven), Active: true }));
+    PrintLine(Rate(Player { Score: 5, Hand: Hand::One(nine), Active: true }));
+    PrintLine(Rate(Player { Score: 0, Hand: Hand::Two(seven, seven), Active: true }));
+    PrintLine(Rate(Player { Score: 0, Hand: Hand::Two(seven, nine), Active: true }));
+    PrintLine(Rate(Player { Score: 0, Hand: Hand::Two(nine, seven), Active: true }));
+    PrintLine(Rate(Player { Score: 0, Hand: Hand::Many(3, ace, nine, 4), Active: true }));
+    PrintLine(Pair(Suit::Hearts, Suit::Spades));
+    PrintLine(Pair(Suit::Spades, Suit::Hearts));
+    PrintLine(Pair(Suit::Spades, Suit::Spades));
+    let t = (1, (Suit::Hearts, 2), Hand::One(nine));
+    match t {
+        (1, (Suit::Spades, _), _) => PrintLine("no"),
+        (1, (_, k), Hand::One(Card { Rank: r, .. })) => PrintLine(k * 100 + r),
+        _ => PrintLine("other"),
+    }
+}

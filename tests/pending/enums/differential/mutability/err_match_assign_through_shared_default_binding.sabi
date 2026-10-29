@@ -1,0 +1,10 @@
+// Matching a `&Cell` binds `n: &i32` (default binding mode `ref`): writing through it is
+// E0594.
+enum Cell { Empty, Value(i32) }
+
+fn F(c: &Cell) {
+    match c {
+        Cell::Value(n) => *n = 0,
+        Cell::Empty => {}
+    }
+}

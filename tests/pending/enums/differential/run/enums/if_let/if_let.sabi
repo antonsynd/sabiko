@@ -1,0 +1,39 @@
+// `if let` runs its block when the pattern matches and the `else` branch otherwise;
+// `else if let` chains, `if let` is an expression, and its patterns are the full set:
+// ranges, or-patterns, `@`, nested variants, default binding modes through a reference.
+enum Cell { Empty, Value(i32), Pair(i32, i32) }
+
+fn Describe(c: &Cell) -> i32 {
+    if let Cell::Value(n) = c {
+        *n
+    } else if let Cell::Pair(a, 0) | Cell::Pair(0, a) = c {
+        *a * 10
+    } else if let Cell::Pair(big @ 100..=999, _) = c {
+        *big
+    } else {
+        -1
+    }
+}
+
+fn Main() {
+    let mut c = Cell::Value(3);
+    PrintLine(Describe(&c));
+    PrintLine(Describe(&Cell::Pair(4, 0)));
+    PrintLine(Describe(&Cell::Pair(0, 5)));
+    PrintLine(Describe(&Cell::Pair(123, 5)));
+    PrintLine(Describe(&Cell::Pair(1, 5)));
+    PrintLine(Describe(&Cell::Empty));
+    if let Cell::Value(ref mut n) = c {
+        *n += 100;
+    }
+    PrintLine(Describe(&c));
+    if let Cell::Empty = c {
+        PrintLine("empty");
+    } else {
+        PrintLine("not empty");
+    }
+    let t = (Cell::Pair(1, 2), 7);
+    if let (Cell::Pair(x, y), k) = t {
+        PrintLine(x + y + k);
+    }
+}

@@ -1,0 +1,11 @@
+// An enum without `#[derive(Copy, Clone)]` is moved by value, even when it has no
+// payload at all: the second call uses a moved value.
+enum Light { Red, Green }
+
+fn Show(l: Light) {}
+
+fn Main() {
+    let l = Light::Green;
+    Show(l);
+    Show(l);
+}

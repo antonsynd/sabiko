@@ -1,0 +1,59 @@
+// (drops, #12) Edition 2021: a temporary in the scrutinee of `match` and of `if let`
+// lives until the end of the whole expression, so for `if let` it is dropped after the
+// `else` block too (edition 2024 drops it before `else`). A `while let` scrutinee's
+// temporaries are dropped at the end of every iteration; a plain `if` condition's before
+// the branch (rule 11 of the drops section).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Cell { Empty, Value(i32) }
+
+impl D {
+    fn Peek(&self) -> Cell {
+        if self.Id > 2 { Cell::Value(self.Id) } else { Cell::Empty }
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Main() {
+    if let Cell::Value(n) = Make(5).Peek() {
+        Print("then ");
+        PrintLine(n);
+    } else {
+        PrintLine("else");
+    }
+    PrintLine("--");
+    if let Cell::Value(n) = Make(1).Peek() {
+        PrintLine(n);
+    } else {
+        PrintLine("else runs before the drop");
+    }
+    PrintLine("--");
+    match Make(2).Peek() {
+        Cell::Value(n) => PrintLine(n),
+        Cell::Empty => PrintLine("arm runs before the drop"),
+    }
+    PrintLine("--");
+    let mut i = 3;
+    while let Cell::Value(n) = Make(i).Peek() {
+        Print("body ");
+        PrintLine(n);
+        i -= 1;
+    }
+    PrintLine("--");
+    if Make(9).Id > 0 {
+        PrintLine("if body runs after the drop");
+    }
+    PrintLine("end");
+}

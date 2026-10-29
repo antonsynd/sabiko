@@ -1,0 +1,49 @@
+// The scrutinee is evaluated exactly once, before any pattern is tested, however many
+// arms and guards there are. Guards run top to bottom, only for arms whose pattern
+// matched, and an arm's body runs after its guard. A match in a guard, in a scrutinee and
+// in an arm nests.
+enum Cell { Empty, Value(i32) }
+
+fn Make(n: i32) -> Cell {
+    Print("make ");
+    PrintLine(n);
+    if n == 0 { Cell::Empty } else { Cell::Value(n) }
+}
+
+fn Log(tag: i32, b: bool) -> bool {
+    Print("guard ");
+    Print(tag);
+    Print(' ');
+    PrintLine(b);
+    b
+}
+
+fn Main() {
+    let r = match Make(3) {
+        Cell::Value(n) if Log(1, n > 5) => {
+            PrintLine("arm 1");
+            1
+        }
+        Cell::Empty if Log(2, true) => 2,
+        Cell::Value(n) if Log(3, n == 3) => {
+            PrintLine("arm 3");
+            3
+        }
+        _ => 4,
+    };
+    PrintLine(r);
+    let s = match Make(0) {
+        Cell::Value(_) => 10,
+        Cell::Empty if Log(5, match Make(7) { Cell::Value(k) => k > 6, Cell::Empty => false }) => 20,
+        Cell::Empty => 30,
+    };
+    PrintLine(s);
+    let t = match (Make(1), Make(2)) {
+        (Cell::Value(a), Cell::Value(b)) => match Make(a + b) {
+            Cell::Value(c) => c * 10,
+            Cell::Empty => 0,
+        },
+        _ => -1,
+    };
+    PrintLine(t);
+}

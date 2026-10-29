@@ -1,0 +1,14 @@
+// A `ref` binding borrows the scrutinee's payload for as long as the binding is used:
+// assigning the scrutinee inside the arm while `n` is still needed is E0506.
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    match c {
+        Cell::Value(ref n) => {
+            c = Cell::Empty;
+            PrintLine(*n);
+        }
+        Cell::Empty => {}
+    }
+}

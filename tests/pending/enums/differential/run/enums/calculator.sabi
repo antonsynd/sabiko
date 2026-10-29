@@ -1,0 +1,141 @@
+// An expression-heavy interpreter over flat enums (no recursion without `Box`): a stack
+// machine with four registers, instructions as an enum with payloads, operators as a
+// fieldless enum, errors as an enum carrying data, nested matches as values.
+#[derive(Copy, Clone)]
+enum Op { Add, Sub, Mul, Div, Rem }
+
+#[derive(Copy, Clone)]
+enum Instr { Push(i64), Bin(Op), Neg, Dup, Swap, Halt }
+
+enum Outcome { Ok(i64), DivByZero { At: i32 }, Underflow(i32), Overflow }
+
+struct Stack { A: i64, B: i64, C: i64, D: i64, Len: i32 }
+
+impl Stack {
+    fn New() -> Self { Stack { A: 0, B: 0, C: 0, D: 0, Len: 0 } }
+
+    fn Push(&mut self, v: i64) -> bool {
+        match self.Len {
+            0 => self.A = v,
+            1 => self.B = v,
+            2 => self.C = v,
+            3 => self.D = v,
+            _ => return false,
+        }
+        self.Len += 1;
+        true
+    }
+
+    fn Pop(&mut self) -> i64 {
+        self.Len -= 1;
+        match self.Len {
+            0 => self.A,
+            1 => self.B,
+            2 => self.C,
+            _ => self.D,
+        }
+    }
+}
+
+fn Eval(op: Op, a: i64, b: i64) -> Outcome {
+    match (op, b) {
+        (Op::Div, 0) | (Op::Rem, 0) => Outcome::DivByZero { At: -1 },
+        (Op::Add, _) => Outcome::Ok(a + b),
+        (Op::Sub, _) => Outcome::Ok(a - b),
+        (Op::Mul, _) => Outcome::Ok(a * b),
+        (Op::Div, _) => Outcome::Ok(a / b),
+        (Op::Rem, _) => Outcome::Ok(a % b),
+    }
+}
+
+fn Fetch(program: i32, pc: i32) -> Instr {
+    match (program, pc) {
+        (0, 0) => Instr::Push(6),
+        (0, 1) => Instr::Push(7),
+        (0, 2) => Instr::Bin(Op::Mul),
+        (0, 3) => Instr::Dup,
+        (0, 4) => Instr::Push(5),
+        (0, 5) => Instr::Bin(Op::Rem),
+        (0, 6) => Instr::Bin(Op::Sub),
+        (0, 7) => Instr::Neg,
+        (1, 0) => Instr::Push(1),
+        (1, 1) => Instr::Push(0),
+        (1, 2) => Instr::Bin(Op::Div),
+        (2, 0) => Instr::Bin(Op::Add),
+        (3, 0) | (3, 1) | (3, 2) | (3, 3) | (3, 4) => Instr::Push(pc as i64),
+        (4, 0) => Instr::Push(10),
+        (4, 1) => Instr::Push(3),
+        (4, 2) => Instr::Swap,
+        (4, 3) => Instr::Bin(Op::Sub),
+        _ => Instr::Halt,
+    }
+}
+
+fn Run(program: i32) -> Outcome {
+    let mut s = Stack::New();
+    let mut pc = 0;
+    loop {
+        let ok = match Fetch(program, pc) {
+            Instr::Halt => {
+                return match s.Len {
+                    0 => Outcome::Underflow(pc),
+                    _ => Outcome::Ok(s.Pop()),
+                };
+            }
+            Instr::Push(v) => s.Push(v),
+            Instr::Dup if s.Len >= 1 => {
+                let v = s.Pop();
+                s.Push(v) && s.Push(v)
+            }
+            Instr::Neg if s.Len >= 1 => {
+                let v = s.Pop();
+                s.Push(-v)
+            }
+            Instr::Swap if s.Len >= 2 => {
+                let b = s.Pop();
+                let a = s.Pop();
+                s.Push(b) && s.Push(a)
+            }
+            Instr::Bin(op) if s.Len >= 2 => {
+                let b = s.Pop();
+                let a = s.Pop();
+                match Eval(op, a, b) {
+                    Outcome::Ok(v) => s.Push(v),
+                    Outcome::DivByZero { .. } => return Outcome::DivByZero { At: pc },
+                    other => return other,
+                }
+            }
+            Instr::Dup | Instr::Neg | Instr::Swap | Instr::Bin(_) => return Outcome::Underflow(pc),
+        };
+        if !ok {
+            return Outcome::Overflow;
+        }
+        pc += 1;
+    }
+}
+
+fn Report(o: Outcome) {
+    match o {
+        Outcome::Ok(v) => {
+            Print("ok ");
+            PrintLine(v);
+        }
+        Outcome::DivByZero { At: at } => {
+            Print("division by zero at ");
+            PrintLine(at);
+        }
+        Outcome::Underflow(at) => {
+            Print("underflow at ");
+            PrintLine(at);
+        }
+        Outcome::Overflow => PrintLine("overflow"),
+    }
+}
+
+fn Main() {
+    let mut p = 0;
+    while p < 6 {
+        Report(Run(p));
+        p += 1;
+    }
+}
