@@ -140,7 +140,10 @@ impl InferCtxt {
     pub fn is_cyclic(&mut self, a: &Ty, b: &Ty) -> bool {
         match (self.shallow_resolve(a), self.shallow_resolve(b)) {
             (Ty::Infer(_), Ty::Infer(_)) => false,
-            (Ty::Infer(v), other) | (other, Ty::Infer(v)) => self.occurs(v, &other),
+            // A literal variable fails to unify with a non-primitive for its kind alone.
+            (Ty::Infer(v), other) | (other, Ty::Infer(v)) => {
+                self.kind(v) == VarKind::General && self.occurs(v, &other)
+            }
             (Ty::Ref(_, ia), Ty::Ref(_, ib)) => self.is_cyclic(&ia, &ib),
             _ => false,
         }

@@ -1,0 +1,55 @@
+[E0318] Error: character literal `U+1F600` does not fit in a `char`
+   ╭─[ tests/ui/typeck/non_bmp_char.sabi:4:21 ]
+   │
+ 4 │ const SMILE: char = '\u{1F600}'; //~ ERROR E0318 character literal `U+1F600` does not fit in a `char`
+   │                     ─────┬─────  
+   │                          ╰─────── outside the Basic Multilingual Plane
+   │ 
+   │ Note 1: a Sabiko `char` is one UTF-16 code unit (U+0000 to U+FFFF); this character needs two
+   │ 
+   │ Note 2: use a string literal instead: `"\u{1F600}"`
+───╯
+[E0318] Error: character literal `U+1F600` does not fit in a `char`
+   ╭─[ tests/ui/typeck/non_bmp_char.sabi:7:10 ]
+   │
+ 7 │     c == '😀' //~ ERROR E0318 character literal `U+1F600` does not fit in a `char`
+   │          ─┬──  
+   │           ╰──── outside the Basic Multilingual Plane
+   │ 
+   │ Note 1: a Sabiko `char` is one UTF-16 code unit (U+0000 to U+FFFF); this character needs two
+   │ 
+   │ Note 2: use a string literal instead: `"\u{1F600}"`
+───╯
+[E0318] Error: character literal `U+10000` does not fit in a `char`
+    ╭─[ tests/ui/typeck/non_bmp_char.sabi:11:17 ]
+    │
+ 11 │     let first = '\u{10000}'; //~ ERROR E0318 character literal `U+10000` does not fit in a `char`
+    │                 ─────┬─────  
+    │                      ╰─────── outside the Basic Multilingual Plane
+    │ 
+    │ Note 1: a Sabiko `char` is one UTF-16 code unit (U+0000 to U+FFFF); this character needs two
+    │ 
+    │ Note 2: use a string literal instead: `"\u{10000}"`
+────╯
+[E0318] Error: character literal `U+10FFFF` does not fit in a `char`
+    ╭─[ tests/ui/typeck/non_bmp_char.sabi:12:16 ]
+    │
+ 12 │     let last = '\u{10FFFF}'; //~ ERROR E0318 character literal `U+10FFFF` does not fit in a `char`
+    │                ──────┬─────  
+    │                      ╰─────── outside the Basic Multilingual Plane
+    │ 
+    │ Note 1: a Sabiko `char` is one UTF-16 code unit (U+0000 to U+FFFF); this character needs two
+    │ 
+    │ Note 2: use a string literal instead: `"\u{10FFFF}"`
+────╯
+[E0318] Error: character literal `U+1D11E` does not fit in a `char`
+    ╭─[ tests/ui/typeck/non_bmp_char.sabi:13:15 ]
+    │
+ 13 │     PrintLine('𝄞'); //~ ERROR E0318 character literal `U+1D11E` does not fit in a `char`
+    │               ─┬─  
+    │                ╰─── outside the Basic Multilingual Plane
+    │ 
+    │ Note 1: a Sabiko `char` is one UTF-16 code unit (U+0000 to U+FFFF); this character needs two
+    │ 
+    │ Note 2: use a string literal instead: `"\u{1D11E}"`
+────╯

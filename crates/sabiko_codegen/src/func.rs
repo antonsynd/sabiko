@@ -8,6 +8,7 @@
 
 use std::fmt::Write as _;
 
+use sabiko_diagnostics::ErrorCode;
 use sabiko_mir::{
     BasicBlock, BinOp, Body, ConstValue, Constant, Local, LocalKind, Operand, Place, PlaceElem,
     Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty, UnOp,
@@ -74,7 +75,8 @@ impl FnCx<'_, '_> {
             }
         }
         for (i, decl) in body.locals.iter().enumerate() {
-            let elided = decl.ty.is_unit() || decl.ty.is_never();
+            // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
+            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited();
             let slot = match decl.kind {
                 LocalKind::Arg => {
                     if elided {
@@ -309,7 +311,7 @@ impl FnCx<'_, '_> {
 
     fn assign(&mut self, place: &Place, rvalue: &Rvalue, span: Span) {
         let ty = place.ty(self.body);
-        if ty.is_unit() || ty.is_never() {
+        if ty.is_unit() || ty.is_uninhabited() {
             // Rvalues have no side effects; a unit store is nothing.
             return;
         }
@@ -447,7 +449,7 @@ impl FnCx<'_, '_> {
     /// Pushes the value of `place`.
     fn load(&mut self, place: &Place, span: Span) {
         let ty = place.ty(self.body);
-        if ty.is_unit() || ty.is_never() {
+        if ty.is_unit() || ty.is_uninhabited() {
             return;
         }
         match place.projection.last() {
@@ -569,9 +571,14 @@ impl FnCx<'_, '_> {
             ConstValue::Char(ch) => {
                 let code = u32::from(*ch);
                 if code > 0xFFFF {
-                    self.cx.unsupported(
-                        "a `char` literal outside the UTF-16 code unit range",
+                    // The type checker rejects these (E0318): a `char` is one UTF-16 code
+                    // unit (decision 31). Reaching here is a compiler bug, never a
+                    // truncated constant.
+                    self.cx.error(
+                        ErrorCode::INTERNAL_ERROR,
+                        "internal error: a `char` constant outside the Basic Multilingual Plane reached code generation",
                         c.span,
+                        "the type checker should have rejected this (E0318)",
                     );
                 }
                 #[allow(clippy::cast_possible_wrap)]

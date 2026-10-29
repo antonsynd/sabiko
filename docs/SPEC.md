@@ -101,9 +101,9 @@ usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value
 `modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
 value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
 `&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
-`void` as a return type; locals and temporaries of type `()` or `!` have no storage, and
-assignments to them are dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and
-fields.
+`void` as a return type; locals and temporaries of type `()`, `!` or a reference to `!`
+(`&!`, `&&!`, ...) have no storage (decisions 32 and 44), and assignments to them are
+dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and fields.
 
 Statements and expressions. The backend walks the MIR (§11); every statement and
 terminator becomes an instruction sequence that leaves the evaluation stack empty, so basic
@@ -141,7 +141,15 @@ compare it unsigned against the left operand's bit width and throw a `PanicExcep
 `bits - 1`; `>>` is `shr` for signed and `shr.un` for unsigned left operands, and `<<` on a
 narrow type truncates. Comparisons are `ceq`/`clt`/`cgt` with the `.un` forms for unsigned
 integers, `bool` and `char`; `!=`, `<=` and `>=` negate the opposite comparison, using the
-unordered forms on floats so that any comparison with NaN but `!=` is false. Casts: integer
+unordered forms on floats so that any comparison with NaN but `!=` is false. A comparison of
+references is the comparison of the referents: MIR building evaluates each operand to a
+shared reference temporary (a place operand is reborrowed, `&*r`, so a `&mut` is not
+moved), and the comparison reads `*l` and `*r` (`ldind.*`) after both operands ran, as
+rustc's `PartialEq::eq(&l, &r)` does. The referents therefore stay borrowed while the right
+operand runs (`r == { *r = 3; s }` is E0410, rustc E0506). One divergence remains: rustc
+also borrows a reference *variable* used as an operand, so `r == { r = &y; r }` is E0506
+there and accepted by Sabiko (comparing the old referent with the new one); expressing that
+loan needs a `&&T` temporary, which code generation does not support yet. Casts: integer
 to integer `conv.*` chosen by the target, with sign extension decided by the source
 (`conv.i8` from signed, `conv.u8` from unsigned sources); integer to float `conv.r4`/`conv.r8`
 preceded by `conv.r.un` for unsigned sources; float to `i32`/`i64`/`isize` and their
@@ -206,11 +214,20 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `f64`, `bool`, `char`, `()`, `str` (only behind a reference, E0208), named structs,
   `&T`, `&mut T`. A struct may not contain itself by value, directly or through other
   structs (E0206). `!` is the type of `break`, `continue`, `return` and of a `loop`
-  without `break`; it coerces to any type.
+  without `break`; it coerces to any type. The borrow of a diverging expression (`&loop {}`,
+  `&mut return 1`) has type `&!` (`&mut !`), as in rustc: a borrow is not a coercion site,
+  so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
+  while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
+  (rustc's `!: PartialEq + Display`); the code after one is unreachable.
 - Inference runs per function body and per constant initialiser, by unification; nothing
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of
   subexpressions flow back up.
+- A `char` is one UTF-16 code unit (decision 31), so a `char` literal outside the Basic
+  Multilingual Plane (above U+FFFF, such as `'\u{1F600}'`) is an error (E0318), in
+  constants too; a string literal holds any character. This is a deliberate divergence
+  from Rust, where `char` is a Unicode scalar value and such literals are valid, so the
+  differential corpus and the generator avoid them.
 - An unsuffixed integer literal has type `{integer}`, unifies with any integer type and
   defaults to `i32`; a float literal is `{float}` and defaults to `f64`. A literal that
   does not fit the type it ends up with is an error (E0314), including after negation
@@ -225,8 +242,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   - `<< >>`: left operand an integer type, right operand any integer type; result the
     left type.
   - `== != < <= > >=`: both operands the same primitive type (integers, floats, `bool`,
-    `char`, `()`); result `bool`. Structs and references do not compare (operator traits
-    arrive in Phase 6).
+    `char`, `()`); result `bool`. References compare their referents, as Rust's
+    `PartialEq`/`PartialOrd` impls for `&A` do: both operands must be references of the
+    same depth to the same comparable primitive (`&i32 == i32` is E0306, like rustc's
+    E0277). `==` and `!=` accept any mix of `&` and `&mut` at every level; `<`, `<=`, `>`
+    and `>=` need the same mutability on both sides, except that a `&mut` right operand of
+    a `&` left one is accepted (rustc coerces it to the `&B` of `impl PartialOrd<&B> for
+    &A`). Structs and `&str` do not compare (operator traits arrive in Phase 6; `&str`
+    comparisons come with `&str` support).
   - `&& ||`: `bool` operands, `bool` result.
   - Unary `-`: signed integer or float. Unary `!`: integer or `bool`.
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an
@@ -247,8 +270,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `while` is `()`. `loop` has the type of its `break value`s, which must agree, and `!` if
   it never breaks. `break value` is only allowed directly inside `loop` (E0312);
   `break`/`continue` outside a loop is E0311.
-- A block has the type of its tail expression, `()` without one, and `!` when a statement
-  in it diverges. A block-like expression used as a statement (`if`, `while`, `loop`,
+- A block has the type of its tail expression, even when an earlier statement diverges
+  (`{ return; 2u8 }` is `u8`, as in rustc); without a tail it is `!` when a statement in
+  it diverges and `()` otherwise. A block-like expression used as a statement (`if`, `while`, `loop`,
   `{ .. }` without a trailing `;`) must be `()`.
 - A function body is a block checked against the declared return type (`()` when
   omitted); `return;` has the value `()`.
