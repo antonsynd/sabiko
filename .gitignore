@@ -30,3 +30,6 @@ rustc-ice-*.txt
 /fuzz/target/
 /fuzz/corpus/
 /fuzz/artifacts/
+
+# Python bytecode (benchmarks/)
+__pycache__/

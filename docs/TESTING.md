@@ -152,6 +152,29 @@ current construct can reach, unit loads and stores that emit nothing either way,
 runtime overload guard typeck already enforces. Review `missed.txt` under
 `target/mutants/<crate>/mutants.out` when the score moves.
 
+## Benchmarks
+
+`benchmarks/` compares the runtime and memory of Sabiko-compiled programs with the same
+programs written in C# (and built by rustc, for reference); `benchmarks/README.md` has the
+details and decision 50 the methodology. Each benchmark is a `bench.sabi` and a `bench.cs`
+with the same algorithm and output. `benchmarks/run_benchmarks.py` (Python standard library
+only) builds both in two configurations (Sabiko `--release` vs C# `-optimize+`, the
+headline; Sabiko debug vs C# `-checked+`), checks that every language prints the same
+output, and measures two modes: whole-process launches (wall time and peak RSS, 5 warmup +
+100 timed, round-robin across languages) and in-process steady state through a C# host
+(`benchmarks/host/BenchHost.cs`: time and exact allocated bytes per iteration, GC counts;
+20 warmup + 100 measured). It reports n, mean, stdev, min, p50, p90, p99 and max per metric
+and the Sabiko/C# ratios as a table, `--json` and `--markdown`.
+
+The nightly workflow runs the whole set (about 13 minutes including setup), puts the report
+in the job summary and uploads the JSON. Time is never gated (shared runners are noisy);
+allocations are: `benchmarks/allocation_gate.py check` fails when a Sabiko benchmark
+allocates more than 10% over `benchmarks/allocation-baseline.json`, which changes only
+through `allocation_gate.py update` and a reviewed diff. CI runs the harness's unit tests
+(`python3 -m unittest discover -s benchmarks -p 'test_*.py'`) and a `--smoke` run of one
+benchmark on Linux. `benchmarks/results/latest.md` is an example report from a local run,
+labelled with its machine.
+
 ## Adding a test
 
 Every fixed bug adds a test in the matching layer: a UI fixture for a diagnostic, a

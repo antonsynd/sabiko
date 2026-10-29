@@ -1,0 +1,36 @@
+// Counting primes by trial division: integer division and remainder by a variable
+// divisor (Sabiko checks it for zero, as Rust does), early exits.
+
+const Limit: u32 = 600_000;
+
+fn IsPrime(n: u32) -> bool {
+    if n < 2 {
+        return false;
+    }
+    if n % 2 == 0 {
+        return n == 2;
+    }
+    let mut d: u32 = 3;
+    while d * d <= n {
+        if n % d == 0 {
+            return false;
+        }
+        d += 2;
+    }
+    true
+}
+
+fn Main() {
+    let mut count: u32 = 0;
+    let mut last: u32 = 0;
+    let mut n: u32 = 0;
+    while n < Limit {
+        if IsPrime(n) {
+            count += 1;
+            last = n;
+        }
+        n += 1;
+    }
+    PrintLine(count);
+    PrintLine(last);
+}

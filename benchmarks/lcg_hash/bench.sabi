@@ -1,0 +1,25 @@
+// A Lehmer (MINSTD) random number generator feeding a polynomial hash: 64-bit multiply
+// and remainder by constants. Every intermediate stays below 2^47, so nothing overflows
+// in a checked build (Sabiko has no wrapping_* methods yet).
+
+const Modulus: u64 = 2_147_483_647;
+const Multiplier: u64 = 48_271;
+const HashModulus: u64 = 1_000_000_007;
+const Rounds: u32 = 30_000_000;
+
+fn Next(state: u64) -> u64 {
+    state * Multiplier % Modulus
+}
+
+fn Main() {
+    let mut state: u64 = 1;
+    let mut hash: u64 = 0;
+    let mut i: u32 = 0;
+    while i < Rounds {
+        state = Next(state);
+        hash = (hash * 31 + (state & 255)) % HashModulus;
+        i += 1;
+    }
+    PrintLine(state);
+    PrintLine(hash);
+}

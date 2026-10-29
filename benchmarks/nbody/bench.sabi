@@ -1,0 +1,195 @@
+// The n-body simulation of the Jovian planets (the Computer Language Benchmarks Game
+// program, adapted): f64 arithmetic on struct fields reached through `&mut`, disjoint
+// field borrows, many small calls. There are no arrays yet, so the five bodies are the
+// fields of one struct and the ten pairs are spelled out. There is no `f64::sqrt` yet
+// either (no methods), so the square root is Newton's method; the C# program uses the
+// same function so both compute the same thing.
+
+const Pi: f64 = 3.141592653589793;
+const SolarMass: f64 = 4.0 * Pi * Pi;
+const DaysPerYear: f64 = 365.24;
+const Steps: i32 = 60_000;
+const TimeStep: f64 = 0.01;
+
+struct Body {
+    X: f64,
+    Y: f64,
+    Z: f64,
+    Vx: f64,
+    Vy: f64,
+    Vz: f64,
+    Mass: f64,
+}
+
+struct Planets {
+    Sun: Body,
+    Jupiter: Body,
+    Saturn: Body,
+    Uranus: Body,
+    Neptune: Body,
+}
+
+fn MakeBody(x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64) -> Body {
+    Body {
+        X: x,
+        Y: y,
+        Z: z,
+        Vx: vx * DaysPerYear,
+        Vy: vy * DaysPerYear,
+        Vz: vz * DaysPerYear,
+        Mass: mass * SolarMass,
+    }
+}
+
+fn Sqrt(x: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    let mut guess = if x > 1.0 { x } else { 1.0 };
+    loop {
+        let next = 0.5 * (guess + x / guess);
+        if next >= guess {
+            return guess;
+        }
+        guess = next;
+    }
+}
+
+fn Interact(a: &mut Body, b: &mut Body, dt: f64) {
+    let dx = a.X - b.X;
+    let dy = a.Y - b.Y;
+    let dz = a.Z - b.Z;
+    let distanceSquared = dx * dx + dy * dy + dz * dz;
+    let magnitude = dt / (distanceSquared * Sqrt(distanceSquared));
+    let aMass = a.Mass * magnitude;
+    let bMass = b.Mass * magnitude;
+    a.Vx -= dx * bMass;
+    a.Vy -= dy * bMass;
+    a.Vz -= dz * bMass;
+    b.Vx += dx * aMass;
+    b.Vy += dy * aMass;
+    b.Vz += dz * aMass;
+}
+
+fn Move(b: &mut Body, dt: f64) {
+    b.X += dt * b.Vx;
+    b.Y += dt * b.Vy;
+    b.Z += dt * b.Vz;
+}
+
+fn Advance(p: &mut Planets, dt: f64) {
+    Interact(&mut p.Sun, &mut p.Jupiter, dt);
+    Interact(&mut p.Sun, &mut p.Saturn, dt);
+    Interact(&mut p.Sun, &mut p.Uranus, dt);
+    Interact(&mut p.Sun, &mut p.Neptune, dt);
+    Interact(&mut p.Jupiter, &mut p.Saturn, dt);
+    Interact(&mut p.Jupiter, &mut p.Uranus, dt);
+    Interact(&mut p.Jupiter, &mut p.Neptune, dt);
+    Interact(&mut p.Saturn, &mut p.Uranus, dt);
+    Interact(&mut p.Saturn, &mut p.Neptune, dt);
+    Interact(&mut p.Uranus, &mut p.Neptune, dt);
+    Move(&mut p.Sun, dt);
+    Move(&mut p.Jupiter, dt);
+    Move(&mut p.Saturn, dt);
+    Move(&mut p.Uranus, dt);
+    Move(&mut p.Neptune, dt);
+}
+
+fn Kinetic(b: &Body) -> f64 {
+    0.5 * b.Mass * (b.Vx * b.Vx + b.Vy * b.Vy + b.Vz * b.Vz)
+}
+
+fn Potential(a: &Body, b: &Body) -> f64 {
+    let dx = a.X - b.X;
+    let dy = a.Y - b.Y;
+    let dz = a.Z - b.Z;
+    a.Mass * b.Mass / Sqrt(dx * dx + dy * dy + dz * dz)
+}
+
+fn Energy(p: &Planets) -> f64 {
+    let mut e = 0.0;
+    e += Kinetic(&p.Sun);
+    e += Kinetic(&p.Jupiter);
+    e += Kinetic(&p.Saturn);
+    e += Kinetic(&p.Uranus);
+    e += Kinetic(&p.Neptune);
+    e -= Potential(&p.Sun, &p.Jupiter);
+    e -= Potential(&p.Sun, &p.Saturn);
+    e -= Potential(&p.Sun, &p.Uranus);
+    e -= Potential(&p.Sun, &p.Neptune);
+    e -= Potential(&p.Jupiter, &p.Saturn);
+    e -= Potential(&p.Jupiter, &p.Uranus);
+    e -= Potential(&p.Jupiter, &p.Neptune);
+    e -= Potential(&p.Saturn, &p.Uranus);
+    e -= Potential(&p.Saturn, &p.Neptune);
+    e -= Potential(&p.Uranus, &p.Neptune);
+    e
+}
+
+fn AddMomentum(total: &mut Body, b: &Body) {
+    total.Vx += b.Vx * b.Mass;
+    total.Vy += b.Vy * b.Mass;
+    total.Vz += b.Vz * b.Mass;
+}
+
+fn OffsetMomentum(p: &mut Planets) {
+    let mut total = MakeBody(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    AddMomentum(&mut total, &p.Sun);
+    AddMomentum(&mut total, &p.Jupiter);
+    AddMomentum(&mut total, &p.Saturn);
+    AddMomentum(&mut total, &p.Uranus);
+    AddMomentum(&mut total, &p.Neptune);
+    p.Sun.Vx = -total.Vx / SolarMass;
+    p.Sun.Vy = -total.Vy / SolarMass;
+    p.Sun.Vz = -total.Vz / SolarMass;
+}
+
+fn Main() {
+    let mut p = Planets {
+        Sun: MakeBody(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+        Jupiter: MakeBody(
+            4.84143144246472090,
+            -1.16032004402742839,
+            -0.103622044471123109,
+            0.00166007664274403694,
+            0.00769901118419740425,
+            -0.0000690460016972063023,
+            0.000954791938424326609,
+        ),
+        Saturn: MakeBody(
+            8.34336671824457987,
+            4.12479856412430479,
+            -0.403523417114321381,
+            -0.00276742510726862411,
+            0.00499852801234917238,
+            0.0000230417297573763929,
+            0.000285885980666130812,
+        ),
+        Uranus: MakeBody(
+            12.8943695621391310,
+            -15.1111514016986312,
+            -0.223307578892655734,
+            0.00296460137564761618,
+            0.00237847173959480950,
+            -0.0000296589568540237556,
+            0.0000436624404335156298,
+        ),
+        Neptune: MakeBody(
+            15.3796971148509165,
+            -25.9193146099879641,
+            0.179258772950371181,
+            0.00268067772490389322,
+            0.00162824170038242295,
+            -0.0000951592254519715870,
+            0.0000515138902046611451,
+        ),
+    };
+    OffsetMomentum(&mut p);
+    PrintLine(Energy(&p));
+    let mut step = 0;
+    while step < Steps {
+        Advance(&mut p, TimeStep);
+        step += 1;
+    }
+    PrintLine(Energy(&p));
+}

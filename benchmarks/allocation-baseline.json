@@ -1,0 +1,42 @@
+{
+  "_comment": "Allocation-regression baseline: managed bytes allocated per in-process iteration of each Sabiko benchmark (median over the measured iterations). Updated only deliberately with `python3 benchmarks/allocation_gate.py update`; review the diff.",
+  "threshold": 0.1,
+  "benchmarks": {
+    "collatz/checked": {
+      "allocated_bytes": 0
+    },
+    "collatz/release": {
+      "allocated_bytes": 0
+    },
+    "fibonacci/checked": {
+      "allocated_bytes": 0
+    },
+    "fibonacci/release": {
+      "allocated_bytes": 0
+    },
+    "lcg_hash/checked": {
+      "allocated_bytes": 0
+    },
+    "lcg_hash/release": {
+      "allocated_bytes": 0
+    },
+    "mandelbrot/checked": {
+      "allocated_bytes": 0
+    },
+    "mandelbrot/release": {
+      "allocated_bytes": 0
+    },
+    "nbody/checked": {
+      "allocated_bytes": 1312
+    },
+    "nbody/release": {
+      "allocated_bytes": 1312
+    },
+    "primes/checked": {
+      "allocated_bytes": 0
+    },
+    "primes/release": {
+      "allocated_bytes": 0
+    }
+  }
+}
