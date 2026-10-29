@@ -39,7 +39,8 @@ the builtins `Print(x)`, `PrintLine(x)` (any integer, float, `bool`, `char` or `
 `Panic(msg: &str) -> !`. A corpus program must not define its own `Print`, `PrintLine` or
 `Panic`: Sabiko lets a user item shadow the builtin, rustc sees a duplicate of the
 prelude's. No methods, traits, generics, tuples, arrays, enums, `match`, closures,
-modules, macros, explicit lifetimes or references in struct fields. Function names are
+modules, macros, explicit lifetimes or references in struct fields, and no `char` literal
+above U+FFFF (a Sabiko `char` is one UTF-16 code unit, so those are E0318). Function names are
 PascalCase, locals camelCase. A function returning a reference must have exactly one
 reference parameter (the one elision rule both compilers share).
 

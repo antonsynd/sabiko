@@ -577,9 +577,34 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             Lit::Bool(_) => Ty::BOOL,
-            Lit::Char(_) => Ty::CHAR,
+            Lit::Char(c) => {
+                if u32::from(*c) > 0xFFFF {
+                    self.non_bmp_char(*c, span);
+                }
+                Ty::CHAR
+            }
             Lit::Str(_) => Ty::shared_ref(Ty::Prim(PrimTy::Str)),
         }
+    }
+
+    /// A `char` is one UTF-16 code unit (decision 31), so a literal outside the Basic
+    /// Multilingual Plane, which needs a surrogate pair, has no `char` value. A deliberate
+    /// divergence from Rust, where `char` is a Unicode scalar value.
+    fn non_bmp_char(&mut self, c: char, span: Span) {
+        let code = u32::from(c);
+        self.error(
+            Diagnostic::error(
+                ErrorCode::NON_BMP_CHAR,
+                format!("character literal `U+{code:04X}` does not fit in a `char`"),
+            )
+            .with_label(span, "outside the Basic Multilingual Plane")
+            .with_note(
+                "a Sabiko `char` is one UTF-16 code unit (U+0000 to U+FFFF); this character needs two",
+            )
+            .with_note(format!(
+                "use a string literal instead: `\"\\u{{{code:X}}}\"`"
+            )),
+        );
     }
 
     fn check_path(&mut self, expr: &Expr, callee: bool) -> Ty {

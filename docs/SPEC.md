@@ -186,6 +186,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of
   subexpressions flow back up.
+- A `char` is one UTF-16 code unit (decision 31), so a `char` literal outside the Basic
+  Multilingual Plane (above U+FFFF, such as `'\u{1F600}'`) is an error (E0318), in
+  constants too; a string literal holds any character. This is a deliberate divergence
+  from Rust, where `char` is a Unicode scalar value and such literals are valid, so the
+  differential corpus and the generator avoid them.
 - An unsuffixed integer literal has type `{integer}`, unifies with any integer type and
   defaults to `i32`; a float literal is `{float}` and defaults to `f64`. A literal that
   does not fit the type it ends up with is an error (E0314), including after negation
