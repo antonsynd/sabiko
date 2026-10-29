@@ -59,3 +59,20 @@ jobs:
       - run: cargo build --workspace
       - run: cargo test --workspace
 
+  # Dependency licences, banned or duplicated crates and crate sources (`deny.toml`). The
+  # dependency graph is the same on every OS, so one runner checks it. Advisories run in
+  # the nightly workflow instead, so a new RUSTSEC entry cannot turn a pull request red
+  # (decision 45).
+  deny:
+    name: cargo-deny (licences, bans, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny
+        # The workflow's `-D warnings` is for this repository's code, not for the tool's.
+        env:
+          RUSTFLAGS: ''
+        run: cargo install cargo-deny --locked --version 0.20.2
+      - run: cargo deny check licenses bans sources

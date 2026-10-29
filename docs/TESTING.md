@@ -170,6 +170,19 @@ current construct can reach, unit loads and stores that emit nothing either way,
 runtime overload guard typeck already enforces. Review `missed.txt` under
 `target/mutants/<crate>/mutants.out` when the score moves.
 
+## Dependencies
+
+`cargo deny check` (`deny.toml`; setup: `cargo install cargo-deny --locked --version
+0.20.2`) checks the dependency graph: every crate's licence must be on the allow list (MIT,
+Apache-2.0 and Unicode-3.0 today; an `OR` expression passes when one alternative is
+allowed, so copyleft alternatives are never chosen), every crate must come from crates.io,
+and two versions of one crate are reported as a warning. CI runs `cargo deny check licenses
+bans sources` on Linux on every push (the graph does not depend on the platform); the
+nightly workflow runs `cargo deny check advisories` against the RustSec database, so a new
+advisory is reported without failing unrelated pull requests (decision 45). The `fuzz/`
+workspace is not checked: it is built only by the nightly fuzzing job and never
+distributed.
+
 ## Adding a test
 
 Every fixed bug adds a test in the matching layer: a UI fixture for a diagnostic, a
