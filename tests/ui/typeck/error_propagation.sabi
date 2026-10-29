@@ -15,6 +15,7 @@ fn Unresolved() {
     let b = 1 << Missing; //~ ERROR E0202 cannot find value `Missing`
     let c = Missing as u8; //~ ERROR E0202 cannot find value `Missing`
     let d = 1u8 as Nope; //~ ERROR E0201 cannot find type `Nope`
+    let e = &1 == Missing; //~ ERROR E0202 cannot find value `Missing`
 }
 
 fn FailedOperator() {

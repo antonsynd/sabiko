@@ -17,6 +17,10 @@ const E: i32 = 1 << 32; //~ ERROR E0316 attempt to shift left with overflow
 const F: i64 = 1000000000000 * 1000000000000; //~ ERROR E0316 attempt to multiply with overflow
 const G: i32 = -2147483648 / -1; //~ ERROR E0316 attempt to divide with overflow
 const H: i32 = -(-2147483648); //~ ERROR E0316 attempt to negate with overflow
+// `i128::MIN` is only accepted as the operand of `-` when it is the literal `2^127` itself.
+const Min128: i128 = -170141183460469231731687303715884105727i128 - 1;
+const Neg128: i128 = -Min128; //~ ERROR E0316 attempt to negate with overflow
+const NegParen128: i128 = -(Min128); //~ ERROR E0316 attempt to negate with overflow
 const I: i32 = J;
 const J: i32 = I; //~ ERROR E0316 cycle detected when evaluating constant `I`
 const K: i32 = K; //~ ERROR E0316 cycle detected when evaluating constant `K`

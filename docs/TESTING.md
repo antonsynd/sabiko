@@ -174,6 +174,15 @@ float-cast `p.is_integer()` guards are only reached by programs typeck rejects; 
 parenthesised callee's recorded type is never read by a later stage; and `check_if`'s
 `(_, !)` arm returns what the general arm returns, since `!` coerces to anything.
 
+The nightly run of 2026-10-29 measured 460 of 472 viable (97.4%, below the threshold): the
+reference comparisons of #25 and the `i128::MIN` negation of #28 added six survivors on
+top of the six equivalent ones. UI fixtures now kill each of them (checked by applying each
+mutant by hand): an unresolved right operand of a reference comparison reports nothing
+more (`error_propagation`), referents that are only known later are judged once they are,
+comparable or not, and a right operand of unknown type takes the left one's
+(`ref_comparison`), and `-` of a non-literal `i128::MIN` constant overflows (`consts`).
+That leaves the six equivalent mutants: 466 of 472, 98.7%.
+
 The `sabiko_borrowck` row first read 295 viable and 28 missed, from a local run; every
 nightly run counts 11 of those mutants as unviable, with the same 267 killed, so the row
 now records the nightly measurement and the threshold moves from 90 to 93.
