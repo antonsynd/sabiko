@@ -8,6 +8,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# The display width rustc gives characters in panic locations (`SourceFile::rust_column`).
+unicode-width = "0.1.14"
 
 [lints]
 workspace = true

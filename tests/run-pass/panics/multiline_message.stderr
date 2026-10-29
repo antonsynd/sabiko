@@ -1,0 +1,4 @@
+thread 'main' panicked at tests/run-pass/panics/multiline_message.sabi:7:9:
+first line
+second line
+	indented third

@@ -1,0 +1,10 @@
+// `i128` multiplication overflow panics in debug builds; a product of exactly `MIN` does not.
+fn Mul(a: i128, b: i128) -> i128 { a * b }
+
+fn Main() {
+    PrintLine(Mul(-18446744073709551616, 9223372036854775808));
+    PrintLine(Mul(-1, 170141183460469231731687303715884105727));
+    PrintLine("about to overflow");
+    PrintLine(Mul(18446744073709551616, 9223372036854775808));
+    PrintLine("not reached");
+}

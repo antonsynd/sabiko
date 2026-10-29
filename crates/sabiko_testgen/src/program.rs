@@ -288,8 +288,28 @@ pub fn random_int(rng: &mut Rng, ty: IntTy) -> i128 {
             i128::from(rng.range(lo, hi))
         }
         2 => *rng.pick(&[ty.max(), ty.min(), ty.max() - 1, ty.min() + 1]),
-        3 => i128::from(rng.bits(ty.bits() - 1)),
-        _ => ty.wrap(i128::from(rng.bits(ty.bits()))),
+        3 => random_bits(rng, ty.bits() - 1),
+        _ => match ty {
+            // All 128 bits, reinterpreted as a signed value.
+            #[allow(clippy::cast_possible_wrap)]
+            IntTy::I128 => (u128::from(rng.next_u64()) << 64 | u128::from(rng.next_u64())) as i128,
+            // The generator's `u128` values stay below `2^127` (see `IntTy::max`).
+            IntTy::U128 => random_bits(rng, 127),
+            _ => ty.wrap(i128::from(rng.bits(ty.bits()))),
+        },
+    }
+}
+
+/// A non-negative value of `bits` random bits (`bits <= 127`); the same draws as
+/// `rng.bits` up to 64 bits.
+fn random_bits(rng: &mut Rng, bits: u32) -> i128 {
+    debug_assert!(bits <= 127);
+    if bits <= 64 {
+        i128::from(rng.bits(bits))
+    } else {
+        let high = i128::from(rng.bits(bits - 64));
+        let low = i128::from(rng.next_u64());
+        high << 64 | low
     }
 }
 
@@ -426,8 +446,11 @@ fn gen_consts(rng: &mut Rng, knobs: &Knobs) -> Vec<ConstDef> {
                 // A wrapping cast from another integer type.
                 let from = *rng.pick(&IntTy::ALL);
                 let v = random_int(rng, from);
-                init = format!("{} as {}", int_literal(from, v), ity.name());
-                value = ConstValue::Int(ity.wrap(v));
+                // A negative value as `u128` is outside the generator's value model.
+                if let Some(wrapped) = ity.wrap_checked(v) {
+                    init = format!("{} as {}", int_literal(from, v), ity.name());
+                    value = ConstValue::Int(wrapped);
+                }
             }
         } else if ty == Prim::Bool && rng.chance(50) {
             let ity = *rng.pick(&IntTy::ALL);

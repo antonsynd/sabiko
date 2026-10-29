@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/panics/div_by_literal_minus_one.sabi:8:5:
+attempt to divide with overflow

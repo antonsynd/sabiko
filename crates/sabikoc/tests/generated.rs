@@ -286,9 +286,10 @@ fn generated_verdicts_are_stable_under_statement_reordering() {
     });
 }
 
-/// Exit code, stdout and panic message of two rustc runs must be identical.
+/// Exit code, stdout and panic message of two rustc runs must be identical. The panic's
+/// location is not compared: swapping statements moves lines.
 fn same_behaviour(before: &common::Run, after: &common::Run) -> Result<(), String> {
-    let message = |r: &common::Run| common::panic_message(&r.stderr);
+    let message = |r: &common::Run| common::panic_report(&r.stderr).ok().map(|p| p.message);
     if before.code == after.code
         && before.stdout == after.stdout
         && message(before) == message(after)

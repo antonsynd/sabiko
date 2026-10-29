@@ -1,5 +1,5 @@
-// Arithmetic on every integer width: checked opcodes in debug builds, re-narrowing of
-// small types, division, remainder, shifts with amount checks, negation and complement.
+// Arithmetic on every integer width: explicit, located overflow checks in debug builds,
+// narrow types, division, remainder, shifts with amount checks, negation and complement.
 fn Narrow(a: i8, b: u8, c: i16, d: u16) -> i32 {
     let s1 = a + a;
     let s2 = b * b;

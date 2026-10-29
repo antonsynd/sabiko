@@ -429,6 +429,16 @@ ones must run like the original, so the independence analysis is itself tested. 
 `deny.toml` is in place: licences, bans and sources on every CI run, advisories nightly
 (decision 45).
 
+Update (2026-10-29), Phase 4 leftovers (#19, #18): `i128`/`u128` compile to
+`System.Int128`/`System.UInt128` with every operator, cast, constant and print (decision
+42); the BCL's Int128-to-float conversion rounds twice, so it goes through the runtime, and
+the `-2^127` literal (which evaluated to `MIN + 1`) is fixed. Every run-time panic reports
+rustc's `file:line:column` and per-operator message, through explicit overflow checks in
+debug builds instead of `.ovf` opcodes (decision 43). The run-time differential harness
+compares full panic reports, including locations, and supports `//@ release`; the generator
+emits 128-bit types; run-pass pins `.stderr`. Still E0500: `&&T` and `()`-typed parameters
+and fields. Generated `u128` literals stay below 2^127.
+
 ### Phase 5: Data types
 
 Work

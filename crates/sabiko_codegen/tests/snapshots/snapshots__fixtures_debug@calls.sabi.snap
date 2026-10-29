@@ -21,7 +21,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
 
   .method public hidebysig static int32 'Add'(int32 'a', int32 'b') cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 '_3',
@@ -33,8 +33,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
     ldarg.1
     stloc.2
     ldloc.1
+    conv.i8
     ldloc.2
-    add.ovf
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L1
+    ldstr "attempt to add with overflow"
+    ldstr "calls.sabi:11:5"
+    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    throw
+  L1:
+    conv.i4
     stloc.0
   BB1:
     ldloc.0

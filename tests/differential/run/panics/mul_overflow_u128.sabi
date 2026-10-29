@@ -1,0 +1,10 @@
+// `u128` multiplication overflow panics in debug builds.
+fn Mul(a: u128, b: u128) -> u128 { a * b }
+
+fn Main() {
+    PrintLine(Mul(18446744073709551617, 18446744073709551615));
+    PrintLine(Mul(18446744073709551616, 18446744073709551615));
+    PrintLine("about to overflow");
+    PrintLine(Mul(18446744073709551616, 18446744073709551616));
+    PrintLine("not reached");
+}

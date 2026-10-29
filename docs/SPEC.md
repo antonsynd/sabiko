@@ -47,13 +47,21 @@ names which phase owns which section.
 Panics (Phase 4): a panic is a `Sabiko.Runtime.PanicException`. `Panic(msg)` throws one;
 integer overflow in a debug build, division or remainder by zero, `MIN / -1`, `MIN % -1`,
 and a shift by an amount outside `0..bits` (negative amounts included) panic too, with
-Rust's messages ("attempt to divide by zero", "attempt to calculate the remainder with
-overflow", "attempt to shift left with overflow", ...). Overflow of `+`, `-` and `*` is
-the CLR's own `OverflowException`, which the runtime reports as "attempt to perform
-arithmetic with overflow" (Rust names the operator).
+Rust's messages: "attempt to add with overflow" (`subtract`, `multiply`, `negate`),
+"attempt to divide by zero", "attempt to divide with overflow", "attempt to calculate the
+remainder with a divisor of zero", "attempt to calculate the remainder with overflow",
+"attempt to shift left with overflow" (`right`). Every check is explicit (decision 43).
+Each panic carries its source location, as Rust's do: the start of the expression whose
+operator panicked (`a + b` in `(a + b) * c` is located at the `(`: parentheses widen the
+span, as in rustc), or of the `Panic(...)` call. The file is named as it was given to
+`sabikoc`; lines are 1-based; the column is rustc's display column, 1-based, counting a
+tab as 4 columns, East Asian wide characters as 2 and combining marks and zero-width
+characters as 0 (`SourceFile::rust_column`).
 An executable's entry point runs `Main` inside a `try`: an exception that escapes is
-reported on standard error as `thread 'main' panicked:` followed by the message, and the
-process exits with code 101 (Rust's). Standard output written before the panic is kept.
+reported on standard error as `thread 'main' panicked at file:line:column:` followed by
+the message (`thread 'main' panicked:` for a panic without a location, which generated
+code does not raise), and the process exits with code 101 (Rust's). Standard output
+written before the panic is kept.
 Release builds (`--release`) wrap integer arithmetic instead of panicking; division, shift
 and explicit panics behave the same in both.
 
@@ -86,7 +94,8 @@ Every user identifier is quoted in the IL. An executable additionally has a priv
 `()` (E0501).
 
 Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u32 u64
-usize` are `uint8 uint16 uint32 uint64 native uint`; `f32`/`f64` are `float32`/`float64`;
+usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value types
+`System.Int128`/`System.UInt128` (decision 42); `f32`/`f64` are `float32`/`float64`;
 `bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
 `valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
 `modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
@@ -94,8 +103,7 @@ value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref re
 `&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
 `void` as a return type; locals and temporaries of type `()`, `!` or a reference to `!`
 (`&!`, `&&!`, ...) have no storage (decisions 32 and 44), and assignments to them are
-dropped. Not lowered yet (E0500): `i128`/`u128`, `&&T`, `()`-typed
-parameters and fields.
+dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and fields.
 
 Statements and expressions. The backend walks the MIR (§11); every statement and
 terminator becomes an instruction sequence that leaves the evaluation stack empty, so basic
@@ -111,12 +119,18 @@ argument's type and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cann
 and `unreachable`, are followed by a throw. `if` is `brfalse`, other `switchInt`s a `beq`
 chain; `return` loads the return local and `ret`.
 
-Arithmetic follows Rust. Values narrower than `int32` (`i8 i16 u8 u16`) compute at `int32`
-width and are re-narrowed after every arithmetic operation: `conv.ovf.*` in debug builds
-(trapping on overflow), `conv.*` in release builds (wrapping). `i32`/`i64`/`isize` and the
-unsigned widths use `add.ovf`/`sub.ovf`/`mul.ovf` (`.un` for unsigned) in debug builds and
-the plain opcodes in release builds. Negation is `0 - x` in debug builds so `-MIN` traps,
-`neg` otherwise. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
+Arithmetic follows Rust. In release builds `+`, `-`, `*` are the plain opcodes and
+values narrower than `int32` (`i8 i16 u8 u16`), which compute at `int32` width, are
+truncated after every operation with `conv.*`; negation is `neg`. In debug builds every
+`+`, `-`, `*` and unary `-` (as `0 - x`) is checked explicitly (decision 43): narrow types
+compute exactly at `int32` width and `i32`/`u32` at `int64` width (operands widened with
+`conv.i8`/`conv.u8`), and the result must equal its own truncation to the type (`dup; dup;
+conv.i1; beq`, with `conv.i8` after the truncation for the 32-bit types); `i64`, `u64`,
+`isize`, `usize`, `i128` and `u128` call `Sabiko.Runtime.Arithmetic::AddOverflows`,
+`SubOverflows` or `MulOverflows`, which return whether the exact result overflowed and
+store the wrapped one through a `T&` to a scratch local. A failed check throws
+`PanicException(message, location)` (`ldstr`, `ldstr`, `newobj`, `throw`); no `.ovf`
+opcode is emitted. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
 explicit checks that throw a `PanicException` with Rust's message: a zero divisor, and for
 signed types `MIN` divided by `-1`; a check is dropped when a constant operand rules it out
 (`x % 7` needs none). The checks run in release builds too, as in Rust, and are needed
@@ -144,6 +158,24 @@ narrow type clamps with `System.Math.Clamp` first, because the CLR only saturate
 bits. Constants are `ldc.i4`/`ldc.i8` (with `conv.i`/`conv.u` for the native widths),
 `ldc.r4`/`ldc.r8` (non-finite values by bit pattern), and `ldstr` converted with
 `String::op_Implicit` for `&str`. `.maxstack` is computed exactly.
+
+128-bit integers (decision 42). An `i128`/`u128` constant is `newobj
+Int128::.ctor(uint64 upper, uint64 lower)`. Every operator is a `call` to the operator
+method of `System.Int128`/`System.UInt128`: `op_Addition`, `op_Subtraction`,
+`op_Multiply` and `op_UnaryNegation` in release builds (debug builds check them with the
+`Sabiko.Runtime.Arithmetic` helpers, as for 64-bit integers);
+`op_Division`/`op_Modulus` behind the same explicit zero and `MIN / -1` checks as the other
+widths (comparing with `op_Inequality`); `op_BitwiseAnd`, `op_BitwiseOr`, `op_ExclusiveOr`,
+`op_OnesComplement`; the six comparison operators. Shifts check (debug) or mask (release)
+the amount as for the other widths, a 128-bit amount being compared as `u128` before it is
+truncated to `int32`, then call `op_LeftShift`/`op_RightShift` (arithmetic for `Int128`,
+logical for `UInt128`). Casts call `op_Implicit` (a widening that cannot lose information:
+any integer into `Int128`, unsigned ones into `UInt128`) or `op_Explicit` (signed into
+`UInt128`, which sign-extends; 128-bit to a narrower type, which truncates; `i128` to and
+from `u128`, which reinterprets; floats into 128-bit, which saturates with NaN as 0).
+128-bit to `f32`/`f64` calls `Sabiko.Runtime.Arithmetic::ToSingle`/`ToDouble`, which
+round once to nearest-even (the BCL's `Int128` to `float` goes through `double` and can
+round twice). `bool` and `char` convert as `uint8` and `char`.
 
 Verifiability. Every emitted assembly passes ILVerify with `ReturnPtrToStack` ignored
 (decision 30): ECMA-335 has no rule that lets a function return a managed pointer it

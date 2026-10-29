@@ -1,0 +1,38 @@
+// `i128`/`u128` arithmetic at the extremes that stay in range, and across the 64-bit halves.
+fn I128(a: i128, b: i128) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn U128(a: u128, b: u128) {
+    Print(a + b); Print(' '); Print(a - b); Print(' '); Print(a * b); Print(' ');
+    Print(a / b); Print(' '); PrintLine(a % b);
+}
+
+fn Main() {
+    I128(170141183460469231731687303715884105726, 1);
+    I128(-170141183460469231731687303715884105727, 1);
+    I128(13043817825332782212, 13043817825332782212);
+    I128(-170141183460469231731687303715884105727, -1);
+    I128(-85070591730234615865843651857942052864, 2);
+    I128(9223372036854775808, 9223372036854775807);
+    I128(100, 7); I128(-100, 7); I128(100, -7); I128(-100, -7);
+    U128(340282366920938463463374607431768211454, 1);
+    U128(18446744073709551617, 18446744073709551615);
+    U128(100, 7);
+    let m: u128 = 340282366920938463463374607431768211455;
+    Print(m - m); Print(' '); Print(m / m); Print(' '); PrintLine(m % m);
+    PrintLine(170141183460469231731687303715884105727u128 * 2 + 1);
+    let lo: u128 = 18446744073709551615;
+    PrintLine(lo + 1); PrintLine(lo + 1 - 2); PrintLine(lo * lo); PrintLine(m / lo); PrintLine(m % (lo + 2));
+    let ilo: i128 = -18446744073709551616;
+    PrintLine(ilo - 1); PrintLine(ilo * 3); PrintLine(ilo / 7); PrintLine(ilo % 7);
+    PrintLine(ilo / -18446744073709551615); PrintLine(ilo % -18446744073709551615);
+    let mut acc: i128 = 1;
+    let mut i = 0;
+    while i < 38 { acc *= 10; i += 1; }
+    PrintLine(acc);
+    acc -= 1;
+    acc += acc / 3;
+    PrintLine(acc);
+}

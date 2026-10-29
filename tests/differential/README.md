@@ -54,17 +54,36 @@ Programs under `run/` have a `fn Main()` and print. `crates/sabikoc/tests/differ
 builds each one as an executable with both compilers (rustc gets the prelude plus
 `fn main() { Main() }`; sabikoc compiles in debug mode, matching rustc's default overflow
 checks), runs both, and requires identical stdout and exit codes (both compilers exit with
-101 on a panic, including arithmetic overflow). Standard error is compared too:
+101 on a panic, including arithmetic overflow). A program whose header has a `//@ release`
+line is built in release mode by both instead (`sabikoc --release`, `rustc -C
+overflow-checks=off`): arithmetic wraps, division and shift checks stay
+(`run/release/`). Standard error is compared too:
 
 - after a clean exit (code 0) neither program may have written to stderr;
-- after a panic (code 101) the panic *message* lines must match. rustc prints
-  `thread 'main' panicked at src/main.rs:L:C:` (newer versions insert the thread id) and
-  Sabiko `thread 'main' panicked:`; the message is the next line in both, and the harness
-  runs the Rust binary with `RUST_BACKTRACE=0` so nothing follows it. One difference is
-  accepted: Sabiko reports every overflow of `+`, `-`, `*` and unary `-` as "attempt to
-  perform arithmetic with overflow" because the CLR's `.ovf` opcodes do not say which
-  operator overflowed, where rustc says "attempt to add/subtract/multiply/negate with
-  overflow". Division, remainder, shift and `Panic` messages must be identical.
+- after a panic (code 101) the panic reports must match exactly. rustc prints `thread
+  'main' (ID) panicked at /path/prog.rs:L:C:` and Sabiko `thread 'main' panicked at
+  /path/name.sabi:L:C:`, each followed by the message line (the harness runs the Rust
+  binary with `RUST_BACKTRACE=0`). The messages must be identical, `L:C` must be equal, and
+  each location must name the file its compiler was given; the thread id and directories
+  are ignored. Every panicking program in `run/` is therefore also a test of Sabiko's
+  panic locations (`run/panics/location_*` aim at the edge cases: parentheses, tabs, wide
+  and zero-width characters, multi-line expressions).
+
+For the run-time tests the prelude goes *after* the program, so that its lines keep their
+numbers in `prog.rs`: the `#![allow(...)]` line becomes `-A` flags on the rustc command
+line (an inner attribute cannot follow items), and `Panic` is `#[track_caller]`, so its
+panics are located at the call, as Sabiko's are. The run-time prelude is therefore
+
+```rust
+fn Print<T: std::fmt::Display>(x: T) { print!("{x}") }
+fn PrintLine<T: std::fmt::Display>(x: T) { println!("{x}") }
+#[track_caller]
+fn Panic(msg: &str) -> ! { panic!("{msg}") }
+fn main() { Main() }
+```
+
+appended, with `-A nonstandard_style -A unused -A dead_code` (and, for generated programs,
+`-A arithmetic_overflow -A unconditional_panic`).
 
 The test is skipped with a notice when `rustc` or the .NET toolchain is missing
 (`SABIKO_REQUIRE_RUSTC=1` / `SABIKO_REQUIRE_DOTNET=1` turn the skip into a failure). The
@@ -79,7 +98,7 @@ The hand-written corpus is complemented by random programs from `sabiko_testgen`
 violation percentage). Every program is valid in both languages up to borrow checking and
 prints its results, so both oracles above apply to it. The subset is the one listed above
 plus `const` items, nested field paths, `break value`, compound assignment and casts between
-every integer type but `i128`/`u128`, floats, `bool` and ASCII `char`; see the crate
+every integer type (`i128`/`u128` included), floats, `bool` and ASCII `char`; see the crate
 documentation for the exact list and the exclusions. `Knobs::default()` lets a few per cent
 of the generator's borrow-model checks be skipped so that some programs contain a use after
 move, a conflicting borrow, an assignment to an immutable binding or a write through `&`;

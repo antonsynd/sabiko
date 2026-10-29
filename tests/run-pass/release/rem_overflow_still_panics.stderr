@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/release/rem_overflow_still_panics.sabi:5:31:
+attempt to calculate the remainder with overflow

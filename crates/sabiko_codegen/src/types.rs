@@ -11,6 +11,13 @@ use crate::Cx;
 /// `ReadOnlySpan<char>`, the lowering of `&str`.
 pub(crate) const STR_SPAN: &str = "valuetype [System.Runtime]System.ReadOnlySpan`1<char>";
 
+/// `System.Int128` and `System.UInt128` as classes (in method references) and as value
+/// types (in signatures and locals): the lowering of `i128`/`u128` (decision 42).
+pub(crate) const INT128_CLASS: &str = "[System.Runtime]System.Int128";
+pub(crate) const UINT128_CLASS: &str = "[System.Runtime]System.UInt128";
+pub(crate) const INT128: &str = "valuetype [System.Runtime]System.Int128";
+pub(crate) const UINT128: &str = "valuetype [System.Runtime]System.UInt128";
+
 /// The `modreq` that marks a managed pointer as read-only (`in` in C#).
 pub(crate) const IN_MODREQ: &str =
     "modreq([System.Runtime]System.Runtime.InteropServices.InAttribute)";
@@ -55,7 +62,7 @@ pub(crate) fn is_str(ty: &Ty) -> bool {
     matches!(ty, Ty::Prim(PrimTy::Str))
 }
 
-/// The CIL type of a primitive, or `None` for the ones the backend does not lower yet.
+/// The CIL type of a primitive, or `None` for `str`, which only exists behind a reference.
 pub(crate) fn prim_type(p: PrimTy) -> Option<&'static str> {
     Some(match p {
         PrimTy::I8 => "int8",
@@ -72,8 +79,20 @@ pub(crate) fn prim_type(p: PrimTy) -> Option<&'static str> {
         PrimTy::F64 => "float64",
         PrimTy::Bool => "bool",
         PrimTy::Char => "char",
-        PrimTy::I128 | PrimTy::U128 | PrimTy::Str => return None,
+        PrimTy::I128 => INT128,
+        PrimTy::U128 => UINT128,
+        PrimTy::Str => return None,
     })
+}
+
+/// The class of a 128-bit integer type, for calls to its operator methods.
+pub(crate) fn wide_class(p: PrimTy) -> &'static str {
+    debug_assert!(matches!(p, PrimTy::I128 | PrimTy::U128));
+    if p == PrimTy::I128 {
+        INT128_CLASS
+    } else {
+        UINT128_CLASS
+    }
 }
 
 /// The CIL type of `ty` in a local, field, parameter or operand position. Reports and
@@ -152,6 +171,8 @@ pub(crate) enum StackWidth {
     I32,
     I64,
     Native,
+    /// `i128`/`u128`: a `System.Int128`/`System.UInt128` value; every operation is a call.
+    Wide,
 }
 
 pub(crate) fn stack_width(p: PrimTy) -> StackWidth {
@@ -159,6 +180,7 @@ pub(crate) fn stack_width(p: PrimTy) -> StackWidth {
         PrimTy::I8 | PrimTy::I16 | PrimTy::U8 | PrimTy::U16 => StackWidth::Narrow,
         PrimTy::I64 | PrimTy::U64 => StackWidth::I64,
         PrimTy::Isize | PrimTy::Usize => StackWidth::Native,
+        PrimTy::I128 | PrimTy::U128 => StackWidth::Wide,
         _ => StackWidth::I32,
     }
 }

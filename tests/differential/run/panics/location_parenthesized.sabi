@@ -1,0 +1,10 @@
+// A panic inside parentheses is located at the outermost `(`, as rustc's HIR spans have it.
+fn Scale(a: i32, b: i32) -> i32 { ((a + b)) * 2 }
+
+fn Main() {
+    PrintLine(Scale(1, 2));
+    PrintLine(Scale(1073741823, 0));
+    PrintLine("about to overflow");
+    PrintLine(Scale(2147483647, 1));
+    PrintLine("not reached");
+}

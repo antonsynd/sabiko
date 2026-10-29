@@ -177,7 +177,12 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                         overflow_checks: options.overflow_checks,
                                     };
                                     output = sabiko_codegen::emit_il(
-                                        &bodies, &resolve, &typeck, &codegen, &mut sink,
+                                        &bodies,
+                                        &resolve,
+                                        &typeck,
+                                        &source_map,
+                                        &codegen,
+                                        &mut sink,
                                     )
                                     .unwrap_or_default();
                                 }

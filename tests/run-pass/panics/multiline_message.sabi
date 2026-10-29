@@ -1,0 +1,14 @@
+//@ exit-code: 101
+// A panic message with line breaks is reported verbatim after the located header, as Rust
+// prints it; the location is the `Panic` call inside `Fail`, not the call of `Fail`.
+fn Fail(depth: u32) {
+    if depth == 0 {
+        PrintLine("giving up");
+        Panic("first line\nsecond line\n\tindented third");
+    }
+    Fail(depth - 1);
+}
+
+fn Main() {
+    Fail(3);
+}

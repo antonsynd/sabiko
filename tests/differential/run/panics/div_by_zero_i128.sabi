@@ -1,0 +1,10 @@
+// `i128` division by zero panics.
+fn Div(a: i128, b: i128) -> i128 { a / b }
+
+fn Main() {
+    PrintLine(Div(-170141183460469231731687303715884105728, 18446744073709551616));
+    PrintLine(Div(7, -2));
+    PrintLine("about to divide by zero");
+    PrintLine(Div(1, 0));
+    PrintLine("not reached");
+}

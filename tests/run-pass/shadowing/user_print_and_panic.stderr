@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/shadowing/user_print_and_panic.sabi:11:5:
+attempt to divide by zero
