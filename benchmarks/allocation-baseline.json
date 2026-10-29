@@ -37,6 +37,12 @@
     },
     "primes/release": {
       "allocated_bytes": 0
+    },
+    "tuples/checked": {
+      "allocated_bytes": 0
+    },
+    "tuples/release": {
+      "allocated_bytes": 0
     }
   }
 }
