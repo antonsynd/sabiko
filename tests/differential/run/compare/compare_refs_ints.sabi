@@ -1,0 +1,44 @@
+// Comparisons between references compare the referents (`PartialEq`/`PartialOrd` for `&A`):
+// every operator on `&i32`, `&u8` and `&i64`, from locals, parameters and `&mut`.
+fn CmpI32(a: &i32, b: &i32) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpU8(a: &u8, b: &u8) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+}
+
+fn CmpI64(a: &mut i64, b: &mut i64) {
+    Print(a == b); Print(' '); Print(a != b); Print(' '); Print(a < b); Print(' ');
+    Print(a <= b); Print(' '); Print(a > b); Print(' '); PrintLine(a >= b);
+    *a /= 2;
+}
+
+fn Main() {
+    let one = 1;
+    let two = 2;
+    CmpI32(&one, &two); CmpI32(&two, &one); CmpI32(&one, &one);
+    CmpI32(&-2147483648, &2147483647); CmpI32(&-1, &0);
+    CmpU8(&0, &255); CmpU8(&200, &100); CmpU8(&128, &128);
+    let mut big: i64 = 9223372036854775807;
+    let mut small: i64 = -9223372036854775807 - 1;
+    CmpI64(&mut big, &mut small);
+    CmpI64(&mut small, &mut big);
+    let mut same = small;
+    CmpI64(&mut small, &mut same);
+    PrintLine(small);
+    let r = &one;
+    let s = &two;
+    PrintLine(r == s);
+    PrintLine(r < s && s > r);
+    PrintLine(r == &1 && &2 == s && &one <= r);
+    let mut m = 5;
+    let mr = &mut m;
+    PrintLine(mr == &mut 5);
+    PrintLine(mr != &5);
+    *mr = 6;
+    PrintLine(&*mr > &5);
+    PrintLine(m);
+}

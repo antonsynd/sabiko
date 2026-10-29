@@ -594,6 +594,11 @@ impl<'a> Builder<'a> {
             ExprKind::Binary(op @ (BinOp::And | BinOp::Or), lhs, rhs) => {
                 self.lower_logical(dest, *op, lhs, rhs, span);
             }
+            ExprKind::Binary(op, lhs, rhs)
+                if op.is_comparison() && self.comparison_derefs(lhs, rhs) > 0 =>
+            {
+                self.lower_ref_comparison(dest, *op, lhs, rhs, span);
+            }
             ExprKind::Binary(op, lhs, rhs) => {
                 let lhs = self.as_operand(lhs);
                 let rhs = self.as_operand(rhs);
@@ -711,6 +716,71 @@ impl<'a> Builder<'a> {
                 self.as_temp(expr);
             }
         }
+    }
+
+    /// How many references both operands of a comparison have: `r == s` for `r, s: &&i32`
+    /// compares `**r` with `**s`. Zero for primitive operands and when either side
+    /// diverges.
+    fn comparison_derefs(&self, lhs: &Expr, rhs: &Expr) -> usize {
+        let (mut a, mut b) = (self.ty(lhs), self.ty(rhs));
+        let mut derefs = 0;
+        while let (Ty::Ref(_, x), Ty::Ref(_, y)) = (a, b) {
+            a = x;
+            b = y;
+            derefs += 1;
+        }
+        derefs
+    }
+
+    /// `r == s` (or any comparison) on references compares the referents, as Rust's
+    /// `PartialEq`/`PartialOrd` impls for `&A` do. Each operand is evaluated to a shared
+    /// reference first and both are dereferenced in the comparison itself, after both
+    /// were evaluated: rustc passes `&r` and `&s` to `PartialEq::eq`, so the referents
+    /// stay borrowed while the right operand runs (`r == { *r = 3; s }` is a conflict),
+    /// and a `&mut` operand is only borrowed, not moved.
+    fn lower_ref_comparison(
+        &mut self,
+        dest: &Place,
+        op: BinOp,
+        lhs: &Expr,
+        rhs: &Expr,
+        span: Span,
+    ) {
+        let derefs = self.comparison_derefs(lhs, rhs);
+        let mut lhs = self.comparison_operand(lhs);
+        let mut rhs = self.comparison_operand(rhs);
+        for _ in 0..derefs {
+            lhs = lhs.deref();
+            rhs = rhs.deref();
+        }
+        let lhs = self.place_operand(lhs);
+        let rhs = self.place_operand(rhs);
+        self.assign(dest.clone(), Rvalue::BinaryOp(op, lhs, rhs), span);
+    }
+
+    /// A reference operand of a comparison, as a temporary holding the reference. A place
+    /// is reborrowed shared (`&*r`), so a `&mut` place is not moved; anything else is
+    /// evaluated into the temporary.
+    fn comparison_operand(&mut self, expr: &Expr) -> Place {
+        let is_place = match &strip_parens(expr).kind {
+            ExprKind::Path(_) => matches!(self.path_res(expr), Some(Res::Local(_))),
+            ExprKind::Field(..) | ExprKind::Deref(_) => true,
+            _ => false,
+        };
+        if !is_place {
+            return Place::local(self.as_temp(expr));
+        }
+        let Ty::Ref(_, referent) = self.ty(expr).clone() else {
+            unreachable!("comparison operands with derefs are references")
+        };
+        let place = self.as_place(expr);
+        let temp = self.new_temp(Ty::shared_ref(*referent), expr.span);
+        self.assign(
+            Place::local(temp),
+            Rvalue::Ref(Mutability::Not, place.deref()),
+            expr.span,
+        );
+        Place::local(temp)
     }
 
     /// `p = e` and `p op= e`. The right-hand side is evaluated first, then the place, as

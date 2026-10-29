@@ -1,0 +1,24 @@
+// Comparisons between references compare the referents: each operand becomes a shared
+// reference temporary (a place is reborrowed, so `&mut` is not moved) and both are
+// dereferenced in the comparison, after both operands ran.
+fn Shared(a: &i32, b: &i32) -> bool {
+    a < b
+}
+
+fn Mixed(a: &mut f64, b: &f64) -> bool {
+    a == b
+}
+
+fn Temporaries(x: char) -> bool {
+    &x != &'a'
+}
+
+fn Main() {
+    let n = 1;
+    let mut m = 2;
+    let r = &mut m;
+    let same = r == &n;
+    *r = 3;
+    PrintLine(same);
+    PrintLine(Shared(&n, &m));
+}

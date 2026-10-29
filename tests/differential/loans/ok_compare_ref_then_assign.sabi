@@ -1,0 +1,11 @@
+// A comparison's borrows end with it (NLL): the compared places may be assigned after.
+fn Main() {
+    let mut x = 1;
+    let mut y = 1;
+    let r = &x;
+    let same = r == &y;
+    x = 2;
+    y = 3;
+    PrintLine(same);
+    PrintLine(&x < &y);
+}

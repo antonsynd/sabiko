@@ -95,6 +95,8 @@ pub(crate) struct FnCtxt<'a> {
     pending_negs: Vec<(Span, Ty)>,
     /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `()`.
     diverging_vars: Vec<Ty>,
+    /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
+    pending_comparisons: Vec<(BinOp, Ty, Span)>,
     errors_before: usize,
 }
 
@@ -123,6 +125,7 @@ impl<'a> FnCtxt<'a> {
             casts: Vec::new(),
             pending_negs: Vec::new(),
             diverging_vars: Vec::new(),
+            pending_comparisons: Vec::new(),
             errors_before,
         }
     }
@@ -690,15 +693,18 @@ impl<'a> FnCtxt<'a> {
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 let l = self.check_expr(lhs, None);
-                let r = self.check_expr(rhs, Some(&l));
-                let _ = r;
+                if let Ty::Ref(..) = self.shallow(&l) {
+                    self.check_ref_comparison(op, &l, rhs, span);
+                    return Ty::BOOL;
+                }
+                self.check_expr(rhs, Some(&l));
                 let resolved = self.shallow(&l);
-                let ok = match &resolved {
-                    Ty::Error | Ty::Never | Ty::Infer(_) | Ty::Unit => true,
-                    Ty::Prim(p) => *p != PrimTy::Str,
-                    _ => false,
-                };
-                if !ok {
+                if let Ty::Infer(v) = resolved {
+                    if self.infer.kind(v) == VarKind::General {
+                        // Judged once the variable is known (`finish`).
+                        self.pending_comparisons.push((op, l.clone(), span));
+                    }
+                } else if !is_comparable(&resolved) {
                     self.binary_op_error(op, &resolved, span);
                 }
                 Ty::BOOL
@@ -721,6 +727,81 @@ impl<'a> FnCtxt<'a> {
                     Ty::Error
                 }
             }
+        }
+    }
+
+    /// `lhs op rhs` where the left operand has reference type `l`. As in Rust, whose
+    /// `PartialEq`/`PartialOrd` impls for `&A` compare the referents, both operands must be
+    /// references of the same depth to a comparable type; MIR building dereferences them.
+    /// `==` and `!=` accept any mix of `&` and `&mut` at every level (`impl PartialEq<&mut
+    /// B> for &A` and its siblings). The ordering operators have only `impl PartialOrd<&B>
+    /// for &A` and `impl PartialOrd<&mut B> for &mut A`: rustc infers the right operand's
+    /// outer reference from the left one and coerces to it, so a `&mut` right operand of a
+    /// `&` left one is accepted, but every inner level must match exactly.
+    fn check_ref_comparison(&mut self, op: BinOp, lhs_ty: &Ty, rhs: &Expr, span: Span) {
+        let rhs_ty = self.check_expr(rhs, None);
+        let r_res = self.shallow(&rhs_ty);
+        match r_res {
+            Ty::Never | Ty::Error => return,
+            Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                self.coerce(rhs.span, &rhs_ty, lhs_ty);
+                return;
+            }
+            _ => {}
+        }
+        let ordering = !matches!(op, BinOp::Eq | BinOp::Ne);
+        let (mut left, mut right) = (self.shallow(lhs_ty), r_res);
+        let mut outer = true;
+        let mut mutability_ok = true;
+        while let (Ty::Ref(ma, ia), Ty::Ref(mb, ib)) = (&left, &right) {
+            if ordering && ma != mb && !(outer && *ma == Mutability::Not) {
+                mutability_ok = false;
+            }
+            outer = false;
+            let (na, nb) = (self.shallow(ia), self.shallow(ib));
+            left = na;
+            right = nb;
+        }
+        // An unknown referent (`let x; .. &x == r`) may still become a reference.
+        let open = |this: &mut Self, ty: &Ty| matches!(ty, Ty::Infer(v) if this.infer.kind(*v) == VarKind::General);
+        let depth_ok = !(matches!(left, Ty::Ref(..)) || matches!(right, Ty::Ref(..)))
+            || open(self, &left)
+            || open(self, &right);
+        if outer || !depth_ok || !mutability_ok {
+            // Different depths (`&i32 == i32`), or a mutability `PartialOrd` lacks.
+            let (ls, rs) = (self.ty_str(lhs_ty), self.ty_str(&rhs_ty));
+            let mut diag = Diagnostic::error(
+                ErrorCode::INVALID_BINARY_OP,
+                format!("can't compare `{ls}` with `{rs}`"),
+            )
+            .with_label(
+                span,
+                format!("no implementation for `{ls} {} {rs}`", op.as_str()),
+            );
+            if depth_ok && !outer {
+                diag = diag.with_note(
+                    "`<`, `<=`, `>` and `>=` need references of the same mutability, except that an outermost `&mut` on the right weakens to `&`",
+                );
+            }
+            self.error(diag);
+            return;
+        }
+        if self.infer.unify(&left, &right).is_err() {
+            self.mismatch(rhs.span, lhs_ty, &rhs_ty);
+            return;
+        }
+        // An open side unified with a reference above: peel what it became.
+        let mut referent = self.shallow(&left);
+        while let Ty::Ref(_, inner) = referent {
+            referent = self.shallow(&inner);
+        }
+        if let Ty::Infer(v) = referent {
+            if self.infer.kind(v) == VarKind::General {
+                self.pending_comparisons.push((op, lhs_ty.clone(), span));
+            }
+        } else if !is_comparable(&referent) {
+            let resolved = self.infer.resolve(lhs_ty);
+            self.binary_op_error(op, &resolved, span);
         }
     }
 
@@ -1262,6 +1343,18 @@ impl<'a> FnCtxt<'a> {
             }
         }
 
+        for (op, ty, span) in std::mem::take(&mut self.pending_comparisons) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            let mut referent = &t;
+            while let Ty::Ref(_, inner) = referent {
+                referent = inner;
+            }
+            // An unknown type was reported with its local.
+            if !t.has_infer() && !is_comparable(referent) {
+                self.binary_op_error(op, &t, span);
+            }
+        }
+
         let lits = std::mem::take(&mut self.int_lits);
         for lit in lits {
             let ty = self.infer.resolve_with_defaults(&lit.ty);
@@ -1361,6 +1454,16 @@ impl<'a> FnCtxt<'a> {
             .with_note("only primitive types can be cast with `as`"),
         };
         self.error(d);
+    }
+}
+
+/// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
+/// the top level): the primitives but `str`, and `()`.
+fn is_comparable(ty: &Ty) -> bool {
+    match ty {
+        Ty::Error | Ty::Never | Ty::Infer(_) | Ty::Unit => true,
+        Ty::Prim(p) => *p != PrimTy::Str,
+        _ => false,
     }
 }
 
