@@ -547,6 +547,7 @@ impl<'a> BodyGen<'a> {
         match ty {
             ValTy::Prim(p) => self.prim_expr(p, depth),
             ValTy::Struct(s) => self.struct_expr(s, depth),
+            ValTy::Tuple(t) => self.tuple_expr(t, depth),
         }
     }
 
@@ -852,6 +853,45 @@ impl<'a> BodyGen<'a> {
         }
     }
 
+    /// `(a, b)`, or `(a,)` for one element; elements are evaluated left to right.
+    fn tuple_literal(&mut self, t: usize, depth: u32) -> Expr {
+        let prog = self.prog;
+        let elems: Vec<String> = prog.tuples[t]
+            .iter()
+            .map(|e| self.val_expr(*e, depth.saturating_sub(1)).text)
+            .collect();
+        if elems.len() == 1 {
+            Expr::value(format!("({},)", elems[0]))
+        } else {
+            Expr::value(format!("({})", elems.join(", ")))
+        }
+    }
+
+    fn tuple_expr(&mut self, t: usize, depth: u32) -> Expr {
+        let ty = ValTy::Tuple(t);
+        let has_calls = !self.callables(|r| r == RetTy::Val(ty)).is_empty();
+        let choice = if depth == 0 {
+            self.rng.weighted(&[50, 50, 0, 0, 0])
+        } else {
+            self.rng
+                .weighted(&[40, 30, if has_calls { 15 } else { 0 }, 10, 5])
+        };
+        match choice {
+            0 => self.tuple_literal(t, depth),
+            1 => match self.place_of(ty, Access::Read) {
+                Some(place) => Expr::value(place.text),
+                None => self.tuple_literal(t, depth),
+            },
+            2 => self
+                .value_call(ty, depth)
+                .unwrap_or_else(|| self.tuple_literal(t, depth)),
+            3 => self.if_expr(ty, depth),
+            _ => self
+                .deref_call(ty, depth)
+                .unwrap_or_else(|| self.tuple_literal(t, depth)),
+        }
+    }
+
     /// A reference local usable as `&inner` (or `&mut inner` when `mutable`).
     fn ref_var(&mut self, mutable: bool, inner: ValTy) -> Option<Expr> {
         let mut ok = Vec::new();
@@ -1018,6 +1058,7 @@ impl<'a> BodyGen<'a> {
             if returns { 3 } else { 1 },    // 12 guarded return
             if has_fns { 5 } else { 0 },    // 13 write through a returned reference
             1,                              // 14 guarded panic
+            if self.prog.tuples.is_empty() { 0 } else { 10 }, // 15 destructuring let
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1034,6 +1075,13 @@ impl<'a> BodyGen<'a> {
             11 => self.stmt_jump(depth),
             12 => self.stmt_return(depth),
             13 => self.stmt_write_through_call(depth),
+            15 => {
+                if self.rng.chance(25) {
+                    self.stmt_let_tuple_ref()
+                } else {
+                    self.stmt_let_tuple(depth)
+                }
+            }
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));
@@ -1045,6 +1093,8 @@ impl<'a> BodyGen<'a> {
     fn random_val_ty(&mut self) -> ValTy {
         if !self.prog.structs.is_empty() && self.rng.chance(25) {
             ValTy::Struct(self.rng.index(self.prog.structs.len()))
+        } else if !self.prog.tuples.is_empty() && self.rng.chance(20) {
+            ValTy::Tuple(self.rng.index(self.prog.tuples.len()))
         } else if self.rng.chance(30) {
             // The type of something already in scope, so the new local can interact with it.
             let places = self.candidates();
@@ -1074,6 +1124,99 @@ impl<'a> BodyGen<'a> {
             e.text
         ));
         self.declare(name, Ty::Val(ty), mutable, false);
+        true
+    }
+
+    /// `let (a, (b, _), mut c): T = e;`: destructures a tuple value. `_` binds (and moves)
+    /// nothing; the model still counts a moved initialiser place as moved as a whole,
+    /// which is conservative.
+    fn stmt_let_tuple(&mut self, depth: u32) -> bool {
+        let t = self.rng.index(self.prog.tuples.len());
+        let e = self.val_expr(ValTy::Tuple(t), depth);
+        let mut binds = Vec::new();
+        let pat = self.tuple_pattern(t, 0, &mut binds);
+        let annotation = if self.rng.chance(40) {
+            format!(": {}", self.prog.val_name(ValTy::Tuple(t)))
+        } else {
+            String::new()
+        };
+        self.line(&format!("let {pat}{annotation} = {};", e.text));
+        for (name, ty, mutable) in binds {
+            self.declare(name, Ty::Val(ty), mutable, false);
+        }
+        true
+    }
+
+    /// A pattern for tuple type `t`: per element `_`, a nested pattern (for a tuple element,
+    /// at most two levels deep) or a fresh binding, `mut` now and then. The bindings are
+    /// appended to `binds` as `(name, type, mutable)`.
+    fn tuple_pattern(
+        &mut self,
+        t: usize,
+        depth: u32,
+        binds: &mut Vec<(String, ValTy, bool)>,
+    ) -> String {
+        let prog = self.prog;
+        let mut parts = Vec::new();
+        for &elem in &prog.tuples[t] {
+            let part = match elem {
+                ValTy::Tuple(inner) if depth < 2 && self.rng.chance(40) => {
+                    self.tuple_pattern(inner, depth + 1, binds)
+                }
+                _ if self.rng.chance(20) => "_".to_owned(),
+                _ => {
+                    let name = self.fresh_name();
+                    let mutable = self.rng.chance(30);
+                    binds.push((name.clone(), elem, mutable));
+                    format!("{}{name}", if mutable { "mut " } else { "" })
+                }
+            };
+            parts.push(part);
+        }
+        if parts.len() == 1 {
+            format!("({},)", parts[0])
+        } else {
+            format!("({})", parts.join(", "))
+        }
+    }
+
+    /// `let (a, _, b) = &t;` (or `&mut t`, a reference local, a call returning a reference):
+    /// Rust 2021's default binding modes bind references to the elements, each a reference
+    /// local with its own region over the borrowed roots.
+    fn stmt_let_tuple_ref(&mut self) -> bool {
+        let t = self.rng.index(self.prog.tuples.len());
+        let mutable = self.rng.chance(50);
+        let Some(mut e) = self.ref_expr(mutable, ValTy::Tuple(t), self.knobs.max_expr_depth)
+        else {
+            return false;
+        };
+        // As in `stmt_let_ref`: a bare reference local is reborrowed explicitly.
+        if let [(root, _)] = e.roots[..] {
+            if e.text == self.vars[root].name && matches!(self.vars[root].ty, Ty::Ref { .. }) {
+                e.text = format!("&{}*{}", if mutable { "mut " } else { "" }, e.text);
+            }
+        }
+        let prog = self.prog;
+        let mut parts = Vec::new();
+        let mut binds = Vec::new();
+        for &elem in &prog.tuples[t] {
+            if self.rng.chance(25) {
+                parts.push("_".to_owned());
+            } else {
+                let name = self.fresh_name();
+                parts.push(name.clone());
+                binds.push((name, elem));
+            }
+        }
+        let pat = if parts.len() == 1 {
+            format!("({},)", parts[0])
+        } else {
+            format!("({})", parts.join(", "))
+        };
+        self.line(&format!("let {pat} = {};", e.text));
+        for (name, inner) in binds {
+            self.bind_ref(name, Ty::Ref { mutable, inner }, &e);
+        }
         true
     }
 
@@ -1185,9 +1328,9 @@ impl<'a> BodyGen<'a> {
 
     /// Prints every primitive leaf of a struct in scope on one line.
     fn stmt_show(&mut self) -> bool {
-        let Some((place, _)) =
-            self.any_place(Access::Borrow(false), |t| matches!(t, ValTy::Struct(_)))
-        else {
+        let Some((place, _)) = self.any_place(Access::Borrow(false), |t| {
+            matches!(t, ValTy::Struct(_) | ValTy::Tuple(_))
+        }) else {
             return false;
         };
         let line = self.show_line(&place.text, place.ty);
