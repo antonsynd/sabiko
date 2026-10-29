@@ -1568,37 +1568,41 @@ fn activation_conflicts_with_a_shared_borrow_passed_to_the_call() {
 /// `let s = &p; p.Add((*s).X); [if used_after { (*s).Y }]`: rule 6.
 fn shared_borrow_before_reservation(used_after: bool) -> (Fixture, Body, Span, Span) {
     let fx = Fixture::new();
-    let mut c = TwoPhaseCall::new(&fx, true);
-    let (bb0, n, p) = (c.bb0, c.n, c.p);
-    let s = c
+    let mut call_mir = TwoPhaseCall::new(&fx, true);
+    let (bb0, n, p) = (call_mir.bb0, call_mir.n, call_mir.p);
+    let shared_ref = call_mir
         .mir
         .user("s", Ty::shared_ref(fx.point_ty()), Mutability::Not);
     // The shared borrow comes first: move the reservation after it.
-    let statements = &mut c.mir.body.blocks[bb0.index()].statements;
+    let statements = &mut call_mir.mir.body.blocks[bb0.index()].statements;
     let reservation = statements.remove(3);
     let shared_span = Span::new(FileId(0), 1, 2);
     statements.push(Statement {
-        kind: StatementKind::Assign(local(s), shared(local(p))),
+        kind: StatementKind::Assign(local(shared_ref), shared(local(p))),
         span: shared_span,
     });
     statements.push(reservation);
-    c.mir
-        .assign(bb0, local(n), use_copy(deref(s).field(0, Ty::I32)));
-    let next = c.mir.block();
-    let call = c.mir.call(
+    call_mir
+        .mir
+        .assign(bb0, local(n), use_copy(deref(shared_ref).field(0, Ty::I32)));
+    let next = call_mir.mir.block();
+    let call = call_mir.mir.call(
         bb0,
         fx.add,
-        vec![mv(local(c.t)), copy(local(n))],
+        vec![mv(local(call_mir.t)), copy(local(n))],
         local(Local::RETURN),
         next,
     );
     if used_after {
-        let y = c.mir.temp(Ty::I32);
-        c.mir
-            .assign(next, local(y), use_copy(deref(s).field(1, Ty::I32)));
+        let later = call_mir.mir.temp(Ty::I32);
+        call_mir.mir.assign(
+            next,
+            local(later),
+            use_copy(deref(shared_ref).field(1, Ty::I32)),
+        );
     }
-    c.mir.finish_unit(next);
-    (fx, c.mir.finish(), shared_span, call)
+    call_mir.mir.finish_unit(next);
+    (fx, call_mir.mir.finish(), shared_span, call)
 }
 
 #[test]
@@ -1724,26 +1728,26 @@ fn pick_then_write(write_p: bool) -> (Fixture, Body) {
     let mut mir = BodyBuilder::new(&fx);
     let p = mir.user("p", fx.point_ty(), Mutability::Mut);
     let q = mir.user("q", fx.point_ty(), Mutability::Mut);
-    let a = mir.temp(Ty::shared_ref(fx.point_ty()));
-    let b = mir.temp(Ty::shared_ref(fx.point_ty()));
+    let self_ref = mir.temp(Ty::shared_ref(fx.point_ty()));
+    let other_ref = mir.temp(Ty::shared_ref(fx.point_ty()));
     let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Not);
-    let u = mir.user("u", Ty::I32, Mutability::Not);
+    let value = mir.user("u", Ty::I32, Mutability::Not);
     let bb0 = mir.block();
     let bb1 = mir.block();
     mir.assign(bb0, local(p), point_aggregate(&fx));
     mir.assign(bb0, local(q), point_aggregate(&fx));
-    mir.assign(bb0, local(a), shared(local(p)));
-    mir.assign(bb0, local(b), shared(local(q)));
+    mir.assign(bb0, local(self_ref), shared(local(p)));
+    mir.assign(bb0, local(other_ref), shared(local(q)));
     mir.call(
         bb0,
         fx.pick,
-        vec![copy(local(a)), copy(local(b))],
+        vec![copy(local(self_ref)), copy(local(other_ref))],
         local(r),
         bb1,
     );
     let written = if write_p { p } else { q };
     mir.assign(bb1, x_of(written), use_int(5));
-    mir.assign(bb1, local(u), use_copy(deref(r)));
+    mir.assign(bb1, local(value), use_copy(deref(r)));
     mir.finish_unit(bb1);
     (fx, mir.finish())
 }
