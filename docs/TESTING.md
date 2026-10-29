@@ -33,8 +33,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
 - Generated programs (`crates/sabiko_testgen`, `crates/sabikoc/tests/generated.rs`): a
   seeded generator produces random programs in the Phase 4 subset; both oracles above are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
-  nightly). A failure prints the seed and the program; `SABIKO_GENERATED_BASE_SEED` selects
-  the range.
+  nightly), and to reorderings of them (see Properties). A failure prints the seed and the
+  program; `SABIKO_GENERATED_BASE_SEED` selects the range.
 - ILVerify runs on every assembly the tests produce. The only ignored error is
   `ReturnPtrToStack` (decision 30).
 - The MIR validator runs after every pass in the pipeline (debug builds panic on a
@@ -51,6 +51,15 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
 - Determinism and idempotence: compiling a generated program twice gives identical
   diagnostics, MIR and IL; inserting no-op statements at random statement boundaries leaves
   the verdict and error codes unchanged (`crates/sabikoc/tests/generated.rs`).
+- Reordering: swapping adjacent independent statements of a generated program leaves
+  Sabiko's verdict and error codes unchanged (`sabiko_testgen::reorder`; independent means
+  disjoint locals, no control flow, at most one statement that prints, calls or may panic,
+  and no write to memory a reference may alias next to any other access to it). The
+  analysis is not trusted: rustc's verdict on the reordered program must equal Sabiko's,
+  and a reordered borrow-clean program must run exactly as the original does under rustc,
+  and as rustc does under Sabiko. Weakening the analysis on purpose is caught: without the
+  aliasing rule 5 of 2000 seeds change Sabiko's verdict, without the one-effect rule 11 of
+  60 borrow-clean seeds change rustc's output.
 
 What the pass found, for calibration: fuzzing found three crashes in MIR building on
 `!`-typed expressions (`*never`, `never.Field`, `if loop {} {}`); the generator found a

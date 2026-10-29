@@ -26,9 +26,14 @@
 //! immutable binding or a move out of a reference; both compilers must then reject them
 //! with borrow-checker errors. [`Knobs::borrow_clean`] never skips a check, for the
 //! run-time comparison.
+//!
+//! Two transformations derive equivalent programs from a generated one: [`insert_noops`]
+//! adds no-op statements, and [`reorder::reorder`] swaps adjacent independent statements
+//! (an analysis on Sabiko's syntax tree and local types; see the module).
 
 pub mod body;
 pub mod program;
+pub mod reorder;
 pub mod rng;
 pub mod ty;
 
