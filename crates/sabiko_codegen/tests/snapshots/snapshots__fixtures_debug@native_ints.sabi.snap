@@ -13,81 +13,56 @@ input_file: crates/sabiko_codegen/tests/fixtures/native_ints.sabi
 {
   .method public hidebysig static void 'Main'() cil managed
   {
-    .maxstack 1
+    .maxstack 2
     .locals init (
-      [0] native uint 'small',
-      [1] native uint 'limit',
-      [2] native uint 'big',
-      [3] native uint 'huge',
-      [4] native int 'neg',
-      [5] native int 'min32',
-      [6] native int 'below',
-      [7] native uint '_9',
-      [8] native uint '_11',
-      [9] native uint '_13',
-      [10] native uint '_15',
-      [11] native int '_17',
-      [12] native int '_19',
-      [13] native int '_21'
+      [0] native uint 'limit',
+      [1] native uint 'big',
+      [2] native uint 'huge',
+      [3] native int 'neg',
+      [4] native int 'min32',
+      [5] native int 'below'
     )
   BB0:
     ldc.i4.7
     conv.u
-    stloc.0
     ldc.i4 2147483647
     conv.u
-    stloc.1
+    stloc.0
     ldc.i8 2147483648
     conv.u
-    stloc.2
+    stloc.1
     ldc.i8 5000000000
     conv.u
-    stloc.3
+    stloc.2
     ldc.i4.s -5
     conv.i
-    stloc.s 4
+    stloc.3
     ldc.i4 -2147483648
     conv.i
-    stloc.s 5
+    stloc.s 4
     ldc.i8 -2147483649
     conv.i
-    stloc.s 6
-    ldloc.0
-    stloc.s 7
-    ldloc.s 7
+    stloc.s 5
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native uint)
   BB1:
-    ldloc.1
-    stloc.s 8
-    ldloc.s 8
+    ldloc.0
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native uint)
   BB2:
-    ldloc.2
-    stloc.s 9
-    ldloc.s 9
+    ldloc.1
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native uint)
   BB3:
-    ldloc.3
-    stloc.s 10
-    ldloc.s 10
+    ldloc.2
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native uint)
   BB4:
-    ldloc.s 4
-    stloc.s 11
-    ldloc.s 11
+    ldloc.3
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native int)
   BB5:
-    ldloc.s 5
-    stloc.s 12
-    ldloc.s 12
+    ldloc.s 4
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native int)
   BB6:
-    ldloc.s 6
-    stloc.s 13
-    ldloc.s 13
+    ldloc.s 5
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native int)
   BB7:
-  BB8:
     ret
   }
 

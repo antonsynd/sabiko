@@ -27,34 +27,24 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
   {
     .maxstack 2
     .locals init (
-      [0] valuetype 'Point' '_0',
-      [1] valuetype 'Point' '_2',
-      [2] valuetype 'Point' '_3',
-      [3] int32 '_4',
-      [4] int32 '_5'
+      [0] valuetype 'Point' '_2',
+      [1] valuetype 'Point' '_3'
     )
   BB0:
     ldarg.0
-    stloc.1
+    stloc.0
     ldloca.s 1
-    ldfld int32 'Point'::'Y'
-    stloc.3
-    ldloca.s 1
-    ldfld int32 'Point'::'X'
-    stloc.s 4
-    ldloca.s 2
     initobj valuetype 'Point'
-    ldloca.s 2
-    ldloc.3
+    ldloca.s 1
+    ldloca.s 0
+    ldfld int32 'Point'::'Y'
     stfld int32 'Point'::'X'
-    ldloca.s 2
-    ldloc.s 4
+    ldloca.s 1
+    ldloca.s 0
+    ldfld int32 'Point'::'X'
     stfld int32 'Point'::'Y'
-    ldloc.2
-    stloc.1
     ldloc.1
     stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -65,20 +55,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
     .locals init (
       [0] valuetype 'Point' 'origin',
       [1] valuetype 'Pair' 'pair',
-      [2] valuetype 'Point' '_3',
-      [3] valuetype 'Point' '_4',
-      [4] valuetype 'Point' '_5',
-      [5] valuetype 'Pair' '_6',
-      [6] valuetype 'Point' '_7',
-      [7] valuetype 'Point' '_8',
-      [8] int32 '_9',
-      [9] int32 '_10',
-      [10] int32 '_11',
-      [11] valuetype 'Point' '_12',
-      [12] valuetype 'Point' '_13',
-      [13] int32 '_14',
-      [14] valuetype 'Point' '_15',
-      [15] valuetype 'Pair' '_16'
+      [2] valuetype 'Point' '_4',
+      [3] valuetype 'Point' '_5',
+      [4] valuetype 'Pair' '_6',
+      [5] int32 '_10',
+      [6] valuetype 'Point' '_12',
+      [7] valuetype 'Point' '_13'
     )
   BB0:
     ldloca.s 0
@@ -89,56 +71,46 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
     ldloca.s 0
     ldc.i4.0
     stfld int32 'Point'::'Y'
-    ldloc.0
-    stloc.2
-    ldloca.s 3
+    ldloca.s 2
     initobj valuetype 'Point'
-    ldloca.s 3
+    ldloca.s 2
     ldc.i4.1
     stfld int32 'Point'::'X'
-    ldloca.s 3
+    ldloca.s 2
     ldc.i4.1
     stfld int32 'Point'::'Y'
     ldloca.s 1
     initobj valuetype 'Pair'
     ldloca.s 1
-    ldloc.2
+    ldloc.0
     stfld valuetype 'Point' 'Pair'::'First'
     ldloca.s 1
-    ldloc.3
+    ldloc.2
     stfld valuetype 'Point' 'Pair'::'Second'
-    ldloca.s 4
+    ldloca.s 3
     initobj valuetype 'Point'
-    ldloca.s 4
+    ldloca.s 3
     ldc.i4.2
     stfld int32 'Point'::'X'
-    ldloca.s 4
+    ldloca.s 3
     ldc.i4.3
     stfld int32 'Point'::'Y'
     ldloca.s 1
-    ldloc.s 4
+    ldloc.3
     stfld valuetype 'Point' 'Pair'::'First'
+    ldloca.s 4
+    initobj valuetype 'Pair'
+    ldloca.s 4
     ldloca.s 1
     ldfld valuetype 'Point' 'Pair'::'Second'
-    stloc.s 6
+    stfld valuetype 'Point' 'Pair'::'First'
+    ldloca.s 4
     ldloca.s 1
     ldfld valuetype 'Point' 'Pair'::'First'
-    stloc.s 7
-    ldloca.s 5
-    initobj valuetype 'Pair'
-    ldloca.s 5
-    ldloc.s 6
-    stfld valuetype 'Point' 'Pair'::'First'
-    ldloca.s 5
-    ldloc.s 7
     stfld valuetype 'Point' 'Pair'::'Second'
-    ldloc.s 5
+    ldloc.s 4
     stloc.1
     ldc.i4.1
-    stloc.s 8
-    ldloc.s 8
-    stloc.s 10
-    ldloc.s 10
     conv.i8
     ldc.i4.1
     conv.i8
@@ -148,32 +120,25 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "attempt to add with overflow"
     ldstr "aggregates.sabi:26:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
     conv.i4
-    stloc.s 9
-    ldloc.s 9
-    stloc.s 13
-    ldloca.s 12
+    stloc.s 5
+    ldloca.s 7
     initobj valuetype 'Point'
-    ldloca.s 12
-    ldloc.s 13
+    ldloca.s 7
+    ldloc.s 5
     stfld int32 'Point'::'X'
-    ldloca.s 12
+    ldloca.s 7
     ldc.i4.5
     stfld int32 'Point'::'Y'
-    ldloc.s 12
+    ldloc.s 7
     call valuetype 'Point' 'Aggregates'::'Swap'(valuetype 'Point')
-    stloc.s 11
+    stloc.s 6
   BB1:
-    ldloc.s 11
-    stloc.s 14
-    ldloc.1
-    stloc.s 15
-  BB2:
     ret
   }
 

@@ -1,0 +1,25 @@
+// Values kept on the evaluation stack must be taken in stack order (decision 51). Here a
+// single-use local (`cur`) is computed, then the left operand of `-` (`-1.5`, `-7`), so
+// both wait on the stack with the left operand on top; the subtraction loads the left
+// operand first and must then load `cur` from a local, not take the value under it
+// (which computed `cur - -1.5`). Found by the generated programs (seed 9000542).
+fn Get(x: i64) -> i64 { x * 3 }
+fn Half(x: f64) -> f64 { x / 2.0 }
+
+fn Main() {
+    let cur = Half(5.0);
+    PrintLine(-1.5 - cur);
+    let n = Get(5);
+    PrintLine(-7 - n);
+    let m = Get(-4);
+    PrintLine(-(2 * 3) - m);
+    let a = Half(1.0);
+    let b = -Half(8.0);
+    PrintLine(b / a);
+    PrintLine(-(Half(3.0)) - Half(1.0));
+    let big = Get(-3074457345618258602);
+    PrintLine(big);
+    let k = 2147483647;
+    let over = -(1287500301i64 + -983i64) - (k as i64);
+    PrintLine(over);
+}

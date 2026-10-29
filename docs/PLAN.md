@@ -448,6 +448,18 @@ recursive fibonacci (1.39x); start-up is 1.6–3.8x C# on call-heavy programs be
 is temporary-heavy and an early-placed return block makes the JIT see a loop, and #28's
 explicit checks slowed debug-build start-up further. The codegen fixes are #29.
 
+Update (2026-10-29), IL shaped for the JIT (#29, decision 51): blocks are laid out in
+reverse postorder, so the only backward branches are loop back edges, and a jump to a
+return-only block is the return itself; failed checks call cold `[DoesNotReturn]` throw
+helpers in `Sabiko.Runtime.Checks`; copy forwarding (`sabiko_mir::forward`) runs after
+borrow checking, and codegen keeps single-use values on the IL stack and drops unused
+locals. Release start-up is now 1.07–1.18x C# for fibonacci, primes and nbody (was
+1.6–3.8x); debug start-up for mandelbrot and lcg_hash is within 1.08x (was 3.3x and 1.8x).
+Steady state is at parity except checked fibonacci (1.32x): decision 43's 64-bit check
+helpers keep `FibRecursive` too large to inline into itself. Gaps: struct literals still
+use `initobj`+`stfld`; the shapes for Phase 5 constructs (part 3 of #29) are tracked on
+#6, #8, #9 and #12.
+
 ### Phase 5: Data types
 
 Work

@@ -105,10 +105,31 @@ value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref re
 (`&!`, `&&!`, ...) have no storage (decisions 32 and 44), and assignments to them are
 dropped. Not lowered yet (E0500): `&&T`, `()`-typed parameters and fields.
 
-Statements and expressions. The backend walks the MIR (§11); every statement and
-terminator becomes an instruction sequence that leaves the evaluation stack empty, so basic
-blocks are plain labels. MIR locals become IL locals (`.locals init`) and MIR arguments IL
-arguments. A place is accessed through its address: `ldloca`/`ldarga` for a local or
+Statements and expressions. After borrow checking, copy forwarding (decision 51,
+`sabiko_mir::forward`) replaces a compiler temporary that holds a copy of a place
+(`_t = copy p`, which MIR building makes for every operand, decision 36) by the place
+itself at its single use when that use is later in the same block and nothing in between
+can write the memory the place reads: no assignment to `p`'s local, `p`'s local never
+borrowed, and, for a place read through a reference, no assignment through a reference or
+to a borrowed local in between; calls end blocks, so none can run in between. Copies
+nothing reads are deleted. `--emit=mir` prints the MIR before this pass, as the borrow
+checker sees it. The backend then walks the MIR (§11); every statement and terminator
+becomes an instruction sequence. MIR locals become IL locals (`.locals init`, listing only
+the locals the code uses) and MIR arguments IL arguments, except that a user local or
+temporary assigned once (not by a struct literal) and read once by a whole-local operand,
+never borrowed or projected, keeps its value on the evaluation stack when the statement
+that reads it starts by loading it (decision 51): the `stloc`/`ldloc` pair is dropped.
+Otherwise the value is stored after all (`stloc`, or `dup; stloc` when the reader loads it
+twice, as a division's checks do). Values waiting on the stack are taken last-in
+first-out, so `F(a) + G(b)` keeps both results there; the stack is otherwise empty between
+statements and at block labels, except that values may stay on it into a block entered
+only by falling through from its single predecessor (a call's continuation). An assignment
+to the return place followed only by the return leaves its value for the `ret`. Nothing is
+computed or read at a different time than without these steps. Blocks are emitted in
+reverse postorder of a depth-first walk from `bb0` (a `switchInt`'s `otherwise` successor
+falling through), so the only backward branches are loop back edges: the JIT compiles a
+method with a backward branch as a loop (instrumented Tier0, OSR). A jump to a block that
+only returns is emitted as `ldloc; ret` in place. A place is accessed through its address: `ldloca`/`ldarga` for a local or
 argument, `ldflda` for a field, the pointer value itself for `*r`; the final load or store
 is `ldloc`/`stloc`, `ldfld`/`stfld` or `ldind.*`/`stind.*` (`ldobj`/`stobj` for structs).
 `&place` is that address; `&mut *r` is `r` itself. A struct literal is built in its
@@ -116,7 +137,8 @@ destination local with `initobj` and one `stfld` per field, or staged through a 
 when the destination is a projection or is read by one of the fields. Calls are `call`
 with the callee's full signature; `Print`/`PrintLine` select the runtime overload by the
 argument's type and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cannot return,
-and `unreachable`, are followed by a throw. `if` is `brfalse`, other `switchInt`s a `beq`
+and `unreachable`, are followed by `call Sabiko.Runtime.Checks::Unreachable()`, `ldnull`,
+`throw`. `if` is `brfalse`, other `switchInt`s a `beq`
 chain; `return` loads the return local and `ret`.
 
 Arithmetic follows Rust. In release builds `+`, `-`, `*` are the plain opcodes and
@@ -128,9 +150,15 @@ compute exactly at `int32` width and `i32`/`u32` at `int64` width (operands wide
 conv.i1; beq`, with `conv.i8` after the truncation for the 32-bit types); `i64`, `u64`,
 `isize`, `usize`, `i128` and `u128` call `Sabiko.Runtime.Arithmetic::AddOverflows`,
 `SubOverflows` or `MulOverflows`, which return whether the exact result overflowed and
-store the wrapped one through a `T&` to a scratch local. A failed check throws
-`PanicException(message, location)` (`ldstr`, `ldstr`, `newobj`, `throw`); no `.ovf`
-opcode is emitted. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
+store the wrapped one through a `T&` to a scratch local. A failed check, here and for
+division, remainder and shifts below, loads its location and calls the check's throw
+helper in `Sabiko.Runtime.Checks` (`AddOverflow`, `SubtractOverflow`, `MultiplyOverflow`,
+`NegateOverflow`, `DivideByZero`, `DivideOverflow`, `RemainderByZero`,
+`RemainderOverflow`, `ShiftLeftOverflow`, `ShiftRightOverflow`, each `(string location)`),
+which throws `PanicException(message, location)` with Rust's message; the call is
+followed by `ldnull; throw`, never reached, which ends the block for the verifier and
+marks it cold for the JIT (`ldstr`, `call`, `ldnull`, `throw`: 12 bytes, decision 51). No
+`.ovf` opcode is emitted. Division and remainder are `div`/`rem` (`.un` for unsigned) preceded by
 explicit checks that throw a `PanicException` with Rust's message: a zero divisor, and for
 signed types `MIN` divided by `-1`; a check is dropped when a constant operand rules it out
 (`x % 7` needs none). The checks run in release builds too, as in Rust, and are needed

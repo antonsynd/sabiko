@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace Sabiko.Runtime;
 
@@ -12,6 +13,7 @@ public static class Panic
 
     /// <summary>Raises a panic with <paramref name="message"/> (<c>panic!("...")</c>).</summary>
     [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void Fail(string message)
     {
         throw new PanicException(message);
@@ -19,6 +21,7 @@ public static class Panic
 
     /// <summary>Raises a panic with a <c>&amp;str</c> message.</summary>
     [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void Fail(ReadOnlySpan<char> message)
     {
         throw new PanicException(message.ToString());
@@ -26,6 +29,7 @@ public static class Panic
 
     /// <summary>Raises a panic with <paramref name="message"/> at <paramref name="location"/>.</summary>
     [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void Fail(string message, string location)
     {
         throw new PanicException(message, location);
@@ -36,6 +40,7 @@ public static class Panic
     /// (<c>file:line:column</c>): Sabiko's <c>Panic(msg)</c>.
     /// </summary>
     [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static void Fail(ReadOnlySpan<char> message, string location)
     {
         throw new PanicException(message.ToString(), location);

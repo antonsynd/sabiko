@@ -31,6 +31,24 @@ public static class Panic
     public static int Unhandled(System.Exception exception);           // see below
 }
 
+public static class Checks
+{
+    // The failing side of the run-time checks (decision 43): each throws a PanicException
+    // with Rust's message at `location` ("file:line:column"). [DoesNotReturn] and
+    // [MethodImpl(NoInlining)], so the throw stays out of the generated methods.
+    public static void AddOverflow(string location);        // attempt to add with overflow
+    public static void SubtractOverflow(string location);   // attempt to subtract with overflow
+    public static void MultiplyOverflow(string location);   // attempt to multiply with overflow
+    public static void NegateOverflow(string location);     // attempt to negate with overflow
+    public static void DivideByZero(string location);       // attempt to divide by zero
+    public static void DivideOverflow(string location);     // attempt to divide with overflow
+    public static void RemainderByZero(string location);    // ... the remainder with a divisor of zero
+    public static void RemainderOverflow(string location);  // ... the remainder with overflow
+    public static void ShiftLeftOverflow(string location);  // attempt to shift left with overflow
+    public static void ShiftRightOverflow(string location); // attempt to shift right with overflow
+    public static void Unreachable();                       // internal error: entered unreachable code
+}
+
 public static class Console
 {
     // One Print (no newline) and one PrintLine ("\n", never Environment.NewLine) per type:
@@ -80,7 +98,7 @@ IL signatures, as the code generator emits them (`[Sabiko.Runtime]` is the
 call void  [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
 call void  [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.ReadOnlySpan`1<char>)
 call void  [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
-newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+call void  [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)   // then ldnull; throw
 call bool  [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
 call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime]System.Exception)
 ```
@@ -132,5 +150,8 @@ the output and runs them:
 - `panic.il` panics at a location inside the entry-point wrapper shape; the exit code must
   be 101 and stderr must end with `thread 'main' panicked at src/probe.sabi:7:5:` and
   `boom`.
+- `checks.il` fails an overflow check the way generated code does (`ldstr` location, `call
+  Checks::AddOverflow`, `ldnull`, `throw`); the exit code must be 101 and stderr must end
+  with `thread 'main' panicked at src/probe.sabi:3:9:` and `attempt to add with overflow`.
 
-CI runs both on every platform before `cargo test`.
+CI runs them on every platform before `cargo test`.

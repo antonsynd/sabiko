@@ -15,26 +15,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
   {
     .maxstack 1
   BB0:
-  BB1:
     ret
   }
 
   .method public hidebysig static int32 'Add'(int32 'a', int32 'b') cil managed
   {
     .maxstack 3
-    .locals init (
-      [0] int32 '_0',
-      [1] int32 '_3',
-      [2] int32 '_4'
-    )
   BB0:
     ldarg.0
-    stloc.1
-    ldarg.1
-    stloc.2
-    ldloc.1
     conv.i8
-    ldloc.2
+    ldarg.1
     conv.i8
     add
     dup
@@ -42,71 +32,42 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "attempt to add with overflow"
     ldstr "calls.sabi:11:5"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
     conv.i4
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
   .method public hidebysig static float64 'Scale'(float64 'x') cil managed
   {
     .maxstack 2
-    .locals init (
-      [0] float64 '_0',
-      [1] float64 '_2'
-    )
   BB0:
     ldarg.0
-    stloc.1
-    ldloc.1
     ldc.r8 2.5
     mul
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
   .method public hidebysig static bool 'Check'(bool 'flag', valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's') cil managed
   {
     .maxstack 1
-    .locals init (
-      [0] bool '_0',
-      [1] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_3'
-    )
   BB0:
-    ldarg.1
-    stloc.1
     ldarg.0
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
   .method public hidebysig static int32 'Main'() cil managed
   {
-    .maxstack 2
+    .maxstack 3
     .locals init (
       [0] int32 '_0',
       [1] int32 'a',
       [2] int32 'b',
-      [3] int32 '_4',
-      [4] int32 '_5',
-      [5] int32 '_6',
-      [6] float64 'f',
-      [7] bool 'ok',
-      [8] int32 '_9',
-      [9] int32 '_10',
-      [10] bool '_11',
-      [11] int32 '_12',
-      [12] float64 '_13'
+      [3] float64 'f',
+      [4] int32 '_9'
     )
   BB0:
     call void 'Calls'::'Nothing'()
@@ -117,61 +78,43 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
     stloc.1
   BB2:
     ldloc.1
-    stloc.s 4
-    ldloc.s 4
     ldc.i4.s 10
     call int32 'Calls'::'Add'(int32, int32)
-    stloc.3
   BB3:
     ldc.i4.3
     ldc.i4.s 20
     call int32 'Calls'::'Add'(int32, int32)
-    stloc.s 5
   BB4:
-    ldloc.3
-    ldloc.s 5
     call int32 'Calls'::'Add'(int32, int32)
     stloc.2
   BB5:
     ldc.r8 1.0
     call float64 'Calls'::'Scale'(float64)
-    stloc.s 6
+    stloc.3
   BB6:
     ldc.i4.1
     ldstr "sabiko"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     call bool 'Calls'::'Check'(bool, valuetype [System.Runtime]System.ReadOnlySpan`1<char>)
-    stloc.s 7
   BB7:
     ldloc.1
-    stloc.s 9
-    ldloc.s 9
     ldc.i4.1
     call int32 'Calls'::'Add'(int32, int32)
-    stloc.s 8
+    stloc.s 4
   BB8:
-    ldloc.s 7
-    stloc.s 10
-    ldloc.s 10
     brfalse BB10
   BB9:
     ldloc.2
-    stloc.s 11
-    ldloc.s 11
     ldc.i4.s 10
     call int32 'Calls'::'Add'(int32, int32)
     stloc.0
-    br BB11
+  BB11:
+    br BB12
   BB10:
-    ldloc.s 6
-    stloc.s 12
-    ldloc.s 12
+    ldloc.3
     conv.i4
     stloc.0
-    br BB12
-  BB11:
   BB12:
-  BB13:
     ldloc.0
     ret
   }

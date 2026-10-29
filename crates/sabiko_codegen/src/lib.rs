@@ -5,11 +5,12 @@
 //! after the module; an executable gets an entry-point wrapper that runs `Main` and turns
 //! an escaping exception into a Rust-style panic report with exit code 101.
 //!
-//! The lowering is a direct stack-machine walk over the MIR (see [`func`]): every MIR
-//! statement leaves the evaluation stack empty, locals map to IL locals or arguments,
-//! places are loaded and stored through their address. Integer arithmetic follows Rust:
-//! checked in debug builds, wrapping in release builds. Every check is explicit and its
-//! panic carries Rust's message and the source location (decision 43).
+//! The lowering is a direct stack-machine walk over the MIR (see [`func`]): blocks in
+//! reverse postorder, locals map to IL locals or arguments (single-use values stay on the
+//! evaluation stack, decision 51), places are loaded and stored through their address.
+//! Integer arithmetic follows Rust: checked in debug builds, wrapping in release builds.
+//! Every check is explicit and its panic carries Rust's message and the source location
+//! (decision 43), raised by a throw helper in `Sabiko.Runtime.Checks`.
 //!
 //! Verifiability: the output passes `ILVerify` except for `ReturnPtrToStack`, the ECMA-335
 //! rule that forbids returning any managed pointer that may point into a frame. That rule

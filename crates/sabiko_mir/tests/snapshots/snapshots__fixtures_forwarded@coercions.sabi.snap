@@ -1,0 +1,147 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/coercions.sabi
+---
+fn Read(_1: &i32, _2: &i32) -> i32 {
+    let mut _0: i32;
+    let mut _3: i32;
+    let mut _4: i32;
+
+    bb0: {
+        _0 = Add(copy (*_1), copy (*_2));
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Bump(_1: &mut i32) {
+    let mut _0: ();
+
+    bb0: {
+        (*_1) = Add(copy (*_1), const 1_i32);
+        _0 = const ();
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn View(_1: &mut i32) -> &i32 {
+    let mut _0: &i32;
+
+    bb0: {
+        _0 = move _1;
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Main() {
+    let mut _0: ();
+    let mut _1: i32;                     // x
+    let _2: &mut i32;                    // r
+    let mut _3: ();
+    let mut _4: &mut i32;
+    let _5: i32;                         // n
+    let mut _6: &i32;
+    let mut _7: &i32;
+    let _8: &i32;                        // s
+    let mut _9: &i32;
+    let mut _10: &i32;                   // t
+    let mut _11: &i32;
+    let _12: i32;                        // k
+    let mut _13: i32;
+    let mut _14: i32;
+    let _15: &mut i32;                   // m
+    let mut _16: &mut i32;
+    let _17: &i32;                       // v
+    let mut _18: &mut i32;
+    let _19: i32;                        // j
+    let mut _20: i32;
+    let mut _21: i32;
+    let _22: &mut i32;                   // moved
+    let mut _23: i32;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = const 1_i32;
+        StorageLive(_2);
+        _2 = &mut _1;
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = &mut (*_2);
+        _3 = Bump(move _4) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageLive(_5);
+        StorageLive(_6);
+        _6 = &(*_2);
+        StorageLive(_7);
+        _7 = &(*_2);
+        _5 = Read(copy _6, copy _7) -> bb2;
+    }
+
+    bb2: {
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageLive(_8);
+        StorageLive(_9);
+        _9 = &(*_2);
+        _8 = copy _9;
+        StorageDead(_9);
+        StorageLive(_10);
+        _10 = &_5;
+        StorageLive(_11);
+        _11 = &(*_2);
+        _10 = copy _11;
+        StorageDead(_11);
+        StorageLive(_12);
+        _12 = Add(copy (*_8), copy (*_10));
+        StorageLive(_15);
+        StorageLive(_16);
+        _16 = &mut (*_2);
+        _15 = move _16;
+        StorageDead(_16);
+        StorageLive(_17);
+        StorageLive(_18);
+        _18 = &mut (*_15);
+        _17 = View(move _18) -> bb3;
+    }
+
+    bb3: {
+        StorageDead(_18);
+        StorageLive(_19);
+        _19 = Add(copy (*_17), copy _12);
+        StorageLive(_22);
+        _22 = move _2;
+        (*_22) = copy _19;
+        _0 = const ();
+        StorageDead(_22);
+        StorageDead(_19);
+        StorageDead(_17);
+        StorageDead(_15);
+        StorageDead(_12);
+        StorageDead(_10);
+        StorageDead(_8);
+        StorageDead(_5);
+        StorageDead(_2);
+        StorageDead(_1);
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}

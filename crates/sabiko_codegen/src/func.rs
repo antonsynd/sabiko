@@ -1,10 +1,21 @@
 //! Lowering of one MIR body to an IL method.
 //!
-//! Every MIR statement and terminator is lowered to a short instruction sequence that
-//! leaves the evaluation stack empty, so block labels never carry stack state. Places are
-//! accessed through their address: `ldloca`/`ldarga` for locals and arguments, `ldflda`
-//! for fields, the pointer value itself for `*r`. Locals of type `()` or `!` get no
-//! storage: assignments to them vanish and reads push nothing.
+//! Every MIR statement and terminator is lowered to a short instruction sequence. Places
+//! are accessed through their address: `ldloca`/`ldarga` for locals and arguments,
+//! `ldflda` for fields, the pointer value itself for `*r`. Locals of type `()` or `!` get
+//! no storage: assignments to them vanish and reads push nothing.
+//!
+//! Single-use locals stay on the evaluation stack (decision 51): a local assigned once
+//! and read once (a temporary, usually) is not stored when it is assigned; its value
+//! stays on the stack, and when the statement that reads it starts by loading it, the
+//! load is dropped and the value is used where it already is. Each such definition is an
+//! [`Instr::Def`] placeholder, decided once the method is lowered: nothing (the value was
+//! used in place), `stloc` (the reader did not start with it, so it is stored after all,
+//! exactly as without the optimisation) or `dup; stloc` (the reader loaded it a second
+//! time). Values on the stack are taken in last-in first-out order: `a * b + c * d` keeps
+//! both products on the stack for the addition. The stack is otherwise empty between
+//! statements, and at a block label unless the block is entered only by falling through
+//! from its single predecessor (a call's continuation, say).
 
 use std::fmt::Write as _;
 
@@ -36,29 +47,286 @@ pub(crate) fn emit_body(cx: &mut Cx<'_>, body: &Body, out: &mut String) {
         locals: Vec::new(),
         code: Vec::new(),
         depth: 0,
-        max_depth: 0,
         next_label: 0,
         scratch: Vec::new(),
+        layout: Layout::new(body),
+        stackable: stackable_locals(body),
+        defs: Vec::new(),
+        pending: Vec::new(),
+        consumed: Vec::new(),
+        matching: None,
+        stmt_start: 0,
+        def_returns: false,
     };
     f.assign_slots();
-    for bb in body.block_ids() {
-        f.block(bb);
+    for i in 0..f.layout.order.len() {
+        let bb = f.layout.order[i];
+        if f.layout.emitted(bb) {
+            f.block(bb);
+        }
     }
     f.write_method(out);
+}
+
+/// The order blocks are emitted in, and which blocks need a label of their own.
+///
+/// Blocks are laid out in reverse postorder of a depth-first walk from `bb0`, so every
+/// branch goes forward except the back edges of loops: the JIT treats a method with a
+/// backward branch as a loop, which sends it to instrumented Tier0 instead of plain Tier0.
+/// The walk visits a block's successors in terminator order (a `switchInt`'s `otherwise`
+/// last), which places the last unvisited successor right after the block, where it is
+/// reached by falling through. A jump to a block that only returns is emitted as the
+/// return itself, so such a block is emitted only when a `switchInt` branches to it.
+struct Layout {
+    order: Vec<BasicBlock>,
+    /// The block emitted after each block (indexed by block), if any.
+    next: Vec<Option<BasicBlock>>,
+    /// Blocks with no statements of their own that end in `return`.
+    return_only: Vec<bool>,
+    /// Blocks that some `switchInt` branches to.
+    switch_target: Vec<bool>,
+    /// The number of control-flow edges into each block.
+    preds: Vec<usize>,
+}
+
+impl Layout {
+    fn new(body: &Body) -> Self {
+        let n = body.blocks.len();
+        let mut visited = vec![false; n];
+        let mut post = Vec::with_capacity(n);
+        let mut stack: Vec<(BasicBlock, Vec<BasicBlock>, usize)> = Vec::new();
+        if n > 0 {
+            visited[0] = true;
+            stack.push((
+                BasicBlock::START,
+                Self::successors(body, BasicBlock::START),
+                0,
+            ));
+        }
+        while let Some((bb, succs, i)) = stack.last_mut() {
+            if let Some(&s) = succs.get(*i) {
+                *i += 1;
+                if !visited[s.index()] {
+                    visited[s.index()] = true;
+                    let next = Self::successors(body, s);
+                    stack.push((s, next, 0));
+                }
+            } else {
+                post.push(*bb);
+                stack.pop();
+            }
+        }
+        let mut order: Vec<BasicBlock> = post.into_iter().rev().collect();
+        // Simplification leaves no unreachable blocks; keep any anyway, at the end.
+        order.extend(body.block_ids().filter(|bb| !visited[bb.index()]));
+        let return_only: Vec<bool> = body
+            .blocks
+            .iter()
+            .map(|data| {
+                matches!(data.terminator().kind, TerminatorKind::Return)
+                    && data.statements.iter().all(|s| {
+                        matches!(
+                            s.kind,
+                            StatementKind::StorageLive(_)
+                                | StatementKind::StorageDead(_)
+                                | StatementKind::Nop
+                        )
+                    })
+            })
+            .collect();
+        let mut switch_target = vec![false; n];
+        let mut preds = vec![0; n];
+        for data in &body.blocks {
+            for s in data.terminator().kind.successors() {
+                preds[s.index()] += 1;
+            }
+            if let TerminatorKind::SwitchInt { .. } = &data.terminator().kind {
+                for s in data.terminator().kind.successors() {
+                    switch_target[s.index()] = true;
+                }
+            }
+        }
+        let mut layout = Self {
+            order: Vec::new(),
+            next: vec![None; n],
+            return_only,
+            switch_target,
+            preds,
+        };
+        // Blocks that are never emitted do not separate their neighbours.
+        let emitted: Vec<BasicBlock> = order.into_iter().filter(|&bb| layout.emitted(bb)).collect();
+        for pair in emitted.windows(2) {
+            layout.next[pair[0].index()] = Some(pair[1]);
+        }
+        layout.order = emitted;
+        layout
+    }
+
+    fn successors(body: &Body, bb: BasicBlock) -> Vec<BasicBlock> {
+        body.block(bb).terminator().kind.successors()
+    }
+
+    /// Whether `bb` gets code of its own: a block that only returns is inlined into the
+    /// jumps to it, unless it is the entry or a `switchInt` target.
+    fn emitted(&self, bb: BasicBlock) -> bool {
+        !self.return_only[bb.index()] || bb == BasicBlock::START || self.switch_target[bb.index()]
+    }
+
+    fn is_next(&self, from: BasicBlock, to: BasicBlock) -> bool {
+        self.next[from.index()] == Some(to)
+    }
 }
 
 struct FnCx<'a, 'b> {
     cx: &'a mut Cx<'b>,
     body: &'a Body,
     slots: Vec<Slot>,
-    /// `.locals init` entries, one per IL local slot.
-    locals: Vec<String>,
-    code: Vec<String>,
+    /// IL locals (CIL type and name), numbered in `.locals init` once the unused ones are
+    /// known.
+    locals: Vec<(String, String)>,
+    code: Vec<Instr>,
+    /// The evaluation stack's depth while lowering (values kept on the stack included).
     depth: usize,
-    max_depth: usize,
     next_label: u32,
     /// Compiler-introduced IL locals that stage struct literals, one per struct type.
     scratch: Vec<(Ty, u16)>,
+    layout: Layout,
+    /// MIR locals assigned once and read once, by a whole-local operand: their value may
+    /// stay on the stack.
+    stackable: Vec<bool>,
+    /// Every definition kept on the stack, and what became of it.
+    defs: Vec<Def>,
+    /// Values on the evaluation stack that are still waiting for their reader, bottom to
+    /// top; nothing else is under the current statement's own values.
+    pending: Vec<Pending>,
+    /// For each IL local, the definition whose value its reader took from the stack: a
+    /// second load of the local must find it stored.
+    consumed: Vec<Option<usize>>,
+    /// While the current statement is taking pending values in order: the index in
+    /// `pending` of the first one taken and of the one expected next.
+    matching: Option<(usize, usize)>,
+    /// `code.len()` when the current statement (or terminator) started; `usize::MAX` once
+    /// it has taken values from the stack up to the top, after which it may take no more.
+    stmt_start: usize,
+    /// Whether an assignment to the return place in the current statement is followed only
+    /// by the return, which reads it at once.
+    def_returns: bool,
+}
+
+/// One emitted instruction, or a placeholder resolved when the method is written.
+#[derive(Debug)]
+enum Instr {
+    /// An instruction and its stack effect.
+    Op {
+        text: String,
+        pops: usize,
+        pushes: usize,
+    },
+    Label(String),
+    /// `ldloc`, `stloc` or `ldloca` of an IL local, numbered when the method is written.
+    Local(LocalOp, u16),
+    /// The definition `defs[i]` of a stackable local.
+    Def(usize),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LocalOp {
+    Load,
+    Store,
+    Address,
+}
+
+/// A stackable local's definition: its IL local and what its placeholder becomes.
+#[derive(Clone, Copy, Debug)]
+struct Def {
+    local: u16,
+    mode: DefMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DefMode {
+    /// The value stays on the stack for its reader: nothing is emitted.
+    Stack,
+    /// `stloc`: the reader loads it from the local.
+    Spill,
+    /// `dup; stloc`: the reader takes it from the stack and loads it again later.
+    DupSpill,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Pending {
+    local: u16,
+    def: usize,
+}
+
+/// MIR locals whose value may stay on the evaluation stack: user locals and temporaries
+/// with storage, assigned exactly once as a whole (not by a struct literal, which is built
+/// in place) and read exactly once by a whole-local operand, never borrowed or projected.
+fn stackable_locals(body: &Body) -> Vec<bool> {
+    let n = body.locals.len();
+    let (mut defs, mut uses, mut other) = (vec![0usize; n], vec![0usize; n], vec![0usize; n]);
+    let operand = |op: &Operand, uses: &mut Vec<usize>, other: &mut Vec<usize>| {
+        if let Some(p) = op.place() {
+            if p.is_local() {
+                uses[p.local.index()] += 1;
+            } else {
+                other[p.local.index()] += 1;
+            }
+        }
+    };
+    for data in &body.blocks {
+        for stmt in &data.statements {
+            let StatementKind::Assign(place, rvalue) = &stmt.kind else {
+                continue;
+            };
+            if place.is_local() && !matches!(rvalue, Rvalue::Aggregate(..)) {
+                defs[place.local.index()] += 1;
+            } else {
+                other[place.local.index()] += 1;
+            }
+            match rvalue {
+                Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+                    operand(op, &mut uses, &mut other);
+                }
+                Rvalue::BinaryOp(_, l, r) => {
+                    operand(l, &mut uses, &mut other);
+                    operand(r, &mut uses, &mut other);
+                }
+                Rvalue::Aggregate(_, ops) => {
+                    for op in ops {
+                        operand(op, &mut uses, &mut other);
+                    }
+                }
+                Rvalue::Ref(_, p) => other[p.local.index()] += 1,
+            }
+        }
+        match &data.terminator().kind {
+            TerminatorKind::SwitchInt { discr, .. } => operand(discr, &mut uses, &mut other),
+            TerminatorKind::Call {
+                args, destination, ..
+            } => {
+                for a in args {
+                    operand(a, &mut uses, &mut other);
+                }
+                if destination.is_local() {
+                    defs[destination.local.index()] += 1;
+                } else {
+                    other[destination.local.index()] += 1;
+                }
+            }
+            TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+        }
+    }
+    (0..n)
+        .map(|i| {
+            let decl = &body.locals[i];
+            matches!(decl.kind, LocalKind::User | LocalKind::Temp)
+                && !(decl.ty.is_unit() || decl.ty.is_uninhabited())
+                && defs[i] == 1
+                && uses[i] == 1
+                && other[i] == 0
+        })
+        .collect()
 }
 
 impl FnCx<'_, '_> {
@@ -100,8 +368,8 @@ impl FnCx<'_, '_> {
     fn new_local(&mut self, ty: &Ty, name: &str, span: Span) -> Slot {
         let index = u16::try_from(self.locals.len()).expect("fewer than 2^16 locals");
         let cil = types::cil_type(self.cx, ty, span);
-        self.locals
-            .push(format!("[{index}] {cil} {}", types::quote(name)));
+        self.locals.push((cil, types::quote(name)));
+        self.consumed.push(None);
         Slot::Local(index)
     }
 
@@ -146,23 +414,95 @@ impl FnCx<'_, '_> {
         for p in readonly_params {
             let _ = writeln!(out, "    .param [{p}]\n    {IS_READONLY_ATTR}");
         }
-        let _ = writeln!(out, "    .maxstack {}", self.max_depth.max(1));
-        if !self.locals.is_empty() {
+        // Locals nothing loads, stores or borrows (single-use values that stayed on the
+        // stack) are left out; the others are numbered in order.
+        let mut used = vec![false; self.locals.len()];
+        for instr in &self.code {
+            match instr {
+                Instr::Local(_, i) => used[usize::from(*i)] = true,
+                Instr::Def(d) if self.defs[*d].mode != DefMode::Stack => {
+                    used[usize::from(self.defs[*d].local)] = true;
+                }
+                _ => {}
+            }
+        }
+        let mut index = vec![0u16; self.locals.len()];
+        let mut next = 0u16;
+        for (i, u) in used.iter().enumerate() {
+            if *u {
+                index[i] = next;
+                next += 1;
+            }
+        }
+        let _ = writeln!(out, "    .maxstack {}", self.max_stack().max(1));
+        if next > 0 {
             out.push_str("    .locals init (\n");
-            for (i, l) in self.locals.iter().enumerate() {
-                let sep = if i + 1 == self.locals.len() { "" } else { "," };
-                let _ = writeln!(out, "      {l}{sep}");
+            for (i, (cil, name)) in self.locals.iter().enumerate() {
+                if !used[i] {
+                    continue;
+                }
+                let sep = if index[i] + 1 == next { "" } else { "," };
+                let _ = writeln!(out, "      [{}] {cil} {name}{sep}", index[i]);
             }
             out.push_str("    )\n");
         }
-        for line in &self.code {
-            if line.ends_with(':') {
-                let _ = writeln!(out, "  {line}");
-            } else {
-                let _ = writeln!(out, "    {line}");
+        for instr in &self.code {
+            match instr {
+                Instr::Op { text, .. } => {
+                    let _ = writeln!(out, "    {text}");
+                }
+                Instr::Label(name) => {
+                    let _ = writeln!(out, "  {name}:");
+                }
+                Instr::Local(op, i) => {
+                    let _ = writeln!(out, "    {}", local_instr(*op, index[usize::from(*i)]));
+                }
+                Instr::Def(d) => {
+                    let def = self.defs[*d];
+                    let store = local_instr(LocalOp::Store, index[usize::from(def.local)]);
+                    match def.mode {
+                        DefMode::Stack => {}
+                        DefMode::Spill => {
+                            let _ = writeln!(out, "    {store}");
+                        }
+                        DefMode::DupSpill => {
+                            let _ = writeln!(out, "    dup\n    {store}");
+                        }
+                    }
+                }
             }
         }
         out.push_str("  }\n\n");
+    }
+
+    /// `.maxstack`: the deepest the stack gets in the final instruction stream. Every
+    /// label is reached with the depth the instructions before it leave (a `throw` pops
+    /// only its exception, as if control went on past it), so one linear pass is exact.
+    fn max_stack(&self) -> usize {
+        let mut depth = 0usize;
+        let mut max = 0usize;
+        let mut step = |pops: usize, pushes: usize| {
+            debug_assert!(depth >= pops, "stack underflow in the final stream");
+            depth = depth.saturating_sub(pops) + pushes;
+            max = max.max(depth);
+        };
+        for instr in &self.code {
+            match instr {
+                Instr::Op { pops, pushes, .. } => step(*pops, *pushes),
+                Instr::Label(_) => {}
+                Instr::Local(LocalOp::Load | LocalOp::Address, _) => step(0, 1),
+                Instr::Local(LocalOp::Store, _) => step(1, 0),
+                Instr::Def(d) => match self.defs[*d].mode {
+                    DefMode::Stack => {}
+                    DefMode::Spill => step(1, 0),
+                    DefMode::DupSpill => {
+                        step(1, 2);
+                        step(1, 0);
+                    }
+                },
+            }
+        }
+        max
     }
 
     // ----------------------------------------------------------------------------------
@@ -171,18 +511,73 @@ impl FnCx<'_, '_> {
 
     /// Emits one instruction with its stack effect.
     fn op(&mut self, text: impl Into<String>, pops: usize, pushes: usize) {
+        self.settle();
         debug_assert!(
             self.depth >= pops,
             "stack underflow lowering {}",
             self.body.name
         );
         self.depth = self.depth.saturating_sub(pops) + pushes;
-        self.max_depth = self.max_depth.max(self.depth);
-        self.code.push(text.into());
+        self.code.push(Instr::Op {
+            text: text.into(),
+            pops,
+            pushes,
+        });
     }
 
     fn label(&mut self, name: &str) {
-        self.code.push(format!("{name}:"));
+        self.settle();
+        self.code.push(Instr::Label(name.to_owned()));
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Values kept on the stack
+    // ----------------------------------------------------------------------------------
+
+    /// Stores pending value `pending[at]` after all: its placeholder becomes `stloc`.
+    fn spill(&mut self, at: usize) {
+        let p = self.pending.remove(at);
+        self.defs[p.def].mode = DefMode::Spill;
+        self.depth -= 1;
+    }
+
+    /// Called before anything is emitted: a statement that took some pending values in
+    /// order and then does something else did not take the ones above them, which are
+    /// stored instead.
+    fn settle(&mut self) {
+        if let Some((start, next)) = self.matching.take() {
+            while self.pending.len() > next {
+                self.spill(next);
+            }
+            self.pending.truncate(start);
+        }
+    }
+
+    /// Stores every value still waiting on the stack (at a block end, or before control
+    /// leaves the method).
+    fn spill_all(&mut self) {
+        self.settle();
+        while !self.pending.is_empty() {
+            self.spill(0);
+        }
+    }
+
+    /// Defines IL local `i` with the value on top of the stack, which may stay there.
+    fn define(&mut self, i: u16) {
+        self.settle();
+        let def = self.defs.len();
+        self.defs.push(Def {
+            local: i,
+            mode: DefMode::Stack,
+        });
+        self.code.push(Instr::Def(def));
+        self.pending.push(Pending { local: i, def });
+        self.consumed[usize::from(i)] = None;
+    }
+
+    /// Whether a whole-local assignment to `local` may leave its value on the stack.
+    fn stackable_def(&self, local: Local) -> bool {
+        self.stackable[local.index()] || (local == Local::RETURN && self.def_returns)
     }
 
     fn fresh_label(&mut self) -> String {
@@ -283,8 +678,15 @@ impl FnCx<'_, '_> {
         self.int_const(0, p);
     }
 
+    /// Code control cannot reach (after a call that never returns, MIR's `unreachable`):
+    /// panics with Rust's message, without a location.
     fn unreachable(&mut self) {
-        self.panic("internal error: entered unreachable code");
+        self.op(
+            format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::Unreachable()"),
+            0,
+            0,
+        );
+        self.throw_after_helper();
     }
 
     // ----------------------------------------------------------------------------------
@@ -294,12 +696,64 @@ impl FnCx<'_, '_> {
     fn block(&mut self, bb: BasicBlock) {
         self.label(&format!("BB{}", bb.0));
         let data = self.body.block(bb);
-        for stmt in &data.statements {
+        let term = data.terminator();
+        let term_returns = match &term.kind {
+            TerminatorKind::Return => true,
+            TerminatorKind::Goto { target } => self.layout.return_only[target.index()],
+            _ => false,
+        };
+        for (k, stmt) in data.statements.iter().enumerate() {
+            // `_0 = ...` followed by nothing but the return: the return reads it at once.
+            self.def_returns = term_returns
+                && data.statements[k + 1..].iter().all(|s| {
+                    matches!(
+                        s.kind,
+                        StatementKind::StorageLive(_)
+                            | StatementKind::StorageDead(_)
+                            | StatementKind::Nop
+                    )
+                });
+            self.stmt_start = self.code.len();
             self.stmt(stmt);
-            debug_assert_eq!(self.depth, 0, "statement left values on the stack");
+            self.settle();
+            debug_assert_eq!(
+                self.depth,
+                self.pending.len(),
+                "statement left values on the stack"
+            );
         }
-        self.terminator(data.terminator(), bb);
-        debug_assert_eq!(self.depth, 0, "terminator left values on the stack");
+        self.def_returns = match &term.kind {
+            TerminatorKind::Call {
+                target: Some(target),
+                ..
+            } => self.layout.return_only[target.index()],
+            _ => false,
+        };
+        self.stmt_start = self.code.len();
+        self.terminator(term, bb);
+        self.settle();
+        // Values may stay on the stack into the next block only when it is entered by
+        // falling through from this one alone.
+        let carry = match &term.kind {
+            TerminatorKind::Goto { target }
+            | TerminatorKind::Call {
+                target: Some(target),
+                ..
+            } => {
+                self.layout.is_next(bb, *target)
+                    && self.layout.preds[target.index()] == 1
+                    && !self.layout.return_only[target.index()]
+            }
+            _ => false,
+        };
+        if !carry {
+            self.spill_all();
+        }
+        debug_assert_eq!(
+            self.depth,
+            self.pending.len(),
+            "terminator left values on the stack"
+        );
     }
 
     fn stmt(&mut self, stmt: &Statement) {
@@ -322,10 +776,25 @@ impl FnCx<'_, '_> {
         self.store(place, span, |this| this.rvalue(rvalue, &ty, span));
     }
 
-    /// Branches to `target` unless it is the block emitted next.
+    /// Branches to `target` unless it is the block emitted next; a jump to a block that
+    /// only returns is the return itself.
     fn jump(&mut self, target: BasicBlock, from: BasicBlock) {
-        if target.0 != from.0 + 1 {
+        if self.layout.return_only[target.index()] {
+            self.ret();
+        } else if !self.layout.is_next(from, target) {
             self.op(format!("br BB{}", target.0), 0, 0);
+        }
+    }
+
+    /// Loads the return place, if it has storage, and returns.
+    fn ret(&mut self) {
+        if let Slot::Local(i) = self.slots[Local::RETURN.index()] {
+            self.ldloc(i);
+            // Control leaves: a later load of the return place is on another path.
+            self.consumed[usize::from(i)] = None;
+            self.op("ret", 1, 0);
+        } else {
+            self.op("ret", 0, 0);
         }
     }
 
@@ -340,6 +809,12 @@ impl FnCx<'_, '_> {
                 let discr_ty = discr.ty(self.body);
                 if let [(0, zero_target)] = targets[..] {
                     self.operand(discr, term.span);
+                    if self.layout.is_next(bb, zero_target) && !self.layout.is_next(bb, *otherwise)
+                    {
+                        // Fall through to the zero target instead of jumping to it.
+                        self.op(format!("brtrue BB{}", otherwise.0), 1, 0);
+                        return;
+                    }
                     self.op(format!("brfalse BB{}", zero_target.0), 1, 0);
                 } else {
                     for (value, target) in targets {
@@ -372,17 +847,14 @@ impl FnCx<'_, '_> {
                 target,
             } => {
                 self.call(*func, args, destination, term.span);
+                // A return the jump inlines may read the call's result from the stack.
+                self.stmt_start = self.code.len();
                 match target {
                     Some(target) => self.jump(*target, bb),
                     None => self.unreachable(),
                 }
             }
-            TerminatorKind::Return => {
-                if let Slot::Local(i) = self.slots[Local::RETURN.index()] {
-                    self.ldloc(i);
-                }
-                self.op("ret", usize::from(self.depth > 0), 0);
-            }
+            TerminatorKind::Return => self.ret(),
             TerminatorKind::Unreachable => self.unreachable(),
         }
     }
@@ -391,22 +863,55 @@ impl FnCx<'_, '_> {
     // Places
     // ----------------------------------------------------------------------------------
 
+    /// Loads IL local `i`, or leaves out the load when its value is already on top of the
+    /// stack, waiting for this statement to take it.
     fn ldloc(&mut self, i: u16) {
-        let text = match i {
-            0..=3 => format!("ldloc.{i}"),
-            4..=255 => format!("ldloc.s {i}"),
-            _ => format!("ldloc {i}"),
-        };
-        self.op(text, 0, 1);
+        if let Some(def) = self.consumed[usize::from(i)].take() {
+            // Read a second time (a division's operand, a `switchInt` discriminant): the
+            // value taken from the stack must also be stored.
+            self.defs[def].mode = DefMode::DupSpill;
+        } else if let Some(at) = self.pending.iter().position(|p| p.local == i) {
+            let fresh = self.code.len() == self.stmt_start;
+            let in_order = self.matching.is_none_or(|(_, next)| next == at);
+            if fresh && in_order {
+                let start = self.matching.map_or(at, |(start, _)| start);
+                self.consumed[usize::from(i)] = Some(self.pending[at].def);
+                if at + 1 == self.pending.len() {
+                    self.pending.truncate(start);
+                    self.matching = None;
+                    // The statement has taken every value down to `start`; a value below
+                    // it is under the ones taken, so a later load must not take it too.
+                    self.stmt_start = usize::MAX;
+                } else {
+                    self.matching = Some((start, at + 1));
+                }
+                return;
+            }
+            self.settle();
+            if let Some(at) = self.pending.iter().position(|p| p.local == i) {
+                self.spill(at);
+            }
+        }
+        self.settle();
+        self.depth += 1;
+        self.code.push(Instr::Local(LocalOp::Load, i));
     }
 
     fn stloc(&mut self, i: u16) {
-        let text = match i {
-            0..=3 => format!("stloc.{i}"),
-            4..=255 => format!("stloc.s {i}"),
-            _ => format!("stloc {i}"),
-        };
-        self.op(text, 1, 0);
+        self.settle();
+        debug_assert!(
+            self.depth >= 1,
+            "stack underflow lowering {}",
+            self.body.name
+        );
+        self.depth -= 1;
+        self.code.push(Instr::Local(LocalOp::Store, i));
+    }
+
+    fn ldloca(&mut self, i: u16) {
+        self.settle();
+        self.depth += 1;
+        self.code.push(Instr::Local(LocalOp::Address, i));
     }
 
     fn ldarg(&mut self, i: u16) {
@@ -503,7 +1008,7 @@ impl FnCx<'_, '_> {
         match place.projection.last() {
             None => match self.slots[place.local.index()] {
                 Slot::Arg(i) => self.short("ldarga", i, 0, 1),
-                Slot::Local(i) => self.short("ldloca", i, 0, 1),
+                Slot::Local(i) => self.ldloca(i),
                 Slot::None => {
                     self.cx.unsupported("a borrow of a `()` value", span);
                     self.ldc_i4(0);
@@ -532,6 +1037,7 @@ impl FnCx<'_, '_> {
                 push(self);
                 match self.slots[place.local.index()] {
                     Slot::Arg(i) => self.short("starg", i, 1, 0),
+                    Slot::Local(i) if self.stackable_def(place.local) => self.define(i),
                     Slot::Local(i) => self.stloc(i),
                     Slot::None => {}
                 }
@@ -675,14 +1181,14 @@ impl FnCx<'_, '_> {
             _ => None,
         };
         let target = in_place.unwrap_or_else(|| self.scratch(&ty, span));
-        self.short("ldloca", target, 0, 1);
+        self.ldloca(target);
         self.op(format!("initobj valuetype {struct_name}"), 1, 0);
         for (index, operand) in operands.iter().enumerate() {
             let field = &adt.fields[index];
             if field.ty.is_unit() || field.ty.is_never() {
                 continue;
             }
-            self.short("ldloca", target, 0, 1);
+            self.ldloca(target);
             self.operand(operand, span);
             let field_ref = self.field_ref(&ty, index, &field.ty, span);
             self.op(format!("stfld {field_ref}"), 2, 0);
@@ -741,14 +1247,7 @@ impl FnCx<'_, '_> {
             UnOp::Neg if self.checks() => {
                 // `0 - x`, checked like a subtraction: negating the minimum value panics,
                 // as in Rust's debug builds.
-                self.checked_arith(
-                    BinOp::Sub,
-                    p,
-                    None,
-                    operand,
-                    "attempt to negate with overflow",
-                    span,
-                );
+                self.checked_arith(BinOp::Sub, p, None, operand, Check::NegateOverflow, span);
             }
             UnOp::Neg if wide => {
                 self.operand(operand, span);
@@ -794,12 +1293,12 @@ impl FnCx<'_, '_> {
             return;
         }
         if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) && lp.is_integer() && self.checks() {
-            let message = match op {
-                BinOp::Add => "attempt to add with overflow",
-                BinOp::Sub => "attempt to subtract with overflow",
-                _ => "attempt to multiply with overflow",
+            let check = match op {
+                BinOp::Add => Check::AddOverflow,
+                BinOp::Sub => Check::SubtractOverflow,
+                _ => Check::MultiplyOverflow,
             };
-            self.checked_arith(op, lp, Some(lhs), rhs, message, span);
+            self.checked_arith(op, lp, Some(lhs), rhs, check, span);
             return;
         }
         self.operand(lhs, span);
@@ -841,7 +1340,7 @@ impl FnCx<'_, '_> {
         }
     }
 
-    /// `lhs op rhs` on an integer type in a debug build: panics with `message` at `span`
+    /// `lhs op rhs` on an integer type in a debug build: fails `check` at `span`
     /// when the exact result does not fit `p` (decision 43). `lhs` is `None` for negation,
     /// which is `0 - rhs`. Narrow types compute exactly at `int32` width and 32-bit types
     /// at `int64` width, then check that the result survives truncation; 64- and 128-bit
@@ -853,7 +1352,7 @@ impl FnCx<'_, '_> {
         p: PrimTy,
         lhs: Option<&Operand>,
         rhs: &Operand,
-        message: &str,
+        check: Check,
         span: Span,
     ) {
         let (name, helper) = match op {
@@ -870,7 +1369,7 @@ impl FnCx<'_, '_> {
                 }
                 self.operand(rhs, span);
                 self.op(name, 2, 1);
-                self.check_fits(p, message, span);
+                self.check_fits(p, check, span);
             }
             StackWidth::I32 => {
                 let widen = if p.is_signed_int() {
@@ -888,7 +1387,7 @@ impl FnCx<'_, '_> {
                 self.operand(rhs, span);
                 self.op(widen, 1, 1);
                 self.op(name, 2, 1);
-                self.check_fits(p, message, span);
+                self.check_fits(p, check, span);
             }
             StackWidth::I64 | StackWidth::Native | StackWidth::Wide => {
                 match lhs {
@@ -897,7 +1396,7 @@ impl FnCx<'_, '_> {
                 }
                 self.operand(rhs, span);
                 let result = self.scratch(&Ty::Prim(p), span);
-                self.short("ldloca", result, 0, 1);
+                self.ldloca(result);
                 let ty = types::prim_type(p).expect("integer types are lowered");
                 self.op(
                     format!(
@@ -908,7 +1407,7 @@ impl FnCx<'_, '_> {
                 );
                 let ok = self.fresh_label();
                 self.op(format!("brfalse {ok}"), 1, 0);
-                self.panic_at(message, span);
+                self.panic_at(check, span);
                 self.label(&ok);
                 self.ldloc(result);
             }
@@ -918,7 +1417,7 @@ impl FnCx<'_, '_> {
     /// The debug-build check after an exact computation in a wider stack type (`int32` for
     /// the narrow types, `int64` for the 32-bit ones): panics unless truncating the result
     /// to `p` and extending it back gives the same value, then leaves it as a `p` value.
-    fn check_fits(&mut self, p: PrimTy, message: &str, span: Span) {
+    fn check_fits(&mut self, p: PrimTy, check: Check, span: Span) {
         let suffix = types::conv_suffix(p);
         let wide_stack = types::stack_width(p) == StackWidth::I32;
         let ok = self.fresh_label();
@@ -937,38 +1436,45 @@ impl FnCx<'_, '_> {
             );
         }
         self.op(format!("beq {ok}"), 2, 0);
-        self.panic_at(message, span);
+        self.panic_at(check, span);
         self.label(&ok);
         if wide_stack {
             self.op(format!("conv.{suffix}"), 1, 1);
         }
     }
 
-    /// Throws a `PanicException` with `message` and no location (`unreachable`); `throw`
-    /// empties the stack, so the continuation after the panic sees whatever it had before.
-    fn panic(&mut self, message: &str) {
-        self.op(format!("ldstr {}", types::il_string(message)), 0, 1);
-        self.op(
-            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string)"),
-            1,
-            1,
-        );
-        self.op("throw", 1, 0);
+    /// The failure of `check` at `span`: calls its throw helper in `Sabiko.Runtime.Checks`
+    /// with the location (`file:line:column`), which raises the `PanicException` with
+    /// Rust's message. A span without source text (never produced for checks today) falls
+    /// back to `Panic::Fail(message)`, without a location.
+    fn panic_at(&mut self, check: Check, span: Span) {
+        if let Some(location) = self.cx.location(span) {
+            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+            self.op(
+                format!(
+                    "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::{}(string)",
+                    check.helper()
+                ),
+                1,
+                0,
+            );
+        } else {
+            self.op(format!("ldstr {}", types::il_string(check.message())), 0, 1);
+            self.op(
+                format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail(string)"),
+                1,
+                0,
+            );
+        }
+        self.throw_after_helper();
     }
 
-    /// Throws a `PanicException` with `message`, raised at `span` (`file:line:column`).
-    fn panic_at(&mut self, message: &str, span: Span) {
-        let Some(location) = self.cx.location(span) else {
-            self.panic(message);
-            return;
-        };
-        self.op(format!("ldstr {}", types::il_string(message)), 0, 1);
-        self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
-        self.op(
-            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string, string)"),
-            2,
-            1,
-        );
+    /// Ends the block after a call to a throw helper, which never returns. The `throw` is
+    /// never reached; it tells the verifier that control does not fall through and the
+    /// JIT that the block is cold. `throw` empties the stack, so the continuation after the
+    /// panic sees whatever it had before.
+    fn throw_after_helper(&mut self) {
+        self.op("ldnull", 0, 1);
         self.op("throw", 1, 0);
     }
 
@@ -991,18 +1497,10 @@ impl FnCx<'_, '_> {
     /// away when a constant operand rules them out. Operands are pure (places and
     /// constants), so each check pushes them again.
     fn div_rem(&mut self, op: BinOp, p: PrimTy, lhs: &Operand, rhs: &Operand, span: Span) {
-        let (name, zero_msg, overflow_msg) = if op == BinOp::Div {
-            (
-                "div",
-                "attempt to divide by zero",
-                "attempt to divide with overflow",
-            )
+        let (name, zero_check, overflow_check) = if op == BinOp::Div {
+            ("div", Check::DivideByZero, Check::DivideOverflow)
         } else {
-            (
-                "rem",
-                "attempt to calculate the remainder with a divisor of zero",
-                "attempt to calculate the remainder with overflow",
-            )
+            ("rem", Check::RemainderByZero, Check::RemainderOverflow)
         };
         if p.is_float() {
             self.operand(lhs, span);
@@ -1014,7 +1512,7 @@ impl FnCx<'_, '_> {
         let lhs_const = Self::const_int(lhs);
         match rhs_const {
             Some(0) => {
-                self.panic_at(zero_msg, span);
+                self.panic_at(zero_check, span);
                 // Unreachable, but the store that follows expects a value.
                 self.ldc_i4(0);
                 return;
@@ -1029,7 +1527,7 @@ impl FnCx<'_, '_> {
                 } else {
                     self.op(format!("brtrue {ok}"), 1, 0);
                 }
-                self.panic_at(zero_msg, span);
+                self.panic_at(zero_check, span);
                 self.label(&ok);
             }
         }
@@ -1053,7 +1551,7 @@ impl FnCx<'_, '_> {
                 self.int_const(min as u128, p);
                 self.branch_ne(p, &ok);
             }
-            self.panic_at(overflow_msg, span);
+            self.panic_at(overflow_check, span);
             self.label(&ok);
         }
         self.operand(lhs, span);
@@ -1101,8 +1599,12 @@ impl FnCx<'_, '_> {
             } else {
                 self.op(format!("blt.un {ok}"), 2, 0);
             }
-            let dir = if op == BinOp::Shl { "left" } else { "right" };
-            self.panic_at(&format!("attempt to shift {dir} with overflow"), span);
+            let check = if op == BinOp::Shl {
+                Check::ShiftLeftOverflow
+            } else {
+                Check::ShiftRightOverflow
+            };
+            self.panic_at(check, span);
             self.label(&ok);
             self.shift_amount_to_i4(rp);
         } else {
@@ -1385,6 +1887,122 @@ impl FnCx<'_, '_> {
     }
 }
 
+/// A run-time check whose failure panics with Rust's message (decision 43). Each has a
+/// throw helper in `Sabiko.Runtime.Checks` that takes the location and supplies the
+/// message, so a failing check costs one `ldstr` and a `call` at its site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Check {
+    AddOverflow,
+    SubtractOverflow,
+    MultiplyOverflow,
+    NegateOverflow,
+    DivideByZero,
+    DivideOverflow,
+    RemainderByZero,
+    RemainderOverflow,
+    ShiftLeftOverflow,
+    ShiftRightOverflow,
+}
+
+impl Check {
+    #[cfg(test)]
+    pub(crate) const ALL: [Check; 10] = [
+        Check::AddOverflow,
+        Check::SubtractOverflow,
+        Check::MultiplyOverflow,
+        Check::NegateOverflow,
+        Check::DivideByZero,
+        Check::DivideOverflow,
+        Check::RemainderByZero,
+        Check::RemainderOverflow,
+        Check::ShiftLeftOverflow,
+        Check::ShiftRightOverflow,
+    ];
+
+    /// The method of `Sabiko.Runtime.Checks` that raises the panic.
+    pub(crate) fn helper(self) -> &'static str {
+        match self {
+            Check::AddOverflow => "AddOverflow",
+            Check::SubtractOverflow => "SubtractOverflow",
+            Check::MultiplyOverflow => "MultiplyOverflow",
+            Check::NegateOverflow => "NegateOverflow",
+            Check::DivideByZero => "DivideByZero",
+            Check::DivideOverflow => "DivideOverflow",
+            Check::RemainderByZero => "RemainderByZero",
+            Check::RemainderOverflow => "RemainderOverflow",
+            Check::ShiftLeftOverflow => "ShiftLeftOverflow",
+            Check::ShiftRightOverflow => "ShiftRightOverflow",
+        }
+    }
+
+    /// Rust's panic message, which the helper raises.
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Check::AddOverflow => "attempt to add with overflow",
+            Check::SubtractOverflow => "attempt to subtract with overflow",
+            Check::MultiplyOverflow => "attempt to multiply with overflow",
+            Check::NegateOverflow => "attempt to negate with overflow",
+            Check::DivideByZero => "attempt to divide by zero",
+            Check::DivideOverflow => "attempt to divide with overflow",
+            Check::RemainderByZero => "attempt to calculate the remainder with a divisor of zero",
+            Check::RemainderOverflow => "attempt to calculate the remainder with overflow",
+            Check::ShiftLeftOverflow => "attempt to shift left with overflow",
+            Check::ShiftRightOverflow => "attempt to shift right with overflow",
+        }
+    }
+}
+
+/// `ldloc`, `stloc` or `ldloca` of local `i`, in its shortest form.
+fn local_instr(op: LocalOp, i: u16) -> String {
+    let name = match op {
+        LocalOp::Load => "ldloc",
+        LocalOp::Store => "stloc",
+        LocalOp::Address => "ldloca",
+    };
+    match i {
+        0..=3 if op != LocalOp::Address => format!("{name}.{i}"),
+        0..=255 => format!("{name}.s {i}"),
+        _ => format!("{name} {i}"),
+    }
+}
+
 fn is_mut_ref(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref(m, _) if m.is_mut())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Check;
+
+    /// Every throw helper exists in the runtime's source and raises exactly the message
+    /// the check stands for (the run-time differential tests compare the messages with
+    /// rustc's).
+    #[test]
+    fn check_helpers_raise_rusts_messages() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/Sabiko.Runtime/Checks.cs"
+        );
+        let src = std::fs::read_to_string(path).expect("runtime/Sabiko.Runtime/Checks.cs");
+        for check in Check::ALL {
+            let decl = format!("public static void {}(string location) =>", check.helper());
+            let at = src
+                .find(&decl)
+                .unwrap_or_else(|| panic!("Checks.cs declares no `{decl}`"));
+            let body = src[at + decl.len()..].trim_start();
+            let expected = format!(
+                "throw new PanicException(\"{}\", location);",
+                check.message()
+            );
+            assert!(
+                body.starts_with(&expected),
+                "Checks.{} should be `{expected}`, is `{}`",
+                check.helper(),
+                body.lines().next().unwrap_or_default()
+            );
+        }
+        assert!(src.contains(
+            "public static void Unreachable() =>\n        throw new PanicException(\"internal error: entered unreachable code\");"
+        ));
+    }
 }

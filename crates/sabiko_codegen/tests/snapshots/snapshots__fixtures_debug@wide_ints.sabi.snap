@@ -19,237 +19,181 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
 {
   .method public hidebysig static valuetype [System.Runtime]System.Int128 'Arith'(valuetype [System.Runtime]System.Int128 'a', valuetype [System.Runtime]System.Int128 'b') cil managed
   {
-    .maxstack 3
+    .maxstack 4
     .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_0',
-      [1] valuetype [System.Runtime]System.Int128 '_3',
-      [2] valuetype [System.Runtime]System.Int128 '_4',
-      [3] valuetype [System.Runtime]System.Int128 '_5',
-      [4] valuetype [System.Runtime]System.Int128 '_6',
-      [5] valuetype [System.Runtime]System.Int128 '_7',
-      [6] valuetype [System.Runtime]System.Int128 '_8',
-      [7] valuetype [System.Runtime]System.Int128 '_9',
-      [8] valuetype [System.Runtime]System.Int128 '_10',
-      [9] valuetype [System.Runtime]System.Int128 '_11',
-      [10] valuetype [System.Runtime]System.Int128 '_12',
-      [11] valuetype [System.Runtime]System.Int128 '$tmp0'
+      [0] valuetype [System.Runtime]System.Int128 '_7',
+      [1] valuetype [System.Runtime]System.Int128 '_8',
+      [2] valuetype [System.Runtime]System.Int128 '$tmp0'
     )
   BB0:
     ldarg.0
-    stloc.2
     ldarg.1
-    stloc.3
-    ldloc.2
-    ldloc.3
-    ldloca.s 11
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L1
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:6:38"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
-    ldloc.s 11
-    stloc.1
+    ldloc.2
     ldarg.0
-    stloc.s 7
     ldarg.1
-    stloc.s 8
-    ldloc.s 7
-    ldloc.s 8
-    ldloca.s 11
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L2
-    ldstr "attempt to multiply with overflow"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::MultiplyOverflow(string)
+    ldnull
     throw
   L2:
-    ldloc.s 11
-    stloc.s 6
+    ldloc.2
+    stloc.1
     ldarg.1
-    stloc.s 9
-    ldloc.s 9
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L3
-    ldstr "attempt to divide by zero"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
+    ldnull
     throw
   L3:
-    ldloc.s 9
+    ldarg.1
     ldc.i8 -1
     ldc.i8 -1
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L4
-    ldloc.s 6
+    ldloc.1
     ldc.i8 -9223372036854775808
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L4
-    ldstr "attempt to divide with overflow"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideOverflow(string)
+    ldnull
     throw
   L4:
-    ldloc.s 6
-    ldloc.s 9
+    ldloc.1
+    ldarg.1
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Division(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 5
+    stloc.0
     ldarg.0
-    stloc.s 10
-    ldloc.s 10
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L5
-    ldstr "attempt to calculate the remainder with a divisor of zero"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
+    ldnull
     throw
   L5:
-    ldloc.s 10
+    ldarg.0
     ldc.i8 -1
     ldc.i8 -1
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L6
-    ldloc.s 5
+    ldloc.0
     ldc.i8 -9223372036854775808
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L6
-    ldstr "attempt to calculate the remainder with overflow"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderOverflow(string)
+    ldnull
     throw
   L6:
-    ldloc.s 5
-    ldloc.s 10
+    ldloc.0
+    ldarg.0
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Modulus(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 4
-    ldloc.1
-    ldloc.s 4
-    ldloca.s 11
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L7
-    ldstr "attempt to subtract with overflow"
     ldstr "wide_ints.sabi:6:38"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::SubtractOverflow(string)
+    ldnull
     throw
   L7:
-    ldloc.s 11
-    stloc.0
-  BB1:
-    ldloc.0
+    ldloc.2
     ret
   }
 
   .method public hidebysig static valuetype [System.Runtime]System.UInt128 'Unsigned'(valuetype [System.Runtime]System.UInt128 'a', valuetype [System.Runtime]System.UInt128 'b') cil managed
   {
-    .maxstack 3
+    .maxstack 4
     .locals init (
-      [0] valuetype [System.Runtime]System.UInt128 '_0',
-      [1] valuetype [System.Runtime]System.UInt128 '_3',
-      [2] valuetype [System.Runtime]System.UInt128 '_4',
-      [3] valuetype [System.Runtime]System.UInt128 '_5',
-      [4] valuetype [System.Runtime]System.UInt128 '_6',
-      [5] valuetype [System.Runtime]System.UInt128 '_7',
-      [6] valuetype [System.Runtime]System.UInt128 '_8',
-      [7] valuetype [System.Runtime]System.UInt128 '_9',
-      [8] valuetype [System.Runtime]System.UInt128 '_10',
-      [9] valuetype [System.Runtime]System.UInt128 '_11',
-      [10] valuetype [System.Runtime]System.UInt128 '_12',
-      [11] valuetype [System.Runtime]System.UInt128 '$tmp0'
+      [0] valuetype [System.Runtime]System.UInt128 '_4',
+      [1] valuetype [System.Runtime]System.UInt128 '_5',
+      [2] valuetype [System.Runtime]System.UInt128 '$tmp0'
     )
   BB0:
     ldarg.0
-    stloc.s 4
     ldarg.1
-    stloc.s 5
-    ldloc.s 4
-    ldloc.s 5
-    ldloca.s 11
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128&)
     brfalse L1
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:8:41"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
-    ldloc.s 11
-    stloc.3
+    ldloc.2
+    stloc.1
     ldarg.1
-    stloc.s 6
-    ldloc.s 6
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_Inequality(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     brtrue L2
-    ldstr "attempt to divide by zero"
     ldstr "wide_ints.sabi:8:41"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
+    ldnull
     throw
   L2:
-    ldloc.3
-    ldloc.s 6
+    ldloc.1
+    ldarg.1
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Division(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.2
+    stloc.0
     ldarg.0
-    stloc.s 7
-    ldloc.s 7
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_Inequality(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     brtrue L3
-    ldstr "attempt to calculate the remainder with a divisor of zero"
     ldstr "wide_ints.sabi:8:41"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
+    ldnull
     throw
   L3:
-    ldloc.2
-    ldloc.s 7
-    call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Modulus(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.1
-    ldarg.1
-    stloc.s 9
+    ldloc.0
     ldarg.0
-    stloc.s 10
-    ldloc.s 9
-    ldloc.s 10
-    ldloca.s 11
+    call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Modulus(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
+    ldarg.1
+    ldarg.0
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128&)
     brfalse L4
-    ldstr "attempt to multiply with overflow"
     ldstr "wide_ints.sabi:8:59"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::MultiplyOverflow(string)
+    ldnull
     throw
   L4:
-    ldloc.s 11
-    stloc.s 8
-    ldloc.1
-    ldloc.s 8
-    ldloca.s 11
+    ldloc.2
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128&)
     brfalse L5
-    ldstr "attempt to subtract with overflow"
     ldstr "wide_ints.sabi:8:41"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::SubtractOverflow(string)
+    ldnull
     throw
   L5:
-    ldloc.s 11
-    stloc.0
-  BB1:
-    ldloc.0
+    ldloc.2
     ret
   }
 
@@ -257,72 +201,44 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   {
     .maxstack 3
     .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_0',
-      [1] valuetype [System.Runtime]System.Int128 '_3',
-      [2] valuetype [System.Runtime]System.Int128 '_4',
-      [3] valuetype [System.Runtime]System.Int128 '_5',
-      [4] valuetype [System.Runtime]System.Int128 '_6',
-      [5] valuetype [System.Runtime]System.Int128 '_7',
-      [6] valuetype [System.Runtime]System.Int128 '_8',
-      [7] valuetype [System.Runtime]System.Int128 '_9',
-      [8] valuetype [System.Runtime]System.UInt128 '_10',
-      [9] valuetype [System.Runtime]System.Int128 '$tmp0'
+      [0] valuetype [System.Runtime]System.Int128 '$tmp0'
     )
   BB0:
-    ldarg.0
-    stloc.3
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    ldloc.3
-    ldloca.s 9
+    ldarg.0
+    ldloca.s 0
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L1
-    ldstr "attempt to negate with overflow"
     ldstr "wide_ints.sabi:10:38"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::NegateOverflow(string)
+    ldnull
     throw
   L1:
-    ldloc.s 9
-    stloc.2
+    ldloc.0
     ldarg.0
-    stloc.s 5
-    ldloc.s 5
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_OnesComplement(valuetype [System.Runtime]System.Int128)
-    stloc.s 4
-    ldloc.2
-    ldloc.s 4
-    ldloca.s 9
+    ldloca.s 0
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L2
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:10:38"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L2:
-    ldloc.s 9
-    stloc.1
+    ldloc.0
     ldarg.1
-    stloc.s 8
-    ldloc.s 8
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.UInt128::op_Explicit(valuetype [System.Runtime]System.UInt128)
-    stloc.s 7
-    ldloc.s 7
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_OnesComplement(valuetype [System.Runtime]System.Int128)
-    stloc.s 6
-    ldloc.1
-    ldloc.s 6
-    ldloca.s 9
+    ldloca.s 0
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L3
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:10:38"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L3:
-    ldloc.s 9
-    stloc.0
-  BB1:
     ldloc.0
     ret
   }
@@ -330,58 +246,25 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   .method public hidebysig static valuetype [System.Runtime]System.UInt128 'Bits'(valuetype [System.Runtime]System.UInt128 'a', valuetype [System.Runtime]System.UInt128 'b', uint32 'n', valuetype [System.Runtime]System.Int128 'w') cil managed
   {
     .maxstack 5
-    .locals init (
-      [0] valuetype [System.Runtime]System.UInt128 '_0',
-      [1] valuetype [System.Runtime]System.UInt128 '_5',
-      [2] valuetype [System.Runtime]System.UInt128 '_6',
-      [3] valuetype [System.Runtime]System.UInt128 '_7',
-      [4] valuetype [System.Runtime]System.UInt128 '_8',
-      [5] valuetype [System.Runtime]System.UInt128 '_9',
-      [6] valuetype [System.Runtime]System.UInt128 '_10',
-      [7] valuetype [System.Runtime]System.UInt128 '_11',
-      [8] valuetype [System.Runtime]System.UInt128 '_12',
-      [9] uint32 '_13',
-      [10] valuetype [System.Runtime]System.Int128 '_14'
-    )
   BB0:
     ldarg.0
-    stloc.s 4
     ldarg.1
-    stloc.s 5
-    ldloc.s 4
-    ldloc.s 5
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_BitwiseAnd(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.3
     ldarg.0
-    stloc.s 7
     ldarg.1
-    stloc.s 8
-    ldloc.s 7
-    ldloc.s 8
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_ExclusiveOr(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.s 6
-    ldloc.3
-    ldloc.s 6
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_BitwiseOr(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.2
     ldarg.2
-    stloc.s 9
-    ldloc.2
-    ldloc.s 9
     dup
     ldc.i4 128
     blt.un L1
-    ldstr "attempt to shift left with overflow"
     ldstr "wide_ints.sabi:12:54"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::ShiftLeftOverflow(string)
+    ldnull
     throw
   L1:
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_LeftShift(valuetype [System.Runtime]System.UInt128, int32)
-    stloc.1
     ldarg.3
-    stloc.s 10
-    ldloc.1
-    ldloc.s 10
     dup
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.Int128::op_Explicit(valuetype [System.Runtime]System.Int128)
     ldc.i8 0
@@ -389,46 +272,31 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_LessThan(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     brtrue L2
-    ldstr "attempt to shift right with overflow"
     ldstr "wide_ints.sabi:12:54"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::ShiftRightOverflow(string)
+    ldnull
     throw
   L2:
     call int32 [System.Runtime]System.Int128::op_Explicit(valuetype [System.Runtime]System.Int128)
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_RightShift(valuetype [System.Runtime]System.UInt128, int32)
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
   .method public hidebysig static valuetype [System.Runtime]System.Int128 'Signed'(valuetype [System.Runtime]System.Int128 'a', int8 'n') cil managed
   {
     .maxstack 4
-    .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_0',
-      [1] valuetype [System.Runtime]System.Int128 '_3',
-      [2] int8 '_4'
-    )
   BB0:
     ldarg.0
-    stloc.1
     ldarg.1
-    stloc.2
-    ldloc.1
-    ldloc.2
     dup
     ldc.i4 128
     blt.un L1
-    ldstr "attempt to shift right with overflow"
     ldstr "wide_ints.sabi:14:37"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::ShiftRightOverflow(string)
+    ldnull
     throw
   L1:
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_RightShift(valuetype [System.Runtime]System.Int128, int32)
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -441,42 +309,22 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
       [2] bool '_4',
       [3] bool '_5',
       [4] bool '_6',
-      [5] bool '_7',
-      [6] valuetype [System.Runtime]System.Int128 '_8',
-      [7] bool '_9',
-      [8] valuetype [System.Runtime]System.Int128 '_10',
-      [9] bool '_11',
-      [10] valuetype [System.Runtime]System.Int128 '_12',
-      [11] valuetype [System.Runtime]System.Int128 '_13',
-      [12] bool '_14',
-      [13] valuetype [System.Runtime]System.Int128 '_15',
-      [14] valuetype [System.Runtime]System.Int128 '_16',
-      [15] bool '_17',
-      [16] valuetype [System.Runtime]System.Int128 '_18',
-      [17] bool '_19',
-      [18] valuetype [System.Runtime]System.UInt128 '_20'
+      [5] valuetype [System.Runtime]System.Int128 '_13',
+      [6] valuetype [System.Runtime]System.Int128 '_16'
     )
   BB0:
     ldarg.0
-    stloc.s 6
-    ldloc.s 6
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_LessThan(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 5
-    ldloc.s 5
     brfalse BB2
   BB1:
     ldarg.0
-    stloc.s 8
-    ldloc.s 8
     ldc.i8 0
     ldc.i8 1
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_LessThanOrEqual(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 7
-    ldloc.s 7
     stloc.s 4
     br BB3
   BB2:
@@ -486,17 +334,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldloc.s 4
     brfalse BB5
   BB4:
-    ldarg.0
-    stloc.s 10
     ldc.i8 -1
     ldc.i8 -2
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.s 11
-    ldloc.s 10
-    ldloc.s 11
+    stloc.s 5
+    ldarg.0
+    ldloc.s 5
     call bool [System.Runtime]System.Int128::op_GreaterThan(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 9
-    ldloc.s 9
     stloc.3
     br BB6
   BB5:
@@ -506,17 +350,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldloc.3
     brfalse BB8
   BB7:
-    ldarg.0
-    stloc.s 13
     ldc.i8 -1
     ldc.i8 -3
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.s 14
-    ldloc.s 13
-    ldloc.s 14
+    stloc.s 6
+    ldarg.0
+    ldloc.s 6
     call bool [System.Runtime]System.Int128::op_GreaterThanOrEqual(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 12
-    ldloc.s 12
     stloc.2
     br BB9
   BB8:
@@ -527,14 +367,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     brfalse BB11
   BB10:
     ldarg.0
-    stloc.s 16
-    ldloc.s 16
     ldc.i8 0
     ldc.i8 4
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.s 15
-    ldloc.s 15
     stloc.1
     br BB12
   BB11:
@@ -545,21 +381,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     brfalse BB14
   BB13:
     ldarg.1
-    stloc.s 18
-    ldloc.s 18
     ldc.i8 0
     ldc.i8 5
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_Equality(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.s 17
-    ldloc.s 17
     stloc.0
     br BB15
   BB14:
     ldc.i4.0
     stloc.0
   BB15:
-  BB16:
     ldloc.0
     ret
   }
@@ -568,217 +399,120 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   {
     .maxstack 3
     .locals init (
-      [0] float32 '_0',
-      [1] valuetype [System.Runtime]System.Int128 '_5',
-      [2] valuetype [System.Runtime]System.Int128 '_6',
-      [3] valuetype [System.Runtime]System.Int128 '_7',
-      [4] valuetype [System.Runtime]System.Int128 '_8',
-      [5] int64 '_9',
-      [6] valuetype [System.Runtime]System.Int128 '_10',
-      [7] uint32 '_11',
-      [8] valuetype [System.Runtime]System.Int128 '_12',
-      [9] valuetype [System.Runtime]System.Int128 '_13',
-      [10] valuetype [System.Runtime]System.UInt128 '_14',
-      [11] valuetype [System.Runtime]System.UInt128 '_15',
-      [12] valuetype [System.Runtime]System.UInt128 '_16',
-      [13] int64 '_17',
-      [14] valuetype [System.Runtime]System.UInt128 '_18',
-      [15] uint32 '_19',
-      [16] valuetype [System.Runtime]System.UInt128 '_20',
-      [17] valuetype [System.Runtime]System.Int128 '_21',
-      [18] valuetype [System.Runtime]System.Int128 '_22',
-      [19] valuetype [System.Runtime]System.Int128 '_23',
-      [20] valuetype [System.Runtime]System.Int128 '_24',
-      [21] valuetype [System.Runtime]System.Int128 '_25',
-      [22] int8 '_26',
-      [23] valuetype [System.Runtime]System.Int128 '_27',
-      [24] valuetype [System.Runtime]System.Int128 '_28',
-      [25] valuetype [System.Runtime]System.UInt128 '_29',
-      [26] valuetype [System.Runtime]System.Int128 '_30',
-      [27] valuetype [System.Runtime]System.Int128 '_31',
-      [28] float64 '_32',
-      [29] valuetype [System.Runtime]System.Int128 '_33',
-      [30] float32 '_34',
-      [31] float64 '_35',
-      [32] float64 '_36',
-      [33] valuetype [System.Runtime]System.UInt128 '_37',
-      [34] float64 '_38',
-      [35] valuetype [System.Runtime]System.Int128 '_39',
-      [36] valuetype [System.Runtime]System.Int128 '$tmp0',
-      [37] valuetype [System.Runtime]System.UInt128 '$tmp1'
+      [0] valuetype [System.Runtime]System.Int128 '_5',
+      [1] valuetype [System.Runtime]System.UInt128 '_14',
+      [2] valuetype [System.Runtime]System.Int128 '_22',
+      [3] float64 '_36',
+      [4] valuetype [System.Runtime]System.Int128 '$tmp0',
+      [5] valuetype [System.Runtime]System.UInt128 '$tmp1'
     )
   BB0:
     ldarg.0
-    stloc.s 5
-    ldloc.s 5
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Implicit(int64)
-    stloc.s 4
     ldarg.1
-    stloc.s 7
-    ldloc.s 7
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Implicit(uint32)
-    stloc.s 6
-    ldloc.s 4
-    ldloc.s 6
-    ldloca.s 36
+    ldloca.s 4
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L1
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:19:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
-    ldloc.s 36
-    stloc.3
+    ldloc.s 4
     ldc.i4.1
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Implicit(uint8)
-    stloc.s 8
-    ldloc.3
-    ldloc.s 8
-    ldloca.s 36
+    ldloca.s 4
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L2
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:19:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L2:
-    ldloc.s 36
-    stloc.2
+    ldloc.s 4
     ldc.i4.s 120
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Implicit(char)
-    stloc.s 9
-    ldloc.2
-    ldloc.s 9
-    ldloca.s 36
+    ldloca.s 4
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L3
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:19:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L3:
-    ldloc.s 36
-    stloc.1
+    ldloc.s 4
+    stloc.0
     ldarg.0
-    stloc.s 13
-    ldloc.s 13
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Explicit(int64)
-    stloc.s 12
     ldarg.1
-    stloc.s 15
-    ldloc.s 15
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Implicit(uint32)
-    stloc.s 14
-    ldloc.s 12
-    ldloc.s 14
-    ldloca.s 37
+    ldloca.s 5
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128&)
     brfalse L4
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:20:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L4:
-    ldloc.s 37
-    stloc.s 11
+    ldloc.s 5
     ldarg.2
-    stloc.s 17
-    ldloc.s 17
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.Int128::op_Explicit(valuetype [System.Runtime]System.Int128)
-    stloc.s 16
-    ldloc.s 11
-    ldloc.s 16
-    ldloca.s 37
+    ldloca.s 5
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128&)
     brfalse L5
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:20:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L5:
-    ldloc.s 37
-    stloc.s 10
+    ldloc.s 5
+    stloc.1
     ldarg.2
-    stloc.s 23
-    ldloc.s 23
     call int8 [System.Runtime]System.Int128::op_Explicit(valuetype [System.Runtime]System.Int128)
-    stloc.s 22
-    ldloc.s 22
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Implicit(int8)
-    stloc.s 21
     ldarg.2
-    stloc.s 26
-    ldloc.s 26
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.Int128::op_Explicit(valuetype [System.Runtime]System.Int128)
-    stloc.s 25
-    ldloc.s 25
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.UInt128::op_Explicit(valuetype [System.Runtime]System.UInt128)
-    stloc.s 24
-    ldloc.s 21
-    ldloc.s 24
-    ldloca.s 36
+    ldloca.s 4
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L6
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:21:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L6:
-    ldloc.s 36
-    stloc.s 20
+    ldloc.s 4
     ldarg.3
-    stloc.s 28
-    ldloc.s 28
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Explicit(float64)
-    stloc.s 27
-    ldloc.s 20
-    ldloc.s 27
-    ldloca.s 36
+    ldloca.s 4
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L7
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:21:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L7:
-    ldloc.s 36
-    stloc.s 19
+    ldloc.s 4
     ldarg.3
-    stloc.s 31
-    ldloc.s 31
     conv.r4
-    stloc.s 30
-    ldloc.s 30
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Explicit(float32)
-    stloc.s 29
-    ldloc.s 19
-    ldloc.s 29
-    ldloca.s 36
+    ldloca.s 4
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128&)
     brfalse L8
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:21:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L8:
-    ldloc.s 36
-    stloc.s 18
+    ldloc.s 4
+    stloc.2
     ldarg.3
-    stloc.s 34
-    ldloc.s 34
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Explicit(float64)
-    stloc.s 33
-    ldloc.s 33
     call float64 [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::ToDouble(valuetype [System.Runtime]System.UInt128)
-    stloc.s 32
+    stloc.3
     ldarg.2
-    stloc.s 35
-    ldloc.s 35
     call float32 [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::ToSingle(valuetype [System.Runtime]System.Int128)
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -786,17 +520,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   {
     .maxstack 4
     .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_0',
-      [1] valuetype [System.Runtime]System.Int128 '_3',
-      [2] valuetype [System.Runtime]System.UInt128 '$tmp0'
+      [0] valuetype [System.Runtime]System.Int128 '_3',
+      [1] valuetype [System.Runtime]System.UInt128 '$tmp0'
     )
   BB0:
     ldc.i8 -9223372036854775808
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.1
+    stloc.0
     ldarg.0
-    ldloc.1
+    ldloc.0
     stfld valuetype [System.Runtime]System.Int128 'Holder'::'Big'
     ldarg.1
     ldc.i8 -1
@@ -809,21 +542,18 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldc.i8 0
     ldc.i8 1
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
-    ldloca.s 2
+    ldloca.s 1
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128&)
     brfalse L1
-    ldstr "attempt to add with overflow"
     ldstr "wide_ints.sabi:29:5"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
-    ldloc.2
+    ldloc.1
     stobj valuetype [System.Runtime]System.UInt128
     ldarg.0
     ldfld valuetype [System.Runtime]System.Int128 'Holder'::'Big'
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -831,23 +561,19 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
   {
     .maxstack 3
     .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_2',
-      [1] valuetype [System.Runtime]System.Int128 '_3',
-      [2] valuetype [System.Runtime]System.UInt128 '_5'
+      [0] valuetype [System.Runtime]System.Int128 '_3'
     )
   BB0:
     ldc.i8 -1
     ldc.i8 -2
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.1
+    stloc.0
     ldc.i8 0
     ldc.i8 3
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    ldloc.1
-    call valuetype [System.Runtime]System.Int128 'WideInts'::'Arith'(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.0
-  BB1:
     ldloc.0
+    call valuetype [System.Runtime]System.Int128 'WideInts'::'Arith'(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
+  BB1:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)
   BB2:
     ldc.i8 1
@@ -857,12 +583,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/wide_ints.sabi
     ldc.i8 7
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call valuetype [System.Runtime]System.UInt128 'WideInts'::'Unsigned'(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stloc.2
   BB3:
-    ldloc.2
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::Print(valuetype [System.Runtime]System.UInt128)
   BB4:
-  BB5:
     ret
   }
 

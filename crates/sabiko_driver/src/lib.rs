@@ -20,8 +20,9 @@ pub enum Emit {
     Ast,
     /// The AST printed back as canonical Sabiko source.
     Pretty,
-    /// The MIR of every function, after simplification. Empty when an earlier stage
-    /// reported errors or the pipeline stopped before MIR building.
+    /// The MIR of every function, after simplification: what the borrow checker sees,
+    /// before copy forwarding. Empty when an earlier stage reported errors or the
+    /// pipeline stopped before MIR building.
     Mir,
     /// The textual CIL module (`ilasm` input). Empty when any stage reported errors.
     Il,
@@ -171,6 +172,10 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                     );
                                 }
                                 if options.emit == Emit::Il && !sink.has_errors() {
+                                    // After borrow checking, which needs every copy
+                                    // MIR building made (decisions 36 and 51).
+                                    sabiko_mir::forward::forward_all(&mut bodies);
+                                    check_mir(&bodies, &typeck, &mut sink);
                                     let codegen = sabiko_codegen::Options {
                                         assembly_name: assembly_name(name),
                                         kind: options.output_kind,

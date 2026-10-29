@@ -24,23 +24,19 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
     .maxstack 2
     .locals init (
-      [0] bool '_0',
-      [1] uint8& '_3',
-      [2] uint8& '_4'
+      [0] uint8& '_3',
+      [1] uint8& '_4'
     )
   BB0:
     ldarg.0
-    stloc.1
+    stloc.0
     ldarg.1
-    stloc.2
+    stloc.1
+    ldloc.0
+    ldind.u1
     ldloc.1
     ldind.u1
-    ldloc.2
-    ldind.u1
     clt.un
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -50,25 +46,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
     .maxstack 2
     .locals init (
-      [0] bool '_0',
-      [1] float64& '_3',
-      [2] float64& '_4'
+      [0] float64& '_3',
+      [1] float64& '_4'
     )
   BB0:
     ldarg.0
-    stloc.1
+    stloc.0
     ldarg.1
-    stloc.2
-    ldloc.1
+    stloc.1
+    ldloc.0
     ldind.r8
-    ldloc.2
+    ldloc.1
     ldind.r8
     ceq
     ldc.i4.0
     ceq
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -80,25 +72,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
     .maxstack 2
     .locals init (
-      [0] bool '_0',
-      [1] float32& '_3',
-      [2] float32& '_4'
+      [0] float32& '_3',
+      [1] float32& '_4'
     )
   BB0:
     ldarg.0
-    stloc.1
+    stloc.0
     ldarg.1
-    stloc.2
-    ldloc.1
+    stloc.1
+    ldloc.0
     ldind.r4
-    ldloc.2
+    ldloc.1
     ldind.r4
     clt.un
     ldc.i4.0
     ceq
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -110,25 +98,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
     .maxstack 2
     .locals init (
-      [0] bool '_0',
-      [1] int64& '_3',
-      [2] int64& '_4'
+      [0] int64& '_3',
+      [1] int64& '_4'
     )
   BB0:
     ldarg.0
     ldflda int64 'P'::'X'
-    stloc.1
+    stloc.0
     ldarg.1
     ldflda int64 'P'::'X'
-    stloc.2
+    stloc.1
+    ldloc.0
+    ldind.i8
     ldloc.1
     ldind.i8
-    ldloc.2
-    ldind.i8
     ceq
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -137,53 +121,40 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .maxstack 2
     .locals init (
       [0] char 'c',
-      [1] bool '_3',
-      [2] char& '_4',
-      [3] char& '_5',
-      [4] char '_6',
-      [5] bool '_8',
-      [6] uint8& '_9',
-      [7] uint8 '_10',
-      [8] uint8& '_11',
-      [9] uint8 '_12'
+      [1] char& '_4',
+      [2] char& '_5',
+      [3] char '_6',
+      [4] uint8 '_10',
+      [5] uint8 '_12'
     )
   BB0:
     ldc.i4.s 120
     stloc.0
     ldloca.s 0
-    stloc.2
+    stloc.1
     ldc.i4.s 121
-    stloc.s 4
-    ldloca.s 4
     stloc.3
-    ldloc.2
+    ldloca.s 3
+    stloc.2
+    ldloc.1
     ldind.u2
-    ldloc.3
+    ldloc.2
     ldind.u2
     cgt.un
     ldc.i4.0
     ceq
-    stloc.1
-    ldloc.1
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(bool)
   BB1:
     ldc.i4.1
-    stloc.s 7
-    ldloca.s 7
-    stloc.s 6
+    stloc.s 4
+    ldloca.s 4
     ldc.i4.2
-    stloc.s 9
-    ldloca.s 9
-    stloc.s 8
-    ldloc.s 6
-    ldloc.s 8
-    call bool 'RefCompare'::'Unsigned'(uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute), uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
     stloc.s 5
+    ldloca.s 5
+    call bool 'RefCompare'::'Unsigned'(uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute), uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
   BB2:
-    ldloc.s 5
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(bool)
   BB3:
-  BB4:
     ret
   }
 

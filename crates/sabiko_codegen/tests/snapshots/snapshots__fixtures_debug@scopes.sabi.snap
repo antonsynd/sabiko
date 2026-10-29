@@ -14,14 +14,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
   .method public hidebysig static int32 'Twice'(int32 'v') cil managed
   {
     .maxstack 3
-    .locals init (
-      [0] int32 '_0',
-      [1] int32 '_2'
-    )
   BB0:
     ldarg.0
-    stloc.1
-    ldloc.1
     conv.i8
     ldc.i4.2
     conv.i8
@@ -31,15 +25,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "attempt to multiply with overflow"
     ldstr "scopes.sabi:4:5"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::MultiplyOverflow(string)
+    ldnull
     throw
   L1:
     conv.i4
-    stloc.0
-  BB1:
-    ldloc.0
     ret
   }
 
@@ -47,35 +38,18 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
   {
     .maxstack 3
     .locals init (
-      [0] int32 '_0',
-      [1] int32 'x',
-      [2] int32 '_3',
-      [3] int32 'y',
-      [4] int32 'inner',
-      [5] int32 '_6',
-      [6] int32 '_7',
-      [7] int32 '_8',
-      [8] int32 'z',
-      [9] int32 'w',
-      [10] int32 '_11',
-      [11] int32 '_12',
-      [12] int32 '_13',
-      [13] int32 '_14',
-      [14] int32 '_15',
-      [15] int32 'late',
-      [16] bool '_17',
-      [17] int32 '_18',
-      [18] int32 '_19',
-      [19] int32 '_20',
-      [20] int32 '_21',
-      [21] int32 '_22',
-      [22] int32 '_23',
-      [23] int32 '_24'
+      [0] int32 'x',
+      [1] int32 'y',
+      [2] int32 'inner',
+      [3] int32 '_7',
+      [4] int32 'z',
+      [5] int32 'w',
+      [6] int32 '_13',
+      [7] int32 'late',
+      [8] int32 '_23'
     )
   BB0:
     ldarg.0
-    stloc.2
-    ldloc.2
     conv.i8
     ldc.i4.1
     conv.i8
@@ -85,16 +59,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:8:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
     conv.i4
-    stloc.1
-    ldloc.1
-    stloc.s 5
-    ldloc.s 5
+    stloc.0
+    ldloc.0
     conv.i8
     ldc.i4.2
     conv.i8
@@ -104,16 +76,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L2
-    ldstr "attempt to multiply with overflow"
     ldstr "scopes.sabi:10:21"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::MultiplyOverflow(string)
+    ldnull
     throw
   L2:
     conv.i4
-    stloc.s 4
-    ldloc.s 4
-    stloc.s 7
-    ldloc.s 7
+    stloc.2
+    ldloc.2
     conv.i8
     ldc.i4.1
     conv.i8
@@ -123,28 +93,24 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L3
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:11:17"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L3:
     conv.i4
-    stloc.s 6
-    ldloc.s 4
     stloc.3
-    ldloc.3
-    stloc.s 8
-    ldloc.s 8
-    stloc.s 11
-    ldloc.s 8
-    stloc.s 13
-    ldloc.s 13
+    ldloc.2
+    stloc.1
+    ldloc.1
+    stloc.s 4
+    ldloc.s 4
+    ldloc.s 4
     call int32 'Scopes'::'Twice'(int32)
-    stloc.s 12
+    stloc.s 6
   BB1:
-    ldloc.s 11
     conv.i8
-    ldloc.s 12
+    ldloc.s 6
     conv.i8
     add
     dup
@@ -152,52 +118,34 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L4
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:17:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L4:
     conv.i4
-    stloc.s 10
-    ldloc.s 10
-    stloc.s 9
-    ldloc.s 9
-    stloc.s 14
+    stloc.s 5
     ldarg.0
-    stloc.s 17
-    ldloc.s 17
     ldc.i4.0
     cgt
-    stloc.s 16
-    ldloc.s 16
     brfalse BB3
   BB2:
-    ldloc.1
-    stloc.s 18
-    ldloc.s 18
-    stloc.s 15
+    ldloc.0
+    stloc.s 7
     br BB4
   BB3:
-    ldloc.3
-    stloc.s 19
-    ldloc.s 19
-    stloc.s 15
-  BB4:
-    ldloc.s 15
-    stloc.s 21
-    ldloc.s 21
-    call int32 'Scopes'::'Twice'(int32)
-    stloc.s 20
-  BB5:
     ldloc.1
-    stloc.s 23
-    ldloc.s 23
+    stloc.s 7
+  BB4:
+    ldloc.s 7
     call int32 'Scopes'::'Twice'(int32)
-    stloc.s 22
+  BB5:
+    ldloc.0
+    call int32 'Scopes'::'Twice'(int32)
+    stloc.s 8
   BB6:
-    ldloc.s 20
     conv.i8
-    ldloc.s 22
+    ldloc.s 8
     conv.i8
     add
     dup
@@ -205,39 +153,22 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L5
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:22:5"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L5:
     conv.i4
-    stloc.0
-  BB7:
-    ldloc.0
     ret
   }
 
   .method public hidebysig static int32 'Unreachable'(int32 'a') cil managed
   {
     .maxstack 1
-    .locals init (
-      [0] int32 '_0',
-      [1] int32 'x',
-      [2] int32 '_3',
-      [3] int32 'y',
-      [4] int32 '_5'
-    )
   BB0:
     ldarg.0
-    stloc.2
-    ldloc.2
     call int32 'Scopes'::'Twice'(int32)
-    stloc.1
   BB1:
-    ldloc.1
-    stloc.0
-  BB2:
-    ldloc.0
     ret
   }
 
@@ -248,26 +179,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     .maxstack 3
     .locals init (
       [0] int32 '_3',
-      [1] int32 '_4',
-      [2] int32 '_5',
-      [3] int32 '_6',
-      [4] int32 '_7',
-      [5] int32 '_8',
-      [6] int32 '_9',
-      [7] int32 '_10',
-      [8] int32 '_11',
-      [9] int32 '_12'
+      [1] int32 '_5',
+      [2] int32 '_8',
+      [3] int32 '_11'
     )
   BB0:
     ldarg.0
-    stloc.1
-    ldloc.1
     call int32 'Scopes'::'Twice'(int32)
     stloc.0
   BB1:
     ldarg.0
-    stloc.3
-    ldloc.3
     conv.i8
     ldc.i4.1
     conv.i8
@@ -277,32 +198,23 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:34:5"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
     conv.i4
-    stloc.2
-    ldarg.1
-    ldind.i4
-    stloc.s 4
+    stloc.1
     ldarg.0
-    stloc.s 7
-    ldloc.s 7
     call int32 'Scopes'::'Twice'(int32)
-    stloc.s 6
   BB2:
     ldarg.1
     ldind.i4
-    stloc.s 9
-    ldloc.s 9
     call int32 'Scopes'::'Twice'(int32)
-    stloc.s 8
+    stloc.3
   BB3:
-    ldloc.s 6
     conv.i8
-    ldloc.s 8
+    ldloc.3
     conv.i8
     add
     dup
@@ -310,14 +222,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L2
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:37:13"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L2:
     conv.i4
-    stloc.s 5
-  BB4:
+    stloc.2
     ret
   }
 
@@ -325,67 +236,36 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
   {
     .maxstack 3
     .locals init (
-      [0] int32 '_0',
-      [1] int32 'i',
-      [2] bool '_3',
-      [3] int32 '_4',
-      [4] int32 '_5',
-      [5] int32 'doubled',
-      [6] int32 '_7',
-      [7] bool '_8',
-      [8] int32 '_9',
-      [9] int32 'extra',
-      [10] int32 '_11',
-      [11] int32 '_12',
-      [12] bool '_13',
-      [13] int32 '_14',
-      [14] bool '_15',
-      [15] int32 '_16',
-      [16] bool '_17',
-      [17] int32 '_18'
+      [0] int32 'i',
+      [1] int32 'doubled',
+      [2] int32 'extra',
+      [3] int32 '_12'
     )
   BB0:
     ldc.i4.0
-    stloc.1
+    stloc.0
   BB1:
-    ldloc.1
-    stloc.3
+    ldloc.0
     ldarg.0
-    stloc.s 4
-    ldloc.3
-    ldloc.s 4
     clt
-    stloc.2
-    ldloc.2
     brfalse BB3
   BB2:
-    ldloc.1
-    stloc.s 6
-    ldloc.s 6
+    ldloc.0
     call int32 'Scopes'::'Twice'(int32)
-    stloc.s 5
-    br BB4
-  BB3:
-    br BB8
+    stloc.1
   BB4:
-    ldloc.s 5
-    stloc.s 8
-    ldloc.s 8
+    ldloc.1
     ldc.i4.s 10
     cgt
-    stloc.s 7
-    ldloc.s 7
     brfalse BB15
   BB5:
-    ldloc.s 5
-    stloc.s 10
+    ldloc.1
     ldc.i4.1
     call int32 'Scopes'::'Twice'(int32)
-    stloc.s 11
+    stloc.3
   BB6:
-    ldloc.s 10
     conv.i8
-    ldloc.s 11
+    ldloc.3
     conv.i8
     add
     dup
@@ -393,55 +273,37 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:45:25"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L1:
     conv.i4
-    stloc.s 9
-    ldloc.s 9
-    stloc.s 13
-    ldloc.s 13
+    stloc.2
+    ldloc.2
     ldc.i4.s 20
     cgt
-    stloc.s 12
-    ldloc.s 12
     brfalse BB9
   BB7:
-  BB8:
-    ldloc.1
-    stloc.0
-    br BB13
+    br BB8
   BB9:
-    ldloc.s 9
-    stloc.s 15
-    ldloc.s 15
+    ldloc.2
     ldc.i4.s 15
     cgt
-    stloc.s 14
-    ldloc.s 14
     brfalse BB11
   BB10:
     br BB1
   BB11:
-    ldloc.s 9
-    stloc.s 17
-    ldloc.s 17
+    ldloc.2
     ldc.i4.s 12
     cgt
-    stloc.s 16
-    ldloc.s 16
     brfalse BB14
   BB12:
-    ldloc.s 9
-    stloc.0
-  BB13:
-    ldloc.0
+    ldloc.2
     ret
   BB14:
   BB15:
-    ldloc.1
+    ldloc.0
     conv.i8
     ldc.i4.1
     conv.i8
@@ -451,14 +313,18 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     conv.i8
     beq L2
-    ldstr "attempt to add with overflow"
     ldstr "scopes.sabi:50:9"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
     throw
   L2:
     conv.i4
-    stloc.1
+    stloc.0
     br BB1
+  BB3:
+  BB8:
+    ldloc.0
+    ret
   }
 
 }
