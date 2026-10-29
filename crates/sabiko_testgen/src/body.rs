@@ -1650,7 +1650,9 @@ mod tests {
     fn reinitialisation_in_a_block_is_not_definite_afterwards() {
         let knobs = Knobs::borrow_clean();
         let (mut reinitialised, mut definite) = (0, 0);
-        for seed in 0..400 {
+        // 1600 seeds: with tuples in the generator (#6) a struct local re-initialised in
+        // both branches of an `if`/`else` is rarer than in the 400 this test began with.
+        for seed in 0..1600 {
             let mut rng = Rng::new(seed);
             let prog = gen_program(&mut rng, &knobs);
             let Some(s) = prog.structs.iter().position(|s| !s.copy) else {
