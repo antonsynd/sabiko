@@ -1,0 +1,9 @@
+// A name may be bound once per pattern, across struct and tuple variant fields too: E0416.
+enum Shape { Rect { W: i32, H: i32 }, Pair(i32, i32) }
+
+fn F(s: Shape) -> i32 {
+    match s {
+        Shape::Rect { W: a, H: a } => a, //~ rustc E0416: identifier `a` is bound more than once in the same pattern
+        Shape::Pair(b, b) => b, //~ rustc E0416: identifier `b` is bound more than once in the same pattern
+    }
+}

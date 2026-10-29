@@ -1,0 +1,14 @@
+// A catch-all binding (`other`) binds the whole scrutinee by value: a non-Copy enum is
+// moved into it, even in the arm that only reads it.
+enum Light { Red, Green, Blinking(i32) }
+
+fn Take(l: Light) {}
+
+fn Main() {
+    let l = Light::Blinking(2);
+    match l {
+        Light::Red => {}
+        other => Take(other),
+    }
+    Take(l);
+}

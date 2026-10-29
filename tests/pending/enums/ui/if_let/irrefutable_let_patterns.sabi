@@ -1,0 +1,21 @@
+// An irrefutable pattern in `if let`, `while let` or `let else` is accepted with a warning:
+// `irrefutable_let_patterns` (on by default, outside the `unused` group the harnesses
+// allow) for `if let` and `while let`, "unreachable `else` clause" for `let else`.
+enum One { Only(i32) }
+
+fn F(o: One) -> i32 {
+    if let One::Only(n) = o { //~ rustc warning: irrefutable `if let` pattern
+        return n;
+    }
+    let One::Only(m) = One::Only(2) else { //~ rustc warning: unreachable `else` clause [assigning to binding pattern will always succeed]
+        return 0;
+    };
+    let mut k = 0;
+    while let x = k { //~ rustc warning: irrefutable `while let` pattern
+        if x > 2 {
+            break;
+        }
+        k += 1;
+    }
+    m + k
+}

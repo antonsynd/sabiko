@@ -1,0 +1,23 @@
+// `ref mut` bindings mutate the payload in place, two of them for disjoint fields at once;
+// once they are dead the scrutinee is readable again, inside the arm and after the match.
+struct Counter { N: i32 }
+
+enum Slot { Empty, Full(Counter), Pair(i32, i32) }
+
+fn Peek(s: &Slot) -> i32 { 0 }
+
+fn Main() {
+    let mut s = Slot::Full(Counter { N: 1 });
+    match s {
+        Slot::Full(ref mut c) => {
+            c.N += 1;
+            let seen = Peek(&s);
+        }
+        Slot::Pair(ref mut a, ref mut b) => {
+            *a += 1;
+            *b += *a;
+        }
+        Slot::Empty => {}
+    }
+    let after = Peek(&s);
+}

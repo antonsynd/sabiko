@@ -1,0 +1,16 @@
+// A reference produced by a match arm from a by-reference binding keeps the scrutinee
+// borrowed after the match: reassigning it while the reference is used later is E0506.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Main() {
+    let zero = 0;
+    let mut s = Slot::Full(Token { Id: 1 });
+    let id = match &s {
+        Slot::Full(t) => &t.Id,
+        Slot::Empty => &zero,
+    };
+    s = Slot::Empty;
+    PrintLine(*id);
+}

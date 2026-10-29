@@ -1,0 +1,27 @@
+// KNOWN GAP (not listed in #8): `&` patterns. `&p` matches a `&T` and continues with `p`
+// against the referent, so `&Cell::Value(n)` binds `n` by value (a copy), and
+// `let &(a, b) = &t;` copies both elements out. It also resets the default binding mode
+// (`match &c { &Cell::Value(n) => .. }` binds `n: i32`, not `&i32`). SPEC.md lists `&`
+// patterns among those that are E0107 until `match`; #8 may add them or keep E0107.
+enum Cell { Empty, Value(i32) }
+
+fn Get(r: &Cell) -> i32 {
+    match r {
+        &Cell::Value(n) => n,
+        &Cell::Empty => -1,
+    }
+}
+
+fn Main() {
+    let c = Cell::Value(7);
+    PrintLine(Get(&c));
+    PrintLine(Get(&Cell::Empty));
+    let t = (1, 2);
+    let &(a, b) = &t;
+    PrintLine(a + b);
+    let m = match (&c, 3) {
+        (&Cell::Value(n), k) => n * k,
+        _ => 0,
+    };
+    PrintLine(m);
+}

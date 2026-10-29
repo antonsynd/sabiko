@@ -1,0 +1,11 @@
+// Parameter patterns are irrefutable too: E0005 for a literal inside a tuple pattern or
+// an enum variant.
+enum Cell { Empty, Value(i32) }
+
+fn F((0, b): (i32, i32)) -> i32 { //~ rustc E0005: refutable pattern in function argument
+    b
+}
+
+fn G(Cell::Value(n): Cell) -> i32 { //~ rustc E0005: refutable pattern in function argument
+    n
+}

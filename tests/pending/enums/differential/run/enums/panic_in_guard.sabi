@@ -1,0 +1,23 @@
+// A panic raised while evaluating a guard (a division by zero inside it): the earlier
+// guard's output is kept, the arm body does not run, exit code 101 at the division.
+enum Cell { Empty, Value(i32) }
+
+fn Ratio(c: Cell, d: i32) -> i32 {
+    match c {
+        Cell::Value(n) if n < 0 => -1,
+        Cell::Value(n) if 100 / d > n => {
+            PrintLine("body");
+            1
+        }
+        _ => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Ratio(Cell::Value(5), 10));
+    PrintLine(Ratio(Cell::Value(50), 10));
+    PrintLine(Ratio(Cell::Empty, 0));
+    PrintLine(Ratio(Cell::Value(-3), 0));
+    PrintLine(Ratio(Cell::Value(5), 0));
+    PrintLine("not reached");
+}

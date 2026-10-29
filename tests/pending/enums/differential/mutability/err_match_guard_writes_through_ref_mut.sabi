@@ -1,0 +1,11 @@
+// The same for a `ref mut` binding: writing through it in the guard is E0594; the arm
+// body may (ok_match_ref_mut_binding_mutates_payload).
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    match c {
+        Cell::Value(ref mut n) if { *n += 1; *n > 1 } => {}
+        _ => {}
+    }
+}

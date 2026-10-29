@@ -1,0 +1,14 @@
+// A `while let` that moves the payload out and does not reinitialise the scrutinee
+// matches a moved value on the next iteration (E0382).
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Consume(t: Token) {}
+
+fn Main() {
+    let s = Slot::Full(Token { Id: 1 });
+    while let Slot::Full(t) = s {
+        Consume(t);
+    }
+}

@@ -1,0 +1,12 @@
+// A local initialised in some arms only is possibly uninitialised after the match: E0381.
+enum Light { Red, Yellow, Green }
+
+fn F(l: Light) -> i32 {
+    let wait;
+    match l {
+        Light::Red => wait = 30,
+        Light::Yellow => wait = 5,
+        Light::Green => {}
+    }
+    wait
+}

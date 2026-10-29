@@ -1,0 +1,18 @@
+// A by-value binding of a Copy payload holds no borrow, and a `ref` binding's borrow ends
+// at its last use (NLL): in both arms the scrutinee may be reassigned.
+enum Cell { Empty, Value(i32), Pair(i32, i32) }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    match c {
+        Cell::Value(n) => {
+            c = Cell::Empty;
+            PrintLine(n);
+        }
+        Cell::Pair(ref a, _) => {
+            let k = *a;
+            c = Cell::Value(k);
+        }
+        Cell::Empty => {}
+    }
+}

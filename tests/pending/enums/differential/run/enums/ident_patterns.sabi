@@ -1,0 +1,31 @@
+// An identifier in a pattern that names a constant or a unit struct is a path pattern
+// (it compares), not a fresh binding: `LIMIT` here tests for 10. Sabiko has both, so it
+// must resolve them as rustc does (or reject them with E0107), never bind silently.
+const LIMIT: i32 = 10;
+const NEG: i32 = -LIMIT;
+
+struct Unit;
+
+fn Test(n: i32) -> i32 {
+    match n {
+        LIMIT => 1,
+        NEG => 2,
+        0 => 3,
+        other => other * 100,
+    }
+}
+
+fn Main() {
+    PrintLine(Test(10));
+    PrintLine(Test(-10));
+    PrintLine(Test(0));
+    PrintLine(Test(3));
+    match Unit {
+        Unit => PrintLine("unit struct"),
+    }
+    let t = (LIMIT, 4);
+    match t {
+        (LIMIT, k) => PrintLine(k),
+        _ => PrintLine("no"),
+    }
+}

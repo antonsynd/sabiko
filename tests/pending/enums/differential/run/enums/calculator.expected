@@ -1,0 +1,8 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+ok -40
+division by zero at 2
+underflow at 0
+overflow
+ok -7
+underflow at 0

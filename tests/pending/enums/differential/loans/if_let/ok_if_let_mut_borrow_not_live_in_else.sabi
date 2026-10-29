@@ -1,0 +1,16 @@
+// The mutable borrow behind `if let ... = &mut c` is used only in the `then` block: the
+// `else` block may assign `c` (NLL), and so may the code after it.
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let mut c = Cell::Empty;
+    if let Cell::Value(n) = &mut c {
+        *n += 1;
+    } else {
+        c = Cell::Value(0);
+    }
+    if let Cell::Value(n) = &mut c {
+        *n += 1;
+    }
+    c = Cell::Empty;
+}

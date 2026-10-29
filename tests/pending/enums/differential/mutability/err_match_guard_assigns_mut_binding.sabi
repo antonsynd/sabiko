@@ -1,0 +1,10 @@
+// Bindings are immutable until the end of their arm's guard, even `mut n`: the guard sees
+// them through shared references, so assigning one there is E0594.
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell) -> i32 {
+    match c {
+        Cell::Value(mut n) if { n += 1; n > 1 } => n,
+        _ => 0,
+    }
+}

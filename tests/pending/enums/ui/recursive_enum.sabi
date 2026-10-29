@@ -1,0 +1,8 @@
+// An enum that contains itself by value has infinite size (E0072); it needs a `Box`,
+// which arrives later. Also through a struct, where rustc reports the cycle at the type
+// that comes first.
+enum List { Nil, Cons(i32, List) } //~ rustc E0072: recursive type `List` has infinite size
+
+struct Node { Next: Link } //~ rustc E0072: recursive types `Node` and `Link` have infinite size
+
+enum Link { End, More(Node) }

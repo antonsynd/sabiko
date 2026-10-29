@@ -1,0 +1,17 @@
+// KNOWN GAP (optional for #8): half-open range patterns `X..` and `..=X` (stable). rustc
+// counts them for exhaustiveness: `..=-1 | 0 | 1..` covers `i32`. The staged programs use
+// closed ranges only, plus one exclusive range `4..10` in
+// run/enums/literals_and_ranges.sabi.
+fn Sign(n: i32) -> i32 {
+    match n {
+        ..=-1 => -1,
+        0 => 0,
+        1.. => 1,
+    }
+}
+
+fn Main() {
+    PrintLine(Sign(-2147483648));
+    PrintLine(Sign(0));
+    PrintLine(Sign(9));
+}

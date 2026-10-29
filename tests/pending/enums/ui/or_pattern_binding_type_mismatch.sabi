@@ -1,0 +1,8 @@
+// A name bound in several alternatives must have the same type in each: E0308.
+enum Mixed { Int(i32), Flag(bool) }
+
+fn F(m: Mixed) -> i32 {
+    match m {
+        Mixed::Int(x) | Mixed::Flag(x) => 1, //~ rustc E0308: mismatched types [expected `i32`, found `bool`]
+    }
+}

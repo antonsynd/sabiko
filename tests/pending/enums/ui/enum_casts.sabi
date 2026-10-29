@@ -1,0 +1,13 @@
+// `as` casts an enum only when every variant is a unit variant (E0605 "non-primitive
+// cast" otherwise), and only to an integer type (E0606 to a float, E0054 to `bool`);
+// nothing casts to an enum (E0605).
+enum Shape { Dot, Square(i32) }
+
+enum Light { Red, Green }
+
+fn Main() {
+    let a = Shape::Dot as i32; //~ rustc E0605: non-primitive cast: `Shape` as `i32`
+    let b = Light::Red as f64; //~ rustc E0606: casting `Light` as `f64` is invalid
+    let c = 1 as Light; //~ rustc E0605: non-primitive cast: `i32` as `Light`
+    let d = Light::Green as bool; //~ rustc E0054: cannot cast `Light` as `bool`
+}

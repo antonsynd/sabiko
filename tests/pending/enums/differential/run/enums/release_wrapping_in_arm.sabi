@@ -1,0 +1,31 @@
+//@ release
+// The same arms in a release build: `i8` arithmetic wraps (100 + 28 is -128), so the
+// program runs to the end and later arms see the wrapped values.
+enum Acc { Small(i8), Big(i32) }
+
+fn Add(a: Acc, k: i8) -> Acc {
+    match a {
+        Acc::Small(n) if k < 0 => Acc::Big(n as i32 + k as i32),
+        Acc::Small(n) => Acc::Small(n + k),
+        Acc::Big(n) => Acc::Big(n + k as i32),
+    }
+}
+
+fn Show(a: Acc) {
+    match a {
+        Acc::Small(n @ -128..=-1) => {
+            Print("negative ");
+            PrintLine(n);
+        }
+        Acc::Small(n) => PrintLine(n),
+        Acc::Big(n) => PrintLine(n),
+    }
+}
+
+fn Main() {
+    Show(Add(Acc::Small(100), 27));
+    Show(Add(Acc::Small(100), 28));
+    Show(Add(Add(Acc::Small(127), 127), 127));
+    Show(Add(Acc::Big(2147483647), 1));
+    PrintLine("end");
+}

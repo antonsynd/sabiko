@@ -1,0 +1,33 @@
+// (drops, #12) A payload with a `Drop` impl is only moved by a by-value binding: `ref`,
+// `_` and `..` leave it in place, so the enum can still be passed on (and is dropped by
+// the callee). Moving it out and reinitialising the enum is fine too.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+enum Holder { Nothing, One(D), Two(D, D) }
+
+fn Take(h: Holder) {}
+fn Consume(d: D) {}
+
+fn Main() {
+    let mut h = Holder::Two(D { Id: 1 }, D { Id: 2 });
+    match h {
+        Holder::Two(ref a, _) => PrintLine(a.Id),
+        Holder::One(..) => {}
+        Holder::Nothing => {}
+    }
+    match h {
+        Holder::Two(a, b) => {
+            Consume(a);
+            Consume(b);
+        }
+        _ => {}
+    }
+    h = Holder::One(D { Id: 3 });
+    Take(h);
+}

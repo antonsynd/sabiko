@@ -1,0 +1,29 @@
+// A match that tests nothing and binds nothing does not read the scrutinee, so it is
+// accepted while the scrutinee is mutably borrowed: a lone `_` arm (on an enum or an
+// integer), and `One::Only(_)` on an enum with a single variant, which needs no
+// discriminant test. With two variants, `Cell::Value(_)` reads the discriminant
+// (err_match_scrutinee_while_mut_borrowed).
+enum Cell { Empty, Value(i32) }
+
+enum One { Only(i32) }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    let m = &mut c;
+    match c {
+        _ => PrintLine("anything"),
+    }
+    *m = Cell::Empty;
+    let mut x = 5;
+    let r = &mut x;
+    match x {
+        _ => {}
+    }
+    *r = 6;
+    let mut o = One::Only(1);
+    let p = &mut o;
+    match o {
+        One::Only(_) => {}
+    }
+    *p = One::Only(2);
+}

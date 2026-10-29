@@ -1,0 +1,46 @@
+// Enums as struct fields, tuple elements and payloads of other enums, and structs and
+// tuples as payloads; fields and elements of those read and assigned through place
+// expressions and matched in place (`match p.Status`, `match t.1`).
+#[derive(Copy, Clone)]
+enum Status { Idle, Busy(i32) }
+
+struct Worker { Id: i32, Status: Status }
+
+enum Event { Start(Worker), Pair((i32, i32), Status), Stop }
+
+fn Load(w: &Worker) -> i32 {
+    match w.Status {
+        Status::Idle => 0,
+        Status::Busy(n) => n,
+    }
+}
+
+fn Main() {
+    let mut w = Worker { Id: 1, Status: Status::Idle };
+    PrintLine(Load(&w));
+    w.Status = Status::Busy(4);
+    PrintLine(Load(&w));
+    let mut t = (w.Status, Status::Idle, 9);
+    match t.1 {
+        Status::Idle => t.1 = Status::Busy(t.2),
+        Status::Busy(_) => {}
+    }
+    match t {
+        (Status::Busy(a), Status::Busy(b), c) => PrintLine(a + b + c),
+        _ => PrintLine("idle"),
+    }
+    let events = (Event::Start(w), Event::Pair((2, 3), Status::Busy(5)), Event::Stop);
+    let (e1, e2, e3) = events;
+    match e1 {
+        Event::Start(Worker { Id: id, Status: Status::Busy(n) }) => PrintLine(id * 100 + n),
+        _ => PrintLine("?"),
+    }
+    match e2 {
+        Event::Pair((a, b), Status::Busy(c)) => PrintLine(a * b * c),
+        _ => PrintLine("?"),
+    }
+    match e3 {
+        Event::Stop => PrintLine("stop"),
+        _ => PrintLine("?"),
+    }
+}

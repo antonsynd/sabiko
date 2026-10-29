@@ -1,0 +1,19 @@
+// Moving the payload out in a loop body without reinitialising the scrutinee: the second
+// iteration matches a moved value.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn Consume(t: Token) {}
+
+fn Main() {
+    let s = Slot::Full(Token { Id: 1 });
+    let mut i = 0;
+    while i < 2 {
+        match s {
+            Slot::Full(t) => Consume(t),
+            Slot::Empty => {}
+        }
+        i += 1;
+    }
+}

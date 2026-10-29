@@ -1,0 +1,12 @@
+// While a guard runs, every binding of its arm (by value too) is a shared borrow of the
+// scrutinee's part, so assigning the scrutinee in the guard conflicts with it (E0506).
+// Without bindings the same assignment is E0510 (ui/guard_assigns_scrutinee.sabi).
+enum Cell { Empty, Value(i32) }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    match c {
+        Cell::Value(n) if { c = Cell::Empty; n > 0 } => {}
+        _ => {}
+    }
+}

@@ -1,0 +1,11 @@
+// Constructing a variant follows its shape: a tuple variant takes its fields as call
+// arguments (E0061 for the wrong count), a struct variant names every field (E0063), a
+// unit variant is not callable (E0618), and an unknown variant is E0599.
+enum Shape { Dot, Square(i32), Rect { W: i32, H: i32 } }
+
+fn Main() {
+    let a = Shape::Square(1, 2); //~ rustc E0061: this enum variant takes 1 argument but 2 arguments were supplied
+    let b = Shape::Rect { W: 1 }; //~ rustc E0063: missing field `H` in initializer of `Shape`
+    let c = Shape::Dot(); //~ rustc E0618: expected function, found enum variant `Shape::Dot`
+    let d = Shape::Circle(3); //~ rustc E0599: no variant, associated function, or constant named `Circle` found for enum `Shape` in the current scope
+}

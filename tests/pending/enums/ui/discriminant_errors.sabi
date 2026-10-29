@@ -1,0 +1,11 @@
+// Explicit discriminants: duplicates (E0081, also an implicit one equal to an explicit
+// one), overflow of the implicit increment (E0370), a value out of range of `isize`
+// (overflowing_literals), and a discriminant on an enum with a payload variant, which
+// needs a `#[repr]` attribute (E0732).
+enum A { X = 1, Y = 1 } //~ rustc E0081: discriminant value `1` assigned more than once
+
+enum B { X = 2, Y = 1, Z } //~ rustc E0081: discriminant value `2` assigned more than once
+
+enum C { X = 9223372036854775807, Y } //~ rustc E0370: enum discriminant overflowed [overflowed on value after 9223372036854775807]
+
+enum D { X = 1, Y(i32) } //~ rustc E0732: `#[repr(inttype)]` must be specified for enums with explicit discriminants and non-unit variants

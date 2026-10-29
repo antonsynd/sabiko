@@ -1,0 +1,9 @@
+// The `else` block of `let ... else` must diverge: E0308 when it can finish normally.
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell) -> i32 {
+    let Cell::Value(n) = c else { //~ rustc E0308: `else` clause of `let...else` does not diverge
+        PrintLine("no value");
+    };
+    n
+}

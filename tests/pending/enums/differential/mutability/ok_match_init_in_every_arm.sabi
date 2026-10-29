@@ -1,0 +1,16 @@
+// A non-`mut` local assigned exactly once in every arm that reaches the end of the match
+// is initialised there; an arm that diverges needs no assignment.
+enum Light { Red, Yellow, Green, Broken }
+
+fn F(l: Light) -> i32 {
+    let wait;
+    match l {
+        Light::Red => wait = 30,
+        Light::Yellow => wait = 5,
+        Light::Green => {
+            wait = 0;
+        }
+        Light::Broken => return -1,
+    }
+    wait
+}

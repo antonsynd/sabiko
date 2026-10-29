@@ -1,0 +1,37 @@
+// An enum with a single variant is irrefutable: `let`, function parameters and a match
+// with one arm destructure it. Struct patterns work in `let` and parameters too, with
+// `..` and field shorthand, and nested in tuple patterns. A struct-variant literal as a
+// scrutinee needs parentheses (ui/struct_literal_in_scrutinee.sabi).
+enum Wrapper { Only(i32, bool) }
+
+enum Named { Only { Id: i32, Tag: char } }
+
+struct Point { X: i32, Y: i32, Z: i32 }
+
+fn Unwrap(Wrapper::Only(n, _): Wrapper) -> i32 {
+    n
+}
+
+fn Sum(Point { X: x, Y: y, .. }: Point) -> i32 {
+    x + y
+}
+
+fn Main() {
+    let w = Wrapper::Only(41, true);
+    let Wrapper::Only(n, flag) = w;
+    PrintLine(n + 1);
+    PrintLine(flag);
+    PrintLine(Unwrap(Wrapper::Only(7, false)));
+    let Named::Only { Tag: tag, Id: id } = Named::Only { Id: 3, Tag: 'q' };
+    PrintLine(tag);
+    PrintLine(id);
+    let p = Point { X: 1, Y: 2, Z: 3 };
+    let Point { X, Z, .. } = p;
+    PrintLine(X * 10 + Z);
+    PrintLine(Sum(p));
+    let (Point { Y: y, .. }, Wrapper::Only(k, _)) = (Point { X: 0, Y: 8, Z: 0 }, Wrapper::Only(9, true));
+    PrintLine(y + k);
+    match (Named::Only { Id: 5, Tag: 'z' }) {
+        Named::Only { Id: i, .. } => PrintLine(i),
+    }
+}

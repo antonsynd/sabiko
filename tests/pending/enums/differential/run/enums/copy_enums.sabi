@@ -1,0 +1,77 @@
+// `#[derive(Copy, Clone)]` enums are copied: assigning, passing and matching by value
+// leave the original intact, a by-value binding through a reference copies, and an enum
+// field of a Copy struct is copied with it. A non-Copy enum moves, so the copy and the
+// original below are separate values only for the Copy one.
+#[derive(Copy, Clone)]
+enum Dir { North, East, South, West }
+
+#[derive(Copy, Clone)]
+enum Step { Stay, Move(Dir, i32) }
+
+#[derive(Copy, Clone)]
+struct Robot { X: i32, Y: i32, Facing: Dir }
+
+fn Turn(d: Dir) -> Dir {
+    match d {
+        Dir::North => Dir::East,
+        Dir::East => Dir::South,
+        Dir::South => Dir::West,
+        Dir::West => Dir::North,
+    }
+}
+
+fn Apply(r: Robot, s: Step) -> Robot {
+    match s {
+        Step::Stay => r,
+        Step::Move(d, n) => {
+            let mut out = r;
+            out.Facing = d;
+            match d {
+                Dir::North => out.Y += n,
+                Dir::East => out.X += n,
+                Dir::South => out.Y -= n,
+                Dir::West => out.X -= n,
+            }
+            out
+        }
+    }
+}
+
+fn Show(r: Robot) {
+    Print(r.X);
+    Print(',');
+    Print(r.Y);
+    Print(' ');
+    match r.Facing {
+        Dir::North => PrintLine('N'),
+        Dir::East => PrintLine('E'),
+        Dir::South => PrintLine('S'),
+        Dir::West => PrintLine('W'),
+    }
+}
+
+fn Main() {
+    let start = Robot { X: 0, Y: 0, Facing: Dir::North };
+    let mut r = start;
+    let mut d = Dir::North;
+    let mut i = 0;
+    while i < 6 {
+        let s = Step::Move(d, i);
+        r = Apply(r, s);
+        r = Apply(r, s);
+        d = Turn(d);
+        i += 1;
+    }
+    Show(start);
+    Show(r);
+    let held = &r.Facing;
+    let copy = match *held {
+        other => other,
+    };
+    r.Facing = Turn(copy);
+    Show(r);
+    match Apply(r, Step::Stay) {
+        Robot { Facing: Dir::North, .. } => PrintLine("north"),
+        Robot { X: x, .. } => PrintLine(x),
+    }
+}

@@ -1,0 +1,57 @@
+// Inherent methods on enums: `Self::V` in patterns and constructors, `match self` on
+// `&self` (default binding modes) and `*self = ..` in a `&mut self` method replacing the
+// whole value, field shorthand binding through `&mut self` (`Seconds: &mut i32`),
+// by-value `self`, and associated functions returning `Self`.
+enum Light { Red, Yellow, Green { Seconds: i32 } }
+
+impl Light {
+    fn New() -> Self {
+        Self::Red
+    }
+
+    fn Wait(&self) -> i32 {
+        match self {
+            Self::Red => 30,
+            Self::Yellow => 5,
+            Self::Green { Seconds: s } => *s,
+        }
+    }
+
+    fn Advance(&mut self) {
+        *self = match self {
+            Light::Red => Light::Green { Seconds: 20 },
+            Light::Green { .. } => Self::Yellow,
+            Light::Yellow => Self::New(),
+        };
+    }
+
+    fn Extend(&mut self, by: i32) {
+        match self {
+            Self::Green { Seconds } => *Seconds += by,
+            _ => {}
+        }
+    }
+
+    fn IsGo(self) -> bool {
+        match self {
+            Self::Green { .. } => true,
+            _ => false,
+        }
+    }
+}
+
+fn Main() {
+    let mut l = Light::New();
+    let mut i = 0;
+    while i < 5 {
+        Print(l.Wait());
+        Print(' ');
+        l.Advance();
+        l.Extend(i);
+        i += 1;
+    }
+    PrintLine(l.Wait());
+    PrintLine(l.IsGo());
+    PrintLine(Light::Green { Seconds: 1 }.IsGo());
+    PrintLine(Light::Yellow.Wait());
+}

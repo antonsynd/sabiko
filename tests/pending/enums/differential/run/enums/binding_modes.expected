@@ -1,0 +1,11 @@
+// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); exit code 0
+// --- stdout
+value 2
+value 14
+copy 1014
+value 14
+pair 11 22
+pair -1 22
+21
+pair -1 21
+empty

@@ -1,0 +1,35 @@
+// `#[derive(Copy, Clone)]` makes an enum Copy when every payload is Copy: it can be
+// passed by value repeatedly, a by-value binding copies it out of a reference, and a
+// struct of Copy enums derives Copy as well.
+#[derive(Copy, Clone)]
+enum Light { Red, Green, Blinking(i32) }
+
+#[derive(Copy, Clone)]
+enum Dir { North, East { Steps: u8 } }
+
+#[derive(Copy, Clone)]
+struct Pair { L: Light, D: Dir }
+
+fn Show(l: Light) {}
+fn Use(p: Pair) {}
+
+fn F(r: &Light) -> Light {
+    match *r {
+        other => other,
+    }
+}
+
+fn Main() {
+    let l = Light::Blinking(3);
+    Show(l);
+    Show(l);
+    let copy = F(&l);
+    let p = Pair { L: l, D: Dir::East { Steps: 2 } };
+    Use(p);
+    Use(p);
+    match p.D {
+        Dir::East { Steps: s } => {}
+        d => {}
+    }
+    Use(p);
+}

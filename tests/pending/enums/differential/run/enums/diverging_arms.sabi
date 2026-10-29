@@ -1,0 +1,44 @@
+// Arms that diverge (`return`, `break`, `continue`, `Panic` on a path not taken, a
+// `loop` without `break`) have type `!` and take the other arms' type; a match whose
+// every arm diverges is itself `!`.
+enum Cell { Empty, Value(i32), Stop }
+
+fn Get(c: Cell) -> i32 {
+    let n = match c {
+        Cell::Value(n) => n,
+        Cell::Empty => return -1,
+        Cell::Stop => Panic("stop"),
+    };
+    n * 2
+}
+
+fn Sum(limit: i32) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    loop {
+        i += 1;
+        let c = if i > limit { Cell::Stop } else if i % 3 == 0 { Cell::Empty } else { Cell::Value(i) };
+        let v = match c {
+            Cell::Value(v) => v,
+            Cell::Empty => continue,
+            Cell::Stop => break,
+        };
+        total += v;
+    }
+    total
+}
+
+fn Never(c: Cell) -> i32 {
+    match c {
+        Cell::Value(n) => return n,
+        _ => return 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Get(Cell::Value(21)));
+    PrintLine(Get(Cell::Empty));
+    PrintLine(Sum(10));
+    PrintLine(Never(Cell::Value(5)));
+    PrintLine(Never(Cell::Stop));
+}

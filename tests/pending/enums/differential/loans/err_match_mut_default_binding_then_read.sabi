@@ -1,0 +1,16 @@
+// `match &mut s` binds `n` as `&mut i32` (default binding mode `ref mut`): reading `s`
+// while `n` is still used conflicts with that mutable borrow.
+enum Cell { Empty, Value(i32) }
+
+fn Peek(c: &Cell) -> i32 { 0 }
+
+fn Main() {
+    let mut c = Cell::Value(1);
+    match &mut c {
+        Cell::Value(n) => {
+            let seen = Peek(&c);
+            *n += seen;
+        }
+        Cell::Empty => {}
+    }
+}

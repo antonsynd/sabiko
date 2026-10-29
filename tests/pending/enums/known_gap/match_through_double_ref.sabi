@@ -1,0 +1,18 @@
+// KNOWN GAP: matching a `&&Cell` binds through both references (`n: &i32`, the default
+// binding mode stays `ref`), and borrow checking has no reason to object, but code
+// generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5), as for tuples
+// (tuples/known_gap/refs_through_double_ref.sabi).
+enum Cell { Empty, Value(i32) }
+
+fn Get(rr: &&Cell) -> i32 {
+    match rr {
+        Cell::Value(n) => *n,
+        Cell::Empty => -1,
+    }
+}
+
+fn Main() {
+    let c = Cell::Value(4);
+    let r = &c;
+    PrintLine(Get(&r));
+}
