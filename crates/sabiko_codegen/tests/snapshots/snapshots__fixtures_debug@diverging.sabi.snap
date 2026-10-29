@@ -33,8 +33,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/diverging.sabi
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     ldstr "diverging.sabi:5:9"
     call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
-    ldstr "internal error: entered unreachable code"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
     throw
   BB2:
     ldarg.0

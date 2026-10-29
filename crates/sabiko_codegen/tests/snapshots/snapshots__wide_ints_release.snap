@@ -57,9 +57,9 @@ expression: il
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L1
-    ldstr "attempt to divide by zero"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
+    ldnull
     throw
   L1:
     ldloc.s 9
@@ -74,9 +74,9 @@ expression: il
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L2
-    ldstr "attempt to divide with overflow"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideOverflow(string)
+    ldnull
     throw
   L2:
     ldloc.s 6
@@ -91,9 +91,9 @@ expression: il
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L3
-    ldstr "attempt to calculate the remainder with a divisor of zero"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
+    ldnull
     throw
   L3:
     ldloc.s 10
@@ -108,9 +108,9 @@ expression: il
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     brtrue L4
-    ldstr "attempt to calculate the remainder with overflow"
     ldstr "wide_ints.sabi:6:46"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderOverflow(string)
+    ldnull
     throw
   L4:
     ldloc.s 5
@@ -158,9 +158,9 @@ expression: il
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_Inequality(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     brtrue L1
-    ldstr "attempt to divide by zero"
     ldstr "wide_ints.sabi:8:41"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
+    ldnull
     throw
   L1:
     ldloc.3
@@ -175,9 +175,9 @@ expression: il
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_Inequality(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     brtrue L2
-    ldstr "attempt to calculate the remainder with a divisor of zero"
     ldstr "wide_ints.sabi:8:41"
-    newobj instance void [Sabiko.Runtime]Sabiko.Runtime.PanicException::.ctor(string, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
+    ldnull
     throw
   L2:
     ldloc.2

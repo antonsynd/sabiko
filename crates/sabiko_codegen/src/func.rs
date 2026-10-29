@@ -390,8 +390,15 @@ impl FnCx<'_, '_> {
         self.int_const(0, p);
     }
 
+    /// Code control cannot reach (after a call that never returns, MIR's `unreachable`):
+    /// panics with Rust's message, without a location.
     fn unreachable(&mut self) {
-        self.panic("internal error: entered unreachable code");
+        self.op(
+            format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::Unreachable()"),
+            0,
+            0,
+        );
+        self.throw_after_helper();
     }
 
     // ----------------------------------------------------------------------------------
@@ -862,14 +869,7 @@ impl FnCx<'_, '_> {
             UnOp::Neg if self.checks() => {
                 // `0 - x`, checked like a subtraction: negating the minimum value panics,
                 // as in Rust's debug builds.
-                self.checked_arith(
-                    BinOp::Sub,
-                    p,
-                    None,
-                    operand,
-                    "attempt to negate with overflow",
-                    span,
-                );
+                self.checked_arith(BinOp::Sub, p, None, operand, Check::NegateOverflow, span);
             }
             UnOp::Neg if wide => {
                 self.operand(operand, span);
@@ -915,12 +915,12 @@ impl FnCx<'_, '_> {
             return;
         }
         if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) && lp.is_integer() && self.checks() {
-            let message = match op {
-                BinOp::Add => "attempt to add with overflow",
-                BinOp::Sub => "attempt to subtract with overflow",
-                _ => "attempt to multiply with overflow",
+            let check = match op {
+                BinOp::Add => Check::AddOverflow,
+                BinOp::Sub => Check::SubtractOverflow,
+                _ => Check::MultiplyOverflow,
             };
-            self.checked_arith(op, lp, Some(lhs), rhs, message, span);
+            self.checked_arith(op, lp, Some(lhs), rhs, check, span);
             return;
         }
         self.operand(lhs, span);
@@ -962,7 +962,7 @@ impl FnCx<'_, '_> {
         }
     }
 
-    /// `lhs op rhs` on an integer type in a debug build: panics with `message` at `span`
+    /// `lhs op rhs` on an integer type in a debug build: fails `check` at `span`
     /// when the exact result does not fit `p` (decision 43). `lhs` is `None` for negation,
     /// which is `0 - rhs`. Narrow types compute exactly at `int32` width and 32-bit types
     /// at `int64` width, then check that the result survives truncation; 64- and 128-bit
@@ -974,7 +974,7 @@ impl FnCx<'_, '_> {
         p: PrimTy,
         lhs: Option<&Operand>,
         rhs: &Operand,
-        message: &str,
+        check: Check,
         span: Span,
     ) {
         let (name, helper) = match op {
@@ -991,7 +991,7 @@ impl FnCx<'_, '_> {
                 }
                 self.operand(rhs, span);
                 self.op(name, 2, 1);
-                self.check_fits(p, message, span);
+                self.check_fits(p, check, span);
             }
             StackWidth::I32 => {
                 let widen = if p.is_signed_int() {
@@ -1009,7 +1009,7 @@ impl FnCx<'_, '_> {
                 self.operand(rhs, span);
                 self.op(widen, 1, 1);
                 self.op(name, 2, 1);
-                self.check_fits(p, message, span);
+                self.check_fits(p, check, span);
             }
             StackWidth::I64 | StackWidth::Native | StackWidth::Wide => {
                 match lhs {
@@ -1029,7 +1029,7 @@ impl FnCx<'_, '_> {
                 );
                 let ok = self.fresh_label();
                 self.op(format!("brfalse {ok}"), 1, 0);
-                self.panic_at(message, span);
+                self.panic_at(check, span);
                 self.label(&ok);
                 self.ldloc(result);
             }
@@ -1039,7 +1039,7 @@ impl FnCx<'_, '_> {
     /// The debug-build check after an exact computation in a wider stack type (`int32` for
     /// the narrow types, `int64` for the 32-bit ones): panics unless truncating the result
     /// to `p` and extending it back gives the same value, then leaves it as a `p` value.
-    fn check_fits(&mut self, p: PrimTy, message: &str, span: Span) {
+    fn check_fits(&mut self, p: PrimTy, check: Check, span: Span) {
         let suffix = types::conv_suffix(p);
         let wide_stack = types::stack_width(p) == StackWidth::I32;
         let ok = self.fresh_label();
@@ -1058,38 +1058,45 @@ impl FnCx<'_, '_> {
             );
         }
         self.op(format!("beq {ok}"), 2, 0);
-        self.panic_at(message, span);
+        self.panic_at(check, span);
         self.label(&ok);
         if wide_stack {
             self.op(format!("conv.{suffix}"), 1, 1);
         }
     }
 
-    /// Throws a `PanicException` with `message` and no location (`unreachable`); `throw`
-    /// empties the stack, so the continuation after the panic sees whatever it had before.
-    fn panic(&mut self, message: &str) {
-        self.op(format!("ldstr {}", types::il_string(message)), 0, 1);
-        self.op(
-            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string)"),
-            1,
-            1,
-        );
-        self.op("throw", 1, 0);
+    /// The failure of `check` at `span`: calls its throw helper in `Sabiko.Runtime.Checks`
+    /// with the location (`file:line:column`), which raises the `PanicException` with
+    /// Rust's message. A span without source text (never produced for checks today) falls
+    /// back to `Panic::Fail(message)`, without a location.
+    fn panic_at(&mut self, check: Check, span: Span) {
+        if let Some(location) = self.cx.location(span) {
+            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+            self.op(
+                format!(
+                    "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::{}(string)",
+                    check.helper()
+                ),
+                1,
+                0,
+            );
+        } else {
+            self.op(format!("ldstr {}", types::il_string(check.message())), 0, 1);
+            self.op(
+                format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail(string)"),
+                1,
+                0,
+            );
+        }
+        self.throw_after_helper();
     }
 
-    /// Throws a `PanicException` with `message`, raised at `span` (`file:line:column`).
-    fn panic_at(&mut self, message: &str, span: Span) {
-        let Some(location) = self.cx.location(span) else {
-            self.panic(message);
-            return;
-        };
-        self.op(format!("ldstr {}", types::il_string(message)), 0, 1);
-        self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
-        self.op(
-            format!("newobj instance void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.PanicException::.ctor(string, string)"),
-            2,
-            1,
-        );
+    /// Ends the block after a call to a throw helper, which never returns. The `throw` is
+    /// never reached; it tells the verifier that control does not fall through and the
+    /// JIT that the block is cold. `throw` empties the stack, so the continuation after the
+    /// panic sees whatever it had before.
+    fn throw_after_helper(&mut self) {
+        self.op("ldnull", 0, 1);
         self.op("throw", 1, 0);
     }
 
@@ -1112,18 +1119,10 @@ impl FnCx<'_, '_> {
     /// away when a constant operand rules them out. Operands are pure (places and
     /// constants), so each check pushes them again.
     fn div_rem(&mut self, op: BinOp, p: PrimTy, lhs: &Operand, rhs: &Operand, span: Span) {
-        let (name, zero_msg, overflow_msg) = if op == BinOp::Div {
-            (
-                "div",
-                "attempt to divide by zero",
-                "attempt to divide with overflow",
-            )
+        let (name, zero_check, overflow_check) = if op == BinOp::Div {
+            ("div", Check::DivideByZero, Check::DivideOverflow)
         } else {
-            (
-                "rem",
-                "attempt to calculate the remainder with a divisor of zero",
-                "attempt to calculate the remainder with overflow",
-            )
+            ("rem", Check::RemainderByZero, Check::RemainderOverflow)
         };
         if p.is_float() {
             self.operand(lhs, span);
@@ -1135,7 +1134,7 @@ impl FnCx<'_, '_> {
         let lhs_const = Self::const_int(lhs);
         match rhs_const {
             Some(0) => {
-                self.panic_at(zero_msg, span);
+                self.panic_at(zero_check, span);
                 // Unreachable, but the store that follows expects a value.
                 self.ldc_i4(0);
                 return;
@@ -1150,7 +1149,7 @@ impl FnCx<'_, '_> {
                 } else {
                     self.op(format!("brtrue {ok}"), 1, 0);
                 }
-                self.panic_at(zero_msg, span);
+                self.panic_at(zero_check, span);
                 self.label(&ok);
             }
         }
@@ -1174,7 +1173,7 @@ impl FnCx<'_, '_> {
                 self.int_const(min as u128, p);
                 self.branch_ne(p, &ok);
             }
-            self.panic_at(overflow_msg, span);
+            self.panic_at(overflow_check, span);
             self.label(&ok);
         }
         self.operand(lhs, span);
@@ -1222,8 +1221,12 @@ impl FnCx<'_, '_> {
             } else {
                 self.op(format!("blt.un {ok}"), 2, 0);
             }
-            let dir = if op == BinOp::Shl { "left" } else { "right" };
-            self.panic_at(&format!("attempt to shift {dir} with overflow"), span);
+            let check = if op == BinOp::Shl {
+                Check::ShiftLeftOverflow
+            } else {
+                Check::ShiftRightOverflow
+            };
+            self.panic_at(check, span);
             self.label(&ok);
             self.shift_amount_to_i4(rp);
         } else {
@@ -1506,6 +1509,108 @@ impl FnCx<'_, '_> {
     }
 }
 
+/// A run-time check whose failure panics with Rust's message (decision 43). Each has a
+/// throw helper in `Sabiko.Runtime.Checks` that takes the location and supplies the
+/// message, so a failing check costs one `ldstr` and a `call` at its site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Check {
+    AddOverflow,
+    SubtractOverflow,
+    MultiplyOverflow,
+    NegateOverflow,
+    DivideByZero,
+    DivideOverflow,
+    RemainderByZero,
+    RemainderOverflow,
+    ShiftLeftOverflow,
+    ShiftRightOverflow,
+}
+
+impl Check {
+    #[cfg(test)]
+    pub(crate) const ALL: [Check; 10] = [
+        Check::AddOverflow,
+        Check::SubtractOverflow,
+        Check::MultiplyOverflow,
+        Check::NegateOverflow,
+        Check::DivideByZero,
+        Check::DivideOverflow,
+        Check::RemainderByZero,
+        Check::RemainderOverflow,
+        Check::ShiftLeftOverflow,
+        Check::ShiftRightOverflow,
+    ];
+
+    /// The method of `Sabiko.Runtime.Checks` that raises the panic.
+    pub(crate) fn helper(self) -> &'static str {
+        match self {
+            Check::AddOverflow => "AddOverflow",
+            Check::SubtractOverflow => "SubtractOverflow",
+            Check::MultiplyOverflow => "MultiplyOverflow",
+            Check::NegateOverflow => "NegateOverflow",
+            Check::DivideByZero => "DivideByZero",
+            Check::DivideOverflow => "DivideOverflow",
+            Check::RemainderByZero => "RemainderByZero",
+            Check::RemainderOverflow => "RemainderOverflow",
+            Check::ShiftLeftOverflow => "ShiftLeftOverflow",
+            Check::ShiftRightOverflow => "ShiftRightOverflow",
+        }
+    }
+
+    /// Rust's panic message, which the helper raises.
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Check::AddOverflow => "attempt to add with overflow",
+            Check::SubtractOverflow => "attempt to subtract with overflow",
+            Check::MultiplyOverflow => "attempt to multiply with overflow",
+            Check::NegateOverflow => "attempt to negate with overflow",
+            Check::DivideByZero => "attempt to divide by zero",
+            Check::DivideOverflow => "attempt to divide with overflow",
+            Check::RemainderByZero => "attempt to calculate the remainder with a divisor of zero",
+            Check::RemainderOverflow => "attempt to calculate the remainder with overflow",
+            Check::ShiftLeftOverflow => "attempt to shift left with overflow",
+            Check::ShiftRightOverflow => "attempt to shift right with overflow",
+        }
+    }
+}
+
 fn is_mut_ref(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref(m, _) if m.is_mut())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Check;
+
+    /// Every throw helper exists in the runtime's source and raises exactly the message
+    /// the check stands for (the run-time differential tests compare the messages with
+    /// rustc's).
+    #[test]
+    fn check_helpers_raise_rusts_messages() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/Sabiko.Runtime/Checks.cs"
+        );
+        let src = std::fs::read_to_string(path).expect("runtime/Sabiko.Runtime/Checks.cs");
+        for check in Check::ALL {
+            let decl = format!("public static void {}(string location) =>", check.helper());
+            let at = src
+                .find(&decl)
+                .unwrap_or_else(|| panic!("Checks.cs declares no `{decl}`"));
+            let body = src[at + decl.len()..].trim_start();
+            let expected = format!(
+                "throw new PanicException(\"{}\", location);",
+                check.message()
+            );
+            assert!(
+                body.starts_with(&expected),
+                "Checks.{} should be `{expected}`, is `{}`",
+                check.helper(),
+                body.lines().next().unwrap_or_default()
+            );
+        }
+        assert!(src.contains(
+            "public static void Unreachable() =>\n        throw new PanicException(\"internal error: entered unreachable code\");"
+        ));
+    }
 }
