@@ -1,0 +1,13 @@
+// The implicit two-phase reborrow of `m` allows reads in later arguments, not a second
+// mutable use: `Use(m, m.Bump())` reborrows `*m` mutably twice.
+struct P { X: i32 }
+
+impl P {
+    fn Bump(&mut self) -> i32 { self.X += 1; self.X }
+}
+
+fn Use(r: &mut P, n: i32) { r.X += n; }
+
+fn Twice(m: &mut P) {
+    Use(m, m.Bump());
+}

@@ -1,0 +1,9 @@
+// An explicit reborrow `&mut *m` written as the argument is not two-phase, unlike the
+// implicit one of `Use(m, m.X)`: the later argument's read of `m.X` conflicts.
+struct P { X: i32 }
+
+fn Use(r: &mut P, n: i32) { r.X += n; }
+
+fn Twice(m: &mut P) {
+    Use(&mut *m, m.X);
+}

@@ -1,0 +1,13 @@
+// A `&self` receiver is borrowed before the arguments run and stays borrowed through the
+// call, so an argument that assigns to it conflicts (shared borrows are not two-phase).
+struct P { X: i32 }
+
+impl P {
+    fn Plus(&self, n: i32) -> i32 { self.X + n }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let n = p.Plus({ p.X = 5; 2 });
+    PrintLine(n);
+}

@@ -1,0 +1,15 @@
+// `p = p.With(..)` moves `p` into the call and re-initialises it with the result, so a
+// builder chain on a non-Copy struct is fine.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn WithX(self, x: i32) -> P { P { X: x, Y: self.Y } }
+    fn WithY(mut self, y: i32) -> P { self.Y = y; self }
+}
+
+fn Main() {
+    let mut p = P { X: 0, Y: 0 };
+    p = p.WithX(1);
+    p = p.WithX(2).WithY(3);
+    PrintLine(p.X + p.Y);
+}

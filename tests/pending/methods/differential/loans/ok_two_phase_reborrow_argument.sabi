@@ -1,0 +1,18 @@
+// `Use(m, m.X)` with `m: &mut P`: the implicit reborrow `&mut *m` of a call argument is a
+// two-phase borrow, so a later argument may read through `m`, directly or through a
+// `&self` method; the same holds when a method is called as an associated function.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+}
+
+fn Use(r: &mut P, n: i32) { r.Y += n; }
+
+fn Twice(m: &mut P) {
+    Use(m, m.X);
+    Use(m, m.Get());
+    P::Add(m, m.Y);
+    P::Add(m, m.Get());
+}

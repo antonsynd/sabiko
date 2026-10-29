@@ -1,0 +1,13 @@
+// During the reservation of the autoref'd receiver, a later argument may read it but not
+// move a non-Copy field out of it.
+struct Q { N: i32 }
+struct P { Inner: Q, X: i32 }
+
+impl P {
+    fn Store(&mut self, q: Q) { self.X += q.N; }
+}
+
+fn Main() {
+    let mut v = P { Inner: Q { N: 1 }, X: 2 };
+    v.Store(v.Inner);
+}

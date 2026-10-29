@@ -1,0 +1,30 @@
+// KNOWN GAP (`&&T` lowering, PLAN.md Phase 5 "`&T` in generic position ... also lowers
+// `&&T`"): method calls auto-dereference a receiver through several references (`rr.Get()`
+// for `rr: &&P`, `mm.Inc()` for `mm: &mut &mut P`, a `&&P` parameter). The borrow
+// checking of these is in `differential/loans/ok_autoderef_receivers.sabi`; running them
+// needs `&&T` locals and parameters, which codegen rejects with E0500 today. Belongs in
+// `differential/run/methods/` once `&&T` is lowered.
+struct P { X: i32 }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Twice(rr: &&P) -> i32 { rr.Get() * 2 }
+
+fn Main() {
+    let mut p = P { X: 1 };
+    {
+        let mut m = &mut p;
+        let mm = &mut m;
+        mm.Inc();
+        mm.Inc();
+        PrintLine(mm.Get());
+    }
+    let r = &p;
+    let rr = &r;
+    PrintLine(rr.Get());
+    PrintLine(Twice(rr));
+    PrintLine(Twice(&&p));
+}

@@ -1,0 +1,16 @@
+// `self.N += 1` overflowing a `u8` field in a `&mut self` method called in a loop.
+struct Counter { N: u8 }
+
+impl Counter {
+    fn Tick(&mut self) -> u8 {
+        self.N += 1;
+        self.N
+    }
+}
+
+fn Main() {
+    let mut c = Counter { N: 250 };
+    loop {
+        PrintLine(c.Tick());
+    }
+}

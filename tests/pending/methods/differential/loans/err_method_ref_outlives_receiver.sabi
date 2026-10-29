@@ -1,0 +1,15 @@
+// The result of a `&self` method cannot outlive the receiver it borrows.
+struct P { X: i32 }
+
+impl P {
+    fn XRef(&self) -> &i32 { &self.X }
+}
+
+fn Main() {
+    let r;
+    {
+        let p = P { X: 1 };
+        r = p.XRef();
+    }
+    PrintLine(*r);
+}

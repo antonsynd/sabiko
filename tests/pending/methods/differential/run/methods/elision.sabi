@@ -1,0 +1,50 @@
+// Methods returning references: from `&self` with another reference parameter (the result
+// borrows `self` only), `&mut self` returning `&mut` into a field and written through, a
+// by-value `self` returning its one reference parameter, and a reference returned through
+// two method calls.
+struct P { X: i32, Y: i32 }
+struct Outer { In: P }
+
+impl P {
+    fn Larger(&self, other: &P) -> &i32 {
+        if other.X > self.X { &self.Y } else { &self.X }
+    }
+    fn YMut(&mut self, by: &i32) -> &mut i32 {
+        self.Y += *by;
+        &mut self.Y
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Pick { Left: bool }
+
+impl Pick {
+    fn Of(self, a: &P) -> &i32 {
+        if self.Left { &a.X } else { &a.Y }
+    }
+}
+
+impl Outer {
+    fn Inner(&self) -> &P { &self.In }
+    fn InnerMut(&mut self) -> &mut P { &mut self.In }
+}
+
+fn Main() {
+    let p = P { X: 1, Y: 2 };
+    let mut q = P { X: 5, Y: 6 };
+    let r = p.Larger(&q);
+    q.X = 0;
+    PrintLine(*r);
+    PrintLine(*p.Larger(&q));
+    let by = 10;
+    let w = q.YMut(&by);
+    *w += 1;
+    PrintLine(q.Y);
+    let k = Pick { Left: false };
+    PrintLine(*k.Of(&q));
+    PrintLine(*Pick { Left: true }.Of(&p));
+    let mut o = Outer { In: P { X: 7, Y: 8 } };
+    *o.InnerMut().YMut(&by) *= 2;
+    PrintLine(*o.Inner().Larger(&p));
+    PrintLine(o.In.Y);
+}

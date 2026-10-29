@@ -1,0 +1,14 @@
+// A by-value `self` method moves a non-Copy receiver: using it afterwards, by method or
+// field, is a use of a moved value.
+struct P { X: i32 }
+
+impl P {
+    fn Consume(self) -> i32 { self.X }
+    fn Get(&self) -> i32 { self.X }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    let a = p.Consume();
+    let b = p.Get();
+}

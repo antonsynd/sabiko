@@ -1,0 +1,11 @@
+// Calling a `&mut self` method autorefs `&mut p`, which needs `p` to be declared `mut`.
+struct P { X: i32 }
+
+impl P {
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+fn Main() {
+    let p = P { X: 1 };
+    p.Inc();
+}

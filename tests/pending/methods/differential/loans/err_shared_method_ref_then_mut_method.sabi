@@ -1,0 +1,15 @@
+// A reference returned by a `&self` method keeps the whole receiver borrowed: a `&mut
+// self` call while it is live conflicts, even one touching a different field.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn XRef(&self) -> &i32 { &self.X }
+    fn Inc(&mut self) { self.Y += 1; }
+}
+
+fn Main() {
+    let mut p = P { X: 1, Y: 2 };
+    let a = p.XRef();
+    p.Inc();
+    PrintLine(*a);
+}

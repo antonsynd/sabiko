@@ -1,0 +1,15 @@
+// The result of `p.Pick(&q)` borrows `p` (the receiver), so writing `p.X` while it is live
+// conflicts.
+struct P { X: i32 }
+
+impl P {
+    fn Pick(&self, other: &P) -> &i32 { &self.X }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    let q = P { X: 2 };
+    let r = p.Pick(&q);
+    p.X = 5;
+    PrintLine(*r);
+}

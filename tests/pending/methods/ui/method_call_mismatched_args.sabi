@@ -1,0 +1,18 @@
+// Arguments and results of method calls are type-checked against the signature, after the
+// receiver; a `()` method's result is not a value of another type.
+struct P { X: i32 }
+
+impl P {
+    fn Add(&mut self, n: i32) { self.X += n; }
+    fn Get(&self) -> i32 { self.X }
+    fn Flag(&self) -> bool { self.X > 0 }
+}
+
+fn Main() {
+    let mut p = P { X: 1 };
+    p.Add(true); //~ rustc E0308: mismatched types [expected `i32`, found `bool`]
+    p.Add(1u8); //~ rustc E0308: mismatched types [expected `i32`, found `u8`]
+    let a: bool = p.Get(); //~ rustc E0308: mismatched types [expected `bool`, found `i32`]
+    let b: i32 = p.Add(2); //~ rustc E0308: mismatched types [expected `i32`, found `()`]
+    let c: i32 = p.Flag(); //~ rustc E0308: mismatched types [expected `i32`, found `bool`]
+}

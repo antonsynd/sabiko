@@ -1,0 +1,15 @@
+// Associated functions and methods are not in scope unqualified, inside the impl block
+// either: they need `P::` (or `self.`).
+struct P { X: i32 }
+
+impl P {
+    fn New() -> P { P { X: 0 } }
+    fn Get(&self) -> i32 { self.X }
+    fn Make() -> P {
+        let p = New(); //~ rustc E0425: cannot find function, tuple struct or tuple variant `New` in this scope
+        p
+    }
+    fn Twice(&self) -> i32 {
+        Get(self) * 2 //~ rustc E0425: cannot find function, tuple struct or tuple variant `Get` in this scope
+    }
+}

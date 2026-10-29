@@ -1,0 +1,53 @@
+// Auto-ref of a place receiver (`p.Inc()` is `P::Inc(&mut p)`), auto-deref through `&P`
+// and `&mut P`, explicit `(*r).Get()`, field-path receivers (`a.B.Inc()`, also behind
+// `&mut A`), receivers that are call results (`P::Make(41).Get()`, `a.BRef().Get()`,
+// `a.CMut().Inc()`), and a `&mut self` method on a temporary.
+struct P { X: i32 }
+struct A { B: P, C: P }
+
+impl P {
+    fn Make(x: i32) -> P { P { X: x } }
+    fn Get(&self) -> i32 { self.X }
+    fn Inc(&mut self) { self.X += 1; }
+}
+
+impl A {
+    fn BRef(&self) -> &P { &self.B }
+    fn CMut(&mut self) -> &mut P { &mut self.C }
+}
+
+fn ViaShared(r: &P) -> i32 { r.Get() + (*r).Get() }
+
+fn ViaMut(m: &mut P) -> i32 {
+    m.Inc();
+    (*m).Inc();
+    m.Get()
+}
+
+fn ViaFields(a: &mut A) -> i32 {
+    a.B.Inc();
+    a.C.Inc();
+    a.B.Get() * 10 + a.C.Get()
+}
+
+fn Main() {
+    let mut p = P::Make(1);
+    p.Inc();
+    PrintLine(p.Get());
+    PrintLine(ViaShared(&p));
+    PrintLine(ViaMut(&mut p));
+    let r = &p;
+    PrintLine(r.Get());
+    let mut a = A { B: P::Make(5), C: P::Make(7) };
+    a.B.Inc();
+    PrintLine(ViaFields(&mut a));
+    PrintLine(a.BRef().Get());
+    a.CMut().Inc();
+    PrintLine(a.C.Get());
+    PrintLine(P::Make(41).Get());
+    P::Make(0).Inc();
+    let mut t = P::Make(10);
+    PrintLine(P::Get(&t));
+    P::Inc(&mut t);
+    PrintLine(t.X);
+}

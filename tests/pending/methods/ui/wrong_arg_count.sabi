@@ -1,0 +1,19 @@
+// Argument counts: a method call counts the arguments after the receiver ("this method
+// takes"); called as an associated function, the receiver is the first argument ("this
+// function takes").
+struct P { X: i32 }
+
+impl P {
+    fn New(x: i32) -> P { P { X: x } }
+    fn Add(&mut self, n: i32) { self.X += n; }
+    fn Get(&self) -> i32 { self.X }
+}
+
+fn Main() {
+    let mut p = P::New(); //~ rustc E0061: this function takes 1 argument but 0 arguments were supplied
+    p.Add(); //~ rustc E0061: this method takes 1 argument but 0 arguments were supplied [argument #1 of type `i32` is missing]
+    p.Add(1, 2); //~ rustc E0061: this method takes 1 argument but 2 arguments were supplied [unexpected argument #2 of type `{integer}`]
+    let n = p.Get(3); //~ rustc E0061: this method takes 0 arguments but 1 argument was supplied
+    P::Add(&mut p); //~ rustc E0061: this function takes 2 arguments but 1 argument was supplied [argument #2 of type `i32` is missing]
+    let m = P::Get(); //~ rustc E0061: this function takes 1 argument but 0 arguments were supplied [argument #1 of type `&P` is missing]
+}

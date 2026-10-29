@@ -1,0 +1,19 @@
+// `A::B` paths: the first segment must name a type (a function, a local and an unknown
+// name are errors; a primitive has no such item), and an impl must be for a type.
+struct P { X: i32 }
+
+fn F() -> i32 { 1 }
+
+impl F { //~ rustc E0573: cannot find type `F` in this scope
+}
+
+impl Nope { //~ rustc E0425: cannot find type `Nope` in this scope [not found in this scope]
+}
+
+fn Main() {
+    let x = 1;
+    let a = F::New(); //~ rustc E0433: cannot find type `F` in this scope
+    let b = x::New(); //~ rustc E0433: cannot find module or crate `x` in this scope
+    let c = Nope::New(); //~ rustc E0433: cannot find type `Nope` in this scope [use of undeclared type `Nope`]
+    let d = i32::New(); //~ rustc E0599: no associated function or constant named `New` found for type `i32` in the current scope
+}

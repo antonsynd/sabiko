@@ -1,0 +1,34 @@
+// A by-value `self` receives a copy of a Copy receiver: changes to a `mut self` stay in
+// the method, the caller's value (also one reached through `&P` or `&mut P`) is unchanged.
+#[derive(Clone, Copy)]
+struct P { X: i32 }
+
+impl P {
+    fn Doubled(mut self) -> P {
+        self.X *= 2;
+        self
+    }
+    fn Reset(mut self) -> i32 {
+        let old = self.X;
+        self.X = 0;
+        old + self.X
+    }
+}
+
+fn ThroughShared(r: &P) -> i32 { r.Doubled().X }
+
+fn ThroughMut(m: &mut P) -> i32 {
+    m.X += 1;
+    m.Doubled().Doubled().X + m.Reset()
+}
+
+fn Main() {
+    let mut p = P { X: 3 };
+    let q = p.Doubled();
+    Print(p.X); Print(' '); PrintLine(q.X);
+    PrintLine(p.Reset());
+    PrintLine(p.X);
+    PrintLine(ThroughShared(&p));
+    PrintLine(ThroughMut(&mut p));
+    PrintLine(p.X);
+}

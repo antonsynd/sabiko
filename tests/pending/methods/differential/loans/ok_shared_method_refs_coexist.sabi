@@ -1,0 +1,17 @@
+// References returned by `&self` methods are shared borrows of the receiver: several can
+// be live together, across further `&self` calls and direct reads.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn XRef(&self) -> &i32 { &self.X }
+    fn YRef(&self) -> &i32 { &self.Y }
+    fn Sum(&self) -> i32 { self.X + self.Y }
+}
+
+fn Main() {
+    let p = P { X: 1, Y: 2 };
+    let a = p.XRef();
+    let b = p.YRef();
+    let s = p.Sum();
+    PrintLine(*a + *b + s + p.X);
+}

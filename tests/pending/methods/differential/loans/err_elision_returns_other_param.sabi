@@ -1,0 +1,9 @@
+// The elided output lifetime of a `&self` method is `self`'s, so returning a reference
+// into another parameter does not live long enough.
+struct P { X: i32 }
+
+impl P {
+    fn Pick(&self, other: &P) -> &i32 {
+        &other.X
+    }
+}

@@ -1,0 +1,20 @@
+// A `&mut self` call on a `&mut P` binding autorefs a reborrow `&mut *m`, which is
+// two-phase too: `m.Add(m.Get())` and `m.Add(m.X)` are accepted, and so are a field of
+// `*a` and `self` inside a `&mut self` method.
+struct P { X: i32, Y: i32 }
+struct A { B: P }
+
+impl P {
+    fn Get(&self) -> i32 { self.X }
+    fn Add(&mut self, n: i32) { self.X += n; }
+    fn Double(&mut self) {
+        self.Add(self.Get());
+        self.Add(self.Y);
+    }
+}
+
+fn Grow(m: &mut P, a: &mut A) {
+    m.Add(m.Get());
+    m.Add(m.X + m.Y);
+    a.B.Add(a.B.Get());
+}
