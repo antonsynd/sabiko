@@ -1,0 +1,13 @@
+//@ release
+// Release builds wrap the negation of a constant holding the type's minimum, at every
+// width (see `panics/negate_const_min.sabi` for the checked build).
+const SCALE: i32 = -2147483648i32;
+const SMALL: i8 = -128i8;
+const WIDE: i128 = -170141183460469231731687303715884105728i128;
+
+fn Main() {
+    PrintLine(-SCALE);
+    PrintLine(-SMALL);
+    PrintLine(-WIDE);
+    PrintLine(-(SCALE + 1));
+}

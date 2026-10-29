@@ -23,27 +23,26 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
       [5] int8 'q',
       [6] uint16 'r',
       [7] int8 'r2',
-      [8] int8 '_27',
-      [9] int16 'r3',
-      [10] int16 '_30',
-      [11] int16 'q2',
-      [12] int16 '_34',
-      [13] uint8 'q3',
-      [14] uint8 'sh',
-      [15] int8 'sr',
-      [16] int32 '_57',
-      [17] int32 '_59',
-      [18] int32 '_61',
-      [19] int32 '_63',
-      [20] int32 '_65',
-      [21] int32 '_67',
-      [22] int32 '_69',
-      [23] int32 '_71',
-      [24] int32 '_73',
-      [25] int32 '_75',
-      [26] int32 '_77',
-      [27] int32 '_79',
-      [28] int32 '_81'
+      [8] int16 'r3',
+      [9] int16 '_29',
+      [10] int16 'q2',
+      [11] int16 '_33',
+      [12] uint8 'q3',
+      [13] uint8 'sh',
+      [14] int8 'sr',
+      [15] int32 '_56',
+      [16] int32 '_58',
+      [17] int32 '_60',
+      [18] int32 '_62',
+      [19] int32 '_64',
+      [20] int32 '_66',
+      [21] int32 '_68',
+      [22] int32 '_70',
+      [23] int32 '_72',
+      [24] int32 '_74',
+      [25] int32 '_76',
+      [26] int32 '_78',
+      [27] int32 '_80'
     )
   BB0:
     ldarg.0
@@ -122,28 +121,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldc.i4.7
     rem.un
     stloc.s 6
+    ldarg.0
     ldc.i4.s -3
-    dup
-    stloc.s 8
-    brtrue L6
-    ldstr "overflow.sabi:12:14"
-    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
-    ldnull
-    throw
-  L6:
-    ldloc.s 8
-    ldc.i4.m1
-    bne.un L7
-    ldarg.0
-    ldc.i4.s -128
-    bne.un L7
-    ldstr "overflow.sabi:12:14"
-    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderOverflow(string)
-    ldnull
-    throw
-  L7:
-    ldarg.0
-    ldloc.s 8
     rem
     stloc.s 7
     ldarg.2
@@ -152,102 +131,138 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     dup
     dup
     conv.i2
-    beq L8
+    beq L6
     ldstr "overflow.sabi:13:18"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
-  L8:
+  L6:
     dup
-    stloc.s 10
-    brtrue L9
+    stloc.s 9
+    brtrue L7
     ldstr "overflow.sabi:13:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
     ldnull
     throw
-  L9:
-    ldloc.s 10
+  L7:
+    ldloc.s 9
     ldc.i4.m1
-    bne.un L10
+    bne.un L8
     ldarg.2
     ldc.i4 -32768
-    bne.un L10
+    bne.un L8
     ldstr "overflow.sabi:13:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderOverflow(string)
     ldnull
     throw
-  L10:
+  L8:
     ldarg.2
-    ldloc.s 10
+    ldloc.s 9
     rem
-    stloc.s 9
+    stloc.s 8
     ldarg.0
     conv.i2
     dup
-    stloc.s 12
-    brtrue L11
+    stloc.s 11
+    brtrue L9
     ldstr "overflow.sabi:14:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
     ldnull
     throw
-  L11:
-    ldloc.s 12
+  L9:
+    ldloc.s 11
     ldc.i4.m1
-    bne.un L12
+    bne.un L10
     ldarg.2
     ldc.i4 -32768
-    bne.un L12
+    bne.un L10
     ldstr "overflow.sabi:14:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideOverflow(string)
     ldnull
     throw
-  L12:
+  L10:
     ldarg.2
-    ldloc.s 12
+    ldloc.s 11
     div
-    stloc.s 11
+    stloc.s 10
     ldarg.1
-    brtrue L13
+    brtrue L11
     ldstr "overflow.sabi:15:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
     ldnull
     throw
-  L13:
+  L11:
     ldarg.1
     ldarg.1
     div.un
-    stloc.s 13
+    stloc.s 12
     ldarg.1
     ldc.i4.2
     dup
     ldc.i4.8
-    blt.un L14
+    blt.un L12
     ldstr "overflow.sabi:16:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::ShiftLeftOverflow(string)
     ldnull
     throw
-  L14:
+  L12:
     shl
     conv.u1
-    stloc.s 14
+    stloc.s 13
     ldarg.0
     ldc.i4.1
     dup
     ldc.i4.8
-    blt.un L15
+    blt.un L13
     ldstr "overflow.sabi:17:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::ShiftRightOverflow(string)
     ldnull
     throw
-  L15:
+  L13:
     shr
-    stloc.s 15
+    stloc.s 14
     conv.i4
     ldloc.0
+    conv.i4
+    stloc.s 15
+    conv.i8
+    ldloc.s 15
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L14
+    ldstr "overflow.sabi:18:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L14:
+    conv.i4
+    ldloc.1
     conv.i4
     stloc.s 16
     conv.i8
     ldloc.s 16
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L15
+    ldstr "overflow.sabi:18:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L15:
+    conv.i4
+    ldloc.2
+    conv.i4
+    stloc.s 17
+    conv.i8
+    ldloc.s 17
     conv.i8
     add
     dup
@@ -261,11 +276,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L16:
     conv.i4
-    ldloc.1
+    ldloc.3
     conv.i4
-    stloc.s 17
+    stloc.s 18
     conv.i8
-    ldloc.s 17
+    ldloc.s 18
     conv.i8
     add
     dup
@@ -279,11 +294,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L17:
     conv.i4
-    ldloc.2
+    ldloc.s 4
     conv.i4
-    stloc.s 18
+    stloc.s 19
     conv.i8
-    ldloc.s 18
+    ldloc.s 19
     conv.i8
     add
     dup
@@ -297,11 +312,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L18:
     conv.i4
-    ldloc.3
+    ldloc.s 5
     conv.i4
-    stloc.s 19
+    stloc.s 20
     conv.i8
-    ldloc.s 19
+    ldloc.s 20
     conv.i8
     add
     dup
@@ -315,11 +330,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L19:
     conv.i4
-    ldloc.s 4
+    ldloc.s 6
     conv.i4
-    stloc.s 20
+    stloc.s 21
     conv.i8
-    ldloc.s 20
+    ldloc.s 21
     conv.i8
     add
     dup
@@ -333,11 +348,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L20:
     conv.i4
-    ldloc.s 5
+    ldloc.s 7
     conv.i4
-    stloc.s 21
+    stloc.s 22
     conv.i8
-    ldloc.s 21
+    ldloc.s 22
     conv.i8
     add
     dup
@@ -351,11 +366,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L21:
     conv.i4
-    ldloc.s 6
+    ldloc.s 8
     conv.i4
-    stloc.s 22
+    stloc.s 23
     conv.i8
-    ldloc.s 22
+    ldloc.s 23
     conv.i8
     add
     dup
@@ -369,11 +384,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L22:
     conv.i4
-    ldloc.s 7
+    ldloc.s 10
     conv.i4
-    stloc.s 23
+    stloc.s 24
     conv.i8
-    ldloc.s 23
+    ldloc.s 24
     conv.i8
     add
     dup
@@ -387,11 +402,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L23:
     conv.i4
-    ldloc.s 9
+    ldloc.s 12
     conv.i4
-    stloc.s 24
+    stloc.s 25
     conv.i8
-    ldloc.s 24
+    ldloc.s 25
     conv.i8
     add
     dup
@@ -405,11 +420,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L24:
     conv.i4
-    ldloc.s 11
+    ldloc.s 13
     conv.i4
-    stloc.s 25
+    stloc.s 26
     conv.i8
-    ldloc.s 25
+    ldloc.s 26
     conv.i8
     add
     dup
@@ -423,11 +438,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L25:
     conv.i4
-    ldloc.s 13
+    ldloc.s 14
     conv.i4
-    stloc.s 26
+    stloc.s 27
     conv.i8
-    ldloc.s 26
+    ldloc.s 27
     conv.i8
     add
     dup
@@ -440,42 +455,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L26:
-    conv.i4
-    ldloc.s 14
-    conv.i4
-    stloc.s 27
-    conv.i8
-    ldloc.s 27
-    conv.i8
-    add
-    dup
-    dup
-    conv.i4
-    conv.i8
-    beq L27
-    ldstr "overflow.sabi:18:5"
-    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
-    ldnull
-    throw
-  L27:
-    conv.i4
-    ldloc.s 15
-    conv.i4
-    stloc.s 28
-    conv.i8
-    ldloc.s 28
-    conv.i8
-    add
-    dup
-    dup
-    conv.i4
-    conv.i8
-    beq L28
-    ldstr "overflow.sabi:18:5"
-    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
-    ldnull
-    throw
-  L28:
     conv.i4
     ret
   }

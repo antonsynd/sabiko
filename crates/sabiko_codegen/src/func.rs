@@ -1534,8 +1534,13 @@ impl FnCx<'_, '_> {
                 self.operand(operand, span);
                 self.op("neg", 1, 1);
             }
-            UnOp::Neg if matches!(operand, Operand::Constant(_)) => {
-                // `-literal`: fold instead of emitting `0 - literal`.
+            UnOp::Neg
+                if matches!(operand, Operand::Constant(c)
+                    if !self.checks() || negation_fits(&c.value, p)) =>
+            {
+                // `-C` for a constant item (MIR building folds `-literal` already): fold
+                // instead of emitting `0 - C`, unless the negation overflows (`C` is the
+                // type's minimum) in a checked build, which then panics at run time.
                 let Operand::Constant(c) = operand else {
                     unreachable!()
                 };
@@ -2282,6 +2287,18 @@ fn local_instr(op: LocalOp, i: u16) -> String {
 
 fn is_mut_ref(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref(m, _) if m.is_mut())
+}
+
+/// Whether negating the constant `value` of type `p` stays in range: always but for a
+/// signed constant holding the type's minimum.
+fn negation_fits(value: &ConstValue, p: PrimTy) -> bool {
+    match value {
+        ConstValue::Int(i) if p.is_signed_int() => {
+            let (min, _) = sabiko_types::consts::int_bounds(p);
+            i.checked_neg().is_some_and(|n| n >= min && n <= -(min + 1))
+        }
+        _ => true,
+    }
 }
 
 #[cfg(test)]

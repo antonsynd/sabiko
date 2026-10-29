@@ -204,9 +204,7 @@ expression: il
       [0] bool '_3',
       [1] bool '_4',
       [2] bool '_5',
-      [3] bool '_6',
-      [4] valuetype [System.Runtime]System.Int128 '_13',
-      [5] valuetype [System.Runtime]System.Int128 '_16'
+      [3] bool '_6'
     )
   BB0:
     ldarg.0
@@ -230,12 +228,10 @@ expression: il
     ldloc.3
     brfalse BB5
   BB4:
+    ldarg.0
     ldc.i8 -1
     ldc.i8 -2
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.s 4
-    ldarg.0
-    ldloc.s 4
     call bool [System.Runtime]System.Int128::op_GreaterThan(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.2
     br BB6
@@ -246,12 +242,10 @@ expression: il
     ldloc.2
     brfalse BB8
   BB7:
+    ldarg.0
     ldc.i8 -1
     ldc.i8 -3
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.s 5
-    ldarg.0
-    ldloc.s 5
     call bool [System.Runtime]System.Int128::op_GreaterThanOrEqual(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.1
     br BB9
@@ -345,16 +339,11 @@ expression: il
   .method public hidebysig static valuetype [System.Runtime]System.Int128 'Store'(valuetype 'Holder'& 'h', valuetype [System.Runtime]System.UInt128& 'r') cil managed
   {
     .maxstack 4
-    .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_3'
-    )
   BB0:
+    ldarg.0
     ldc.i8 -9223372036854775808
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.0
-    ldarg.0
-    ldloc.0
     stfld valuetype [System.Runtime]System.Int128 'Holder'::'Big'
     ldarg.1
     ldc.i8 -1
@@ -377,18 +366,13 @@ expression: il
   .method public hidebysig static void 'Main'() cil managed
   {
     .maxstack 3
-    .locals init (
-      [0] valuetype [System.Runtime]System.Int128 '_3'
-    )
   BB0:
-    ldc.i8 -1
-    ldc.i8 -2
-    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    stloc.0
     ldc.i8 0
     ldc.i8 3
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
-    ldloc.0
+    ldc.i8 -1
+    ldc.i8 -2
+    newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call valuetype [System.Runtime]System.Int128 'WideInts'::'Arith'(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
   BB1:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(valuetype [System.Runtime]System.Int128)

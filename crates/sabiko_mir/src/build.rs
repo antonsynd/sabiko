@@ -44,7 +44,7 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{
     BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, Pat, PatKind, SourceFile,
-    Stmt, StmtKind,
+    Stmt, StmtKind, UnOp,
 };
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
@@ -721,6 +721,28 @@ impl<'a> Builder<'a> {
         })
     }
 
+    /// `-<integer literal>` (through parentheses) as one constant, as rustc builds it: the
+    /// exact negation, `-2147483648i32` included, and `-2^127` for `i128`, whose literal
+    /// wraps to `i128::MIN` (see [`Self::lit_constant`]). So only a constant item is ever
+    /// negated at run time, where negating the minimum overflows.
+    fn negated_literal(&mut self, expr: &Expr) -> Option<Constant> {
+        let ExprKind::Unary(UnOp::Neg, operand) = &strip_parens(expr).kind else {
+            return None;
+        };
+        let operand = strip_parens(operand);
+        let ExprKind::Lit(lit @ Lit::Int { .. }) = &operand.kind else {
+            return None;
+        };
+        let ty = self.ty(operand).clone();
+        let mut c = self.lit_constant(lit, &ty, operand.span);
+        let ConstValue::Int(v) = c.value else {
+            return None;
+        };
+        c.value = ConstValue::Int(v.wrapping_neg());
+        c.span = self.span_of(expr);
+        Some(c)
+    }
+
     fn lit_constant(&mut self, lit: &Lit, ty: &Ty, span: Span) -> Constant {
         let value = match lit {
             Lit::Int { value, .. } => {
@@ -858,6 +880,9 @@ impl<'a> Builder<'a> {
                 let ty = self.ty(expr).clone();
                 Operand::Constant(self.const_constant(def, &ty, expr.span))
             }
+            ExprKind::Unary(UnOp::Neg, _) if self.negated_literal(expr).is_some() => {
+                Operand::Constant(self.negated_literal(expr).expect("checked above"))
+            }
             _ => {
                 let temp = self.as_temp(expr);
                 self.place_operand(Place::local(temp))
@@ -945,6 +970,10 @@ impl<'a> Builder<'a> {
                 },
                 Res::Prim(_) | Res::Err => unreachable!("unresolved path in a checked body"),
             },
+            ExprKind::Unary(UnOp::Neg, _) if self.negated_literal(expr).is_some() => {
+                let c = self.negated_literal(expr).expect("checked above");
+                self.assign(dest.clone(), Rvalue::Use(Operand::Constant(c)), span);
+            }
             ExprKind::Unary(op, operand) => {
                 let operand = self.as_operand(operand);
                 self.assign(dest.clone(), Rvalue::UnaryOp(*op, operand), span);
