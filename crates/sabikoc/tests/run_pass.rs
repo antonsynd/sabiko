@@ -61,7 +61,7 @@ fn run_one(tc: &Toolchain, root: &Path, path: &Path) -> Result<(), String> {
     // The panic location names the source as sabikoc was given it (an absolute path).
     let repo_relative = format!("tests/run-pass/{}", rel.replace('\\', "/"));
     let stderr = text(&out.stderr).replace(&path.display().to_string(), &repo_relative);
-    let code = out.status.code().unwrap_or(-1);
+    let code = common::exit_code(out.status);
     let expected_path = path.with_extension("stdout");
     let bless = std::env::var_os("BLESS").is_some();
     let mut failures = String::new();

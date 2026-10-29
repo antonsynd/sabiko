@@ -1,4 +1,4 @@
-//! Move checks (`E0406`, `E0407`) over hand-built MIR.
+//! Move checks (`E0406`, `E0407`, `E0418`) over hand-built MIR.
 //!
 //! As in `checks.rs`, `ResolveResults`/`TypeckResults` come from a tiny real program so
 //! that struct and field names exist, while the bodies are built by hand so the tests do
@@ -33,6 +33,19 @@ struct Vec2 {
     Y: i32,
 }
 
+struct Guard {
+    Id: i32,
+    Inner: Point,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {}
+}
+
+struct Holder {
+    G: Guard,
+}
+
 fn Take(p: Point) {}
 
 fn TakeLine(l: Line) {}
@@ -58,6 +71,8 @@ struct Fixture {
     point: DefId,
     line: DefId,
     vec2: DefId,
+    guard: DefId,
+    holder: DefId,
     take: DefId,
     take_line: DefId,
     take_vec: DefId,
@@ -86,6 +101,8 @@ impl Fixture {
             point: def(DefKind::Struct, "Point"),
             line: def(DefKind::Struct, "Line"),
             vec2: def(DefKind::Struct, "Vec2"),
+            guard: def(DefKind::Struct, "Guard"),
+            holder: def(DefKind::Struct, "Holder"),
             take: def(DefKind::Fn, "Take"),
             take_line: def(DefKind::Fn, "TakeLine"),
             take_vec: def(DefKind::Fn, "TakeVec"),
@@ -106,6 +123,14 @@ impl Fixture {
 
     fn vec2_ty(&self) -> Ty {
         Ty::Adt(self.vec2)
+    }
+
+    fn guard_ty(&self) -> Ty {
+        Ty::Adt(self.guard)
+    }
+
+    fn holder_ty(&self) -> Ty {
+        Ty::Adt(self.holder)
     }
 
     fn check(&self, body: &Body) -> Vec<Diagnostic> {
@@ -152,6 +177,7 @@ impl BodyBuilder {
                 locals: Vec::new(),
                 arg_count: 0,
                 blocks: Vec::new(),
+                cleanups: Vec::new(),
                 span: Span::new(FileId(0), 0, 1),
             },
             next_span: 1000,
@@ -1223,4 +1249,161 @@ fn place_mention_is_not_a_use_or_a_move() {
     mir.dead(bb0, p);
     mir.ret(bb0);
     fx.assert_clean(&mir.finish());
+}
+
+/// `g = Guard { Id: 1, Inner: Point { .. } }`, with `g` live.
+fn init_guard(fx: &Fixture, mir: &mut BodyBuilder, bb: BasicBlock, g: Local) {
+    let inner = mir.temp(fx.point_ty());
+    mir.assign(bb, local(inner), point_aggregate(fx));
+    mir.live(bb, g);
+    mir.assign(
+        bb,
+        local(g),
+        Rvalue::Aggregate(AggregateKind::Adt(fx.guard), vec![int(1), mv(local(inner))]),
+    );
+}
+
+#[test]
+fn move_out_of_a_drop_type_is_rejected() {
+    // let g = Guard {..}; let q = g.Inner;
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let g = mir.user("g", fx.guard_ty(), Mutability::Not);
+    let q = mir.user("q", fx.point_ty(), Mutability::Not);
+    let bb0 = mir.block();
+    init_guard(&fx, &mut mir, bb0, g);
+    mir.live(bb0, q);
+    let span = mir.assign(bb0, local(q), use_move(local(g).field(1, fx.point_ty())));
+    mir.ret(bb0);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0418 cannot move out of type `Guard`, which implements the `Drop` trait"]
+    );
+    assert_eq!(labels(&diags[0]), [(span, "cannot move out of here")]);
+    assert_eq!(
+        diags[0].notes,
+        [
+            "move occurs because `g.Inner` has type `Point`, which does not implement the `Copy` trait",
+            "`g` is dropped as a whole by its `drop`; borrow the field instead",
+        ]
+    );
+}
+
+#[test]
+fn move_out_of_a_drop_type_inside_a_plain_struct_is_rejected() {
+    // let h = Holder { G: Guard {..} }; let q = h.G.Inner;  (and `h.G` itself is fine)
+    let fx = Fixture::new();
+    for whole_guard in [false, true] {
+        let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+        let h = mir.user("h", fx.holder_ty(), Mutability::Not);
+        let g = mir.temp(fx.guard_ty());
+        let bb0 = mir.block();
+        init_guard(&fx, &mut mir, bb0, g);
+        mir.live(bb0, h);
+        mir.assign(
+            bb0,
+            local(h),
+            Rvalue::Aggregate(AggregateKind::Adt(fx.holder), vec![mv(local(g))]),
+        );
+        let guard = local(h).field(0, fx.guard_ty());
+        let (dest_ty, moved) = if whole_guard {
+            (fx.guard_ty(), guard)
+        } else {
+            (fx.point_ty(), guard.field(1, fx.point_ty()))
+        };
+        let q = mir.user("q", dest_ty, Mutability::Not);
+        mir.live(bb0, q);
+        mir.assign(bb0, local(q), use_move(moved));
+        mir.ret(bb0);
+        let body = mir.finish();
+        if whole_guard {
+            fx.assert_clean(&body);
+        } else {
+            let diags = fx.check(&body);
+            assert_eq!(
+                diags.iter().map(render).collect::<Vec<_>>(),
+                ["E0418 cannot move out of type `Guard`, which implements the `Drop` trait"]
+            );
+            assert_eq!(
+                diags[0].notes[1],
+                "`h.G` is dropped as a whole by its `drop`; borrow the field instead"
+            );
+        }
+    }
+}
+
+#[test]
+fn copying_a_field_out_of_a_drop_type_is_fine() {
+    // let g = Guard {..}; let n = g.Id; let x = g.Inner.X;
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let g = mir.user("g", fx.guard_ty(), Mutability::Not);
+    let n = mir.user("n", Ty::I32, Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    init_guard(&fx, &mut mir, bb0, g);
+    mir.assign(bb0, local(n), Rvalue::Use(copy(local(g).field(0, Ty::I32))));
+    mir.assign(
+        bb0,
+        local(x),
+        Rvalue::Use(copy(point_x(local(g).field(1, fx.point_ty())))),
+    );
+    mir.ret(bb0);
+    fx.assert_clean(&mir.finish());
+}
+
+#[test]
+fn drop_of_a_moved_value_is_not_a_use() {
+    // let g = Guard {..}; let q = g; drop(q); drop(g);
+    // MIR building drops every local at its scope end, moved or not; elaboration removes
+    // the drops of moved values later, so the move checker must not see a use there.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let g = mir.user("g", fx.guard_ty(), Mutability::Not);
+    let q = mir.user("q", fx.guard_ty(), Mutability::Not);
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    let bb2 = mir.block();
+    init_guard(&fx, &mut mir, bb0, g);
+    mir.live(bb0, q);
+    mir.assign(bb0, local(q), use_move(local(g)));
+    mir.terminate(
+        bb0,
+        TerminatorKind::Drop {
+            place: local(q),
+            target: bb1,
+        },
+    );
+    mir.dead(bb1, q);
+    mir.terminate(
+        bb1,
+        TerminatorKind::Drop {
+            place: local(g),
+            target: bb2,
+        },
+    );
+    mir.dead(bb2, g);
+    mir.ret(bb2);
+    fx.assert_clean(&mir.finish());
+}
+
+#[test]
+fn move_out_from_behind_a_reference_inside_a_drop_type_is_only_e0407() {
+    // let q = *g.R;  with `g: Guard` and `R: &Point`. No struct can hold a reference before
+    // lifetimes (Phase 9), but the checks read the projection's types, so hand-built MIR
+    // can: the move is out of a borrow (rustc's E0507 alone), not out of the `Drop` type.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let g = mir.user("g", fx.guard_ty(), Mutability::Not);
+    let q = mir.user("q", fx.point_ty(), Mutability::Not);
+    let bb0 = mir.block();
+    init_guard(&fx, &mut mir, bb0, g);
+    mir.live(bb0, q);
+    let through_ref = local(g).field(1, Ty::shared_ref(fx.point_ty())).deref();
+    mir.assign(bb0, local(q), use_move(through_ref));
+    mir.ret(bb0);
+    let messages = fx.messages(&mir.finish());
+    assert_eq!(messages.len(), 1, "{messages:#?}");
+    assert!(messages[0].starts_with("E0407 "), "{messages:#?}");
 }

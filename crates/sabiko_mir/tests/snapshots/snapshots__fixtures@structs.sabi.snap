@@ -127,14 +127,14 @@ fn Length(_1: &Line) -> i32 {
         _13 = copy _5;
         _11 = Mul(copy _12, copy _13);
         _0 = Add(copy _8, copy _11);
+        StorageDead(_5);
+        StorageDead(_2);
         StorageDead(_13);
         StorageDead(_12);
         StorageDead(_11);
         StorageDead(_10);
         StorageDead(_9);
         StorageDead(_8);
-        StorageDead(_5);
-        StorageDead(_2);
         goto -> bb1;
     }
 

@@ -22,6 +22,14 @@ struct Point {
     Y: i32,
 }
 
+struct Guard {
+    Id: i32,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {}
+}
+
 fn First(p: &Point) -> &i32 {
     &p.X
 }
@@ -66,6 +74,7 @@ struct Fixture {
     resolve: ResolveResults,
     typeck: TypeckResults,
     point: DefId,
+    guard: DefId,
     first: DefId,
     two: DefId,
     short: DefId,
@@ -97,6 +106,7 @@ impl Fixture {
         };
         Self {
             point: def(DefKind::Struct, "Point"),
+            guard: def(DefKind::Struct, "Guard"),
             first: def(DefKind::Fn, "First"),
             two: def(DefKind::Fn, "Two"),
             short: def(DefKind::Fn, "Short"),
@@ -114,6 +124,14 @@ impl Fixture {
 
     fn point_ty(&self) -> Ty {
         Ty::Adt(self.point)
+    }
+
+    fn guard_ty(&self) -> Ty {
+        Ty::Adt(self.guard)
+    }
+
+    fn guard_aggregate(&self) -> Rvalue {
+        Rvalue::Aggregate(AggregateKind::Adt(self.guard), vec![int(1)])
     }
 
     fn check(&self, body: &Body) -> Vec<Diagnostic> {
@@ -166,6 +184,7 @@ impl BodyBuilder {
                 locals: Vec::new(),
                 arg_count: 0,
                 blocks: Vec::new(),
+                cleanups: Vec::new(),
                 span: Span::new(FileId(0), 0, 1),
             },
             next_span: 1000,
@@ -1831,4 +1850,148 @@ fn place_mention_of_a_mutably_borrowed_place_is_not_an_access() {
     mir.assign(bb0, deref(m), use_int(2));
     mir.finish_unit(bb0);
     fx.assert_clean(&mir.finish());
+}
+
+fn drop_to(mir: &mut BodyBuilder, bb: BasicBlock, place: Place, target: BasicBlock) -> Span {
+    mir.terminate(bb, TerminatorKind::Drop { place, target })
+}
+
+/// `let g = Guard {..}; let r = &g.Id; drop(g); StorageDead(g); [use *r]`, with `g` a
+/// user variable or a temporary.
+fn borrow_across_drop(temp: bool, use_after: bool) -> (Fixture, Body, Span, Span) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let g = if temp {
+        mir.temp(fx.guard_ty())
+    } else {
+        mir.user("g", fx.guard_ty(), Mutability::Not)
+    };
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let n = mir.user("n", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    mir.live(bb0, g);
+    mir.assign(bb0, local(g), fx.guard_aggregate());
+    let borrow = mir.assign(bb0, local(r), shared(local(g).field(0, Ty::I32)));
+    let drop = drop_to(&mut mir, bb0, local(g), bb1);
+    mir.dead(bb1, g);
+    if use_after {
+        mir.assign(bb1, local(n), use_copy(deref(r)));
+    }
+    mir.finish_unit(bb1);
+    (fx, mir.finish(), borrow, drop)
+}
+
+#[test]
+fn drop_invalidates_the_loans_of_the_dropped_value() {
+    let (fx, body, borrow, drop) = borrow_across_drop(false, true);
+    let diags = fx.check(&body);
+    // One error: the `StorageDead` after the drop does not report the same loan again.
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0413 `g.Id` does not live long enough"]
+    );
+    assert_eq!(
+        labels(&diags[0])[..2],
+        [
+            (borrow, "borrowed value does not live long enough"),
+            (drop, "`g` dropped here while still borrowed"),
+        ]
+    );
+    let (fx, body, _, _) = borrow_across_drop(false, false);
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn drop_of_a_borrowed_temporary_is_a_temporary_dropped_while_borrowed() {
+    let (fx, body, _, _) = borrow_across_drop(true, true);
+    assert_eq!(
+        fx.messages(&body),
+        ["E0413 temporary value dropped while borrowed"]
+    );
+}
+
+#[test]
+fn dropping_a_tuple_does_not_use_its_reference() {
+    // let mut x = 1; let t = (&x, Guard {..}); x = 2; drop(t);
+    // Drop-liveness: dropping `t` drops the guard and not the reference, so the loan of
+    // `x` is dead at `x = 2`. A use of `t` there instead keeps it live.
+    for use_t in [false, true] {
+        let fx = Fixture::new();
+        let mut mir = BodyBuilder::new(&fx);
+        let tuple_ty = Ty::Tuple(vec![Ty::shared_ref(Ty::I32), fx.guard_ty()].into());
+        let x = mir.user("x", Ty::I32, Mutability::Mut);
+        let t = mir.user("t", tuple_ty.clone(), Mutability::Not);
+        let rx = mir.temp(Ty::shared_ref(Ty::I32));
+        let g = mir.temp(fx.guard_ty());
+        let n = mir.user("n", Ty::I32, Mutability::Not);
+        let bb0 = mir.block();
+        let bb1 = mir.block();
+        mir.assign(bb0, local(x), use_int(1));
+        mir.assign(bb0, local(rx), shared(local(x)));
+        mir.assign(bb0, local(g), fx.guard_aggregate());
+        mir.live(bb0, t);
+        mir.assign(
+            bb0,
+            local(t),
+            Rvalue::Aggregate(AggregateKind::Tuple, vec![mv(local(rx)), mv(local(g))]),
+        );
+        mir.assign(bb0, local(x), use_int(2));
+        if use_t {
+            mir.assign(
+                bb0,
+                local(n),
+                use_copy(local(t).field(1, fx.guard_ty()).field(0, Ty::I32)),
+            );
+        }
+        drop_to(&mut mir, bb0, local(t), bb1);
+        mir.dead(bb1, t);
+        mir.finish_unit(bb1);
+        let body = mir.finish();
+        if use_t {
+            assert_eq!(
+                fx.messages(&body),
+                ["E0410 cannot assign to `x` because it is borrowed"]
+            );
+        } else {
+            fx.assert_clean(&body);
+        }
+    }
+}
+
+#[test]
+fn drop_conflicts_with_a_live_shared_loan_of_a_field() {
+    // let g = Guard {..}; let r = &g.Id; drop(g); use *r -- whatever the loan's kind.
+    for mutable_loan in [false, true] {
+        let fx = Fixture::new();
+        let mut mir = BodyBuilder::new(&fx);
+        let g = mir.user("g", fx.guard_ty(), Mutability::Mut);
+        let ref_ty = if mutable_loan {
+            Ty::mut_ref(Ty::I32)
+        } else {
+            Ty::shared_ref(Ty::I32)
+        };
+        let r = mir.user("r", ref_ty, Mutability::Not);
+        let n = mir.user("n", Ty::I32, Mutability::Not);
+        let bb0 = mir.block();
+        let bb1 = mir.block();
+        mir.live(bb0, g);
+        mir.assign(bb0, local(g), fx.guard_aggregate());
+        let field = local(g).field(0, Ty::I32);
+        let borrow = if mutable_loan {
+            mutable(field)
+        } else {
+            shared(field)
+        };
+        mir.assign(bb0, local(r), borrow);
+        drop_to(&mut mir, bb0, local(g), bb1);
+        mir.assign(bb1, local(n), use_copy(deref(r)));
+        mir.dead(bb1, g);
+        mir.finish_unit(bb1);
+        assert_eq!(
+            fx.messages(&mir.finish()),
+            ["E0413 `g.Id` does not live long enough"],
+            "mutable loan: {mutable_loan}"
+        );
+    }
 }

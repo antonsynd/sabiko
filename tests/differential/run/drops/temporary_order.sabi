@@ -1,0 +1,67 @@
+// Temporaries are dropped in the reverse order their values were completed (rustc
+// schedules a temporary's drop once its value is computed): a call's result before the
+// temporaries made for its arguments and receiver, at the end of the statement or of the
+// block for an extended one, and in the same order while unwinding.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+impl D {
+    fn Next(&self) -> D {
+        D { Id: self.Id + 10 }
+    }
+
+    fn Combine(&self, other: &D, n: i32) -> i32 {
+        self.Id + other.Id + n
+    }
+}
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Wrap(d: &D) -> D {
+    D { Id: d.Id + 100 }
+}
+
+fn Pick(a: &D, b: &D) -> i32 {
+    a.Id + b.Id
+}
+
+fn Fail(n: i32) -> i32 {
+    if n > 50 {
+        Panic("too large");
+    }
+    n
+}
+
+fn Main() {
+    let flag = true;
+    PrintLine("a");
+    {
+        let r = &Wrap(&Make(1));
+        PrintLine(r.Id);
+    }
+    PrintLine("b");
+    {
+        let t = (&Make(2), &Wrap(&Make(3)));
+        PrintLine(t.0.Id + t.1.Id);
+    }
+    PrintLine("c");
+    (if flag { Make(4) } else { Make(5) }).Next();
+    PrintLine("d");
+    let n = (if flag { Make(6) } else { Make(7) }).Combine(&Make(8).Next(), 1);
+    PrintLine(n);
+    PrintLine("e");
+    let k = Pick(&Wrap(&Make(9)), &{ let inner = Make(20); inner.Next() });
+    PrintLine(k);
+    PrintLine("f");
+    let m = Make(30);
+    let total = (if flag { Make(31) } else { Make(32) }).Combine(&Wrap(&Make(33)), Fail(m.Id + 25));
+    PrintLine(total);
+}

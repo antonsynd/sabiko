@@ -5,8 +5,8 @@ a syntactic subset of Rust apart from .NET casing). `crates/sabiko_driver/tests/
 compiles every file with both compilers and classifies each verdict:
 
 - `accept`: no errors;
-- `borrow-error`: errors, all of them from the borrow checker (Sabiko E0400–E0417; rustc
-  E0381/E0382/E0384, E0499–E0507, E0515, E0594–E0597, E0106, E0716, and the uncoded
+- `borrow-error`: errors, all of them from the borrow checker (Sabiko E0400–E0418; rustc
+  E0381/E0382/E0384, E0499–E0507, E0509, E0515, E0594–E0597, E0106, E0716, and the uncoded
   "lifetime may not live long enough");
 - `OTHER-ERROR`: anything else. This always fails the test: the corpus must be valid in
   both languages up to borrow checking, so a parse, resolution or type error in either
@@ -62,10 +62,11 @@ overflow-checks=off`): arithmetic wraps, division and shift checks stay
 (`run/release/`). Standard error is compared too:
 
 - after a clean exit (code 0) neither program may have written to stderr;
-- after a panic (code 101) the panic reports must match exactly. rustc prints `thread
-  'main' (ID) panicked at /path/prog.rs:L:C:` and Sabiko `thread 'main' panicked at
-  /path/name.sabi:L:C:`, each followed by the message line (the harness runs the Rust
-  binary with `RUST_BACKTRACE=0`). The messages must be identical, `L:C` must be equal, and
+- after a panic (code 101), or an abort (code 134: a panic in a `drop` during unwinding,
+  decision 56, normalised to 134 on every platform), the (first) panic reports must match
+  exactly. rustc prints `thread 'main' (ID) panicked at /path/prog.rs:L:C:` and Sabiko
+  `thread 'main' panicked at /path/name.sabi:L:C:`, each followed by the message line (the
+  harness runs the Rust binary with `RUST_BACKTRACE=0`). The messages must be identical, `L:C` must be equal, and
   each location must name the file its compiler was given; the thread id and directories
   are ignored. Every panicking program in `run/` is therefore also a test of Sabiko's
   panic locations (`run/panics/location_*` aim at the edge cases: parentheses, tabs, wide

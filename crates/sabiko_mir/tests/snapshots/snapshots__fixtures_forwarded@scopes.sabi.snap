@@ -79,17 +79,18 @@ fn Nested(_1: i32) -> i32 {
     }
 
     bb2: {
+        StorageDead(_16);
         _15 = copy _2;
         goto -> bb4;
     }
 
     bb3: {
+        StorageDead(_16);
         _15 = copy _4;
         goto -> bb4;
     }
 
     bb4: {
-        StorageDead(_16);
         StorageLive(_20);
         _20 = Twice(copy _15) -> bb5;
     }
@@ -101,11 +102,11 @@ fn Nested(_1: i32) -> i32 {
 
     bb6: {
         _0 = Add(copy _20, copy _22);
-        StorageDead(_22);
-        StorageDead(_20);
         StorageDead(_15);
         StorageDead(_4);
         StorageDead(_2);
+        StorageDead(_22);
+        StorageDead(_20);
         goto -> bb7;
     }
 
@@ -224,90 +225,104 @@ fn BreakScopes(_1: i32) -> i32 {
 
     bb3: {
         StorageDead(_3);
-        goto -> bb8;
+        goto -> bb10;
     }
 
     bb4: {
         StorageLive(_8);
         _8 = Gt(copy _6, const 10_i32);
-        switchInt(copy _8) -> [0: bb15, otherwise: bb5];
+        switchInt(copy _8) -> [0: bb6, otherwise: bb5];
     }
 
     bb5: {
+        StorageDead(_8);
         StorageLive(_10);
         StorageLive(_11);
         _11 = copy _6;
         StorageLive(_12);
-        _12 = Twice(const 1_i32) -> bb6;
+        _12 = Twice(const 1_i32) -> bb7;
     }
 
     bb6: {
+        StorageDead(_8);
+        goto -> bb19;
+    }
+
+    bb7: {
         _10 = Add(copy _11, copy _12);
         StorageDead(_12);
         StorageDead(_11);
         StorageLive(_13);
         _13 = Gt(copy _10, const 20_i32);
-        switchInt(copy _13) -> [0: bb9, otherwise: bb7];
-    }
-
-    bb7: {
-        StorageDead(_13);
-        StorageDead(_10);
-        StorageDead(_8);
-        StorageDead(_6);
-        goto -> bb8;
+        switchInt(copy _13) -> [0: bb9, otherwise: bb8];
     }
 
     bb8: {
-        _0 = copy _2;
-        StorageDead(_2);
-        goto -> bb13;
+        StorageDead(_13);
+        StorageDead(_10);
+        StorageDead(_6);
+        goto -> bb10;
     }
 
     bb9: {
         StorageDead(_13);
-        StorageLive(_15);
-        _15 = Gt(copy _10, const 15_i32);
-        switchInt(copy _15) -> [0: bb11, otherwise: bb10];
+        goto -> bb11;
     }
 
     bb10: {
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb17;
+    }
+
+    bb11: {
+        StorageLive(_15);
+        _15 = Gt(copy _10, const 15_i32);
+        switchInt(copy _15) -> [0: bb13, otherwise: bb12];
+    }
+
+    bb12: {
         StorageDead(_15);
         StorageDead(_10);
-        StorageDead(_8);
         StorageDead(_6);
         goto -> bb1;
     }
 
-    bb11: {
-        StorageDead(_15);
-        StorageLive(_17);
-        _17 = Gt(copy _10, const 12_i32);
-        switchInt(copy _17) -> [0: bb14, otherwise: bb12];
-    }
-
-    bb12: {
-        _0 = copy _10;
-        StorageDead(_17);
-        StorageDead(_10);
-        StorageDead(_8);
-        StorageDead(_6);
-        StorageDead(_2);
-        goto -> bb13;
-    }
-
     bb13: {
-        return;
+        StorageDead(_15);
+        goto -> bb14;
     }
 
     bb14: {
-        StorageDead(_17);
-        StorageDead(_10);
-        goto -> bb15;
+        StorageLive(_17);
+        _17 = Gt(copy _10, const 12_i32);
+        switchInt(copy _17) -> [0: bb16, otherwise: bb15];
     }
 
     bb15: {
-        StorageDead(_8);
+        StorageDead(_17);
+        _0 = copy _10;
+        StorageDead(_10);
+        StorageDead(_6);
+        StorageDead(_2);
+        goto -> bb17;
+    }
+
+    bb16: {
+        StorageDead(_17);
+        goto -> bb18;
+    }
+
+    bb17: {
+        return;
+    }
+
+    bb18: {
+        StorageDead(_10);
+        goto -> bb19;
+    }
+
+    bb19: {
         _2 = Add(copy _2, const 1_i32);
         StorageDead(_6);
         goto -> bb1;

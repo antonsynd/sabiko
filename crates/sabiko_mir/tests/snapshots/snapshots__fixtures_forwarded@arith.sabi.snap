@@ -175,17 +175,18 @@ fn Unary(_1: bool, _2: u32) -> u32 {
     }
 
     bb1: {
+        StorageDead(_7);
         _0 = copy _5;
         goto -> bb3;
     }
 
     bb2: {
+        StorageDead(_7);
         _0 = const 0_u32;
         goto -> bb3;
     }
 
     bb3: {
-        StorageDead(_7);
         StorageDead(_5);
         StorageDead(_3);
         goto -> bb4;
@@ -220,11 +221,11 @@ fn Literals() -> f64 {
         StorageLive(_5);
         _5 = copy _4 as f64;
         _0 = Add(copy _5, const 2.0_f64);
-        StorageDead(_5);
         StorageDead(_4);
         StorageDead(_3);
         StorageDead(_2);
         StorageDead(_1);
+        StorageDead(_5);
         goto -> bb1;
     }
 

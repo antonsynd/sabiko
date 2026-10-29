@@ -141,12 +141,14 @@ fn Main() -> i32 {
     }
 
     bb9: {
+        StorageDead(_11);
         StorageLive(_12);
         _12 = copy _3;
         _0 = Add(copy _12, const 10_i32) -> bb11;
     }
 
     bb10: {
+        StorageDead(_11);
         StorageLive(_13);
         _13 = copy _7;
         _0 = copy _13 as i32;
@@ -160,7 +162,6 @@ fn Main() -> i32 {
     }
 
     bb12: {
-        StorageDead(_11);
         StorageDead(_8);
         StorageDead(_7);
         StorageDead(_3);

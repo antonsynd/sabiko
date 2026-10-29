@@ -1,0 +1,33 @@
+// `let _ = place;` only mentions the place (#37, a MIR `PlaceMention`): it neither moves
+// nor drops it, so `d` is still usable afterwards and is dropped at the end of `Main`, in
+// its turn, and `e` can still be consumed. (`let (a, _, c) = t;` leaves `t.1` in `t` the
+// same way; `partial_moves.sabi` relies on it.)
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Main() {
+    let d = Make(1);
+    let e = Make(2);
+    let _ = d;
+    PrintLine("after let _ = d");
+    let _ = e;
+    Consume(e);
+    PrintLine("end of Main");
+}

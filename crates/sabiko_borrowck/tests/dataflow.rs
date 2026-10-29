@@ -75,7 +75,9 @@ fn one_block_body() -> (Body, Local) {
                 kind: TerminatorKind::Return,
                 span: span(4),
             }),
+            cleanup: None,
         }],
+        cleanups: Vec::new(),
         span: span(0),
     };
     (body, x)

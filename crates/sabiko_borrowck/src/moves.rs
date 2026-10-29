@@ -211,7 +211,11 @@ fn for_each_terminator_operand<'a>(terminator: &'a Terminator, mut f: impl FnMut
     match &terminator.kind {
         TerminatorKind::SwitchInt { discr, .. } => f(discr),
         TerminatorKind::Call { args, .. } => args.iter().for_each(f),
-        TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+        // A drop is not a use: dropping a moved-out value is drop elaboration's business.
+        TerminatorKind::Drop { .. }
+        | TerminatorKind::Goto { .. }
+        | TerminatorKind::Return
+        | TerminatorKind::Unreachable => {}
     }
 }
 
@@ -460,7 +464,9 @@ impl MoveChecker<'_> {
             Operand::Copy(place) => self.check_use(place, UseKind::Use, location, span),
             Operand::Move(place) => {
                 self.check_use(place, UseKind::Use, location, span);
-                self.check_move_out_of_borrow(place, span);
+                if !self.check_move_out_of_borrow(place, span) {
+                    self.check_move_out_of_drop_type(place, span);
+                }
             }
             Operand::Constant(_) => {}
         }
@@ -519,14 +525,64 @@ impl MoveChecker<'_> {
         }
     }
 
-    /// `E0407`: a move whose place reads through a reference.
-    fn check_move_out_of_borrow(&mut self, place: &Place, span: Span) {
+    /// `E0418` (rustc's E0509): a move of a field out of a value whose type implements
+    /// `Drop`, at any depth (`o.Inner`, `o.Inner.X`): the value's `drop` will still see the
+    /// whole of it. Copy fields are copied, never moved, so they are fine.
+    fn check_move_out_of_drop_type(&mut self, place: &Place, span: Span) {
+        let mut ty = self.body.local_decl(place.local).ty.clone();
+        for (index, elem) in place.projection.iter().enumerate() {
+            let PlaceElem::Field(_, field_ty) = elem else {
+                return;
+            };
+            if let Ty::Adt(adt) = ty {
+                if self.typeck.items.drop_impl(adt).is_some() {
+                    let base = Place {
+                        local: place.local,
+                        projection: place.projection[..index].to_vec(),
+                    };
+                    self.report_move_out_of_drop_type(place, &base, adt, span);
+                    return;
+                }
+            }
+            ty = field_ty.clone();
+        }
+    }
+
+    fn report_move_out_of_drop_type(
+        &mut self,
+        place: &Place,
+        base: &Place,
+        adt: sabiko_resolve::DefId,
+        span: Span,
+    ) {
+        let name = self.typeck.items.adt(adt).name.clone();
+        let desc = self.describe(place);
+        let ty = place.ty(self.body);
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::MOVE_OUT_OF_DROP,
+                format!("cannot move out of type `{name}`, which implements the `Drop` trait"),
+            )
+            .with_label(span, "cannot move out of here")
+            .with_note(format!(
+                "move occurs because `{desc}` has type `{}`, which does not implement the `Copy` trait",
+                ty.display(self.resolve)
+            ))
+            .with_note(format!(
+                "`{}` is dropped as a whole by its `drop`; borrow the field instead",
+                self.describe(base)
+            )),
+        );
+    }
+
+    /// `E0407`: a move whose place reads through a reference. Returns whether it reported.
+    fn check_move_out_of_borrow(&mut self, place: &Place, span: Span) -> bool {
         let Some(deref) = place
             .projection
             .iter()
             .rposition(|elem| *elem == PlaceElem::Deref)
         else {
-            return;
+            return false;
         };
         let reference = Place {
             local: place.local,
@@ -555,6 +611,7 @@ impl MoveChecker<'_> {
                 ),
             ),
         );
+        true
     }
 
     /// `E0406` for a use of `used` (a deref-free place: the move path read, or the place

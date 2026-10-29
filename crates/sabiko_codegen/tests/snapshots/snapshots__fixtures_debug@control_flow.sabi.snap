@@ -15,28 +15,27 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   {
     .maxstack 3
     .locals init (
-      [0] int32 '_0',
-      [1] int32 'x',
-      [2] bool '_8',
-      [3] bool '_9'
+      [0] int32 'x',
+      [1] bool '_8',
+      [2] bool '_9'
     )
   BB0:
     ldarg.0
     brfalse BB2
   BB1:
     ldarg.1
-    stloc.1
+    stloc.0
     br BB3
   BB2:
     ldarg.2
-    stloc.1
+    stloc.0
   BB3:
-    ldloc.1
+    ldloc.0
     ldc.i4.s 10
     cgt
     brfalse BB6
   BB4:
-    ldloc.1
+    ldloc.0
     ret
   BB6:
     ldarg.0
@@ -45,28 +44,28 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldarg.1
     ldc.i4.0
     cgt
-    stloc.3
+    stloc.2
     br BB9
   BB8:
     ldc.i4.0
-    stloc.3
+    stloc.2
   BB9:
-    ldloc.3
+    ldloc.2
     brfalse BB10
   BB11:
     ldc.i4.1
-    stloc.2
+    stloc.1
     br BB12
   BB10:
     ldarg.2
     ldc.i4.0
     clt
-    stloc.2
+    stloc.1
   BB12:
-    ldloc.2
+    ldloc.1
     brfalse BB14
   BB13:
-    ldloc.1
+    ldloc.0
     conv.i8
     ldc.i4.1
     conv.i8
@@ -82,10 +81,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     throw
   L1:
     conv.i4
-    stloc.0
-    br BB15
+    ret
   BB14:
-    ldloc.1
+    ldloc.0
     conv.i8
     ldc.i4.1
     conv.i8
@@ -101,9 +99,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     throw
   L2:
     conv.i4
-    stloc.0
-  BB15:
-    ldloc.0
     ret
   }
 
@@ -208,7 +203,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.0
     ldarg.0
     clt
-    brfalse BB3
+    brfalse BB4
   BB2:
     ldloc.0
     conv.i8
@@ -232,17 +227,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     rem
     ldc.i4.0
     ceq
-    brfalse BB5
-  BB4:
-    br BB1
-  BB5:
+    brtrue BB1
+  BB3:
     ldloc.1
     ldc.i4.s 100
     cgt
-    brfalse BB8
-  BB6:
-    br BB7
-  BB8:
+    brtrue BB4
+  BB5:
     ldloc.1
     conv.i8
     ldloc.0
@@ -261,8 +252,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     conv.i4
     stloc.1
     br BB1
-  BB3:
-  BB7:
+  BB4:
     ldloc.1
     ret
   }
@@ -324,17 +314,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldloc.1
     ldarg.0
     clt
-    brfalse BB3
+    brfalse BB6
   BB2:
     ldc.i4.0
     stloc.2
-  BB4:
+  BB3:
     ldloc.2
     ldloc.1
     ceq
-    brfalse BB7
-  BB5:
-  BB6:
+    brfalse BB5
+  BB4:
     ldloc.1
     conv.i8
     ldc.i4.1
@@ -353,7 +342,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     conv.i4
     stloc.1
     br BB1
-  BB7:
+  BB5:
     ldloc.2
     conv.i8
     ldc.i4.2
@@ -405,9 +394,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   L4:
     conv.i4
     stloc.2
-    br BB4
-  BB3:
-  BB8:
+    br BB3
+  BB6:
     ldloc.0
     ret
   }
@@ -441,55 +429,50 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   {
     .maxstack 2
     .locals init (
-      [0] bool '_0',
-      [1] bool 'both',
-      [2] bool 'either',
-      [3] bool '_11'
+      [0] bool 'both',
+      [1] bool 'either',
+      [2] bool '_11'
     )
   BB0:
     ldarg.0
     brfalse BB2
   BB1:
     ldarg.1
-    stloc.1
+    stloc.0
     br BB3
   BB2:
     ldc.i4.0
-    stloc.1
+    stloc.0
   BB3:
     ldarg.0
     brfalse BB4
   BB5:
     ldc.i4.1
-    stloc.2
+    stloc.1
     br BB6
   BB4:
     ldarg.1
-    stloc.2
+    stloc.1
   BB6:
-    ldloc.1
+    ldloc.0
     brfalse BB7
   BB8:
     ldc.i4.1
-    stloc.0
-    br BB12
+    ret
   BB7:
-    ldloc.2
+    ldloc.1
     ldc.i4.0
     ceq
     brfalse BB10
   BB9:
     ldarg.2
-    stloc.3
+    stloc.2
     br BB11
   BB10:
     ldc.i4.0
-    stloc.3
+    stloc.2
   BB11:
-    ldloc.3
-    stloc.0
-  BB12:
-    ldloc.0
+    ldloc.2
     ret
   }
 

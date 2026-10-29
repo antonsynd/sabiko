@@ -34,12 +34,12 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
         "fixture must be valid:\n{}",
         sabiko_diagnostics::render(sink.diagnostics(), &sm, Format::HumanPlain)
     );
-    // As the driver does: copy forwarding after borrow checking, then the validator.
-    sabiko_mir::forward::forward_all(&mut bodies);
-    let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
+    // As the driver does: drop elaboration, copy forwarding and the rest after borrow
+    // checking, each followed by the validator.
+    let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
     assert!(
         errors.is_empty(),
-        "invalid MIR after forwarding: {errors:#?}"
+        "invalid MIR before code generation: {errors:#?}"
     );
     let has_entry = bodies
         .iter()

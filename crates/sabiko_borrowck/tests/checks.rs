@@ -26,6 +26,14 @@ struct Line {
     B: Point,
 }
 
+struct Guard {
+    Id: i32,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {}
+}
+
 fn Callee(n: i32) -> i32 {
     n
 }
@@ -49,6 +57,7 @@ struct Fixture {
     typeck: TypeckResults,
     point: DefId,
     line: DefId,
+    guard: DefId,
     callee: DefId,
     main: DefId,
 }
@@ -73,6 +82,7 @@ impl Fixture {
         Self {
             point: def(DefKind::Struct, "Point"),
             line: def(DefKind::Struct, "Line"),
+            guard: def(DefKind::Struct, "Guard"),
             callee: def(DefKind::Fn, "Callee"),
             main: def(DefKind::Fn, "Main"),
             resolve,
@@ -141,6 +151,7 @@ impl BodyBuilder {
                 locals: Vec::new(),
                 arg_count: 0,
                 blocks: Vec::new(),
+                cleanups: Vec::new(),
                 span: Span::new(FileId(0), 0, 1),
             },
             next_span: 1000,
@@ -1118,4 +1129,35 @@ fn check_all_walks_every_body() {
         sink.diagnostics().iter().map(render).collect::<Vec<_>>(),
         ["E0400 cannot assign twice to immutable variable `n`"]
     );
+}
+
+#[test]
+fn drop_of_a_maybe_uninitialised_immutable_local_is_accepted() {
+    // let g: Guard; if flag { g = Guard {..} } drop(g);
+    // The drop runs `drop(&mut g)` only where `g` holds a value (elaboration's flag), so it
+    // is neither a use of a possibly uninitialised `g` (E0381) nor a mutation of an
+    // immutable binding.
+    let fx = Fixture::new();
+    let mut b = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = b.arg("flag", Ty::BOOL, Mutability::Not);
+    let g = b.user(&fx, "g", Ty::Adt(fx.guard), Mutability::Not);
+    let (bb0, then, join, end) = (b.block(), b.block(), b.block(), b.block());
+    b.live(bb0, g);
+    b.branch(bb0, copy(flag), then, join);
+    b.assign(
+        then,
+        local(g),
+        Rvalue::Aggregate(AggregateKind::Adt(fx.guard), vec![int(1)]),
+    );
+    b.goto(then, join);
+    b.terminate(
+        join,
+        TerminatorKind::Drop {
+            place: local(g),
+            target: end,
+        },
+    );
+    b.dead(end, g);
+    b.ret(end);
+    fx.assert_clean(&b.finish());
 }

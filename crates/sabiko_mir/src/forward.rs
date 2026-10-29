@@ -131,7 +131,18 @@ fn mentions(body: &Body) -> Vec<Mentions> {
                 }
                 write(&mut m, destination);
             }
+            // A dropped local is never forwarded (nor is anything with drop glue below).
+            TerminatorKind::Drop { place, .. } => m[place.local.index()].other += 1,
             TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+        }
+    }
+    // A value with drop glue is dropped where its cleanup scopes and drops say: forwarding
+    // it would move it at another point, changing what a panic in between drops and in
+    // which order (decision 55). Every such local that is ever written has a cleanup scope.
+    for cleanup in &body.cleanups {
+        m[cleanup.local.index()].other += 1;
+        for drop in &cleanup.drops {
+            m[drop.place.local.index()].other += 1;
         }
     }
     m
@@ -239,7 +250,10 @@ fn find_use(
     let reads = match &data.terminator().kind {
         TerminatorKind::SwitchInt { discr, .. } => is_temp(discr, temp),
         TerminatorKind::Call { args, .. } => args.iter().any(|a| is_temp(a, temp)),
-        TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => false,
+        TerminatorKind::Goto { .. }
+        | TerminatorKind::Drop { .. }
+        | TerminatorKind::Return
+        | TerminatorKind::Unreachable => false,
     };
     reads.then_some(UseSite::Terminator)
 }
@@ -348,6 +362,7 @@ mod tests {
             locals: all,
             arg_count: 1,
             blocks,
+            cleanups: Vec::new(),
             span: Span::dummy(),
         }
     }
@@ -382,6 +397,7 @@ mod tests {
                 kind,
                 span: Span::dummy(),
             }),
+            cleanup: None,
         }
     }
 

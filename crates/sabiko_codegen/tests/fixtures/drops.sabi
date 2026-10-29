@@ -1,0 +1,66 @@
+// Drops in CIL (decision 55): a cleanup scope with something to drop is a `.try` region with
+// a `fault` handler that marks the panic as being cleaned up and runs the drops; flags are
+// `bool` locals; exits from a region `leave` it; drop glue is a generated static method
+// per type with fields to drop. A function whose values never need dropping, `Peek` and
+// `Sum` here, has no exception handling at all.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+// Own `drop`, then the fields in declaration order, each still dropped when an earlier
+// one panics.
+struct Outer { First: D, N: i32, Second: D }
+
+impl Drop for Outer {
+    fn drop(&mut self) {
+        PrintLine(self.N);
+    }
+}
+
+// No `drop` of its own: its glue drops the two fields.
+struct Pair { A: D, B: D }
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Consume(d: D) {}
+
+fn Peek(d: &D) -> i32 {
+    d.Id
+}
+
+fn Sum(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn TwoLocals() {
+    let a = Make(1);
+    let b = Make(2);
+    PrintLine(Peek(&a) + Peek(&b));
+}
+
+fn Flagged(flag: bool) -> i32 {
+    let d = Make(3);
+    if flag {
+        Consume(d);
+        return 0;
+    }
+    1
+}
+
+fn Nested() {
+    let o = Outer { First: Make(4), N: 5, Second: Make(6) };
+    let p = Pair { A: Make(7), B: Make(8) };
+    Consume(p.B);
+}
+
+fn Main() {
+    TwoLocals();
+    PrintLine(Flagged(true) + Sum(1, 2));
+    Nested();
+}

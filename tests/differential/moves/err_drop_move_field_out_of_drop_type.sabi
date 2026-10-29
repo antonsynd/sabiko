@@ -1,0 +1,22 @@
+// A non-Copy field cannot be moved out of a value whose type implements `Drop` (its `drop`
+// will still see the whole value): rustc E0509, Sabiko E0418.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Owner { Id: i32, Inner: D }
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let a = Owner { Id: 1, Inner: D { Id: 2 } };
+    let inner = a.Inner;
+}

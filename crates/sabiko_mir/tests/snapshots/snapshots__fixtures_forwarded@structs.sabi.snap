@@ -92,10 +92,10 @@ fn Length(_1: &Line) -> i32 {
         StorageLive(_11);
         _11 = Mul(copy _5, copy _5);
         _0 = Add(copy _8, copy _11);
-        StorageDead(_11);
-        StorageDead(_8);
         StorageDead(_5);
         StorageDead(_2);
+        StorageDead(_11);
+        StorageDead(_8);
         goto -> bb1;
     }
 

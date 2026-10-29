@@ -223,8 +223,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/methods.sabi
       stloc.0
       leave.s DONE
     }
-    catch [System.Runtime]System.Exception
+    filter
     {
+      call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Filter(object)
+      endfilter
+    }
+    {
+      castclass [System.Runtime]System.Exception
       call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime]System.Exception)
       stloc.0
       leave.s DONE

@@ -119,7 +119,12 @@ impl Checker<'_> {
                 }
                 self.check_write(destination, terminator.span);
             }
-            TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+            // A drop needs neither an initialised place (it drops what is there) nor a
+            // `mut` binding, although `drop` takes `&mut self`.
+            TerminatorKind::Drop { .. }
+            | TerminatorKind::Goto { .. }
+            | TerminatorKind::Return
+            | TerminatorKind::Unreachable => {}
         }
     }
 

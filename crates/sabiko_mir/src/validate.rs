@@ -9,8 +9,8 @@ use sabiko_resolve::{Builtin, PrimTy};
 use sabiko_types::{is_printable, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
-    AggregateKind, BasicBlock, BinOp, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue,
-    Statement, StatementKind, Terminator, TerminatorKind,
+    AggregateKind, BasicBlock, BinOp, Body, CleanupScope, Constant, LocalKind, Operand, Place,
+    PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Checks one body, returning every violation found.
@@ -106,6 +106,110 @@ impl Validator<'_> {
             }
         }
         self.two_phase_borrows();
+        self.cleanups();
+    }
+
+    /// Cleanup scopes (decision 55): parents precede their children; every drop is of a
+    /// place with drop glue, behind a `bool` flag if any; no block that returns is
+    /// protected; and the reachable blocks a scope protects have a single entry, so code
+    /// generation can make them one protected region.
+    fn cleanups(&mut self) {
+        let n = self.body.cleanups.len();
+        for (i, cleanup) in self.body.cleanups.iter().enumerate() {
+            if cleanup.parent.is_some_and(|p| p.index() >= i) {
+                self.errors.push(format!(
+                    "cleanup c{i} has a parent that does not precede it"
+                ));
+            }
+            if cleanup.local.index() >= self.body.locals.len() {
+                self.errors
+                    .push(format!("cleanup c{i} protects a local that does not exist"));
+            }
+        }
+        for i in 0..n {
+            let drops = self.body.cleanups[i].drops.clone();
+            for drop in &drops {
+                let bb = BasicBlock::START;
+                if let Some(ty) = self.place_ty(bb, &drop.place) {
+                    if !self.typeck.items.needs_drop(&ty) {
+                        self.errors.push(format!(
+                            "cleanup c{i} drops {:?}, whose type {ty:?} has no drop glue",
+                            drop.place
+                        ));
+                    }
+                }
+                if let Some(flag) = drop.flag {
+                    let is_bool = self
+                        .body
+                        .locals
+                        .get(flag.index())
+                        .is_some_and(|d| d.ty.is_bool());
+                    if !is_bool {
+                        self.errors.push(format!(
+                            "cleanup c{i} has a drop flag _{} that is not a bool",
+                            flag.0
+                        ));
+                    }
+                }
+            }
+        }
+        let mut chains: Vec<Vec<CleanupScope>> = Vec::with_capacity(self.body.blocks.len());
+        for bb in self.body.block_ids() {
+            let data = self.body.block(bb);
+            let mut chain = Vec::new();
+            let mut next = data.cleanup;
+            while let Some(scope) = next {
+                if scope.index() >= n || chain.contains(&scope) {
+                    self.err(bb, format!("cleanup c{} does not exist or loops", scope.0));
+                    break;
+                }
+                chain.push(scope);
+                next = self.body.cleanups[scope.index()].parent;
+            }
+            if data.cleanup.is_some()
+                && matches!(
+                    data.terminator.as_ref().map(|t| &t.kind),
+                    Some(TerminatorKind::Return)
+                )
+            {
+                self.err(bb, "a block that returns is protected by a cleanup scope");
+            }
+            chains.push(chain);
+        }
+        // Single entry, over the reachable blocks.
+        let reachable = reachable_blocks(self.body);
+        let mut preds: Vec<Vec<BasicBlock>> = vec![Vec::new(); self.body.blocks.len()];
+        for bb in self.body.block_ids() {
+            if !reachable[bb.index()] {
+                continue;
+            }
+            if let Some(term) = &self.body.block(bb).terminator {
+                for succ in term.kind.successors() {
+                    if succ.index() < preds.len() {
+                        preds[succ.index()].push(bb);
+                    }
+                }
+            }
+        }
+        for i in 0..n {
+            let scope = CleanupScope(u32::try_from(i).expect("fewer than 2^32 cleanup scopes"));
+            let inside = |bb: BasicBlock| chains[bb.index()].contains(&scope);
+            let entries: Vec<BasicBlock> = self
+                .body
+                .block_ids()
+                .filter(|&bb| reachable[bb.index()] && inside(bb))
+                .filter(|&bb| {
+                    bb == BasicBlock::START || preds[bb.index()].iter().any(|&p| !inside(p))
+                })
+                .collect();
+            if entries.len() > 1 {
+                let list: Vec<String> = entries.iter().map(|bb| format!("bb{}", bb.0)).collect();
+                self.errors.push(format!(
+                    "cleanup c{i} is entered from outside at {}",
+                    list.join(", ")
+                ));
+            }
+        }
     }
 
     /// A two-phase borrow is assigned to a temporary that nothing but one call reads
@@ -163,6 +267,7 @@ impl Validator<'_> {
                         count(p, &mut uses);
                     }
                 }
+                TerminatorKind::Drop { place, .. } => count(place, &mut uses),
                 TerminatorKind::Goto { .. }
                 | TerminatorKind::Return
                 | TerminatorKind::Unreachable => {}
@@ -460,6 +565,17 @@ impl Validator<'_> {
                     self.check_target(bb, *target);
                 }
             }
+            TerminatorKind::Drop { place, target } => {
+                if let Some(ty) = self.place_ty(bb, place) {
+                    if !self.typeck.items.needs_drop(&ty) {
+                        self.err(
+                            bb,
+                            format!("drop of a place of type {ty:?}, which has no drop glue"),
+                        );
+                    }
+                }
+                self.check_target(bb, *target);
+            }
             TerminatorKind::Return | TerminatorKind::Unreachable => {}
         }
     }
@@ -512,6 +628,22 @@ impl Validator<'_> {
             self.check_target(bb, target);
         }
     }
+}
+
+/// Which blocks the start block reaches.
+fn reachable_blocks(body: &Body) -> Vec<bool> {
+    let mut reachable = vec![false; body.blocks.len()];
+    let mut stack = vec![BasicBlock::START];
+    while let Some(bb) = stack.pop() {
+        if bb.index() >= reachable.len() || reachable[bb.index()] {
+            continue;
+        }
+        reachable[bb.index()] = true;
+        if let Some(term) = &body.block(bb).terminator {
+            stack.extend(term.kind.successors());
+        }
+    }
+    reachable
 }
 
 /// The places an rvalue reads or borrows.

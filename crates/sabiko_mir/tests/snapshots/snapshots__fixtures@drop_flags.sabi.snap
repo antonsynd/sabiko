@@ -1,0 +1,392 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/drop_flags.sabi
+---
+fn D::drop(_1: &mut D) {
+    let mut _0: ();
+    let mut _2: ();
+    let mut _3: i32;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = copy (*_1).Id;
+        _2 = PrintLine(copy _3) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Consume(_1: D) {
+    let mut _0: ();
+    cleanup c0: _1 => drop(_1);
+
+    bb0 (cleanup c0): {
+        _0 = const ();
+        goto -> bb1;
+    }
+
+    bb1: {
+        drop(_1) -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn MaybeMoved(_1: bool) {
+    let mut _0: ();
+    let _2: D;                           // d
+    let mut _3: bool;
+    let mut _4: ();
+    let mut _5: D;
+    cleanup c0: _2 => drop(_2);
+    cleanup c1 in c0: _5 => drop(_5);
+
+    bb0: {
+        StorageLive(_2);
+        _2 = D { Id: const 1_i32 };
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c0): {
+        StorageLive(_3);
+        _3 = copy _1;
+        switchInt(copy _3) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2 (cleanup c0): {
+        StorageDead(_3);
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = move _2;
+        goto -> bb4;
+    }
+
+    bb3 (cleanup c0): {
+        StorageDead(_3);
+        _0 = const ();
+        goto -> bb7;
+    }
+
+    bb4 (cleanup c1): {
+        _4 = Consume(move _5) -> bb5;
+    }
+
+    bb5 (cleanup c0): {
+        drop(_5) -> bb6;
+    }
+
+    bb6 (cleanup c0): {
+        StorageDead(_5);
+        StorageDead(_4);
+        _0 = const ();
+        goto -> bb7;
+    }
+
+    bb7: {
+        drop(_2) -> bb8;
+    }
+
+    bb8: {
+        StorageDead(_2);
+        goto -> bb9;
+    }
+
+    bb9: {
+        return;
+    }
+}
+
+fn MaybeInit(_1: bool) {
+    let mut _0: ();
+    let _2: D;                           // d
+    let mut _3: bool;
+    let mut _4: D;
+    cleanup c0: _2 => drop(_2);
+    cleanup c1 in c0: _4 => drop(_4);
+
+    bb0 (cleanup c0): {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        switchInt(copy _3) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1 (cleanup c0): {
+        StorageDead(_3);
+        StorageLive(_4);
+        _4 = D { Id: const 2_i32 };
+        goto -> bb3;
+    }
+
+    bb2 (cleanup c0): {
+        StorageDead(_3);
+        _0 = const ();
+        goto -> bb6;
+    }
+
+    bb3 (cleanup c1): {
+        _2 = move _4;
+        goto -> bb4;
+    }
+
+    bb4 (cleanup c0): {
+        drop(_4) -> bb5;
+    }
+
+    bb5 (cleanup c0): {
+        StorageDead(_4);
+        _0 = const ();
+        goto -> bb6;
+    }
+
+    bb6: {
+        drop(_2) -> bb7;
+    }
+
+    bb7: {
+        StorageDead(_2);
+        goto -> bb8;
+    }
+
+    bb8: {
+        return;
+    }
+}
+
+fn MovedEveryOtherIteration() {
+    let mut _0: ();
+    let mut _1: i32;                     // i
+    let mut _2: D;                       // d
+    let mut _3: bool;
+    let mut _4: i32;
+    let mut _5: bool;
+    let mut _6: i32;
+    let mut _7: i32;
+    let mut _8: ();
+    let mut _9: D;
+    let mut _10: D;
+    let mut _11: i32;
+    let mut _12: i32;
+    let mut _13: i32;
+    cleanup c0: _2 => drop(_2);
+    cleanup c1 in c0: _9 => drop(_9);
+    cleanup c2 in c0: _10 => drop(_10);
+
+    bb0: {
+        StorageLive(_1);
+        _1 = const 0_i32;
+        StorageLive(_2);
+        _2 = D { Id: const 3_i32 };
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c0): {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = copy _1;
+        _3 = Lt(copy _4, const 4_i32);
+        switchInt(copy _3) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2 (cleanup c0): {
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageLive(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = copy _1;
+        _6 = Rem(copy _7, const 2_i32);
+        _5 = Eq(copy _6, const 0_i32);
+        switchInt(copy _5) -> [0: bb5, otherwise: bb4];
+    }
+
+    bb3 (cleanup c0): {
+        StorageDead(_4);
+        StorageDead(_3);
+        goto -> bb13;
+    }
+
+    bb4 (cleanup c0): {
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageLive(_8);
+        StorageLive(_9);
+        _9 = move _2;
+        goto -> bb6;
+    }
+
+    bb5 (cleanup c0): {
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_5);
+        goto -> bb12;
+    }
+
+    bb6 (cleanup c1): {
+        _8 = Consume(move _9) -> bb7;
+    }
+
+    bb7 (cleanup c0): {
+        drop(_9) -> bb8;
+    }
+
+    bb8 (cleanup c0): {
+        StorageDead(_9);
+        StorageDead(_8);
+        StorageLive(_10);
+        StorageLive(_11);
+        _11 = copy _1;
+        _10 = D { Id: copy _11 };
+        goto -> bb9;
+    }
+
+    bb9 (cleanup c2): {
+        _2 = move _10;
+        goto -> bb10;
+    }
+
+    bb10 (cleanup c0): {
+        drop(_10) -> bb11;
+    }
+
+    bb11 (cleanup c0): {
+        StorageDead(_10);
+        StorageDead(_11);
+        goto -> bb12;
+    }
+
+    bb12 (cleanup c0): {
+        StorageLive(_12);
+        StorageLive(_13);
+        _13 = copy _1;
+        _12 = Add(copy _13, const 1_i32);
+        _1 = copy _12;
+        StorageDead(_13);
+        StorageDead(_12);
+        goto -> bb1;
+    }
+
+    bb13 (cleanup c0): {
+        _0 = const ();
+        goto -> bb14;
+    }
+
+    bb14: {
+        drop(_2) -> bb15;
+    }
+
+    bb15: {
+        StorageDead(_2);
+        StorageDead(_1);
+        goto -> bb16;
+    }
+
+    bb16: {
+        return;
+    }
+}
+
+fn PartialMove(_1: bool) {
+    let mut _0: ();
+    let _2: Pair;                        // p
+    let mut _3: D;
+    let mut _4: D;
+    let mut _5: bool;
+    let mut _6: ();
+    let mut _7: D;
+    cleanup c0: _3 => drop(_3);
+    cleanup c1 in c0: _4 => drop(_4);
+    cleanup c2: _2 => drop(_2);
+    cleanup c3 in c2: _3 => drop(_3);
+    cleanup c4 in c2: _7 => drop(_7);
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = D { Id: const 4_i32 };
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c0): {
+        StorageLive(_4);
+        _4 = D { Id: const 5_i32 };
+        goto -> bb2;
+    }
+
+    bb2 (cleanup c1): {
+        _2 = Pair { A: move _3, B: move _4 };
+        goto -> bb3;
+    }
+
+    bb3 (cleanup c3): {
+        drop(_4) -> bb4;
+    }
+
+    bb4 (cleanup c2): {
+        StorageDead(_4);
+        drop(_3) -> bb5;
+    }
+
+    bb5 (cleanup c2): {
+        StorageDead(_3);
+        StorageLive(_5);
+        _5 = copy _1;
+        switchInt(copy _5) -> [0: bb7, otherwise: bb6];
+    }
+
+    bb6 (cleanup c2): {
+        StorageDead(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = move _2.A;
+        goto -> bb8;
+    }
+
+    bb7 (cleanup c2): {
+        StorageDead(_5);
+        _0 = const ();
+        goto -> bb11;
+    }
+
+    bb8 (cleanup c4): {
+        _6 = Consume(move _7) -> bb9;
+    }
+
+    bb9 (cleanup c2): {
+        drop(_7) -> bb10;
+    }
+
+    bb10 (cleanup c2): {
+        StorageDead(_7);
+        StorageDead(_6);
+        _0 = const ();
+        goto -> bb11;
+    }
+
+    bb11: {
+        drop(_2) -> bb12;
+    }
+
+    bb12: {
+        StorageDead(_2);
+        goto -> bb13;
+    }
+
+    bb13: {
+        return;
+    }
+}

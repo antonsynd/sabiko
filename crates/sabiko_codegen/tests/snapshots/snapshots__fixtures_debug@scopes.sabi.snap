@@ -248,22 +248,22 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     ldloc.0
     ldarg.0
     clt
-    brfalse BB3
+    brfalse BB6
   BB2:
     ldloc.0
     call int32 'Scopes'::'Twice'(int32)
     stloc.1
-  BB4:
+  BB3:
     ldloc.1
     ldc.i4.s 10
     cgt
-    brfalse BB15
-  BB5:
+    brfalse BB11
+  BB4:
     ldloc.1
     ldc.i4.1
     call int32 'Scopes'::'Twice'(int32)
     stloc.3
-  BB6:
+  BB5:
     conv.i8
     ldloc.3
     conv.i8
@@ -283,26 +283,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     ldloc.2
     ldc.i4.s 20
     cgt
-    brfalse BB9
+    brtrue BB6
   BB7:
-    br BB8
-  BB9:
     ldloc.2
     ldc.i4.s 15
     cgt
-    brfalse BB11
-  BB10:
-    br BB1
-  BB11:
+    brtrue BB1
+  BB8:
     ldloc.2
     ldc.i4.s 12
     cgt
-    brfalse BB14
-  BB12:
+    brfalse BB11
+  BB9:
     ldloc.2
     ret
-  BB14:
-  BB15:
+  BB11:
     ldloc.0
     conv.i8
     ldc.i4.1
@@ -321,8 +316,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     conv.i4
     stloc.0
     br BB1
-  BB3:
-  BB8:
+  BB6:
     ldloc.0
     ret
   }

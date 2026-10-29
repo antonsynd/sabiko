@@ -779,18 +779,17 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     stloc.s 9
     br BB31
   BB33:
-  BB34:
     ldloc.s 9
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
-  BB35:
+  BB34:
     ldloca.s 0
     ldfld int32 'P'::'A'
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
-  BB36:
+  BB35:
     ldloca.s 0
     ldfld int64 'P'::'B'
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
-  BB37:
+  BB36:
     ret
   }
 
@@ -806,8 +805,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
       stloc.0
       leave.s DONE
     }
-    catch [System.Runtime]System.Exception
+    filter
     {
+      call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Filter(object)
+      endfilter
+    }
+    {
+      castclass [System.Runtime]System.Exception
       call int32 [Sabiko.Runtime]Sabiko.Runtime.Panic::Unhandled(class [System.Runtime]System.Exception)
       stloc.0
       leave.s DONE
