@@ -1,0 +1,67 @@
+// Values the backend keeps on the evaluation stack instead of in locals, and copies MIR
+// optimisation forwards into their use (decision 51): every operand must still be read
+// when it is evaluated, before a later sibling (a call, an assignment) changes its place.
+struct P { A: i32, B: i64 }
+
+fn Bump(p: &mut P) -> i32 { p.A += 10; p.A }
+fn BumpB(p: &mut P) -> i64 { p.B = p.B * 3 + 1; p.B }
+fn Pair(a: i32, b: i32) -> i32 { a * 100 + b }
+fn Three(a: i64, b: i64, c: i64) -> i64 { a * 10000 + b * 100 + c }
+fn Twice(x: i32) -> i32 { x * 2 }
+
+fn Products(a: i32, b: i32, c: i32, d: i32) -> i32 {
+    a * b + c * d - (a - b) * (c - d)
+}
+
+fn Divide(a: i64, b: i64) -> i64 {
+    // The divisor is checked for zero and for -1 before the division reads it again.
+    a / (b + 1) + a % (b - 1)
+}
+
+fn Early(n: i32) -> i32 {
+    if n < 0 {
+        return Twice(n) - 1;
+    }
+    let t = n * 3;
+    if t > 20 {
+        return t;
+    }
+    Twice(t) + Twice(n)
+}
+
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    // Call results stay on the stack while later calls mutate `p`.
+    PrintLine(Pair(Bump(&mut p), Bump(&mut p)));
+    PrintLine(Pair(p.A, Bump(&mut p)));
+    PrintLine(Three(p.B, BumpB(&mut p), p.B));
+    let x = Bump(&mut p) + p.A * Bump(&mut p);
+    PrintLine(x);
+    // A single-use local whose operand is reassigned before the use.
+    let mut a = 7;
+    let t = a * 3;
+    a = 100;
+    let u = t + a;
+    PrintLine(u);
+    let mut b: i64 = 5;
+    let c = b;
+    b += 1;
+    PrintLine(Three(c, b, c + b));
+    PrintLine(Products(3, 4, 5, 6));
+    PrintLine(Products(-2, 7, 1, -9));
+    PrintLine(Divide(100, 6));
+    PrintLine(Divide(-77, 3));
+    PrintLine(Early(-4));
+    PrintLine(Early(5));
+    PrintLine(Early(9));
+    let mut i = 0;
+    let mut sum: i64 = 0;
+    while i < 10 {
+        let sq = i * i;
+        i += 1;
+        sum += (sq + i) as i64;
+    }
+    PrintLine(sum);
+    PrintLine(p.A);
+    PrintLine(p.B);
+}

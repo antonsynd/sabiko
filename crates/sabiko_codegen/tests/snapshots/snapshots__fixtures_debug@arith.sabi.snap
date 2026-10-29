@@ -13,66 +13,30 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
 {
   .method public hidebysig static int32 'Arith'(int32 'a', int32 'b') cil managed
   {
-    .maxstack 4
+    .maxstack 6
     .locals init (
       [0] int32 '_0',
       [1] int32 'x',
-      [2] int32 '_4',
-      [3] int32 '_5',
-      [4] int32 '_6',
-      [5] int32 '_7',
-      [6] int32 'y',
-      [7] int32 '_9',
-      [8] int32 '_10',
-      [9] int32 '_11',
-      [10] int32 '_12',
-      [11] int32 'z',
-      [12] int32 '_14',
-      [13] bool 'neg',
-      [14] bool '_16',
-      [15] int32 '_17',
-      [16] int32 '_18',
-      [17] int64 'w',
-      [18] int64 '_20',
-      [19] int32 '_21',
-      [20] int64 '_22',
-      [21] int64 '_23',
-      [22] int32 '_24',
-      [23] float64 'f',
-      [24] float64 '_26',
-      [25] int32 '_27',
-      [26] uint32 'u',
-      [27] int32 'bits',
-      [28] int32 '_30',
-      [29] int32 '_31',
-      [30] int32 '_32',
-      [31] int32 '_33',
-      [32] int32 '_34',
-      [33] int32 '_35',
-      [34] int32 'same',
-      [35] int32 '_37',
-      [36] bool '_38',
-      [37] int32 '_39',
-      [38] int32 '_40',
-      [39] int32 '_41',
-      [40] int64 '_42',
-      [41] int32 '_43',
-      [42] uint32 '_44',
-      [43] int32 '_45',
-      [44] int32 '_46',
-      [45] int32 '_47',
-      [46] int32 '_48',
-      [47] int32 '_49',
-      [48] int32 '_50',
-      [49] float64 '_51',
-      [50] int64 '$tmp0'
+      [2] int32 '_5',
+      [3] int32 '_7',
+      [4] int32 '_12',
+      [5] int32 'z',
+      [6] int32 '_14',
+      [7] int64 'w',
+      [8] float64 'f',
+      [9] uint32 'u',
+      [10] int32 'bits',
+      [11] int32 'same',
+      [12] int32 '_41',
+      [13] int32 '_43',
+      [14] int32 '_48',
+      [15] int32 '_49',
+      [16] int32 '_50',
+      [17] int64 '$tmp0'
     )
   BB0:
     ldarg.0
-    stloc.2
     ldarg.1
-    stloc.s 4
-    ldloc.s 4
     conv.i8
     ldc.i4.2
     conv.i8
@@ -88,10 +52,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L1:
     conv.i4
-    stloc.3
-    ldloc.2
+    stloc.2
     conv.i8
-    ldloc.3
+    ldloc.2
     conv.i8
     add
     dup
@@ -124,10 +87,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     conv.i4
     stloc.1
     ldarg.0
-    stloc.s 5
+    stloc.3
     ldloc.1
     conv.i8
-    ldloc.s 5
+    ldloc.3
     conv.i8
     mul
     dup
@@ -143,12 +106,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     conv.i4
     stloc.1
     ldloc.1
-    stloc.s 9
     ldarg.1
-    stloc.s 10
-    ldloc.s 9
+    stloc.s 4
     conv.i8
-    ldloc.s 10
+    ldloc.s 4
     conv.i8
     sub
     dup
@@ -162,19 +123,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L5:
     conv.i4
-    stloc.s 8
-    ldloc.s 8
     ldc.i4.3
     div
-    stloc.s 7
-    ldloc.s 7
     ldc.i4.2
     rem
     stloc.s 6
-    ldloc.s 6
-    stloc.s 12
     ldc.i8 0
-    ldloc.s 12
+    ldloc.s 6
     conv.i8
     sub
     dup
@@ -188,30 +143,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L6:
     conv.i4
-    stloc.s 11
+    stloc.s 5
     ldarg.0
-    stloc.s 15
     ldarg.1
-    stloc.s 16
-    ldloc.s 15
-    ldloc.s 16
     ceq
-    stloc.s 14
-    ldloc.s 14
     ldc.i4.0
     ceq
-    stloc.s 13
     ldloc.1
-    stloc.s 19
-    ldloc.s 19
     conv.i8
-    stloc.s 18
     ldarg.1
-    stloc.s 22
-    ldloc.s 22
     conv.i8
-    stloc.s 21
-    ldloc.s 21
     ldc.i4.2
     dup
     ldc.i4.s 64
@@ -222,10 +163,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L7:
     shl
-    stloc.s 20
-    ldloc.s 18
-    ldloc.s 20
-    ldloca.s 50
+    ldloca.s 17
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L8
     ldstr "arith.sabi:9:13"
@@ -233,59 +171,34 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     ldnull
     throw
   L8:
-    ldloc.s 50
-    stloc.s 17
+    ldloc.s 17
+    stloc.s 7
     ldarg.0
-    stloc.s 25
-    ldloc.s 25
     conv.r8
-    stloc.s 24
-    ldloc.s 24
     ldc.r8 1.5
     mul
-    stloc.s 23
+    stloc.s 8
     ldc.i4.7
     conv.u4
-    stloc.s 26
+    stloc.s 9
     ldarg.0
-    stloc.s 29
     ldarg.1
-    stloc.s 30
-    ldloc.s 29
-    ldloc.s 30
     and
-    stloc.s 28
     ldarg.0
-    stloc.s 32
     ldarg.1
-    stloc.s 33
-    ldloc.s 32
-    ldloc.s 33
     xor
-    stloc.s 31
-    ldloc.s 28
-    ldloc.s 31
     or
-    stloc.s 27
+    stloc.s 10
     ldarg.0
-    stloc.s 35
-    ldloc.s 35
-    stloc.s 34
-    ldloc.s 13
-    stloc.s 36
-    ldloc.s 36
+    stloc.s 11
     brfalse BB2
   BB1:
-    ldloc.s 11
-    stloc.s 38
-    ldloc.s 17
-    stloc.s 40
-    ldloc.s 40
+    ldloc.s 5
+    ldloc.s 7
     conv.i4
-    stloc.s 39
-    ldloc.s 38
+    stloc.s 12
     conv.i8
-    ldloc.s 39
+    ldloc.s 12
     conv.i8
     add
     dup
@@ -299,15 +212,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L9:
     conv.i4
-    stloc.s 37
-    ldloc.s 26
-    stloc.s 42
-    ldloc.s 42
+    ldloc.s 9
     conv.i4
-    stloc.s 41
-    ldloc.s 37
+    stloc.s 13
     conv.i8
-    ldloc.s 41
+    ldloc.s 13
     conv.i8
     add
     dup
@@ -325,12 +234,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     br BB3
   BB2:
     ldloc.1
-    stloc.s 45
-    ldloc.s 27
-    stloc.s 46
-    ldloc.s 45
+    ldloc.s 10
+    stloc.s 14
     conv.i8
-    ldloc.s 46
+    ldloc.s 14
     conv.i8
     add
     dup
@@ -344,12 +251,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L11:
     conv.i4
-    stloc.s 44
-    ldloc.s 34
-    stloc.s 47
-    ldloc.s 44
+    ldloc.s 11
+    stloc.s 15
     conv.i8
-    ldloc.s 47
+    ldloc.s 15
     conv.i8
     add
     dup
@@ -363,15 +268,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L12:
     conv.i4
-    stloc.s 43
-    ldloc.s 23
-    stloc.s 49
-    ldloc.s 49
+    ldloc.s 8
     conv.i4
-    stloc.s 48
-    ldloc.s 43
+    stloc.s 16
     conv.i8
-    ldloc.s 48
+    ldloc.s 16
     conv.i8
     add
     dup
@@ -396,22 +297,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     .maxstack 4
     .locals init (
       [0] uint32 '_0',
-      [1] uint32 'inverted',
-      [2] uint32 '_4',
-      [3] uint32 'shifted',
-      [4] uint32 '_6',
-      [5] bool '_7',
-      [6] bool '_8'
+      [1] uint32 'shifted'
     )
   BB0:
     ldarg.1
-    stloc.2
-    ldloc.2
     not
-    stloc.1
-    ldloc.1
-    stloc.s 4
-    ldloc.s 4
     ldc.i4.3
     dup
     ldc.i4.s 32
@@ -422,17 +312,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
     throw
   L1:
     shr.un
-    stloc.3
+    stloc.1
     ldarg.0
-    stloc.s 6
-    ldloc.s 6
     ldc.i4.0
     ceq
-    stloc.s 5
-    ldloc.s 5
     brfalse BB2
   BB1:
-    ldloc.3
+    ldloc.1
     stloc.0
     br BB3
   BB2:
@@ -447,43 +333,31 @@ input_file: crates/sabiko_codegen/tests/fixtures/arith.sabi
   {
     .maxstack 2
     .locals init (
-      [0] float64 '_0',
-      [1] char 'c',
-      [2] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
-      [3] uint64 'big',
-      [4] float32 'half',
-      [5] char '_5',
-      [6] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_6',
-      [7] uint64 '_7',
-      [8] float64 '_8',
-      [9] float32 '_9'
+      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
+      [1] uint64 'big',
+      [2] float32 'half',
+      [3] char '_5',
+      [4] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_6',
+      [5] uint64 '_7'
     )
   BB0:
     ldc.i4.s 120
-    stloc.1
     ldstr "text"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
-    stloc.2
+    stloc.0
     ldc.i8 1000000
-    stloc.3
+    stloc.1
     ldc.r4 0.5
+    stloc.2
+    stloc.3
+    ldloc.0
     stloc.s 4
     ldloc.1
     stloc.s 5
     ldloc.2
-    stloc.s 6
-    ldloc.3
-    stloc.s 7
-    ldloc.s 4
-    stloc.s 9
-    ldloc.s 9
     conv.r8
-    stloc.s 8
-    ldloc.s 8
     ldc.r8 2.0
     add
-    stloc.0
-    ldloc.0
     ret
   }
 

@@ -27,31 +27,28 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
   {
     .maxstack 2
     .locals init (
-      [0] valuetype 'Point' '_0',
-      [1] valuetype 'Point' '_2',
-      [2] valuetype 'Point' '_3',
-      [3] int32 '_4',
-      [4] int32 '_5'
+      [0] valuetype 'Point' '_2',
+      [1] valuetype 'Point' '_3',
+      [2] int32 '_4',
+      [3] int32 '_5'
     )
   BB0:
     ldarg.0
-    stloc.1
-    ldloca.s 1
+    stloc.0
+    ldloca.s 0
     ldfld int32 'Point'::'Y'
+    stloc.2
+    ldloca.s 0
+    ldfld int32 'Point'::'X'
     stloc.3
     ldloca.s 1
-    ldfld int32 'Point'::'X'
-    stloc.s 4
-    ldloca.s 2
     initobj valuetype 'Point'
-    ldloca.s 2
-    ldloc.3
-    stfld int32 'Point'::'X'
-    ldloca.s 2
-    ldloc.s 4
-    stfld int32 'Point'::'Y'
+    ldloca.s 1
     ldloc.2
-    stloc.1
+    stfld int32 'Point'::'X'
+    ldloca.s 1
+    ldloc.3
+    stfld int32 'Point'::'Y'
     ldloc.1
     stloc.0
     ldloc.0
@@ -70,14 +67,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
       [5] valuetype 'Pair' '_6',
       [6] valuetype 'Point' '_7',
       [7] valuetype 'Point' '_8',
-      [8] int32 '_9',
-      [9] int32 '_10',
-      [10] int32 '_11',
-      [11] valuetype 'Point' '_12',
-      [12] valuetype 'Point' '_13',
-      [13] int32 '_14',
-      [14] valuetype 'Point' '_15',
-      [15] valuetype 'Pair' '_16'
+      [8] valuetype 'Point' '_13',
+      [9] int32 '_14',
+      [10] valuetype 'Point' '_15',
+      [11] valuetype 'Pair' '_16'
     )
   BB0:
     ldloca.s 0
@@ -134,10 +127,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
     ldloc.s 5
     stloc.1
     ldc.i4.1
-    stloc.s 8
-    ldloc.s 8
-    stloc.s 10
-    ldloc.s 10
     conv.i8
     ldc.i4.1
     conv.i8
@@ -154,24 +143,20 @@ input_file: crates/sabiko_codegen/tests/fixtures/aggregates.sabi
   L1:
     conv.i4
     stloc.s 9
-    ldloc.s 9
-    stloc.s 13
-    ldloca.s 12
+    ldloca.s 8
     initobj valuetype 'Point'
-    ldloca.s 12
-    ldloc.s 13
+    ldloca.s 8
+    ldloc.s 9
     stfld int32 'Point'::'X'
-    ldloca.s 12
+    ldloca.s 8
     ldc.i4.5
     stfld int32 'Point'::'Y'
-    ldloc.s 12
+    ldloc.s 8
     call valuetype 'Point' 'Aggregates'::'Swap'(valuetype 'Point')
-    stloc.s 11
   BB1:
-    ldloc.s 11
-    stloc.s 14
+    stloc.s 10
     ldloc.1
-    stloc.s 15
+    stloc.s 11
     ret
   }
 
