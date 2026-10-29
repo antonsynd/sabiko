@@ -75,7 +75,8 @@ impl FnCx<'_, '_> {
             }
         }
         for (i, decl) in body.locals.iter().enumerate() {
-            let elided = decl.ty.is_unit() || decl.ty.is_never();
+            // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
+            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited();
             let slot = match decl.kind {
                 LocalKind::Arg => {
                     if elided {
@@ -262,7 +263,7 @@ impl FnCx<'_, '_> {
 
     fn assign(&mut self, place: &Place, rvalue: &Rvalue, span: Span) {
         let ty = place.ty(self.body);
-        if ty.is_unit() || ty.is_never() {
+        if ty.is_unit() || ty.is_uninhabited() {
             // Rvalues have no side effects; a unit store is nothing.
             return;
         }
@@ -394,7 +395,7 @@ impl FnCx<'_, '_> {
     /// Pushes the value of `place`.
     fn load(&mut self, place: &Place, span: Span) {
         let ty = place.ty(self.body);
-        if ty.is_unit() || ty.is_never() {
+        if ty.is_unit() || ty.is_uninhabited() {
             return;
         }
         match place.projection.last() {

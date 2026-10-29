@@ -1,0 +1,33 @@
+// Locals holding `&!` (`let q = &loop {};`, a `break` of `&return`) are accepted and
+// unreachable afterwards; a block is typed by its tail even after a diverging statement.
+fn LetLoop() {
+    let q = &loop {};
+}
+
+fn Nested() -> i32 {
+    let r = &&return 1;
+    0
+}
+
+fn LoopValue() -> i32 {
+    let c = loop {
+        break &return 1;
+    };
+    *c
+}
+
+fn Reassigned() -> i32 {
+    let mut r = &return 1;
+    r = &loop {};
+    2
+}
+
+fn BlockTail() -> i32 {
+    let v = loop {
+        break {
+            return 1;
+            2u8
+        };
+    };
+    3
+}

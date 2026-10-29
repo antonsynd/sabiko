@@ -260,14 +260,10 @@ impl<'a> FnCtxt<'a> {
             self.check_stmt(stmt);
         }
         let ty = match &block.tail {
-            Some(tail) => {
-                let t = self.check_expr(tail, expected);
-                if self.diverges {
-                    Ty::Never
-                } else {
-                    t
-                }
-            }
+            // The tail's type even when an earlier statement diverges, as in rustc:
+            // `{ return; 2i32 }` is `i32`, so `if c { 1u8 } else { return; 2i32 }` is a
+            // mismatch, and the `else` of `if c { &a } else { &return 1 }` is `&!`.
+            Some(tail) => self.check_expr(tail, expected),
             None if self.diverges => Ty::Never,
             None => {
                 if let Some(exp) = expected {
@@ -406,14 +402,17 @@ impl<'a> FnCtxt<'a> {
             } => {
                 let m = Mutability::from_bool(*mutable);
                 let inner_expected = match expected.map(|e| self.shallow(e)) {
-                    Some(Ty::Ref(_, t)) => Some(*t),
+                    // Only a diverging operand fits `&!`; checking against `!` would
+                    // report the operand rather than the reference (rustc: "expected
+                    // `&!`, found `&{integer}`").
+                    Some(Ty::Ref(_, t)) if !t.is_never() => Some(*t),
                     _ => None,
                 };
                 let errors_before = self.sink.error_count();
+                // A diverging operand gives `&!`, as in rustc: the borrow is not a
+                // coercion site, so `let q: &Point = &loop {};` is a mismatch, while
+                // `*&return 9` is `!` again. The code after it is unreachable.
                 let inner_ty = self.check_expr(inner, inner_expected.as_ref());
-                if self.shallow(&inner_ty).is_never() {
-                    return Ty::Never;
-                }
                 if inner_expected.is_some() && self.sink.error_count() > errors_before {
                     // The operand already failed against the expected referent; a second
                     // report for the reference would say the same thing.
@@ -1051,7 +1050,11 @@ impl<'a> FnCtxt<'a> {
                 self.infer.bind_error(&ty);
                 continue;
             }
-            if matches!(ty, Ty::Infer(_) | Ty::Error | Ty::Never) || collect::is_printable(&ty) {
+            // `&loop {}` prints like `loop {}` (rustc: `!: Display`); neither runs.
+            if matches!(ty, Ty::Infer(_) | Ty::Error)
+                || ty.is_uninhabited()
+                || collect::is_printable(&ty)
+            {
                 continue;
             }
             let s = self.ty_str(&ty);

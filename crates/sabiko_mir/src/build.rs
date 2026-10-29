@@ -636,9 +636,10 @@ impl<'a> Builder<'a> {
                 mutable,
                 expr: inner,
             } => {
-                // `&loop {}`, `&break 4`: the type checker types the borrow of a diverging
-                // operand `!`, and there is no value to borrow.
-                if self.ty(expr).is_never() {
+                // `&loop {}`, `&break 4`: the borrow of a diverging operand (typed `&!`)
+                // has no value to borrow; only the operand runs, and what follows is
+                // unreachable. The destination is never written.
+                if self.ty(inner).is_never() {
                     self.lower_expr_discard(inner);
                 } else {
                     let place = self.as_place(inner);
@@ -1008,8 +1009,8 @@ impl<'a> Builder<'a> {
                             // `let r: &mut T = p;` reborrows; `let r = p;` moves.
                             let op = self.coerced_operand(init);
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
-                        } else if let Some((mutable, inner)) =
-                            Self::ref_of_temporary(init).filter(|_| !self.ty(init).is_never())
+                        } else if let Some((mutable, inner)) = Self::ref_of_temporary(init)
+                            .filter(|(_, inner)| !self.ty(inner).is_never())
                         {
                             // Temporary lifetime extension: in `let r = &<rvalue>;` the
                             // temporary lives as long as `r`'s block, as in Rust.

@@ -16,7 +16,8 @@ The test passes when the two verdicts agree for every file. A file named `ok_*` 
 `accept` in both; `err_*` must be `borrow-error` in both. Error codes are reported but not
 compared (the two compilers number their diagnostics differently), nor are positions. One
 concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` pairs side
-by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`.
+by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`, and
+`never/` (borrows of diverging expressions, typed `&!`).
 
 The harness prepends this prelude, which defines Sabiko's builtin functions for rustc:
 

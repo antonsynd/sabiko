@@ -1,0 +1,28 @@
+// The borrow of a diverging operand is `&!`: only the operand runs, nothing is written to
+// the destination, and the code after it is unreachable (removed by `simplify`). A `&!`
+// local is declared but never assigned.
+fn DerefMut() -> i32 {
+    *&mut return 9
+}
+
+fn Local(flag: bool) -> i32 {
+    if flag {
+        let r = &return 4;
+        *r
+    } else {
+        5
+    }
+}
+
+fn LoopValue(n: i32) -> i32 {
+    let c = loop {
+        if n > 2 {
+            break &return n;
+        }
+    };
+    *c
+}
+
+fn Compare() -> bool {
+    &loop {} == &loop {}
+}

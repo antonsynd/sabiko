@@ -92,8 +92,9 @@ usize` are `uint8 uint16 uint32 uint64 native uint`; `f32`/`f64` are `float32`/`
 `modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
 value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
 `&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. `()` is
-`void` as a return type; locals and temporaries of type `()` or `!` have no storage, and
-assignments to them are dropped. Not lowered yet (E0500): `i128`/`u128`, `&&T`, `()`-typed
+`void` as a return type; locals and temporaries of type `()`, `!` or a reference to `!`
+(`&!`, `&&!`, ...) have no storage (decisions 32 and 44), and assignments to them are
+dropped. Not lowered yet (E0500): `i128`/`u128`, `&&T`, `()`-typed
 parameters and fields.
 
 Statements and expressions. The backend walks the MIR (§11); every statement and
@@ -181,7 +182,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `f64`, `bool`, `char`, `()`, `str` (only behind a reference, E0208), named structs,
   `&T`, `&mut T`. A struct may not contain itself by value, directly or through other
   structs (E0206). `!` is the type of `break`, `continue`, `return` and of a `loop`
-  without `break`; it coerces to any type.
+  without `break`; it coerces to any type. The borrow of a diverging expression (`&loop {}`,
+  `&mut return 1`) has type `&!` (`&mut !`), as in rustc: a borrow is not a coercion site,
+  so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
+  while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
+  (rustc's `!: PartialEq + Display`); the code after one is unreachable.
 - Inference runs per function body and per constant initialiser, by unification; nothing
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of
@@ -233,8 +238,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `while` is `()`. `loop` has the type of its `break value`s, which must agree, and `!` if
   it never breaks. `break value` is only allowed directly inside `loop` (E0312);
   `break`/`continue` outside a loop is E0311.
-- A block has the type of its tail expression, `()` without one, and `!` when a statement
-  in it diverges. A block-like expression used as a statement (`if`, `while`, `loop`,
+- A block has the type of its tail expression, even when an earlier statement diverges
+  (`{ return; 2u8 }` is `u8`, as in rustc); without a tail it is `!` when a statement in
+  it diverges and `()` otherwise. A block-like expression used as a statement (`if`, `while`, `loop`,
   `{ .. }` without a trailing `;`) must be `()`.
 - A function body is a block checked against the declared return type (`()` when
   omitted); `return;` has the value `()`.

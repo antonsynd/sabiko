@@ -361,7 +361,7 @@ impl Validator<'_> {
         }
         for arg in args {
             if let Some(ty) = self.operand_ty(bb, arg) {
-                if !(is_printable(&ty) || ty.is_error() || ty.is_never()) {
+                if !(is_printable(&ty) || ty.is_error() || ty.is_uninhabited()) {
                     self.err(
                         bb,
                         format!(
