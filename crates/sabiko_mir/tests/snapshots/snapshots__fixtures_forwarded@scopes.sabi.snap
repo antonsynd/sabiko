@@ -1,0 +1,315 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/scopes.sabi
+---
+fn Twice(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;
+
+    bb0: {
+        _0 = Mul(copy _1, const 2_i32);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Nested(_1: i32) -> i32 {
+    let mut _0: i32;
+    let _2: i32;                         // x
+    let mut _3: i32;
+    let _4: i32;                         // y
+    let _5: i32;                         // inner
+    let mut _6: i32;
+    let mut _7: i32;
+    let mut _8: i32;
+    let _9: i32;                         // z
+    let _10: i32;                        // w
+    let mut _11: i32;
+    let mut _12: i32;
+    let mut _13: i32;
+    let mut _14: i32;
+    let mut _15: i32;
+    let _16: i32;                        // late
+    let mut _17: bool;
+    let mut _18: i32;
+    let mut _19: i32;
+    let mut _20: i32;
+    let mut _21: i32;
+    let mut _22: i32;
+    let mut _23: i32;
+    let mut _24: i32;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = Add(copy _1, const 1_i32);
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = Mul(copy _2, const 2_i32);
+        StorageLive(_7);
+        _7 = Add(copy _5, const 1_i32);
+        StorageDead(_7);
+        _4 = copy _5;
+        StorageDead(_5);
+        StorageLive(_9);
+        _9 = copy _4;
+        StorageLive(_10);
+        StorageLive(_11);
+        StorageLive(_12);
+        _12 = copy _9;
+        StorageLive(_13);
+        _13 = Twice(copy _9) -> bb1;
+    }
+
+    bb1: {
+        _11 = Add(copy _12, copy _13);
+        _10 = copy _11;
+        StorageDead(_13);
+        StorageDead(_12);
+        StorageDead(_11);
+        StorageDead(_10);
+        StorageDead(_9);
+        StorageLive(_16);
+        StorageLive(_17);
+        _17 = Gt(copy _1, const 0_i32);
+        switchInt(copy _17) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        _16 = copy _2;
+        goto -> bb4;
+    }
+
+    bb3: {
+        _16 = copy _4;
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageDead(_17);
+        StorageLive(_21);
+        _21 = Twice(copy _16) -> bb5;
+    }
+
+    bb5: {
+        StorageLive(_23);
+        _23 = Twice(copy _2) -> bb6;
+    }
+
+    bb6: {
+        _0 = Add(copy _21, copy _23);
+        StorageDead(_23);
+        StorageDead(_21);
+        StorageDead(_16);
+        StorageDead(_4);
+        StorageDead(_2);
+        goto -> bb7;
+    }
+
+    bb7: {
+        return;
+    }
+}
+
+fn Unreachable(_1: i32) -> i32 {
+    let mut _0: i32;
+    let _2: i32;                         // x
+    let mut _3: i32;
+    let _4: i32;                         // y
+    let mut _5: i32;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = Twice(copy _1) -> bb1;
+    }
+
+    bb1: {
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Discarded(_1: i32, _2: &i32) {
+    let mut _0: ();
+    let mut _3: i32;
+    let mut _4: i32;
+    let mut _5: i32;
+    let mut _6: i32;
+    let mut _7: i32;
+    let mut _8: i32;
+    let mut _9: i32;
+    let mut _10: i32;
+    let mut _11: i32;
+    let mut _12: i32;
+
+    bb0: {
+        StorageLive(_3);
+        _3 = Twice(copy _1) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageLive(_5);
+        _5 = Add(copy _1, const 1_i32);
+        StorageDead(_5);
+        StorageLive(_8);
+        StorageLive(_9);
+        _9 = Twice(copy _1) -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_11);
+        _11 = Twice(copy (*_2)) -> bb3;
+    }
+
+    bb3: {
+        _8 = Add(copy _9, copy _11);
+        StorageDead(_11);
+        StorageDead(_9);
+        StorageDead(_8);
+        _0 = const ();
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn BreakScopes(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;                     // i
+    let mut _3: bool;
+    let mut _4: i32;
+    let mut _5: i32;
+    let _6: i32;                         // doubled
+    let mut _7: i32;
+    let mut _8: bool;
+    let mut _9: i32;
+    let _10: i32;                        // extra
+    let mut _11: i32;
+    let mut _12: i32;
+    let mut _13: bool;
+    let mut _14: i32;
+    let mut _15: bool;
+    let mut _16: i32;
+    let mut _17: bool;
+    let mut _18: i32;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = const 0_i32;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_3);
+        _3 = Lt(copy _2, copy _1);
+        switchInt(copy _3) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageDead(_3);
+        StorageLive(_6);
+        _6 = Twice(copy _2) -> bb4;
+    }
+
+    bb3: {
+        StorageDead(_3);
+        goto -> bb8;
+    }
+
+    bb4: {
+        StorageLive(_8);
+        _8 = Gt(copy _6, const 10_i32);
+        switchInt(copy _8) -> [0: bb15, otherwise: bb5];
+    }
+
+    bb5: {
+        StorageLive(_10);
+        StorageLive(_11);
+        _11 = copy _6;
+        StorageLive(_12);
+        _12 = Twice(const 1_i32) -> bb6;
+    }
+
+    bb6: {
+        _10 = Add(copy _11, copy _12);
+        StorageDead(_12);
+        StorageDead(_11);
+        StorageLive(_13);
+        _13 = Gt(copy _10, const 20_i32);
+        switchInt(copy _13) -> [0: bb9, otherwise: bb7];
+    }
+
+    bb7: {
+        StorageDead(_13);
+        StorageDead(_10);
+        StorageDead(_8);
+        StorageDead(_6);
+        goto -> bb8;
+    }
+
+    bb8: {
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb13;
+    }
+
+    bb9: {
+        StorageDead(_13);
+        StorageLive(_15);
+        _15 = Gt(copy _10, const 15_i32);
+        switchInt(copy _15) -> [0: bb11, otherwise: bb10];
+    }
+
+    bb10: {
+        StorageDead(_15);
+        StorageDead(_10);
+        StorageDead(_8);
+        StorageDead(_6);
+        goto -> bb1;
+    }
+
+    bb11: {
+        StorageDead(_15);
+        StorageLive(_17);
+        _17 = Gt(copy _10, const 12_i32);
+        switchInt(copy _17) -> [0: bb14, otherwise: bb12];
+    }
+
+    bb12: {
+        _0 = copy _10;
+        StorageDead(_17);
+        StorageDead(_10);
+        StorageDead(_8);
+        StorageDead(_6);
+        StorageDead(_2);
+        goto -> bb13;
+    }
+
+    bb13: {
+        return;
+    }
+
+    bb14: {
+        StorageDead(_17);
+        StorageDead(_10);
+        goto -> bb15;
+    }
+
+    bb15: {
+        StorageDead(_8);
+        _2 = Add(copy _2, const 1_i32);
+        StorageDead(_6);
+        goto -> bb1;
+    }
+}

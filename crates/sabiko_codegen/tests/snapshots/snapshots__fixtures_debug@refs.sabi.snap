@@ -28,17 +28,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
     .maxstack 3
-    .locals init (
-      [0] int32 '_3'
-    )
   BB0:
     ldarg.0
     ldfld int32 'Point'::'X'
+    conv.i8
     ldarg.0
     ldfld int32 'Point'::'Y'
-    stloc.0
-    conv.i8
-    ldloc.0
     conv.i8
     add
     dup
@@ -140,23 +135,20 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
 
   .method public hidebysig static void 'Swap'(int32& 'a', int32& 'b') cil managed
   {
-    .maxstack 3
+    .maxstack 2
     .locals init (
-      [0] int32 '_4',
-      [1] int32 '_5'
+      [0] int32 't'
     )
   BB0:
     ldarg.0
     ldind.i4
-    ldarg.1
-    ldind.i4
     stloc.0
     ldarg.0
-    ldloc.0
-    stind.i4
-    stloc.1
     ldarg.1
-    ldloc.1
+    ldind.i4
+    stind.i4
+    ldarg.1
+    ldloc.0
     stind.i4
     ret
   }
@@ -166,17 +158,17 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     .maxstack 3
     .locals init (
       [0] valuetype 'Point' 'p',
-      [1] valuetype 'Line' 'line',
-      [2] valuetype 'Point' '_7',
-      [3] valuetype 'Point' '_8',
-      [4] int32 '_9',
+      [1] int32 'n',
+      [2] valuetype 'Line' 'line',
+      [3] valuetype 'Point' '_7',
+      [4] valuetype 'Point' '_8',
       [5] valuetype 'Point'& 'first',
-      [6] valuetype 'Point'& 'fm',
-      [7] int32 '_15',
+      [6] int32 'fx',
+      [7] valuetype 'Point'& 'fm',
       [8] int32 'a',
       [9] int32 'b',
-      [10] int32 '_27',
-      [11] int32 '_28'
+      [10] int32 'v',
+      [11] int32 '_27'
     )
   BB0:
     ldloca.s 0
@@ -192,41 +184,41 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
   BB1:
     ldloca.s 0
     call int32 'Refs'::'Read'(valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    stloc.1
   BB2:
     ldloc.0
-    stloc.2
-    stloc.s 4
-    ldloca.s 3
+    stloc.3
+    ldloca.s 4
     initobj valuetype 'Point'
-    ldloca.s 3
-    ldloc.s 4
+    ldloca.s 4
+    ldloc.1
     stfld int32 'Point'::'X'
-    ldloca.s 3
+    ldloca.s 4
     ldc.i4.0
     stfld int32 'Point'::'Y'
-    ldloca.s 1
+    ldloca.s 2
     initobj valuetype 'Line'
-    ldloca.s 1
-    ldloc.2
-    stfld valuetype 'Point' 'Line'::'A'
-    ldloca.s 1
+    ldloca.s 2
     ldloc.3
+    stfld valuetype 'Point' 'Line'::'A'
+    ldloca.s 2
+    ldloc.s 4
     stfld valuetype 'Point' 'Line'::'B'
-    ldloca.s 1
+    ldloca.s 2
     call valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'Refs'::'First'(valuetype 'Line'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
     stloc.s 5
   BB3:
     ldloc.s 5
     ldfld int32 'Point'::'X'
-    ldloca.s 1
-    call valuetype 'Point'& 'Refs'::'FirstMut'(valuetype 'Line'&)
     stloc.s 6
-  BB4:
+    ldloca.s 2
+    call valuetype 'Point'& 'Refs'::'FirstMut'(valuetype 'Line'&)
     stloc.s 7
-    ldloc.s 6
+  BB4:
     ldloc.s 7
-    stfld int32 'Point'::'Y'
     ldloc.s 6
+    stfld int32 'Point'::'Y'
+    ldloc.s 7
     call void 'Refs'::'Bump'(valuetype 'Point'&)
   BB5:
     ldc.i4.1
@@ -240,12 +232,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ldloca.s 8
     call int32 'Refs'::'Deref'(int32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
   BB7:
-    ldloca.s 1
+    ldloca.s 2
     ldflda valuetype 'Point' 'Line'::'B'
     ldfld int32 'Point'::'X'
-    stloc.s 10
+    stloc.s 11
     conv.i8
-    ldloc.s 10
+    ldloc.s 11
     conv.i8
     add
     dup
@@ -259,7 +251,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     throw
   L1:
     conv.i4
-    stloc.s 11
+    stloc.s 10
     ret
   }
 

@@ -75,6 +75,13 @@ fn validator_accepts_corpus() {
             "{}: invalid MIR after simplification: {errors:#?}",
             path.display()
         );
+        sabiko_mir::forward::forward_all(&mut bodies);
+        let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
+        assert!(
+            errors.is_empty(),
+            "{}: invalid MIR after copy forwarding: {errors:#?}",
+            path.display()
+        );
     }
     assert!(
         lowered > 10,

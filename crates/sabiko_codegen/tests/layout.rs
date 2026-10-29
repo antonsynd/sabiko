@@ -63,6 +63,7 @@ fn compile(path: &Path, overflow_checks: bool) -> Option<(Vec<Body>, String)> {
     if sink.has_errors() {
         return None;
     }
+    sabiko_mir::forward::forward_all(&mut bodies);
     let options = Options {
         assembly_name: "layout".to_owned(),
         kind: OutputKind::Library,

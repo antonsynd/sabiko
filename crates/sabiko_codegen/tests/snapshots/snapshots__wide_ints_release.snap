@@ -21,9 +21,7 @@ expression: il
     .maxstack 4
     .locals init (
       [0] valuetype [System.Runtime]System.Int128 '_7',
-      [1] valuetype [System.Runtime]System.Int128 '_8',
-      [2] valuetype [System.Runtime]System.Int128 '_11',
-      [3] valuetype [System.Runtime]System.Int128 '_12'
+      [1] valuetype [System.Runtime]System.Int128 '_8'
     )
   BB0:
     ldarg.0
@@ -34,8 +32,6 @@ expression: il
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Multiply(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.1
     ldarg.1
-    dup
-    stloc.2
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
@@ -46,7 +42,7 @@ expression: il
     ldnull
     throw
   L1:
-    ldloc.2
+    ldarg.1
     ldc.i8 -1
     ldc.i8 -1
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
@@ -64,12 +60,10 @@ expression: il
     throw
   L2:
     ldloc.1
-    ldloc.2
+    ldarg.1
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Division(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.0
     ldarg.0
-    dup
-    stloc.3
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
@@ -80,7 +74,7 @@ expression: il
     ldnull
     throw
   L3:
-    ldloc.3
+    ldarg.0
     ldc.i8 -1
     ldc.i8 -1
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
@@ -98,7 +92,7 @@ expression: il
     throw
   L4:
     ldloc.0
-    ldloc.3
+    ldarg.0
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Modulus(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     call valuetype [System.Runtime]System.Int128 [System.Runtime]System.Int128::op_Subtraction(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     ret
@@ -109,9 +103,7 @@ expression: il
     .maxstack 3
     .locals init (
       [0] valuetype [System.Runtime]System.UInt128 '_4',
-      [1] valuetype [System.Runtime]System.UInt128 '_5',
-      [2] valuetype [System.Runtime]System.UInt128 '_8',
-      [3] valuetype [System.Runtime]System.UInt128 '_9'
+      [1] valuetype [System.Runtime]System.UInt128 '_5'
     )
   BB0:
     ldarg.0
@@ -119,8 +111,6 @@ expression: il
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Addition(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     stloc.1
     ldarg.1
-    dup
-    stloc.2
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
@@ -132,12 +122,10 @@ expression: il
     throw
   L1:
     ldloc.1
-    ldloc.2
+    ldarg.1
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Division(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     stloc.0
     ldarg.0
-    dup
-    stloc.3
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
@@ -149,7 +137,7 @@ expression: il
     throw
   L2:
     ldloc.0
-    ldloc.3
+    ldarg.0
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Modulus(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     ldarg.1
     ldarg.0
@@ -217,7 +205,9 @@ expression: il
       [1] bool '_3',
       [2] bool '_4',
       [3] bool '_5',
-      [4] bool '_6'
+      [4] bool '_6',
+      [5] valuetype [System.Runtime]System.Int128 '_13',
+      [6] valuetype [System.Runtime]System.Int128 '_16'
     )
   BB0:
     ldarg.0
@@ -241,10 +231,12 @@ expression: il
     ldloc.s 4
     brfalse BB5
   BB4:
-    ldarg.0
     ldc.i8 -1
     ldc.i8 -2
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    stloc.s 5
+    ldarg.0
+    ldloc.s 5
     call bool [System.Runtime]System.Int128::op_GreaterThan(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.3
     br BB6
@@ -255,10 +247,12 @@ expression: il
     ldloc.3
     brfalse BB8
   BB7:
-    ldarg.0
     ldc.i8 -1
     ldc.i8 -3
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
+    stloc.s 6
+    ldarg.0
+    ldloc.s 6
     call bool [System.Runtime]System.Int128::op_GreaterThanOrEqual(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
     stloc.2
     br BB9

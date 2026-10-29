@@ -1,0 +1,99 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/never_borrow.sabi
+---
+fn DerefMut() -> i32 {
+    let mut _0: i32;
+    let mut _1: &mut !;
+
+    bb0: {
+        StorageLive(_1);
+        _0 = const 9_i32;
+        StorageDead(_1);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Local(_1: bool) -> i32 {
+    let mut _0: i32;
+    let mut _2: bool;
+    let _3: &!;                          // r
+
+    bb0: {
+        switchInt(copy _1) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        StorageLive(_3);
+        _0 = const 4_i32;
+        StorageDead(_3);
+        goto -> bb3;
+    }
+
+    bb2: {
+        _0 = const 5_i32;
+        goto -> bb4;
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        goto -> bb3;
+    }
+}
+
+fn LoopValue(_1: i32) -> i32 {
+    let mut _0: i32;
+    let _2: &!;                          // c
+    let mut _3: bool;
+    let mut _4: i32;
+
+    bb0: {
+        StorageLive(_2);
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_3);
+        _3 = Gt(copy _1, const 2_i32);
+        switchInt(copy _3) -> [0: bb4, otherwise: bb2];
+    }
+
+    bb2: {
+        _0 = copy _1;
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        StorageDead(_3);
+        goto -> bb1;
+    }
+}
+
+fn Compare() -> bool {
+    let mut _0: bool;
+    let mut _1: &!;
+    let mut _2: &!;
+
+    bb0: {
+        StorageLive(_1);
+        goto -> bb1;
+    }
+
+    bb1: {
+        goto -> bb1;
+    }
+}

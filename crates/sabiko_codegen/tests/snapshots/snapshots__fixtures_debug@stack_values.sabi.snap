@@ -87,9 +87,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   .method public hidebysig static int32 'Pair'(int32 'a', int32 'b') cil managed
   {
     .maxstack 3
-    .locals init (
-      [0] int32 '_5'
-    )
   BB0:
     ldarg.0
     conv.i8
@@ -107,10 +104,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     throw
   L1:
     conv.i4
-    ldarg.1
-    stloc.0
     conv.i8
-    ldloc.0
+    ldarg.1
     conv.i8
     add
     dup
@@ -205,20 +200,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   {
     .maxstack 5
     .locals init (
-      [0] int32 '_8',
-      [1] int32 '_9',
-      [2] int32 '_11',
-      [3] int32 '_12',
-      [4] int32 '_15',
-      [5] int32 '_16',
-      [6] int32 '_18'
+      [0] int32 '_9',
+      [1] int32 '_12',
+      [2] int32 '_16'
     )
   BB0:
     ldarg.0
-    ldarg.1
-    stloc.0
     conv.i8
-    ldloc.0
+    ldarg.1
     conv.i8
     mul
     dup
@@ -233,10 +222,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   L1:
     conv.i4
     ldarg.2
-    ldarg.3
-    stloc.2
     conv.i8
-    ldloc.2
+    ldarg.3
     conv.i8
     mul
     dup
@@ -250,9 +237,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     throw
   L2:
     conv.i4
-    stloc.1
+    stloc.0
     conv.i8
-    ldloc.1
+    ldloc.0
     conv.i8
     add
     dup
@@ -267,10 +254,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   L3:
     conv.i4
     ldarg.0
-    ldarg.1
-    stloc.s 4
     conv.i8
-    ldloc.s 4
+    ldarg.1
     conv.i8
     sub
     dup
@@ -285,10 +270,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   L4:
     conv.i4
     ldarg.2
-    ldarg.3
-    stloc.s 6
     conv.i8
-    ldloc.s 6
+    ldarg.3
     conv.i8
     sub
     dup
@@ -302,9 +285,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     throw
   L5:
     conv.i4
-    stloc.s 5
+    stloc.2
     conv.i8
-    ldloc.s 5
+    ldloc.2
     conv.i8
     mul
     dup
@@ -318,9 +301,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     throw
   L6:
     conv.i4
-    stloc.3
+    stloc.1
     conv.i8
-    ldloc.3
+    ldloc.1
     conv.i8
     sub
     dup
@@ -341,18 +324,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   {
     .maxstack 4
     .locals init (
-      [0] int64 '_4',
-      [1] int64 '_5',
-      [2] int64 '_8',
-      [3] int64 '_9',
-      [4] int64 '$tmp0'
+      [0] int64 '_5',
+      [1] int64 '_9',
+      [2] int64 '$tmp0'
     )
   BB0:
-    ldarg.0
-    stloc.0
     ldarg.1
     ldc.i8 1
-    ldloca.s 4
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L1
     ldstr "stack_values.sabi:18:9"
@@ -360,19 +339,19 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L1:
-    ldloc.s 4
+    ldloc.2
     dup
-    stloc.1
+    stloc.0
     brtrue L2
     ldstr "stack_values.sabi:18:5"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
     ldnull
     throw
   L2:
-    ldloc.1
+    ldloc.0
     ldc.i8 -1
     bne.un L3
-    ldloc.0
+    ldarg.0
     ldc.i8 -9223372036854775808
     bne.un L3
     ldstr "stack_values.sabi:18:5"
@@ -380,14 +359,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L3:
-    ldloc.0
-    ldloc.1
-    div
     ldarg.0
-    stloc.2
+    ldloc.0
+    div
     ldarg.1
     ldc.i8 1
-    ldloca.s 4
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L4
     ldstr "stack_values.sabi:18:23"
@@ -395,19 +372,19 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L4:
-    ldloc.s 4
+    ldloc.2
     dup
-    stloc.3
+    stloc.1
     brtrue L5
     ldstr "stack_values.sabi:18:19"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
     ldnull
     throw
   L5:
-    ldloc.3
+    ldloc.1
     ldc.i8 -1
     bne.un L6
-    ldloc.2
+    ldarg.0
     ldc.i8 -9223372036854775808
     bne.un L6
     ldstr "stack_values.sabi:18:19"
@@ -415,10 +392,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L6:
-    ldloc.2
-    ldloc.3
+    ldarg.0
+    ldloc.1
     rem
-    ldloca.s 4
+    ldloca.s 2
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L7
     ldstr "stack_values.sabi:18:5"
@@ -426,7 +403,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L7:
-    ldloc.s 4
+    ldloc.2
     ret
   }
 
@@ -515,22 +492,20 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
 
   .method public hidebysig static void 'Main'() cil managed
   {
-    .maxstack 5
+    .maxstack 4
     .locals init (
       [0] valuetype 'P' 'p',
       [1] int32 '_22',
       [2] int32 '_24',
       [3] int32 'a',
-      [4] int32 '_33',
-      [5] int64 'b',
-      [6] int64 'c',
+      [4] int64 'b',
+      [5] int64 'c',
+      [6] int64 '_42',
       [7] int32 '_50',
       [8] int32 'i',
       [9] int64 'sum',
-      [10] int32 '_69',
-      [11] int64 '_70',
-      [12] int32 '_73',
-      [13] int64 '$tmp0'
+      [10] int64 '_70',
+      [11] int64 '$tmp0'
     )
   BB0:
     ldloca.s 0
@@ -633,10 +608,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     conv.i4
     ldc.i4.s 100
     stloc.3
-    ldloc.3
-    stloc.s 4
     conv.i8
-    ldloc.s 4
+    ldloc.3
     conv.i8
     add
     dup
@@ -653,12 +626,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB14:
     ldc.i8 5
+    stloc.s 4
+    ldloc.s 4
     stloc.s 5
-    ldloc.s 5
-    stloc.s 6
-    ldloc.s 5
+    ldloc.s 4
     ldc.i8 1
-    ldloca.s 13
+    ldloca.s 11
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L5
     ldstr "stack_values.sabi:48:5"
@@ -666,13 +639,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L5:
-    ldloc.s 13
-    stloc.s 5
-    ldloc.s 6
+    ldloc.s 11
+    stloc.s 4
     ldloc.s 5
-    ldloc.s 6
-    ldloc.s 5
-    ldloca.s 13
+    ldloc.s 4
+    ldloca.s 11
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L6
     ldstr "stack_values.sabi:49:27"
@@ -680,7 +651,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L6:
-    ldloc.s 13
+    ldloc.s 11
+    stloc.s 6
+    ldloc.s 5
+    ldloc.s 4
+    ldloc.s 6
     call int64 'StackValues'::'Three'(int64, int64, int64)
   BB15:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int64)
@@ -741,10 +716,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     brfalse BB33
   BB32:
     ldloc.s 8
-    ldloc.s 8
-    stloc.s 10
     conv.i8
-    ldloc.s 10
+    ldloc.s 8
     conv.i8
     mul
     dup
@@ -775,10 +748,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   L8:
     conv.i4
     stloc.s 8
-    ldloc.s 8
-    stloc.s 12
     conv.i8
-    ldloc.s 12
+    ldloc.s 8
     conv.i8
     add
     dup
@@ -793,10 +764,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
   L9:
     conv.i4
     conv.i8
-    stloc.s 11
+    stloc.s 10
     ldloc.s 9
-    ldloc.s 11
-    ldloca.s 13
+    ldloc.s 10
+    ldloca.s 11
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L10
     ldstr "stack_values.sabi:62:9"
@@ -804,7 +775,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/stack_values.sabi
     ldnull
     throw
   L10:
-    ldloc.s 13
+    ldloc.s 11
     stloc.s 9
     br BB31
   BB33:

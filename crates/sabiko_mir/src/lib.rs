@@ -16,9 +16,11 @@
 //! - [`build`]: AST to MIR lowering (`build::build_bodies`).
 //! - [`validate`]: structural and type well-formedness checks, run after every pass.
 //! - [`simplify`]: removes unreachable blocks and merges trivial gotos.
+//! - [`forward`]: copy forwarding, after borrow checking (decision 51).
 //! - [`pretty`]: the `--emit=mir` printer.
 
 pub mod build;
+pub mod forward;
 pub mod pretty;
 pub mod simplify;
 pub mod validate;

@@ -16,29 +16,30 @@ expression: il
     .locals init (
       [0] int32 '_0',
       [1] int32 'x',
-      [2] int32 '_7',
+      [2] int32 '_5',
       [3] int32 'z',
       [4] int64 'w',
       [5] float64 'f',
       [6] uint32 'u',
       [7] int32 'bits',
-      [8] int32 'same'
+      [8] int32 'same',
+      [9] int32 '_41'
     )
   BB0:
-    ldarg.0
     ldarg.1
     ldc.i4.2
     mul
+    stloc.2
+    ldarg.0
+    ldloc.2
     add
     stloc.1
     ldloc.1
     ldc.i4.1
     sub
     stloc.1
-    ldarg.0
-    stloc.2
     ldloc.1
-    ldloc.2
+    ldarg.0
     mul
     stloc.1
     ldloc.1
@@ -85,9 +86,11 @@ expression: il
     stloc.s 8
     brfalse BB2
   BB1:
-    ldloc.3
     ldloc.s 4
     conv.i4
+    stloc.s 9
+    ldloc.3
+    ldloc.s 9
     add
     ldloc.s 6
     conv.i4
@@ -144,28 +147,19 @@ expression: il
   {
     .maxstack 2
     .locals init (
-      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
-      [1] uint64 'big',
-      [2] float32 'half',
-      [3] char '_5',
-      [4] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_6',
-      [5] uint64 '_7'
+      [0] char 'c',
+      [1] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
+      [2] uint64 'big'
     )
   BB0:
     ldc.i4.s 120
+    stloc.0
     ldstr "text"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
-    stloc.0
-    ldc.i8 1000000
     stloc.1
-    ldc.r4 0.5
+    ldc.i8 1000000
     stloc.2
-    stloc.3
-    ldloc.0
-    stloc.s 4
-    ldloc.1
-    stloc.s 5
-    ldloc.2
+    ldc.r4 0.5
     conv.r8
     ldc.r8 2.0
     add

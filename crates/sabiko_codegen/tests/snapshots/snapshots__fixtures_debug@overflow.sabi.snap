@@ -19,37 +19,31 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
       [1] int16 's3',
       [2] uint16 's4',
       [3] int8 'n',
-      [4] int8 '_18',
-      [5] uint8 'inv',
-      [6] int8 'q',
-      [7] uint16 'r',
-      [8] int8 'r2',
-      [9] int8 '_26',
-      [10] int8 '_27',
-      [11] int16 'r3',
-      [12] int16 '_29',
-      [13] int16 '_30',
-      [14] int16 'q2',
-      [15] int16 '_33',
-      [16] int16 '_34',
-      [17] uint8 'q3',
-      [18] uint8 '_37',
-      [19] uint8 '_38',
-      [20] uint8 'sh',
-      [21] int8 'sr',
-      [22] int32 '_57',
-      [23] int32 '_59',
-      [24] int32 '_61',
-      [25] int32 '_63',
-      [26] int32 '_65',
-      [27] int32 '_67',
-      [28] int32 '_69',
-      [29] int32 '_71',
-      [30] int32 '_73',
-      [31] int32 '_75',
-      [32] int32 '_77',
-      [33] int32 '_79',
-      [34] int32 '_81'
+      [4] uint8 'inv',
+      [5] int8 'q',
+      [6] uint16 'r',
+      [7] int8 'r2',
+      [8] int8 '_27',
+      [9] int16 'r3',
+      [10] int16 '_30',
+      [11] int16 'q2',
+      [12] int16 '_34',
+      [13] uint8 'q3',
+      [14] uint8 'sh',
+      [15] int8 'sr',
+      [16] int32 '_57',
+      [17] int32 '_59',
+      [18] int32 '_61',
+      [19] int32 '_63',
+      [20] int32 '_65',
+      [21] int32 '_67',
+      [22] int32 '_69',
+      [23] int32 '_71',
+      [24] int32 '_73',
+      [25] int32 '_75',
+      [26] int32 '_77',
+      [27] int32 '_79',
+      [28] int32 '_81'
     )
   BB0:
     ldarg.0
@@ -103,10 +97,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L4:
     stloc.2
-    ldarg.0
-    stloc.s 4
     ldc.i4.0
-    ldloc.s 4
+    ldarg.0
     sub
     dup
     dup
@@ -121,30 +113,28 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldarg.1
     not
     conv.u1
-    stloc.s 5
+    stloc.s 4
     ldarg.0
     ldc.i4.3
     div
-    stloc.s 6
+    stloc.s 5
     ldarg.3
     ldc.i4.7
     rem.un
-    stloc.s 7
-    ldarg.0
-    stloc.s 9
+    stloc.s 6
     ldc.i4.s -3
     dup
-    stloc.s 10
+    stloc.s 8
     brtrue L6
     ldstr "overflow.sabi:12:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
     ldnull
     throw
   L6:
-    ldloc.s 10
+    ldloc.s 8
     ldc.i4.m1
     bne.un L7
-    ldloc.s 9
+    ldarg.0
     ldc.i4.s -128
     bne.un L7
     ldstr "overflow.sabi:12:14"
@@ -152,12 +142,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L7:
-    ldloc.s 9
-    ldloc.s 10
+    ldarg.0
+    ldloc.s 8
     rem
-    stloc.s 8
-    ldarg.2
-    stloc.s 12
+    stloc.s 7
     ldarg.2
     ldc.i4.1
     add
@@ -171,17 +159,17 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L8:
     dup
-    stloc.s 13
+    stloc.s 10
     brtrue L9
     ldstr "overflow.sabi:13:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
     ldnull
     throw
   L9:
-    ldloc.s 13
+    ldloc.s 10
     ldc.i4.m1
     bne.un L10
-    ldloc.s 12
+    ldarg.2
     ldc.i4 -32768
     bne.un L10
     ldstr "overflow.sabi:13:14"
@@ -189,26 +177,24 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L10:
-    ldloc.s 12
-    ldloc.s 13
-    rem
-    stloc.s 11
     ldarg.2
-    stloc.s 15
+    ldloc.s 10
+    rem
+    stloc.s 9
     ldarg.0
     conv.i2
     dup
-    stloc.s 16
+    stloc.s 12
     brtrue L11
     ldstr "overflow.sabi:14:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
     ldnull
     throw
   L11:
-    ldloc.s 16
+    ldloc.s 12
     ldc.i4.m1
     bne.un L12
-    ldloc.s 15
+    ldarg.2
     ldc.i4 -32768
     bne.un L12
     ldstr "overflow.sabi:14:14"
@@ -216,25 +202,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L12:
-    ldloc.s 15
-    ldloc.s 16
+    ldarg.2
+    ldloc.s 12
     div
-    stloc.s 14
+    stloc.s 11
     ldarg.1
-    stloc.s 18
-    ldarg.1
-    dup
-    stloc.s 19
     brtrue L13
     ldstr "overflow.sabi:15:14"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::DivideByZero(string)
     ldnull
     throw
   L13:
-    ldloc.s 18
-    ldloc.s 19
+    ldarg.1
+    ldarg.1
     div.un
-    stloc.s 17
+    stloc.s 13
     ldarg.1
     ldc.i4.2
     dup
@@ -247,7 +229,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
   L14:
     shl
     conv.u1
-    stloc.s 20
+    stloc.s 14
     ldarg.0
     ldc.i4.1
     dup
@@ -259,13 +241,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L15:
     shr
-    stloc.s 21
+    stloc.s 15
     conv.i4
     ldloc.0
     conv.i4
-    stloc.s 22
+    stloc.s 16
     conv.i8
-    ldloc.s 22
+    ldloc.s 16
     conv.i8
     add
     dup
@@ -281,9 +263,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     ldloc.1
     conv.i4
-    stloc.s 23
+    stloc.s 17
     conv.i8
-    ldloc.s 23
+    ldloc.s 17
     conv.i8
     add
     dup
@@ -299,9 +281,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     ldloc.2
     conv.i4
-    stloc.s 24
+    stloc.s 18
     conv.i8
-    ldloc.s 24
+    ldloc.s 18
     conv.i8
     add
     dup
@@ -317,9 +299,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     conv.i4
     ldloc.3
     conv.i4
-    stloc.s 25
+    stloc.s 19
     conv.i8
-    ldloc.s 25
+    ldloc.s 19
     conv.i8
     add
     dup
@@ -333,11 +315,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L19:
     conv.i4
-    ldloc.s 5
+    ldloc.s 4
     conv.i4
-    stloc.s 26
+    stloc.s 20
     conv.i8
-    ldloc.s 26
+    ldloc.s 20
     conv.i8
     add
     dup
@@ -351,11 +333,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L20:
     conv.i4
-    ldloc.s 6
+    ldloc.s 5
     conv.i4
-    stloc.s 27
+    stloc.s 21
     conv.i8
-    ldloc.s 27
+    ldloc.s 21
     conv.i8
     add
     dup
@@ -369,11 +351,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L21:
     conv.i4
-    ldloc.s 7
+    ldloc.s 6
     conv.i4
-    stloc.s 28
+    stloc.s 22
     conv.i8
-    ldloc.s 28
+    ldloc.s 22
     conv.i8
     add
     dup
@@ -387,11 +369,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L22:
     conv.i4
-    ldloc.s 8
+    ldloc.s 7
     conv.i4
-    stloc.s 29
+    stloc.s 23
     conv.i8
-    ldloc.s 29
+    ldloc.s 23
     conv.i8
     add
     dup
@@ -405,11 +387,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L23:
     conv.i4
-    ldloc.s 11
+    ldloc.s 9
     conv.i4
-    stloc.s 30
+    stloc.s 24
     conv.i8
-    ldloc.s 30
+    ldloc.s 24
     conv.i8
     add
     dup
@@ -423,11 +405,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L24:
     conv.i4
-    ldloc.s 14
+    ldloc.s 11
     conv.i4
-    stloc.s 31
+    stloc.s 25
     conv.i8
-    ldloc.s 31
+    ldloc.s 25
     conv.i8
     add
     dup
@@ -441,11 +423,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L25:
     conv.i4
-    ldloc.s 17
+    ldloc.s 13
     conv.i4
-    stloc.s 32
+    stloc.s 26
     conv.i8
-    ldloc.s 32
+    ldloc.s 26
     conv.i8
     add
     dup
@@ -459,11 +441,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L26:
     conv.i4
-    ldloc.s 20
+    ldloc.s 14
     conv.i4
-    stloc.s 33
+    stloc.s 27
     conv.i8
-    ldloc.s 33
+    ldloc.s 27
     conv.i8
     add
     dup
@@ -477,11 +459,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L27:
     conv.i4
-    ldloc.s 21
+    ldloc.s 15
     conv.i4
-    stloc.s 34
+    stloc.s 28
     conv.i8
-    ldloc.s 34
+    ldloc.s 28
     conv.i8
     add
     dup
@@ -500,29 +482,26 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
 
   .method public hidebysig static int64 'Wide'(int64 'a', uint64 'b', native int 'c', native uint 'd', uint32 'e') cil managed
   {
-    .maxstack 5
+    .maxstack 6
     .locals init (
-      [0] uint64 's2',
-      [1] native int 's3',
-      [2] native uint 's4',
-      [3] uint32 's5',
-      [4] uint32 '_17',
-      [5] int64 'n',
-      [6] int64 '_19',
-      [7] uint64 'q',
-      [8] native int 'r',
-      [9] int64 'sh',
-      [10] uint64 'sr',
-      [11] int64 'sr2',
-      [12] int64 '$tmp0',
-      [13] uint64 '$tmp1',
-      [14] native int '$tmp2',
-      [15] native uint '$tmp3'
+      [0] native int 's3',
+      [1] native uint 's4',
+      [2] uint32 's5',
+      [3] int64 'n',
+      [4] uint64 'q',
+      [5] native int 'r',
+      [6] int64 'sh',
+      [7] uint64 'sr',
+      [8] int64 'sr2',
+      [9] int64 '$tmp0',
+      [10] uint64 '$tmp1',
+      [11] native int '$tmp2',
+      [12] native uint '$tmp3'
     )
   BB0:
     ldarg.0
     ldc.i8 3
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(int64, int64, int64&)
     brfalse L1
     ldstr "overflow.sabi:23:14"
@@ -530,10 +509,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L1:
-    ldloc.s 12
+    ldloc.s 9
     ldarg.1
     ldc.i8 1
-    ldloca.s 13
+    ldloca.s 10
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(uint64, uint64, uint64&)
     brfalse L2
     ldstr "overflow.sabi:24:14"
@@ -541,12 +520,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L2:
-    ldloc.s 13
-    stloc.0
+    ldloc.s 10
     ldarg.2
     ldc.i4.2
     conv.i
-    ldloca.s 14
+    ldloca.s 11
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(native int, native int, native int&)
     brfalse L3
     ldstr "overflow.sabi:25:14"
@@ -554,11 +532,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L3:
-    ldloc.s 14
-    stloc.1
+    ldloc.s 11
+    stloc.0
     ldarg.3
     ldarg.3
-    ldloca.s 15
+    ldloca.s 12
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::MulOverflows(native uint, native uint, native uint&)
     brfalse L4
     ldstr "overflow.sabi:26:14"
@@ -566,13 +544,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L4:
-    ldloc.s 15
-    stloc.2
+    ldloc.s 12
+    stloc.1
     ldarg.s 4
-    ldarg.s 4
-    stloc.s 4
     conv.u8
-    ldloc.s 4
+    ldarg.s 4
     conv.u8
     add
     dup
@@ -586,12 +562,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L5:
     conv.u4
-    stloc.3
-    ldarg.0
-    stloc.s 6
+    stloc.2
     ldc.i8 0
-    ldloc.s 6
-    ldloca.s 12
+    ldarg.0
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::SubOverflows(int64, int64, int64&)
     brfalse L6
     ldstr "overflow.sabi:28:13"
@@ -599,17 +573,17 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L6:
-    ldloc.s 12
-    stloc.s 5
+    ldloc.s 9
+    stloc.3
     ldarg.1
     ldc.i8 2
     div.un
-    stloc.s 7
+    stloc.s 4
     ldarg.2
     ldc.i4.3
     conv.i
     rem
-    stloc.s 8
+    stloc.s 5
     ldarg.0
     ldarg.2
     dup
@@ -623,7 +597,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
   L7:
     conv.i4
     shl
-    stloc.s 9
+    stloc.s 6
     ldarg.1
     ldc.i4.1
     dup
@@ -635,7 +609,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L8:
     shr.un
-    stloc.s 10
+    stloc.s 7
     ldarg.0
     ldarg.s 4
     dup
@@ -647,10 +621,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     throw
   L9:
     shr
-    stloc.s 11
-    ldloc.0
+    stloc.s 8
     conv.u8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L10
     ldstr "overflow.sabi:34:5"
@@ -658,10 +631,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L10:
-    ldloc.s 12
-    ldloc.1
+    ldloc.s 9
+    ldloc.0
     conv.i8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L11
     ldstr "overflow.sabi:34:5"
@@ -669,10 +642,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L11:
-    ldloc.s 12
-    ldloc.2
+    ldloc.s 9
+    ldloc.1
     conv.u8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L12
     ldstr "overflow.sabi:34:5"
@@ -680,10 +653,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L12:
-    ldloc.s 12
-    ldloc.3
+    ldloc.s 9
+    ldloc.2
     conv.u8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L13
     ldstr "overflow.sabi:34:5"
@@ -691,9 +664,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L13:
-    ldloc.s 12
-    ldloc.s 5
-    ldloca.s 12
+    ldloc.s 9
+    ldloc.3
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L14
     ldstr "overflow.sabi:34:5"
@@ -701,10 +674,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L14:
-    ldloc.s 12
-    ldloc.s 7
+    ldloc.s 9
+    ldloc.s 4
     conv.u8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L15
     ldstr "overflow.sabi:34:5"
@@ -712,10 +685,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L15:
-    ldloc.s 12
-    ldloc.s 8
+    ldloc.s 9
+    ldloc.s 5
     conv.i8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L16
     ldstr "overflow.sabi:34:5"
@@ -723,9 +696,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L16:
-    ldloc.s 12
     ldloc.s 9
-    ldloca.s 12
+    ldloc.s 6
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L17
     ldstr "overflow.sabi:34:5"
@@ -733,10 +706,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L17:
-    ldloc.s 12
-    ldloc.s 10
+    ldloc.s 9
+    ldloc.s 7
     conv.u8
-    ldloca.s 12
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L18
     ldstr "overflow.sabi:34:5"
@@ -744,9 +717,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L18:
-    ldloc.s 12
-    ldloc.s 11
-    ldloca.s 12
+    ldloc.s 9
+    ldloc.s 8
+    ldloca.s 9
     call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(int64, int64, int64&)
     brfalse L19
     ldstr "overflow.sabi:34:5"
@@ -754,7 +727,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     ldnull
     throw
   L19:
-    ldloc.s 12
+    ldloc.s 9
     ret
   }
 
@@ -762,13 +735,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
   {
     .maxstack 4
     .locals init (
-      [0] bool 'c2',
-      [1] bool 'c3',
-      [2] bool 'c4',
-      [3] bool 'c5',
-      [4] bool 'c6',
-      [5] bool 'c7',
-      [6] bool 'c8'
+      [0] bool 'c3',
+      [1] bool 'c4',
+      [2] bool 'c5',
+      [3] bool 'c6',
+      [4] bool 'c7',
+      [5] bool 'c8',
+      [6] bool '_28'
     )
   BB0:
     ldarg.0
@@ -779,49 +752,49 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     clt.un
     ldc.i4.0
     ceq
-    stloc.0
     ldarg.2
     ldc.r8 1.5
     cgt.un
     ldc.i4.0
     ceq
-    stloc.1
+    stloc.0
     ldarg.2
     ldc.r8 0.0
     cgt
-    stloc.2
+    stloc.1
     ldarg.3
     ldc.i4.1
     ceq
-    stloc.3
+    stloc.2
     ldarg.s 4
     ldc.i4.s 120
     ceq
     ldc.i4.0
     ceq
-    stloc.s 4
+    stloc.3
     ldarg.0
     ldc.i4.0
     clt
     ldc.i4.0
     ceq
-    stloc.s 5
+    stloc.s 4
     ldarg.1
     ldc.i4.5
     clt.un
-    stloc.s 6
-    ldloc.0
+    stloc.s 5
     and
     ldloc.1
     ldloc.2
-    ldloc.3
     and
+    stloc.s 6
+    ldloc.0
+    ldloc.s 6
     xor
     or
+    ldloc.3
     ldloc.s 4
-    ldloc.s 5
     and
-    ldloc.s 6
+    ldloc.s 5
     and
     or
     ret
@@ -831,13 +804,15 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
   {
     .maxstack 3
     .locals init (
-      [0] float32 'n'
+      [0] float64 '_6'
     )
   BB0:
     ldarg.0
-    ldarg.0
     ldc.r8 2.0
     mul
+    stloc.0
+    ldarg.0
+    ldloc.0
     add
     ldarg.0
     ldc.r8 3.0
@@ -847,8 +822,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/overflow.sabi
     sub
     ldarg.1
     neg
-    stloc.0
-    ldloc.0
     conv.r8
     add
     ret

@@ -21,15 +21,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
   .method public hidebysig static int32 'Add'(int32 'a', int32 'b') cil managed
   {
     .maxstack 3
-    .locals init (
-      [0] int32 '_4'
-    )
   BB0:
     ldarg.0
-    ldarg.1
-    stloc.0
     conv.i8
-    ldloc.0
+    ldarg.1
     conv.i8
     add
     dup
@@ -59,12 +54,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/calls.sabi
   .method public hidebysig static bool 'Check'(bool 'flag', valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's') cil managed
   {
     .maxstack 1
-    .locals init (
-      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_3'
-    )
   BB0:
-    ldarg.1
-    stloc.0
     ldarg.0
     ret
   }

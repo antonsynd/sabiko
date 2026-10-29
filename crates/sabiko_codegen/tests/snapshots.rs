@@ -34,6 +34,13 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
         "fixture must be valid:\n{}",
         sabiko_diagnostics::render(sink.diagnostics(), &sm, Format::HumanPlain)
     );
+    // As the driver does: copy forwarding after borrow checking, then the validator.
+    sabiko_mir::forward::forward_all(&mut bodies);
+    let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
+    assert!(
+        errors.is_empty(),
+        "invalid MIR after forwarding: {errors:#?}"
+    );
     let has_entry = bodies
         .iter()
         .any(|b| b.name == "Main" && b.arg_count == 0 && b.return_ty().is_unit());

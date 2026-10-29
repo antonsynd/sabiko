@@ -232,22 +232,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
 
   .method public hidebysig static float64 'Floats'(int32 'a', uint32 'b', int64 'c', float32 'd', float64 'e') cil managed
   {
-    .maxstack 4
+    .maxstack 5
     .locals init (
-      [0] float64 'f2',
-      [1] float32 'f3',
-      [2] float64 'f4',
-      [3] float32 'f5',
-      [4] int8 'i1',
-      [5] uint8 'i2',
-      [6] int16 'i3',
-      [7] uint16 'i4',
-      [8] int32 'i5',
-      [9] uint32 'i6',
-      [10] int64 'i7',
-      [11] uint64 'i8',
-      [12] native int 'i9',
-      [13] native uint 'i10'
+      [0] float32 'f3',
+      [1] float64 'f4',
+      [2] float32 'f5',
+      [3] int8 'i1',
+      [4] uint8 'i2',
+      [5] int16 'i3',
+      [6] uint16 'i4',
+      [7] int32 'i5',
+      [8] uint32 'i6',
+      [9] int64 'i7',
+      [10] uint64 'i8',
+      [11] native int 'i9',
+      [12] native uint 'i10'
     )
   BB0:
     ldarg.0
@@ -255,104 +254,102 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
     ldarg.1
     conv.r.un
     conv.r8
-    stloc.0
     ldarg.2
     conv.r4
-    stloc.1
+    stloc.0
     ldarg.3
     conv.r8
-    stloc.2
+    stloc.1
     ldarg.s 4
     conv.r4
-    stloc.3
+    stloc.2
     ldarg.s 4
     conv.r8
     ldc.r8 -128.
     ldc.r8 127.
     call float64 [System.Runtime]System.Math::Clamp(float64, float64, float64)
     conv.i4
-    stloc.s 4
+    stloc.3
     ldarg.s 4
     conv.r8
     ldc.r8 0.
     ldc.r8 255.
     call float64 [System.Runtime]System.Math::Clamp(float64, float64, float64)
     conv.i4
-    stloc.s 5
+    stloc.s 4
     ldarg.s 4
     conv.r8
     ldc.r8 -32768.
     ldc.r8 32767.
     call float64 [System.Runtime]System.Math::Clamp(float64, float64, float64)
     conv.i4
-    stloc.s 6
+    stloc.s 5
     ldarg.s 4
     conv.r8
     ldc.r8 0.
     ldc.r8 65535.
     call float64 [System.Runtime]System.Math::Clamp(float64, float64, float64)
     conv.i4
-    stloc.s 7
+    stloc.s 6
     ldarg.s 4
     conv.i4
-    stloc.s 8
+    stloc.s 7
     ldarg.s 4
     conv.u4
-    stloc.s 9
+    stloc.s 8
     ldarg.s 4
     conv.i8
-    stloc.s 10
+    stloc.s 9
     ldarg.s 4
     conv.u8
-    stloc.s 11
+    stloc.s 10
     ldarg.3
     conv.i
-    stloc.s 12
+    stloc.s 11
     ldarg.3
     conv.u
-    stloc.s 13
-    ldloc.0
+    stloc.s 12
     add
-    ldloc.1
+    ldloc.0
     conv.r8
     add
+    ldloc.1
+    add
     ldloc.2
+    conv.r8
     add
     ldloc.3
     conv.r8
     add
     ldloc.s 4
+    conv.r.un
     conv.r8
     add
     ldloc.s 5
-    conv.r.un
     conv.r8
     add
     ldloc.s 6
+    conv.r.un
     conv.r8
     add
     ldloc.s 7
-    conv.r.un
     conv.r8
     add
     ldloc.s 8
+    conv.r.un
     conv.r8
     add
     ldloc.s 9
-    conv.r.un
     conv.r8
     add
     ldloc.s 10
-    conv.r8
-    add
-    ldloc.s 11
     conv.r.un
     conv.r8
     add
-    ldloc.s 12
+    ldloc.s 11
     conv.r8
     add
-    ldloc.s 13
+    ldloc.s 12
     conv.r.un
     conv.r8
     add
@@ -369,10 +366,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
       [3] char 'e',
       [4] int64 'f',
       [5] uint32 '_22',
-      [6] uint32 '_24',
-      [7] uint32 '_25',
-      [8] uint32 '_27',
-      [9] uint32 '_29'
+      [6] uint32 '_25',
+      [7] uint32 '_27',
+      [8] uint32 '_29'
     )
   BB0:
     ldarg.0
@@ -411,10 +407,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
     throw
   L1:
     conv.u4
-    ldloc.1
-    stloc.s 6
     conv.u8
-    ldloc.s 6
+    ldloc.1
     conv.u8
     add
     dup
@@ -430,9 +424,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
     conv.u4
     ldloc.2
     conv.u4
-    stloc.s 7
+    stloc.s 6
     conv.u8
-    ldloc.s 7
+    ldloc.s 6
     conv.u8
     add
     dup
@@ -448,9 +442,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
     conv.u4
     ldloc.3
     conv.u4
-    stloc.s 8
+    stloc.s 7
     conv.u8
-    ldloc.s 8
+    ldloc.s 7
     conv.u8
     add
     dup
@@ -466,9 +460,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/casts.sabi
     conv.u4
     ldloc.s 4
     conv.u4
-    stloc.s 9
+    stloc.s 8
     conv.u8
-    ldloc.s 9
+    ldloc.s 8
     conv.u8
     add
     dup
