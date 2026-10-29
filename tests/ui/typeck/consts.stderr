@@ -54,71 +54,85 @@
     │                ───────┬──────  
     │                       ╰──────── in this constant
 ────╯
-[E0316] Error: cycle detected when evaluating constant `I`
-    ╭─[ tests/ui/typeck/consts.sabi:21:16 ]
+[E0316] Error: attempt to negate with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:22:22 ]
     │
- 20 │ const I: i32 = J;
+ 22 │ const Neg128: i128 = -Min128; //~ ERROR E0316 attempt to negate with overflow
+    │                      ───┬───  
+    │                         ╰───── in this constant
+────╯
+[E0316] Error: attempt to negate with overflow
+    ╭─[ tests/ui/typeck/consts.sabi:23:27 ]
+    │
+ 23 │ const NegParen128: i128 = -(Min128); //~ ERROR E0316 attempt to negate with overflow
+    │                           ────┬────  
+    │                               ╰────── in this constant
+────╯
+[E0316] Error: cycle detected when evaluating constant `I`
+    ╭─[ tests/ui/typeck/consts.sabi:25:16 ]
+    │
+ 24 │ const I: i32 = J;
     │       ┬  
     │       ╰── `I` defined here
- 21 │ const J: i32 = I; //~ ERROR E0316 cycle detected when evaluating constant `I`
+ 25 │ const J: i32 = I; //~ ERROR E0316 cycle detected when evaluating constant `I`
     │                ┬  
     │                ╰── cyclic reference
 ────╯
 [E0316] Error: cycle detected when evaluating constant `K`
-    ╭─[ tests/ui/typeck/consts.sabi:22:16 ]
+    ╭─[ tests/ui/typeck/consts.sabi:26:16 ]
     │
- 22 │ const K: i32 = K; //~ ERROR E0316 cycle detected when evaluating constant `K`
+ 26 │ const K: i32 = K; //~ ERROR E0316 cycle detected when evaluating constant `K`
     │       ┬        ┬  
     │       │        ╰── cyclic reference
     │       │           
     │       ╰─────────── `K` defined here
 ────╯
 [E0315] Error: blocks cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:23:16 ]
+    ╭─[ tests/ui/typeck/consts.sabi:27:16 ]
     │
- 23 │ const L: i32 = { 1 }; //~ ERROR E0315 blocks cannot be used in constants yet
+ 27 │ const L: i32 = { 1 }; //~ ERROR E0315 blocks cannot be used in constants yet
     │                ──┬──  
     │                  ╰──── in this constant
 ────╯
 [E0315] Error: `if` expressions cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:24:16 ]
+    ╭─[ tests/ui/typeck/consts.sabi:28:16 ]
     │
- 24 │ const M: i32 = if true { 1 } else { 2 }; //~ ERROR E0315 `if` expressions cannot be used in constants yet
+ 28 │ const M: i32 = if true { 1 } else { 2 }; //~ ERROR E0315 `if` expressions cannot be used in constants yet
     │                ────────────┬───────────  
     │                            ╰───────────── in this constant
 ────╯
 [E0315] Error: function calls cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:25:16 ]
+    ╭─[ tests/ui/typeck/consts.sabi:29:16 ]
     │
- 25 │ const N: i32 = Compute(); //~ ERROR E0315 function calls cannot be used in constants yet
+ 29 │ const N: i32 = Compute(); //~ ERROR E0315 function calls cannot be used in constants yet
     │                ────┬────  
     │                    ╰────── in this constant
 ────╯
 [E0315] Error: struct values cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:26:14 ]
+    ╭─[ tests/ui/typeck/consts.sabi:30:14 ]
     │
- 26 │ const O: P = P { X: 1 }; //~ ERROR E0315 struct values cannot be used in constants yet
+ 30 │ const O: P = P { X: 1 }; //~ ERROR E0315 struct values cannot be used in constants yet
     │              ─────┬────  
     │                   ╰────── in this constant
 ────╯
 [E0315] Error: field accesses cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:27:16 ]
+    ╭─[ tests/ui/typeck/consts.sabi:31:16 ]
     │
- 27 │ const Q: i32 = O.X; //~ ERROR E0315 field accesses cannot be used in constants yet
+ 31 │ const Q: i32 = O.X; //~ ERROR E0315 field accesses cannot be used in constants yet
     │                ─┬─  
     │                 ╰─── in this constant
 ────╯
 [E0315] Error: references cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:28:17 ]
+    ╭─[ tests/ui/typeck/consts.sabi:32:17 ]
     │
- 28 │ const R: &i32 = &1; //~ ERROR E0315 references cannot be used in constants yet
+ 32 │ const R: &i32 = &1; //~ ERROR E0315 references cannot be used in constants yet
     │                 ─┬  
     │                  ╰── in this constant
 ────╯
 [E0315] Error: struct values cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:29:17 ]
+    ╭─[ tests/ui/typeck/consts.sabi:33:17 ]
     │
- 29 │ const W: Unit = Unit; //~ ERROR E0315 struct values cannot be used in constants yet
+ 33 │ const W: Unit = Unit; //~ ERROR E0315 struct values cannot be used in constants yet
     │                 ──┬─  
     │                   ╰─── in this constant
 ────╯

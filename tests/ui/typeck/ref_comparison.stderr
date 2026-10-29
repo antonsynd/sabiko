@@ -79,3 +79,10 @@
     │                    ───┬──  
     │                       ╰──── no implementation for `&P != &P`
 ────╯
+[E0306] Error: binary operation `==` cannot be applied to type `&P`
+    ╭─[ tests/ui/typeck/ref_comparison.sabi:42:20 ]
+    │
+ 42 │     let badLater = &v == &v; //~ ERROR E0306 binary operation `==` cannot be applied to type `&P`
+    │                    ────┬───  
+    │                        ╰───── no implementation for `&P == &P`
+────╯
