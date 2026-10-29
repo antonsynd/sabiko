@@ -13,6 +13,12 @@ pub const FN_NAMES: &[&str] = &[
     "Compute", "Blend", "Scale", "Shift", "Measure", "Combine", "Adjust", "Weigh", "Fold", "Probe",
     "Twist", "Gather", "Refine", "Settle", "Sample", "Tally",
 ];
+/// Names of methods and associated functions; `Count` and `Total` are also field names
+/// (fields and methods are separate namespaces).
+pub const METHOD_NAMES: &[&str] = &[
+    "Get", "Bump", "Peek", "Grow", "Mix", "Take", "Reset", "Make", "Build", "Merge", "Count",
+    "Total", "Nudge", "Pick",
+];
 pub const STRUCT_NAMES: &[&str] = &[
     "Point", "Pair", "Rect", "Node", "Entry", "Frame", "Token", "Record", "Slot", "Grid",
 ];
@@ -91,15 +97,37 @@ impl RetTy {
     }
 }
 
+/// How a method takes its receiver, `params[0]` (named `self`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Receiver {
+    /// `self` (`mut self` when the parameter is mutable).
+    Value,
+    /// `&self` or `&mut self`.
+    Ref { mutable: bool },
+}
+
+/// The struct an associated function's `impl` block is for, and its receiver (`None`
+/// for an associated function without `self`, such as a constructor).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Owner {
+    pub strukt: usize,
+    pub receiver: Option<Receiver>,
+}
+
 #[derive(Debug, Clone)]
 pub struct FnSig {
     pub name: String,
+    /// The receiver first, for a method.
     pub params: Vec<Param>,
     pub ret: RetTy,
+    /// `Some` for a function of an `impl` block, rendered in an `impl` block of its own
+    /// and called as `Type::Name(..)` or, with a receiver, as a method.
+    pub owner: Option<Owner>,
 }
 
 /// The skeleton of a program. Function `i` may only call functions `< i`, which rules out
-/// recursion; `Main` is last.
+/// recursion; `Main` is last. Methods and associated functions are functions with an
+/// [`Owner`].
 #[derive(Debug, Clone)]
 pub struct Program {
     pub structs: Vec<StructDef>,
@@ -239,13 +267,20 @@ impl Program {
         let params: Vec<String> = f
             .params
             .iter()
-            .map(|p| {
-                format!(
+            .enumerate()
+            .map(|(i, p)| match f.owner.and_then(|o| o.receiver) {
+                Some(Receiver::Value) if i == 0 => {
+                    format!("{}self", if p.mutable { "mut " } else { "" })
+                }
+                Some(Receiver::Ref { mutable }) if i == 0 => {
+                    format!("&{}self", if mutable { "mut " } else { "" })
+                }
+                _ => format!(
                     "{}{}: {}",
                     if p.mutable { "mut " } else { "" },
                     p.name,
                     self.ty_name(p.ty)
-                )
+                ),
             })
             .collect();
         format!(
@@ -581,17 +616,48 @@ pub const LOCAL_NAMES: &[&str] = &[
     "item", "left", "right", "cur", "prev", "next",
 ];
 
-fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool) -> FnSig {
+/// Makes the function an associated function of a random struct: a method taking `self`,
+/// `mut self`, `&self` or `&mut self` (its first parameter, named `self`), or now and then
+/// an associated function without one.
+fn gen_owner(rng: &mut Rng, program: &Program, params: &mut Vec<Param>) -> Owner {
+    let strukt = rng.index(program.structs.len());
+    let receiver = match rng.weighted(&[35, 30, 20, 15]) {
+        0 => Some(Receiver::Ref { mutable: false }),
+        1 => Some(Receiver::Ref { mutable: true }),
+        2 => Some(Receiver::Value),
+        _ => None,
+    };
+    let ty = match receiver {
+        Some(Receiver::Ref { mutable }) => Some(Ty::Ref {
+            mutable,
+            inner: ValTy::Struct(strukt),
+        }),
+        Some(Receiver::Value) => Some(Ty::Val(ValTy::Struct(strukt))),
+        None => None,
+    };
+    if let Some(ty) = ty {
+        params.push(Param {
+            name: "self".to_owned(),
+            mutable: receiver == Some(Receiver::Value) && rng.chance(40),
+            ty,
+        });
+    }
+    Owner { strukt, receiver }
+}
+
+fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method: bool) -> FnSig {
     if is_main {
         return FnSig {
             name,
             params: Vec::new(),
             ret: RetTy::Unit,
+            owner: None,
         };
     }
+    let mut params = Vec::new();
+    let owner = method.then(|| gen_owner(rng, program, &mut params));
     let n_params = rng.range(0, 3);
     let mut used = Vec::new();
-    let mut params = Vec::new();
     for _ in 0..n_params {
         let pname = unique_name(rng, LOCAL_NAMES, &mut used);
         let ty = random_ty(rng, program, true);
@@ -603,17 +669,33 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool) -> FnS
         });
     }
     let ref_params: Vec<&Param> = params.iter().filter(|p| p.ty.is_ref()).collect();
+    // Elision: a `&self`/`&mut self` method returns a reference into `self` whatever its
+    // other parameters; otherwise the one reference parameter must be the only one.
+    let ref_self = matches!(
+        owner,
+        Some(Owner {
+            receiver: Some(Receiver::Ref { .. }),
+            ..
+        })
+    );
+    let constructor = owner.is_some_and(|o| o.receiver.is_none());
     let ret = match rng.weighted(&[
         25,
         50,
         if program.structs.is_empty() { 0 } else { 12 },
-        if ref_params.len() == 1 { 25 } else { 0 },
+        if ref_params.len() == 1 || ref_self {
+            25
+        } else {
+            0
+        },
         if program.tuples.is_empty() { 0 } else { 12 },
+        if constructor { 60 } else { 0 },
     ]) {
         0 => RetTy::Unit,
         1 => RetTy::Val(ValTy::Prim(random_prim(rng))),
         2 => RetTy::Val(ValTy::Struct(rng.index(program.structs.len()))),
         4 => RetTy::Val(ValTy::Tuple(rng.index(program.tuples.len()))),
+        5 => RetTy::Val(ValTy::Struct(owner.expect("a constructor").strukt)),
         _ => {
             let Ty::Ref { mutable, inner } = ref_params[0].ty else {
                 unreachable!()
@@ -626,7 +708,12 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool) -> FnS
             }
         }
     };
-    FnSig { name, params, ret }
+    FnSig {
+        name,
+        params,
+        ret,
+        owner,
+    }
 }
 
 /// Generates the whole skeleton: tuples of primitives, structs (which may hold them), more
@@ -651,12 +738,15 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
     let mut used = Vec::new();
     for i in 0..n_fns {
         let is_main = i == n_fns - 1;
+        let method = !is_main && !program.structs.is_empty() && rng.chance(40);
         let name = if is_main {
             "Main".to_owned()
+        } else if method {
+            unique_name(rng, METHOD_NAMES, &mut used)
         } else {
             unique_name(rng, FN_NAMES, &mut used)
         };
-        let sig = gen_sig(rng, &program, name, is_main);
+        let sig = gen_sig(rng, &program, name, is_main, method);
         program.fns.push(sig);
     }
     program

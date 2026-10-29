@@ -20,7 +20,14 @@
 //! arithmetic, bitwise, shift, comparison and logical operators (comparisons also between
 //! references to primitives, which compare the referents), unary `-`/`!`, `as` casts
 //! between every integer type (`i128`/`u128` included), `f32`/`f64`, `bool` and ASCII
-//! `char`, suffixed literals and compound assignment. Not generated: methods, arrays,
+//! `char`, suffixed literals and compound assignment. Methods (#7): functions of inherent
+//! `impl` blocks (one block per function, so a struct's methods are spread over several)
+//! taking `self`, `mut self`, `&self` or `&mut self`, or nothing (associated functions,
+//! often constructors); called as `Type::Name(..)` or with method syntax on places,
+//! reference locals, call results and temporaries, including chains through a returned
+//! reference and the two-phase shapes (#15) where later arguments read the receiver
+//! (`v.Add(v.Get())`) or a reborrowed `&mut` argument (`Use(m, m.X)`); `&self` methods
+//! return references into `self` whatever their other parameters. Not generated: arrays,
 //! enums, `match`, generics, closures, `&str` other than literals passed to
 //! `Print`/`PrintLine`/`Panic`, references in struct fields or tuples, `()` values,
 //! comparisons of tuples, recursion, shadowing, unbounded loops, and reads of
@@ -41,6 +48,8 @@ pub mod program;
 pub mod reorder;
 pub mod rng;
 pub mod ty;
+
+use std::fmt::Write as _;
 
 use rng::Rng;
 
@@ -118,14 +127,29 @@ pub fn generate(seed: u64, knobs: &Knobs) -> String {
         .unwrap_or(0)
         .max(5);
     for i in 0..prog.fns.len() {
+        // A function of an `impl` block gets a block of its own, so a struct's methods are
+        // spread over several blocks between the free functions.
+        let indent = match prog.fns[i].owner {
+            Some(owner) => {
+                let _ = writeln!(out, "impl {} {{", prog.structs[owner.strukt].name);
+                "    "
+            }
+            None => "",
+        };
+        out.push_str(indent);
         out.push_str(&prog.render_sig(&prog.fns[i]));
         out.push('\n');
         let body = body::BodyGen::new(&prog, knobs, &mut rng, i, budget).generate();
         for l in body {
+            out.push_str(indent);
             out.push_str(&l);
             out.push('\n');
         }
+        out.push_str(indent);
         out.push_str("}\n");
+        if !indent.is_empty() {
+            out.push_str("}\n");
+        }
         if i + 1 < prog.fns.len() {
             out.push('\n');
         }
