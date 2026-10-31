@@ -5,7 +5,7 @@
 //! not depend on MIR lowering. Only `moves::check_moves` runs, so the diagnostics of the
 //! other checks never interfere.
 
-use sabiko_borrowck::moves::check_moves;
+use sabiko_borrowck::moves::{check_moves, MovePaths};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
     AggregateKind, BasicBlock, BasicBlockData, Body, ConstValue, Constant, Local, LocalDecl,
@@ -360,6 +360,29 @@ const NOT_COPY_POINT: &str =
 // ----------------------------------------------------------------------------------------
 // E0406: use after move
 // ----------------------------------------------------------------------------------------
+
+/// A body has a move path for every deref-free prefix of a place it mentions: here `p`,
+/// `x`, `l`, `l.A` and `l.A.X`.
+#[test]
+fn move_paths_cover_the_mentioned_places() {
+    assert!(MovePaths::default().is_empty());
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let p = mir.user("p", fx.point_ty(), Mutability::Not);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let x = mir.temp(Ty::I32);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(
+        bb0,
+        local(x),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 0)))),
+    );
+    mir.ret(bb0);
+    let paths = MovePaths::build(&mir.finish());
+    assert!(!paths.is_empty());
+    assert_eq!(paths.len(), 5);
+}
 
 #[test]
 fn straight_line_use_after_move() {

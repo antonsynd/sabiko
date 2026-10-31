@@ -620,4 +620,63 @@ fn Bad(s: S) {
             ]
         );
     }
+
+    /// Tuple patterns and tuple types inside bodies: default binding modes through `& &mut`,
+    /// `()` patterns, a tuple pattern without an initialiser, `_` inside a tuple
+    /// annotation, and a diverging element without an expectation.
+    #[test]
+    fn tuple_patterns_and_annotations() {
+        let src = r"
+fn F(m: &mut (i32, bool)) {
+    let (a, b) = &&mut *m;
+    let () = ();
+    let (c, d);
+    c = 1u8;
+    d = true;
+    let t: (_, i32) = (2u16, 3);
+    let u = (return, 4i64);
+}";
+        let (r, resolve, msgs) = run(src);
+        assert!(msgs.is_empty(), "{msgs:#?}");
+        assert_eq!(
+            local_types(&r, &resolve, "F"),
+            [
+                "m: &mut (i32, bool)",
+                "a: &i32",
+                "b: &bool",
+                "c: u8",
+                "d: bool",
+                "t: (u16, i32)",
+                "u: ((), i64)",
+            ]
+        );
+    }
+
+    /// Each error is reported once: a method call on a receiver whose type is already an
+    /// error reports nothing more.
+    #[test]
+    fn tuple_pattern_and_receiver_errors() {
+        let src = r"
+struct S { X: i32 }
+fn F(s: S) {
+    let (a, b) = ();
+    let (c, d) = 5;
+    let x;
+    Print((x, 1i32));
+    s.Missing.Foo();
+    let e = 1i32;
+    let f = e[0];
+}";
+        let (_, _, msgs) = run(src);
+        assert_eq!(
+            msgs,
+            [
+                "E0300 mismatched types [expected `()`, found a tuple with 2 elements]",
+                "E0300 mismatched types [expected `{integer}`, found a tuple with 2 elements]",
+                "E0313 type annotations needed [cannot infer the type of this argument to `Print`]",
+                "E0301 no field `Missing` on type `S` [unknown field]",
+                "E0107 not yet supported: indexing [indexing are not yet supported]",
+            ]
+        );
+    }
 }

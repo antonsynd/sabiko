@@ -330,6 +330,36 @@ mod tests {
         assert!(!cx.is_cyclic(&i, &f));
     }
 
+    /// The occurs check and the cycle test look inside tuple elements, pairing elements
+    /// only between tuples of the same arity.
+    #[test]
+    fn occurs_check_looks_inside_tuples() {
+        let mut cx = InferCtxt::new();
+        let v = cx.new_var(VarKind::General);
+        let tuple = |elems: Vec<Ty>| Ty::Tuple(Box::new(elems));
+        assert!(cx.unify(&v, &tuple(vec![Ty::BOOL, v.clone()])).is_err());
+        assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
+
+        let cyclic = tuple(vec![Ty::shared_ref(v.clone())]);
+        assert!(cx.is_cyclic(&tuple(vec![v.clone()]), &cyclic));
+        // Different arities fail to unify for that alone.
+        let pair = tuple(vec![v.clone(), Ty::BOOL]);
+        assert!(!cx.is_cyclic(&pair, &cyclic));
+        assert!(!cx.is_cyclic(&tuple(vec![v.clone()]), &tuple(vec![Ty::BOOL])));
+    }
+
+    /// `bind_error` reaches the variables inside references and tuples.
+    #[test]
+    fn bind_error_reaches_tuple_elements() {
+        let mut cx = InferCtxt::new();
+        let a = cx.new_var(VarKind::General);
+        let b = cx.new_var(VarKind::General);
+        let ty = Ty::Tuple(Box::new(vec![a.clone(), Ty::shared_ref(b.clone())]));
+        cx.bind_error(&ty);
+        assert_eq!(cx.resolve(&a), Ty::Error);
+        assert_eq!(cx.resolve(&b), Ty::Error);
+    }
+
     /// `!` coerces to anything but never unifies: a variable stays open, so a diverging
     /// initialiser falls back to `()` instead of making the binding `!`.
     #[test]

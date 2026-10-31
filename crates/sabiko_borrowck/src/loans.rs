@@ -472,6 +472,17 @@ mod tests {
         place.field(index, Ty::I32)
     }
 
+    /// Location `i` has points `Start = 2i` and `Mid = 2i + 1`.
+    #[test]
+    fn mid_points_are_odd() {
+        use facts::LocationTable;
+        use regions::Point;
+        assert!(!LocationTable::is_mid(Point(0)));
+        assert!(LocationTable::is_mid(Point(1)));
+        assert!(!LocationTable::is_mid(Point(4)));
+        assert!(LocationTable::is_mid(Point(7)));
+    }
+
     #[test]
     fn disjoint_fields_do_not_conflict() {
         let p = Place::local(Local(1));

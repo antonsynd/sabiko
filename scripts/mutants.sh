@@ -40,7 +40,9 @@ test_packages() {
 # (233 of 244; 11 survivors, dead branches given the MIR the builder produces). Types,
 # recorded 2026-10-21: 98.5% (407 of 413; the 6 survivors are the equivalent mutants listed
 # in docs/TESTING.md). The 100% recorded for types on 2026-10-19 did not reproduce: the
-# first nightly run measured 66.9%, see docs/PLAN.md.
+# first nightly run measured 66.9%, see docs/PLAN.md. Re-measured 2026-10-31 after the
+# tuple survivors got tests: borrowck 94.9% (298 of 314), codegen 95.6% (494 of 517),
+# types 98.8% (570 of 577); see docs/TESTING.md.
 minimum_score() {
     case "$1" in
         sabiko_borrowck) echo 93 ;;

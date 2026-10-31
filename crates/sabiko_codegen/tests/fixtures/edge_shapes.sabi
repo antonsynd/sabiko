@@ -1,0 +1,26 @@
+// Block and stack shapes the corpora did not reach, found by mutation testing: a block
+// that only returns but is a branch target keeps its own `ret` (`Pick`); a value computed
+// before a division known to panic still goes to its own local (`Weigh`); and an
+// assignment to the return place followed by a drop flag write is stored, not left on the
+// stack, since the flag write comes before the return (`Make`).
+struct Guard {
+    A: i32,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {}
+}
+
+fn Pick(g: Guard, c: bool) {
+    let n = if c { g } else { Guard { A: 1 } };
+    if c {}
+}
+
+fn Weigh(c: bool, x: u8) {
+    PrintLine(if c { 3u8 } else { (x / 10u8) % 0u8 });
+}
+
+fn Make(c: bool, x: i32) -> (i32, Guard) {
+    let g = if c { Guard { A: x } } else { Guard { A: x + x } };
+    (x + 1, g)
+}

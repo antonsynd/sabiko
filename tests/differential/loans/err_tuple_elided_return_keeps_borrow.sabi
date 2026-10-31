@@ -1,0 +1,10 @@
+// The reference in a returned tuple takes the elided lifetime of the one reference
+// parameter: the caller's loan lives as long as the tuple's reference is used.
+fn Pair(x: &i32) -> (&i32, i32) { (x, 1) }
+
+fn Main() {
+    let mut a = 1;
+    let t = Pair(&a);
+    a = 2;
+    PrintLine(*t.0);
+}

@@ -411,5 +411,12 @@ mod tests {
         assert!(c.subtract(&a));
         assert!(!c.contains(69) && c.contains(0));
         assert_eq!(format!("{a:?}"), "{69}");
+
+        assert_eq!(a.domain_size(), 70);
+        assert!(!a.is_empty(), "{a:?} has a member");
+        let mut d = full.clone();
+        d.clear();
+        assert!(d.is_empty(), "expected an empty set, got {d:?}");
+        assert_eq!(d.domain_size(), 70);
     }
 }
