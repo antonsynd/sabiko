@@ -35,7 +35,7 @@
 //! forwarding and code generation. Run [`crate::simplify`] after it: removed drops leave
 //! blocks that only jump.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use sabiko_resolve::Builtin;
 use sabiko_span::Span;
@@ -82,7 +82,9 @@ struct PathNode {
 #[derive(Debug, Default)]
 struct DropPaths {
     nodes: Vec<PathNode>,
-    roots: HashMap<Local, usize>,
+    /// The root path of each local with drop glue, ordered so iterating it is
+    /// deterministic (the flag writes for arguments are emitted in this order).
+    roots: BTreeMap<Local, usize>,
     /// The node of each leaf.
     leaf_nodes: Vec<usize>,
 }

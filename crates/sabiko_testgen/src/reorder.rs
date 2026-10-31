@@ -20,7 +20,9 @@
 //!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation or a
 //!   compound assignment, or a value with drop glue (whose `drop` prints): a `let` of one,
 //!   which fixes where it is dropped at the end of the block and whether a panic in
-//!   between drops it, an assignment that drops the old one, or an expression statement
+//!   between drops it, an assignment that drops the old one, an assignment into part of
+//!   one or through a dereference (a panic in the other statement drops the value while
+//!   unwinding, and its `drop` may print the written field), or an expression statement
 //!   that drops its value;
 //! - they do not both touch memory that may be aliased, unless both only read it. A
 //!   statement touches aliased memory when it borrows (`&` reads, `&mut` writes, and so
@@ -400,6 +402,20 @@ impl FnCx<'_, '_> {
         self.typeck.items.needs_drop(self.types.expr_ty(e.id))
     }
 
+    /// Whether assigning to the place `e` is observable through drop glue: the old value
+    /// is dropped, or the place is part of a value with drop glue, or it is behind a
+    /// reference (which may point into one). A panic in the other statement drops that
+    /// value while unwinding, and its `drop` sees whether the write happened yet (seeds
+    /// 438 and 498).
+    fn writes_into_drop_value(&self, e: &Expr) -> bool {
+        self.needs_drop(e)
+            || match &e.kind {
+                ExprKind::Paren(x) | ExprKind::Field(x, _) => self.writes_into_drop_value(x),
+                ExprKind::Deref(_) => true,
+                _ => false,
+            }
+    }
+
     fn local(&self, local: LocalId, mode: Mode, s: &mut Summary) {
         s.locals.insert(local);
         let ty = self.types.local_ty(local);
@@ -445,8 +461,7 @@ impl FnCx<'_, '_> {
                 self.expr(b, Mode::Read, s);
             }
             ExprKind::Assign(lhs, rhs) => {
-                // The old value is dropped.
-                s.effect |= self.needs_drop(lhs);
+                s.effect |= self.writes_into_drop_value(lhs);
                 self.expr(lhs, Mode::Write, s);
                 self.expr(rhs, Mode::Read, s);
             }
@@ -690,6 +705,17 @@ mod tests {
         // with either neighbour; `c = ..` drops the old `c`; `let _ = D {..}` drops at once,
         // and only `let m` (no effect) may swap with it.
         assert_eq!(pairs(src), vec![12, 13, 15, 16]);
+    }
+
+    #[test]
+    fn writes_into_values_with_drop_glue_are_effects() {
+        let src = "struct D {\n    A: i32,\n}\n\nimpl Drop for D {\n    fn drop(&mut self) {\n        PrintLine(self.A);\n    }\n}\n\nfn Main() {\n    let mut c = (D { A: 1i32 }, 2i32);\n    let x = (3i32 - 4i32);\n    c.0.A = 5i32;\n    let y = (6i32 - 7i32);\n    c.1 = 8i32;\n    let z = (9i32 - 10i32);\n    let mut n = 11i32;\n    let r = &mut n;\n    *r = 12i32;\n    let w = (13i32 - 14i32);\n}\n";
+        // A panic in `let x` or `let y` drops `c` while unwinding, and the drop prints
+        // `c.0.A`: `c.0.A = 5` must stay between them (seed 438). `c.1` is part of `c` too
+        // (seed 498 wrote a field next to the one the drop prints). `*r = 12` may write
+        // into a value with drop glue as well, so it stays before `let w`; `let z` / `let
+        // mut n` swap (one effect, disjoint locals).
+        assert_eq!(pairs(src), vec![16]);
     }
 
     #[test]
