@@ -233,6 +233,34 @@ local's cleanup scope opens in a new block after its write and no value crosses 
 protected region's boundary on the evaluation stack (flags are written more than once
 anyway).
 
+The nightly runs of 2026-10-29 to 2026-10-31 failed all three thresholds: `sabiko_borrowck`
+288 of 314 (91.7%), `sabiko_codegen` 490 of 517 (94.8%), `sabiko_types` 551 of 577
+(95.4%). Tuples (#6) brought most of the new survivors. Killing tests:
+
+- `sabiko_types` (19): unit tests of the occurs check, the cycle test and `bind_error`
+  inside tuples, of `Ty::is_uninhabited` and `Ty::has_infer` through references and
+  tuples, and of tuple patterns and annotations in bodies (`& &mut` binding modes, `()`
+  patterns, `let (a, b);`, `_` in a tuple annotation, a diverging element without an
+  expectation; the errors for a tuple pattern against `()` or an integer, an unknown tuple
+  argument to `Print`, indexing, and a method call on an erroneous receiver). 570 of 577
+  (98.8%). Survivors: the six equivalent mutants above, and `check_pat_in_mode`'s
+  `derefs > 0` as `>=`, which records a count of 0 that MIR building already reads as 0.
+- `sabiko_codegen` (4): the IL fixture `edge_shapes`. The `||` before `switch_target` in
+  `Layout::emitted`, listed above as equivalent, is not: a return-only block that is a
+  branch target (`if c {}` at the end of a function with drops) loses its own `ret`.
+  The fixture also covers a value computed before a division known to panic and an
+  assignment to the return place followed by a drop flag write, which `write_method`,
+  `stackable_def` and `block` decide. They were found by applying each survivor and
+  comparing the IL of 3000 generated programs. 494 of 517 (95.6%). The other survivors
+  changed the IL of no generated or corpus program.
+- `sabiko_borrowck` (10): `BitSet` (`domain_size`, `clear`, `is_empty` on a non-empty
+  set), `LocationTable::is_mid` and `MovePaths::is_empty` unit tests, and the
+  differential test `err_tuple_elided_return_keeps_borrow`: a reference in an elided
+  tuple return type keeps the caller's loan (`RegionTy::uniform`). 298 of 314 (94.9%).
+  `uniform`'s and `fresh`'s `has_ref()` guard as `true` wraps a tuple without references
+  as a tuple of `Other`, which is treated like `Other`; `places_conflict`'s `>` as `>=`
+  inspects an empty tail when the projections have the same length.
+
 ## Dependencies
 
 `cargo deny check` (`deny.toml`; setup: `cargo install cargo-deny --locked --version

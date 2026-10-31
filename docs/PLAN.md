@@ -581,6 +581,16 @@ handler) into the aggregate through memory, two 8-byte stores then a 16-byte loa
 stalls store forwarding; building struct literals in place (decision 51 kept
 `ldloca`+`initobj`+`stfld`) is the likely fix.
 
+Update (2026-10-31), after nightly runs 11 and 12: drop elaboration emitted the entry
+block's argument drop flag writes in `HashMap` order, so the IL differed between two
+compilations of the same program (generated-determinism seed 891); the drop paths are a
+`BTreeMap` now. The reorder property swapped a write into part of a value with drop glue
+past a statement that may panic, which the unwind's `drop` observes (seeds 438 and 498, a
+bug in the property's independence analysis, not the compiler). The three mutation scores
+had dropped below their thresholds, mostly through tuples; new tests bring them to 94.9%,
+95.6% and 98.8% (`docs/TESTING.md`), and one survivor listed as equivalent turned out to
+be killable.
+
 ### Phase 5: Data types
 
 Work

@@ -197,3 +197,33 @@ impl Ty {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tuple(elems: Vec<Ty>) -> Ty {
+        Ty::Tuple(Box::new(elems))
+    }
+
+    #[test]
+    fn uninhabited_through_references_and_tuples() {
+        assert!(Ty::Never.is_uninhabited());
+        assert!(Ty::shared_ref(Ty::Never).is_uninhabited());
+        assert!(tuple(vec![Ty::BOOL, Ty::Never]).is_uninhabited());
+        assert!(tuple(vec![Ty::mut_ref(tuple(vec![Ty::Never]))]).is_uninhabited());
+        assert!(!tuple(vec![Ty::BOOL, Ty::Unit]).is_uninhabited());
+        assert!(!Ty::shared_ref(Ty::BOOL).is_uninhabited());
+    }
+
+    #[test]
+    fn has_infer_through_references_and_tuples() {
+        let v = Ty::Infer(TyVid(0));
+        assert!(v.has_infer());
+        assert!(Ty::shared_ref(v.clone()).has_infer());
+        assert!(tuple(vec![Ty::BOOL, v.clone()]).has_infer());
+        assert!(tuple(vec![Ty::mut_ref(v)]).has_infer());
+        assert!(!tuple(vec![Ty::BOOL, Ty::shared_ref(Ty::Unit)]).has_infer());
+        assert!(!Ty::Error.has_infer());
+    }
+}
