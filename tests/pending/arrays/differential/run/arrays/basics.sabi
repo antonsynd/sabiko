@@ -1,0 +1,36 @@
+// Array literals `[a, b, c]` and `[x; N]`, element reads and writes, compound assignment,
+// `.len()` (a `usize`), indices computed with `usize` arithmetic, a `while` loop over the
+// indices, and arrays as `let` annotations and inferred types.
+fn Main() {
+    let a = [10, 20, 30];
+    PrintLine(a[0]);
+    PrintLine(a[2]);
+    PrintLine(a.len());
+    let mut b: [i64; 4] = [7; 4];
+    b[1] = 100;
+    b[2] += b[1] * 2;
+    b[3] -= 1;
+    let mut i: usize = 0;
+    while i < b.len() {
+        Print(b[i]);
+        Print(" ");
+        i += 1;
+    }
+    PrintLine("");
+    let j = 1;
+    PrintLine(a[j + 1] - a[j * 2 - 2]);
+    let mut c = [0u8; 5];
+    let mut k = 0;
+    while k < 5 {
+        c[k] = (k * k) as u8;
+        k += 1;
+    }
+    PrintLine(c[4]);
+    PrintLine(c[c[2] as usize]);
+    let flags = [true, false];
+    if flags[0] && !flags[1] {
+        PrintLine("flags");
+    }
+    let last = a[a.len() - 1];
+    PrintLine(last);
+}

@@ -1,0 +1,14 @@
+// KNOWN GAP (Phase 6): `==`, `!=`, `<` on arrays and slices (`PartialEq`/`PartialOrd`
+// for `[T; N]` and `[T]`, also between an array and a slice), like tuples and structs
+// today (E0107 until the comparison traits). Elements compare as usual.
+fn Main() {
+    let a = [1, 2, 3];
+    let b = [1, 2, 4];
+    PrintLine(a == b);
+    PrintLine(a != b);
+    PrintLine(a < b);
+    let s: &[i32] = &a;
+    PrintLine(s == &a[..]);
+    PrintLine(s == [1, 2, 3]);
+    PrintLine([[0; 2]; 2] == [[0, 0], [0, 0]]);
+}

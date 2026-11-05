@@ -1,0 +1,8 @@
+// A row of a nested array of non-Copy elements cannot be moved out by indexing: E0508.
+struct Token { Id: i32 }
+
+fn Main() {
+    let m = [[Token { Id: 1 }], [Token { Id: 2 }]];
+    let row = m[1];
+    PrintLine(row[0].Id);
+}

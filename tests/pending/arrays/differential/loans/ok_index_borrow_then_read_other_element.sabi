@@ -1,0 +1,12 @@
+// Reading and sharing elements while another element is shared-borrowed is fine, and an
+// element may be written once the borrow is dead.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let r = &a[0];
+    let x = a[1];
+    let s = &a[2];
+    let n = a.len();
+    PrintLine(*r + x + *s + n as i32);
+    a[0] = 7;
+    PrintLine(a[0]);
+}

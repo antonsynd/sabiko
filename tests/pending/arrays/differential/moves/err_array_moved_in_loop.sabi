@@ -1,0 +1,14 @@
+// An array of non-Copy elements moved in a loop body without being reassigned: E0382 on
+// the second iteration.
+struct Token { Id: i32 }
+
+fn Take(a: [Token; 1]) {}
+
+fn Main() {
+    let a = [Token { Id: 1 }];
+    let mut i = 0;
+    while i < 2 {
+        Take(a);
+        i += 1;
+    }
+}

@@ -1,0 +1,16 @@
+// A panic raised while evaluating the index (`Panic` inside `Check`): no element is read
+// or written, the report is the `Panic` call's, and the earlier writes are kept.
+fn Check(i: usize, len: usize) -> usize {
+    if i >= len {
+        Panic("index too large");
+    }
+    i
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    a[Check(2, a.len())] = 30;
+    PrintLine(a[2]);
+    a[Check(3, a.len())] = 40;
+    PrintLine("not reached");
+}

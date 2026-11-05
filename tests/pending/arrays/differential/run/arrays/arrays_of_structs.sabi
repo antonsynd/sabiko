@@ -1,0 +1,67 @@
+// Arrays of structs: `a[i].Field = ..` and `+=`, `&mut a[i]` passed to a function, `&self`
+// and `&mut self` methods called on elements (autoref of `a[i]`), a struct with an array
+// field indexed through `self` in its methods, and an array of structs holding arrays.
+struct Counter { Name: char, N: i32 }
+
+impl Counter {
+    fn Inc(&mut self, by: i32) {
+        self.N += by;
+    }
+
+    fn Get(&self) -> i32 {
+        self.N
+    }
+}
+
+struct Board { Cells: [i32; 4], Moves: i32 }
+
+impl Board {
+    fn Set(&mut self, i: usize, v: i32) {
+        self.Cells[i] = v;
+        self.Moves += 1;
+    }
+
+    fn Total(&self) -> i32 {
+        let mut s = 0;
+        let mut i = 0;
+        while i < self.Cells.len() {
+            s += self.Cells[i];
+            i += 1;
+        }
+        s
+    }
+}
+
+fn Reset(c: &mut Counter) {
+    c.N = 0;
+}
+
+fn Main() {
+    let mut cs = [
+        Counter { Name: 'a', N: 1 },
+        Counter { Name: 'b', N: 2 },
+        Counter { Name: 'c', N: 3 },
+    ];
+    cs[0].N = 10;
+    cs[1].N += 5;
+    cs[2].Inc(100);
+    Reset(&mut cs[0]);
+    let mut i = 0;
+    while i < cs.len() {
+        Print(cs[i].Name);
+        Print('=');
+        PrintLine(cs[i].Get());
+        i += 1;
+    }
+    let mut b = Board { Cells: [0; 4], Moves: 0 };
+    b.Set(1, 5);
+    b.Set(3, 7);
+    b.Cells[0] = -2;
+    PrintLine(b.Total());
+    PrintLine(b.Moves);
+    let mut boards = [Board { Cells: [1; 4], Moves: 0 }, Board { Cells: [2; 4], Moves: 0 }];
+    boards[1].Set(2, 20);
+    boards[0].Cells[3] = 9;
+    PrintLine(boards[0].Total() + boards[1].Total());
+    PrintLine(boards[1].Cells[2] + boards[1].Moves);
+}

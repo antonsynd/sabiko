@@ -1,0 +1,6 @@
+// Element assignment needs a `mut` binding, like a field assignment: E0594.
+fn Main() {
+    let a = [1, 2, 3];
+    a[0] = 4;
+    PrintLine(a[0]);
+}

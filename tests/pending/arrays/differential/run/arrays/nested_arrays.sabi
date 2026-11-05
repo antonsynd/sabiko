@@ -1,0 +1,55 @@
+// Nested arrays `[[i32; 3]; 2]`: `[[0; 3]; 2]`, `m[i][j]` reads and writes, a row as a
+// `&[i32]` and a `&mut [i32]`, `.len()` of the outer and inner arrays, a transpose into
+// `[[i32; 2]; 3]`, and a three-level array.
+fn RowSum(r: &[i32]) -> i32 {
+    let mut s = 0;
+    let mut j = 0;
+    while j < r.len() {
+        s += r[j];
+        j += 1;
+    }
+    s
+}
+
+fn Scale(r: &mut [i32], k: i32) {
+    let mut j = 0;
+    while j < r.len() {
+        r[j] *= k;
+        j += 1;
+    }
+}
+
+fn Transpose(m: [[i32; 3]; 2]) -> [[i32; 2]; 3] {
+    let mut t = [[0; 2]; 3];
+    let mut i = 0;
+    while i < 2 {
+        let mut j = 0;
+        while j < 3 {
+            t[j][i] = m[i][j];
+            j += 1;
+        }
+        i += 1;
+    }
+    t
+}
+
+fn Main() {
+    let mut m = [[0; 3]; 2];
+    m[0][1] = 5;
+    m[1] = [1, 2, 3];
+    m[1][2] += m[0][1];
+    PrintLine(m.len());
+    PrintLine(m[0].len());
+    PrintLine(RowSum(&m[1]));
+    Scale(&mut m[0], 3);
+    PrintLine(m[0][1]);
+    let t = Transpose(m);
+    PrintLine(t.len());
+    PrintLine(t[1][0]);
+    PrintLine(t[2][1]);
+    let mut cube = [[[0u8; 2]; 2]; 2];
+    cube[1][0][1] = 9;
+    let plane = cube[1];
+    PrintLine(plane[0][1]);
+    PrintLine(cube[0][0][1]);
+}

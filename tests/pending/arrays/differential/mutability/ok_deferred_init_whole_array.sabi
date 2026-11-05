@@ -1,0 +1,14 @@
+// Deferred initialisation of a whole array on every path, without `mut`.
+fn Pick(flag: bool) -> i32 {
+    let a: [i32; 2];
+    if flag {
+        a = [1, 2];
+    } else {
+        a = [3; 2];
+    }
+    a[0] + a[1]
+}
+
+fn Main() {
+    PrintLine(Pick(true) + Pick(false));
+}

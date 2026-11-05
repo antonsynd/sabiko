@@ -1,0 +1,15 @@
+// KNOWN GAP (not in #9): array and slice patterns. `let [a, b, c] = arr;` and
+// `[first, .., last]` in a parameter are irrefutable for arrays; slice patterns
+// (`[x, rest @ ..]`) need `match`. SPEC §2 lists the implemented patterns.
+fn Ends([first, .., last]: [i32; 4]) -> i32 {
+    first * 10 + last
+}
+
+fn Main() {
+    let arr = [1, 2, 3];
+    let [a, b, c] = arr;
+    PrintLine(a + b + c);
+    let [x, ..] = arr;
+    PrintLine(x);
+    PrintLine(Ends([4, 5, 6, 7]));
+}

@@ -1,0 +1,17 @@
+// A whole array field can be moved out of a struct (a partial move of the struct); the
+// sibling fields stay usable, and assigning the field again makes the struct whole.
+struct Token { Id: i32 }
+
+struct Bag { Items: [Token; 2], Count: i32 }
+
+fn Take(b: Bag) -> i32 {
+    b.Count
+}
+
+fn Main() {
+    let mut bag = Bag { Items: [Token { Id: 1 }, Token { Id: 2 }], Count: 2 };
+    let items = bag.Items;
+    PrintLine(bag.Count + items[1].Id);
+    bag.Items = [Token { Id: 3 }, Token { Id: 4 }];
+    PrintLine(Take(bag));
+}

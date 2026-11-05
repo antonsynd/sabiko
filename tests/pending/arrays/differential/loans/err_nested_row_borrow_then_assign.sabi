@@ -1,0 +1,9 @@
+// Nested arrays: a `&mut` borrow of row `m[0]` conflicts with an assignment to
+// `m[1][0]` (both are `m[_]..` to the borrow checker): E0506.
+fn Main() {
+    let mut m = [[1, 2], [3, 4]];
+    let row = &mut m[0];
+    m[1][0] = 5;
+    row[0] = 6;
+    PrintLine(m[0][0]);
+}

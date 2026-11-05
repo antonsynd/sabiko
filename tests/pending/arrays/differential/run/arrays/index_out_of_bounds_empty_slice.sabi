@@ -1,0 +1,15 @@
+// Index 0 of an empty slice: "the len is 0 but the index is 0". A compound assignment
+// through `&mut [i32]` checks the bounds before reading the element.
+fn Bump(s: &mut [i32], i: usize) {
+    s[i] += 1;
+}
+
+fn Main() {
+    let mut a = [5];
+    Bump(&mut a, 0);
+    PrintLine(a[0]);
+    let mut empty: [i32; 0] = [];
+    PrintLine(empty.len());
+    Bump(&mut empty, 0);
+    PrintLine("not reached");
+}

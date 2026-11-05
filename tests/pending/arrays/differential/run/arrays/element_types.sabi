@@ -1,0 +1,37 @@
+// Arrays of every primitive element type, read, written and printed: `u8`, `i16`, `u32`,
+// `i64`, `u64`, `i128`, `u128`, `isize`, `usize`, `f32`, `f64`, `bool`, `char`.
+fn Main() {
+    let mut bytes = [255u8, 0, 7];
+    bytes[1] = bytes[2] * 2;
+    PrintLine(bytes[0]);
+    PrintLine(bytes[1]);
+    let shorts: [i16; 2] = [-32768, 32767];
+    PrintLine(shorts[0]);
+    let words = [4000000000u32; 2];
+    PrintLine(words[1]);
+    let longs = [-9223372036854775808i64, 9223372036854775807];
+    PrintLine(longs[0]);
+    PrintLine(longs[1]);
+    let ulongs = [18446744073709551615u64];
+    PrintLine(ulongs[0]);
+    let wide = [170141183460469231731687303715884105727i128, -1];
+    PrintLine(wide[0]);
+    PrintLine(wide[1]);
+    let uwide = [340282366920938463463374607431768211455u128];
+    PrintLine(uwide[0]);
+    let sizes: [isize; 2] = [-5, 5];
+    PrintLine(sizes[0] * sizes[1]);
+    let indices: [usize; 3] = [2, 0, 1];
+    PrintLine(indices[indices[0]]);
+    let singles = [0.5f32, 1.25];
+    PrintLine(singles[0] + singles[1]);
+    let mut doubles = [0.1, 0.2];
+    doubles[0] += doubles[1];
+    PrintLine(doubles[0]);
+    let bools = [false, true, false];
+    PrintLine(bools[1]);
+    let chars = ['S', 'a', 'b', 'i'];
+    Print(chars[0]);
+    Print(chars[3]);
+    PrintLine(chars[1]);
+}

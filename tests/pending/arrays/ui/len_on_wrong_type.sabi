@@ -1,0 +1,15 @@
+// `.len()` is a method of arrays and slices only: on an `i32` or a struct it is E0599. It
+// keeps Rust's lowercase name, so `a.Len()` is E0599 too; it takes no argument (E0061)
+// and is not a field (E0615).
+struct P { X: i32 }
+
+fn Main() {
+    let x: i32 = 5;
+    let p = P { X: 1 };
+    let a = [1, 2];
+    let n = x.len(); //~ rustc E0599: no method named `len` found for type `i32` in the current scope
+    let m = p.len(); //~ rustc E0599: no method named `len` found for struct `P` in the current scope [method not found in `P`]
+    let k = a.Len(); //~ rustc E0599: no method named `Len` found for array `[{integer}; 2]` in the current scope
+    let j = a.len(1); //~ rustc E0061: this method takes 0 arguments but 1 argument was supplied
+    let l = a.len; //~ rustc E0615: attempted to take value of method `len` on type `[{integer}; 2]` [method, not a field]
+}

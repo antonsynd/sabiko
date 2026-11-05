@@ -1,0 +1,8 @@
+// A slice made from an array (`&a` coerced to `&[i32]`) borrows the whole array:
+// assigning an element while the slice is live is E0506.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let s: &[i32] = &a;
+    a[0] = 10;
+    PrintLine(s.len());
+}

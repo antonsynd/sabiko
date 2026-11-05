@@ -1,0 +1,25 @@
+// `[x; N]` copies its operand N times, so for N >= 2 its type must be Copy: E0277 "the
+// trait bound `Token: Copy` is not satisfied", for a local, a call result and a struct
+// literal, with N a literal or a constant. (N = 0 and N = 1 need no Copy:
+// differential/moves/ok_repeat_zero_or_one_needs_no_copy.sabi.) One function per case:
+// rustc reports an unsatisfied `Token: Copy` only once per function body.
+struct Token { Id: i32 }
+
+const TWO: usize = 2;
+
+fn Make() -> Token {
+    Token { Id: 1 }
+}
+
+fn FromLocal() {
+    let t = Token { Id: 1 };
+    let a = [t; 2]; //~ rustc E0277: the trait bound `Token: Copy` is not satisfied [the trait `Copy` is not implemented for `Token`]
+}
+
+fn FromCall() {
+    let b = [Make(); TWO]; //~ rustc E0277: the trait bound `Token: Copy` is not satisfied
+}
+
+fn FromLiteral() {
+    let c = [Token { Id: 2 }; 3]; //~ rustc E0277: the trait bound `Token: Copy` is not satisfied
+}

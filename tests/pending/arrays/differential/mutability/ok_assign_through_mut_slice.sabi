@@ -1,0 +1,20 @@
+// Through `&mut [i32]` the elements are writable although the binding `s` is not `mut`,
+// also through a `&mut [i32; 3]`, and a `&mut [T]` element can be borrowed `&mut` again.
+fn Clear(s: &mut [i32]) {
+    s[0] = 0;
+    s[1] += 1;
+    let last = &mut s[2];
+    *last = 9;
+}
+
+fn Fill(r: &mut [i32; 3]) {
+    r[2] = 3;
+    Clear(r);
+}
+
+fn Main() {
+    let mut a = [5, 6, 7];
+    Clear(&mut a);
+    Fill(&mut a);
+    PrintLine(a[0] + a[1] + a[2]);
+}

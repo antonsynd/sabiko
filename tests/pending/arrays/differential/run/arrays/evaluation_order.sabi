@@ -1,0 +1,39 @@
+// Evaluation order around indexing (rustc's MIR building): in `a[i] = v` and `a[i] += v`
+// the right operand is evaluated first, then the index (then the bounds check); in a read
+// the base comes before the index, and operands go left to right; nested indices go
+// outside in; array literal elements left to right; the operand of `[x; N]` runs once.
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Val(v: i32) -> i32 {
+    Print("value ");
+    PrintLine(v);
+    v
+}
+
+fn Arr(n: i32) -> [i32; 3] {
+    Print("array ");
+    PrintLine(n);
+    [n, n + 1, n + 2]
+}
+
+fn Main() {
+    let mut a = [0; 3];
+    a[Idx(0)] = Val(10);
+    a[Idx(1)] += Val(5);
+    let mut m = [[0; 2]; 2];
+    m[Idx(1)][Idx(0)] = Val(7);
+    m[Idx(0)][Idx(1)] += Val(8);
+    PrintLine("reads");
+    let x = a[Idx(0)] + a[Idx(1)] * Val(2);
+    PrintLine(x);
+    PrintLine(Arr(3)[Idx(2)]);
+    PrintLine(m[Idx(1)][Idx(0)] - m[Idx(0)][Idx(1)]);
+    PrintLine("literals");
+    let b = [Val(1), Val(2), Val(3)];
+    let c = [Val(4); 3];
+    PrintLine(b[2] + c[2]);
+}

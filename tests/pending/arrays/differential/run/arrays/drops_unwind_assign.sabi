@@ -1,0 +1,30 @@
+// (drops, #12) An out-of-bounds element assignment: the new value is made first, then
+// the bounds check panics before the store, so no old element is dropped by the
+// assignment; unwinding drops the new value (it was never stored), then the array's
+// elements, first to last.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Replace(a: &mut [D; 2], i: usize, id: i32) {
+    a[i] = Make(id);
+}
+
+fn Main() {
+    let mut a = [Make(1), Make(2)];
+    Replace(&mut a, 0, 3);
+    PrintLine("replaced");
+    Replace(&mut a, 2, 4);
+    PrintLine("not reached");
+}

@@ -1,0 +1,9 @@
+// The operand of `[x; N]` is moved even when N is 0 (it is dropped there): using `t`
+// afterwards is E0382.
+struct Token { Id: i32 }
+
+fn Main() {
+    let t = Token { Id: 1 };
+    let none = [t; 0];
+    PrintLine(t.Id);
+}

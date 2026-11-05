@@ -1,0 +1,34 @@
+// Lengths from constant evaluation: `const` items in array types and repeat expressions,
+// arithmetic on them (`N * 2 + 1`, `3 * 2`), functions over `[i32; N]`, a constant
+// index (`N - 1`), and a length written as an expression in a parameter type.
+const N: usize = 4;
+const M: usize = N * 2 + 1;
+const FILL: i32 = -1;
+
+fn Total(a: [i32; N]) -> i32 {
+    let mut s = 0;
+    let mut i = 0;
+    while i < N {
+        s += a[i];
+        i += 1;
+    }
+    s
+}
+
+fn Last(a: &[i64; 3 * 2]) -> i64 {
+    a[3 * 2 - 1]
+}
+
+fn Main() {
+    let a: [i32; N] = [1, 2, 3, 4];
+    PrintLine(Total(a));
+    let b = [FILL; M];
+    PrintLine(b.len());
+    PrintLine(b[M - 1]);
+    let mut c = [0i64; 6];
+    c[5] = 99;
+    PrintLine(Last(&c));
+    PrintLine(a[N - 1]);
+    let d = [[N; N]; 2];
+    PrintLine(d[1][N - 1] + d.len());
+}

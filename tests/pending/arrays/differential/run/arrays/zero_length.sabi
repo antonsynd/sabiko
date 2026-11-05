@@ -1,0 +1,31 @@
+// Zero-length arrays and empty slices: `[]` with a type annotation, `[x; 0]`, `[i32; 0]`
+// parameters, `&[]` as an empty `&[i32]`, `.len()` of 0, a `while` loop over an empty
+// slice that never runs, and an array of `()` values.
+fn Count(s: &[i32]) -> usize {
+    let mut n = 0;
+    let mut i = 0;
+    while i < s.len() {
+        n += 1;
+        i += 1;
+    }
+    n
+}
+
+fn Empty(a: [i32; 0]) -> usize {
+    a.len()
+}
+
+fn Main() {
+    let a: [i32; 0] = [];
+    PrintLine(a.len());
+    let b = [7; 0];
+    PrintLine(b.len());
+    PrintLine(Empty(a));
+    PrintLine(Count(&b));
+    let e: &[i32] = &[];
+    PrintLine(e.len());
+    PrintLine(Count(e));
+    PrintLine(Count(&[1, 2, 3]));
+    let units = [(); 3];
+    PrintLine(units.len());
+}

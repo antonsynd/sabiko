@@ -1,0 +1,14 @@
+// `[x; N]` needs a Copy `x` only when N is 2 or more (ui/repeat_needs_copy.sabi): with
+// N = 1 the operand is moved into the array, with N = 0 it is moved and dropped at once.
+// N may come from a constant.
+struct Token { Id: i32 }
+
+const ONE: usize = 1;
+
+fn Main() {
+    let a = [Token { Id: 1 }; 1];
+    let b = [Token { Id: 2 }; 0];
+    let t = Token { Id: 3 };
+    let c = [t; ONE];
+    PrintLine(a[0].Id + c[0].Id + b.len() as i32);
+}

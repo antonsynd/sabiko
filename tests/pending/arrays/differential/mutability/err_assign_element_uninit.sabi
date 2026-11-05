@@ -1,0 +1,8 @@
+// An array cannot be initialised element by element: `a[0] = 1` on a declared but
+// unassigned array is E0381 ("used binding `a` isn't initialized").
+fn Main() {
+    let mut a: [i32; 2];
+    a[0] = 1;
+    a[1] = 2;
+    PrintLine(a[0]);
+}

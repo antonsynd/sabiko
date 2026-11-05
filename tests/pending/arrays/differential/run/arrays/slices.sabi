@@ -1,0 +1,63 @@
+// `&[T]` and `&mut [T]`: the unsized coercion from `&[T; N]` and `&mut [T; N]` at a call
+// argument, an annotated `let`, a return value and from `&mut [T; N]` to `&[T]`; `.len()`
+// on a slice; `while i < s.len()` loops; writes through `&mut [T]`; slices of different
+// lengths passed to one function; the original array sees the writes.
+fn Sum(s: &[i32]) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < s.len() {
+        total += s[i];
+        i += 1;
+    }
+    total
+}
+
+fn Reverse(s: &mut [i32]) {
+    let n = s.len();
+    let mut i = 0;
+    while i < n / 2 {
+        let t = s[i];
+        s[i] = s[n - 1 - i];
+        s[n - 1 - i] = t;
+        i += 1;
+    }
+}
+
+fn AsSlice(a: &[i32; 4]) -> &[i32] {
+    a
+}
+
+fn Show(s: &[i32]) {
+    let mut i = 0;
+    while i < s.len() {
+        if i > 0 {
+            Print(", ");
+        }
+        Print(s[i]);
+        i += 1;
+    }
+    PrintLine("");
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let b = [10, 20];
+    PrintLine(Sum(&a));
+    PrintLine(Sum(&b));
+    Reverse(&mut a);
+    Show(&a);
+    let s: &[i32] = &b;
+    PrintLine(s.len());
+    let t = AsSlice(&a);
+    PrintLine(t[0] + t.len() as i32);
+    let m: &mut [i32] = &mut a;
+    m[0] = 100;
+    let r: &[i32] = m;
+    PrintLine(Sum(r));
+    let whole: &mut [i32; 4] = &mut a;
+    whole[3] = -1;
+    Show(whole);
+    let five = [5; 5];
+    Show(&five);
+    PrintLine(a.len() + five.len());
+}

@@ -1,0 +1,8 @@
+// A shared borrow of `a[0]` covers every element: assigning `a[1]` while it is live is
+// E0506 ("cannot assign to `a[_]` because it is borrowed").
+fn Main() {
+    let mut a = [1, 2, 3];
+    let r = &a[0];
+    a[1] = 5;
+    PrintLine(*r);
+}

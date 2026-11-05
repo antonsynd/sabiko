@@ -1,0 +1,12 @@
+// Overflow in an index computation panics before the index is used: `i - 1` for
+// `i: usize = 0` is "attempt to subtract with overflow", located at `i - 1`.
+fn Previous(a: &[i32; 4], i: usize) -> i32 {
+    a[i - 1]
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4];
+    PrintLine(Previous(&a, 3));
+    PrintLine(Previous(&a, 0));
+    PrintLine("not reached");
+}

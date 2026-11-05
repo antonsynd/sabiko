@@ -1,0 +1,9 @@
+// A non-Copy element cannot be moved out of an array by indexing: E0508 ("cannot move out
+// of type `[Token; 2]`, a non-copy array"), whatever the index.
+struct Token { Id: i32 }
+
+fn Main() {
+    let a = [Token { Id: 1 }, Token { Id: 2 }];
+    let t = a[0];
+    PrintLine(t.Id);
+}

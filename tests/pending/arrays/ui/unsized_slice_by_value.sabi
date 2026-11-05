@@ -1,0 +1,12 @@
+// `[T]` has no size known at compile time: a by-value `[i32]` parameter and `let v = *r;`
+// for `r: &[i32]` are E0277 ("the size for values of type `[i32]` cannot be known at
+// compilation time"). Slices exist only behind `&` and `&mut`.
+fn Take(s: [i32]) -> i32 { //~ rustc E0277: the size for values of type `[i32]` cannot be known at compilation time [doesn't have a size known at compile-time]
+    0
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let r: &[i32] = &a;
+    let v = *r; //~ rustc E0277: the size for values of type `[i32]` cannot be known at compilation time
+}

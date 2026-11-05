@@ -1,0 +1,8 @@
+// `*second += a.len()`: the right operand is evaluated before the write through `second`,
+// so `a.len()` borrows `a` while `&mut a[1]` is live: E0502.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let second = &mut a[1];
+    *second += a.len() as i32;
+    PrintLine(a[1]);
+}

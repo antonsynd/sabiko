@@ -1,0 +1,6 @@
+// An element of an array field is not writable through `&Grid`: E0594.
+struct Grid { Cells: [i32; 4] }
+
+fn Clear(g: &Grid) {
+    g.Cells[0] = 0;
+}

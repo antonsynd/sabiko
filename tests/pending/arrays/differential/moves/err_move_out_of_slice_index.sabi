@@ -1,0 +1,11 @@
+// Moving an element out of a slice: E0508 ("cannot move out of type `[Token]`, a non-copy
+// slice"), for `&[T]` and `&mut [T]` alike.
+struct Token { Id: i32 }
+
+fn First(s: &[Token]) -> Token {
+    s[0]
+}
+
+fn Last(s: &mut [Token]) -> Token {
+    s[s.len() - 1]
+}

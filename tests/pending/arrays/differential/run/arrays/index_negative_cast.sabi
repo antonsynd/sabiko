@@ -1,0 +1,12 @@
+// A negative `i32` cast to `usize` wraps (casts never panic) to 18446744073709551615,
+// which is then out of bounds: the message prints the wrapped index, not -1.
+fn Get(a: &[i32], i: i32) -> i32 {
+    a[i as usize]
+}
+
+fn Main() {
+    let a = [7, 8, 9];
+    PrintLine(Get(&a, 1));
+    PrintLine(Get(&a, -1));
+    PrintLine("not reached");
+}

@@ -1,0 +1,19 @@
+// KNOWN GAP (not in #9): slice methods other than `.len()`. `.is_empty()`, `.swap(i, j)`,
+// `.reverse()`, `.fill(v)`, `.contains(&v)` and `.split_at_mut(i)` (std's way to get two
+// `&mut` sub-slices, since indexing never gives disjoint borrows). `.get(i)` returns an
+// `Option` and waits for Phase 6 (#13).
+fn Main() {
+    let mut a = [3, 1, 2];
+    PrintLine(a.is_empty());
+    a.swap(0, 2);
+    PrintLine(a[0]);
+    a.reverse();
+    PrintLine(a[0]);
+    PrintLine(a.contains(&2));
+    let (left, right) = a.split_at_mut(1);
+    left[0] += right[1];
+    PrintLine(a[0]);
+    let s: &mut [i32] = &mut a;
+    s.fill(7);
+    PrintLine(a[2]);
+}

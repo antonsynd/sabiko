@@ -1,0 +1,21 @@
+// KNOWN GAP (not in #9): `const` items of array type. A `const` cannot be a struct or a
+// tuple yet (E0315); an array constant is the same question (constant evaluation of
+// aggregates, and where the value lives: a `static readonly` field or a copy per use).
+// Indexing a constant array in a constant initialiser is constant evaluation too.
+const PRIMES: [i32; 4] = [2, 3, 5, 7];
+const SECOND: i32 = PRIMES[1];
+const ZEROS: [u8; 3] = [0; 3];
+
+fn Main() {
+    let mut i = 0;
+    while i < PRIMES.len() {
+        Print(PRIMES[i]);
+        Print(' ');
+        i += 1;
+    }
+    PrintLine("");
+    PrintLine(SECOND);
+    let mut z = ZEROS;
+    z[1] = 9;
+    PrintLine(z[1] + ZEROS[1]);
+}

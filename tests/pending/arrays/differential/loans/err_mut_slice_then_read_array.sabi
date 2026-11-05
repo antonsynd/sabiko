@@ -1,0 +1,9 @@
+// A `&mut [i32]` made from `&mut a` borrows all of `a`: reading `a[0]` directly while the
+// slice is live is E0503.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let s: &mut [i32] = &mut a;
+    let x = a[0];
+    s[1] = x;
+    PrintLine(a[1]);
+}

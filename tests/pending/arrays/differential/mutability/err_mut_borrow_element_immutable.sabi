@@ -1,0 +1,9 @@
+// `&mut a[0]` needs `a` to be `mut`: E0596.
+fn Bump(n: &mut i32) {
+    *n += 1;
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    Bump(&mut a[0]);
+}
