@@ -976,6 +976,12 @@ impl<'a> FnCtxt<'a> {
                 // A string literal matches a `&str` itself; any other literal looks
                 // through references.
                 let ty = if matches!(e.kind, ExprKind::Lit(Lit::Str(_))) {
+                    // Comparing `&str` values comes with `&str` support (#10).
+                    self.unsupported(
+                        "string literal patterns",
+                        pat.span,
+                        "planned with `&str` support (#10)",
+                    );
                     ty.clone()
                 } else {
                     self.peel_pat_refs(pat, ty, by_ref).0

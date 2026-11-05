@@ -477,9 +477,23 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
+        // The temporaries of fake borrows (match guards) exist for the borrow checker only.
+        let fake: std::collections::HashSet<usize> = body
+            .blocks
+            .iter()
+            .flat_map(|b| &b.statements)
+            .filter_map(|s| match &s.kind {
+                StatementKind::Assign(p, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _))
+                    if p.is_local() =>
+                {
+                    Some(p.local.index())
+                }
+                _ => None,
+            })
+            .collect();
         for (i, decl) in body.locals.iter().enumerate() {
             // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
-            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited();
+            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited() || fake.contains(&i);
             let slot = match decl.kind {
                 // A `()` parameter is a `Sabiko.Runtime.Unit` (decision 52); nothing reads it.
                 LocalKind::Arg => {

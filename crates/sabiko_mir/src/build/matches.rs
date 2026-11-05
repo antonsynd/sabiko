@@ -417,13 +417,21 @@ impl Builder<'_> {
                     .local_of_pat(pat.id)
                     .expect("identifier patterns introduce locals");
                 let ty = place.ty(&self.body);
-                let temp = self.new_temp(Ty::shared_ref(ty), pat.span);
+                let by_ref = self.types.ref_bindings.contains_key(&pat.id);
+                // A by-value binding of a reference denotes a shared reborrow of it rather
+                // than a reference to the reference (`&&T` has no CIL type yet).
+                let (borrowed, inner_ref) = match (&ty, by_ref) {
+                    (Ty::Ref(_, inner), false) => (place.clone().deref(), Some((**inner).clone())),
+                    _ => (place.clone(), None),
+                };
+                let temp_ty = Ty::shared_ref(inner_ref.clone().unwrap_or(ty));
+                let temp = self.new_temp(temp_ty, pat.span);
                 self.assign(
                     Place::local(temp),
-                    Rvalue::Ref(BorrowKind::Shared, place.clone()),
+                    Rvalue::Ref(BorrowKind::Shared, borrowed),
                     pat.span,
                 );
-                let guard_place = if self.types.ref_bindings.contains_key(&pat.id) {
+                let guard_place = if by_ref || inner_ref.is_some() {
                     Place::local(temp)
                 } else {
                     Place::local(temp).deref()

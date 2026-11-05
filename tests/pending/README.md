@@ -125,6 +125,18 @@ added `ui/resolve/drop_shadowed_trait` (rustc E0404, Sabiko E0203), a receiverle
 
 ## `enums/`: issue #8, enums, `match`, patterns, exhaustiveness
 
+**Landed (#8, decisions 57 and 58).** Every staged program moved into its harness and
+agrees with rustc: the compile-time pairs to `tests/differential/{moves,loans,mutability}/`
+(the `if_let/` ones to `if_let/` subdirectories), the run-time programs to
+`tests/differential/run/enums/` (with `if_let/`; the `.expected` notes are deleted), and
+the UI programs, their annotations converted to Sabiko's codes (a first line names the
+rustc code each stands for), to `tests/ui/{parse,resolve,typeck,borrowck}/`. E0510 joined
+the differential harness's rustc borrow codes and E0419 its Sabiko ones, as suggested
+below. Two UI programs differ from rustc in position only: `move_out_of_drop_enum` reports
+E0418 at the binding that moves rather than at the scrutinee, and rustc's E0509 note is
+kept as a comment. `known_gap/` stays: none of its five programs is supported yet. The
+text below is the staging record.
+
 Every program was checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the version
 `rust-toolchain.toml` pins, prepared exactly as the harnesses prepare it (the same three
 preparations as for `drops/`):
