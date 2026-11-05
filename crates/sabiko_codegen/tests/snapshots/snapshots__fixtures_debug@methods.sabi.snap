@@ -28,7 +28,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/methods.sabi
     ret
   }
 
-  .method public hidebysig static int32 'Get'([in] valuetype 'P'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'self') cil managed
+  .method public hidebysig static int32 'Get'([in] valuetype 'P'& 'self') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -119,7 +119,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/methods.sabi
   BB0:
     ldarg.0
     ldarg.0
-    call int32 'P'::'Get'(valuetype 'P'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'P'::'Get'(valuetype 'P'&)
   BB1:
     conv.i8
     ldarg.1
@@ -157,7 +157,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/methods.sabi
   BB1:
     ldloca.s 0
     ldloca.s 0
-    call int32 'P'::'Get'(valuetype 'P'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'P'::'Get'(valuetype 'P'&)
   BB2:
     call void 'P'::'Add'(valuetype 'P'&, int32)
   BB3:
@@ -174,7 +174,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/methods.sabi
     call void 'Methods'::'Use'(valuetype 'P'&, int32)
   BB5:
     ldloca.s 0
-    call int32 'P'::'Get'(valuetype 'P'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'P'::'Get'(valuetype 'P'&)
     stloc.2
   BB6:
     ldloca.s 0

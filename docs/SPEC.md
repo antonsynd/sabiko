@@ -190,10 +190,18 @@ Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u
 usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value types
 `System.Int128`/`System.UInt128` (decision 42); `f32`/`f64` are `float32`/`float64`;
 `bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
-`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
-`modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
-value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
-`&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. A tuple
+`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures an `&T`
+parameter is `[in]` and an `&T` return carries
+`modreq(System.Runtime.InteropServices.InAttribute)`, and the parameter (or the return
+value) has the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly
+T`, as C# itself emits them for a non-virtual method (decision 57);
+`&mut T` is a plain `ref T`. An enum (decision 15, names by decision 57) is a
+`sequential` value type with a `Tag` field (`int32`, or `int64` when a discriminant needs
+it; `Tag_` when a variant is called `Tag`) holding the discriminant, then one field per
+variant with fields, named after the variant, of a nested value type `<Variant>Payload`
+(`_` appended while that names another member) holding a struct variant's fields by name
+and a tuple variant's as `Item1`, `Item2`, ...; C# reads `Shape::Rect { W, H }` as
+`s.Tag` and `s.Rect.W` (`tests/interop/enum_layout`). `&str` is `System.ReadOnlySpan<char>` by value. A tuple
 (decision 52) is a `System.ValueTuple` instantiation, as in C#: arities 1 to 7 hold their
 elements in `Item1`..`Item7`, a longer tuple is the eight-parameter `ValueTuple` whose
 `Rest` holds the tuple of the remaining elements (`t.7` is `t.Rest.Item1`); a tuple with a

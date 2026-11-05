@@ -23,7 +23,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
 
 .class public abstract auto ansi sealed beforefieldinit 'Refs' extends [System.Runtime]System.Object
 {
-  .method public hidebysig static int32 'Read'([in] valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'p') cil managed
+  .method public hidebysig static int32 'Read'([in] valuetype 'Point'& 'p') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -100,7 +100,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ret
   }
 
-  .method public hidebysig static valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'First'([in] valuetype 'Line'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'l') cil managed
+  .method public hidebysig static valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'First'([in] valuetype 'Line'& 'l') cil managed
   {
     .param [0]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -122,7 +122,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ret
   }
 
-  .method public hidebysig static int32 'Deref'([in] int32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'r') cil managed
+  .method public hidebysig static int32 'Deref'([in] int32& 'r') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -183,7 +183,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     call void 'Refs'::'Bump'(valuetype 'Point'&)
   BB1:
     ldloca.s 0
-    call int32 'Refs'::'Read'(valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'Refs'::'Read'(valuetype 'Point'&)
     stloc.1
   BB2:
     ldloc.0
@@ -205,7 +205,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     ldloc.s 4
     stfld valuetype 'Point' 'Line'::'B'
     ldloca.s 2
-    call valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'Refs'::'First'(valuetype 'Line'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call valuetype 'Point'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'Refs'::'First'(valuetype 'Line'&)
     stloc.s 5
   BB3:
     ldloc.s 5
@@ -230,7 +230,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/refs.sabi
     call void 'Refs'::'Swap'(int32&, int32&)
   BB6:
     ldloca.s 8
-    call int32 'Refs'::'Deref'(int32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'Refs'::'Deref'(int32&)
   BB7:
     ldloca.s 2
     ldflda valuetype 'Point' 'Line'::'B'

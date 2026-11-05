@@ -172,7 +172,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/scopes.sabi
     ret
   }
 
-  .method public hidebysig static void 'Discarded'(int32 'a', [in] int32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'p') cil managed
+  .method public hidebysig static void 'Discarded'(int32 'a', [in] int32& 'p') cil managed
   {
     .param [2]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
