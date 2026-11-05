@@ -1691,8 +1691,11 @@ impl<'a> BodyGen<'a> {
             }
         }
         // A slice reference is always annotated: the expression may be a reference to an
-        // array, which only the annotation coerces.
-        let annotation = if !self.prog.is_sized(inner) || self.rng.chance(40) {
+        // array, which only the annotation coerces. So is a shared one bound from a call,
+        // which may return a `&mut` (`ref_expr`): unannotated, the local would be a
+        // `&mut`, and `&q` would not be the `&&T` the model says (seed 10001664).
+        let coerced = !mutable && !e.text.starts_with('&');
+        let annotation = if coerced || !self.prog.is_sized(inner) || self.rng.chance(40) {
             format!(": {}", self.prog.ty_name(ty))
         } else {
             String::new()

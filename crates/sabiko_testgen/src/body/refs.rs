@@ -240,7 +240,11 @@ impl BodyGen<'_> {
             }
         }
         let ty = Ty::Ref { mutable, inner };
-        let annotation = if !self.prog.is_sized(inner) || self.rng.chance(40) {
+        // As in `stmt_let_ref`: a shared reference from a call that may return a `&mut` is
+        // annotated, or `&mut {name}` would not be the `&mut &T` the model says (seed
+        // 10001664).
+        let coerced = !mutable && !e.text.starts_with('&');
+        let annotation = if coerced || !self.prog.is_sized(inner) || self.rng.chance(40) {
             format!(": {}", self.prog.ty_name(ty))
         } else {
             String::new()
