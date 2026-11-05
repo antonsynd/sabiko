@@ -535,6 +535,30 @@ Equivalent survivors:
   so leaving it out of the other uses only makes it stackable where it was in order
   already: the corpora pass and the IL of the `slicing` fixture is unchanged).
 
+References to references (#11) were checked the same way on the `sabiko_codegen` lines the
+branch changed (`--build-timeout 900`, the same three test packages; the run was resumed
+with `--iterate` after the disk filled). 100 mutants: 2 unviable, 91 caught, 7 missed
+(91 / 98 viable, 92.9%); after the new tests, 94 / 98 (95.9%), the 4 survivors
+equivalent. Killing tests: the run-time program `run/refs/unit_ref_index_panic` (an
+element of a `[(); 3]` borrowed as `&()` is still bounds-checked, both in a `let` and in a
+returned `&a[i]`; kills two mutants of `assign`'s index check for a `Ref` of an indexed
+place), and a write of a tuple's reference element (`t.0 = &b;`) in the `ref_wrappers` IL
+fixture (`store` replaces the wrapper field with `stfld`; without that arm it falls back
+to `ldflda` and `stobj`, which behaves the same, so only the IL shows it). None found a
+bug.
+
+Equivalent survivors:
+
+- `assign_slots`' `fake[i] && !written[i]` as `||`: it also elides a local the MIR never
+  assigns, which init checking guarantees is never read, so it needs no slot.
+- `assign`'s `src.has_index()` guard for copying a `()` place as `true`: loading a `()`
+  place without an index emits nothing.
+- `binary`'s `is_unit_like(&lty) && is_unit_like(&rty)` as `||`: both operands of a
+  comparison have the same type.
+- `cil_type`'s `&!` guard as `false`: `&!` cannot be written as a type (E0107), and an
+  inferred `&!` value (`&Panic("x")`) only occurs in code `simplify` removes, so no `&!`
+  is ever stored; the guard is defensive.
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library

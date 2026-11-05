@@ -48,7 +48,8 @@ fn Main() {
     let mut m = &mut n;
     WriteThrough(&mut m);
     PrintLine(n);
-    let t = (&a, 3);
+    let mut t = (&a, 3);
+    t.0 = &b;
     let e = &t.0;
     PrintLine(**e + t.1);
     let (x, _) = &t;

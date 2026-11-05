@@ -124,13 +124,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_wrappers.sabi
       [8] uint8 'n',
       [9] valuetype 'RefMut`1'<uint8> '_18',
       [10] valuetype '(&i32, i32)' 't',
-      [11] valuetype 'Ref`1'<int32>& 'e',
-      [12] int32 '_29',
-      [13] valuetype '(&i32, i32)'& '_30',
-      [14] valuetype 'Ref`1'<int32>& 'x',
-      [15] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
-      [16] valuetype '(&(), i32)' 'pair',
-      [17] valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit '$tmp0'
+      [11] int32& '_25',
+      [12] valuetype 'Ref`1'<int32>& 'e',
+      [13] int32 '_30',
+      [14] valuetype '(&i32, i32)'& '_31',
+      [15] valuetype 'Ref`1'<int32>& 'x',
+      [16] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
+      [17] valuetype '(&(), i32)' 'pair',
+      [18] valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit '$tmp0'
     )
   BB0:
     ldc.i4.1
@@ -187,17 +188,23 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_wrappers.sabi
     ldc.i4.3
     newobj instance void '(&i32, i32)'::.ctor(int32&, int32)
     stloc.s 10
-    ldloca.s 10
-    ldflda valuetype 'Ref`1'<int32> '(&i32, i32)'::'Item1'
+    ldloca.s 1
     stloc.s 11
     ldloca.s 10
-    ldfld int32 '(&i32, i32)'::'Item2'
-    stloc.s 12
     ldloc.s 11
+    newobj instance void valuetype 'Ref`1'<int32>::.ctor(!0&)
+    stfld valuetype 'Ref`1'<int32> '(&i32, i32)'::'Item1'
+    ldloca.s 10
+    ldflda valuetype 'Ref`1'<int32> '(&i32, i32)'::'Item1'
+    stloc.s 12
+    ldloca.s 10
+    ldfld int32 '(&i32, i32)'::'Item2'
+    stloc.s 13
+    ldloc.s 12
     ldfld !0& valuetype 'Ref`1'<int32>::'Value'
     ldind.i4
     conv.i8
-    ldloc.s 12
+    ldloc.s 13
     conv.i8
     add
     dup
@@ -205,7 +212,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_wrappers.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "ref_wrappers.sabi:53:15"
+    ldstr "ref_wrappers.sabi:54:15"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
@@ -214,34 +221,34 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_wrappers.sabi
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB8:
     ldloca.s 10
-    stloc.s 13
-    ldloc.s 13
-    ldflda valuetype 'Ref`1'<int32> '(&i32, i32)'::'Item1'
     stloc.s 14
     ldloc.s 14
+    ldflda valuetype 'Ref`1'<int32> '(&i32, i32)'::'Item1'
+    stloc.s 15
+    ldloc.s 15
     ldfld !0& valuetype 'Ref`1'<int32>::'Value'
     ldind.i4
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB9:
     ldstr "abc"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
-    stloc.s 15
-    ldloca.s 15
+    stloc.s 16
+    ldloca.s 16
     call native uint 'RefWrappers'::'Strs'(valuetype [System.Runtime]System.ReadOnlySpan`1<char>&)
   BB10:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(native uint)
   BB11:
-    ldloc.s 17
+    ldloc.s 18
     call void 'RefWrappers'::'UnitRef'(valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit)
   BB12:
-    ldloc.s 17
+    ldloc.s 18
     call void 'RefWrappers'::'Units'(valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit)
   BB13:
-    ldloc.s 17
+    ldloc.s 18
     ldc.i4.4
     newobj instance void '(&(), i32)'::.ctor(valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit, int32)
-    stloc.s 16
-    ldloca.s 16
+    stloc.s 17
+    ldloca.s 17
     ldfld int32 '(&(), i32)'::'Item2'
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB14:
