@@ -25,7 +25,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .maxstack 2
     .locals init (
       [0] uint8& '_3',
-      [1] uint8& '_4'
+      [1] uint8& '_5'
     )
   BB0:
     ldarg.0
@@ -47,7 +47,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .maxstack 2
     .locals init (
       [0] float64& '_3',
-      [1] float64& '_4'
+      [1] float64& '_5'
     )
   BB0:
     ldarg.0
@@ -73,7 +73,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     .maxstack 2
     .locals init (
       [0] float32& '_3',
-      [1] float32& '_4'
+      [1] float32& '_5'
     )
   BB0:
     ldarg.0

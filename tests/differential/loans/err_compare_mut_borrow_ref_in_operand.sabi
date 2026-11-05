@@ -1,0 +1,13 @@
+// Mutably borrowing the compared reference in the right operand conflicts with its
+// shared borrow (rustc E0502).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let same = r == {
+        let m = &mut r;
+        *m = &y;
+        &y
+    };
+    PrintLine(same);
+}

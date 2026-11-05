@@ -1,0 +1,59 @@
+// Compared reference places that are reassigned before (in the left operand) and after
+// the comparison, in loops, through fields, elements and `&mut`, and `&str` operands:
+// the borrow of the compared reference ends with the comparison.
+fn Count(limit: &i32) -> i32 {
+    let values = [3, 1, 4, 1, 5];
+    let mut best = &values[0];
+    let mut i = 1;
+    let mut changes = 0;
+    while i < 5 {
+        if &values[i] > best && &values[i] <= limit {
+            best = &values[i];
+            changes += 1;
+        }
+        i += 1;
+    }
+    changes * 10 + *best
+}
+
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let same = {
+        r = &y;
+        r
+    } == &y;
+    PrintLine(same);
+    r = &x;
+    PrintLine(r < &y);
+
+    let mut t = (&x, &y);
+    let less = t.0 < {
+        t.1 = &x;
+        &y
+    };
+    t.0 = &y;
+    PrintLine(less);
+    PrintLine(t.0 == t.1);
+
+    let mut a = 5;
+    let mut b = 5;
+    let mut m = &mut a;
+    let equal = m == &mut 5;
+    *m += 1;
+    PrintLine(equal);
+    PrintLine(m != &mut b);
+    m = &mut b;
+    *m = 7;
+    PrintLine(b);
+
+    let mut s = "apple";
+    let first = s < "banana";
+    s = "cherry";
+    PrintLine(first);
+    PrintLine(s >= "banana");
+
+    PrintLine(Count(&4));
+    PrintLine(Count(&9));
+}

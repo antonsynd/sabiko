@@ -1,0 +1,9 @@
+// `&str` operands are borrowed by `PartialEq::eq` like any reference (rustc E0506).
+fn Main() {
+    let mut s = "a";
+    let same = s == {
+        s = "b";
+        s
+    };
+    PrintLine(same);
+}

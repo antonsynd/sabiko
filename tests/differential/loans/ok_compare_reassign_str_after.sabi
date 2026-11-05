@@ -1,0 +1,8 @@
+// The borrow of a compared `&str` ends with the comparison.
+fn Main() {
+    let mut s = "a";
+    let same = s == "b";
+    s = "c";
+    PrintLine(same);
+    PrintLine(s);
+}

@@ -1,0 +1,13 @@
+// A `&mut` operand is borrowed, not moved, but the borrow covers the reference itself:
+// reassigning it in the right operand conflicts (rustc E0506).
+fn Main() {
+    let mut a = 1;
+    let mut b = 2;
+    let c = 2;
+    let mut r = &mut a;
+    let same = r == {
+        r = &mut b;
+        &c
+    };
+    PrintLine(same);
+}

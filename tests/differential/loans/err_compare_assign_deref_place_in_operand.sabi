@@ -1,0 +1,13 @@
+// A compared reference reached through a `&mut` (`*m`) is borrowed too: assigning it
+// through `m` in the right operand conflicts (rustc E0506).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let m = &mut r;
+    let same = *m == {
+        *m = &y;
+        &y
+    };
+    PrintLine(same);
+}

@@ -180,7 +180,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/slicing.sabi
       [8] valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's',
       [9] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_21',
       [10] bool 'before',
-      [11] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_30',
+      [11] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_31',
       [12] valuetype '[i32; 4]' '$tmp0',
       [13] valuetype [System.Runtime]System.Span`1<int32> '$tmp1',
       [14] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '$tmp2',

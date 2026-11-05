@@ -463,10 +463,10 @@ impl Eq for Constant {}
 pub enum BorrowKind {
     /// `&place`.
     Shared,
-    /// A *fake* (shallow) borrow made while a match guard runs, of a place the match
-    /// tested: it conflicts with assignments to and mutable borrows of the place (rustc's
-    /// E0510) but not with reads. Code generation emits nothing for it.
-    Fake,
+    /// A *fake* borrow: it exists only for the borrow checker, creates no reference at
+    /// run time (code generation emits nothing for it, and copy forwarding does not count
+    /// it as borrowing its place), and its temporary is only ever mentioned.
+    Fake(FakeBorrowKind),
     /// `&mut place`. A *two-phase* borrow (`two_phase`) is only reserved where it is
     /// created and activated at its single use, the call it is an argument of: until then
     /// it acts as a shared borrow, so the call's later arguments may still read the place.
@@ -474,6 +474,23 @@ pub enum BorrowKind {
     /// autoref'd `&mut self` receiver and the reborrow of a `&mut` argument (rustc's
     /// rules, #15).
     Mut { two_phase: bool },
+}
+
+/// What a [`BorrowKind::Fake`] borrow stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FakeBorrowKind {
+    /// Made while a match guard runs, of a place the match tested: it conflicts with
+    /// assignments to and mutable borrows of the place (rustc's E0510) but not with reads
+    /// or moves (decision 60).
+    Guard,
+    /// Of a reference place compared by `==`, `<`, ...: rustc passes `&r` to
+    /// `PartialEq::eq`, borrowing the reference itself until the comparison, while MIR
+    /// building reborrows `&*r` (decision 63). The reborrow already conflicts with every
+    /// deep access (writes through `r`, moves of `r`, `&mut r`); this borrow adds the
+    /// shallow writes of `r` and of its prefixes (`r = &y`, `t = ..` for `t.0`), which
+    /// overwrite the reference without touching its referent. It conflicts with nothing
+    /// else, so no access is reported twice, and it is printed `&fake shallow r`.
+    Shallow,
 }
 
 impl BorrowKind {
@@ -489,8 +506,16 @@ impl BorrowKind {
     #[must_use]
     pub fn mutability(self) -> Mutability {
         match self {
-            Self::Shared | Self::Fake => Mutability::Not,
+            Self::Shared | Self::Fake(_) => Mutability::Not,
             Self::Mut { .. } => Mutability::Mut,
+        }
+    }
+
+    #[must_use]
+    pub fn fake(self) -> Option<FakeBorrowKind> {
+        match self {
+            Self::Fake(kind) => Some(kind),
+            Self::Shared | Self::Mut { .. } => None,
         }
     }
 

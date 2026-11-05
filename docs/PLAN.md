@@ -775,6 +775,17 @@ branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`)
 equivalent. Among the killing tests: slicing is a point that may panic for drop
 elaboration (`run/strings/drops_unwind_slice`).
 
+Update (2026-11-05), the last comparison verdict gap (decision 63): rustc's
+`PartialEq::eq(&r, ..)` borrows the left operand's reference *itself*, so
+`r == { r = &y; r }` is E0506 there and was accepted here. MIR building now adds a shallow
+fake borrow of a left place operand (`&fake shallow r`), mentioned once the right operand
+ran; it conflicts with writes, moves and mutable borrows of the place and its prefixes, not
+with accesses through it (the reborrow `&*r` checks those), and emits no code, so the IL of
+every run-pass, run-time differential and benchmark program is unchanged but for local
+names. `&str` operands, which are copied rather than reborrowed, get it too
+(`s == { s = "b"; s }`). Twenty `tests/differential/loans/*compare*` programs agree with
+rustc 1.99.1. No known comparison verdict gap remains.
+
 ### Phase 5: Data types
 
 Work
