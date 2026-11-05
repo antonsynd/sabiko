@@ -1,0 +1,7 @@
+// Reading an element of the array while a mutable range slice of it is alive is E0503.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let m = &mut a[1..];
+    PrintLine(a[0]);
+    m[0] = 1;
+}

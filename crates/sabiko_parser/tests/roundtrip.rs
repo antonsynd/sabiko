@@ -295,9 +295,30 @@ fn mk(kind: ExprKind) -> Expr {
     }
 }
 
+/// `e[lo..hi]` and the other range forms: a range only as an index (#10); an inclusive one
+/// always has an end.
+fn range_index(inner: impl Strategy<Value = Expr> + Clone) -> impl Strategy<Value = Expr> {
+    (
+        inner.clone(),
+        prop::option::of(inner.clone()),
+        prop::option::of(inner.clone()),
+        any::<bool>(),
+    )
+        .prop_map(|(e, lo, hi, inclusive)| {
+            let end = if inclusive && hi.is_some() {
+                RangeEnd::Included
+            } else {
+                RangeEnd::Excluded
+            };
+            let range = mk(ExprKind::Range(lo.map(Box::new), hi.map(Box::new), end));
+            mk(ExprKind::Index(Box::new(e), Box::new(range)))
+        })
+}
+
 /// Expressions. `in_cond` forbids bare struct literals (they would be parenthesised by
 /// the printer, producing a `Paren` node that is stripped anyway, so this just keeps the
 /// generated trees closer to what the printer emits).
+#[allow(clippy::too_many_lines)]
 fn expr() -> impl Strategy<Value = Expr> {
     let leaf = prop_oneof![
         lit().prop_map(|l| mk(ExprKind::Lit(l))),
@@ -365,6 +386,7 @@ fn expr() -> impl Strategy<Value = Expr> {
                 .prop_map(|(v, n)| mk(ExprKind::Repeat(Box::new(v), Box::new(n)))),
             (inner.clone(), inner.clone())
                 .prop_map(|(e, i)| mk(ExprKind::Index(Box::new(e), Box::new(i)))),
+            range_index(inner.clone()),
             (any::<bool>(), inner.clone()).prop_map(|(mutable, e)| mk(ExprKind::Ref {
                 mutable,
                 expr: Box::new(e)
@@ -716,6 +738,11 @@ fn strip_parens_expr(e: &mut Expr) {
         ExprKind::Repeat(v, n) => {
             strip_parens_expr(v);
             strip_parens_expr(n);
+        }
+        ExprKind::Range(lo, hi, _) => {
+            for bound in [lo, hi].into_iter().flatten() {
+                strip_parens_expr(bound);
+            }
         }
         ExprKind::MethodCall { receiver, args, .. } => {
             strip_parens_expr(receiver);

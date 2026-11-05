@@ -1,0 +1,13 @@
+// `..=b` with `b = usize::MAX` (`b + 1` would overflow) reports the bound itself: "range
+// end index 18446744073709551615 out of range for slice of length 5" (5:6), with no
+// overflow panic in a debug build.
+fn UpTo(s: &[i32], b: usize) -> usize {
+    s[..=b].len()
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4, 5];
+    PrintLine(UpTo(&a, 2));
+    PrintLine(UpTo(&a, 18446744073709551615));
+    PrintLine("not reached");
+}

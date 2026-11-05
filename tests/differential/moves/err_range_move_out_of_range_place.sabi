@@ -1,0 +1,9 @@
+// A non-Copy element cannot be moved out of a range place (a slice): E0508.
+struct Tok {
+    V: i32,
+}
+
+fn Main() {
+    let a = [Tok { V: 1 }, Tok { V: 2 }, Tok { V: 3 }];
+    let t = a[1..][0];
+}

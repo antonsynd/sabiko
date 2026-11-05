@@ -1,0 +1,12 @@
+// A range slice returned from a function borrows the argument (elision): assigning to the
+// array while the result is used is E0506.
+fn Middle(s: &[i32]) -> &[i32] {
+    &s[1..s.len() - 1]
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let m = Middle(&a);
+    a[0] = 9;
+    PrintLine(m[0]);
+}

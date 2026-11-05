@@ -1,0 +1,15 @@
+// A range place is unsized (`str`, `[T]`, #10): it can be borrowed, indexed or be the
+// receiver of `.len()`, but not be a `let` value, an argument or the initialiser of an
+// array local (E0208, rustc's E0277; rustc reports the array initialiser as E0308).
+fn Main() {
+    let s = "hello";
+    let a = [1, 2, 3];
+    let t = s[1..]; // rustc E0277: the size for values of type `str` cannot be known at compilation time [doesn't have a size known at compile-time]
+    //~^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    let u = a[..2]; // rustc E0277: the size for values of type `[{integer}]` cannot be known at compilation time [doesn't have a size known at compile-time]
+    //~^ ERROR E0208 the size for values of type `[_]` cannot be known at compilation time
+    let v: [i32; 2] = a[1..]; // rustc E0308: mismatched types [expected `[i32; 2]`, found `[{integer}]`]
+    //~^ ERROR E0208 the size for values of type `[_]` cannot be known at compilation time
+    PrintLine(s[..2]); // rustc E0277: the size for values of type `str` cannot be known at compilation time [doesn't have a size known at compile-time]
+    //~^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+}

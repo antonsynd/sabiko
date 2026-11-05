@@ -1,0 +1,32 @@
+// Empty range slices: `&a[k..k]`, `&a[len..]`, `&a[..0]`, `&a[3..=2]`, an empty slice of
+// an empty slice, slicing a zero-length array (`[i32; 0]`) with `..` and `0..0`, and
+// writes through an empty `&mut` slice doing nothing.
+fn Fill(s: &mut [i32], v: i32) {
+    let mut i = 0;
+    while i < s.len() {
+        s[i] = v;
+        i += 1;
+    }
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4, 5];
+    PrintLine(a[2..2].len());
+    PrintLine(a[5..].len());
+    PrintLine(a[..0].len());
+    PrintLine(a[3..=2].len());
+    PrintLine(a[5..][0..0].len());
+    let n = a.len();
+    let e: &[i32] = &a[n..n];
+    PrintLine(e.len());
+    PrintLine(e[..].len());
+    Fill(&mut a[2..2], 0);
+    Fill(&mut a[5..], 0);
+    PrintLine(a[2] + a[4]);
+    let z: [i32; 0] = [];
+    PrintLine(z[..].len());
+    PrintLine(z[0..0].len());
+    PrintLine(z[0..].len());
+    let zs: &[i32] = &z[..];
+    PrintLine(zs[..0].len());
+}

@@ -477,10 +477,12 @@ impl Builder<'_> {
     // ----- candidates -----
 
     /// The place a scrutinee denotes: itself if it is a place, else a temporary holding
-    /// its value. Mentioned, as rustc does for a `match`.
-    fn scrutinee_place(&mut self, scrutinee: &Expr) -> Place {
+    /// its value. Mentioned, as rustc does for a `match`. A place that `pats` bind by
+    /// `ref mut` is used mutably (see `place_mutability`).
+    fn scrutinee_place(&mut self, scrutinee: &Expr, pats: &[&Pat]) -> Place {
         let place = if is_place_expr(self.resolve, scrutinee) {
-            self.as_place(scrutinee)
+            let m = Mutability::from_bool(pats.iter().any(|p| binds_ref_mut(p)));
+            self.as_place_mut(scrutinee, m)
         } else {
             Place::local(self.as_temp(scrutinee))
         };
@@ -571,7 +573,8 @@ impl Builder<'_> {
             self.lower_expr_discard(scrutinee);
             return;
         }
-        let place = self.scrutinee_place(scrutinee);
+        let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
+        let place = self.scrutinee_place(scrutinee, &pats);
         let mut entries = Vec::new();
         for arm in arms {
             let locals = self.prepare_locals(&arm.pat);
@@ -611,7 +614,7 @@ impl Builder<'_> {
             self.lower_expr_discard(scrutinee);
             return;
         }
-        let place = self.scrutinee_place(scrutinee);
+        let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let then_block = self.new_block();
         self.lower_candidates(pat, None, &place, then_block);
@@ -658,7 +661,7 @@ impl Builder<'_> {
             scope_depth: depth,
         });
         let saved = self.push_temp_scope();
-        let place = self.scrutinee_place(scrutinee);
+        let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let body_block = self.new_block();
         self.lower_candidates(pat, None, &place, body_block);
@@ -701,7 +704,7 @@ impl Builder<'_> {
             self.push_stmt(StatementKind::PlaceMention(place.clone()), init.span);
             (place, Some(temp))
         } else {
-            (self.scrutinee_place(init), None)
+            (self.scrutinee_place(init, &[pat]), None)
         };
         let locals = self.prepare_locals(pat);
         let block_scope = self.scopes.len() - 2;
@@ -766,4 +769,21 @@ impl Builder<'_> {
             None => Place::local(self.mir_local(id)),
         }
     }
+}
+
+/// Whether `pat` has a `ref mut` binding (the first alternative of an or-pattern stands
+/// for all of them: every alternative binds the same names the same way).
+pub(super) fn binds_ref_mut(pat: &Pat) -> bool {
+    let mut found = false;
+    pat.walk_idents(&mut |p| {
+        if let PatKind::Ident {
+            by_ref: true,
+            mutable: true,
+            ..
+        } = p.kind
+        {
+            found = true;
+        }
+    });
+    found
 }

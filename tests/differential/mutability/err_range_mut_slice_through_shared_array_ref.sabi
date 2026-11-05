@@ -1,0 +1,5 @@
+// `&mut a[..]` through a `&[T; N]` parameter: E0596.
+fn Clear(a: &[i32; 3]) {
+    let m = &mut a[..];
+    m[0] = 0;
+}

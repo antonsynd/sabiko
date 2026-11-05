@@ -43,8 +43,8 @@
 use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{
-    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, Pat, PatKind, SourceFile,
-    Stmt, StmtKind, UnOp,
+    BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, Pat, PatKind, RangeEnd,
+    SourceFile, Stmt, StmtKind, UnOp,
 };
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
@@ -57,8 +57,8 @@ use matches::{has_or, BindMode};
 
 use crate::{
     AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, CleanupData, CleanupDrop,
-    CleanupScope, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue, Statement,
-    StatementKind, Terminator, TerminatorKind,
+    CleanupScope, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue, SliceBounds,
+    Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
@@ -141,6 +141,11 @@ struct Builder<'a> {
     /// While a match guard is lowered: the place each of its arm's bindings denotes (a
     /// shared reference to its part of the scrutinee, see `matches`).
     guard_places: HashMap<LocalId, Place>,
+    /// How the place being lowered by `as_place` is used: `Mut` where it is written,
+    /// borrowed `&mut` or bound `ref mut`. A sub-slice inside it (`&mut a[1..][0]`)
+    /// borrows its base the same way, as rustc picks `IndexMut` over `Index`. Values
+    /// evaluated on the way (an index, a bound) are lowered as `Not` again.
+    place_mutability: Mutability,
 }
 
 impl<'a> Builder<'a> {
@@ -238,6 +243,7 @@ impl<'a> Builder<'a> {
             paren_spans: HashMap::new(),
             coercing: std::collections::HashSet::new(),
             guard_places: HashMap::new(),
+            place_mutability: Mutability::Not,
         }
     }
 
@@ -918,6 +924,12 @@ impl<'a> Builder<'a> {
     /// in `*Weigh(&mut n) + n.W` must die once its referent is copied, so the sibling
     /// operand can read `n`.
     fn as_operand(&mut self, expr: &Expr) -> Operand {
+        if self.place_mutability.is_mut() {
+            let saved = std::mem::replace(&mut self.place_mutability, Mutability::Not);
+            let op = self.as_operand(expr);
+            self.place_mutability = saved;
+            return op;
+        }
         if self.has_pending_coercion(expr) {
             let op = self.uncoerced_operand(expr);
             return self.pointer_coercion(expr, op);
@@ -981,6 +993,10 @@ impl<'a> Builder<'a> {
                 for _ in 0..derefs {
                     place = place.deref();
                 }
+                if let ExprKind::Range(lo, hi, end) = &index.kind {
+                    let bounds = (lo.as_deref(), hi.as_deref(), *end == RangeEnd::Included);
+                    return self.subslice_place(place, self.span_of(base), bounds, index.span);
+                }
                 if place.has_index() {
                     // `m[i][j]`: `m[i]` is checked before `j` runs, as in rustc. A
                     // mention of the place checks its indices and reads nothing.
@@ -993,8 +1009,65 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// [`Self::as_place`] for a place used as `m` says (see `place_mutability`).
+    fn as_place_mut(&mut self, expr: &Expr, m: Mutability) -> Place {
+        let saved = std::mem::replace(&mut self.place_mutability, m);
+        let place = self.as_place(expr);
+        self.place_mutability = saved;
+        place
+    }
+
+    /// `base[lo..hi]` as a place (#10), lowered as rustc lowers its `Index::index` (or
+    /// `IndexMut::index_mut`) call: the base is borrowed first (`base_span`, an array's
+    /// borrow unsized to a slice), then the bounds are evaluated, then the sub-slice is
+    /// taken (`range_span`, which starts at the `[`, locates its panic). The place is the
+    /// sub-slice behind the resulting reference.
+    fn subslice_place(
+        &mut self,
+        base: Place,
+        base_span: Span,
+        (lo, hi, inclusive): (Option<&Expr>, Option<&Expr>, bool),
+        range_span: Span,
+    ) -> Place {
+        let m = self.place_mutability;
+        let base_ty = base.ty(&self.body);
+        let borrow = self.new_temp(Ty::Ref(m, Box::new(base_ty.clone())), base_span);
+        self.assign(
+            Place::local(borrow),
+            Rvalue::Ref(BorrowKind::new(m), base),
+            base_span,
+        );
+        let mut reference = self.place_operand(Place::local(borrow));
+        if let Ty::Array(elem, _) = base_ty {
+            let slice = Ty::Ref(m, Box::new(Ty::Slice(elem)));
+            let unsized_ref = self.new_temp(slice.clone(), base_span);
+            self.assign(
+                Place::local(unsized_ref),
+                Rvalue::PointerCoercion(reference, slice),
+                base_span,
+            );
+            reference = self.place_operand(Place::local(unsized_ref));
+        }
+        let lo = lo.map(|e| self.as_operand(e));
+        let hi = hi.map(|e| self.as_operand(e));
+        let ty = reference.ty(&self.body);
+        let result = self.new_temp(ty, range_span);
+        self.assign(
+            Place::local(result),
+            Rvalue::Subslice(reference, Box::new(SliceBounds { lo, hi, inclusive })),
+            range_span,
+        );
+        Place::local(result).deref()
+    }
+
     /// Evaluates `expr` into a fresh temporary.
     fn as_temp(&mut self, expr: &Expr) -> Local {
+        if self.place_mutability.is_mut() {
+            let saved = std::mem::replace(&mut self.place_mutability, Mutability::Not);
+            let temp = self.as_temp(expr);
+            self.place_mutability = saved;
+            return temp;
+        }
         let ty = self.ty(expr).clone();
         let temp = self.new_temp(ty, expr.span);
         if !writes_once(expr) {
@@ -1175,7 +1248,7 @@ impl<'a> Builder<'a> {
                 if self.ty(inner).is_never() {
                     self.lower_expr_discard(inner);
                 } else {
-                    let place = self.as_place(inner);
+                    let place = self.as_place_mut(inner, Mutability::from_bool(*mutable));
                     if place.has_index() {
                         // `&mut a[i]`: rustc checks the index at the indexing expression,
                         // before the borrow; a panic there is located at `a[i]`, not at
@@ -1250,6 +1323,7 @@ impl<'a> Builder<'a> {
                 self.lower_match(Some(dest), scrutinee, arms, span);
             }
             ExprKind::Let(..) => unreachable!("`let` is only lowered as an `if`/`while` condition"),
+            ExprKind::Range(..) => unreachable!("a range is only lowered as the index of `e[..]`"),
             ExprKind::MethodCall { receiver, .. }
                 if self.types.len_calls.contains_key(&expr.id) =>
             {
@@ -1327,7 +1401,7 @@ impl<'a> Builder<'a> {
         let inputs = self.typeck.items.fn_sig(callee.def).inputs.clone();
         let recv = match callee.autoref {
             Some(m) => {
-                let mut place = self.as_place(receiver);
+                let mut place = self.as_place_mut(receiver, m);
                 for _ in 0..callee.autoderefs {
                     place = place.deref();
                 }
@@ -1485,6 +1559,10 @@ impl<'a> Builder<'a> {
         let (mut a, mut b) = (self.ty(lhs), self.ty(rhs));
         let mut derefs = 0;
         while let (Ty::Ref(_, x), Ty::Ref(_, y)) = (a, b) {
+            if **x == Ty::Prim(PrimTy::Str) {
+                // `&str` operands are compared as they are (#10): `str` is unsized.
+                break;
+            }
             a = x;
             b = y;
             derefs += 1;
@@ -1551,7 +1629,7 @@ impl<'a> Builder<'a> {
             ExprKind::Assign(lhs, rhs) => {
                 let target = self.ty(lhs).clone();
                 let rhs = self.coerced_operand(rhs, Some(&target), false);
-                let place = self.as_place(lhs);
+                let place = self.as_place_mut(lhs, Mutability::Mut);
                 if place.has_index()
                     && matches!(rhs, Operand::Move(_))
                     && self.typeck.items.needs_drop(&target)
@@ -1564,7 +1642,7 @@ impl<'a> Builder<'a> {
             }
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let rhs = self.as_operand(rhs);
-                let place = self.as_place(lhs);
+                let place = self.as_place_mut(lhs, Mutability::Mut);
                 let current = self.place_operand(place.clone());
                 self.assign(place, Rvalue::BinaryOp(*op, current, rhs), span);
             }
@@ -1794,7 +1872,7 @@ impl<'a> Builder<'a> {
         };
         let extending = is_extending_pattern(pat);
         let place = if is_place_expr(self.resolve, init) {
-            let place = self.as_place(init);
+            let place = self.as_place_mut(init, Mutability::from_bool(matches::binds_ref_mut(pat)));
             if place.has_index() {
                 // `let ref x = a[i];`: the index is checked at the initialiser, as in
                 // rustc, not where the pattern binds the first part of it.

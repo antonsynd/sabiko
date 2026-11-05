@@ -1,0 +1,7 @@
+// `a.len()` borrows the whole array: E0502 while a mutable range slice of it is alive.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let m = &mut a[1..];
+    let n = a.len();
+    m[0] = n as i32;
+}

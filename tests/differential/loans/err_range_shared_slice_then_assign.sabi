@@ -1,0 +1,8 @@
+// A shared range slice alive across an assignment to an element of the array (even one
+// outside the range) is E0506.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let s = &a[2..];
+    a[0] = 5;
+    PrintLine(s[0]);
+}

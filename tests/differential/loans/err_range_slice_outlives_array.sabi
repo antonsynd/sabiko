@@ -1,0 +1,9 @@
+// A range slice of an array declared in an inner block, used after the block: E0597.
+fn Main() {
+    let s;
+    {
+        let a = [1, 2, 3];
+        s = &a[1..];
+    }
+    PrintLine(s.len());
+}

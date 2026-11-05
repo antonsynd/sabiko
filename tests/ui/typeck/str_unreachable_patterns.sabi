@@ -1,0 +1,19 @@
+// Usefulness with string literals (#10): a repeated literal in an or-pattern, a literal
+// already matched by an earlier arm, and an arm after `_` are unreachable (warnings, as in
+// rustc with `-W unreachable_patterns`; the program compiles and `Code("c")` returns 4).
+fn Code(s: &str) -> i32 {
+    match s {
+        "a" | "a" => 1, // rustc warning: unreachable pattern [no value can reach this]
+        //~^ WARN E0330 unreachable pattern
+        "b" => 2,
+        "a" => 3, // rustc warning: unreachable pattern [no value can reach this]
+        //~^ WARN E0330 unreachable pattern
+        _ => 4,
+        "c" => 5, // rustc warning: unreachable pattern [no value can reach this]
+        //~^ WARN E0330 unreachable pattern
+    }
+}
+
+fn Main() {
+    PrintLine(Code("c"));
+}

@@ -1,0 +1,62 @@
+// String literal patterns in `match`: single literals, or-patterns, guards that look at the
+// scrutinee, a binding catch-all, `_`, the empty-string pattern, a scrutinee that is a
+// slice expression, and a `match` used as a value. Arms are tested top to bottom.
+fn Classify(s: &str) -> i32 {
+    match s {
+        "zero" => 0,
+        "one" | "uno" | "eins" => 1,
+        "" => -1,
+        _ => 99,
+    }
+}
+
+fn Describe(s: &str, n: i32) -> &str {
+    match s {
+        "add" if n > 0 => "add positive",
+        "add" => "add other",
+        "sub" | "neg" if n == 0 => "zero sub or neg",
+        word if word.len() > 5 => "long word",
+        _ => "unknown",
+    }
+}
+
+fn Main() {
+    PrintLine(Classify("zero"));
+    PrintLine(Classify("uno"));
+    PrintLine(Classify("eins"));
+    PrintLine(Classify(""));
+    PrintLine(Classify("one "));
+    PrintLine(Classify("ONE"));
+    PrintLine(Describe("add", 3));
+    PrintLine(Describe("add", -3));
+    PrintLine(Describe("sub", 0));
+    PrintLine(Describe("neg", 1));
+    PrintLine(Describe("multiply", 1));
+    PrintLine(Describe("mul", 1));
+    let line = "set x";
+    match &line[..3] {
+        "get" => PrintLine("reading"),
+        "set" => {
+            Print("writing ");
+            PrintLine(&line[4..]);
+        }
+        other => PrintLine(other),
+    }
+    let code = match &line[4..] {
+        "x" => 1,
+        "y" => 2,
+        _ => 0,
+    };
+    PrintLine(code);
+    let mut i = 0;
+    let words = "a bb c dd";
+    while i < words.len() {
+        match &words[i..i + 1] {
+            " " => Print("_"),
+            "a" | "c" => Print("V"),
+            letter => Print(letter),
+        }
+        i += 1;
+    }
+    PrintLine("");
+}

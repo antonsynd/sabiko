@@ -1,0 +1,8 @@
+// The same statements with the slice's last use before the assignment: accepted.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let m = &mut a[1..3];
+    m[0] = 2;
+    a[0] = 1;
+    PrintLine(a[0] + a[1]);
+}

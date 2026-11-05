@@ -1,0 +1,35 @@
+// Evaluation order around range indexing (rustc's MIR building): base, start bound, end
+// bound, then the range check; for an element of a range place, the range check comes
+// before the element index is evaluated; in `a[r][i] = v` and `a[r][i] += v` the right
+// operand comes first (as for a plain index), then the range, then the element index.
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Val(v: i32) -> i32 {
+    Print("value ");
+    PrintLine(v);
+    v
+}
+
+fn Arr(n: i32) -> [i32; 4] {
+    Print("array ");
+    PrintLine(n);
+    [n, n + 1, n + 2, n + 3]
+}
+
+fn Main() {
+    let mut a = [0; 5];
+    PrintLine(Arr(1)[Idx(1)..Idx(3)].len());
+    PrintLine(Arr(5)[Idx(1)..=Idx(2)][Idx(1)]);
+    PrintLine(a[..Idx(2)].len() + a[Idx(3)..].len());
+    a[Idx(1)..Idx(4)][Idx(2)] = Val(7);
+    a[Idx(2)..][Idx(0)] += Val(3);
+    let m = &mut a[Idx(0)..Idx(2)];
+    m[Idx(1)] = Val(9);
+    PrintLine(a[1] + a[2] + a[3]);
+    let s: &[i32] = &a;
+    PrintLine(s[Idx(1)..][Idx(1)..Idx(3)][Idx(0)]);
+}

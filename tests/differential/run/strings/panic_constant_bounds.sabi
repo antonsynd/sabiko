@@ -1,0 +1,9 @@
+// Constant bounds past the end of a string literal compile (no rustc lint) and panic at
+// run time: "byte range starts at 4 but ends at 2" (7:23), the order checked after both
+// bounds are found within the length.
+fn Main() {
+    let s = "hello";
+    PrintLine(&s[1..3]);
+    PrintLine(&"hello"[4..2]);
+    PrintLine("not reached");
+}

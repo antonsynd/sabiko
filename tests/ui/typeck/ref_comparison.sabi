@@ -17,8 +17,8 @@ fn Main(p: &P, q: &P, s: &str) {
     let h = &a == &1.0; //~ ERROR E0300 mismatched types
     let i = p == q; //~ ERROR E0306 binary operation `==` cannot be applied to type `&P`
     let j = &p.X >= &q.X;
-    // `&str` comparisons are valid Rust; Sabiko adds them with `&str` support (issue #10).
-    let k = s == "x"; //~ ERROR E0306 binary operation `==` cannot be applied to type `&str`
+    // `&str` operands are compared as strings (#10), but only at the same depth.
+    let k = s == &s; //~ ERROR E0306 can't compare `&str` with `&&str`
     let l = &&a == &a; //~ ERROR E0306 can't compare `&&{integer}` with `&{integer}`
     let fine = &a < &mut b && &mut b == &a && &&a == &&mut b && r <= &a;
 }

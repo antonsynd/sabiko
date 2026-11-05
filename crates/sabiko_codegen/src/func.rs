@@ -33,8 +33,8 @@ use std::fmt::Write as _;
 use sabiko_diagnostics::ErrorCode;
 use sabiko_mir::{
     AggregateKind, BasicBlock, BinOp, Body, CleanupScope, ConstValue, Constant, Local, LocalKind,
-    Mutability, Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator,
-    TerminatorKind, Ty, UnOp,
+    Mutability, Operand, Place, PlaceElem, Rvalue, SliceBounds, Statement, StatementKind,
+    Terminator, TerminatorKind, Ty, UnOp,
 };
 use sabiko_resolve::{Builtin, DefId, PrimTy};
 use sabiko_span::Span;
@@ -434,6 +434,13 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
                 Rvalue::Aggregate(_, ops) => {
                     for op in ops {
                         operand(op, &mut uses, &mut other);
+                    }
+                }
+                // The bounds of a sub-slice are read by its checks and again by the slicing.
+                Rvalue::Subslice(base, bounds) => {
+                    operand(base, &mut uses, &mut other);
+                    for p in bounds.operands().filter_map(Operand::place) {
+                        other[p.local.index()] += 1;
                     }
                 }
                 Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => {
@@ -1584,6 +1591,7 @@ impl FnCx<'_, '_> {
             Rvalue::Repeat(operand, n) => self.repeat(result_ty, operand, *n, span),
             Rvalue::Len(place) => self.len(place, span),
             Rvalue::PointerCoercion(operand, to) => self.pointer_coercion(operand, to, span),
+            Rvalue::Subslice(base, bounds) => self.subslice(base, bounds, span),
             Rvalue::Use(op) => self.operand(op, span),
             Rvalue::Ref(kind, place) => {
                 let pointee = place.ty(self.body);
@@ -1730,7 +1738,12 @@ impl FnCx<'_, '_> {
                     len: Some(n),
                 }
             }
-            Ty::Slice(elem) => {
+            ty @ (Ty::Slice(_) | Ty::Prim(PrimTy::Str)) => {
+                // A `str` is a slice of UTF-16 code units (decision 7).
+                let elem = match ty {
+                    Ty::Slice(elem) => elem,
+                    _ => Box::new(Ty::CHAR),
+                };
                 let reference = Self::parent(base);
                 let mutable = self.slice_source_is_mut(base);
                 if reference.is_local() && !self.stackable[reference.local.index()] {
@@ -1928,11 +1941,131 @@ impl FnCx<'_, '_> {
                 self.op("pop", 1, 0);
                 self.int_const(u128::from(n), PrimTy::Usize);
             }
-            Ty::Slice(_) => {
+            Ty::Slice(_) | Ty::Prim(PrimTy::Str) => {
                 let es = self.element_span(place, span);
                 self.span_len(&es, true, span);
             }
             other => panic!("the length of non-array type {other:?}"),
+        }
+    }
+
+    /// `Subslice(base, lo..hi)` (#10, decision 62): the span `base` sliced, after checking
+    /// the bounds as unsigned native integers against its length and each other, in the
+    /// order of rustc's checks: `hi <= len` (`hi < len` for `..=`), then `lo <= hi` (`lo
+    /// <= hi + 1`; `lo <= len` without `hi`); a failure calls `Checks.StrSliceFail` or
+    /// `Checks.SliceFail`, which find rustc's message. Once checked, both fit an `int32`.
+    fn subslice(&mut self, base: &Operand, bounds: &SliceBounds, span: Span) {
+        let ty = base.ty(self.body);
+        let (elem, mutable, is_str) = match &ty {
+            Ty::Ref(_, inner) if types::is_str(inner) => (Ty::CHAR, false, true),
+            Ty::Ref(m, inner) => match &**inner {
+                Ty::Slice(elem) => ((**elem).clone(), m.is_mut(), false),
+                other => unreachable!("a sub-slice of {other:?}"),
+            },
+            other => unreachable!("a sub-slice of {other:?}"),
+        };
+        self.operand(base, span);
+        if bounds.lo.is_none() && bounds.hi.is_none() {
+            // `s[..]` is all of `s`.
+            return;
+        }
+        let class = types::span_class(self.cx, &elem, mutable, span);
+        let s = self.scratch(&ty, span);
+        self.stloc(s);
+        let fail = self.fresh_label();
+        let ok = self.fresh_label();
+        if let Some(hi) = &bounds.hi {
+            self.operand(hi, span);
+            self.span_length(s, &class);
+            let branch = if bounds.inclusive { "bge.un" } else { "bgt.un" };
+            self.op(format!("{branch} {fail}"), 2, 0);
+        }
+        if let Some(lo) = &bounds.lo {
+            self.operand(lo, span);
+            self.slice_end(s, &class, bounds, span);
+            self.op(format!("bgt.un {fail}"), 2, 0);
+        }
+        self.op(format!("br {ok}"), 0, 0);
+        self.label(&fail);
+        if let Some(location) = self.cx.location(span) {
+            match &bounds.lo {
+                Some(lo) => self.operand(lo, span),
+                None => self.int_const(0, PrimTy::Usize),
+            }
+            match &bounds.hi {
+                Some(hi) => self.operand(hi, span),
+                None => self.span_length(s, &class),
+            }
+            self.ldc_i4(i32::from(bounds.inclusive));
+            self.span_length(s, &class);
+            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+            let helper = if is_str { "StrSliceFail" } else { "SliceFail" };
+            self.op(
+                format!(
+                    "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::{helper}(native uint, native uint, bool, native uint, string)"
+                ),
+                5,
+                0,
+            );
+        } else {
+            self.op("ldstr \"slice index out of range\"", 0, 1);
+            self.op(
+                format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail(string)"),
+                1,
+                0,
+            );
+        }
+        self.throw_after_helper();
+        self.label(&ok);
+        // `s.Slice(lo, end - lo)`.
+        self.ldloca(s);
+        match &bounds.lo {
+            Some(lo) => self.operand(lo, span),
+            None => self.int_const(0, PrimTy::Usize),
+        }
+        self.op("conv.i4", 1, 1);
+        self.slice_end(s, &class, bounds, span);
+        if let Some(lo) = &bounds.lo {
+            self.operand(lo, span);
+            self.op("sub", 2, 1);
+        }
+        self.op("conv.i4", 1, 1);
+        let open = if mutable {
+            types::SPAN_CLASS
+        } else {
+            types::READ_ONLY_SPAN_CLASS
+        };
+        self.op(
+            format!("call instance valuetype {open}<!0> valuetype {class}::Slice(int32, int32)"),
+            3,
+            1,
+        );
+    }
+
+    /// Pushes the length of the span in scratch local `s` (of class `class`) as a `usize`.
+    fn span_length(&mut self, s: u16, class: &str) {
+        self.ldloca(s);
+        self.op(
+            format!("call instance int32 valuetype {class}::get_Length()"),
+            1,
+            1,
+        );
+        self.op("conv.u", 1, 1);
+    }
+
+    /// Pushes the exclusive end of a sub-slice: `hi`, `hi + 1` for `..=hi` (checked to be
+    /// below the length first, so it does not overflow), or the length without `hi`.
+    fn slice_end(&mut self, s: u16, class: &str, bounds: &SliceBounds, span: Span) {
+        match &bounds.hi {
+            Some(hi) => {
+                self.operand(hi, span);
+                if bounds.inclusive {
+                    self.ldc_i4(1);
+                    self.op("conv.u", 1, 1);
+                    self.op("add", 2, 1);
+                }
+            }
+            None => self.span_length(s, class),
         }
     }
 
@@ -2133,6 +2266,10 @@ impl FnCx<'_, '_> {
             self.ldc_i4(i32::from(matches!(op, BinOp::Eq | BinOp::Le | BinOp::Ge)));
             return;
         }
+        if op.is_comparison() && is_str_ref(&lty) && is_str_ref(&rty) {
+            self.str_compare(op, lhs, rhs, span);
+            return;
+        }
         let (Some(lp), Some(rp)) = (lty.as_prim(), rty.as_prim()) else {
             self.cx.unsupported("this binary operation", span);
             self.ldc_i4(0);
@@ -2170,6 +2307,32 @@ impl FnCx<'_, '_> {
             BinOp::And | BinOp::Or => {
                 unreachable!("short-circuit operators are lowered to control flow")
             }
+        }
+    }
+
+    /// A comparison of two `&str` (#10): `Str.Equal` for `==` and `!=`, the sign of
+    /// `Str.Compare` for the orderings (by UTF-16 code unit, decision 62).
+    fn str_compare(&mut self, op: BinOp, lhs: &Operand, rhs: &Operand, span: Span) {
+        self.operand(lhs, span);
+        self.operand(rhs, span);
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            self.op(
+                format!("call bool [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Str::Equal({STR_SPAN}, {STR_SPAN})"),
+                2,
+                1,
+            );
+            if op == BinOp::Ne {
+                self.ldc_i4(0);
+                self.op("ceq", 2, 1);
+            }
+        } else {
+            self.op(
+                format!("call int32 [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Str::Compare({STR_SPAN}, {STR_SPAN})"),
+                2,
+                1,
+            );
+            self.ldc_i4(0);
+            self.compare(op, PrimTy::I32);
         }
     }
 
@@ -2831,6 +2994,11 @@ fn negation_fits(value: &ConstValue, p: PrimTy) -> bool {
         }
         _ => true,
     }
+}
+
+/// `&str` (or `&mut str`).
+fn is_str_ref(ty: &Ty) -> bool {
+    matches!(ty, Ty::Ref(_, inner) if types::is_str(inner))
 }
 
 #[cfg(test)]

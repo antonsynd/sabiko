@@ -1,0 +1,5 @@
+// A range slice of a local array cannot be returned: E0515.
+fn Make(s: &[i32]) -> &[i32] {
+    let a = [1, 2, 3];
+    &a[1..]
+}

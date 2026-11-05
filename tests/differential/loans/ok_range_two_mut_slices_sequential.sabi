@@ -1,0 +1,14 @@
+// Two mutable range slices of one array, the first dead before the second is taken; a
+// reborrow of a mutable slice as a narrower one, used before the outer slice is used again.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let l = &mut a[..2];
+    l[0] = 10;
+    let r = &mut a[2..];
+    r[0] = 30;
+    let m = &mut a[..];
+    let n = &mut m[1..];
+    n[0] = 20;
+    m[3] = 40;
+    PrintLine(a[0] + a[1] + a[2] + a[3]);
+}

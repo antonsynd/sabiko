@@ -1,0 +1,28 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/range_bound_types.sabi:11:16 ]
+    │
+ 11 │     let x = &s[i..]; // rustc E0277: the type `str` cannot be indexed by `std::ops::RangeFrom<i32>` [string indices are ranges of `usize`]
+    │                ┬  
+    │                ╰── expected `usize`, found `i32`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/range_bound_types.sabi:13:18 ]
+    │
+ 13 │     let y = &a[..j]; // rustc E0277: the type `[{integer}]` cannot be indexed by `RangeTo<u8>` [slice indices are of type `usize` or ranges of `usize`]
+    │                  ┬  
+    │                  ╰── expected `usize`, found `u8`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/range_bound_types.sabi:15:19 ]
+    │
+ 15 │     let z = &a[k..i]; // rustc E0308: mismatched types [expected `usize`, found `i32`]
+    │                   ┬  
+    │                   ╰── expected `usize`, found `i32`
+────╯
+[E0307] Error: cannot apply unary operator `-` to type `usize`
+    ╭─[ tests/ui/typeck/range_bound_types.sabi:17:20 ]
+    │
+ 17 │     let w = &s[..=-1]; // rustc E0277: the trait bound `usize: Neg` is not satisfied [the trait `Neg` is not implemented for `usize`]
+    │                    ┬  
+    │                    ╰── cannot apply unary operator `-`
+────╯

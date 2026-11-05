@@ -1,0 +1,14 @@
+// A reborrow through a `&mut [T]` binding may outlive the binding too: `&mut m[1..]`
+// borrows `*m`, and a reference going out of scope does not invalidate a reborrow of its
+// referent (rustc accepts; compare `err_range_slice_outlives_array`, where the array
+// itself goes out of scope). The write through the slice reaches `a`.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let u;
+    {
+        let m: &mut [i32] = &mut a;
+        u = &mut m[1..];
+    }
+    u[0] = 5;
+    PrintLine(a[1]);
+}

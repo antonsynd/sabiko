@@ -468,7 +468,8 @@ impl Validator<'_> {
                     // A comparison of references compares the referents: MIR building
                     // dereferences the operands, so a reference here would compare
                     // addresses.
-                    let is_ref = |t: &Option<Ty>| matches!(t, Some(Ty::Ref(..)));
+                    // A `&str` is the one reference compared as itself (#10): `str` is unsized.
+                    let is_ref = |t: &Option<Ty>| matches!(t, Some(Ty::Ref(_, inner)) if **inner != Ty::Prim(PrimTy::Str));
                     let diverges = |t: &Option<Ty>| matches!(t, Some(Ty::Never | Ty::Error));
                     if (is_ref(&lhs) || is_ref(&rhs)) && !(diverges(&lhs) || diverges(&rhs)) {
                         self.err(bb, format!("{op:?} of reference operands {lhs:?}, {rhs:?}"));
@@ -583,7 +584,10 @@ impl Validator<'_> {
             }
             Rvalue::Len(place) => {
                 let ty = self.place_ty(bb, place)?;
-                if !matches!(ty, Ty::Array(..) | Ty::Slice(_) | Ty::Error) {
+                if !matches!(
+                    ty,
+                    Ty::Array(..) | Ty::Slice(_) | Ty::Prim(PrimTy::Str) | Ty::Error
+                ) {
                     self.err(bb, format!("length of non-array type {ty:?}"));
                 }
                 Some(Ty::Prim(PrimTy::Usize))
@@ -607,6 +611,29 @@ impl Validator<'_> {
                     self.err(bb, format!("pointer coercion of {from:?} to {to:?}"));
                 }
                 Some(to.clone())
+            }
+            Rvalue::Subslice(base, bounds) => {
+                let ty = self.operand_ty(bb, base)?;
+                let shape_ok = matches!(
+                    &ty,
+                    Ty::Ref(_, inner) if matches!(**inner, Ty::Slice(_) | Ty::Prim(PrimTy::Str))
+                );
+                if !shape_ok && !matches!(ty, Ty::Never | Ty::Error) {
+                    self.err(bb, format!("sub-slice of {ty:?}"));
+                }
+                if bounds.inclusive && bounds.hi.is_none() {
+                    self.err(bb, "inclusive sub-slice without an end");
+                }
+                for op in bounds.operands() {
+                    let bound = self.operand_ty(bb, op);
+                    if !matches!(
+                        bound,
+                        Some(Ty::Prim(PrimTy::Usize) | Ty::Never | Ty::Error) | None
+                    ) {
+                        self.err(bb, format!("sub-slice bound of type {bound:?}"));
+                    }
+                }
+                Some(ty)
             }
         }
     }
@@ -797,6 +824,11 @@ fn rvalue_places(rvalue: &Rvalue) -> Vec<&Place> {
 
         Rvalue::BinaryOp(_, l, r) => l.place().into_iter().chain(r.place()).collect(),
         Rvalue::Aggregate(_, ops) => ops.iter().filter_map(Operand::place).collect(),
+        Rvalue::Subslice(..) => rvalue
+            .operands()
+            .into_iter()
+            .filter_map(Operand::place)
+            .collect(),
         Rvalue::Ref(_, place) | Rvalue::Discriminant(place) | Rvalue::Len(place) => vec![place],
     }
 }

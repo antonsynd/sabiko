@@ -54,12 +54,12 @@
     │             ──┬──  
     │               ╰──── no implementation for `P < P`
 ────╯
-[E0306] Error: binary operation `<` cannot be applied to type `&str`
+[E0306] Error: binary operation `+` cannot be applied to type `&str`
     ╭─[ tests/ui/typeck/operators.sabi:15:13 ]
     │
- 15 │     let j = s < s; //~ ERROR E0306 binary operation `<` cannot be applied to type `&str`
+ 15 │     let j = s + s; //~ ERROR E0306 binary operation `+` cannot be applied to type `&str`
     │             ──┬──  
-    │               ╰──── no implementation for `&str < &str`
+    │               ╰──── no implementation for `&str + &str`
 ────╯
 [E0300] Error: mismatched types
     ╭─[ tests/ui/typeck/operators.sabi:16:18 ]

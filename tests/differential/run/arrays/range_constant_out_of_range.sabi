@@ -1,0 +1,10 @@
+// Constant range bounds past the end are not rustc's `unconditional_panic` lint (that lint
+// covers built-in `a[5]` only; a range index is an `Index` call), so this compiles and
+// panics at run time: "range end index 9 out of range for slice of length 3" (8:16).
+// Sabiko must not reject it at compile time either.
+fn Main() {
+    let a = [1, 2, 3];
+    PrintLine(a[1..3].len());
+    PrintLine(a[1..9].len());
+    PrintLine("not reached");
+}

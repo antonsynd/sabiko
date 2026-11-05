@@ -1,0 +1,30 @@
+// Range slices returned from functions taking `&[T]`, `&mut [T]` and `&str`; the arguments
+// are usable again once the results are dead, and a `&str` source stays usable while its
+// slice is alive (both are shared).
+fn Middle(s: &[i32]) -> &[i32] {
+    &s[1..s.len() - 1]
+}
+
+fn TailMut(s: &mut [i32]) -> &mut [i32] {
+    &mut s[1..]
+}
+
+fn Tail(s: &str) -> &str {
+    &s[1..]
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let m = Middle(&a);
+    PrintLine(m[0]);
+    a[0] = 9;
+    let t = TailMut(&mut a);
+    t[0] = 20;
+    PrintLine(a[1]);
+    let s = "hello";
+    let rest = Tail(s);
+    PrintLine(s);
+    PrintLine(Tail(rest));
+    PrintLine(&s[..1]);
+    PrintLine(rest);
+}

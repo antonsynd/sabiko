@@ -1,0 +1,6 @@
+// The same through a `&mut [T]` parameter: `&mut s[s.len() - 1..]` reborrows `*s` mutably
+// before `s.len()` runs: E0502.
+fn ZeroLast(s: &mut [i32]) {
+    let t = &mut s[s.len() - 1..];
+    t[0] = 0;
+}

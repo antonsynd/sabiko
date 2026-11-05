@@ -1,0 +1,17 @@
+// A slice as a `match` scrutinee is checked before any arm is tested: "end byte index 4
+// is out of bounds for string of length 3" (4:13).
+fn Head(s: &str, n: usize) -> i32 {
+    match &s[..n] {
+        "a" => 1,
+        "ab" => 2,
+        _ => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Head("abc", 1));
+    PrintLine(Head("abc", 2));
+    PrintLine(Head("abc", 3));
+    PrintLine(Head("abc", 4));
+    PrintLine("not reached");
+}

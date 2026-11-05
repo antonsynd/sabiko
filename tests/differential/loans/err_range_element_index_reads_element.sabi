@@ -1,0 +1,6 @@
+// The element index of a mutable range place is evaluated while `a` is mutably borrowed
+// by the `IndexMut` call: reading `a[0]` there is E0503.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    a[1..][a[0] as usize] = 0;
+}

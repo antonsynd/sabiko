@@ -1,0 +1,54 @@
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_value_comparison.sabi:10:15 ]
+    │
+ 10 │     PrintLine(*s == *t); // rustc accepts: false
+    │               ─┬  
+    │                ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_value_comparison.sabi:10:21 ]
+    │
+ 10 │     PrintLine(*s == *t); // rustc accepts: false
+    │                     ─┬  
+    │                      ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_value_comparison.sabi:13:15 ]
+    │
+ 13 │     PrintLine(s[..2] == t[..2]); // rustc accepts: true
+    │               ───┬──  
+    │                  ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_value_comparison.sabi:13:25 ]
+    │
+ 13 │     PrintLine(s[..2] == t[..2]); // rustc accepts: true
+    │                         ───┬──  
+    │                            ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_value_comparison.sabi:16:15 ]
+    │
+ 16 │     PrintLine(s[1..] < t[1..]); // rustc accepts: true
+    │               ───┬──  
+    │                  ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_value_comparison.sabi:16:24 ]
+    │
+ 16 │     PrintLine(s[1..] < t[1..]); // rustc accepts: true
+    │                        ───┬──  
+    │                           ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯

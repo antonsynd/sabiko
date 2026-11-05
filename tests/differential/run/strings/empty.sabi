@@ -1,0 +1,31 @@
+// Empty strings and empty slices: `""`, `&s[k..k]`, `&s[len..]`, `&s[..0]`, `&""[..]`,
+// `&""[0..0]`, a slice of an empty slice; their `.len()` is 0 and they equal `""`.
+fn Show(s: &str) {
+    Print("[");
+    Print(s);
+    Print("] ");
+    PrintLine(s.len());
+}
+
+fn Main() {
+    let s = "abc";
+    let e = "";
+    Show(e);
+    Show(&s[1..1]);
+    Show(&s[3..]);
+    Show(&s[..0]);
+    Show(&s[3..3]);
+    Show(&s[2..=1]);
+    Show(&e[..]);
+    Show(&e[0..0]);
+    Show(&s[..=0][1..]);
+    Show(&s[3..][0..]);
+    let n = s.len();
+    Show(&s[n..n]);
+    PrintLine(&s[1..1] == "");
+    PrintLine(&s[3..] == e);
+    PrintLine(e == "");
+    PrintLine(e < s);
+    PrintLine("" <= e);
+    PrintLine(e > "");
+}

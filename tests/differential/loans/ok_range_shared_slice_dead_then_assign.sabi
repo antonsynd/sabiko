@@ -1,0 +1,9 @@
+// The shared range slice is dead before the assignment; a new slice afterwards sees it.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let s = &a[2..];
+    PrintLine(s[0]);
+    a[2] = 5;
+    let t = &a[..=2];
+    PrintLine(t[2]);
+}

@@ -531,3 +531,25 @@ by #9.
     labelled "index out of bounds: the length is 3 but the index is 5" ("length", where
     the run-time message says "len"). Slices are never linted. The lint runs only with
     code generation: `--emit=metadata` does not report it (`unconditional_panic`).
+
+## `strings/`: issue #10, `&str` slicing, `.len()`, comparisons and literal patterns, and range slicing of arrays and slices (landed)
+
+The staged programs were checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the version
+`rust-toolchain.toml` pins, and moved into their harnesses by #10 (decision 62). Strings
+are UTF-16 (decisions 7 and 31): `len()` and slice indices count code units where rustc
+counts UTF-8 bytes, so every program keeps its strings ASCII.
+
+| staged | now |
+| --- | --- |
+| `differential/{loans,moves,mutability}/*_range_*`, `*_str_*` (39 programs) | `tests/differential/{loans,moves,mutability}/`, unchanged |
+| `differential/run/strings/*.sabi` (29 programs) | `tests/differential/run/strings/` (new); the `.stdout.rustc` notes are deleted |
+| `differential/run/arrays/range_*.sabi`, `release_range_wraps.sabi` (19 programs) | `tests/differential/run/arrays/`; the `.stdout.rustc` notes are deleted |
+| `ui/range_outside_index.sabi` | `tests/ui/parse/` (E0107 for a range outside an index) |
+| `ui/*.sabi`, the other 8 | `tests/ui/typeck/`, with Sabiko's codes: E0300 for E0308 (and for a bound's E0277), E0306 for a comparison's E0277, E0307 for `usize: Neg`, E0328/E0329 for E0004/E0005, E0336 for `"abc"[0]`'s E0277, E0208 for an unsized E0277; `str_value_comparison` records what Sabiko does not lower yet (`str` places compared, E0208; `&&str` operands, E0500 until #11) |
+
+What the staging found about rustc, all followed by the implementation: a slicing panic
+is located at the `[` (an `Index::index` call), not at the start of the expression as an
+integer index's is; for `x..=y` the end message shows `y` and the order message `y + 1`;
+constant out-of-range bounds are not linted (`a[1..9]` compiles and panics); the borrow
+of the base is not two-phase (`&mut a[a.len() - 2..]` is E0502), so it is taken before
+the bounds are evaluated; writes through a range place of something shared are E0596.

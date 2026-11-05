@@ -543,6 +543,17 @@ impl Printer {
                 self.expr(i, 0);
                 self.out.push(']');
             }
+            ExprKind::Range(lo, hi, end) => {
+                // Both bounds are parsed at the precedence of `||`.
+                let prec = BinOp::Or.precedence();
+                if let Some(lo) = lo {
+                    self.expr(lo, prec);
+                }
+                self.out.push_str(end.as_str());
+                if let Some(hi) = hi {
+                    self.expr(hi, prec);
+                }
+            }
             ExprKind::Ref { mutable, expr } => {
                 self.out.push_str(if *mutable { "&mut " } else { "&" });
                 self.expr(expr, UNARY_PRECEDENCE);
@@ -806,6 +817,7 @@ fn precedence(e: &Expr) -> u8 {
         | ExprKind::Break(_)
         | ExprKind::Return(_)
         | ExprKind::Let(..)
+        | ExprKind::Range(..)
         | ExprKind::Continue => 0,
     }
 }

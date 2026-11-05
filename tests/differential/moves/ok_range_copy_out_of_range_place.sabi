@@ -1,0 +1,16 @@
+// Copy elements and Copy fields of non-Copy elements are copied out of range places;
+// non-Copy elements may be borrowed from them.
+struct Tok {
+    V: i32,
+}
+
+fn Main() {
+    let a = [Tok { V: 1 }, Tok { V: 2 }, Tok { V: 3 }];
+    let v = a[1..][0].V;
+    let r = &a[..2][1];
+    let n = [5, 6, 7];
+    let x = n[1..=2][1];
+    PrintLine(v + r.V + x);
+    let again = a;
+    PrintLine(again[2].V);
+}

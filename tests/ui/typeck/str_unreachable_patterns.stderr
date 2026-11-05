@@ -1,0 +1,21 @@
+[E0330] Warning: unreachable pattern
+   ╭─[ tests/ui/typeck/str_unreachable_patterns.sabi:6:15 ]
+   │
+ 6 │         "a" | "a" => 1, // rustc warning: unreachable pattern [no value can reach this]
+   │               ─┬─  
+   │                ╰─── no value can reach this
+───╯
+[E0330] Warning: unreachable pattern
+   ╭─[ tests/ui/typeck/str_unreachable_patterns.sabi:9:9 ]
+   │
+ 9 │         "a" => 3, // rustc warning: unreachable pattern [no value can reach this]
+   │         ─┬─  
+   │          ╰─── no value can reach this
+───╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/str_unreachable_patterns.sabi:12:9 ]
+    │
+ 12 │         "c" => 5, // rustc warning: unreachable pattern [no value can reach this]
+    │         ─┬─  
+    │          ╰─── no value can reach this
+────╯

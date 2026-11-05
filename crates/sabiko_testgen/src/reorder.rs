@@ -583,6 +583,12 @@ impl FnCx<'_, '_> {
                 self.expr(base, mode, s);
                 self.expr(index, Mode::Read, s);
             }
+            // The bounds of `e[a..b]`: read; the slicing itself may panic (above).
+            ExprKind::Range(lo, hi, _) => {
+                for bound in [lo, hi].into_iter().flatten() {
+                    self.expr(bound, Mode::Read, s);
+                }
+            }
             ExprKind::Struct { fields, .. } => {
                 for f in fields {
                     self.expr(&f.value, Mode::Read, s);
@@ -667,6 +673,11 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
         | ExprKind::Index(a, b) => {
             f(Child::Expr(a));
             f(Child::Expr(b));
+        }
+        ExprKind::Range(lo, hi, _) => {
+            for bound in [lo, hi].into_iter().flatten() {
+                f(Child::Expr(bound));
+            }
         }
         ExprKind::Call {
             callee: first,

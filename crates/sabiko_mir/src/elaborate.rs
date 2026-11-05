@@ -329,17 +329,9 @@ impl State {
 
 /// The places an rvalue moves out of.
 fn rvalue_moves(rvalue: &Rvalue) -> Vec<&Place> {
-    let ops: Vec<&Operand> = match rvalue {
-        Rvalue::Use(op)
-        | Rvalue::UnaryOp(_, op)
-        | Rvalue::Cast(op, _)
-        | Rvalue::Repeat(op, _)
-        | Rvalue::PointerCoercion(op, _) => vec![op],
-        Rvalue::BinaryOp(_, l, r) => vec![l, r],
-        Rvalue::Aggregate(_, ops) => ops.iter().collect(),
-        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => Vec::new(),
-    };
-    ops.into_iter()
+    rvalue
+        .operands()
+        .into_iter()
         .filter_map(|op| match op {
             Operand::Move(place) => Some(place),
             _ => None,
@@ -471,8 +463,8 @@ fn collect_actions(
 }
 
 /// Whether a statement may panic: checked integer arithmetic, division, remainder and
-/// shifts (in any build mode, so the MIR is the same in both), and the bounds check of any
-/// array or slice element it reads, writes or borrows.
+/// shifts (in any build mode, so the MIR is the same in both), the bounds check of any
+/// array or slice element it reads, writes or borrows, and the bounds of a sub-slice.
 fn statement_may_panic(body: &Body, stmt: &Statement) -> bool {
     if let StatementKind::PlaceMention(place) = &stmt.kind {
         return place.has_index();
@@ -496,6 +488,7 @@ fn statement_may_panic(body: &Body, stmt: &Statement) -> bool {
             _,
         ) => lhs.ty(body).is_integer(),
         Rvalue::UnaryOp(UnOp::Neg, op) => op.ty(body).is_integer(),
+        Rvalue::Subslice(..) => true,
         _ => false,
     }
 }

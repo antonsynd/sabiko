@@ -1,0 +1,23 @@
+// A slice of `*s` borrows what `s` points to, not `s`: reassigning the `&str`, `&[T]` or
+// `&mut [T]` local itself while the slice is alive is accepted.
+fn Main() {
+    let mut s = "hello";
+    let t = &s[1..];
+    s = "x";
+    PrintLine(t);
+    PrintLine(s);
+    let a = [1, 2, 3];
+    let b = [4, 5];
+    let mut r: &[i32] = &a;
+    let u = &r[1..];
+    r = &b;
+    PrintLine(u[0] + r[0]);
+    let mut c = [1, 2, 3];
+    let mut d = [4, 5];
+    let mut m: &mut [i32] = &mut c;
+    let v = &mut m[1..];
+    m = &mut d;
+    v[0] = 7;
+    m[0] = 8;
+    PrintLine(c[1] + d[0]);
+}

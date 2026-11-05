@@ -325,6 +325,18 @@ pub(crate) fn print_overload(ty: &Ty) -> Option<&'static str> {
 /// Escapes a string for an ilasm `ldstr` literal (a QSTRING). Non-ASCII text is passed
 /// through: ilasm reads the source as UTF-8.
 pub(crate) fn il_string(s: &str) -> String {
+    if s.contains('\0') {
+        // ilasm ends a quoted string at an escaped NUL (`\000`), so a string holding one is
+        // written as its UTF-16 code units, little-endian, which `ldstr` also accepts.
+        let mut out = String::from("bytearray (");
+        for (i, unit) in s.encode_utf16().enumerate() {
+            let [lo, hi] = unit.to_le_bytes();
+            let sep = if i == 0 { "" } else { " " };
+            let _ = write!(out, "{sep}{lo:02X} {hi:02X}");
+        }
+        out.push(')');
+        return out;
+    }
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {
@@ -366,5 +378,6 @@ mod tests {
         assert_eq!(il_string("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"");
         assert_eq!(il_string("\u{1}"), "\"\\001\"");
         assert_eq!(il_string("héllo"), "\"héllo\"");
+        assert_eq!(il_string("a\0é"), "bytearray (61 00 00 00 E9 00)");
     }
 }

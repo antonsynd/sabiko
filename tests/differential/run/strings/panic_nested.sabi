@@ -1,0 +1,12 @@
+// In a nested slice the inner index is checked against the inner slice: `s[1..][..b]` on
+// "hello" has length 4, so `b = 5` panics with "end byte index 5 is out of bounds for
+// string of length 4", located at the second `[` (5:12).
+fn Inner(s: &str, b: usize) -> &str {
+    &s[1..][..b]
+}
+
+fn Main() {
+    PrintLine(Inner("hello", 4));
+    PrintLine(Inner("hello", 5));
+    PrintLine("not reached");
+}

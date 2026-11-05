@@ -1,0 +1,47 @@
+// Range indexing of an array and of slices, every form: `&a[1..3]`, `&a[2..]`, `&a[..2]`,
+// `&a[..]`, `&a[1..=3]`, `&a[..=0]`, with literal and run-time bounds; `.len()` of a range
+// place without borrowing it (`a[1..3].len()`); an element of a range place
+// (`a[1..4][0]`); through `&[T; N]`, `&[T]` and `&mut [T]`.
+fn Show(s: &[i32]) {
+    Print("[");
+    let mut i = 0;
+    while i < s.len() {
+        if i > 0 {
+            Print(" ");
+        }
+        Print(s[i]);
+        i += 1;
+    }
+    PrintLine("]");
+}
+
+fn Main() {
+    let a = [10, 20, 30, 40, 50];
+    Show(&a[1..3]);
+    Show(&a[2..]);
+    Show(&a[..2]);
+    Show(&a[..]);
+    Show(&a[1..=3]);
+    Show(&a[..=0]);
+    Show(&a[0..5]);
+    let lo: usize = 1;
+    let hi: usize = 4;
+    Show(&a[lo..hi]);
+    Show(&a[lo..=hi]);
+    Show(&a[hi..]);
+    Show(&a[..lo]);
+    PrintLine(a[1..3].len());
+    PrintLine(a[..].len());
+    PrintLine(a[1..4][0]);
+    PrintLine(a[1..4][2] + a[3..][1]);
+    let r: &[i32; 5] = &a;
+    Show(&r[3..]);
+    PrintLine(r[..2].len());
+    let s: &[i32] = &a;
+    Show(&s[1..2]);
+    PrintLine(s[2..=4][2]);
+    let mut b = [1, 2, 3];
+    let m: &mut [i32] = &mut b;
+    Show(&m[1..]);
+    PrintLine(m[..2].len());
+}

@@ -97,6 +97,54 @@ public static class Checks
             location);
 
     /// <summary>
+    /// A string sliced out of range (#10): <c>s[start..end]</c>, or with <c>inclusive</c>
+    /// <c>s[start..=end]</c>. Rust's checks run in this order and its messages say
+    /// "byte" because Rust strings are UTF-8; Sabiko's indices count UTF-16 code units
+    /// (decision 62), and the messages keep Rust's words so the two reports match.
+    /// </summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void StrSliceFail(nuint start, nuint end, bool inclusive, nuint len, string location)
+    {
+        string l = len.ToString(CultureInfo.InvariantCulture);
+        if (start > len)
+            throw new PanicException(
+                string.Concat("start byte index ", Show(start), " is out of bounds for string of length ", l),
+                location);
+        if (inclusive ? end >= len : end > len)
+            throw new PanicException(
+                string.Concat("end byte index ", Show(end), " is out of bounds for string of length ", l),
+                location);
+        throw new PanicException(
+            string.Concat("byte range starts at ", Show(start), " but ends at ", Show(inclusive ? end + 1 : end)),
+            location);
+    }
+
+    /// <summary>
+    /// An array or slice sliced out of range (#9, #10): <c>a[start..end]</c>, or with
+    /// <c>inclusive</c> <c>a[start..=end]</c>, with Rust's checks and messages.
+    /// </summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void SliceFail(nuint start, nuint end, bool inclusive, nuint len, string location)
+    {
+        string l = len.ToString(CultureInfo.InvariantCulture);
+        if (start > len)
+            throw new PanicException(
+                string.Concat("range start index ", Show(start), " out of range for slice of length ", l),
+                location);
+        if (inclusive ? end >= len : end > len)
+            throw new PanicException(
+                string.Concat("range end index ", Show(end), " out of range for slice of length ", l),
+                location);
+        throw new PanicException(
+            string.Concat("slice index starts at ", Show(start), " but ends at ", Show(inclusive ? end + 1 : end)),
+            location);
+    }
+
+    private static string Show(nuint value) => value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
     /// <c>internal error: entered unreachable code</c>, without a location: code generation
     /// emits it where control cannot arrive (after a call that never returns, and for MIR's
     /// <c>unreachable</c>).

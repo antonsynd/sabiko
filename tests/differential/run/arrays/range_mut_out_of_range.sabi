@@ -1,0 +1,21 @@
+// A mutable range slice is checked too: `&mut s[a..]` with `a > len` on a `&mut [T]`
+// parameter panics with "range start index 4 out of range for slice of length 3" (5:19)
+// after the earlier writes.
+fn ZeroFrom(s: &mut [i32], a: usize) {
+    let t = &mut s[a..];
+    let mut i = 0;
+    while i < t.len() {
+        t[i] = 0;
+        i += 1;
+    }
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    ZeroFrom(&mut a, 2);
+    PrintLine(a[0] + a[1] + a[2]);
+    ZeroFrom(&mut a, 3);
+    PrintLine(a[0] + a[1] + a[2]);
+    ZeroFrom(&mut a, 4);
+    PrintLine("not reached");
+}

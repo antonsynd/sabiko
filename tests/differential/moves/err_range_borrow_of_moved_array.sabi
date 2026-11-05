@@ -1,0 +1,13 @@
+// Borrowing a range slice of an array moved into a function: E0382.
+struct Tok {
+    V: i32,
+}
+
+fn Take(a: [Tok; 2]) {}
+
+fn Main() {
+    let a = [Tok { V: 1 }, Tok { V: 2 }];
+    Take(a);
+    let s = &a[..1];
+    PrintLine(s[0].V);
+}

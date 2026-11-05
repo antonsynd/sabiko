@@ -51,12 +51,12 @@
     │             ───┬──  
     │                ╰──── no implementation for `&P == &P`
 ────╯
-[E0306] Error: binary operation `==` cannot be applied to type `&str`
+[E0306] Error: can't compare `&str` with `&&str`
     ╭─[ tests/ui/typeck/ref_comparison.sabi:21:13 ]
     │
- 21 │     let k = s == "x"; //~ ERROR E0306 binary operation `==` cannot be applied to type `&str`
-    │             ────┬───  
-    │                 ╰───── no implementation for `&str == &str`
+ 21 │     let k = s == &s; //~ ERROR E0306 can't compare `&str` with `&&str`
+    │             ───┬───  
+    │                ╰───── no implementation for `&str == &&str`
 ────╯
 [E0306] Error: can't compare `&&{integer}` with `&{integer}`
     ╭─[ tests/ui/typeck/ref_comparison.sabi:22:13 ]

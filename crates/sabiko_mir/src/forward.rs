@@ -101,23 +101,18 @@ fn mentions(body: &Body) -> Vec<Mentions> {
                 continue;
             };
             write(&mut m, place);
+            for op in rvalue.operands() {
+                operand(&mut m, op);
+            }
             match rvalue {
-                Rvalue::Use(op)
-                | Rvalue::UnaryOp(_, op)
-                | Rvalue::Cast(op, _)
-                | Rvalue::Repeat(op, _)
-                | Rvalue::PointerCoercion(op, _) => {
-                    operand(&mut m, op);
-                }
-                Rvalue::BinaryOp(_, l, r) => {
-                    operand(&mut m, l);
-                    operand(&mut m, r);
-                }
-                Rvalue::Aggregate(_, ops) => {
-                    for op in ops {
-                        operand(&mut m, op);
-                    }
-                }
+                Rvalue::Use(_)
+                | Rvalue::UnaryOp(..)
+                | Rvalue::Cast(..)
+                | Rvalue::Repeat(..)
+                | Rvalue::PointerCoercion(..)
+                | Rvalue::BinaryOp(..)
+                | Rvalue::Aggregate(..)
+                | Rvalue::Subslice(..) => {}
                 Rvalue::Discriminant(p) | Rvalue::Len(p) => m[p.local.index()].other += 1,
                 Rvalue::Ref(_, p) => {
                     let entry = &mut m[p.local.index()];
@@ -285,16 +280,7 @@ fn statement_reads(kind: &StatementKind, temp: Local) -> bool {
     let StatementKind::Assign(_, rvalue) = kind else {
         return false;
     };
-    match rvalue {
-        Rvalue::Use(op)
-        | Rvalue::UnaryOp(_, op)
-        | Rvalue::Cast(op, _)
-        | Rvalue::Repeat(op, _)
-        | Rvalue::PointerCoercion(op, _) => is_temp(op, temp),
-        Rvalue::BinaryOp(_, l, r) => is_temp(l, temp) || is_temp(r, temp),
-        Rvalue::Aggregate(_, ops) => ops.iter().any(|o| is_temp(o, temp)),
-        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => false,
-    }
+    rvalue.operands().into_iter().any(|o| is_temp(o, temp))
 }
 
 fn replace(op: &mut Operand, temp: Local, source: &Operand) -> bool {
@@ -321,6 +307,10 @@ fn apply(body: &mut Body, c: &Candidate) {
                         replace(l, c.temp, source) || replace(r, c.temp, source)
                     }
                     Rvalue::Aggregate(_, ops) => ops.iter_mut().any(|o| replace(o, c.temp, source)),
+                    Rvalue::Subslice(base, bounds) => {
+                        replace(base, c.temp, source)
+                            || bounds.operands_mut().any(|o| replace(o, c.temp, source))
+                    }
                     Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => false,
                 },
                 _ => false,

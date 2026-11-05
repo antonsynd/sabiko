@@ -23,12 +23,12 @@
    │ 
    │ Note: only structs have methods (inherent `impl` blocks)
 ───╯
-[E0319] Error: no method named `Len` found for reference `&str`
+[E0319] Error: no method named `Len` found for `&str`
    ╭─[ tests/ui/typeck/method_receivers.sabi:9:12 ]
    │
- 9 │     "text".Len(); //~ ERROR E0319 no method named `Len` found for reference `&str`
+ 9 │     "text".Len(); //~ ERROR E0319 no method named `Len` found for `&str`
    │            ─┬─  
    │             ╰─── method not found
    │ 
-   │ Note: only structs have methods (inherent `impl` blocks)
+   │ Note: strings, arrays and slices have one method for now, `len()`
 ───╯

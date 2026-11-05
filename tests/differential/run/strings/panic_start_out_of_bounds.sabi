@@ -1,0 +1,14 @@
+// A start bound past the end panics with rustc's "start byte index 7 is out of bounds for
+// string of length 5" (Sabiko counts code units, Rust bytes: ASCII only). The location is
+// the `[` of the index (6:7), not the start of the expression as for an integer index; the
+// output before the panic is kept. Bounds come from parameters (rustc lints constants).
+fn Cut(s: &str, a: usize, b: usize) -> &str {
+    &s[a..b]
+}
+
+fn Main() {
+    PrintLine(Cut("hello", 1, 3));
+    PrintLine(Cut("hello", 5, 5));
+    PrintLine(Cut("hello", 7, 9));
+    PrintLine("not reached");
+}

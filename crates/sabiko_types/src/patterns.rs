@@ -383,6 +383,7 @@ pub(crate) fn for_each_child<'a>(e: &'a Expr, f: &mut impl FnMut(Child<'a>)) {
             expr(a);
             expr(b);
         }
+        ExprKind::Range(lo, hi, _) => [lo, hi].into_iter().flatten().for_each(|x| expr(x)),
         ExprKind::Call { callee, args } => {
             expr(callee);
             args.iter().for_each(expr);

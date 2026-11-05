@@ -1,0 +1,8 @@
+// A mutable range slice borrows the whole array: assigning an element outside the range
+// while the slice is still used is E0506.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let m = &mut a[1..3];
+    a[0] = 1;
+    m[0] = 2;
+}

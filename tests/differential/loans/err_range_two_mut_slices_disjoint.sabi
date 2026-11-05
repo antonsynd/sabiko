@@ -1,0 +1,8 @@
+// `&mut a[..2]` and `&mut a[2..]` do not overlap, but range indexing borrows the whole
+// array (it is an `IndexMut` call on `a`): both alive is E0499.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let l = &mut a[..2];
+    let r = &mut a[2..];
+    l[0] = r[0];
+}

@@ -1,0 +1,10 @@
+// Overlapping shared range slices, element reads and `.len()` of the array may all be
+// alive at once.
+fn Main() {
+    let a = [1, 2, 3, 4];
+    let x = &a[..3];
+    let y = &a[1..];
+    let n = a.len();
+    PrintLine(x[2] + y[0] + a[3] + n as i32);
+    PrintLine(x.len() + y.len());
+}

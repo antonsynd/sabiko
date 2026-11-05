@@ -146,6 +146,12 @@ impl Checker<'_> {
                     self.check_operand(field, span);
                 }
             }
+            Rvalue::Subslice(base, bounds) => {
+                self.check_operand(base, span);
+                for bound in bounds.operands() {
+                    self.check_operand(bound, span);
+                }
+            }
             Rvalue::Discriminant(place) | Rvalue::Len(place) => self.check_read(place, span),
             Rvalue::Ref(kind, place) => {
                 self.check_read(place, span);

@@ -213,6 +213,10 @@ fn for_each_rvalue_operand<'a>(rvalue: &'a Rvalue, mut f: impl FnMut(&'a Operand
             f(rhs);
         }
         Rvalue::Aggregate(_, fields) => fields.iter().for_each(f),
+        Rvalue::Subslice(base, bounds) => {
+            f(base);
+            bounds.operands().for_each(f);
+        }
         Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => {}
     }
 }

@@ -1,0 +1,13 @@
+// Nor a non-Copy field of an element of a range place of a mutable slice: E0508.
+struct Tok {
+    V: i32,
+}
+
+struct Pair {
+    T: Tok,
+    N: i32,
+}
+
+fn Take(s: &mut [Pair]) -> Tok {
+    s[1..][0].T
+}

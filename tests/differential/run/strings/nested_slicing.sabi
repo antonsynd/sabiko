@@ -1,0 +1,19 @@
+// A slice of a slice: `&s[1..][..2]` indexes relative to the inner slice, and so does
+// every further level; `.len()` of a nested slice; slicing the result again in a loop.
+fn Main() {
+    let s = "0123456789";
+    PrintLine(&s[1..][..2]);
+    PrintLine(&s[2..8][1..3]);
+    PrintLine(&s[..9][3..][..=2]);
+    PrintLine(s[1..][1..][1..].len());
+    PrintLine(&s[5..][..][1..=1]);
+    let mid = &s[3..7];
+    PrintLine(&mid[1..]);
+    PrintLine(&mid[..mid.len() - 1]);
+    PrintLine(mid[1..3].len());
+    let mut t = &s[..];
+    while t.len() > 3 {
+        t = &t[2..][..t.len() - 3];
+        PrintLine(t);
+    }
+}

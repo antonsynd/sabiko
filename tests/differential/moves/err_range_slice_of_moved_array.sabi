@@ -1,0 +1,10 @@
+// Range-indexing an array of non-Copy elements after it was moved: E0382.
+struct Tok {
+    V: i32,
+}
+
+fn Main() {
+    let a = [Tok { V: 1 }, Tok { V: 2 }, Tok { V: 3 }];
+    let b = a;
+    PrintLine(a[1..].len());
+}

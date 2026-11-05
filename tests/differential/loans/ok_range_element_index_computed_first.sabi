@@ -1,0 +1,16 @@
+// Reading the array around a mutable range place, in the orders rustc accepts: the
+// element index computed into a local first; a right operand reading the array (evaluated
+// before the place, for `=` and for a primitive `+=`); a bound computed into a local before
+// `&mut a[n - 2..]`; a shared range place whose bound reads the array (`&a[a.len() - 2..]`).
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let i = a.len() - 4;
+    a[1..][i] = 0;
+    a[1..][1] = a[0] + a[3];
+    a[1..][0] += a[0];
+    let n = a.len();
+    let tail = &mut a[n - 2..];
+    tail[0] += 1;
+    let last = &a[a.len() - 1..];
+    PrintLine(a[1] + a[2] + last[0]);
+}

@@ -1,0 +1,11 @@
+// An end bound past the end (`..b`) panics with "end byte index 9 is out of bounds for
+// string of length 5", located at the `[` (4:7).
+fn Prefix(s: &str, b: usize) -> &str {
+    &s[..b]
+}
+
+fn Main() {
+    PrintLine(Prefix("hello", 5));
+    PrintLine(Prefix("hello", 9));
+    PrintLine("not reached");
+}

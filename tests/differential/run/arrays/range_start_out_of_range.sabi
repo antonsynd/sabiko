@@ -1,0 +1,15 @@
+// A start bound past the end of an array panics with rustc's "range start index 7 out of
+// range for slice of length 5", located at the `[` of the index (5:15), not at the start
+// of the expression as for an integer index; the output before it is kept.
+fn Part(a: &[i32; 5], lo: usize, hi: usize) -> usize {
+    let s = &a[lo..hi];
+    s.len()
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4, 5];
+    PrintLine(Part(&a, 1, 3));
+    PrintLine(Part(&a, 5, 5));
+    PrintLine(Part(&a, 7, 9));
+    PrintLine("not reached");
+}

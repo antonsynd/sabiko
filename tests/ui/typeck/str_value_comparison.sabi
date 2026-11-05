@@ -1,0 +1,21 @@
+// Comparisons rustc accepts that Sabiko does not lower yet (#10): `str` places (`*s == *t`,
+// `s[..2] == t[..2]`, `s[1..] < t[1..]`) are unsized values to Sabiko (E0208); compare the
+// `&str` references instead. `&&str` operands type-check, as in rustc, and are rejected by
+// code generation (E0500: references to references wait for `Ref<T>`, #11).
+fn Main() {
+    let s = "abc";
+    let t = "abd";
+    let rs = &s;
+    let rt = &t;
+    PrintLine(*s == *t); // rustc accepts: false
+    //~^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    //~^^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    PrintLine(s[..2] == t[..2]); // rustc accepts: true
+    //~^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    //~^^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    PrintLine(s[1..] < t[1..]); // rustc accepts: true
+    //~^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    //~^^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    PrintLine(rs == rt); // rustc accepts: false
+    PrintLine(rs < rt); // rustc accepts: true
+}
