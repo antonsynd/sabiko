@@ -1,14 +1,22 @@
-// Sabiko codes for rustc's: E0308 for E0054, E0308 for E0605, E0308 for E0606.
+// Sabiko codes for rustc's: E0308 for E0054, E0308 for E0605, E0308 for E0606, E0308 for
+// rustc's uncoded "cannot cast enum .. because it implements `Drop`".
 // `as` casts an enum only when every variant is a unit variant (E0605 "non-primitive
-// cast" otherwise), and only to an integer type (E0606 to a float, E0054 to `bool`);
-// nothing casts to an enum (E0605).
+// cast" otherwise), only to an integer type (E0606 to a float, E0054 to `bool`), and not
+// when it implements `Drop` (found by the generator); nothing casts to an enum (E0605).
 enum Shape { Dot, Square(i32) }
 
 enum Light { Red, Green }
+
+enum Lamp { On, Off }
+
+impl Drop for Lamp {
+    fn drop(&mut self) {}
+}
 
 fn Main() {
     let a = Shape::Dot as i32; //~ ERROR E0308 non-primitive cast: `Shape` as `i32`
     let b = Light::Red as f64; //~ ERROR E0308 casting `Light` as `f64` is invalid
     let c = 1 as Light; //~ ERROR E0308 non-primitive cast: `i32` as `Light`
     let d = Light::Green as bool; //~ ERROR E0308 cannot cast `Light` as `bool`
+    let e = Lamp::Off as u8; //~ ERROR E0308 cannot cast enum `Lamp` into integer `u8` because it implements `Drop`
 }

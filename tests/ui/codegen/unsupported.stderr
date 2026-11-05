@@ -19,66 +19,59 @@
     │             ─────┬────  
     │                  ╰────── cannot be compiled yet
 ────╯
-[E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:14:20 ]
-    │
- 14 │     let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    │                    ─┬  
-    │                     ╰── cannot be compiled yet
-────╯
 [E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:18:9 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:17:9 ]
     │
- 18 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+ 17 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     │         ────┬───  
     │             ╰───── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:18:20 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:17:20 ]
     │
- 18 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+ 17 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     │                    ──┬──  
     │                      ╰──── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:20:9 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:19:9 ]
     │
- 20 │     let again = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+ 19 │     let again = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     │         ──┬──  
     │           ╰──── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:23:9 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:22:9 ]
     │
- 23 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+ 22 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     │         ───┬──  
     │            ╰──── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:23:18 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:22:18 ]
     │
- 23 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+ 22 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     │                  ──────┬─────  
     │                        ╰─────── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:23:19 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:22:19 ]
     │
- 23 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
+ 22 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     │                   ───┬───  
     │                      ╰───── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:27:9 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:26:9 ]
     │
- 27 │     let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+ 26 │     let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     │         ────┬───  
     │             ╰───── cannot be compiled yet
 ────╯
 [E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:27:20 ]
+    ╭─[ tests/ui/codegen/unsupported.sabi:26:20 ]
     │
- 27 │     let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
+ 26 │     let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
     │                    ────┬───  
     │                        ╰───── cannot be compiled yet
 ────╯

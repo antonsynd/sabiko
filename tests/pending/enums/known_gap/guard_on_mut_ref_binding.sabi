@@ -1,0 +1,33 @@
+// KNOWN GAP: a guard on an arm whose pattern binds a `&mut` scrutinee reference itself
+// (`match &mut n { x if *x > 0 => .. }`, `match r { y if .. }` for `r: &mut Cell`). Inside
+// the guard a by-value binding is reached through a shared reference to it, here a
+// `&&mut T`, which code generation rejects (E0500) until `Ref<T>`; a binding of a shared
+// reference is copied into the guard instead (`run/enums/guards_through_references.sabi`).
+// Found by the generator, which leaves such arms unguarded (TODO in sabiko_testgen).
+enum Cell { Empty, Value(i32) }
+
+fn Reset(r: &mut Cell) {
+    match r {
+        c if IsValue(c) => *c = Cell::Empty,
+        _ => {}
+    }
+}
+
+fn IsValue(c: &Cell) -> bool {
+    match c {
+        Cell::Value(_) => true,
+        Cell::Empty => false,
+    }
+}
+
+fn Main() {
+    let mut n = 3;
+    match &mut n {
+        x if *x > 0 => *x += 10,
+        _ => {}
+    }
+    PrintLine(n);
+    let mut c = Cell::Value(1);
+    Reset(&mut c);
+    PrintLine(IsValue(&c));
+}

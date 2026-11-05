@@ -50,9 +50,9 @@
 [E0316] Error: attempt to negate with overflow
     ╭─[ tests/ui/typeck/consts.sabi:19:16 ]
     │
- 19 │ const H: i32 = -(-2147483648); //~ ERROR E0316 attempt to negate with overflow
-    │                ───────┬──────  
-    │                       ╰──────── in this constant
+ 19 │ const H: i32 = -(-2147483647 - 1); //~ ERROR E0316 attempt to negate with overflow
+    │                ─────────┬────────  
+    │                         ╰────────── in this constant
 ────╯
 [E0316] Error: attempt to negate with overflow
     ╭─[ tests/ui/typeck/consts.sabi:22:22 ]

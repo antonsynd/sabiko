@@ -32,9 +32,9 @@ use std::fmt::Write as _;
 
 use sabiko_diagnostics::ErrorCode;
 use sabiko_mir::{
-    AggregateKind, BasicBlock, BinOp, Body, CleanupScope, ConstValue, Constant, Local, LocalKind,
-    Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty,
-    UnOp,
+    AggregateKind, BasicBlock, BinOp, Body, CleanupScope, ConstValue, Constant, Local, LocalDecl,
+    LocalKind, Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator,
+    TerminatorKind, Ty, UnOp,
 };
 use sabiko_resolve::{Builtin, DefId, PrimTy};
 use sabiko_span::Span;
@@ -477,9 +477,34 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
+        // A guard's fake borrow of the scrutinee emits nothing (it only exists for the
+        // borrow checker), so its temporary needs no slot. It is `&&T` when the scrutinee is
+        // a reference (`match &c { V(n) if *n > 0 => .. }`), which has no CIL type yet: a
+        // `&&T` temporary that nothing else writes (its guard may also have been removed as
+        // unreachable) gets none.
+        let mut written = vec![false; body.locals.len()];
+        for data in &body.blocks {
+            for stmt in &data.statements {
+                if let StatementKind::Assign(place, rvalue) = &stmt.kind {
+                    if !matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _)) {
+                        written[place.local.index()] = true;
+                    }
+                }
+            }
+            if let Some(term) = &data.terminator {
+                if let TerminatorKind::Call { destination, .. } = &term.kind {
+                    written[destination.local.index()] = true;
+                }
+            }
+        }
+        let fake_only = |i: usize, decl: &LocalDecl| {
+            decl.kind == LocalKind::Temp
+                && !written[i]
+                && matches!(&decl.ty, Ty::Ref(_, inner) if matches!(**inner, Ty::Ref(..)))
+        };
         for (i, decl) in body.locals.iter().enumerate() {
             // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
-            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited();
+            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited() || fake_only(i, decl);
             let slot = match decl.kind {
                 // A `()` parameter is a `Sabiko.Runtime.Unit` (decision 52); nothing reads it.
                 LocalKind::Arg => {

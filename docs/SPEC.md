@@ -126,7 +126,10 @@ dropped as rustc drops them (edition 2021):
   an `if` or `while` condition's temporaries (and those of a `&&`/`||` operand) are
   dropped before the branch or body runs; `let r = &temp;` and `let t = (&temp, ..);`
   extend the temporary to the end of the block (`r = &temp;` does not: E0413, rustc's
-  E0716); a block's tail expression's temporaries are dropped after the block's locals
+  E0716), and so does a `let` (or `let`-`else`) whose pattern has a `ref`/`ref mut`
+  binding, for its initialiser's value (`let S { ref mut a, .. } = Make();`, rustc's
+  extending patterns); a failing `let`-`else` drops its initialiser's temporaries before
+  the `else` block runs; a block's tail expression's temporaries are dropped after the block's locals
   (a function body's after its locals and before its parameters); the operand of
   `return` is not a tail, its temporaries go first.
 - `let _ = <value>;` drops the value at once, `let _x = ..;` at the end of the block, and
@@ -410,7 +413,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - An unsuffixed integer literal has type `{integer}`, unifies with any integer type and
   defaults to `i32`; a float literal is `{float}` and defaults to `f64`. A literal that
   does not fit the type it ends up with is an error (E0314), including after negation
-  (`-129` as `i8`) and when the type comes from a cast (`300 as u8`).
+  (`-129` as `i8`) and when the type comes from a cast (`300 as u8`). Of two nested
+  negations only the outer counts, as in rustc: the literal of `-(-128i8)` is `128i8`.
 - A `let` whose type nothing constrains is an error (E0313). Deferred initialisation
   (`let x; x = 1;`) is allowed; the type comes from the assignment.
 - Tuples. `(a, b)` has type `(A, B)`. Against an expected tuple type of the same arity

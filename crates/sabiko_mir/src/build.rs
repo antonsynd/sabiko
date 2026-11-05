@@ -1636,21 +1636,38 @@ impl<'a> Builder<'a> {
     /// rustc: each binding copies or moves its own element out of it, and `_` touches
     /// nothing (`let (a, _) = t;` leaves `t.1` usable). Any other initialiser is
     /// evaluated into a temporary first; the referent of `&<rvalue>` lives as long as the
-    /// bindings (temporary lifetime extension, as for `let r = &<rvalue>;`). Without an
-    /// initialiser the bindings are only declared.
+    /// bindings (temporary lifetime extension, as for `let r = &<rvalue>;`), and so does
+    /// the initialiser's own temporary when the pattern has a `ref`/`ref mut` binding
+    /// (rustc's extending patterns: `let S { ref mut a, .. } = F();` borrows a value that
+    /// lives to the end of the block). Without an initialiser the bindings are only
+    /// declared.
     fn lower_let_tuple(&mut self, pat: &Pat, init: Option<&Expr>) {
         let Some(init) = init else {
             self.declare_pattern_locals(pat);
             return;
         };
+        let extending = is_extending_pattern(pat);
         let place = if is_place_expr(self.resolve, init) {
             self.as_place(init)
         } else if let Some(temp) = self.extended_ref(init) {
             Place::local(temp)
         } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
             let ty = self.ty(init).clone();
-            let temp = self.new_temp(ty, init.span);
+            let temp = if extending {
+                self.new_temp_in_block_scope(ty, init.span)
+            } else {
+                self.new_temp(ty, init.span)
+            };
             self.tuple_into(&Place::local(temp), init, true);
+            self.temp_complete(temp);
+            Place::local(temp)
+        } else if extending {
+            let ty = self.ty(init).clone();
+            let temp = self.new_temp_in_block_scope(ty, init.span);
+            if !writes_once(init) {
+                self.open_pending(temp);
+            }
+            self.expr_into_dest(&Place::local(temp), init);
             self.temp_complete(temp);
             Place::local(temp)
         } else {
@@ -1744,6 +1761,24 @@ impl<'a> Builder<'a> {
         }
         self.close_temp_scope(saved, stmt.span);
         self.extend_at = outer_extend_at;
+    }
+}
+
+/// Whether a `let` pattern extends the temporary holding its initialiser to the end of the
+/// enclosing block (rustc's *extending pattern*): a `ref`/`ref mut` binding, or a tuple,
+/// tuple-struct, struct or or-pattern with an extending subpattern. A binding under a
+/// default binding mode does not count, as in rustc (it borrows through a reference, not
+/// from the initialiser's temporary).
+fn is_extending_pattern(pat: &Pat) -> bool {
+    match &pat.kind {
+        PatKind::Ident { by_ref, .. } => *by_ref,
+        PatKind::Tuple(elems) | PatKind::TupleStruct(_, elems) | PatKind::Or(elems) => {
+            elems.iter().any(is_extending_pattern)
+        }
+        PatKind::Struct { fields, .. } => fields.iter().any(|f| is_extending_pattern(&f.pat)),
+        PatKind::Wild | PatKind::Rest | PatKind::Path(_) | PatKind::Lit(_) | PatKind::Range(..) => {
+            false
+        }
     }
 }
 

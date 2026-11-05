@@ -1,0 +1,48 @@
+// Guards on matches through references (generator seeds 2, 61 and 125): the guard's fake
+// borrow of a scrutinee that is a reference is a `&&T` temporary, which code generation
+// leaves out (it only exists for the borrow checker; E0500 before), also when the guarded
+// arm is unreachable and its blocks are removed.
+enum Cell { Empty, Value(i32), Pair { A: i32, B: i32 } }
+
+fn Describe(c: &Cell) -> i32 {
+    match c {
+        Cell::Value(n) if *n > 10 => 2,
+        Cell::Value(_) => 1,
+        Cell::Pair { A: a, B: b } if *a == *b => 4,
+        _ => 0,
+    }
+}
+
+fn Bump(c: &mut Cell) {
+    match c {
+        Cell::Value(n) if *n < 0 => *n = 0,
+        Cell::Value(n) => *n += 1,
+        Cell::Pair { A: a, .. } if *a > 0 => *a -= 1,
+        _ => {}
+    }
+}
+
+fn Main() {
+    let mut c = Cell::Value(-3);
+    Bump(&mut c);
+    PrintLine(Describe(&c));
+    let mut p = Cell::Pair { A: 2, B: 1 };
+    PrintLine(Describe(&p));
+    Bump(&mut p);
+    PrintLine(Describe(&p));
+    PrintLine(Describe(&Cell::Empty));
+    let t = (3i8, 'x');
+    let k = match &t.0 {
+        n if *n > 2 => 1,
+        _ => 0,
+    };
+    PrintLine(k);
+    match &t.1 {
+        x => PrintLine(*x),
+        _ if true => PrintLine("unreachable"),
+    }
+    match c {
+        Cell::Value(ref n) if *n > 0 => PrintLine(*n),
+        _ => PrintLine("no"),
+    }
+}
