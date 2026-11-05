@@ -1,0 +1,63 @@
+// References to references and to `()` (decision 63): a borrowed reference local is held
+// in its `Ref<T>` wrapper, a borrowed reference parameter is wrapped on entry, a
+// reference to a reference is a pointer to a wrapper, a tuple element that is a reference
+// is a wrapper, and `&()` is as stateless as `()`.
+fn Deref2(rr: &&i32) -> i32 {
+    **rr
+}
+
+fn Deref3(rrr: &&&i64) -> i64 {
+    ***rrr
+}
+
+// The parameter is borrowed, so it is copied into a wrapper first.
+fn BorrowParam(r: &i32) -> i32 {
+    Deref2(&r)
+}
+
+fn WriteThrough(mm: &mut &mut u8) {
+    **mm += 1;
+}
+
+fn Strs(ss: &&str) -> usize {
+    ss.len()
+}
+
+fn Units(u: &()) -> &() {
+    u
+}
+
+fn UnitRef(uu: &&mut ()) {
+    let _ = uu;
+}
+
+fn Main() {
+    let a = 1;
+    let b = 2;
+    let mut r = &a;
+    // A write through `&mut &T` replaces the wrapper the pointer points to.
+    let m = &mut r;
+    *m = &b;
+    PrintLine(*r);
+    PrintLine(BorrowParam(r));
+    let five = 5i64;
+    let f = &five;
+    let ff = &f;
+    PrintLine(Deref3(&ff));
+    let mut n = 7u8;
+    let mut m = &mut n;
+    WriteThrough(&mut m);
+    PrintLine(n);
+    let t = (&a, 3);
+    let e = &t.0;
+    PrintLine(**e + t.1);
+    let (x, _) = &t;
+    PrintLine(**x);
+    let s = "abc";
+    PrintLine(Strs(&s));
+    let mut unit = ();
+    UnitRef(&&mut unit);
+    let ur = Units(&unit);
+    let pair = (ur, 4);
+    PrintLine(pair.1);
+}

@@ -106,6 +106,7 @@ pub fn emit_il(
         byref_tuples: Vec::new(),
         inline_arrays: Vec::new(),
         drop_glues: Vec::new(),
+        ref_wrappers: [false; 2],
     };
 
     let mut out = String::new();
@@ -151,6 +152,7 @@ pub fn emit_il(
     out.push_str("}\n");
     cx.byref_tuple_structs(&mut out);
     cx.inline_array_structs(&mut out);
+    cx.ref_wrapper_structs(&mut out);
     if cx.had_error {
         None
     } else {
@@ -177,6 +179,9 @@ pub(crate) struct Cx<'a> {
     /// Types whose drop glue the module needs, in order of first use, with the glue
     /// method's name (decision 55).
     drop_glues: Vec<(Ty, String)>,
+    /// Whether the module uses the ``Ref`1`` (index 0) and ``RefMut`1`` (index 1) wrappers
+    /// (decision 63).
+    ref_wrappers: [bool; 2],
 }
 
 impl Cx<'_> {
@@ -327,8 +332,10 @@ impl Cx<'_> {
     /// Emits the generated `ref struct` of every tuple type with references that the
     /// module used: a field `Item1`.. per element (no `Rest`: the type is ours) and a
     /// constructor taking the elements in order, like `System.ValueTuple`'s, so a tuple is
-    /// built the same way whichever type lowers it. An element type may register another
-    /// such tuple, which is emitted in turn.
+    /// built the same way whichever type lowers it. An element that is a reference is
+    /// held in its `Ref<T>` wrapper, so a borrow of it points to a wrapper as any `&&T`
+    /// does (decision 63); the constructor takes the managed pointer and wraps it. An
+    /// element type may register another such tuple, which is emitted in turn.
     fn byref_tuple_structs(&mut self, out: &mut String) {
         if self.had_error {
             // Nothing is emitted; an unsupported element was reported where it was used.
@@ -345,6 +352,10 @@ impl Cx<'_> {
             let class = types::quote(&name);
             let field_tys: Vec<String> = elems
                 .iter()
+                .map(|e| types::stored_type(self, e, span))
+                .collect();
+            let param_tys: Vec<String> = elems
+                .iter()
                 .map(|e| types::cil_type(self, e, span))
                 .collect();
             let _ = writeln!(
@@ -355,7 +366,7 @@ impl Cx<'_> {
             for (i, cil) in field_tys.iter().enumerate() {
                 let _ = writeln!(out, "  .field public {cil} 'Item{}'", i + 1);
             }
-            let params: Vec<String> = field_tys
+            let params: Vec<String> = param_tys
                 .iter()
                 .enumerate()
                 .map(|(i, cil)| format!("{cil} 'item{}'", i + 1))
@@ -366,12 +377,12 @@ impl Cx<'_> {
                 params.join(", ")
             );
             for (i, cil) in field_tys.iter().enumerate() {
-                let _ = writeln!(
-                    out,
-                    "    ldarg.0\n    ldarg {}\n    stfld {cil} {class}::'Item{}'",
-                    i + 1,
-                    i + 1
-                );
+                let _ = writeln!(out, "    ldarg.0\n    ldarg {}", i + 1);
+                if Self::is_byref(&elems[i]) {
+                    let ctor = types::wrapper_ctor(self, &elems[i], span);
+                    let _ = writeln!(out, "    newobj {ctor}");
+                }
+                let _ = writeln!(out, "    stfld {cil} {class}::'Item{}'", i + 1);
             }
             out.push_str("    ret\n  }\n}\n");
         }
@@ -461,12 +472,72 @@ impl Cx<'_> {
         }
     }
 
-    /// Whether `ty` is lowered to a CIL managed pointer (`T&`). `&str` is a span, not a
-    /// pointer.
+    /// Whether `ty` is lowered to a CIL managed pointer (`T&`). `&str` and `&[T]` are
+    /// spans, not pointers; a reference to `()` is stateless, like `()` (decision 63), and
+    /// `&!` has no values.
     pub(crate) fn is_byref(ty: &Ty) -> bool {
         match ty {
-            Ty::Ref(_, inner) => !types::is_str(inner) && !types::is_slice(inner),
+            Ty::Ref(_, inner) => {
+                !types::is_str(inner) && !types::is_slice(inner) && !types::has_no_value(ty)
+            }
             _ => false,
+        }
+    }
+
+    /// The generated wrapper that holds a reference where the CLR cannot hold a managed
+    /// pointer (decision 63): ``Ref`1`` for a shared reference, ``RefMut`1`` for a mutable
+    /// one, generic over the referent's storage type. Registers it for
+    /// [`Cx::ref_wrapper_structs`].
+    pub(crate) fn ref_wrapper(&mut self, mutable: bool) -> &'static str {
+        self.ref_wrappers[usize::from(mutable)] = true;
+        if mutable {
+            types::REF_MUT_CLASS
+        } else {
+            types::REF_CLASS
+        }
+    }
+
+    /// Emits the wrappers [`Cx::ref_wrapper`] registered: a `readonly ref struct` with one
+    /// `initonly` field, `Value`, a managed pointer to its type parameter (`ref readonly T`
+    /// for ``Ref`1``, `ref T` for ``RefMut`1``), and a constructor taking that pointer. The
+    /// type parameter is `byreflike` (C#'s `allows ref struct`), so a wrapper can wrap
+    /// another (`&&&T`), or a tuple holding references. C# reads such a type but cannot
+    /// declare it: a `ref` field to a type that may be a `ref struct` is CS9050. Nothing
+    /// writes `Value` after construction; a write to the reference replaces the wrapper.
+    fn ref_wrapper_structs(&self, out: &mut String) {
+        if self.had_error {
+            return;
+        }
+        for (mutable, class) in [(false, types::REF_CLASS), (true, types::REF_MUT_CLASS)] {
+            if !self.ref_wrappers[usize::from(mutable)] {
+                continue;
+            }
+            let readonly_field = if mutable {
+                String::new()
+            } else {
+                format!("\n  {}", types::IS_READONLY_ATTR)
+            };
+            let _ = write!(
+                out,
+                "
+.class public sequential ansi sealed beforefieldinit {class}<byreflike T> extends [System.Runtime]System.ValueType
+{{
+  {}
+  {}
+  .field public initonly !T& 'Value'{readonly_field}
+  .method public hidebysig specialname rtspecialname instance void .ctor(!T& 'value') cil managed
+  {{
+    .maxstack 2
+    ldarg.0
+    ldarg.1
+    stfld !0& valuetype {class}<!T>::'Value'
+    ret
+  }}
+}}
+",
+                types::IS_BYREF_LIKE_ATTR,
+                types::IS_READONLY_ATTR
+            );
         }
     }
 }

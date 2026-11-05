@@ -1,77 +1,14 @@
-[E0500] Error: a reference to a reference is not yet supported by code generation
-   ╭─[ tests/ui/codegen/unsupported.sabi:6:11 ]
+[E0500] Error: an array holding references is not yet supported by code generation
+   ╭─[ tests/ui/codegen/unsupported.sabi:7:10 ]
    │
- 6 │ fn Nested(r: &&i32) -> i32 { //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-   │           ────┬───  
-   │               ╰───── cannot be compiled yet
+ 7 │ fn First(_refs: [&i32; 2]) {} //~ ERROR E0500 an array holding references is not yet supported by code generation
+   │          ────────┬───────  
+   │                  ╰───────── cannot be compiled yet
 ───╯
-[E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:13:9 ]
-    │
- 13 │     let rr = &r; //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    │         ─┬  
-    │          ╰── cannot be compiled yet
-────╯
-[E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:14:13 ]
-    │
- 14 │     let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    │             ─────┬────  
-    │                  ╰────── cannot be compiled yet
-────╯
-[E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:17:9 ]
-    │
- 17 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
-    │         ────┬───  
-    │             ╰───── cannot be compiled yet
-────╯
-[E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:17:20 ]
-    │
- 17 │     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
-    │                    ──┬──  
-    │                      ╰──── cannot be compiled yet
-────╯
-[E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:19:9 ]
-    │
- 19 │     let again = borrowed; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
-    │         ──┬──  
-    │           ╰──── cannot be compiled yet
-────╯
-[E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:22:9 ]
-    │
- 22 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    │         ───┬──  
-    │            ╰──── cannot be compiled yet
-────╯
-[E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:22:18 ]
-    │
- 22 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    │                  ──────┬─────  
-    │                        ╰─────── cannot be compiled yet
-────╯
-[E0500] Error: a reference to a reference is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:22:19 ]
-    │
- 22 │     let nested = (&pair.0, 3); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    │                   ───┬───  
-    │                      ╰───── cannot be compiled yet
-────╯
-[E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:26:9 ]
-    │
- 26 │     let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
-    │         ────┬───  
-    │             ╰───── cannot be compiled yet
-────╯
-[E0500] Error: a reference to `()` is not yet supported by code generation
-    ╭─[ tests/ui/codegen/unsupported.sabi:26:20 ]
-    │
- 26 │     let unit_ref = &units.0; //~ ERROR E0500 a reference to `()` is not yet supported by code generation
-    │                    ────┬───  
-    │                        ╰───── cannot be compiled yet
-────╯
+[E0500] Error: a slice of references is not yet supported by code generation
+   ╭─[ tests/ui/codegen/unsupported.sabi:9:11 ]
+   │
+ 9 │ fn Second(_view: &[&i32]) {} //~ ERROR E0500 a slice of references is not yet supported by code generation
+   │           ───────┬──────  
+   │                  ╰──────── cannot be compiled yet
+───╯

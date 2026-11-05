@@ -368,7 +368,7 @@ impl Cx<'_> {
         };
         if types::is_byref_tuple(base_ty) {
             let class = types::quote(&self.byref_tuple(base_ty, span));
-            let cil = types::cil_type(self, &elems[index], span);
+            let cil = types::stored_type(self, &elems[index], span);
             return (Vec::new(), format!("{cil} {class}::'Item{}'", index + 1));
         }
         let mut rest = Vec::new();

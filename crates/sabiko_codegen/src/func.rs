@@ -64,6 +64,7 @@ pub(crate) fn emit_body(cx: &mut Cx<'_>, body: &Body, out: &mut String) {
         scratch: Vec::new(),
         layout: Layout::new(body),
         stackable: stackable_locals(body),
+        wrapped: wrapped_locals(body),
         defs: Vec::new(),
         pending: Vec::new(),
         consumed: Vec::new(),
@@ -72,6 +73,7 @@ pub(crate) fn emit_body(cx: &mut Cx<'_>, body: &Body, out: &mut String) {
         def_returns: false,
     };
     f.assign_slots();
+    f.wrap_arguments();
     // The protected regions open around the blocks: the layout makes each contiguous.
     let mut open: Vec<CleanupScope> = Vec::new();
     for i in 0..f.layout.order.len() {
@@ -305,6 +307,9 @@ struct FnCx<'a, 'b> {
     /// MIR locals assigned once and read once, by a whole-local operand: their value may
     /// stay on the stack.
     stackable: Vec<bool>,
+    /// MIR locals holding a reference that something borrows: their IL local is the
+    /// reference's `Ref<T>` wrapper, so the borrow is a pointer to it (decision 63).
+    wrapped: Vec<bool>,
     /// Every definition kept on the stack, and what became of it.
     defs: Vec<Def>,
     /// Values on the evaluation stack that are still waiting for their reader, bottom to
@@ -487,12 +492,33 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
         .map(|i| {
             let decl = &body.locals[i];
             matches!(decl.kind, LocalKind::User | LocalKind::Temp)
-                && !(decl.ty.is_unit() || decl.ty.is_uninhabited())
+                && !types::has_no_value(&decl.ty)
                 && defs[i] == 1
                 && uses[i] == 1
                 && other[i] == 0
         })
         .collect()
+}
+
+/// MIR locals holding a reference lowered to a managed pointer (`&T`, not `&str` or
+/// `&[T]`) that some borrow takes the address of (`&r`), a fake borrow aside: such a local
+/// is stored in the reference's `Ref<T>` wrapper (decision 63). Other reference locals
+/// stay plain managed pointers.
+fn wrapped_locals(body: &Body) -> Vec<bool> {
+    let mut wrapped = vec![false; body.locals.len()];
+    for data in &body.blocks {
+        for stmt in &data.statements {
+            if let StatementKind::Assign(_, Rvalue::Ref(kind, place)) = &stmt.kind {
+                if *kind != sabiko_mir::BorrowKind::Fake
+                    && place.is_local()
+                    && Cx::is_byref(&body.local_decl(place.local).ty)
+                {
+                    wrapped[place.local.index()] = true;
+                }
+            }
+        }
+    }
+    wrapped
 }
 
 impl FnCx<'_, '_> {
@@ -509,10 +535,7 @@ impl FnCx<'_, '_> {
             }
         }
         // A guard's fake borrow of the scrutinee emits nothing (it only exists for the
-        // borrow checker), so its temporary needs no slot. Nor does a temporary that nothing
-        // writes: a `&&T` one (no CIL type yet) is left over when simplification removes an
-        // unreachable guarded arm with its fake borrow, or from a `&&T` call result nobody
-        // stores.
+        // borrow checker), so its temporary needs no slot.
         let mut written = vec![false; body.locals.len()];
         let mut fake = vec![false; body.locals.len()];
         for data in &body.blocks {
@@ -532,29 +555,52 @@ impl FnCx<'_, '_> {
             }
         }
         for (i, decl) in body.locals.iter().enumerate() {
-            let unwritten_ref_ref = decl.kind == LocalKind::Temp
-                && !written[i]
-                && matches!(&decl.ty, Ty::Ref(_, inner) if matches!(**inner, Ty::Ref(..)));
-            // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
-            let elided = decl.ty.is_unit()
-                || decl.ty.is_uninhabited()
-                || (fake[i] && !written[i])
-                || unwritten_ref_ref;
+            // `()`, `&()`, `!` and `&!` (decisions 32, 44 and 63) have no values to store.
+            let elided = types::has_no_value(&decl.ty) || (fake[i] && !written[i]);
+            let name = || match &decl.name {
+                Some(n) if name_counts[n] == 1 => n.clone(),
+                _ => format!("_{i}"),
+            };
             let slot = match decl.kind {
+                // A borrowed reference parameter is copied into its wrapper on entry
+                // ([`Self::wrap_arguments`]); the wrapper stands for it from then on.
+                LocalKind::Arg if self.wrapped[i] => {
+                    self.new_wrapper_local(&decl.ty, &name(), decl.span)
+                }
                 // A `()` parameter is a `Sabiko.Runtime.Unit` (decision 52); nothing reads it.
                 LocalKind::Arg => {
                     Slot::Arg(u16::try_from(i - 1).expect("fewer than 2^16 parameters"))
                 }
                 _ if elided => Slot::None,
+                _ if self.wrapped[i] => self.new_wrapper_local(&decl.ty, &name(), decl.span),
                 LocalKind::Return | LocalKind::User | LocalKind::Temp => {
-                    let name = match &decl.name {
-                        Some(n) if name_counts[n] == 1 => n.clone(),
-                        _ => format!("_{i}"),
-                    };
-                    self.new_local(&decl.ty, &name, decl.span)
+                    self.new_local(&decl.ty, &name(), decl.span)
                 }
             };
             self.slots.push(slot);
+        }
+    }
+
+    /// An IL local holding a reference of type `ty` in its `Ref<T>` wrapper.
+    fn new_wrapper_local(&mut self, ty: &Ty, name: &str, span: Span) -> Slot {
+        let index = u16::try_from(self.locals.len()).expect("fewer than 2^16 locals");
+        let cil = types::stored_type(self.cx, ty, span);
+        self.locals.push((cil, types::quote(name)));
+        self.consumed.push(None);
+        Slot::Local(index)
+    }
+
+    /// On entry, wraps each borrowed reference parameter into the local that stands for
+    /// it (decision 63): `ldarg; newobj Ref<T>::.ctor(!0&); stloc`.
+    fn wrap_arguments(&mut self) {
+        let body = self.body;
+        for (i, local) in body.args().enumerate() {
+            if let Slot::Local(wrapper) = self.slots[local.index()] {
+                let ty = body.local_decl(local).ty.clone();
+                self.ldarg(u16::try_from(i).expect("fewer than 2^16 parameters"));
+                self.wrap(&ty, body.span);
+                self.stloc(wrapper);
+            }
         }
     }
 
@@ -1034,14 +1080,21 @@ impl FnCx<'_, '_> {
 
     fn assign(&mut self, place: &Place, rvalue: &Rvalue, span: Span) {
         let ty = place.ty(self.body);
-        if ty.is_unit() || ty.is_uninhabited() {
+        if types::has_no_value(&ty) {
             // Rvalues have no side effects; a unit store is nothing, but an element's
             // index is still checked: the one read (`x = a[i]`, which loads nothing
-            // else), then the one written.
-            if let Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) = rvalue {
-                if src.has_index() {
+            // else, or the one borrowed by `r = &a[i]`), then the one written.
+            match rvalue {
+                Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) if src.has_index() => {
                     self.load(src, span);
                 }
+                Rvalue::Ref(kind, src)
+                    if src.has_index() && *kind != sabiko_mir::BorrowKind::Fake =>
+                {
+                    self.addr(src, span);
+                    self.op("pop", 1, 0);
+                }
+                _ => {}
             }
             if place.has_index() && !ty.is_uninhabited() {
                 self.addr(place, span);
@@ -1096,7 +1149,10 @@ impl FnCx<'_, '_> {
 
     /// Loads the return place, if it has storage, and returns.
     fn ret(&mut self) {
-        if let Slot::Local(i) = self.slots[Local::RETURN.index()] {
+        if self.wrapped[Local::RETURN.index()] {
+            self.load(&Place::local(Local::RETURN), self.body.span);
+            self.op("ret", 1, 0);
+        } else if let Slot::Local(i) = self.slots[Local::RETURN.index()] {
             self.ldloc(i);
             // Control leaves: a later load of the return place is on another path.
             self.consumed[usize::from(i)] = None;
@@ -1309,15 +1365,43 @@ impl FnCx<'_, '_> {
         }
     }
 
+    /// Whether `place` holds a reference in its `Ref<T>` wrapper (decision 63) rather
+    /// than as a managed pointer: a borrowed local, a tuple element, or the referent of a
+    /// reference to a reference.
+    fn is_wrapped(&self, place: &Place) -> bool {
+        match place.projection.last() {
+            None => self.wrapped[place.local.index()],
+            Some(PlaceElem::Field(_, ty)) => {
+                Cx::is_byref(ty) && matches!(Self::parent(place).ty(self.body), Ty::Tuple(_))
+            }
+            Some(PlaceElem::Deref) => Cx::is_byref(&place.ty(self.body)),
+            Some(PlaceElem::Index(_) | PlaceElem::Downcast(_)) => false,
+        }
+    }
+
+    /// Wraps the managed pointer on top of the stack, of reference type `ty`, into its
+    /// `Ref<T>`.
+    fn wrap(&mut self, ty: &Ty, span: Span) {
+        let ctor = types::wrapper_ctor(self.cx, ty, span);
+        self.op(format!("newobj {ctor}"), 1, 1);
+    }
+
     /// Pushes the value of `place`.
     fn load(&mut self, place: &Place, span: Span) {
         let ty = place.ty(self.body);
-        if ty.is_unit() || ty.is_uninhabited() {
+        if types::has_no_value(&ty) {
             if place.has_index() && !ty.is_uninhabited() {
                 // Nothing to read, but the index is still checked.
                 self.addr(place, span);
                 self.op("pop", 1, 0);
             }
+            return;
+        }
+        if self.is_wrapped(place) {
+            // The managed pointer inside the wrapper.
+            self.addr(place, span);
+            let field = types::wrapper_value_field(self.cx, &ty, span);
+            self.op(format!("ldfld {field}"), 1, 1);
             return;
         }
         match place.projection.last() {
@@ -1414,6 +1498,35 @@ impl FnCx<'_, '_> {
     /// address is computed first, so `push` runs with it on the stack.
     fn store(&mut self, place: &Place, span: Span, push: impl FnOnce(&mut Self)) {
         let ty = place.ty(self.body);
+        if self.is_wrapped(place) {
+            // A new wrapper replaces the old one.
+            let push = |this: &mut Self| {
+                push(this);
+                this.wrap(&ty, span);
+            };
+            match place.projection.last() {
+                None => {
+                    push(self);
+                    let Slot::Local(i) = self.slots[place.local.index()] else {
+                        unreachable!("a wrapped reference has a local")
+                    };
+                    self.stloc(i);
+                }
+                Some(PlaceElem::Field(index, field_ty)) => {
+                    let parent = Self::parent(place);
+                    let field = self.field_base(&parent, *index, field_ty, span);
+                    push(self);
+                    self.op(format!("stfld {field}"), 2, 0);
+                }
+                _ => {
+                    self.addr(place, span);
+                    push(self);
+                    let cil = types::stored_type(self.cx, &ty, span);
+                    self.op(format!("stobj {cil}"), 2, 0);
+                }
+            }
+            return;
+        }
         match place.projection.last() {
             Some(PlaceElem::Index(_)) => {
                 self.addr(place, span);
@@ -1462,7 +1575,7 @@ impl FnCx<'_, '_> {
     /// argument, a tuple element): a `()` operand pushes a default `Sabiko.Runtime.Unit`
     /// instead of nothing. Reading a `()` place has no effect, so none is read.
     fn operand_value(&mut self, operand: &Operand, span: Span) {
-        if operand.ty(self.body).is_unit() {
+        if types::is_unit_like(&operand.ty(self.body)) {
             let unit = self.scratch(&Ty::Unit, span);
             self.ldloc(unit);
         } else {
@@ -1595,7 +1708,8 @@ impl FnCx<'_, '_> {
             Rvalue::Use(op) => self.operand(op, span),
             Rvalue::Ref(kind, place) => {
                 let pointee = place.ty(self.body);
-                if pointee.is_unit() || pointee.is_never() {
+                if types::has_no_value(&pointee) {
+                    // `assign` stores no reference to `()` or `!` (decision 63).
                     self.cx.unsupported("a reference to `()`", span);
                     self.ldc_i4(0);
                 } else {
@@ -2268,7 +2382,7 @@ impl FnCx<'_, '_> {
     fn binary(&mut self, op: BinOp, lhs: &Operand, rhs: &Operand, span: Span) {
         let lty = lhs.ty(self.body);
         let rty = rhs.ty(self.body);
-        if lty.is_unit() && rty.is_unit() && op.is_comparison() {
+        if types::is_unit_like(&lty) && types::is_unit_like(&rty) && op.is_comparison() {
             // `()` has one value: `==`, `<=`, `>=` hold, `!=`, `<`, `>` do not. Reading a
             // `()` operand has no effect, so neither is read.
             self.ldc_i4(i32::from(matches!(op, BinOp::Eq | BinOp::Le | BinOp::Ge)));
@@ -2889,7 +3003,7 @@ impl FnCx<'_, '_> {
                     types::quote(&name),
                     params.join(", ")
                 );
-                let returns_value = !(sig.output.is_unit() || sig.output.is_never());
+                let returns_value = !types::has_no_value(&sig.output);
                 if returns_value {
                     self.store(destination, span, |this| {
                         for a in args {
