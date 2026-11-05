@@ -60,8 +60,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     .maxstack 3
     .locals init (
       [0] int32& '_3',
-      [1] int32& '_6',
-      [2] int32& '_9',
+      [1] int32& '_7',
+      [2] int32& '_10',
       [3] int32& 'W',
       [4] int32& 'H'
     )

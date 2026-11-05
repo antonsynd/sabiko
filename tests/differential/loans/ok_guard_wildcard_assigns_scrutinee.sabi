@@ -1,0 +1,5 @@
+// A match whose patterns test nothing takes no fake borrow: its guard may assign the scrutinee.
+fn Main() {
+    let mut x = 1;
+    let y = match x { _ if { x = 5; false } => 1, _ => 2 };
+}

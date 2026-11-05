@@ -786,6 +786,27 @@ names. `&str` operands, which are copied rather than reborrowed, get it too
 (`s == { s = "b"; s }`). Twenty `tests/differential/loans/*compare*` programs agree with
 rustc 1.99.1. No known comparison verdict gap remains.
 
+Update (2026-11-05), guard fake borrows follow rustc's set (decision 64): a guard used to
+fake-borrow the whole scrutinee, so `let r = &mut p; match p { _ if g => 1, _ => 2 };
+r.A += 1;` was E0408 where rustc, whose patterns there inspect nothing of `p`, accepts it
+(found by generator seed 5001979 on the #11 branch, older than #11). MIR building now
+collects rustc's set across every candidate of the match: each place a test reads, the
+places before a `Deref` in it, and the places before a `Deref` in each binding's place;
+every guard of the match takes all of them, and a match whose patterns test nothing takes
+none. The loans are shallow, as rustc's are: they do not cover the places below their own
+(a guard may write the payload of an enum whose variant it tested), and taking one reads
+only its place (testing `v.A` fake-borrows `v` beside a live `&mut v.B`). A range covering
+its whole integer type (`0u8..=255`) now tests and reads nothing, as in rustc. Besides the
+false errors, the old borrow missed one rustc error: the guard of `match *v { y if { v =
+&b; .. } => .. }` may not retarget `v` (E0510), which Sabiko accepted. Twenty-two programs in
+`tests/differential/loans/*guard*` agree with rustc 1.99.1; the MIR fixture
+`guard_fake_borrows.sabi` pins the sets; 2000 generated seeds at bases 7300000, 8400000 and
+9500000 pass. When #11 merges this, its generator workaround in `arms()` (no guarded early
+arms on a mutably borrowed or moved scrutinee, the TODO naming seed 5001979), its staged
+`tests/pending/refs/known_gap/guard_fake_borrow_of_unread_scrutinee.sabi` (now
+`tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`) and its
+pending README row go.
+
 ### Phase 5: Data types
 
 Work

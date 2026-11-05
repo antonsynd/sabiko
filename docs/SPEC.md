@@ -880,8 +880,16 @@ moves `t` out of `s`, leaving `s` partially moved; out of a reference it is E040
 a value whose type implements `Drop` E0418); `ref`/`ref mut` bindings borrow it, and the
 loan lives as long as the binding is used. Arms are tried in order; a guard runs only when
 its pattern matched, once per matching alternative of an or-pattern, and a false guard
-tries the next candidate. While a guard runs, the scrutinee is fake-borrowed: assigning
-it or borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
+tries the next candidate. While a guard runs, the places the match inspects are
+fake-borrowed, as rustc does: each place a test of any arm reads (an enum whose variant is
+tested, a value compared with a literal or range; a range covering the whole integer type
+tests nothing), and each place before a `Deref` in those and in the places the bindings
+bind (`v` for a test or binding of `*v`). Nothing else is: `match p { _ if g => .. }`
+fake-borrows nothing, so a live `&mut p` is no conflict and the guard may assign `p`, and
+`P { A: 1, .. }` fake-borrows `p.A` only. A fake borrow is shallow: it does not cover the
+places below its own (a guard that tested only `o`'s variant may write its payload), and
+taking it reads only its place. Assigning a fake-borrowed place (or a prefix of one) or
+borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
 leaves its memory as it was; decision 60), although an arm after a failed guard that
 tests the moved scrutinee again is E0406, which rustc, testing once before any guard,
 accepts (a known gap, `tests/pending/enums/known_gap/`); the arm's bindings denote shared

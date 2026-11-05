@@ -1,7 +1,7 @@
 // Sabiko codes for rustc's: E0419 for E0510.
-// Fake borrows: while a guard runs, the scrutinee may not be changed, since later arms
-// would test a different value. Assigning it or borrowing it mutably in a guard is E0510
-// (a borrow-checker error, but not in RUSTC_BORROW_CODES). With a binding in the arm,
+// Fake borrows: while a guard runs, what the match tests may not be changed, since later
+// arms would test a different value. Assigning it or borrowing it mutably in a guard is
+// E0510 (differential/loans/err_guard_* compare more cases with rustc). With a binding in the arm,
 // rustc reports E0506 instead (differential/loans/err_match_guard_binding_blocks_assignment).
 enum Cell { Empty, Value(i32) }
 

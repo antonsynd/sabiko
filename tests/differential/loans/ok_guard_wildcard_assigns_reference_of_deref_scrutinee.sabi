@@ -1,0 +1,7 @@
+// `_` arms on `*v` read nothing and bind nothing: the guard may retarget `v`.
+fn Main() {
+    let a = 1;
+    let b = 2;
+    let mut v = &a;
+    let y = match *v { _ if { v = &b; false } => 1, _ => 0 };
+}

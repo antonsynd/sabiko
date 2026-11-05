@@ -1,0 +1,7 @@
+// A literal pattern on `*v` fake-borrows `*v` and `v`: retargeting `v` in the guard is E0510.
+fn Main() {
+    let a = 1;
+    let b = 2;
+    let mut v = &a;
+    let y = match *v { 1 if { v = &b; false } => 1, _ => 0 };
+}

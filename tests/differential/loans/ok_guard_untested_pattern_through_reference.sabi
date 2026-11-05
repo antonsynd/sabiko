@@ -1,0 +1,8 @@
+// A pattern through `v` that tests and binds nothing fake-borrows nothing: the guard may retarget `v`.
+fn Main() {
+    let a = (1, 2);
+    let b = (3, 4);
+    let mut v = &a;
+    let x = match v { (_, _) if { v = &b; false } => 1, _ => 2 };
+    PrintLine(v.0 + x);
+}
