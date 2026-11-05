@@ -305,6 +305,7 @@ impl Validator<'_> {
     }
 
     /// The type of a place, or `None` after reporting a malformed projection.
+    #[allow(clippy::too_many_lines)]
     fn place_ty(&mut self, bb: BasicBlock, place: &Place) -> Option<Ty> {
         let Some(decl) = self.body.locals.get(place.local.index()) else {
             self.err(bb, format!("local _{} does not exist", place.local.0));
@@ -793,9 +794,9 @@ fn rvalue_places(rvalue: &Rvalue) -> Vec<&Place> {
         | Rvalue::Cast(op, _)
         | Rvalue::Repeat(op, _)
         | Rvalue::PointerCoercion(op, _) => op.place().into_iter().collect(),
-        Rvalue::Len(place) => vec![place],
+
         Rvalue::BinaryOp(_, l, r) => l.place().into_iter().chain(r.place()).collect(),
         Rvalue::Aggregate(_, ops) => ops.iter().filter_map(Operand::place).collect(),
-        Rvalue::Ref(_, place) | Rvalue::Discriminant(place) => vec![place],
+        Rvalue::Ref(_, place) | Rvalue::Discriminant(place) | Rvalue::Len(place) => vec![place],
     }
 }

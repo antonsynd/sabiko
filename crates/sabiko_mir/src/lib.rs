@@ -582,14 +582,13 @@ impl Rvalue {
                     lhs.ty(body)
                 }
             }
-            Rvalue::Cast(_, ty) => ty.clone(),
+            Rvalue::Cast(_, ty) | Rvalue::PointerCoercion(_, ty) => ty.clone(),
             Rvalue::Aggregate(AggregateKind::Adt(def) | AggregateKind::Variant(def, _), _) => {
                 Ty::Adt(*def)
             }
             Rvalue::Discriminant(_) => Ty::Prim(sabiko_resolve::PrimTy::Isize),
             Rvalue::Repeat(op, n) => Ty::Array(Box::new(op.ty(body)), *n),
             Rvalue::Len(_) => Ty::Prim(sabiko_resolve::PrimTy::Usize),
-            Rvalue::PointerCoercion(_, ty) => ty.clone(),
             Rvalue::Aggregate(AggregateKind::Array(elem), ops) => Ty::Array(
                 Box::new(elem.clone()),
                 u64::try_from(ops.len()).expect("fewer than 2^64 elements"),

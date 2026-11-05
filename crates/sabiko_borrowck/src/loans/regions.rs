@@ -186,14 +186,13 @@ impl RegionTy {
                     Some(e) => cur = e,
                     None => return Self::Other,
                 },
-                (PlaceElem::Field(..), _) => return Self::Other,
-                (PlaceElem::Downcast(_), _) => {}
                 // An array holding references is a one-element tuple of its element.
                 (PlaceElem::Index(_), Self::Tuple(elems)) => match elems.first() {
                     Some(e) => cur = e,
                     None => return Self::Other,
                 },
-                (PlaceElem::Index(_), _) => return Self::Other,
+                (PlaceElem::Field(..) | PlaceElem::Index(_), _) => return Self::Other,
+                (PlaceElem::Downcast(_), _) => {}
             }
         }
         cur.clone()

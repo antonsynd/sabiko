@@ -368,9 +368,9 @@ pub(crate) fn for_each_child<'a>(e: &'a Expr, f: &mut impl FnMut(Child<'a>)) {
     match &e.kind {
         ExprKind::Lit(_) | ExprKind::Path(_) | ExprKind::Unit | ExprKind::Continue => {}
         ExprKind::Tuple(es) | ExprKind::Array(es) => es.iter().for_each(expr),
-        // The count is a constant of its own, checked separately.
-        ExprKind::Repeat(x, _) => expr(x),
-        ExprKind::Paren(x)
+        // A repeat's count is a constant of its own, checked separately.
+        ExprKind::Repeat(x, _)
+        | ExprKind::Paren(x)
         | ExprKind::Unary(_, x)
         | ExprKind::Deref(x)
         | ExprKind::Field(x, _)

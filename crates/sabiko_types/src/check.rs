@@ -2785,20 +2785,7 @@ impl<'a> FnCtxt<'a> {
             self.check_cast(cast.span, &from, &to);
         }
 
-        for (span, ty) in std::mem::take(&mut self.pending_repeats) {
-            let t = self.infer.resolve_with_defaults(&ty);
-            if !t.has_infer() && !self.items.is_copy(&t) {
-                let s = self.ty_str(&t);
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::REPEAT_NEEDS_COPY,
-                        format!("the trait bound `{s}: Copy` is not satisfied"),
-                    )
-                    .with_label(span, format!("the trait `Copy` is not implemented for `{s}`"))
-                    .with_note("the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)"),
-                );
-            }
-        }
+        self.check_pending_repeats();
 
         let has_errors = self.sink.error_count() > self.errors_before;
         BodyTypes {
@@ -2818,6 +2805,25 @@ impl<'a> FnCtxt<'a> {
             coercions: self.coercions,
             repeat_counts: self.repeat_counts,
             has_errors,
+        }
+    }
+
+    /// `[x; N]` with `N` other than 0 or 1 copies `x`: its type must be `Copy`, unless it
+    /// names a `const` item (rustc's E0277, Sabiko's E0334).
+    fn check_pending_repeats(&mut self) {
+        for (span, ty) in std::mem::take(&mut self.pending_repeats) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if !t.has_infer() && !self.items.is_copy(&t) {
+                let s = self.ty_str(&t);
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::REPEAT_NEEDS_COPY,
+                        format!("the trait bound `{s}: Copy` is not satisfied"),
+                    )
+                    .with_label(span, format!("the trait `Copy` is not implemented for `{s}`"))
+                    .with_note("the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)"),
+                );
+            }
         }
     }
 

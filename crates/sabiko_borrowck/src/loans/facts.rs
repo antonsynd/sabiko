@@ -533,7 +533,10 @@ impl Generator<'_> {
     /// Evaluates the rvalue's reads and borrows, returning its region type.
     fn rvalue(&mut self, rvalue: &Rvalue, location: Location) -> RegionTy {
         match rvalue {
-            Rvalue::Use(operand) => self.operand(operand, location),
+            // A coerced reference borrows what the operand borrows.
+            Rvalue::Use(operand) | Rvalue::PointerCoercion(operand, _) => {
+                self.operand(operand, location)
+            }
             Rvalue::UnaryOp(_, operand) | Rvalue::Cast(operand, _) => {
                 self.operand(operand, location);
                 RegionTy::Other
@@ -575,8 +578,6 @@ impl Generator<'_> {
                 RegionTy::Other => RegionTy::Other,
                 ty => RegionTy::Tuple(vec![ty]),
             },
-            // The coerced reference borrows what the operand borrows.
-            Rvalue::PointerCoercion(operand, _) => self.operand(operand, location),
             Rvalue::Ref(kind, place) => self.borrow(kind.mutability(), place, location),
             Rvalue::Discriminant(place) | Rvalue::Len(place) => {
                 self.use_local(place.local, location);

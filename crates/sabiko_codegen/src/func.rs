@@ -1786,7 +1786,7 @@ impl FnCx<'_, '_> {
     /// Pushes the address of element `index` of the array or slice place `base`, after
     /// checking the index against the length: `index < len` as unsigned native integers
     /// (the index is a `usize`; the length, never negative, widened with `conv.i`, the
-    /// shape after which RyuJIT drops the span's own check in a loop), else
+    /// shape after which `RyuJIT` drops the span's own check in a loop), else
     /// `Checks.IndexOutOfBounds(len, index, location)`, rustc's panic.
     fn element_addr(&mut self, base: &Place, index: Local, span: Span) {
         let es = self.element_span(base, span);

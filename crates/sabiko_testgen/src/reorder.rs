@@ -450,6 +450,7 @@ impl FnCx<'_, '_> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn expr(&self, e: &Expr, mode: Mode, s: &mut Summary) {
         match &e.kind {
             ExprKind::Lit(_) | ExprKind::Unit => {}
@@ -527,7 +528,7 @@ impl FnCx<'_, '_> {
                 });
                 self.expr(x, Mode::Read, s);
             }
-            ExprKind::Cast(x, _) => self.expr(x, Mode::Read, s),
+            ExprKind::Cast(x, _) | ExprKind::Repeat(x, _) => self.expr(x, Mode::Read, s),
             ExprKind::Struct { fields, .. } => {
                 for f in fields {
                     self.expr(&f.value, Mode::Read, s);
@@ -538,7 +539,6 @@ impl FnCx<'_, '_> {
                     self.expr(e, Mode::Read, s);
                 }
             }
-            ExprKind::Repeat(x, _) => self.expr(x, Mode::Read, s),
             // A branch inside an expression stays inside the statement; its blocks may
             // only hold a value.
             ExprKind::If { cond, then, els } => {
@@ -601,8 +601,8 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
                 f(Child::Expr(e));
             }
         }
-        ExprKind::Repeat(x, _) => f(Child::Expr(x)),
-        ExprKind::Paren(x)
+        ExprKind::Repeat(x, _)
+        | ExprKind::Paren(x)
         | ExprKind::Unary(_, x)
         | ExprKind::Field(x, _)
         | ExprKind::Ref { expr: x, .. }
