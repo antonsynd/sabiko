@@ -353,8 +353,8 @@ fn Peek(_1: Slot) -> i32 {
     }
 
     bb7 (cleanup c0): {
-        _0 = const 0_i32;
         StorageDead(_5);
+        _0 = const 0_i32;
         drop(_4) -> bb9;
     }
 

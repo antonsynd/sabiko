@@ -12,6 +12,10 @@ fn Main() {
     let j: i128 = 170141183460469231731687303715884105728; //~ ERROR E0314 literal out of range for `i128`
     let k: usize = 18446744073709551616; //~ ERROR E0314 literal out of range for `usize`
     let l: i16 = -(32769); //~ ERROR E0314 literal out of range for `i16`
+    // Only the outer of two negations counts (rustc's lint): the literal is `128i8`.
+    let p = -(-128i8); //~ ERROR E0314 literal out of range for `i8`
+    let q = --128i8; //~ ERROR E0314 literal out of range for `i8`
+    let r = -(-127i8);
     let m = 1;
     let n: u8 = m + 256; //~ ERROR E0314 literal out of range for `u8`
     let o = 255u8 + 1; // not a literal error: arithmetic is not folded in bodies

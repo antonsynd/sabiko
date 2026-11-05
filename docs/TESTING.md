@@ -49,7 +49,16 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   (#12: half of the non-`Copy` structs implement `Drop`, printing their name and a field,
   so drop order, flags, reassignment, early exits and unwinding show in the output; no
   value is moved out of them, and `reorder` counts a statement that binds, overwrites or
-  discards a value with drop glue as an effect); both
+  discards a value with drop glue as an effect) and enums and matching (#8: unit, tuple and
+  struct variants, `Copy` enums, enums with an `impl Drop` that matches on `self`,
+  fieldless ones with explicit discriminants cast with `as`, enum methods; `match` as a
+  statement, `let` initialiser and inline expression, `if let`, `while let` over a state
+  local, `let`-`else`, destructuring `let`s; patterns with nested variants, literals,
+  ranges, or-patterns, `..`, field shorthand, `mut`/`ref`/`ref mut`/`@` bindings and
+  guards, on places, references and temporaries, moving out of the scrutinee where the
+  scope model allows; every `match` exhaustive by construction, with covers of variants,
+  `bool` and contiguous integer ranges; the constructs it avoids carry a `TODO(#8
+  follow-up)`); both
   oracles above, panic locations included, are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
   nightly), and to reorderings of them (see Properties). A failure prints the seed and the
@@ -147,6 +156,23 @@ ILVerify; `tests/differential/run/regressions/stack_values_order.sabi`,
 `tests/differential/run/panics/stack_order_sub_overflow.sabi`). The same runs hit seed
 906, which the generator labels borrow-clean although it uses a struct after moving it
 (rustc E0382, Sabiko E0406 agree): a generator bug, not a compiler one.
+
+Extending the generator to enums and matching (#8, 2026-11-05) found six bugs that the
+corpora had missed: two false E0500s for a guard on a match through a reference (the
+fake borrow's `&&T` temporary, and a guard reading a binding of the whole `&T`
+scrutinee; `run/enums/guards_through_references.sabi`), a false E0413 for a `let` or
+`let`-`else` whose `ref` binding borrows the initialiser's temporary (rustc's extending
+patterns), a failing `let`-`else` that ran `else` before dropping the initialiser's
+temporaries (`run/enums/if_let/let_else_temporaries.sabi`), and an accepted cast of a
+fieldless enum with `impl Drop` (`ui/typeck/enum_casts.sabi`); and, older than #8, an
+accepted `-(-128i8)`, whose literal rustc reads as `128i8` since only the outer of two
+negations counts (`ui/typeck/literal_ranges.sabi`). A guard reading a binding
+of a whole `&mut` scrutinee stays E0500 (`&&mut T`, a known gap the generator avoids), as
+does borrow checking of code that patterns make unreachable (rustc checks a later arm and
+the `else` of an irrefutable `if let`, Sabiko does not; seed 2001893, a known gap the
+generator avoids by making no pattern unreachable), and
+the reorder analysis learnt that a `ref` binding takes its scrutinee's address (seed
+1000244).
 
 ## Fuzzing
 

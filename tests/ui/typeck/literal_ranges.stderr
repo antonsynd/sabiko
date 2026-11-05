@@ -106,10 +106,28 @@
     │ 
     │ Note: the literal `-32769` does not fit into the type `i16` whose range is `-32768..=32767`
 ────╯
-[E0314] Error: literal out of range for `u8`
-    ╭─[ tests/ui/typeck/literal_ranges.sabi:16:21 ]
+[E0314] Error: literal out of range for `i8`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:16:16 ]
     │
- 16 │     let n: u8 = m + 256; //~ ERROR E0314 literal out of range for `u8`
+ 16 │     let p = -(-128i8); //~ ERROR E0314 literal out of range for `i8`
+    │                ──┬──  
+    │                  ╰──── does not fit in `i8`
+    │ 
+    │ Note: the literal `128` does not fit into the type `i8` whose range is `-128..=127`
+────╯
+[E0314] Error: literal out of range for `i8`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:17:15 ]
+    │
+ 17 │     let q = --128i8; //~ ERROR E0314 literal out of range for `i8`
+    │               ──┬──  
+    │                 ╰──── does not fit in `i8`
+    │ 
+    │ Note: the literal `128` does not fit into the type `i8` whose range is `-128..=127`
+────╯
+[E0314] Error: literal out of range for `u8`
+    ╭─[ tests/ui/typeck/literal_ranges.sabi:20:21 ]
+    │
+ 20 │     let n: u8 = m + 256; //~ ERROR E0314 literal out of range for `u8`
     │                     ─┬─  
     │                      ╰─── does not fit in `u8`
     │ 

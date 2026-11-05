@@ -148,6 +148,9 @@ pub(crate) struct FnCtxt<'a> {
     diverges: bool,
     /// Set while checking the operand of unary `-`, so `-128i8` is in range.
     negating: bool,
+    /// Set while checking a `-` that is itself the operand of a `-`: as in rustc, only the
+    /// outer negation counts, so the literal of `-(-128i8)` is `128i8`, out of range.
+    double_negation: bool,
     int_lits: Vec<IntLit>,
     casts: Vec<PendingCast>,
     /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
@@ -188,6 +191,7 @@ impl<'a> FnCtxt<'a> {
             loops: Vec::new(),
             diverges: false,
             negating: false,
+            double_negation: false,
             int_lits: Vec::new(),
             casts: Vec::new(),
             pending_negs: Vec::new(),
@@ -1411,10 +1415,14 @@ impl<'a> FnCtxt<'a> {
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
         if op == UnOp::Neg {
-            self.negating = matches!(strip_parens(operand).kind, ExprKind::Lit(Lit::Int { .. }));
+            let inner = std::mem::take(&mut self.double_negation);
+            let operand = &strip_parens(operand).kind;
+            self.negating = !inner && matches!(operand, ExprKind::Lit(Lit::Int { .. }));
+            self.double_negation = matches!(operand, ExprKind::Unary(UnOp::Neg, _));
         }
         let ty = self.check_expr(operand, expected);
         self.negating = false;
+        self.double_negation = false;
         let resolved = self.shallow(&ty);
         let ok = match (&resolved, op) {
             (Ty::Error | Ty::Never, _) => true,
@@ -2553,6 +2561,9 @@ impl<'a> FnCtxt<'a> {
             .items
             .as_enum(from)
             .is_some_and(crate::collect::AdtDef::is_fieldless_enum);
+        // rustc rejects casting an enum that implements `Drop` (formerly the
+        // `cenum_impl_drop_cast` lint): the cast would read a value whose drop then runs.
+        let drop_impl = matches!(from, Ty::Adt(d) if self.items.drop_impl(*d).is_some());
         let ok = match (from, to) {
             (Ty::Prim(f), Ty::Prim(t)) => {
                 (f.is_numeric() && t.is_numeric())
@@ -2561,7 +2572,7 @@ impl<'a> FnCtxt<'a> {
                     || (*f == PrimTy::U8 && *t == PrimTy::Char)
             }
             // A fieldless enum casts to its discriminant.
-            (Ty::Adt(_), Ty::Prim(t)) if fieldless => t.is_integer(),
+            (Ty::Adt(_), Ty::Prim(t)) if fieldless => t.is_integer() && !drop_impl,
             _ => false,
         };
         if ok {
@@ -2569,6 +2580,15 @@ impl<'a> FnCtxt<'a> {
         }
         let (f, t) = (self.ty_str(from), self.ty_str(to));
         let d = match (from, to) {
+            (Ty::Adt(_), Ty::Prim(p)) if fieldless && drop_impl && p.is_integer() => {
+                Diagnostic::error(
+                    ErrorCode::INVALID_CAST,
+                    format!(
+                        "cannot cast enum `{f}` into integer `{t}` because it implements `Drop`"
+                    ),
+                )
+                .with_label(span, "invalid cast")
+            }
             (Ty::Adt(_), Ty::Prim(PrimTy::Bool)) if fieldless => Diagnostic::error(
                 ErrorCode::INVALID_CAST,
                 format!("cannot cast `{f}` as `bool`"),

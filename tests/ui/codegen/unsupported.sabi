@@ -12,7 +12,6 @@ fn Main() {
     let r = &a;
     let rr = &r; //~ ERROR E0500 a reference to a reference is not yet supported by code generation
     let n = Nested(rr); //~ ERROR E0500 a reference to a reference is not yet supported by code generation
-    //~^ ERROR E0500 a reference to a reference is not yet supported by code generation
     Print(n);
     let unit = ();
     let borrowed = &unit; //~ ERROR E0500 a reference to `()` is not yet supported by code generation

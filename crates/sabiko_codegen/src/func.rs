@@ -477,23 +477,38 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
-        // The temporaries of fake borrows (match guards) exist for the borrow checker only.
-        let fake: std::collections::HashSet<usize> = body
-            .blocks
-            .iter()
-            .flat_map(|b| &b.statements)
-            .filter_map(|s| match &s.kind {
-                StatementKind::Assign(p, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _))
-                    if p.is_local() =>
-                {
-                    Some(p.local.index())
+        // A guard's fake borrow of the scrutinee emits nothing (it only exists for the
+        // borrow checker), so its temporary needs no slot. Nor does a temporary that nothing
+        // writes: a `&&T` one (no CIL type yet) is left over when simplification removes an
+        // unreachable guarded arm with its fake borrow, or from a `&&T` call result nobody
+        // stores.
+        let mut written = vec![false; body.locals.len()];
+        let mut fake = vec![false; body.locals.len()];
+        for data in &body.blocks {
+            for stmt in &data.statements {
+                if let StatementKind::Assign(place, rvalue) = &stmt.kind {
+                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _)) {
+                        fake[place.local.index()] |= place.is_local();
+                    } else {
+                        written[place.local.index()] = true;
+                    }
                 }
-                _ => None,
-            })
-            .collect();
+            }
+            if let Some(term) = &data.terminator {
+                if let TerminatorKind::Call { destination, .. } = &term.kind {
+                    written[destination.local.index()] = true;
+                }
+            }
+        }
         for (i, decl) in body.locals.iter().enumerate() {
+            let unwritten_ref_ref = decl.kind == LocalKind::Temp
+                && !written[i]
+                && matches!(&decl.ty, Ty::Ref(_, inner) if matches!(**inner, Ty::Ref(..)));
             // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
-            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited() || fake.contains(&i);
+            let elided = decl.ty.is_unit()
+                || decl.ty.is_uninhabited()
+                || (fake[i] && !written[i])
+                || unwritten_ref_ref;
             let slot = match decl.kind {
                 // A `()` parameter is a `Sabiko.Runtime.Unit` (decision 52); nothing reads it.
                 LocalKind::Arg => {

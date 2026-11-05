@@ -29,7 +29,7 @@ use sabiko_resolve::{DefKind, LocalId, Res};
 use sabiko_span::Span;
 use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 
-use super::{is_place_expr, Builder, LoopScope};
+use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope};
 use crate::{
     BasicBlock, BinOp, BorrowKind, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue,
     StatementKind, TerminatorKind,
@@ -678,7 +678,10 @@ impl Builder<'_> {
 
     /// `let pat = init else { els };`, and a destructuring `let` whose pattern has an
     /// or-pattern (`els` is `None`: no value fails it). The bindings belong to the
-    /// enclosing block; the `else` block diverges.
+    /// enclosing block; the `else` block diverges. As in rustc, the initialiser's
+    /// temporaries are dropped before the `else` block runs, and when the pattern has a
+    /// `ref`/`ref mut` binding the initialiser's own temporary lives to the end of the
+    /// block on success (an extending pattern, as for a plain `let`).
     pub(super) fn lower_let_else(&mut self, pat: &Pat, init: &Expr, els: Option<&Block>) {
         let span = init.span;
         if self.ty(init).is_never() {
@@ -686,7 +689,20 @@ impl Builder<'_> {
             self.declare_pattern_locals(pat);
             return;
         }
-        let place = self.scrutinee_place(init);
+        let (place, extended) = if is_extending_pattern(pat) && !is_place_expr(self.resolve, init) {
+            let ty = self.ty(init).clone();
+            let temp = self.new_temp_in_block_scope(ty, init.span);
+            if !writes_once(init) {
+                self.open_pending(temp);
+            }
+            self.expr_into_dest(&Place::local(temp), init);
+            self.temp_complete(temp);
+            let place = Place::local(temp);
+            self.push_stmt(StatementKind::PlaceMention(place.clone()), init.span);
+            (place, Some(temp))
+        } else {
+            (self.scrutinee_place(init), None)
+        };
         let locals = self.prepare_locals(pat);
         let block_scope = self.scopes.len() - 2;
         for &local in &locals {
@@ -696,9 +712,32 @@ impl Builder<'_> {
         let ok = self.new_block();
         self.lower_candidates(pat, None, &place, ok);
         if let Some(els) = els {
+            // The failure path ends the initialiser's temporaries (its own value first, then
+            // those made while computing it) before `else`; they stay in their scopes for
+            // the success path, so they are taken out while `else` is lowered (an early exit
+            // from it must not drop them again).
+            let saved = (self.chain.clone(), self.pending.clone());
+            let temps = std::mem::take(&mut self.scopes[self.temp_scope]);
+            let extended = extended.map(|temp| {
+                let (scope, pos) = self.rank(temp);
+                (scope, pos, self.scopes[scope].remove(pos))
+            });
+            if let Some((_, _, temp)) = extended {
+                self.end_local(temp, span);
+            }
+            for &local in temps.iter().rev() {
+                self.end_local(local, span);
+            }
             self.in_temp_scope(els.span, |this| this.lower_block_discard(els));
+            self.terminate(TerminatorKind::Unreachable, span);
+            self.scopes[self.temp_scope] = temps;
+            if let Some((scope, pos, temp)) = extended {
+                self.scopes[scope].insert(pos, temp);
+            }
+            (self.chain, self.pending) = saved;
+        } else {
+            self.terminate(TerminatorKind::Unreachable, span);
         }
-        self.terminate(TerminatorKind::Unreachable, span);
         self.enter(ok);
         for local in locals {
             self.open_pending(local);
