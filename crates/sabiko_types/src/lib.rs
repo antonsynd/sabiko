@@ -77,12 +77,7 @@ pub fn typeck(
                     let Some(d) = &v.discriminant else {
                         continue;
                     };
-                    if resolve
-                        .variants(def)
-                        .iter()
-                        .any(|&vd| resolve.def(vd).node == v.id)
-                    {
-                        let vdef = resolve.def_of_item(v.id);
+                    if let Some(vdef) = variant_def(resolve, def, v) {
                         let cx = check::FnCtxt::new(resolve, &items, sink, Ty::Prim(PrimTy::Isize));
                         bodies.insert(vdef, cx.check_const(d));
                     }
@@ -99,9 +94,9 @@ pub fn typeck(
                 const_bodies.insert(def, (&c.value, &bodies[&def]));
             }
             ItemKind::Enum(e) => {
+                let def = resolve.def_of_item(item.id);
                 for v in &e.variants {
-                    if let Some(d) = &v.discriminant {
-                        let vdef = resolve.def_of_item(v.id);
+                    if let (Some(d), Some(vdef)) = (&v.discriminant, variant_def(resolve, def, v)) {
                         if let Some(b) = bodies.get(&vdef) {
                             const_bodies.insert(vdef, (d, b));
                         }
@@ -120,6 +115,20 @@ pub fn typeck(
         bodies,
         consts,
     }
+}
+
+/// The definition of a variant of enum `def`; `None` for a variant whose name repeats an
+/// earlier one's (reported by the resolver, which defines only the first).
+pub(crate) fn variant_def(
+    resolve: &ResolveResults,
+    def: DefId,
+    v: &sabiko_ast::Variant,
+) -> Option<DefId> {
+    resolve
+        .variants(def)
+        .iter()
+        .copied()
+        .find(|&vd| resolve.def(vd).node == v.id)
 }
 
 #[cfg(test)]
@@ -683,6 +692,26 @@ fn F(m: &mut (i32, bool)) {
         );
     }
 
+    /// Struct, tuple-variant and struct-variant patterns give their bindings the fields'
+    /// types, also around a `..` that stands for several elements.
+    #[test]
+    fn struct_and_variant_pattern_bindings() {
+        let src = r"
+struct P { X: i32, Y: bool }
+enum E { V(u8, i16, char, u64), W { A: i8, B: () } }
+fn F(p: P, e: E, f: E) {
+    let P { X: x, Y: y } = p;
+    if let E::V(a, .., d) = e {}
+    if let E::W { B: b, .. } = f {}
+}";
+        let (r, resolve, msgs) = run(src);
+        assert!(msgs.is_empty(), "{msgs:#?}");
+        assert_eq!(
+            local_types(&r, &resolve, "F"),
+            ["p: P", "e: E", "f: E", "x: i32", "y: bool", "a: u8", "d: u64", "b: ()"]
+        );
+    }
+
     /// Each error is reported once: a method call on a receiver whose type is already an
     /// error reports nothing more.
     #[test]
@@ -709,5 +738,37 @@ fn F(s: S) {
                 "E0107 not yet supported: indexing [indexing are not yet supported]",
             ]
         );
+    }
+
+    /// The pattern passes after type checking mark a body as erroneous when they report
+    /// an error in it (a non-exhaustive `match`, a range bound that is a local), so that
+    /// no MIR is built for it; a warning does not.
+    #[test]
+    fn pattern_errors_mark_the_body() {
+        let src = r"
+enum E { A, B }
+fn F(e: E) -> i32 { match e { E::A => 1 } }
+fn G(n: i32) -> i32 { let low = 1; match n { low..=5 => 1, _ => 0 } }
+fn H(e: E) -> i32 { match e { E::A => 1, E::A => 2, _ => 3 } }
+";
+        let (r, resolve, msgs) = run(src);
+        assert_eq!(
+            msgs,
+            [
+                "E0328 non-exhaustive patterns: `E::B` not covered [pattern `E::B` not covered]",
+                "E0315 runtime values cannot be referenced in patterns [references a runtime value]",
+                "E0330 unreachable pattern [no value can reach this]",
+            ]
+        );
+        let has_errors = |name: &str| {
+            let def = resolve
+                .defs_of_kind(DefKind::Fn)
+                .find(|d| resolve.def(*d).name == name)
+                .unwrap();
+            r.body(def).has_errors
+        };
+        assert!(has_errors("F"));
+        assert!(has_errors("G"));
+        assert!(!has_errors("H"));
     }
 }

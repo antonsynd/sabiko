@@ -34,3 +34,12 @@
     │ 
     │ Note: compare the discriminant instead: `e as i32 != 0`
 ────╯
+[E0308] Error: non-primitive cast: `Shape` as `bool`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:14:13 ]
+    │
+ 14 │     let e = Shape::Dot as bool; //~ ERROR E0308 non-primitive cast: `Shape` as `bool`
+    │             ─────────┬────────  
+    │                      ╰────────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯

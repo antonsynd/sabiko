@@ -1,0 +1,12 @@
+// A fieldless enum casts to every integer type, with or without explicit discriminants.
+enum Light { Red, Yellow, Green }
+
+enum Code { Low = -3, Mid = 7, High = 300 }
+
+fn Casts(l: Light) -> i64 {
+    let a = l as u8;
+    let b = Light::Green as i32;
+    let c = Code::Low as i16;
+    let d = Code::High as u64 + Code::Mid as u64;
+    a as i64 + b as i64 + c as i64 + d as i64
+}

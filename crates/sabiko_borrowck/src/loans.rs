@@ -164,15 +164,12 @@ impl Reporter<'_> {
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
         if data.fake {
-            // The scrutinee is frozen while a match guard runs (rustc's E0510).
+            // The scrutinee is frozen while a match guard runs (rustc's E0510); moving it
+            // out does not conflict with the fake borrow.
             let (message, label) = match invalidation.kind {
                 AccessKind::Write => (
                     format!("cannot assign `{accessed}` in match guard"),
                     "cannot assign",
-                ),
-                AccessKind::Move => (
-                    format!("cannot move out of `{accessed}` in match guard"),
-                    "cannot move out",
                 ),
                 _ => (
                     format!("cannot mutably borrow `{accessed}` in match guard"),
@@ -182,7 +179,6 @@ impl Reporter<'_> {
             if matches!(
                 invalidation.kind,
                 AccessKind::Write
-                    | AccessKind::Move
                     | AccessKind::MutBorrow
                     | AccessKind::Reservation
                     | AccessKind::Activation

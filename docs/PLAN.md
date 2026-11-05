@@ -591,6 +591,21 @@ had dropped below their thresholds, mostly through tuples; new tests bring them 
 95.6% and 98.8% (`docs/TESTING.md`), and one survivor listed as equivalent turned out to
 be killable.
 
+Update (2026-11-05), mutation testing of enums and `match` (#8) on the lines the branch
+changed (`docs/TESTING.md`): before the new tests, 81.4% (`sabiko_types`), 88.7%
+(`sabiko_mir`), 87.3% (`sabiko_codegen`) and 80.0% (`sabiko_borrowck`), after them
+97.3%, 99.1%, 94.5% and 100%, with only equivalent survivors left. The survivors found four
+bugs, now fixed: a repeated variant name with explicit discriminants panicked
+the type checker, a local as a range pattern bound was accepted and its function never
+built (a `MissingMethodException` at run time; E0315 now), `match r.F` through a reference
+`r` could omit an uninhabited variant rustc requires, and a pattern with an unresolved path
+was also reported as non-exhaustive, refutable or unreachable. A guard may now move the
+scrutinee out, as in rustc (decision 59). Gap: an arm after such a guard that tests the
+moved scrutinee again is E0406, which rustc accepts
+(`tests/pending/enums/known_gap/move_scrutinee_in_guard_then_test.sabi`). Also noticed:
+a float range pattern (`0.0..=1.0`, valid Rust) is rejected as "only `char` and numeric
+types are allowed in range patterns", which names `f64` as not numeric.
+
 ### Phase 5: Data types
 
 Work

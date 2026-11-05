@@ -1,0 +1,23 @@
+// `..` in a tuple or tuple-variant pattern stands for zero or more elements anywhere.
+enum Wide { Five(i32, bool, char, u8, i64), Other }
+
+fn Tuples(t: (i32, bool, char, u8, i64)) -> i64 {
+    let (a, .., e) = t;
+    let (.., d, f) = t;
+    let (g, h, ..) = t;
+    let (i, j, k, l, m, ..) = t;
+    let (.., n) = (1u16, 2u32);
+    let (o, ..) = (3u16, 4u32);
+    let p: u8 = d;
+    let q: bool = h;
+    let r: char = k;
+    a as i64 + e + f + g as i64 + l as i64 + m + n as i64 + o as i64 + p as i64
+}
+
+fn Variant(w: Wide) -> i64 {
+    match w {
+        Wide::Five(a, .., d, e) => a as i64 + d as i64 + e,
+        Wide::Five(.., c, _, _) => c as i64,
+        Wide::Other => 0,
+    }
+}

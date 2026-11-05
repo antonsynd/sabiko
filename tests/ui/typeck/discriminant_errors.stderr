@@ -38,3 +38,14 @@
     │ 
     │ Note: Sabiko does not interpret `#[repr]` yet: an enum with a field cannot have explicit discriminants
 ────╯
+[E0200] Error: the name `P` is defined multiple times
+    ╭─[ tests/ui/typeck/discriminant_errors.sabi:15:17 ]
+    │
+ 15 │ enum E { P = 1, P = 2, Q } //~ ERROR E0200 the name `P` is defined multiple times
+    │          ┬      ┬  
+    │          │      ╰── `P` redefined here
+    │          │         
+    │          ╰───────── previous definition of `P` here
+    │ 
+    │ Note: a variant name must be unique within its enum
+────╯

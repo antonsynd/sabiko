@@ -1,6 +1,15 @@
 // Calls: wrong argument count, calling something that is not a function, and a function item used as a value.
 const K: i32 = 1;
 
+struct P {
+    X: i32,
+}
+
+enum Shape {
+    Dot,
+    Square(i32),
+}
+
 fn Zero() -> i32 {
     0
 }
@@ -24,4 +33,10 @@ fn Main() {
     Two(true, false); //~ ERROR E0300 mismatched types
     let k = (Two)(1, true);
     let l: i32 = Zero();
+    let m = P { X: 1 };
+    m(); //~ ERROR E0305 expected function, found `P`
+    let n = Shape::Dot;
+    n(); //~ ERROR E0305 expected function, found `Shape`
+    let o = Shape::Square; //~ ERROR E0317 the constructor of variant `Shape::Square` cannot be used as a value yet
+    let p = Shape::Square(1);
 }

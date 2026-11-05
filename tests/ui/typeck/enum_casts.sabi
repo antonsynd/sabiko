@@ -11,4 +11,6 @@ fn Main() {
     let b = Light::Red as f64; //~ ERROR E0308 casting `Light` as `f64` is invalid
     let c = 1 as Light; //~ ERROR E0308 non-primitive cast: `i32` as `Light`
     let d = Light::Green as bool; //~ ERROR E0308 cannot cast `Light` as `bool`
+    let e = Shape::Dot as bool; //~ ERROR E0308 non-primitive cast: `Shape` as `bool`
+    let f = Light::Green as u8; // fine: a fieldless enum casts to any integer type
 }

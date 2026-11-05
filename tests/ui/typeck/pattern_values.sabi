@@ -1,0 +1,55 @@
+// The values patterns compare with decide exhaustiveness and reachability, as in rustc:
+// constants (alone and as range bounds) by their value, negated float literals with their
+// sign, `f32` literals rounded to `f32` (`0.100000001` is `0.1`), and an exclusive range
+// `a..b` up to `b - 1`.
+const Limit: i32 = 5;
+const Half: u8 = 127;
+const Yes: bool = true;
+
+fn Consts(n: i32, b: bool, h: u8) -> i32 {
+    let p = match n {
+        Limit => 1,
+        Limit => 2, //~ WARN E0330 unreachable pattern
+        0..=Limit => 3,
+        1..=Limit => 4, //~ WARN E0330 unreachable pattern
+        _ => 5,
+    };
+    let q = match b {
+        Yes => 1,
+        false => 2,
+    };
+    let r = match h {
+        0..=Half => 1,
+        128..=255 => 2,
+    };
+    p + q + r
+}
+
+fn Floats(f: f64, g: f32) -> i32 {
+    let a = match f {
+        -1.5 => 1,
+        1.5 => 2,
+        -1.5 => 3, //~ WARN E0330 unreachable pattern
+        _ => 4,
+    };
+    let b = match g {
+        0.1 => 1,
+        0.100000001 => 2, //~ WARN E0330 unreachable pattern
+        _ => 3,
+    };
+    a + b
+}
+
+fn Exclusive(n: u8) -> i32 {
+    let a = match n {
+        0..10 => 1,
+        10 => 2,
+        9 => 3, //~ WARN E0330 unreachable pattern
+        _ => 4,
+    };
+    let b = match n {
+        0..128 => 1,
+        128..=255 => 2,
+    };
+    a + b
+}

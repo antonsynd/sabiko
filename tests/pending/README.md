@@ -134,7 +134,8 @@ rustc code each stands for), to `tests/ui/{parse,resolve,typeck,borrowck}/`. E05
 the differential harness's rustc borrow codes and E0419 its Sabiko ones, as suggested
 below. Two UI programs differ from rustc in position only: `move_out_of_drop_enum` reports
 E0418 at the binding that moves rather than at the scrutinee, and rustc's E0509 note is
-kept as a comment. `known_gap/` stays: none of its five programs is supported yet. The
+kept as a comment. `known_gap/` stays: none of its five programs is supported yet (a
+sixth, found by mutation testing, joined them later). The
 text below is the staging record.
 
 Every program was checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the version
@@ -300,7 +301,7 @@ scope (rule 9). `let else` is the same lowering with a diverging fallback plus t
 
 ### Known gaps (`enums/known_gap/`)
 
-All five run under rustc (`.expected` notes); none is required by #8.
+All six run under rustc (`.expected` notes); none is required by #8.
 
 | file | gap | rustc |
 | --- | --- | --- |
@@ -309,6 +310,7 @@ All five run under rustc (`.expected` notes); none is required by #8.
 | `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional | exit 0 |
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
 | `match_through_double_ref.sabi` | `match rr` for `rr: &&Cell`: code generation rejects `&&T` (E0500) until `Ref<T>` | exit 0 |
+| `move_scrutinee_in_guard_then_test.sabi` | a guard moves the scrutinee out and fails, and a later arm tests it again: rustc tests once, before the guards, Sabiko's candidates test again (decision 57), a use of a moved value (E0406). Moving it out in a guard is otherwise accepted (`run/enums/move_scrutinee_in_guard`) | exit 0 |
 
 ### Rules rustc applies (each confirmed by the program named)
 

@@ -685,6 +685,11 @@ impl Generator<'_> {
             if except == Some(Loan(index)) {
                 continue;
             }
+            // A move leaves the scrutinee's memory as it was, so a guard may move it out
+            // (rustc leaves this to the move checks, which reject any later use).
+            if loan.fake && kind == AccessKind::Move {
+                continue;
+            }
             let reading = matches!(kind, AccessKind::Read | AccessKind::SharedBorrow);
             let mutability = if reading && loan.is_reserved_at(location, &self.dominators) {
                 Mutability::Not

@@ -1,0 +1,31 @@
+// Building enum values: in the destination when it is a local slot (a named local or a
+// temporary, which then stays off the evaluation stack), through a staging local when it
+// is a field, and without a store for a payload field of type `()`.
+#[derive(Copy, Clone)]
+enum Counter { Idle, At(i32, i32) }
+
+enum Wrapped { Empty(()), Value(i32, ()) }
+
+struct Holder { C: Counter }
+
+fn Swap(c: Counter) -> Counter {
+    let mut d = c;
+    match d {
+        Counter::At(a, b) => d = Counter::At(b, a),
+        Counter::Idle => {}
+    }
+    d
+}
+
+fn Build(x: i32) -> Counter {
+    let c = Counter::At(x, x + 1);
+    c
+}
+
+fn Store(h: &mut Holder, x: i32) {
+    h.C = Counter::At(x, x);
+}
+
+fn Units(x: i32) -> Wrapped {
+    if x > 0 { Wrapped::Value(x, ()) } else { Wrapped::Empty(()) }
+}

@@ -1,0 +1,22 @@
+// Struct patterns destructure a struct; a unit struct's name (or `Self`) compares instead of binding.
+struct Point { X: i32, Y: bool }
+
+#[derive(Copy, Clone)]
+struct Unit;
+
+impl Unit {
+    fn Get(self) -> i32 {
+        match self {
+            Self => 1,
+        }
+    }
+}
+
+fn Destructure(p: Point, u: Unit) -> i32 {
+    let Point { X: x, Y: y } = p;
+    let Unit = u;
+    let n = match u {
+        Unit => 2,
+    };
+    if y { x + n } else { u.Get() }
+}

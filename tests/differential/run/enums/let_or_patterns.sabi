@@ -1,0 +1,44 @@
+// An irrefutable or-pattern in a `let` (parenthesised, also after `x @`, inside a tuple and
+// in a struct field) binds from whichever alternative matches.
+#[derive(Copy, Clone)]
+enum E { A(i32), B(i32) }
+
+struct W { In: E, K: i32 }
+
+fn Tag(e: E) -> i32 {
+    match e {
+        E::A(_) => 100,
+        E::B(_) => 200,
+    }
+}
+
+fn Plain(e: E) -> i32 {
+    let (E::A(n) | E::B(n)) = e;
+    n
+}
+
+fn At(e: E) -> i32 {
+    let w @ (E::A(n) | E::B(n)) = e;
+    n + Tag(w)
+}
+
+fn Nested(t: (E, i32)) -> i32 {
+    let (E::A(n) | E::B(n), m) = t;
+    n * m
+}
+
+fn Field(w: W) -> i32 {
+    let W { In: E::A(n) | E::B(n), K: k } = w;
+    n - k
+}
+
+fn Main() {
+    PrintLine(Plain(E::A(1)));
+    PrintLine(Plain(E::B(2)));
+    PrintLine(At(E::A(3)));
+    PrintLine(At(E::B(4)));
+    PrintLine(Nested((E::A(5), 10)));
+    PrintLine(Nested((E::B(6), 10)));
+    PrintLine(Field(W { In: E::A(7), K: 1 }));
+    PrintLine(Field(W { In: E::B(8), K: 2 }));
+}

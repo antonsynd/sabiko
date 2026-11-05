@@ -1,0 +1,36 @@
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variants.sabi:23:11 ]
+    │
+ 23 │     match *r { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ─┬  
+    │            ╰── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variants.sabi:29:11 ]
+    │
+ 29 │     match (*w).In { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ───┬───  
+    │              ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variants.sabi:35:11 ]
+    │
+ 35 │     match w.In { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ──┬─  
+    │             ╰─── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `&E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variants.sabi:41:11 ]
+    │
+ 41 │     match r { //~ ERROR E0328 non-exhaustive patterns: `&E::B(_)` not covered
+    │           ┬  
+    │           ╰── pattern `&E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

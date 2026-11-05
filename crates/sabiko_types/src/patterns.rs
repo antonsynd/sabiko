@@ -51,14 +51,13 @@ fn enum_discriminants(
     sink: &mut DiagnosticSink,
 ) -> Vec<i128> {
     let adt = items.adt(def);
-    let defined = resolve.variants(def);
     let has_fields = adt.variants().iter().any(|v| v.kind != VariantKind::Unit);
     let mut values: Vec<i128> = Vec::new();
     let mut spans = Vec::new();
     let mut prev: Option<i128> = None;
     for v in &e.variants {
         // A duplicate variant name has no definition (reported by the resolver).
-        let Some(&vdef) = defined.iter().find(|&&d| resolve.def(d).node == v.id) else {
+        let Some(vdef) = crate::variant_def(resolve, def, v) else {
             continue;
         };
         let value = if let Some(expr) = &v.discriminant {
@@ -297,6 +296,18 @@ impl PatValues<'_, '_> {
                     }
                     v
                 }
+                Res::Local(_) => {
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::NON_CONSTANT_EXPRESSION,
+                            "runtime values cannot be referenced in patterns",
+                        )
+                        .with_label(e.span, "references a runtime value"),
+                    );
+                    self.failed = true;
+                    None
+                }
+                // Reported by the resolver or the type checker.
                 _ => {
                     self.failed = true;
                     None
@@ -629,8 +640,12 @@ impl Exhaustive<'_, '_> {
             })
             .collect();
         let cx = Shapes { items: self.items };
-        let report =
-            usefulness::check_match_with_validity(&cx, &ty, &lowered, !through_deref(scrutinee));
+        let report = usefulness::check_match_with_validity(
+            &cx,
+            &ty,
+            &lowered,
+            !through_deref(scrutinee, self.body),
+        );
         self.unreachable(&report.unreachable);
         if report.witnesses.is_empty() {
             return;
@@ -730,6 +745,11 @@ impl Exhaustive<'_, '_> {
 
     /// The checker's form of `pat`: references it looks through become `Deref` nodes.
     fn lower(&self, pat: &Pat) -> usefulness::Pat {
+        if !self.names_a_constructor(pat) {
+            // The resolver reported the path; an error type keeps the checker from
+            // reporting the match as well, as rustc does.
+            return Self::wild(Ty::Error, pat.span);
+        }
         let ty = self
             .body
             .pat_types
@@ -759,6 +779,24 @@ impl Exhaustive<'_, '_> {
             };
         }
         out
+    }
+
+    /// Whether the path of a path, tuple-struct or struct pattern names what such a
+    /// pattern can match (a variant, or a struct for `S { .. }` and a unit struct's
+    /// `Self`): one that does not was reported by the resolver (`E::Missing`, `F(x)` for a
+    /// function `F`, `C { .. }` for a constant `C`) without making the body erroneous.
+    fn names_a_constructor(&self, pat: &Pat) -> bool {
+        let is_struct = || {
+            matches!(self.resolve.pat_res(pat.id),
+                Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Struct)
+        };
+        match &pat.kind {
+            PatKind::TupleStruct(..) => self.body.pat_variants.contains_key(&pat.id),
+            PatKind::Path(_) | PatKind::Struct { .. } => {
+                self.body.pat_variants.contains_key(&pat.id) || is_struct()
+            }
+            _ => true,
+        }
     }
 
     fn wild(ty: Ty, span: sabiko_span::Span) -> usefulness::Pat {
@@ -933,12 +971,19 @@ fn strip_parens(mut e: &Expr) -> &Expr {
     e
 }
 
-/// Whether a scrutinee is a place reached through a dereference (`*r`, `(*r).F`), which
-/// rustc does not assume to hold a valid value.
-fn through_deref(e: &Expr) -> bool {
-    match &strip_parens(e).kind {
+/// Whether a scrutinee is a place reached through a dereference (`*r`, `(*r).F`, or `r.F`
+/// for a reference `r`, which dereferences it implicitly), which rustc does not assume to
+/// hold a valid value.
+fn through_deref(e: &Expr, body: &BodyTypes) -> bool {
+    let e = strip_parens(e);
+    match &e.kind {
         ExprKind::Deref(_) => true,
-        ExprKind::Field(base, _) => through_deref(base),
+        ExprKind::Field(base, _) => {
+            body.field_accesses
+                .get(&e.id)
+                .is_some_and(|access| access.autoderefs > 0)
+                || through_deref(base, body)
+        }
         _ => false,
     }
 }
