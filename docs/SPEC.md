@@ -880,8 +880,9 @@ moves `t` out of `s`, leaving `s` partially moved; out of a reference it is E040
 a value whose type implements `Drop` E0418); `ref`/`ref mut` bindings borrow it, and the
 loan lives as long as the binding is used. Arms are tried in order; a guard runs only when
 its pattern matched, once per matching alternative of an or-pattern, and a false guard
-tries the next candidate. While a guard runs, the scrutinee is fake-borrowed: assigning
-it or borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
+tries the next candidate. While a guard runs, the scrutinee is fake-borrowed, and so is
+each reference it is reached through (`m` for `match *m`, decision 64): assigning them
+or borrowing them mutably is E0419 (rustc's E0510), while moving them out is not (a move
 leaves its memory as it was; decision 60), although an arm after a failed guard that
 tests the moved scrutinee again is E0406, which rustc, testing once before any guard,
 accepts (a known gap, `tests/pending/enums/known_gap/`); the arm's bindings denote shared

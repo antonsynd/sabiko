@@ -32,7 +32,7 @@ use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope};
 use crate::{
     BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, Local, LocalDecl, LocalKind, Operand,
-    Place, Rvalue, StatementKind, TerminatorKind,
+    Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
 };
 
 /// An enum and the index of one of its variants.
@@ -523,12 +523,32 @@ impl Builder<'_> {
         fail: BasicBlock,
     ) {
         let span = guard.span;
+        // Shallow fake borrows of the prefixes before each dereference (`m` for `*m`),
+        // then the fake borrow of the place itself (decision 64).
+        let mut fakes = Vec::new();
+        for (index, elem) in place.projection.iter().enumerate() {
+            if *elem != PlaceElem::Deref {
+                continue;
+            }
+            let prefix = Place {
+                local: place.local,
+                projection: place.projection[..index].to_vec(),
+            };
+            let fake = self.new_temp(Ty::shared_ref(prefix.ty(&self.body)), span);
+            self.assign(
+                Place::local(fake),
+                Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::GuardShallow), prefix),
+                span,
+            );
+            fakes.push(fake);
+        }
         let fake = self.new_temp(Ty::shared_ref(place.ty(&self.body)), span);
         self.assign(
             Place::local(fake),
             Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Guard), place.clone()),
             span,
         );
+        fakes.push(fake);
         let saved = std::mem::take(&mut self.guard_places);
         self.bind_for_guard(pat, place.clone(), choice);
         let (discr, temps) = self.condition(guard, span);
@@ -541,7 +561,9 @@ impl Builder<'_> {
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
         self.storage_dead(&temps, span);
-        self.push_stmt(StatementKind::PlaceMention(Place::local(fake)), span);
+        for fake in fakes {
+            self.push_stmt(StatementKind::PlaceMention(Place::local(fake)), span);
+        }
     }
 
     /// The body of an arm (or the `then` of an `if let`, the body of a `while let`), in a

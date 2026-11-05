@@ -483,6 +483,14 @@ pub enum FakeBorrowKind {
     /// assignments to and mutable borrows of the place (rustc's E0510) but not with reads
     /// or moves (decision 60).
     Guard,
+    /// Made while a match guard runs, of each prefix of the tested place that ends just
+    /// before a `Deref` (`m` for `match *m`), as rustc does: the [`Self::Guard`] borrow of
+    /// `*m` does not reach the shallow writes of `m` (`m = &z`), which would make later
+    /// candidates test another value. Like [`Self::Shallow`] it covers only the place and
+    /// its prefixes, not what is reached through it, and its creation is no access; like
+    /// [`Self::Guard`] it ignores moves and a conflict is E0419 (decision 64). Printed
+    /// `&fake shallow m`, as rustc prints it.
+    GuardShallow,
     /// Of a reference place compared by `==`, `<`, ...: rustc passes `&r` to
     /// `PartialEq::eq`, borrowing the reference itself until the comparison, while MIR
     /// building reborrows `&*r` (decision 63). The reborrow already conflicts with every
@@ -491,6 +499,21 @@ pub enum FakeBorrowKind {
     /// overwrite the reference without touching its referent. It conflicts with nothing
     /// else, so no access is reported twice, and it is printed `&fake shallow r`.
     Shallow,
+}
+
+impl FakeBorrowKind {
+    /// Whether the borrow covers only its place and the place's prefixes, not what is
+    /// reached through a dereference of it.
+    #[must_use]
+    pub fn is_shallow(self) -> bool {
+        matches!(self, Self::Shallow | Self::GuardShallow)
+    }
+
+    /// Whether the borrow is one a match guard holds (E0419 on a conflict, moves allowed).
+    #[must_use]
+    pub fn is_guard(self) -> bool {
+        matches!(self, Self::Guard | Self::GuardShallow)
+    }
 }
 
 impl BorrowKind {

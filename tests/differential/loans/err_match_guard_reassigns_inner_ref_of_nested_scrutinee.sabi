@@ -1,0 +1,14 @@
+// A guard over `**mm` may not reassign `*mm`: each prefix before a dereference is frozen.
+enum E { A(i32), B(i64) }
+
+fn Main() {
+    let x = E::A(7);
+    let z = E::B(1);
+    let mut r: &E = &x;
+    let mm: &mut &E = &mut r;
+    let v = match **mm {
+        E::A(n) if { *mm = &z; true } => n,
+        _ => 0,
+    };
+    PrintLine(v);
+}

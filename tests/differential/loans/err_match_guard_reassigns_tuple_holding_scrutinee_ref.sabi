@@ -1,0 +1,13 @@
+// A guard over `*t.0` may not reassign `t`, which overwrites the reference `t.0`.
+enum E { A(i32), B(i64) }
+
+fn Main() {
+    let x = E::A(7);
+    let z = E::B(1);
+    let mut t: (&E, i32) = (&x, 1);
+    let v = match *t.0 {
+        E::A(n) if { t = (&z, 3); true } => n,
+        _ => 0,
+    };
+    PrintLine(v);
+}

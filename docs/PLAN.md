@@ -601,7 +601,8 @@ algorithm (decision 58). Enums are value types with a tag and one payload field 
 (decision 57, C#-facing names by decision 59, checked from C# by `tests/interop/enum_layout`);
 matches lower to sequential candidates with rustc's guard semantics (fake borrows,
 bindings by reference until the guard holds; a guard may move the scrutinee, decision 60),
-and drop elaboration follows partial moves into variants behind discriminant-set flags.
+and drop elaboration follows partial moves into variants behind discriminant-set flags;
+a guard also freezes the references the scrutinee is reached through (decision 64).
 Everything staged in `tests/pending/enums/` landed (30 run-time programs in
 `differential/run/enums/`, verdict pairs in `differential/{moves,loans,enums}/`, UI tests
 per stage); the generator covers every construct (paragraph below) and mutation testing on
@@ -785,6 +786,17 @@ every run-pass, run-time differential and benchmark program is unchanged but for
 names. `&str` operands, which are copied rather than reborrowed, get it too
 (`s == { s = "b"; s }`). Twenty `tests/differential/loans/*compare*` programs agree with
 rustc 1.99.1. No known comparison verdict gap remains.
+
+Update (2026-11-05), guards over a scrutinee reached through a reference (decision 64):
+`match *m { E::A(n) if { m = &z; true } => n, _ => 0 }` is E0510 in rustc and was
+accepted here, printing `0` (the candidate re-tested `*m`, now another variant). The
+guard's fake borrow of `*m` does not reach a shallow write of `m`, so MIR building now also
+takes a shallow guard fake borrow (`&fake shallow m`) of each prefix of the scrutinee that
+ends just before a dereference, as rustc does; assigning such a prefix (`m = ..`,
+`*mm = ..` for `**mm`, `t = ..` for `*t.0`) in the guard is E0419. Moves stay allowed
+(decision 60) and an assignment in an arm body or after the match is unaffected
+(`differential/loans/*match_guard*deref*`, `*nested_scrutinee*`, `*tuple_holding*`,
+`ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi`).
 
 ### Phase 5: Data types
 

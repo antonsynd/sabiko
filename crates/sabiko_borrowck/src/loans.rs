@@ -126,7 +126,7 @@ impl Reporter<'_> {
         errors.sort_unstable();
         errors.dedup();
         let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
-        // Points where a loan other than a compared reference's shallow borrow conflicts.
+        // Points where a loan other than a shallow fake borrow conflicts.
         let real: HashSet<Point> = errors
             .iter()
             .filter(|&&(_, _, l)| !self.is_shallow(l))
@@ -147,12 +147,13 @@ impl Reporter<'_> {
         }
     }
 
-    /// Whether the loan is a compared reference's shallow fake borrow.
+    /// Whether the loan is a shallow fake borrow (of a compared reference, or of a prefix
+    /// of a guarded scrutinee before a dereference).
     fn is_shallow(&self, loan: Loan) -> bool {
         self.facts
             .loans
             .get(loan.index())
-            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Shallow))
+            .is_some_and(|data| data.fake.is_some_and(FakeBorrowKind::is_shallow))
     }
 
     /// Whether the error is the activation of a two-phase borrow conflicting with a loan
@@ -182,7 +183,7 @@ impl Reporter<'_> {
         let span = self.span_at(location);
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
-        if data.fake == Some(FakeBorrowKind::Guard) {
+        if data.fake.is_some_and(FakeBorrowKind::is_guard) {
             // The scrutinee is frozen while a match guard runs (rustc's E0510); moving it
             // out does not conflict with the fake borrow.
             let (message, label) = match invalidation.kind {

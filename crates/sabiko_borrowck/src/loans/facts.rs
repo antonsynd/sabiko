@@ -122,8 +122,9 @@ pub struct LoanData {
     /// For a two-phase borrow, the location of the use that activates it (a call). `None`
     /// for an ordinary borrow, which is active from its creation.
     pub activation: Option<Location>,
-    /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a match scrutinee
-    /// while a guard runs, or a compared reference (a shallow borrow).
+    /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a match scrutinee, or
+    /// a prefix of it before a dereference (a shallow borrow), while a guard runs, or a
+    /// compared reference (a shallow borrow).
     pub fake: Option<FakeBorrowKind>,
 }
 
@@ -608,9 +609,13 @@ impl Generator<'_> {
         } else {
             AccessKind::SharedBorrow
         };
-        // A compared reference's shallow borrow is no access of its own: the operand's
-        // reborrow (`&*r`) or copy, just before it, already reads the place deeply.
-        if self.loans[loan.index()].fake != Some(FakeBorrowKind::Shallow) {
+        // A shallow fake borrow is no access of its own: the operand's reborrow (`&*r`)
+        // or copy just before a compared reference's, and the guard's fake borrow of the
+        // scrutinee just after a guard's of a prefix of it, read the place deeply.
+        if !self.loans[loan.index()]
+            .fake
+            .is_some_and(FakeBorrowKind::is_shallow)
+        {
             self.access(place, kind, location);
         }
         let origin = self.loans[loan.index()].origin;
@@ -724,12 +729,13 @@ impl Generator<'_> {
             }
             // A move leaves the scrutinee's memory as it was, so a guard may move it out
             // (rustc leaves this to the move checks, which reject any later use).
-            if loan.fake == Some(FakeBorrowKind::Guard) && kind == AccessKind::Move {
+            if loan.fake.is_some_and(FakeBorrowKind::is_guard) && kind == AccessKind::Move {
                 continue;
             }
             // A shallow borrow of a reference does not cover its referent: an access
-            // through it (`*r = 3`, `&mut *r`) is the reborrow's to check, if any.
-            if loan.fake == Some(FakeBorrowKind::Shallow)
+            // through it (`*r = 3`, `&mut *r`) is the reborrow's (or the guard's deep
+            // fake borrow's) to check, if any.
+            if loan.fake.is_some_and(FakeBorrowKind::is_shallow)
                 && place.projection.len() > loan.place.projection.len()
             {
                 continue;

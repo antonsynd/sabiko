@@ -1,0 +1,27 @@
+[E0419] Error: cannot assign `m` in match guard
+    ╭─[ tests/ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi:10:22 ]
+    │
+ 10 │         E::A(n) if { m = z; true } => n, //~ ERROR E0419 cannot assign `m` in match guard
+    │                    ────┬──┬───────  
+    │                        ╰──────────── cannot assign
+    │                           │         
+    │                           ╰───────── value is immutable in match guard: `m`
+────╯
+[E0419] Error: cannot assign `*mm` in match guard
+    ╭─[ tests/ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi:19:22 ]
+    │
+ 19 │         E::A(n) if { *mm = z; true } => n, //~ ERROR E0419 cannot assign `*mm` in match guard
+    │                    ─────┬──┬────────  
+    │                         ╰───────────── cannot assign
+    │                            │          
+    │                            ╰────────── value is immutable in match guard: `*mm`
+────╯
+[E0419] Error: cannot assign `t` in match guard
+    ╭─[ tests/ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi:27:31 ]
+    │
+ 27 │         E::A(n) if { t.1 = 2; t = (z, 3); true } => n, //~ ERROR E0419 cannot assign `t` in match guard
+    │                    ──────────────┬─┬────────────  
+    │                                  │ ╰────────────── cannot assign
+    │                                  │                
+    │                                  ╰──────────────── value is immutable in match guard: `t.0`
+────╯
