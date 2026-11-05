@@ -158,7 +158,7 @@ parser unit tests, `insta` snapshots over `crates/sabiko_parser/tests/fixtures`,
 pretty-print/parse round-trip property (strips `Paren` nodes; normalises the two
 rustc rules below), a no-panic property over random text and token soup, the UI harness
 with `//~ ERROR` annotations and golden `.stderr` files under `tests/ui/parse`, and a
-libFuzzer target in `fuzz/` (needs nightly; not yet in CI). Decisions made while
+libFuzzer target in `fuzz/` (needs nightly; the nightly workflow runs it). Decisions made while
 implementing, all matching rustc: a block-like expression at statement start ends the
 statement (so `{ a } - 1` is two statements, `{ a }.Foo()` one); a block-like statement
 absorbs a following lone `;`; `break`/`return` do not take a `{` operand inside
@@ -736,7 +736,7 @@ against drops rather than retrofitted.
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
   `&mut` reborrows in argument position. Done (#7, #15, decisions 53 and 54; see the
-  status note above); associated constants remain.
+  status note above); associated constants remain (#48).
 - Drop elaboration (moved here from Phase 3 by decision 26, given a phase by decision 46):
   drop flags, drops at scope end in reverse declaration order, each droppable scope lowered
   inside `try/finally`. `impl Drop for S` is the one trait impl accepted before Phase 6,
@@ -746,10 +746,12 @@ against drops rather than retrofitted.
   decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
   as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
-  and `let`-`else`; see the status notes above).
+  and `let`-`else`; see the status notes above); follow-ups: match borrow checking (#47),
+  `&p` and open-range patterns (#49).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
   Done (#9, decision 61; see the status note above); ranges and slicing, slice patterns,
-  `for` loops, slice methods other than `len()` and arrays of references remain.
+  `for` loops, slice methods other than `len()` (#45) and arrays of references (#43)
+  remain.
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
 - `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;

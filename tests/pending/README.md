@@ -37,7 +37,7 @@ The staged programs were checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the v
 | file | gap | rustc |
 | --- | --- | --- |
 | `equality.sabi` | tuple `==`, `!=`, `<`, ... (also of `()` against `()` inside tuples): E0107 until the comparison traits of Phase 6 | runs, exit 0 |
-| `refs_through_double_ref.sabi` | `rr.1.1` for `rr: &&(i32, (i32, i32))`: code generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5) | runs, prints 3 |
+| `refs_through_double_ref.sabi` | `rr.1.1` for `rr: &&(i32, (i32, i32))`: code generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5) (#11) | runs, prints 3 |
 
 ## `methods/`: issues #7 (inherent `impl` blocks and methods) and #15 (two-phase borrows) (landed)
 
@@ -63,8 +63,8 @@ Each converted UI program names the rustc codes it was checked against in a comm
 
 | file | gap | rustc |
 | --- | --- | --- |
-| `double_ref_receivers.sabi` | run-time `&&P` and `&mut &mut P` receivers and a `&&P` parameter: borrow checking accepts them (`tests/differential/loans/ok_autoderef_receivers.sabi`), code generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5) | exit 0 (`.expected`) |
-| `associated_consts.sabi` | `const` items in an impl block, `Grid::Cells`, `Self::Cells`: E0107 (associated constants are a later step) | exit 0 (`.expected`) |
+| `double_ref_receivers.sabi` | run-time `&&P` and `&mut &mut P` receivers and a `&&P` parameter: borrow checking accepts them (`tests/differential/loans/ok_autoderef_receivers.sabi`), code generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5) (#11) | exit 0 (`.expected`) |
+| `associated_consts.sabi` | `const` items in an impl block, `Grid::Cells`, `Self::Cells`: E0107 (associated constants are a later step) (#48) | exit 0 (`.expected`) |
 
 ### Two-phase borrows: the rules rustc applies
 
@@ -305,13 +305,13 @@ All but one run under rustc (`.expected` notes); none is required by #8.
 
 | file | gap | rustc |
 | --- | --- | --- |
-| `primitive_consts_in_patterns.sabi` | `i8::MIN..=-1`, `1..=i8::MAX`, `i32::MIN` as patterns: Sabiko has no associated constants on primitives (E0212 in expressions too) | exit 0 |
-| `reference_patterns.sabi` | `&p` patterns (`&Cell::Value(n)`, `let &(a, b) = &t;`), not listed in #8 (E0107 today, SPEC §2) | exit 0 |
-| `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional | exit 0 |
+| `primitive_consts_in_patterns.sabi` | `i8::MIN..=-1`, `1..=i8::MAX`, `i32::MIN` as patterns: Sabiko has no associated constants on primitives (E0212 in expressions too) (#48) | exit 0 |
+| `reference_patterns.sabi` | `&p` patterns (`&Cell::Value(n)`, `let &(a, b) = &t;`), not listed in #8 (E0107 today, SPEC §2) (#49) | exit 0 |
+| `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional (#49) | exit 0 |
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
-| `match_through_double_ref.sabi` | `match rr` for `rr: &&Cell`: code generation rejects `&&T` (E0500) until `Ref<T>` | exit 0 |
-| `unreachable_arms_borrowck.sabi` | rustc borrow-checks code that patterns make unreachable (false edges between match candidates; the `else` of an irrefutable `if let`/`let`-`else`), Sabiko does not: assignments to immutable bindings and uses after move there are E0384/E0382 in rustc and accepted by Sabiko; found by the generator, which makes no pattern unreachable | rejected (E0384, E0382) |
-| `move_scrutinee_in_guard_then_test.sabi` | a guard moves the scrutinee out and fails, and a later arm tests it again: rustc tests once, before the guards, Sabiko's candidates test again (decision 57), a use of a moved value (E0406). Moving it out in a guard is otherwise accepted (`run/enums/move_scrutinee_in_guard`) | exit 0 |
+| `match_through_double_ref.sabi` | `match rr` for `rr: &&Cell`: code generation rejects `&&T` (E0500) until `Ref<T>` (#11) | exit 0 |
+| `unreachable_arms_borrowck.sabi` | rustc borrow-checks code that patterns make unreachable (false edges between match candidates; the `else` of an irrefutable `if let`/`let`-`else`), Sabiko does not: assignments to immutable bindings and uses after move there are E0384/E0382 in rustc and accepted by Sabiko; found by the generator, which makes no pattern unreachable (#47) | rejected (E0384, E0382) |
+| `move_scrutinee_in_guard_then_test.sabi` | a guard moves the scrutinee out and fails, and a later arm tests it again: rustc tests once, before the guards, Sabiko's candidates test again (decision 57), a use of a moved value (E0406). Moving it out in a guard is otherwise accepted (`run/enums/move_scrutinee_in_guard`) (#47) | exit 0 |
 
 ### Rules rustc applies (each confirmed by the program named)
 
@@ -440,14 +440,14 @@ by #9.
 
 | file | gap | rustc |
 | --- | --- | --- |
-| `range_indexing.sabi` | `&a[1..3]`, `&a[..2]`, `&a[3..]`, `a[..]`, `&mut a[1..]`, a slice of a slice: ranges are not expressions yet (E0107) | exit 0 |
-| `slice_patterns.sabi` | `let [a, b, c] = arr;`, `let [x, ..] = arr;`, `[first, .., last]` parameters: E0107 | exit 0 |
-| `array_equality.sabi` | `==`, `!=`, `<` on arrays and slices, array against slice: E0107 until the Phase 6 comparison traits | exit 0 |
-| `const_array_items.sabi` | `const PRIMES: [i32; 4]`, `const SECOND: i32 = PRIMES[1]`: constants are scalars (E0315) | exit 0 |
-| `for_loops.sabi` | `for x in a`, `in &a`, `in s`, `in 0..a.len()`: no `for` until iterators (E0107) | exit 0 |
-| `arrays_of_references.sabi` | `[&x, &y]`, `["ada", "grace"]`, `[&mut p, &mut q]`: E0500 (decision 61), an inline array cannot hold a managed pointer or a `ReadOnlySpan<char>`; waits for `Ref<T>` | exit 0 |
-| `slice_methods.sabi` | `.is_empty()`, `.swap`, `.reverse`, `.contains`, `.split_at_mut`, `.fill`: only `.len()` (E0319) | exit 0 |
-| `unconditional_panic.sabi` | constant out-of-bounds indices are rustc's deny-by-default `unconditional_panic` lint (uncoded errors, only with code generation); Sabiko has no constant-propagation lints (nor `arithmetic_overflow`), so it compiles them and they panic at run time. The generated-program prelude allows the lint in rustc | 6 errors |
+| `range_indexing.sabi` | `&a[1..3]`, `&a[..2]`, `&a[3..]`, `a[..]`, `&mut a[1..]`, a slice of a slice: ranges are not expressions yet (E0107) (#45) | exit 0 |
+| `slice_patterns.sabi` | `let [a, b, c] = arr;`, `let [x, ..] = arr;`, `[first, .., last]` parameters: E0107 (#45) | exit 0 |
+| `array_equality.sabi` | `==`, `!=`, `<` on arrays and slices, array against slice: E0107 until the Phase 6 comparison traits (#45) | exit 0 |
+| `const_array_items.sabi` | `const PRIMES: [i32; 4]`, `const SECOND: i32 = PRIMES[1]`: constants are scalars (E0315) (#45) | exit 0 |
+| `for_loops.sabi` | `for x in a`, `in &a`, `in s`, `in 0..a.len()`: no `for` until iterators (E0107) (#45) | exit 0 |
+| `arrays_of_references.sabi` | `[&x, &y]`, `["ada", "grace"]`, `[&mut p, &mut q]`: E0500 (decision 61), an inline array cannot hold a managed pointer or a `ReadOnlySpan<char>`; waits for `Ref<T>` (#43) | exit 0 |
+| `slice_methods.sabi` | `.is_empty()`, `.swap`, `.reverse`, `.contains`, `.split_at_mut`, `.fill`: only `.len()` (E0319) (#45) | exit 0 |
+| `unconditional_panic.sabi` | constant out-of-bounds indices are rustc's deny-by-default `unconditional_panic` lint (uncoded errors, only with code generation); Sabiko has no constant-propagation lints (nor `arithmetic_overflow`), so it compiles them and they panic at run time. The generated-program prelude allows the lint in rustc (#44) | 6 errors |
 
 ### Rules rustc applies (each confirmed by the program named)
 
