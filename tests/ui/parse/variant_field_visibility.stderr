@@ -1,0 +1,18 @@
+[E0100] Error: visibility qualifiers are not permitted here
+   ╭─[ tests/ui/parse/variant_field_visibility.sabi:7:9 ]
+   │
+ 7 │         pub W: i32, //~ ERROR E0100 visibility qualifiers are not permitted here
+   │         ─┬─  
+   │          ╰─── remove the qualifier
+   │ 
+   │ Note: enum variants and their fields always share the visibility of the enum they are in
+───╯
+[E0100] Error: visibility qualifiers are not permitted here
+    ╭─[ tests/ui/parse/variant_field_visibility.sabi:10:14 ]
+    │
+ 10 │     Circle { pub R: i32 }, //~ ERROR E0100 visibility qualifiers are not permitted here
+    │              ─┬─  
+    │               ╰─── remove the qualifier
+    │ 
+    │ Note: enum variants and their fields always share the visibility of the enum they are in
+────╯

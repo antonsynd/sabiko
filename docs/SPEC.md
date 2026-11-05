@@ -35,8 +35,15 @@ names which phase owns which section.
   prefix operator, each binary operator or cast of a chain, each postfix call, index or
   field access, or a `&` in a type; `&&` counts twice
 - Patterns. Implemented (Phase 5, #6): `x`, `mut x`, `_` and tuple patterns `(p, ..)`
-  (`(p,)` for one element, `()`), nested, in `let` and in parameters; `(p)` is `p`. Literal,
-  `ref`, `&`, struct and enum patterns are E0107 until `match` arrives
+  (`(p,)` for one element, `()`), nested, in `let` and in parameters; `(p)` is `p`. Since
+  #8: literals (a number may be negated), ranges `a..=b` and `a..b`, `ref`/`ref mut`
+  bindings and `x @ p`, paths `E::V`, tuple-struct `E::V(p, ..)` and struct patterns
+  `E::V { X, Y: p, .. }`, and or-patterns, which need parentheses at the top of a `let` or
+  parameter; also in `match` arms (with `if` guards), `if let`, `while let` (the `let` is
+  the whole condition) and `let`-`else`. `&` patterns and half-open ranges are E0107
+- Enums (Phase 5, #8): unit, tuple and struct-like variants, each with an optional
+  `= discriminant`; a struct-like variant's fields take doc comments but not `pub` (E0100,
+  rustc's E0449)
 - Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays,
   slices, named types, generics
 - Tuple expressions `(a,)`, `(a, b)`; `(e)` is a parenthesised expression. Element access

@@ -149,6 +149,22 @@ impl Printer {
                             }
                             self.out.push(')');
                         }
+                        // Doc comments end their line, so a variant with documented
+                        // fields is printed one field per line.
+                        VariantData::Named(fields) if fields.iter().any(|f| !f.docs.is_empty()) => {
+                            self.out.push_str(" {");
+                            self.indent += 1;
+                            for f in fields {
+                                self.newline();
+                                self.meta(&[], &f.docs);
+                                let _ = write!(self.out, "{}: ", f.name.name);
+                                self.ty(&f.ty);
+                                self.out.push(',');
+                            }
+                            self.indent -= 1;
+                            self.newline();
+                            self.out.push('}');
+                        }
                         VariantData::Named(fields) => {
                             self.out.push_str(" {");
                             for (i, f) in fields.iter().enumerate() {
@@ -571,7 +587,9 @@ impl Printer {
                         self.expr(g, 0);
                     }
                     self.out.push_str(" => ");
-                    self.expr(&arm.body, 0);
+                    // A block-like expression ends an arm as it ends a statement, so a
+                    // body like `if c {} else {}[i]` needs parentheses (as in rustc).
+                    self.stmt_expr(&arm.body);
                     self.out.push(',');
                 }
                 self.indent -= 1;

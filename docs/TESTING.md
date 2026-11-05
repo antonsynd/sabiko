@@ -73,7 +73,15 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
 ## Properties
 
 - Parser: `parse(pretty(parse(s)))` round-trips; the parser never panics on arbitrary text
-  or token soup (`crates/sabiko_parser/tests`, proptest).
+  or token soup (`crates/sabiko_parser/tests`, proptest). The round-trip generator covers
+  the #8 syntax too: enums (unit, tuple and struct variants, documented fields,
+  discriminants), every pattern kind in every position (`let`, parameters, arms, `if let`,
+  `while let`, `let`-`else`), and `match` with guards. Extending it found a printer that
+  dropped the doc comments of variant fields, `_ if break => ..` rejected (`break` took `=>`
+  for its operand) and arm bodies such as `if c {} else {}[i]` printed without the
+  parentheses that keep a block-like expression from ending the arm
+  (`match_and_enum_syntax_roundtrips`); `pub` on a variant field is now rejected, as rustc
+  does (`tests/ui/parse/variant_field_visibility.sabi`).
 - Whole pipeline never panics on arbitrary text, token soup, or random mutations of every
   corpus program; accepted programs produce non-empty IL; the two runs per input (to MIR
   and to IL) report identical diagnostics, in the same order, up to code generation

@@ -770,6 +770,7 @@ impl Parser<'_, '_> {
 
     /// Whether the current token begins an operand for `break`/`return`. In a condition
     /// (`while break {}`), a `{` starts the loop body, not a block operand (as in rustc).
+    /// A `=>` ends a match guard (`_ if break => ..`).
     fn can_start_operand(&self) -> bool {
         if self.no_struct_literal && self.at(TokenKind::LBrace) {
             return false;
@@ -783,6 +784,7 @@ impl Parser<'_, '_> {
                 | TokenKind::Comma
                 | TokenKind::Eof
                 | TokenKind::Else
+                | TokenKind::FatArrow
         )
     }
 
