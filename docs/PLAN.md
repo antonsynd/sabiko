@@ -611,7 +611,8 @@ against drops rather than retrofitted.
 - `enum` with unit, tuple and struct variants, non-generic (generic enums come with Phase 6,
   decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
-  as in rustc).
+  as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
+  and `let`-`else`; see the status note below).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).

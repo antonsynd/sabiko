@@ -1,0 +1,35 @@
+// A panic inside an arm after a binding moved part of the scrutinee out: unwinding drops
+// the moved part where it went (the binding, still live in the arm) and the rest of the
+// scrutinee, of the variant it holds only.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Pair { Two(D, D), One(D) }
+
+fn Check(n: i32) {
+    if n > 2 {
+        Panic("too big");
+    }
+}
+
+fn Main() {
+    let p = Pair::Two(D { Id: 1 }, D { Id: 2 });
+    let other = Pair::One(D { Id: 9 });
+    match p {
+        Pair::Two(first, _) => {
+            Print("got ");
+            PrintLine(first.Id);
+            Check(first.Id + 2);
+            PrintLine("not reached");
+        }
+        Pair::One(_) => PrintLine("one"),
+    }
+    PrintLine("not reached either");
+    let _keep = other;
+}
