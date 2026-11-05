@@ -1,0 +1,7 @@
+// In `a[1..][i] = v` the range place is an `IndexMut` call that borrows `a` mutably
+// before the element index is evaluated, so an index reading `a` (`a.len()`) is E0502;
+// built-in indexing (`a[a.len() - 1] = v`) would be fine.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    a[1..][a.len() - 4] = 0;
+}

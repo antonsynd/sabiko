@@ -1,0 +1,21 @@
+// An array of Copy elements is copied by `let` and by argument passing, so the original
+// may still be range-indexed; a moved array of non-Copy elements reassigned whole may be
+// range-indexed again.
+struct Tok {
+    V: i32,
+}
+
+fn Sum(a: [i32; 3]) -> i32 {
+    a[0] + a[1] + a[2]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let b = a;
+    PrintLine(Sum(a));
+    PrintLine(a[1..].len() + b[..2].len());
+    let mut t = [Tok { V: 1 }, Tok { V: 2 }];
+    let u = t;
+    t = [Tok { V: 3 }, Tok { V: 4 }];
+    PrintLine(t[1..][0].V + u[..1][0].V);
+}

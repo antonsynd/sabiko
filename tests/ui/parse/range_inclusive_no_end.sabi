@@ -1,0 +1,9 @@
+// An inclusive range needs an end (rustc E0586 "inclusive range with no end"): `..=]` is
+// an error even as an index, where the other open forms (`a..`, `..`) are fine (#10).
+fn F(s: &str) -> &str {
+    &s[1..=] //~ ERROR E0102 inclusive range with no end
+}
+
+fn Main() {
+    PrintLine(F("abc"));
+}

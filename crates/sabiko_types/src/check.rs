@@ -345,17 +345,6 @@ impl<'a> FnCtxt<'a> {
         self.error(d);
     }
 
-    fn unsupported(&mut self, what: &str, span: Span, phase: &str) {
-        self.error(
-            Diagnostic::error(
-                ErrorCode::UNSUPPORTED_SYNTAX,
-                format!("not yet supported: {what}"),
-            )
-            .with_label(span, format!("{what} are not yet supported"))
-            .with_note(format!("{phase}; see docs/PLAN.md")),
-        );
-    }
-
     fn shallow(&mut self, ty: &Ty) -> Ty {
         self.infer.shallow_resolve(ty)
     }
@@ -613,7 +602,8 @@ impl<'a> FnCtxt<'a> {
                 let base_ty = self.check_expr(base, None);
                 self.check_field(expr, &base_ty, &name.name, name.span)
             }
-            ExprKind::Index(base, index) => self.check_index(expr, base, index),
+            ExprKind::Index(base, index) => self.check_index(expr, base, index, unsized_place),
+            ExprKind::Range(..) => unreachable!("a range is only parsed as the index of `e[..]`"),
             ExprKind::Ref {
                 mutable,
                 expr: inner,
@@ -650,7 +640,8 @@ impl<'a> FnCtxt<'a> {
                 match self.shallow(&inner_ty) {
                     Ty::Ref(_, t) => {
                         // A slice place is fine where it is borrowed, indexed or measured.
-                        let place_ok = unsized_place && matches!(self.shallow(&t), Ty::Slice(_));
+                        let place_ok = unsized_place
+                            && matches!(self.shallow(&t), Ty::Slice(_) | Ty::Prim(PrimTy::Str));
                         if !place_ok && !collect::check_sized(&t, expr.span, self.sink) {
                             return Ty::Error;
                         }
@@ -865,9 +856,18 @@ impl<'a> FnCtxt<'a> {
 
     /// `base[index]`: the base looks through references to an array or a slice, and the
     /// index is a `usize`. The result is the element, a place.
-    fn check_index(&mut self, expr: &Expr, base: &Expr, index: &Expr) -> Ty {
+    fn check_index(&mut self, expr: &Expr, base: &Expr, index: &Expr, unsized_ok: bool) -> Ty {
         self.unsized_place = true;
         let base_ty = self.check_expr(base, None);
+        if let ExprKind::Range(lo, hi, _) = &index.kind {
+            return self.check_range_index(
+                expr,
+                &base_ty,
+                lo.as_deref(),
+                hi.as_deref(),
+                unsized_ok,
+            );
+        }
         let index_ty = self.check_expr(index, None);
         let mut ty = self.shallow(&base_ty);
         let mut autoderefs = 0;
@@ -919,6 +919,62 @@ impl<'a> FnCtxt<'a> {
         elem
     }
 
+    /// `e[a..b]` (and the other range forms, #10): `e` is a string, an array or a slice,
+    /// through references, and the place is a `str` or a `[T]`, valid only where an
+    /// unsized place is (borrowed, indexed, measured). Each bound is a `usize`.
+    fn check_range_index(
+        &mut self,
+        expr: &Expr,
+        base_ty: &Ty,
+        lo: Option<&Expr>,
+        hi: Option<&Expr>,
+        unsized_ok: bool,
+    ) -> Ty {
+        let usize_ty = Ty::Prim(PrimTy::Usize);
+        for bound in lo.into_iter().chain(hi) {
+            self.check_expr(bound, Some(&usize_ty));
+        }
+        let mut ty = self.shallow(base_ty);
+        let mut autoderefs = 0;
+        while let Ty::Ref(_, inner) = ty {
+            ty = self.shallow(&inner);
+            autoderefs += 1;
+        }
+        let place_ty = match ty {
+            Ty::Prim(PrimTy::Str) => Ty::Prim(PrimTy::Str),
+            Ty::Array(elem, _) | Ty::Slice(elem) => Ty::Slice(elem),
+            Ty::Error => return Ty::Error,
+            Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(expr.span, "the type of the indexed value must be known"),
+                );
+                self.infer.bind_error(&Ty::Infer(v));
+                return Ty::Error;
+            }
+            _ => {
+                let s = self.ty_str(base_ty);
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::NOT_INDEXABLE,
+                        format!("cannot index into a value of type `{s}`"),
+                    )
+                    .with_label(expr.span, "not a string, an array or a slice")
+                    .with_note("only strings, arrays and slices can be indexed by a range"),
+                );
+                return Ty::Error;
+            }
+        };
+        if !unsized_ok && !collect::check_sized(&place_ty, expr.span, self.sink) {
+            return Ty::Error;
+        }
+        self.index_derefs.insert(expr.id, autoderefs);
+        place_ty
+    }
+
     /// `e.len()` where `e` is an array or a slice, through references: a `usize`. `None`
     /// when `e` is something else; another method of an array is reported here.
     fn check_len_call(
@@ -934,7 +990,7 @@ impl<'a> FnCtxt<'a> {
             ty = self.shallow(&inner);
             autoderefs += 1;
         }
-        if !matches!(ty, Ty::Array(..) | Ty::Slice(_)) {
+        if !matches!(ty, Ty::Array(..) | Ty::Slice(_) | Ty::Prim(PrimTy::Str)) {
             return None;
         }
         for a in args {
@@ -948,7 +1004,7 @@ impl<'a> FnCtxt<'a> {
                     format!("no method named `{}` found for `{shown}`", method.name),
                 )
                 .with_label(method.span, "method not found")
-                .with_note("arrays and slices have one method for now, `len()`"),
+                .with_note("strings, arrays and slices have one method for now, `len()`"),
             );
             return Some(Ty::Error);
         }
@@ -1246,13 +1302,9 @@ impl<'a> FnCtxt<'a> {
             PatKind::Lit(e) => {
                 // A string literal matches a `&str` itself; any other literal looks
                 // through references.
+                // (rustc does not peel references for it either: `match &s { "a" => .. }`
+                // with `s: &str` is a mismatch.)
                 let ty = if matches!(e.kind, ExprKind::Lit(Lit::Str(_))) {
-                    // Comparing `&str` values comes with `&str` support (#10).
-                    self.unsupported(
-                        "string literal patterns",
-                        pat.span,
-                        "planned with `&str` support (#10)",
-                    );
                     ty.clone()
                 } else {
                     self.peel_pat_refs(pat, ty, by_ref).0
@@ -2972,11 +3024,11 @@ impl<'a> FnCtxt<'a> {
 /// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
 /// the top level): the primitives but `str`, and `()`.
 fn is_comparable(ty: &Ty) -> bool {
-    match ty {
-        Ty::Error | Ty::Never | Ty::Infer(_) | Ty::Unit => true,
-        Ty::Prim(p) => *p != PrimTy::Str,
-        _ => false,
-    }
+    // `str` is compared behind its reference (#10): `s == t` for `s, t: &str`.
+    matches!(
+        ty,
+        Ty::Error | Ty::Never | Ty::Infer(_) | Ty::Unit | Ty::Prim(_)
+    )
 }
 
 /// Whether the cast target reaches a literal in `expr`, as rustc's expectation does:

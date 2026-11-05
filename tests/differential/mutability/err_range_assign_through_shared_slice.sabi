@@ -1,0 +1,6 @@
+// Writing an element of a range place of a `&[T]` parameter: the range place is an
+// `IndexMut` call, so rustc reports E0596 (cannot borrow `*s` as mutable), not the E0594
+// of a built-in `s[0] = 0`.
+fn Clear(s: &[i32]) {
+    s[1..][0] = 0;
+}

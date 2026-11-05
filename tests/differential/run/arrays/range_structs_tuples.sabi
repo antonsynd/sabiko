@@ -1,0 +1,57 @@
+// Range slices of arrays of structs and tuples: fields read through a sub-slice
+// (`s[1].X`), written through a mutable sub-slice (`m[0].Y = ..`, `m[1].0 += ..`), a method
+// taking `&self` called on an element of a slice, and Copy elements copied out.
+#[derive(Clone, Copy)]
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+impl Point {
+    fn Norm1(&self) -> i32 {
+        Abs(self.X) + Abs(self.Y)
+    }
+}
+
+fn Abs(x: i32) -> i32 {
+    if x < 0 { -x } else { x }
+}
+
+fn SumX(s: &[Point]) -> i32 {
+    let mut t = 0;
+    let mut i = 0;
+    while i < s.len() {
+        t += s[i].X;
+        i += 1;
+    }
+    t
+}
+
+fn Main() {
+    let mut pts = [
+        Point { X: 1, Y: 2 },
+        Point { X: -3, Y: 4 },
+        Point { X: 5, Y: -6 },
+        Point { X: 7, Y: 8 },
+    ];
+    PrintLine(SumX(&pts[1..]));
+    PrintLine(SumX(&pts[..=1]));
+    let s = &pts[1..3];
+    PrintLine(s[1].X);
+    PrintLine(s[0].Norm1());
+    let copy = s[1];
+    let m = &mut pts[2..];
+    m[0].Y = 60;
+    m[1].X += 100;
+    PrintLine(pts[2].Y);
+    PrintLine(pts[3].X);
+    PrintLine(copy.Y);
+    let mut pairs = [(1, true), (2, false), (3, true)];
+    let t = &mut pairs[1..];
+    t[0].0 += 10;
+    t[1].1 = false;
+    PrintLine(pairs[1].0);
+    PrintLine(pairs[2].1);
+    PrintLine(pairs[..2].len());
+    PrintLine(pairs[1..][0].0 + pairs[..1][0].0);
+}

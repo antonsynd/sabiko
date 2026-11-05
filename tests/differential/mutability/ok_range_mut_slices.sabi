@@ -1,0 +1,35 @@
+// Mutable range slices where the source is mutable: a `mut` array, a `&mut [T]` parameter
+// (the binding itself not `mut`), a `&mut [T; N]` parameter, a `mut` array parameter, a
+// `mut` array field of a `mut` struct, and a mutable slice of a mutable slice.
+struct Buf {
+    Data: [i32; 4],
+}
+
+fn ZeroTail(s: &mut [i32]) {
+    let t = &mut s[1..];
+    t[0] = 0;
+    s[2..][0] = 0;
+}
+
+fn ZeroHead(a: &mut [i32; 3]) {
+    let m = &mut a[..1];
+    m[0] = 0;
+}
+
+fn Local(mut a: [i32; 2]) -> i32 {
+    a[1..][0] = 9;
+    a[1]
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    ZeroTail(&mut a);
+    ZeroTail(&mut a[..]);
+    ZeroHead(&mut a);
+    PrintLine(Local([1, 2]));
+    let mut b = Buf { Data: [1, 2, 3, 4] };
+    let d = &mut b.Data[2..];
+    let e = &mut d[1..];
+    e[0] = 40;
+    PrintLine(b.Data[3]);
+}

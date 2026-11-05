@@ -1,0 +1,34 @@
+// Range slicing (#10): `e[a..b]` borrows its base first (an array's borrow unsized to a
+// slice), then evaluates the bounds, then takes the `Subslice`; the place is behind the
+// resulting reference. A written place borrows mutably (`IndexMut`), one only read or
+// measured shares. `&str` comparisons and string literal patterns compare the `&str`
+// operands themselves.
+fn Tail(s: &str) -> &str {
+    &s[1..]
+}
+
+fn Fill(s: &mut [i32]) {
+    s[1..=2][0] = 7;
+}
+
+fn Kind(s: &str) -> i32 {
+    match s {
+        "a" => 1,
+        "b" | "c" => 2,
+        _ => 3,
+    }
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let n = a[..3].len();
+    let m = &mut a[n - 2..];
+    m[0] = 9;
+    Fill(&mut a);
+    let s = "hello";
+    let same = &s[..] == Tail(s);
+    let before = s < "help";
+    PrintLine(Kind(&s[..=0]));
+    PrintLine(same);
+    PrintLine(before);
+}

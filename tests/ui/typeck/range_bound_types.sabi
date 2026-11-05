@@ -1,0 +1,19 @@
+// Range bounds are `usize`: another integer type, or a negated `usize`, is an error. rustc
+// reports E0277 naming the range type (`RangeFrom<i32>`, `RangeTo<u8>`) or E0308 for a
+// bound mismatched with the other one, and E0277 (`usize: Neg`) for the negation; Sabiko
+// checks each bound against `usize` (E0300) and rejects `-` on `usize` (E0307).
+fn Main() {
+    let s = "hello";
+    let a = [1, 2, 3];
+    let i: i32 = 1;
+    let j: u8 = 2;
+    let k: usize = 2;
+    let x = &s[i..]; // rustc E0277: the type `str` cannot be indexed by `std::ops::RangeFrom<i32>` [string indices are ranges of `usize`]
+    //~^ ERROR E0300 mismatched types
+    let y = &a[..j]; // rustc E0277: the type `[{integer}]` cannot be indexed by `RangeTo<u8>` [slice indices are of type `usize` or ranges of `usize`]
+    //~^ ERROR E0300 mismatched types
+    let z = &a[k..i]; // rustc E0308: mismatched types [expected `usize`, found `i32`]
+    //~^ ERROR E0300 mismatched types
+    let w = &s[..=-1]; // rustc E0277: the trait bound `usize: Neg` is not satisfied [the trait `Neg` is not implemented for `usize`]
+    //~^ ERROR E0307 cannot apply unary operator `-` to type `usize`
+}

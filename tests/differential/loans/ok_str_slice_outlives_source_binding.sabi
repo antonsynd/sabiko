@@ -1,0 +1,18 @@
+// A slice of a `&str` borrows the string data, not the binding holding the reference: it
+// may outlive a block-local `&str` binding (and a `&[T]` binding to an outer array), since
+// reborrowing through a shared reference keeps the referent's lifetime.
+fn Main() {
+    let s;
+    {
+        let t = "hello";
+        s = &t[1..];
+    }
+    PrintLine(s);
+    let a = [1, 2, 3];
+    let u;
+    {
+        let r: &[i32] = &a;
+        u = &r[1..];
+    }
+    PrintLine(u.len());
+}

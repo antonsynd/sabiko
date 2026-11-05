@@ -1,0 +1,34 @@
+// `==` and `!=` on `&str`: equal contents in different literals and slices, different
+// contents of the same length, prefixes (different lengths), empty strings, case.
+fn Check(a: &str, b: &str) {
+    Print(a);
+    Print(" == ");
+    Print(b);
+    Print(": ");
+    Print(a == b);
+    Print(", != ");
+    PrintLine(a != b);
+}
+
+fn Main() {
+    Check("abc", "abc");
+    Check("abc", "abd");
+    Check("abc", "ab");
+    Check("ab", "abc");
+    Check("", "");
+    Check("", "a");
+    Check("Abc", "abc");
+    let s = "abcabc";
+    Check(&s[..3], &s[3..]);
+    Check(&s[..2], &s[3..5]);
+    Check(&s[1..3], "bc");
+    PrintLine(&s[..3] == &s[3..]);
+    PrintLine("x" != &s[..1]);
+    let same = s == "abcabc";
+    PrintLine(same);
+    if &s[2..4] == "ca" && &s[..0] == "" {
+        PrintLine("both");
+    }
+    let t: &str = s;
+    PrintLine(t == s);
+}

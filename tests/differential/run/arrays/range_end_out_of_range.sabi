@@ -1,0 +1,12 @@
+// An end bound past the end of a slice (`..b`) panics with "range end index 9 out of
+// range for slice of length 5" (4:7).
+fn Prefix(s: &[i32], b: usize) -> &[i32] {
+    &s[..b]
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4, 5];
+    PrintLine(Prefix(&a, 5).len());
+    PrintLine(Prefix(&a, 9).len());
+    PrintLine("not reached");
+}

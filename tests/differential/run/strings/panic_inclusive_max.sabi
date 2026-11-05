@@ -1,0 +1,12 @@
+// `..=b` with `b = usize::MAX`: `b + 1` would overflow, and rustc reports the end bound
+// itself, "end byte index 18446744073709551615 is out of bounds for string of length 5",
+// in a debug build (no overflow panic) as in release. At 5:7.
+fn UpTo(s: &str, b: usize) -> &str {
+    &s[..=b]
+}
+
+fn Main() {
+    PrintLine(UpTo("hello", 2));
+    PrintLine(UpTo("hello", 18446744073709551615));
+    PrintLine("not reached");
+}

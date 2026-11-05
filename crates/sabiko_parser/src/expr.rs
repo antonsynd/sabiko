@@ -1,7 +1,7 @@
 //! Expressions: a Pratt loop for binary operators over a recursive descent core.
 
 use sabiko_ast::{
-    Arm, BinOp, Expr, ExprKind, FieldInit, Lit, Type, TypeKind, UnOp, CAST_PRECEDENCE,
+    Arm, BinOp, Expr, ExprKind, FieldInit, Lit, RangeEnd, Type, TypeKind, UnOp, CAST_PRECEDENCE,
 };
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::literal::{self, LiteralError};
@@ -19,11 +19,29 @@ impl Parser<'_, '_> {
     /// [`Self::parse_expr`] without its level of nesting, for the operand of a construct
     /// that already counted one (call arguments, an index).
     fn parse_expr_inner(&mut self) -> PResult<Expr> {
+        self.parse_assign(None)
+    }
+
+    /// An assignment, or the operand of one. `range` (the span of the `[`) allows a range
+    /// expression (`a..b`, `a..`): only the whole index of `e[...]` may be one (#10), so
+    /// elsewhere the `..` after an operand is reported as not yet supported.
+    fn parse_assign(&mut self, range: Option<Span>) -> PResult<Expr> {
         let start = self.peek().span;
         let stmt_start = self.stmt_start;
         let lhs = self.parse_binary(0)?;
         if stmt_start && lhs.is_block_like() {
             return Ok(lhs);
+        }
+        if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
+            let Some(bracket) = range else {
+                let span = self.peek().span;
+                return Err(self.error_unsupported(
+                    "range expressions outside an index",
+                    span,
+                    "only an index `e[a..b]` is supported until range values (generic types, Phase 6)",
+                ));
+            };
+            return self.parse_range_rest(Some(lhs), bracket);
         }
         let op = match self.peek_kind() {
             TokenKind::Eq => None,
@@ -46,6 +64,43 @@ impl Parser<'_, '_> {
             Some(op) => ExprKind::AssignOp(op, Box::new(lhs), Box::new(rhs)),
         };
         Ok(self.mk(kind, start))
+    }
+
+    /// The index of `e[...]`: an expression, or a range (`a..b`, `a..`, `..b`, `..`,
+    /// `a..=b`, `..=b`), the one place a range is parsed (#10). A range's span starts at
+    /// the `[` (`bracket`), where rustc locates a panic of the slicing.
+    fn parse_index(&mut self, bracket: Span) -> PResult<Expr> {
+        if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
+            return self.parse_range_rest(None, bracket);
+        }
+        self.parse_assign(Some(bracket))
+    }
+
+    /// From the `..` or `..=` of a range on: the optional end, which is parsed at the
+    /// precedence of `||` as in rustc. An inclusive range needs an end.
+    fn parse_range_rest(&mut self, lo: Option<Expr>, start: Span) -> PResult<Expr> {
+        let op = self.bump();
+        let end = if op.kind == TokenKind::DotDotEq {
+            RangeEnd::Included
+        } else {
+            RangeEnd::Excluded
+        };
+        let hi = if self.at(TokenKind::RBracket) {
+            if end == RangeEnd::Included {
+                let d = Diagnostic::error(
+                    ErrorCode::EXPECTED_EXPRESSION,
+                    "inclusive range with no end",
+                )
+                .with_label(op.span, "an inclusive range needs an end")
+                .with_note("use `..` instead of `..=` for a range with no end");
+                return Err(self.emit(d));
+            }
+            None
+        } else {
+            self.descend()?;
+            Some(Box::new(self.parse_binary(0)?))
+        };
+        Ok(self.mk(ExprKind::Range(lo.map(Box::new), hi, end), start))
     }
 
     /// Parses an expression in a context where a struct literal is not allowed bare
@@ -103,10 +158,7 @@ impl Parser<'_, '_> {
         if stmt_start && lhs.is_block_like() {
             return Ok(lhs);
         }
-        if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("range expressions", span, "planned for Phase 5"));
-        }
+        // A `..` ends the operand chain: `parse_assign` decides whether a range may follow.
         while let Some(op) = self.binop() {
             let prec = op.precedence();
             if prec < min_prec {
@@ -315,11 +367,11 @@ impl Parser<'_, '_> {
                 }
                 TokenKind::LBracket => {
                     self.descend()?;
-                    self.bump();
+                    let bracket = self.bump().span;
                     // Like parentheses, brackets lift the `if`/`while` condition restriction:
                     // `if a[P { x: 1 }] {}` is fine.
                     let index = self.in_delimited(TokenKind::RBracket, |p| {
-                        let index = p.parse_expr_inner()?;
+                        let index = p.parse_index(bracket)?;
                         p.expect(TokenKind::RBracket)?;
                         Ok(index)
                     })?;
@@ -629,9 +681,11 @@ impl Parser<'_, '_> {
                 start,
                 "not planned (see docs/DECISIONS.md #13)",
             )),
-            TokenKind::DotDot | TokenKind::DotDotEq => {
-                Err(self.error_unsupported("range expressions", start, "planned for Phase 5"))
-            }
+            TokenKind::DotDot | TokenKind::DotDotEq => Err(self.error_unsupported(
+                "range expressions outside an index",
+                start,
+                "only an index `e[a..b]` is supported until range values (generic types, Phase 6)",
+            )),
             TokenKind::Eof => Err(self.error_expected("an expression")),
             _ => {
                 let d = Diagnostic::error(
@@ -687,6 +741,14 @@ impl Parser<'_, '_> {
         let scrutinee = self.nested(|p| p.parse_binary(BinOp::And.precedence() + 1));
         self.no_struct_literal = saved;
         let scrutinee = scrutinee?;
+        if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported(
+                "range expressions outside an index",
+                span,
+                "only an index `e[a..b]` is supported until range values (generic types, Phase 6)",
+            ));
+        }
         if matches!(self.peek_kind(), TokenKind::AndAnd | TokenKind::OrOr) {
             let span = start.to(self.peek().span);
             return Err(self.let_chain_error(span));

@@ -12,7 +12,7 @@ fn Main(p: P, q: P, s: &str, b: bool) {
     let g = -'c'; //~ ERROR E0307 cannot apply unary operator `-` to type `char`
     let h = p == q; //~ ERROR E0306 binary operation `==` cannot be applied to type `P`
     let i = p < q; //~ ERROR E0306 binary operation `<` cannot be applied to type `P`
-    let j = s < s; //~ ERROR E0306 binary operation `<` cannot be applied to type `&str`
+    let j = s + s; //~ ERROR E0306 binary operation `+` cannot be applied to type `&str`
     let k = b && 2; //~ ERROR E0300 mismatched types
     let l = 1 || b; //~ ERROR E0300 mismatched types
     let m = 1.5 % true; //~ ERROR E0300 mismatched types

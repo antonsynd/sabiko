@@ -1,0 +1,29 @@
+// (drops, #12) Slicing borrows: taking `&a[..]`, `&mut a[1..]` and `a[1..3].len()` drops
+// nothing; a failed range check unwinds, dropping the array's elements first to last after
+// the panic report ("range end index 4 out of range for slice of length 3", 27:23).
+struct Loud {
+    Id: i32,
+}
+
+impl Drop for Loud {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Count(s: &[Loud]) -> usize {
+    s.len()
+}
+
+fn Main() {
+    let mut a = [Loud { Id: 1 }, Loud { Id: 2 }, Loud { Id: 3 }];
+    PrintLine(Count(&a[..]));
+    let m = &mut a[1..];
+    m[0].Id = 20;
+    PrintLine(a[1..3].len());
+    let end = a.len() + 1;
+    PrintLine("slicing");
+    PrintLine(Count(&a[1..end]));
+    PrintLine("not reached");
+}

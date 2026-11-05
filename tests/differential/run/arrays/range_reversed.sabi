@@ -1,0 +1,12 @@
+// A start after the end, both in range, panics with "slice index starts at 3 but ends at
+// 1" (4:6); the start is checked first, then the end, then the order.
+fn Len(s: &[i32], a: usize, b: usize) -> usize {
+    s[a..b].len()
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4, 5];
+    PrintLine(Len(&a, 3, 3));
+    PrintLine(Len(&a, 3, 1));
+    PrintLine("not reached");
+}

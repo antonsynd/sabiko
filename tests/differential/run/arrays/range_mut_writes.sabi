@@ -1,0 +1,57 @@
+// Writes through range places: `&mut a[1..]` and `&mut a[..]` are mutable slices of the
+// array and their writes are visible in it afterwards; `a[1..3][0] = v` and
+// `a[2..][0] += v` write in place; a `&mut [T]` parameter re-sliced (`&mut s[1..]`) and
+// passed on; a mutable sub-slice of a mutable sub-slice.
+fn Fill(s: &mut [i32], v: i32) {
+    let mut i = 0;
+    while i < s.len() {
+        s[i] = v;
+        i += 1;
+    }
+}
+
+fn Bump(s: &mut [i32]) {
+    if s.len() == 0 {
+        return;
+    }
+    s[0] += 1;
+    Bump(&mut s[1..]);
+}
+
+fn Show(s: &[i32]) {
+    let mut i = 0;
+    while i < s.len() {
+        Print(s[i]);
+        Print(" ");
+        i += 1;
+    }
+    PrintLine("");
+}
+
+fn Main() {
+    let mut a = [0; 6];
+    Fill(&mut a[1..], 7);
+    Show(&a);
+    Fill(&mut a[..=1], 3);
+    Show(&a);
+    let m = &mut a[2..5];
+    m[0] = 100;
+    m[2] = 300;
+    Show(&a);
+    a[1..3][0] = -1;
+    a[2..][0] += 5;
+    Show(&a);
+    Bump(&mut a[3..]);
+    Show(&a);
+    let whole = &mut a[..];
+    let inner = &mut whole[1..5];
+    let deeper = &mut inner[2..];
+    deeper[1] = 42;
+    PrintLine(deeper.len());
+    Show(&a);
+    let mut grid = [[0; 3]; 2];
+    Fill(&mut grid[1][1..], 9);
+    grid[0][..2][1] = 4;
+    Show(&grid[0]);
+    Show(&grid[1]);
+}

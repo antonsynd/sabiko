@@ -1,0 +1,13 @@
+// `s[a..]` with `a > len` panics with the start message ("start byte index 6 is out of
+// bounds for string of length 5"), also when the slice is only the receiver of `.len()`
+// and never borrowed; `a == len` is an empty slice. Located at the `[` (5:6).
+fn RestLen(s: &str, a: usize) -> usize {
+    s[a..].len()
+}
+
+fn Main() {
+    PrintLine(RestLen("hello", 0));
+    PrintLine(RestLen("hello", 5));
+    PrintLine(RestLen("hello", 6));
+    PrintLine("not reached");
+}

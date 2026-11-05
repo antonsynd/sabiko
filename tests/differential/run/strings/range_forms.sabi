@@ -1,0 +1,37 @@
+// Every range form as the index of a `&str`: `a..b`, `a..`, `..b`, `..`, `a..=b`, `..=b`,
+// with literal and run-time bounds, borrowed (`&s[..]`) and as the receiver of `.len()`
+// (`s[2..].len()`). Indices are code units in Sabiko and bytes in Rust, the same for ASCII.
+fn Show(s: &str) {
+    Print("[");
+    Print(s);
+    PrintLine("]");
+}
+
+fn Main() {
+    let s = "abcdefgh";
+    Show(&s[2..5]);
+    Show(&s[5..]);
+    Show(&s[..3]);
+    Show(&s[..]);
+    Show(&s[2..=5]);
+    Show(&s[..=0]);
+    Show(&s[0..8]);
+    Show(&s[7..=7]);
+    let a: usize = 1;
+    let b: usize = 6;
+    Show(&s[a..b]);
+    Show(&s[a..]);
+    Show(&s[..b]);
+    Show(&s[a..=b]);
+    Show(&s[..=b]);
+    Show(&s[a + 1..b - 1]);
+    PrintLine(s[2..].len());
+    PrintLine(s[..5].len());
+    PrintLine(s[..].len());
+    PrintLine(s[a..=b].len());
+    let t: &str = &s[3..6];
+    PrintLine(t);
+    let u = &"literal"[3..];
+    PrintLine(u);
+    PrintLine(&"xyz"[1..2]);
+}

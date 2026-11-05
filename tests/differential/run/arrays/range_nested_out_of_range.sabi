@@ -1,0 +1,21 @@
+// The range is checked against the length of what it indexes: a row of a nested array
+// (`m[1][..b]`, length 2) and a slice of a slice (`s[1..][..b]`, length 3). Here
+// `&m[1][..3]` panics with "range end index 3 out of range for slice of length 2", at the
+// second `[` (6:18).
+fn RowTail(m: &[[i32; 2]; 3], b: usize) -> usize {
+    let r = &m[1][..b];
+    r.len()
+}
+
+fn Inner(s: &[i32], b: usize) -> usize {
+    s[1..][..b].len()
+}
+
+fn Main() {
+    let m = [[1, 2], [3, 4], [5, 6]];
+    let a = [1, 2, 3, 4];
+    PrintLine(Inner(&a, 3));
+    PrintLine(RowTail(&m, 2));
+    PrintLine(RowTail(&m, 3));
+    PrintLine("not reached");
+}

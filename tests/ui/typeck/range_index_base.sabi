@@ -1,0 +1,10 @@
+// The base of a range index (#10) must be a string, an array or a slice, through
+// references: an integer is E0336 (rustc's E0608 says "cannot index into a value of type
+// `{integer}`"), a base whose type is not known yet is E0313 (rustc's E0282), and a base
+// that already failed to type-check is not reported again.
+fn Main() {
+    let x;
+    let a = &x[1..]; //~ ERROR E0313 type annotations needed
+    let b = &(-true)[1..]; //~ ERROR E0307 cannot apply unary operator `-` to type `bool`
+    let c = &5[1..]; //~ ERROR E0336 cannot index into a value of type `{integer}`
+}

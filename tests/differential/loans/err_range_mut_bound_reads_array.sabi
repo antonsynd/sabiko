@@ -1,0 +1,8 @@
+// `&mut a[a.len() - 2..]`: the `IndexMut` call borrows `a` mutably before its range
+// argument is evaluated (no two-phase borrow), so a bound reading `a` is E0502, unlike
+// built-in indexing, where `a[a.len() - 1] += 1` is accepted.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let t = &mut a[a.len() - 2..];
+    t[0] = 1;
+}

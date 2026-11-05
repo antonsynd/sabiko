@@ -1,0 +1,37 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/str_pattern_types.sabi:12:9 ]
+    │
+ 12 │         "five" => PrintLine(1), // rustc E0308: mismatched types [expected integer, found `&str`]
+    │         ───┬──  
+    │            ╰──── expected `{integer}`, found `&str`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/str_pattern_types.sabi:17:9 ]
+    │
+ 17 │         5 => PrintLine(1), // rustc E0308: mismatched types [expected `str`, found integer]
+    │         ┬  
+    │         ╰── expected `str`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/str_pattern_types.sabi:19:9 ]
+    │
+ 19 │         'a' => PrintLine(2), // rustc E0308: mismatched types [expected `str`, found `char`]
+    │         ─┬─  
+    │          ╰─── expected `str`, found `char`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/str_pattern_types.sabi:24:9 ]
+    │
+ 24 │         "abc" => PrintLine(1), // rustc E0308: mismatched types [expected `&&str`, found `&str`]
+    │         ──┬──  
+    │           ╰──── expected `&&str`, found `&str`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/str_pattern_types.sabi:28:11 ]
+    │
+ 28 │     match s[..1] {
+    │           ───┬──  
+    │              ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯

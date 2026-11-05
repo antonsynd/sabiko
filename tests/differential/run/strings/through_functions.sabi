@@ -1,0 +1,71 @@
+// `&str` slices passed to and returned from functions: the returned slice borrows from the
+// one reference parameter (elision); recursion on `&s[1..]`; an associated function in an
+// inherent `impl`; a slice of a returned slice; a function returning a tuple of slices.
+fn Tail(s: &str) -> &str {
+    &s[1..]
+}
+
+fn Head(s: &str, n: usize) -> &str {
+    &s[..n]
+}
+
+fn Between(s: &str, from: usize, to: usize) -> &str {
+    &s[from..=to]
+}
+
+fn CountA(s: &str) -> i32 {
+    if s.len() == 0 {
+        return 0;
+    }
+    let rest = CountA(&s[1..]);
+    if &s[..1] == "a" {
+        rest + 1
+    } else {
+        rest
+    }
+}
+
+fn Split(s: &str, at: usize) -> (&str, &str) {
+    (&s[..at], &s[at..])
+}
+
+struct Text {
+    Width: usize,
+}
+
+impl Text {
+    fn Clip(s: &str, n: usize) -> &str {
+        if s.len() > n {
+            &s[..n]
+        } else {
+            s
+        }
+    }
+
+    fn Fit(&self, s: &str) -> usize {
+        Text::Clip(s, self.Width).len()
+    }
+}
+
+fn Main() {
+    let s = "banana";
+    PrintLine(Tail(s));
+    PrintLine(Tail(Tail(s)));
+    PrintLine(Head(s, 3));
+    PrintLine(Head(Tail(s), 2));
+    PrintLine(Between(s, 1, 3));
+    PrintLine(&Tail(s)[1..3]);
+    PrintLine(Tail(s).len());
+    PrintLine(CountA(s));
+    PrintLine(CountA("abracadabra"));
+    let (left, right) = Split(s, 2);
+    PrintLine(left);
+    PrintLine(right);
+    let parts = Split("key=value", 3);
+    PrintLine(&parts.1[1..]);
+    PrintLine(Text::Clip("truncated", 5));
+    PrintLine(Text::Clip("ok", 5));
+    let t = Text { Width: 4 };
+    PrintLine(t.Fit("abcdefg"));
+    PrintLine(t.Fit("ab"));
+}

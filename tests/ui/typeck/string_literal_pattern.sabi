@@ -1,8 +1,21 @@
-// String literal patterns are valid Rust but compare `&str` values, which arrive with
-// `&str` support (#10); until then they are E0107.
+// String literal patterns (#10) match a `&str` scrutinee and never cover it: a match on a
+// string needs a wildcard (rustc E0004 names `&_`). As in rustc, a string literal does not
+// look through another reference: against `&&str` it is a mismatch (rustc E0308).
 fn F(s: &str) -> i32 {
-    match s {
-        "a" => 1, //~ ERROR E0107 not yet supported: string literal patterns
+    match s { //~ ERROR E0328 non-exhaustive patterns: `&_` not covered
+        "a" => 1,
+        "b" | "c" => 2,
+    }
+}
+
+fn G(s: &str) -> i32 {
+    match &s {
+        "a" => 1, //~ ERROR E0300 mismatched types
         _ => 0,
     }
+}
+
+fn Main() {
+    F("a");
+    G("a");
 }

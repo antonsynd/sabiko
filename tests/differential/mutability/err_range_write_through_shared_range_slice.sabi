@@ -1,0 +1,6 @@
+// A shared range slice of a mutable array is still shared: writing through it is E0594.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let s = &a[1..];
+    s[0] = 5;
+}

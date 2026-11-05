@@ -1,0 +1,25 @@
+// A slicing that panics drops what is live while unwinding (#10): in `Cut`, the slicing is
+// the only statement after `e` is built that may panic, so drop elaboration must count it
+// as a panic point for `e` to be dropped. Prints 7 (the first call's drop), 2, then 7 again
+// while unwinding from the panic at 17:15, "start byte index 5 is out of bounds for string
+// of length 3".
+struct D {
+    Id: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Cut(s: &str, i: usize) -> usize {
+    let e = D { Id: 7 };
+    let t = &s[i..];
+    t.len()
+}
+
+fn Main() {
+    PrintLine(Cut("abc", 1));
+    PrintLine(Cut("abc", 5));
+}

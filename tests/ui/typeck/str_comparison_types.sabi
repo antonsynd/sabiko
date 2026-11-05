@@ -1,0 +1,19 @@
+// `&str` compares only with `&str` (#10): a `&&str` operand on either side, a `char`, an
+// integer, or a `usize` against a `&str` are errors. rustc's codes differ by side (`&str
+// == &&str` is E0277, no `PartialEq<&str> for str`; `&&str < &str` is E0308, the right
+// operand expected to have the left one's type); Sabiko's are E0306 and E0300.
+fn Main() {
+    let s = "abc";
+    let t = "abd";
+    let rt = &t;
+    PrintLine(s == rt); // rustc E0277: can't compare `str` with `&str` [no implementation for `str == &str`]
+    //~^ ERROR E0306 can't compare `&str` with `&&str`
+    PrintLine(rt < s); // rustc E0308: mismatched types [expected `&&str`, found `&str`]
+    //~^ ERROR E0306 can't compare `&&str` with `&str`
+    PrintLine(s == 'a'); // rustc E0277: can't compare `&str` with `char` [no implementation for `&str == char`]
+    //~^ ERROR E0306 can't compare `&str` with `char`
+    PrintLine(s < 1); // rustc E0308: mismatched types [expected `&str`, found integer]
+    //~^ ERROR E0306 can't compare `&str` with `{integer}`
+    PrintLine(s.len() == s); // rustc E0308: mismatched types [expected `usize`, found `&str`]
+    //~^ ERROR E0300 mismatched types
+}

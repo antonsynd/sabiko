@@ -35,7 +35,7 @@
 //! refutes (`PatCx::refuted`). As a second line, checks are only skipped in the first
 //! arm of a `match` and never in an `else`.
 
-use super::{Access, BodyGen, Expr, LoopKind, Place};
+use super::{Access, BodyGen, Expr, LoopKind, Place, Ranges};
 use crate::program::{int_literal, random_int, VariantKind, CHARS};
 use crate::ty::{IntTy, Prim, Ty, ValTy};
 
@@ -143,7 +143,7 @@ const U128_MAX: &str = "340282366920938463463374607431768211455u128";
 
 /// `text` as a scrutinee: a struct or variant literal (or anything containing one) is not
 /// allowed bare before the arms' brace.
-fn scrutinee_text(text: String) -> String {
+pub(super) fn scrutinee_text(text: String) -> String {
     if text.contains('{') && !text.starts_with('(') {
         format!("({text})")
     } else {
@@ -248,7 +248,7 @@ impl BodyGen<'_> {
             ValTy::Tuple(t) => self.tuple_literal(t, depth),
             ValTy::Enum(e) => self.variant_literal(e, depth),
             ValTy::Array(a) => self.array_literal(a, depth, false),
-            ValTy::Prim(_) => unreachable!(),
+            ValTy::Prim(_) | ValTy::Str => unreachable!(),
         }
     }
 
@@ -321,7 +321,8 @@ impl BodyGen<'_> {
     /// Whether a non-`Copy` part of a place may be moved out by a pattern.
     fn movable(&self, place: &Place) -> bool {
         let root = &self.vars[place.root];
-        self.readable(place)
+        self.no_moves == 0
+            && self.readable(place)
             && place.via_ref.is_none()
             && !place.no_move
             && root.shared_locks == 0
@@ -337,7 +338,7 @@ impl BodyGen<'_> {
         let (ok, bad): (Vec<Place>, Vec<Place>) = typed.into_iter().partition(|p| self.readable(p));
         let pool = self.choose_pool(ok, bad)?;
         let mut place = self.rng.pick(&pool).clone();
-        self.finish_place(&mut place);
+        self.finish_place(&mut place, Ranges::No);
         let strict_move = self.movable(&place);
         let can_ref = self.permitted(&place, Access::Borrow(false));
         let strict_ref_mut = self.permitted(&place, Access::Borrow(true));
@@ -509,7 +510,7 @@ impl BodyGen<'_> {
             ValTy::Struct(_) | ValTy::Tuple(_) => true,
             ValTy::Enum(e) => self.prog.enums[e].variants.len() == 1,
             // Slice patterns are not in the subset: an array is bound or ignored.
-            ValTy::Prim(_) | ValTy::Array(_) => false,
+            ValTy::Prim(_) | ValTy::Array(_) | ValTy::Str => false,
         };
         let choice = self.rng.weighted(&[
             20,
@@ -601,8 +602,8 @@ impl BodyGen<'_> {
                         .collect(),
                 )
             }
-            ValTy::Prim(_) | ValTy::Array(_) => {
-                unreachable!("a primitive or an array is not a composite")
+            ValTy::Prim(_) | ValTy::Array(_) | ValTy::Str => {
+                unreachable!("a primitive, an array or a string is not a composite")
             }
         };
         let refined = match shape {
@@ -728,7 +729,9 @@ impl BodyGen<'_> {
                 (if self.rng.chance(50) { "true" } else { "false" }).to_owned()
             }
             ValTy::Prim(Prim::Char) => self.char_refutable(cx),
-            ValTy::Prim(_) | ValTy::Array(_) => self.irrefutable(ty, cx, in_drop, depth),
+            ValTy::Prim(_) | ValTy::Array(_) | ValTy::Str => {
+                self.irrefutable(ty, cx, in_drop, depth)
+            }
             ValTy::Enum(e) => self.enum_refutable(e, cx, in_drop, depth),
             ValTy::Struct(_) | ValTy::Tuple(_) => {
                 let n = match ty {
@@ -1146,7 +1149,7 @@ impl BodyGen<'_> {
             }
         }
         let mut place = self.rng.pick(&pool).clone();
-        self.simply(|gen| gen.finish_place(&mut place));
+        self.simply(|gen| gen.finish_place(&mut place, Ranges::Shared));
         let ValTy::Prim(p) = place.ty else {
             unreachable!()
         };
@@ -1321,7 +1324,7 @@ impl BodyGen<'_> {
                     self.expire_refs();
                     self.end_block_regions();
                     let v = self.arm_value(value_ty, &binds, depth);
-                    self.line(&v);
+                    self.tail(value_ty, &v);
                     self.close_block();
                     self.line("}");
                 }
@@ -1409,6 +1412,13 @@ impl BodyGen<'_> {
     pub(super) fn inline_match(&mut self, ty: ValTy, depth: u32) -> Expr {
         let sty = self.matchable_ty();
         let s = self.scrutinee(sty, depth.saturating_sub(2));
+        if s.mode == Mode::Move && s.place_root.is_none() && self.prog.needs_drop(sty) {
+            // TODO(#54, operand vs temporary drop order; seed 12000126): a
+            // temporary scrutinee with drop glue lives to the end of the statement, and
+            // when a later operand panics rustc drops the operands evaluated before this
+            // expression first, Sabiko the temporary first (see `BodyGen::call`).
+            return self.val_expr(ty, depth.saturating_sub(1));
+        }
         let before = self.snapshot_moved();
         let mut after = vec![false; before.len()];
         let mut parts = Vec::new();
@@ -1607,7 +1617,7 @@ impl BodyGen<'_> {
 
     /// The statement an `else` of a `let`-`else` diverges with: `return`, `break`,
     /// `continue` or a panic.
-    fn diverge(&mut self, depth: u32) -> Option<String> {
+    pub(super) fn diverge(&mut self, depth: u32) -> Option<String> {
         let kind = self.loops.last().copied();
         match self
             .rng

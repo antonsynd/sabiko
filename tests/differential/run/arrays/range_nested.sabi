@@ -1,0 +1,34 @@
+// Slices of slices index relative to the inner slice; `.len()` at each level; slices of
+// nested arrays (`&m[1..]` is a `&[[i32; 3]]`, `m[1][1..]` a row's tail); a sub-slice in a
+// loop that shrinks a window from both ends.
+fn Sum(s: &[i32]) -> i32 {
+    let mut t = 0;
+    let mut i = 0;
+    while i < s.len() {
+        t += s[i];
+        i += 1;
+    }
+    t
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4, 5, 6, 7, 8];
+    PrintLine(Sum(&a[1..][..2]));
+    PrintLine(Sum(&a[2..7][1..3]));
+    PrintLine(a[1..][1..][1..].len());
+    PrintLine(a[..6][2..][..=1][1]);
+    let mut w: &[i32] = &a;
+    while w.len() > 2 {
+        w = &w[1..w.len() - 1];
+        Print(w.len());
+        Print(" ");
+        PrintLine(Sum(w));
+    }
+    let m = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    let rows: &[[i32; 3]] = &m[1..];
+    PrintLine(rows.len());
+    PrintLine(rows[1][2]);
+    PrintLine(Sum(&m[1][1..]));
+    PrintLine(Sum(&rows[0][..2]));
+    PrintLine(m[..2][1][..=1][1]);
+}

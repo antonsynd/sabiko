@@ -1,0 +1,37 @@
+// A `mut` `&str` binding reassigned to a slice of itself (`s = &s[1..]`), to a slice of
+// another string, and to a literal; a `&str` parameter rebound in the callee; tuple
+// elements holding slices, and a tuple of slices reassigned.
+fn Strip(mut s: &str) -> &str {
+    while s.len() > 0 && &s[..1] == "-" {
+        s = &s[1..];
+    }
+    while s.len() > 0 && &s[s.len() - 1..] == "-" {
+        s = &s[..s.len() - 1];
+    }
+    s
+}
+
+fn Main() {
+    let mut s = "abcdef";
+    while s.len() > 0 {
+        PrintLine(s);
+        s = &s[2..];
+    }
+    PrintLine(s.len());
+    let other = "xyz";
+    s = &other[1..];
+    PrintLine(s);
+    s = "literal";
+    PrintLine(&s[..3]);
+    PrintLine(Strip("--a-b--"));
+    PrintLine(Strip("----"));
+    PrintLine(Strip("abc"));
+    let mut pair = (&other[..1], &other[1..]);
+    PrintLine(pair.0);
+    PrintLine(pair.1);
+    pair = (pair.1, pair.0);
+    Print(pair.0);
+    PrintLine(pair.1);
+    pair.1 = &pair.0[1..];
+    PrintLine(pair.1);
+}

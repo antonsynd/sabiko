@@ -1,0 +1,7 @@
+// A shared range slice and a mutable one of the same array, both alive: E0502.
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let s = &a[..2];
+    let m = &mut a[2..];
+    m[0] = s[0];
+}

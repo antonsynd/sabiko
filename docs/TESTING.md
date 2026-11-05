@@ -58,7 +58,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   guards, on places, references and temporaries, moving out of the scrutinee where the
   scope model allows; every `match` exhaustive by construction, with covers of variants,
   `bool` and contiguous integer ranges; the constructs it avoids carry a `TODO(#8
-  follow-up)`) and arrays (#9, below); both
+  follow-up)`), arrays (#9, below) and strings and range indexing (#10, below); both
   oracles above, panic locations included, are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
   nightly), and to reorderings of them (see Properties). A failure prints the seed and the
@@ -81,6 +81,44 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   and 9000000 pass all five properties; the runs found four compiler bugs, fixed with
   regression programs (docs/PLAN.md, Phase 5 status). About 2.5% of borrow-clean programs
   end in an index-out-of-bounds panic, others in overflow panics of index arithmetic.
+
+  Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
+  (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
+  not `s`; one carrying the loan of a `&mut self` method's result gets a region),
+  parameters and returns (`fn F(s: &str) -> &str` by elision, or a literal returned from
+  any single reference parameter); ASCII string literals, some with escapes (`\n`, `\t`,
+  `\\`, `\"`, `\'`, `\0`, `\x41`, `\u{61}`); range places of strings, arrays and
+  slices in all six forms, with constant bounds, computed ones (`(e % 4usize)..`,
+  `..(s.len() - 1usize)`) and now and then bounds out of range, reversed or overflowing,
+  so rustc's slicing panics are compared with their locations: borrowed (`&s[1..k]`,
+  `&mut a[i..]` and writes through it), indexed (`a[1..][k] = v`, `p.A[..2][0].X += v`),
+  measured (`x[a..=b].len()`), sliced again (`&s[1..][..2]`, `&"abc"[k..]`) and walked
+  (`while i < a[1..].len()`); `.len()` of strings; the six comparisons of `&str`
+  operands; `match` on a string (literal and or-patterns, guarded bindings, a `_` or
+  binding catch-all, no arm unreachable) as a statement and inline, `if let` and
+  `let`-`else` with literal patterns; loops walking a string by index (`&s[i..=i]`) or
+  shrinking a `mut` `&str` (`t = &t[1..]`, `while let "a" | "b" = t`). A range place
+  written or borrowed mutably is an `IndexMut` call that borrows its base before the
+  bounds and later indices are evaluated (no two-phase borrow), so these never read the
+  base, and a `&mut self` call on an element of one is not treated as two-phase. The
+  left-hand side of an assignment gets its indices after the right-hand side, which Rust
+  evaluates first. The constructs avoided carry TODOs: `&&str` (#11), `&str` in structs,
+  enums, arrays and the generator's tuple types (#43), comparisons of `str` places,
+  non-ASCII text (decision 62), and the compiler bugs below. `reorder` treats a range
+  index like a computed index (it may panic; `&a[i..]` takes `a`'s address; an
+  `IndexMut` place writes its base). 2000 seeds at each of the bases 10000000, 11000000
+  and 12000000 pass all five properties; about 3.5% of borrow-clean programs end in a
+  slicing panic. The runs found two compiler bugs (#54), both in the drop order while unwinding,
+  neither involving strings or ranges, which the generator avoids with TODOs: an operand
+  with drop glue of a block's tail (`G { A: D { .. }, B: 10 / k }` after `let a = D {
+  .. };`) is dropped after the block's locals instead of before them (tails with locals
+  of drop glue go through a `let`), and an evaluated call or aggregate operand with drop
+  glue is dropped after a later operand's statement temporary instead of before it
+  (`Use(D { .. }, Get(&D { .. }, 0))`; no temporary method receiver or inline-`match`
+  scrutinee has drop glue). They also found three generator bugs, fixed: an
+  unannotated `let v = [[], []];`, an assignment's index reading what its right-hand side
+  moved, and a call's reference argument reading (in a range bound) what an earlier value
+  argument moved.
 - ILVerify runs on every assembly the tests produce. The only ignored error is
   `ReturnPtrToStack` (decision 30).
 - The MIR validator runs after every pass in the pipeline (debug builds panic on a
@@ -443,6 +481,37 @@ Equivalent survivors:
   `element_span`'s `!stackable` as `stackable` (a slice held by a parameter or local is
   copied into a scratch span first, which views the same elements). The IL of every
   corpus program is unchanged under the first two.
+
+Strings and range slicing (#10) were checked the same way (`cargo mutants --in-diff` on
+the lines the branch changed, the same test packages, `--build-timeout 600` so that a
+mutant's first build is not cut short). The one `sabiko_mir` timeout (copy forwarding's
+`apply` emptied, so it never stops) and the one `sabiko_codegen` timeout (`subslice`'s
+`&&` as `||`) count as kills:
+
+| Crate | Mutants | Before (caught + timeout / viable) | After | Remaining survivors |
+| --- | --- | --- | --- | --- |
+| `sabiko_types` | 23 | 14 + 0 / 18 (77.8%) | 18 + 0 / 18 (100%) | none |
+| `sabiko_parser` | 37 | 5 + 0 / 5 (100%) | 5 + 0 / 5 (100%) | none |
+| `sabiko_borrowck` | 6 | 3 + 0 / 3 (100%) | 3 + 0 / 3 (100%) | none |
+| `sabiko_mir` | 57 | 38 + 1 / 43 (90.7%) | 42 + 1 / 43 (100%) | none |
+| `sabiko_codegen` | 25 | 21 + 1 / 24 (91.7%) | 21 + 1 / 24 (91.7%) | 2 equivalent |
+
+Killing tests: the UI fixture `typeck/range_index_base` (a range index of a base whose
+type is not known yet, of one that failed to type-check, and of an integer), the MIR
+validator test `validator_rejects_malformed_subslice_mir`, compile-time verdicts against
+rustc (`mutability/ok_range_ref_mut_binding_through_range_place`,
+`ok_range_shared_binding_on_immutable_array`: a `ref mut` binding of a range place borrows
+its base mutably, a shared one does not), and the run-time program
+`run/strings/drops_unwind_slice` (slicing is a point that may panic for drop elaboration,
+so a value with drop glue live across it is dropped while unwinding). None found a bug.
+
+Equivalent survivors:
+
+- `sabiko_codegen`: `binary`'s `lty.is_unit() && rty.is_unit()` as `||` (both operands
+  of a comparison have the same type); and `stackable_locals`' `+=` for a sub-slice
+  bound as `*=` (a bound is a temporary used once, loaded right after the base it slices,
+  so leaving it out of the other uses only makes it stackable where it was in order
+  already: the corpora pass and the IL of the `slicing` fixture is unchanged).
 
 ## Interop
 

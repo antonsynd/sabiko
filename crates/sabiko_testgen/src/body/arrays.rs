@@ -1,5 +1,8 @@
 //! Arrays and slices (#9): array literals and `[x; N]` repeats, element places with
-//! constant and computed indices, `.len()`, and `while i < s.len()` loops.
+//! constant and computed indices, `.len()`, and `while i < s.len()` loops. Range indexing
+//! (#10): `a[lo..hi]` and the other five forms as range places (`&a[1..]`, `&mut s[..k]`,
+//! `a[1..][i] = v`, `a[..2].len()`), with constant bounds and computed ones, sometimes out
+//! of range or overflowing.
 //!
 //! Element places come from [`Program::sub_places`](crate::program::Program::sub_places):
 //! constant indices into arrays (`a[1].X`, never out of bounds) and the placeholder `[?]`
@@ -18,12 +21,58 @@
 //! expected type is known (call arguments, annotated `let`s, return values); such an
 //! implicit reborrow of a `&mut [T; N]` local is not two-phase (`F(m, m[0])` is E0503 in
 //! rustc when `F` takes `&mut [T]`), see `BodyGen::call`.
+//!
+//! A range place is an `Index::index` call on its base, or an `IndexMut::index_mut` call
+//! where it is written or borrowed mutably. The mutable call borrows the base before its
+//! bounds and any later index are evaluated, with no two-phase borrow, so those must not
+//! read the base (`&mut a[a.len() - 1..]` and `a[1..][a[0] as usize] = v` are E0502/E0503
+//! in rustc, unlike the built-in `a[a.len() - 1] = v`): see [`Ranges`]. For the same
+//! reason a `&mut self` method call on an element of a range place is not two-phase
+//! (`a[1..][0].Bump(a[0].X)` is E0503), see `BodyGen::receiver_ref`.
 
 use super::{Access, BodyGen, Expr, LoopKind, Place};
 use crate::program::{int_literal, ConstValue, RetTy};
 use crate::ty::{IntTy, Prim, Ty, ValTy};
 
 const USIZE: Prim = Prim::Int(IntTy::Usize);
+
+/// Whether, and how, [`BodyGen::finish_place`] may put range indices into a place (#10):
+/// before an index segment, so the place keeps its type (`a[i]` becomes `a[1..][i]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Ranges {
+    /// Not at all: a scrutinee, whose patterns decide how the place is used.
+    No,
+    /// The place is read or borrowed shared: an `Index::index` call, whose bounds and
+    /// later indices may read the base.
+    Shared,
+    /// The place is written or borrowed mutably: an `IndexMut::index_mut` call, whose
+    /// bounds and later indices must not touch the base (its root is held as mutably
+    /// borrowed meanwhile).
+    Mut,
+}
+
+impl Ranges {
+    pub(super) fn of(access: Access) -> Self {
+        match access {
+            Access::Write | Access::Borrow(true) => Ranges::Mut,
+            Access::Read | Access::Borrow(false) => Ranges::Shared,
+        }
+    }
+}
+
+/// Whether a place or expression text holds a range (`..` only appears in ranges).
+pub(super) fn has_range(text: &str) -> bool {
+    text.contains("..")
+}
+
+/// A `usize` literal, now and then suffixed.
+fn usize_lit(gen: &mut BodyGen<'_>, v: usize) -> String {
+    if gen.rng.chance(20) {
+        format!("{v}usize")
+    } else {
+        v.to_string()
+    }
+}
 
 impl BodyGen<'_> {
     /// An expression of the array type `a` (sized): a literal, a repeat, a place, a call,
@@ -73,8 +122,17 @@ impl BodyGen<'_> {
             }
             return self.array_repeat(a, depth, typed);
         }
+        // An element may be written `[]` only where this literal's type is known (seed
+        // 12000841 wrote `let v = [[], []];`, E0282 in rustc).
         let elems: Vec<String> = (0..len)
-            .map(|_| self.typed_expr(elem, depth.saturating_sub(1)).text)
+            .map(|_| {
+                let d = depth.saturating_sub(1);
+                if typed {
+                    self.typed_expr(elem, d).text
+                } else {
+                    self.val_expr(elem, d).text
+                }
+            })
             .collect();
         Expr::value(format!("[{}]", elems.join(", ")))
     }
@@ -131,23 +189,48 @@ impl BodyGen<'_> {
     /// Replaces the placeholder of every slice index in `place` (`s[?]`), and now and then
     /// a constant array index, with an index expression (made of leaves only, without
     /// calls, while `simple` is set, as in guards). The root is held as shared meanwhile.
-    pub(super) fn finish_place(&mut self, place: &mut Place) {
+    /// With `ranges`, now and then a range index goes before an index (`a[1..][k]`), and
+    /// for [`Ranges::Mut`] the root is then held as mutably borrowed instead (see
+    /// [`Ranges`]).
+    pub(super) fn finish_place(&mut self, place: &mut Place, ranges: Ranges) {
         if !place.text.contains('[') {
             return;
         }
-        let lock = [(place.root, false)];
+        let with_range: Vec<bool> = place
+            .lens
+            .iter()
+            .map(|_| match ranges {
+                Ranges::No => false,
+                Ranges::Shared => self.range_depth == 0 && self.rng.chance(10),
+                Ranges::Mut => self.range_depth == 0 && self.rng.chance(18),
+            })
+            .collect();
+        let any_range = with_range.contains(&true);
+        let mutable = any_range && ranges == Ranges::Mut;
+        let lock = [(place.root, mutable)];
         self.lock(&lock);
+        self.range_depth += u32::from(any_range);
         let text = place.text.clone();
         let mut out = String::new();
         let mut lens = place.lens.iter().copied();
         let mut rest = text.as_str();
+        let mut segment = 0;
         while let Some(open) = rest.find('[') {
             out.push_str(&rest[..open]);
             let close = open + rest[open..].find(']').expect("a closing bracket");
             let inner = &rest[open + 1..close];
-            let len = lens.next().expect("a length per index");
-            let index = if inner == "?" || self.rng.chance(20) {
-                self.index_expr(&out, len)
+            let mut len = lens.next().expect("a length per index");
+            let has_range_here = with_range[segment];
+            segment += 1;
+            if has_range_here {
+                let range = self.range_index(&out, len, !mutable);
+                out.push('[');
+                out.push_str(&range);
+                out.push(']');
+                len = None;
+            }
+            let index = if inner == "?" || has_range_here || self.rng.chance(20) {
+                self.index_expr(&out, len, !mutable)
             } else {
                 inner.to_owned()
             };
@@ -157,13 +240,26 @@ impl BodyGen<'_> {
             rest = &rest[close + 1..];
         }
         out.push_str(rest);
+        self.range_depth -= u32::from(any_range);
         self.unlock(&lock);
         place.text = out;
     }
 
     /// An index into `base` (an array of `len` elements, or a slice): usually in bounds,
-    /// sometimes out of bounds or overflowing on the way.
-    fn index_expr(&mut self, base: &str, len: Option<usize>) -> String {
+    /// sometimes out of bounds or overflowing on the way. Without `len_ok` the index may
+    /// not measure a slice (`base.len()` would read a mutably borrowed base): mostly `0`.
+    fn index_expr(&mut self, base: &str, len: Option<usize>, len_ok: bool) -> String {
+        if len.is_none() && !len_ok {
+            return match self.rng.weighted(&[50, 20, 15, 15]) {
+                0 => usize_lit(self, 0),
+                1 => {
+                    let e = self.index_operand();
+                    format!("({e} % 2usize)")
+                }
+                2 => usize_lit(self, 1),
+                _ => self.prim_leaf(USIZE).text,
+            };
+        }
         let len_text = match len {
             Some(n) => int_literal(IntTy::Usize, i128::try_from(n).expect("small")),
             None => format!("{}.len()", len_receiver(base)),
@@ -221,6 +317,314 @@ impl BodyGen<'_> {
         }
     }
 
+    /// A range to index `base` with (#10), one of the six forms, without the brackets:
+    /// constant bounds within `len` mostly, computed ones (`(e % 4usize)..`, `..s.len()`)
+    /// now and then, and sometimes bounds out of range, reversed or overflowing. For a
+    /// base of unknown length (a slice, a string) the bounds measure it (`(s.len() -
+    /// 1usize)`) when `len_ok`, and are small constants otherwise.
+    pub(super) fn range_index(&mut self, base: &str, len: Option<usize>, len_ok: bool) -> String {
+        let form = self.rng.weighted(&[26, 18, 16, 8, 18, 14]);
+        match len {
+            Some(n) => self.sized_range(form, n),
+            None if len_ok => {
+                let measured = format!("{}.len()", len_receiver(base));
+                self.measured_range(form, &measured)
+            }
+            None => self.blind_range(form),
+        }
+    }
+
+    /// `(e % m)`: a computed value below `m` (`m > 0`).
+    fn below(&mut self, m: &str) -> String {
+        let e = self.index_operand();
+        format!("({e} % {m})")
+    }
+
+    /// A range into an array of `n` elements (or a string of `n` bytes).
+    fn sized_range(&mut self, form: usize, n: usize) -> String {
+        let bad = self.rng.chance(5);
+        // An inclusive end is out of range of an empty array: `..` instead, unless `bad`.
+        let form = if n == 0 && form >= 4 && !bad { 3 } else { form };
+        let computed = !bad && self.rng.chance(25);
+        let up_to = format!("{}usize", n + 1);
+        match form {
+            // `a..b`
+            0 => {
+                if bad {
+                    if n == 0 || self.rng.chance(50) {
+                        let lo = self.rng.index(n + 1);
+                        format!("{}..{}", usize_lit(self, lo), usize_lit(self, n + 1))
+                    } else {
+                        let hi = self.rng.index(n);
+                        format!("{}..{}", usize_lit(self, hi + 1), usize_lit(self, hi))
+                    }
+                } else if computed {
+                    let c = self.below(&up_to);
+                    if self.rng.chance(50) {
+                        format!("{c}..{}", usize_lit(self, n))
+                    } else {
+                        format!("0..{c}")
+                    }
+                } else {
+                    let lo = self.rng.index(n + 1);
+                    let hi = lo + self.rng.index(n - lo + 1);
+                    format!("{}..{}", usize_lit(self, lo), usize_lit(self, hi))
+                }
+            }
+            // `a..` and `..b`
+            1 | 2 => {
+                let bound = if bad {
+                    usize_lit(self, n + 1)
+                } else if computed {
+                    self.below(&up_to)
+                } else {
+                    let k = self.rng.index(n + 1);
+                    usize_lit(self, k)
+                };
+                if form == 1 {
+                    format!("{bound}..")
+                } else {
+                    format!("..{bound}")
+                }
+            }
+            3 => "..".to_owned(),
+            // `a..=b`: `b < n` and `a <= b + 1`.
+            4 => {
+                if bad || n == 0 {
+                    if n == 0 || self.rng.chance(50) {
+                        let lo = self.rng.index(n + 1);
+                        format!("{}..={}", usize_lit(self, lo), usize_lit(self, n))
+                    } else {
+                        let hi = self.rng.index(n);
+                        format!("{}..={}", usize_lit(self, hi + 2), usize_lit(self, hi))
+                    }
+                } else if computed {
+                    if self.rng.chance(50) {
+                        let c = self.below(&up_to);
+                        format!("{c}..={}", usize_lit(self, n - 1))
+                    } else {
+                        let c = self.below(&format!("{n}usize"));
+                        format!("0..={c}")
+                    }
+                } else {
+                    let hi = self.rng.index(n);
+                    let lo = self.rng.index(hi + 2);
+                    format!("{}..={}", usize_lit(self, lo), usize_lit(self, hi))
+                }
+            }
+            // `..=b`
+            _ => {
+                if bad || n == 0 {
+                    format!("..={}", usize_lit(self, n))
+                } else if computed {
+                    let c = self.below(&format!("{n}usize"));
+                    format!("..={c}")
+                } else {
+                    let hi = self.rng.index(n);
+                    format!("..={}", usize_lit(self, hi))
+                }
+            }
+        }
+    }
+
+    /// A range into a slice or string whose length `len` (`s.len()`) may be read: the
+    /// last element is `(len - 1usize)`, which overflows when it is empty.
+    fn measured_range(&mut self, form: usize, len: &str) -> String {
+        let last = format!("({len} - 1usize)");
+        let up_to = format!("({len} + 1usize)");
+        match form {
+            0 => match self.rng.weighted(&[30, 20, 20, 15, 15]) {
+                0 => format!("0..{len}"),
+                1 => format!("1..{len}"),
+                2 => format!("{}..{len}", self.below(&up_to)),
+                3 => format!("0..{}", self.below(&up_to)),
+                _ => format!("0..{last}"),
+            },
+            1 => match self.rng.weighted(&[30, 15, 15, 25, 15]) {
+                0 => "1..".to_owned(),
+                1 => "0..".to_owned(),
+                2 => format!("{len}.."),
+                3 => format!("{}..", self.below(&up_to)),
+                _ => format!("{last}.."),
+            },
+            2 => match self.rng.weighted(&[25, 15, 30, 30]) {
+                0 => format!("..{len}"),
+                1 => "..1".to_owned(),
+                2 => format!("..{}", self.below(&up_to)),
+                _ => format!("..{last}"),
+            },
+            3 => "..".to_owned(),
+            4 => match self.rng.weighted(&[40, 40, 20]) {
+                0 => format!("0..={last}"),
+                1 => format!("{}..={last}", self.below(&up_to)),
+                _ => "1..=1".to_owned(),
+            },
+            _ => {
+                if self.rng.chance(70) {
+                    format!("..={last}")
+                } else {
+                    "..=0".to_owned()
+                }
+            }
+        }
+    }
+
+    /// A range into a slice or string of unknown length that may not be measured: small
+    /// constants (or now and then a small computed start).
+    fn blind_range(&mut self, form: usize) -> String {
+        match form {
+            0 => (*self.rng.pick(&["0..1", "1..2", "0..0", "1..1"])).to_owned(),
+            1 => {
+                if self.rng.chance(20) {
+                    format!("{}..", self.below("2usize"))
+                } else {
+                    (*self.rng.pick(&["0..", "1.."])).to_owned()
+                }
+            }
+            2 => (*self.rng.pick(&["..0", "..1"])).to_owned(),
+            3 => "..".to_owned(),
+            4 => "0..=0".to_owned(),
+            _ => "..=0".to_owned(),
+        }
+    }
+
+    /// A range index for the place `place` of an array, slice or string type of `len`
+    /// elements, with its root held (as mutably borrowed when `mutable`, see [`Ranges`])
+    /// while the bounds are generated.
+    pub(super) fn locked_range(
+        &mut self,
+        place: &Place,
+        len: Option<usize>,
+        mutable: bool,
+    ) -> String {
+        let lock = [(place.root, mutable)];
+        self.lock(&lock);
+        self.range_depth += 1;
+        let range = self.range_index(&place.text, len, !mutable);
+        self.range_depth -= 1;
+        self.unlock(&lock);
+        range
+    }
+
+    /// `&a[lo..hi]` or `&mut a[lo..hi]` (#10): a reference to the slice type `slice`, of a
+    /// range place of an array or slice place of its element type.
+    pub(super) fn range_borrow(&mut self, mutable: bool, slice: ValTy) -> Option<Expr> {
+        let prog = self.prog;
+        let (elem, None) = prog.array_of(slice)? else {
+            return None;
+        };
+        let place = self.place_where(
+            |t| prog.array_of(t).is_some_and(|(e, _)| e == elem),
+            Access::Borrow(mutable),
+        )?;
+        let (_, len) = prog.array_of(place.ty).expect("an array");
+        let range = self.locked_range(&place, len, mutable);
+        Some(Expr {
+            text: format!(
+                "&{}{}[{range}]",
+                if mutable { "mut " } else { "" },
+                len_receiver(&place.text)
+            ),
+            roots: vec![(place.root, mutable)],
+        })
+    }
+
+    /// A range slice of the reference parameter `p` (or of a sub-place of its referent)
+    /// for the tail of a function returning a `&[T]`, `&mut [T]` or `&str` (`inner`):
+    /// `&s[1..]`, `&mut self.Arr[..k]`; now and then, when there is one.
+    pub(super) fn range_tail(&mut self, p: usize, mutable: bool, inner: ValTy) -> Option<String> {
+        let prog = self.prog;
+        let Ty::Ref { inner: pinner, .. } = self.vars[p].ty else {
+            return None;
+        };
+        let elem = match inner {
+            ValTy::Str => None,
+            _ => match prog.array_of(inner)? {
+                (elem, None) => Some(elem),
+                (_, Some(_)) => return None,
+            },
+        };
+        let subs: Vec<(String, ValTy)> = prog
+            .sub_places(pinner)
+            .into_iter()
+            .filter(|&(_, t)| match elem {
+                None => t == ValTy::Str,
+                Some(elem) => prog.array_of(t).is_some_and(|(e, _)| e == elem),
+            })
+            .map(|(path, t)| (path.replace("[?]", "[0]"), t))
+            .collect();
+        if subs.is_empty() || !self.rng.chance(50) {
+            return None;
+        }
+        let (path, ty) = self.rng.pick(&subs).clone();
+        let text = format!("{}{path}", self.vars[p].name);
+        let len = prog.array_of(ty).and_then(|(_, len)| len);
+        let place = Place {
+            text: text.clone(),
+            ty,
+            root: p,
+            via_ref: Some(mutable),
+            whole: path.is_empty(),
+            no_move: true,
+            lens: Vec::new(),
+        };
+        let range = self.locked_range(&place, len, mutable);
+        Some(format!(
+            "&{}{text}[{range}]",
+            if mutable { "mut " } else { "" }
+        ))
+    }
+
+    /// `let m: &mut [T] = &mut a[lo..hi];` (or a shared one) over an array or slice place
+    /// `a`, then for a mutable one now and then a write or compound assignment through it
+    /// (`m[k] = v;`, `m[k].X += v;`), its right-hand side generated (and evaluated) first.
+    pub(super) fn stmt_range_ref(&mut self, depth: u32) -> bool {
+        let prog = self.prog;
+        let slices: Vec<usize> = (0..prog.arrays.len())
+            .filter(|&a| prog.arrays[a].len.is_none())
+            .collect();
+        if slices.is_empty() {
+            return false;
+        }
+        let slice = ValTy::Array(*self.rng.pick(&slices));
+        let mutable = self.rng.chance(70);
+        let Some(e) = self.range_borrow(mutable, slice) else {
+            return false;
+        };
+        let name = self.fresh_name();
+        let ty = Ty::Ref {
+            mutable,
+            inner: slice,
+        };
+        self.line(&format!("let {name}: {} = {};", prog.ty_name(ty), e.text));
+        self.bind_ref(name.clone(), ty, &e);
+        if !mutable || !self.rng.chance(75) {
+            return true;
+        }
+        let (elem, _) = prog.array_of(slice).expect("a slice");
+        let numeric: Vec<(String, Prim)> = prog
+            .leaves(elem)
+            .into_iter()
+            .filter(|(_, p)| p.is_numeric())
+            .collect();
+        if !numeric.is_empty() && self.rng.chance(45) {
+            let (path, p) = self.rng.pick(&numeric).clone();
+            let op = if p.is_int() {
+                *self.rng.pick(&["+=", "-=", "*=", "^=", "|="])
+            } else {
+                *self.rng.pick(&["+=", "-=", "*="])
+            };
+            let rhs = self.prim_expr(p, 1);
+            let index = self.index_expr(&name, None, true);
+            self.line(&format!("{name}[{index}]{path} {op} {};", rhs.text));
+        } else {
+            let rhs = self.typed_expr(elem, depth.saturating_sub(1));
+            let index = self.index_expr(&name, None, true);
+            self.line(&format!("{name}[{index}] = {};", rhs.text));
+        }
+        true
+    }
+
     fn index_operand(&mut self) -> String {
         if self.simple > 0 {
             self.prim_leaf(USIZE).text
@@ -230,11 +634,22 @@ impl BodyGen<'_> {
     }
 
     /// `x.len()` for a place `x` of array or slice type that may be borrowed (or, with the
-    /// violation knob, one that may not).
+    /// violation knob, one that may not), now and then of a range place of it
+    /// (`x[1..].len()`), or the length of a string (#10).
     pub(super) fn len_expr(&mut self) -> Option<Expr> {
         let prog = self.prog;
+        let choice = self.rng.weighted(&[55, 20, 25]);
+        if choice == 2 {
+            return Some(self.str_len_expr());
+        }
         let (place, _) = self.any_place(Access::Borrow(false), |t| prog.array_of(t).is_some())?;
-        Some(Expr::value(format!("{}.len()", len_receiver(&place.text))))
+        let receiver = len_receiver(&place.text);
+        if choice == 1 && self.range_depth == 0 {
+            let (_, len) = prog.array_of(place.ty).expect("an array");
+            let range = self.locked_range(&place, len, false);
+            return Some(Expr::value(format!("{receiver}[{range}].len()")));
+        }
+        Some(Expr::value(format!("{receiver}.len()")))
     }
 
     /// `let mut i: usize = 0usize; while i < x.len() { ..x[i].. ; i += 1usize; }` over an
@@ -262,14 +677,24 @@ impl BodyGen<'_> {
             self.declare(name, Ty::Val(ty), true, false);
         }
         // The condition runs on every iteration and the body writes the place again, so its
-        // index expressions are leaves.
-        let found =
-            self.simply(|gen| gen.any_place(Access::Borrow(false), |t| prog.array_of(t).is_some()));
+        // index expressions are leaves, and its ranges are made for a mutable use.
+        let found = self.simply(|gen| {
+            gen.any_place_with(
+                Access::Borrow(false),
+                |t| prog.array_of(t).is_some(),
+                Ranges::Mut,
+            )
+        });
         let Some((place, _)) = found else {
             return false;
         };
-        let (elem, _) = prog.array_of(place.ty).expect("an array");
-        let base = len_receiver(&place.text);
+        let (elem, len) = prog.array_of(place.ty).expect("an array");
+        let mut base = len_receiver(&place.text);
+        if self.range_depth == 0 && self.rng.chance(35) {
+            // Walk a range place of it (`while i < a[1..].len() { a[1..][i] .. }`).
+            let range = self.simply(|gen| gen.locked_range(&place, len, true));
+            base = format!("{base}[{range}]");
+        }
         let i = self.fresh_name();
         self.line(&format!("let mut {i}: usize = 0usize;"));
         self.declare(i.clone(), Ty::prim(USIZE), true, true);
@@ -355,7 +780,8 @@ impl BodyGen<'_> {
     }
 }
 
-/// The receiver of `.len()` for a place: `*s` is written `s` (auto-deref).
+/// The receiver of `.len()` (or the base of a range index) for a place: `*s` is written
+/// `s` (auto-deref).
 pub(super) fn len_receiver(text: &str) -> String {
     match text.strip_prefix('*') {
         Some(name) => name.to_owned(),

@@ -1,0 +1,14 @@
+// A start after the end, both in bounds, panics with "byte range starts at 3 but ends at
+// 1". The start is checked against the length first, then the end, then their order:
+// `Cut(s, 3, 3)` is empty. Located at the `[` (5:7).
+fn Cut(s: &str, a: usize, b: usize) -> &str {
+    &s[a..b]
+}
+
+fn Main() {
+    Print("[");
+    Print(Cut("hello", 3, 3));
+    PrintLine("]");
+    PrintLine(Cut("hello", 3, 1));
+    PrintLine("not reached");
+}

@@ -1,0 +1,14 @@
+//@ release
+// In a release build bound arithmetic wraps but the range check stays: `n - 1` for
+// `n = 0` wraps to 18446744073709551615 and `&s[..n - 1]` panics with "range end index
+// 18446744073709551615 out of range for slice of length 3" (6:7).
+fn AllButLast(s: &[i32], n: usize) -> &[i32] {
+    &s[..n - 1]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    PrintLine(AllButLast(&a, 3).len());
+    PrintLine(AllButLast(&a, 0).len());
+    PrintLine("not reached");
+}

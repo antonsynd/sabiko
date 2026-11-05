@@ -1,7 +1,8 @@
 //! The type universe of the generated subset: the primitive types, user structs and enums,
-//! tuples and arrays of value types, slices (behind references only), and references to
-//! any of them (never to references; tuples, arrays, struct fields and enum payloads never
-//! hold references).
+//! tuples and arrays of value types, slices and `str` (behind references only), and
+//! references to any of them (never to references; tuples, arrays, struct fields and enum
+//! payloads never hold references, so no `&str` either: TODO(#43) for `&str` in structs,
+//! enums and arrays, TODO(#11) for `&&str`).
 
 /// The twelve integer types of the shared subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,6 +157,7 @@ impl Prim {
 /// tuple (by index into the program's tuple types), an enum (by index into its enums) or an
 /// array (by index into its array types). An array type without a length is a slice
 /// `[T]`, which is unsized: it only appears behind a reference (`Ty::Ref`, `RetTy::Ref`).
+/// So does `str` (#10), and only behind a shared one (`&str`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValTy {
     Prim(Prim),
@@ -163,6 +165,7 @@ pub enum ValTy {
     Tuple(usize),
     Enum(usize),
     Array(usize),
+    Str,
 }
 
 /// A type a local or parameter can have. References point at values only (`&&T` is not
@@ -178,6 +181,12 @@ pub enum Ty {
 }
 
 impl Ty {
+    /// `&str`, the only reference to a `str` in the subset.
+    pub const STR: Ty = Ty::Ref {
+        mutable: false,
+        inner: ValTy::Str,
+    };
+
     pub fn prim(p: Prim) -> Ty {
         Ty::Val(ValTy::Prim(p))
     }

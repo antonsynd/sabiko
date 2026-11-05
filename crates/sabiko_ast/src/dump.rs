@@ -424,6 +424,14 @@ impl Dumper {
                     d.expr(i);
                 });
             }
+            ExprKind::Range(lo, hi, end) => {
+                self.line(&format!("Range {}", end.as_str()));
+                self.nested(|d| {
+                    for bound in [lo, hi].into_iter().flatten() {
+                        d.expr(bound);
+                    }
+                });
+            }
             ExprKind::Ref { mutable, expr } => {
                 self.line(if *mutable { "RefMut" } else { "Ref" });
                 self.nested(|d| d.expr(expr));

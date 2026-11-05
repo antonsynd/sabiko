@@ -1,0 +1,13 @@
+// `..=b` with `b == len`: "range end index 5 out of range for slice of length 5" (rustc
+// 1.99 prints `b`, not `b + 1`) (4:6); `..=4` is the whole slice.
+fn UpTo(s: &[i32], b: usize) -> usize {
+    s[..=b].len()
+}
+
+fn Main() {
+    let a = [1, 2, 3, 4, 5];
+    PrintLine(UpTo(&a, 0));
+    PrintLine(UpTo(&a, 4));
+    PrintLine(UpTo(&a, 5));
+    PrintLine("not reached");
+}

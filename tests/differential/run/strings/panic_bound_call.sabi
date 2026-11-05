@@ -1,0 +1,23 @@
+// A bound expression that panics: the base and the start bound have been evaluated (and
+// printed) before the end bound's call panics, at the `Panic` call (16:5).
+fn Src(s: &str) -> &str {
+    Print("src ");
+    PrintLine(s);
+    s
+}
+
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Fail() -> usize {
+    Panic("no end")
+}
+
+fn Main() {
+    PrintLine(&Src("abcdef")[Idx(1)..Idx(2)]);
+    PrintLine(&Src("abcdef")[Idx(1)..Fail()]);
+    PrintLine("not reached");
+}

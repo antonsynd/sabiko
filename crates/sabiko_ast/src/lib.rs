@@ -488,6 +488,10 @@ pub enum ExprKind {
     /// only a plain decimal one names a tuple field).
     Field(Box<Expr>, Ident),
     Index(Box<Expr>, Box<Expr>),
+    /// `a..b`, `a..`, `..b`, `..`, `a..=b`, `..=b` (an inclusive range always has an end).
+    /// Only the whole index of an [`ExprKind::Index`] is parsed as a range (#10); its span
+    /// starts at the index's `[`, where rustc locates a panic of the slicing.
+    Range(Option<Box<Expr>>, Option<Box<Expr>>, RangeEnd),
     /// `&e` or `&mut e`
     Ref {
         mutable: bool,

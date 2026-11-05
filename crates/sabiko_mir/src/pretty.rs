@@ -225,6 +225,20 @@ impl Printer<'_> {
             }
             Rvalue::Repeat(op, n) => format!("[{}; {n}]", self.operand(op)),
             Rvalue::Len(place) => format!("Len({})", self.place(place)),
+            Rvalue::Subslice(base, bounds) => {
+                let lo = bounds
+                    .lo
+                    .as_ref()
+                    .map(|o| self.operand(o))
+                    .unwrap_or_default();
+                let hi = bounds
+                    .hi
+                    .as_ref()
+                    .map(|o| self.operand(o))
+                    .unwrap_or_default();
+                let dots = if bounds.inclusive { "..=" } else { ".." };
+                format!("Subslice({}, {lo}{dots}{hi})", self.operand(base))
+            }
             Rvalue::Aggregate(AggregateKind::Array(_), elems) => {
                 let ops: Vec<String> = elems.iter().map(|op| self.operand(op)).collect();
                 format!("[{}]", ops.join(", "))

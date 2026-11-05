@@ -1,9 +1,16 @@
-[E0107] Error: not yet supported: string literal patterns
-   ╭─[ tests/ui/typeck/string_literal_pattern.sabi:5:9 ]
+[E0328] Error: non-exhaustive patterns: `&_` not covered
+   ╭─[ tests/ui/typeck/string_literal_pattern.sabi:5:11 ]
    │
- 5 │         "a" => 1, //~ ERROR E0107 not yet supported: string literal patterns
-   │         ─┬─  
-   │          ╰─── string literal patterns are not yet supported
+ 5 │     match s { //~ ERROR E0328 non-exhaustive patterns: `&_` not covered
+   │           ┬  
+   │           ╰── pattern `&_` not covered
    │ 
-   │ Note: planned with `&str` support (#10); see docs/PLAN.md
+   │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
 ───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/string_literal_pattern.sabi:13:9 ]
+    │
+ 13 │         "a" => 1, //~ ERROR E0300 mismatched types
+    │         ─┬─  
+    │          ╰─── expected `&&str`, found `&str`
+────╯

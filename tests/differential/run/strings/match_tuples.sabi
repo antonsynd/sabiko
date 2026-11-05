@@ -1,0 +1,51 @@
+// Tuples with `&str` elements as scrutinees: string literals next to integer and boolean
+// patterns, wildcards in either position, or-patterns inside a tuple, guards, bindings.
+fn Score(op: &str, n: i32) -> i32 {
+    match (op, n) {
+        ("double", 0) => 0,
+        ("double", x) => x * 2,
+        ("neg" | "minus", x) => -x,
+        (_, 0) => 1000,
+        (name, x) if name.len() == x as usize => 7,
+        _ => -1,
+    }
+}
+
+fn Pair(a: &str, b: &str) {
+    match (a, b) {
+        ("left", "right") | ("right", "left") => PrintLine("opposite"),
+        ("", _) | (_, "") => PrintLine("missing"),
+        (x, y) if x == y => PrintLine("same"),
+        (_, "up") => PrintLine("something up"),
+        _ => PrintLine("other"),
+    }
+}
+
+fn Main() {
+    PrintLine(Score("double", 0));
+    PrintLine(Score("double", 21));
+    PrintLine(Score("neg", 5));
+    PrintLine(Score("minus", -5));
+    PrintLine(Score("other", 0));
+    PrintLine(Score("four", 4));
+    PrintLine(Score("four", 5));
+    Pair("left", "right");
+    Pair("right", "left");
+    Pair("", "x");
+    Pair("x", "");
+    Pair("same", "same");
+    Pair("look", "up");
+    Pair("left", "left ");
+    let s = "keyvalue";
+    let flag = s.len() > 4;
+    match (&s[..3], flag, &s[3..]) {
+        ("key", true, "value") => PrintLine("all three"),
+        ("key", _, _) => PrintLine("key only"),
+        _ => PrintLine("none"),
+    }
+    let t = (&s[3..5], 2);
+    match t {
+        ("va", 2) => PrintLine("va 2"),
+        _ => PrintLine("no"),
+    }
+}

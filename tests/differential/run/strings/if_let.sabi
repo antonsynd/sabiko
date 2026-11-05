@@ -1,0 +1,39 @@
+// String literal patterns in `if let` (with `else`, `else if let`, or-patterns, inside a
+// tuple), `while let` consuming a string one character at a time while it starts with
+// "ab", and `while let` over a tuple holding a slice.
+fn Kind(s: &str) -> i32 {
+    if let "yes" | "y" = s {
+        1
+    } else if let "no" = s {
+        0
+    } else {
+        -1
+    }
+}
+
+fn Main() {
+    PrintLine(Kind("yes"));
+    PrintLine(Kind("y"));
+    PrintLine(Kind("no"));
+    PrintLine(Kind("maybe"));
+    let s = "ababab-rest";
+    let mut rest = s;
+    let mut n = 0;
+    while let "ab" = &rest[..2] {
+        n += 1;
+        rest = &rest[2..];
+    }
+    PrintLine(n);
+    PrintLine(rest);
+    let mut i = 0;
+    while let ("x", true) = (&"xxxy"[i..i + 1], i < 10) {
+        i += 1;
+    }
+    PrintLine(i);
+    if let ("a", count) = (&s[..1], s.len()) {
+        PrintLine(count);
+    }
+    if let "" = &s[3..3] {
+        PrintLine("empty slice matched");
+    }
+}

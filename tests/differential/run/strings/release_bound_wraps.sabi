@@ -1,0 +1,13 @@
+//@ release
+// In a release build bound arithmetic wraps, but the range checks stay: `n - 1` for
+// `n = 0` wraps to 18446744073709551615 and `&s[n - 1..]` panics with "start byte index
+// 18446744073709551615 is out of bounds for string of length 5" (6:7).
+fn Last(s: &str, n: usize) -> &str {
+    &s[n - 1..]
+}
+
+fn Main() {
+    PrintLine(Last("hello", 5));
+    PrintLine(Last("hello", 0));
+    PrintLine("not reached");
+}

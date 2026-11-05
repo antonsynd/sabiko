@@ -1,0 +1,13 @@
+// An array or `&str` initialised on every path before it is sliced: accepted.
+fn Pick(flag: bool) -> usize {
+    let a: [i32; 3];
+    let s: &str;
+    if flag {
+        a = [1, 2, 3];
+        s = "yes";
+    } else {
+        a = [4, 5, 6];
+        s = "no";
+    }
+    a[1..].len() + s[1..].len()
+}

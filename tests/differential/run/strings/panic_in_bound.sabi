@@ -1,0 +1,11 @@
+// Overflow in a bound expression panics before slicing ("attempt to subtract with
+// overflow", at the subtraction, 4:8), in a debug build.
+fn Last(s: &str, n: usize) -> &str {
+    &s[n - 1..]
+}
+
+fn Main() {
+    PrintLine(Last("hello", 5));
+    PrintLine(Last("hello", 0));
+    PrintLine("not reached");
+}

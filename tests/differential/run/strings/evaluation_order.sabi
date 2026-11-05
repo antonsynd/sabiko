@@ -1,0 +1,30 @@
+// Evaluation order: the base of a range index first, then the start bound, then the end
+// bound, then the bounds check; nested slices outside in; both operands of a comparison
+// left to right before comparing; tuple scrutinee elements left to right.
+fn Src(s: &str) -> &str {
+    Print("src ");
+    PrintLine(s);
+    s
+}
+
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Main() {
+    PrintLine(&Src("abcdef")[Idx(1)..Idx(4)]);
+    PrintLine(&Src("abcdef")[Idx(2)..=Idx(3)]);
+    PrintLine(&Src("abcdef")[..Idx(2)]);
+    PrintLine(&Src("abcdef")[Idx(5)..]);
+    PrintLine(Src("abcdef")[Idx(0)..Idx(3)][Idx(1)..].len());
+    PrintLine(Src("b") < Src("a"));
+    PrintLine(&Src("xy")[Idx(0)..Idx(1)] == &Src("yx")[Idx(1)..]);
+    match (Src("k"), Idx(7)) {
+        ("k", 7) => PrintLine("matched"),
+        _ => PrintLine("no"),
+    }
+    let s = "0123456789";
+    PrintLine(&s[Idx(1) + Idx(2)..Idx(9) - Idx(3)]);
+}

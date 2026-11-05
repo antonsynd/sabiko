@@ -546,6 +546,15 @@ impl Generator<'_> {
                 self.operand(rhs, location);
                 RegionTy::Other
             }
+            // A sub-slice borrows what its base reference borrows (rustc's `Index::index`
+            // returns a reference with the lifetime of its argument).
+            Rvalue::Subslice(base, bounds) => {
+                let ty = self.operand(base, location);
+                for bound in bounds.operands() {
+                    self.operand(bound, location);
+                }
+                ty
+            }
             Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), fields) => {
                 for field in fields {
                     self.operand(field, location);
@@ -770,6 +779,11 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
                 }
                 Rvalue::Aggregate(_, ops) => ops
                     .iter()
+                    .filter_map(Operand::place)
+                    .for_each(|p| add(p, at)),
+                Rvalue::Subslice(..) => rvalue
+                    .operands()
+                    .into_iter()
                     .filter_map(Operand::place)
                     .for_each(|p| add(p, at)),
                 Rvalue::Ref(_, place) | Rvalue::Discriminant(place) | Rvalue::Len(place) => {

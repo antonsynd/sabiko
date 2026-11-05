@@ -1,0 +1,12 @@
+// `..=b` with `b == len` is one past the end: "end byte index 5 is out of bounds for
+// string of length 5" (rustc prints `b`, not `b + 1`); `..=4` is the whole string. At 4:7.
+fn UpTo(s: &str, b: usize) -> &str {
+    &s[..=b]
+}
+
+fn Main() {
+    PrintLine(UpTo("hello", 0));
+    PrintLine(UpTo("hello", 4));
+    PrintLine(UpTo("hello", 5));
+    PrintLine("not reached");
+}

@@ -1,0 +1,37 @@
+// `.len()` of a `&str`: literals, parameters, escapes (each escape is one ASCII character),
+// line continuations, slices, in `while` conditions and arithmetic.
+fn Total(a: &str, b: &str) -> usize {
+    a.len() + b.len()
+}
+
+fn CountSpaces(s: &str) -> usize {
+    let mut i = 0;
+    let mut n = 0;
+    while i < s.len() {
+        if &s[i..i + 1] == " " {
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
+
+fn Main() {
+    PrintLine("hello".len());
+    PrintLine("".len());
+    PrintLine("a\nb".len());
+    PrintLine("tab\there\\ \"q\"\0".len());
+    PrintLine("\x41\u{42}".len());
+    PrintLine("one \
+               two".len());
+    let s = "the quick brown fox";
+    PrintLine(s.len());
+    PrintLine(Total(s, "!!"));
+    PrintLine(CountSpaces(s));
+    PrintLine(s.len() - CountSpaces(s));
+    let k = s.len() / 2;
+    PrintLine(&s[k..]);
+    let n: u64 = s.len() as u64 * 3;
+    PrintLine(n);
+    PrintLine(s.len() == 19);
+}

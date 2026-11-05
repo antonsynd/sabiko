@@ -1,0 +1,66 @@
+// Comparing slices of one string with each other and with literals in loops: a naive
+// substring search, a count of occurrences, a palindrome test with one-character slices,
+// and the longest common prefix of two strings.
+fn Find(hay: &str, needle: &str) -> usize {
+    let n = needle.len();
+    let mut i = 0;
+    while i + n <= hay.len() {
+        if &hay[i..i + n] == needle {
+            return i;
+        }
+        i += 1;
+    }
+    hay.len()
+}
+
+fn Count(hay: &str, needle: &str) -> i32 {
+    let mut c = 0;
+    let mut rest = hay;
+    loop {
+        let at = Find(rest, needle);
+        if at == rest.len() {
+            return c;
+        }
+        c += 1;
+        rest = &rest[at + needle.len()..];
+    }
+}
+
+fn IsPalindrome(s: &str) -> bool {
+    let mut i = 0;
+    let mut j = s.len();
+    while i + 1 < j {
+        if &s[i..=i] != &s[j - 1..j] {
+            return false;
+        }
+        i += 1;
+        j -= 1;
+    }
+    true
+}
+
+fn CommonPrefix(a: &str, b: &str) -> usize {
+    let mut n = 0;
+    while n < a.len() && n < b.len() && &a[..=n] == &b[..=n] {
+        n += 1;
+    }
+    n
+}
+
+fn Main() {
+    let text = "the cat sat on the mat";
+    PrintLine(Find(text, "cat"));
+    PrintLine(Find(text, "mat"));
+    PrintLine(Find(text, "dog"));
+    PrintLine(Find(text, ""));
+    PrintLine(Count(text, "at"));
+    PrintLine(Count(text, "the"));
+    PrintLine(Count("aaaa", "aa"));
+    PrintLine(IsPalindrome("racecar"));
+    PrintLine(IsPalindrome("abba"));
+    PrintLine(IsPalindrome("abca"));
+    PrintLine(IsPalindrome(""));
+    PrintLine(CommonPrefix("interstellar", "internet"));
+    PrintLine(CommonPrefix("abc", "xyz"));
+    PrintLine(CommonPrefix("same", "same"));
+}

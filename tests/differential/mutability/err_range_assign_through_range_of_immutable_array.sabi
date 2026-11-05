@@ -1,0 +1,6 @@
+// Assigning an element of a range place (`a[1..][0] = 5`, an `IndexMut` call) of an array
+// bound without `mut`: E0596 (cannot borrow `a` as mutable).
+fn Main() {
+    let a = [1, 2, 3];
+    a[1..][0] = 5;
+}

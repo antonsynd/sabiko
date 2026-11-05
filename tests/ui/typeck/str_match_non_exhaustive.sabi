@@ -1,0 +1,25 @@
+// A `match` on a `&str` needs a catch-all (#10): without `_` or a binding it is E0328
+// (rustc's E0004), the missing pattern printed `&_`; in a tuple the integer ranges not
+// covered are listed. A string literal in a plain `let` is refutable (E0329, rustc E0005).
+fn Code(s: &str) -> i32 {
+    match s { // rustc E0004: non-exhaustive patterns: `&_` not covered [pattern `&_` not covered]
+    //~^ ERROR E0328 non-exhaustive patterns: `&_` not covered
+        "a" => 1,
+        "b" | "c" => 2,
+    }
+}
+
+fn Pair(s: &str, n: i32) -> i32 {
+    match (s, n) { // rustc E0004: non-exhaustive patterns: `(&_, i32::MIN..=0_i32)` and `(&_, 2_i32..=i32::MAX)` not covered [patterns `(&_, i32::MIN..=0_i32)` and `(&_, 2_i32..=i32::MAX)` not covered]
+    //~^ ERROR E0328 non-exhaustive patterns: `(&_, i32::MIN..=0_i32)` and `(&_, 2_i32..=i32::MAX)` not covered
+        ("a", _) => 1,
+        (_, 1) => 2,
+    }
+}
+
+fn Main() {
+    let s = "x";
+    let "x" = s; // rustc E0005: refutable pattern in local binding [pattern `&_` not covered]
+    //~^ ERROR E0329 refutable pattern in local binding
+    PrintLine(Code(s) + Pair(s, 0));
+}

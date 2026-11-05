@@ -1,0 +1,91 @@
+// Slicing slice parameters: recursion on `&s[1..]`, a binary search that halves a
+// `&[T]`, returning a sub-slice of a parameter (`fn Middle(s: &[i32]) -> &[i32]`), an
+// insertion sort over `&mut a[2..]` that leaves the first two elements alone, and a
+// reversal of a sub-range of a `&mut [T]` parameter.
+fn Sum(s: &[i32]) -> i32 {
+    if s.len() == 0 {
+        0
+    } else {
+        s[0] + Sum(&s[1..])
+    }
+}
+
+fn Contains(s: &[i32], x: i32) -> bool {
+    if s.len() == 0 {
+        return false;
+    }
+    let mid = s.len() / 2;
+    if s[mid] == x {
+        true
+    } else if s[mid] < x {
+        Contains(&s[mid + 1..], x)
+    } else {
+        Contains(&s[..mid], x)
+    }
+}
+
+fn Middle(s: &[i32]) -> &[i32] {
+    if s.len() <= 2 {
+        s
+    } else {
+        &s[1..s.len() - 1]
+    }
+}
+
+fn Sort(s: &mut [i32]) {
+    let mut i = 1;
+    while i < s.len() {
+        let mut j = i;
+        while j > 0 && s[j - 1] > s[j] {
+            let t = s[j];
+            s[j] = s[j - 1];
+            s[j - 1] = t;
+            j -= 1;
+        }
+        i += 1;
+    }
+}
+
+fn ReverseRange(s: &mut [i32], from: usize, to: usize) {
+    let r = &mut s[from..to];
+    let n = r.len();
+    let mut i = 0;
+    while i < n / 2 {
+        let t = r[i];
+        r[i] = r[n - 1 - i];
+        r[n - 1 - i] = t;
+        i += 1;
+    }
+}
+
+fn Show(s: &[i32]) {
+    let mut i = 0;
+    while i < s.len() {
+        Print(s[i]);
+        Print(" ");
+        i += 1;
+    }
+    PrintLine("");
+}
+
+fn Main() {
+    let sorted = [1, 3, 5, 7, 9, 11, 13];
+    PrintLine(Sum(&sorted));
+    PrintLine(Sum(&sorted[3..]));
+    PrintLine(Contains(&sorted, 9));
+    PrintLine(Contains(&sorted, 4));
+    PrintLine(Contains(&sorted[..3], 7));
+    Show(Middle(&sorted));
+    Show(Middle(Middle(&sorted)));
+    Show(&Middle(&sorted)[1..]);
+    PrintLine(Middle(&sorted[..2]).len());
+    let mut a = [9, 8, 5, 1, 4, 2, 3];
+    Sort(&mut a[2..]);
+    Show(&a);
+    ReverseRange(&mut a, 1, 5);
+    Show(&a);
+    let s: &mut [i32] = &mut a;
+    ReverseRange(s, 0, 7);
+    Sort(&mut s[..3]);
+    Show(&a);
+}

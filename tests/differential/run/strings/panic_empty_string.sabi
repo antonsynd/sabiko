@@ -1,0 +1,14 @@
+// Slicing the empty string: `0..0`, `..`, `0..` are fine; `1..` panics with "start byte
+// index 1 is out of bounds for string of length 0" (4:7).
+fn From(s: &str, a: usize) -> &str {
+    &s[a..]
+}
+
+fn Main() {
+    let e = "";
+    PrintLine(e[0..0].len());
+    PrintLine(e[..].len());
+    PrintLine(From(e, 0).len());
+    PrintLine(From(e, 1).len());
+    PrintLine("not reached");
+}

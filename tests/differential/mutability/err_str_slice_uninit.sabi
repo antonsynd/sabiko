@@ -1,0 +1,5 @@
+// Slicing a `&str` local that was never assigned: E0381.
+fn Main() {
+    let s: &str;
+    PrintLine(&s[1..]);
+}

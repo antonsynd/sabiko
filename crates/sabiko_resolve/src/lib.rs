@@ -1639,6 +1639,11 @@ impl Resolver<'_> {
                 self.resolve_expr(a);
                 self.resolve_expr(b);
             }
+            ExprKind::Range(lo, hi, _) => {
+                for bound in [lo, hi].into_iter().flatten() {
+                    self.resolve_expr(bound);
+                }
+            }
             ExprKind::Call { callee, args } => {
                 self.resolve_expr(callee);
                 for a in args {

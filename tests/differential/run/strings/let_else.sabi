@@ -1,0 +1,45 @@
+// String literal patterns in `let`-`else`: the `else` block diverges by `return` or a
+// loop's `break`/`continue`; a tuple pattern binds the other element.
+fn Expect(s: &str) -> i32 {
+    let "ok" = s else {
+        PrintLine("not ok");
+        return 0;
+    };
+    PrintLine("ok");
+    1
+}
+
+fn Value(cmd: &str, arg: i32) -> i32 {
+    let ("set" | "put", v) = (cmd, arg) else {
+        return -1;
+    };
+    v * 10
+}
+
+fn Main() {
+    PrintLine(Expect("ok"));
+    PrintLine(Expect("ko"));
+    PrintLine(Value("set", 4));
+    PrintLine(Value("put", 5));
+    PrintLine(Value("get", 6));
+    let text = "aaab";
+    let mut i = 0;
+    let mut seen = 0;
+    while i < text.len() {
+        let piece = &text[i..=i];
+        i += 1;
+        let "a" = piece else {
+            continue;
+        };
+        seen += 1;
+    }
+    PrintLine(seen);
+    let mut j = 0;
+    loop {
+        let "a" = &text[j..j + 1] else {
+            break;
+        };
+        j += 1;
+    }
+    PrintLine(j);
+}

@@ -1,0 +1,33 @@
+// String literal patterns match `&str` scrutinees only (#10): a literal against an integer,
+// an integer or `char` literal against a `&str` (rustc says "expected `str`", the literal
+// patterns being compared through the reference), and a literal against a `&&str` (default
+// binding modes do not apply to literals of reference type) are mismatches (rustc E0308).
+// `match s[..1]` is one too in rustc; Sabiko rejects the unsized scrutinee first (E0208),
+// `match &s[..1]` being the supported form.
+fn Main() {
+    let s = "abc";
+    let n = 5;
+    let rs = &s;
+    match n {
+        "five" => PrintLine(1), // rustc E0308: mismatched types [expected integer, found `&str`]
+        //~^ ERROR E0300 mismatched types
+        _ => PrintLine(0),
+    }
+    match s {
+        5 => PrintLine(1), // rustc E0308: mismatched types [expected `str`, found integer]
+        //~^ ERROR E0300 mismatched types
+        'a' => PrintLine(2), // rustc E0308: mismatched types [expected `str`, found `char`]
+        //~^ ERROR E0300 mismatched types
+        _ => PrintLine(0),
+    }
+    match rs {
+        "abc" => PrintLine(1), // rustc E0308: mismatched types [expected `&&str`, found `&str`]
+        //~^ ERROR E0300 mismatched types
+        _ => PrintLine(0),
+    }
+    match s[..1] {
+    //~^ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+        "a" => PrintLine(1), // rustc E0308: mismatched types [expected `str`, found `&str`]
+        _ => PrintLine(0),
+    }
+}

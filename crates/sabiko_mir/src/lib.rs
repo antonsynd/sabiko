@@ -226,6 +226,12 @@ impl Body {
                                     operand(op, &mut f);
                                 }
                             }
+                            Rvalue::Subslice(base, bounds) => {
+                                operand(base, &mut f);
+                                for op in bounds.operands() {
+                                    operand(op, &mut f);
+                                }
+                            }
                             Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => f(p),
                         }
                     }
@@ -526,6 +532,52 @@ pub enum Rvalue {
     /// to `&[T]` / `&mut [T]` (unsizing), or `&mut [T]` to `&[T]`. The result is the
     /// type given, and borrows what the operand borrows.
     PointerCoercion(Operand, Ty),
+    /// `base[lo..hi]` (#10): the part of the string or slice the reference `base` points
+    /// to, a reference of `base`'s type (`&str`, `&[T]` or `&mut [T]`) that borrows what
+    /// `base` borrows, as rustc's `Index::index` call returns it. A missing bound is the
+    /// start or the end; bounds out of range panic with rustc's messages, checked by the
+    /// backend where the statement runs.
+    Subslice(Operand, Box<SliceBounds>),
+}
+
+/// The bounds of an [`Rvalue::Subslice`], each a `usize`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SliceBounds {
+    pub lo: Option<Operand>,
+    pub hi: Option<Operand>,
+    /// `lo..=hi`: `hi` is included (and always present).
+    pub inclusive: bool,
+}
+
+impl SliceBounds {
+    pub fn operands(&self) -> impl Iterator<Item = &Operand> {
+        self.lo.iter().chain(&self.hi)
+    }
+
+    pub fn operands_mut(&mut self) -> impl Iterator<Item = &mut Operand> {
+        self.lo.iter_mut().chain(&mut self.hi)
+    }
+}
+
+impl Rvalue {
+    /// The operands of the rvalue, in evaluation order; a `Ref`, `Discriminant` or `Len`
+    /// names a place instead and has none.
+    #[must_use]
+    pub fn operands(&self) -> Vec<&Operand> {
+        match self {
+            Rvalue::Use(op)
+            | Rvalue::UnaryOp(_, op)
+            | Rvalue::Cast(op, _)
+            | Rvalue::Repeat(op, _)
+            | Rvalue::PointerCoercion(op, _) => vec![op],
+            Rvalue::BinaryOp(_, l, r) => vec![l, r],
+            Rvalue::Aggregate(_, ops) => ops.iter().collect(),
+            Rvalue::Subslice(base, bounds) => {
+                std::iter::once(base).chain(bounds.operands()).collect()
+            }
+            Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => Vec::new(),
+        }
+    }
 }
 
 /// The places an rvalue reads, moves, borrows or measures.
@@ -545,6 +597,14 @@ pub fn rvalue_places(rvalue: &Rvalue) -> impl Iterator<Item = &Place> {
                 .into_iter();
         }
         Rvalue::Aggregate(_, ops) => (None, ops.as_slice()),
+        Rvalue::Subslice(..) => {
+            return rvalue
+                .operands()
+                .into_iter()
+                .filter_map(Operand::place)
+                .collect::<Vec<_>>()
+                .into_iter();
+        }
         Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => (Some(p), &[]),
     };
     one.into_iter()
@@ -573,7 +633,7 @@ impl Rvalue {
     #[must_use]
     pub fn ty(&self, body: &Body) -> Ty {
         match self {
-            Rvalue::Use(op) | Rvalue::UnaryOp(_, op) => op.ty(body),
+            Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Subslice(op, _) => op.ty(body),
             Rvalue::Ref(kind, place) => Ty::Ref(kind.mutability(), Box::new(place.ty(body))),
             Rvalue::BinaryOp(op, lhs, _) => {
                 if op.is_comparison() {

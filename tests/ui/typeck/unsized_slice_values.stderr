@@ -1,0 +1,36 @@
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_slice_values.sabi:7:13 ]
+   │
+ 7 │     let t = s[1..]; // rustc E0277: the size for values of type `str` cannot be known at compilation time [doesn't have a size known at compile-time]
+   │             ───┬──  
+   │                ╰──── doesn't have a size known at compile-time
+   │ 
+   │ Note: string values are used behind a reference: `&str`
+───╯
+[E0208] Error: the size for values of type `[_]` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_slice_values.sabi:9:13 ]
+   │
+ 9 │     let u = a[..2]; // rustc E0277: the size for values of type `[{integer}]` cannot be known at compilation time [doesn't have a size known at compile-time]
+   │             ───┬──  
+   │                ╰──── doesn't have a size known at compile-time
+   │ 
+   │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+───╯
+[E0208] Error: the size for values of type `[_]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_values.sabi:11:23 ]
+    │
+ 11 │     let v: [i32; 2] = a[1..]; // rustc E0308: mismatched types [expected `[i32; 2]`, found `[{integer}]`]
+    │                       ───┬──  
+    │                          ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_values.sabi:13:15 ]
+    │
+ 13 │     PrintLine(s[..2]); // rustc E0277: the size for values of type `str` cannot be known at compilation time [doesn't have a size known at compile-time]
+    │               ───┬──  
+    │                  ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯

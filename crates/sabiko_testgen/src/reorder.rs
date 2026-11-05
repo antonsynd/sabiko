@@ -19,8 +19,9 @@
 //!   `PrintLine`, `Panic`, a user function or a method, which may print, panic or write
 //!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation, a
 //!   compound assignment, an index other than an integer literal within an array's length
-//!   (which may be out of bounds), a `[x; 0]` whose `x` has drop glue (it is dropped at
-//!   once), or a value with drop glue (whose `drop` prints): a `let` of one,
+//!   (which may be out of bounds; a range index `a[i..j]` always counts, #10), a `[x; 0]`
+//!   whose `x` has drop glue (it is dropped at once), or a value with drop glue (whose
+//!   `drop` prints): a `let` of one,
 //!   which fixes where it is dropped at the end of the block and whether a panic in
 //!   between drops it, an assignment that drops the old one, an assignment into part of
 //!   one or through a dereference (a panic in the other statement drops the value while
@@ -33,7 +34,8 @@
 //!   reference local (`&mut` locals count as writes, and so do `&` locals that may hold a
 //!   mutable loan: `let d = &*m;` for `m: &mut T` keeps `m`'s loan alive while `d` is
 //!   used), or mentions a local whose address is taken anywhere in the function (a write,
-//!   `&mut` borrow or move of it counts as a write; `&a[i]` takes the address of `a`). A
+//!   `&mut` borrow or move of it counts as a write; `&a[i]` and `&a[i..j]` take the address
+//!   of `a`, while `a[1..][k] = v` borrows `a` only within its statement). A
 //!   pattern with a `ref`/`ref mut` binding takes the address of the place it matches
 //!   (`while let ref mut p @ E::A = d` borrows `d`).
 //!
@@ -583,6 +585,12 @@ impl FnCx<'_, '_> {
                 self.expr(base, mode, s);
                 self.expr(index, Mode::Read, s);
             }
+            // The bounds of `e[a..b]`: read; the slicing itself may panic (above).
+            ExprKind::Range(lo, hi, _) => {
+                for bound in [lo, hi].into_iter().flatten() {
+                    self.expr(bound, Mode::Read, s);
+                }
+            }
             ExprKind::Struct { fields, .. } => {
                 for f in fields {
                     self.expr(&f.value, Mode::Read, s);
@@ -667,6 +675,11 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
         | ExprKind::Index(a, b) => {
             f(Child::Expr(a));
             f(Child::Expr(b));
+        }
+        ExprKind::Range(lo, hi, _) => {
+            for bound in [lo, hi].into_iter().flatten() {
+                f(Child::Expr(bound));
+            }
         }
         ExprKind::Call {
             callee: first,
@@ -834,6 +847,19 @@ mod tests {
         // (the loan would then be live at the shared borrow of `.len()`).
         let src = "fn Main() {\n    let mut a = [1i32, 2i32];\n    let b = 3i32;\n    let r = &mut a[0];\n    *r = 4i32;\n    let n = a.len();\n    let c = b;\n}\n";
         assert_eq!(pairs(src), vec![1, 2, 5]);
+    }
+
+    #[test]
+    fn range_indexing_may_panic_and_borrows_its_base() {
+        // `s.len()` and a comparison of strings have no effect, so they swap with a print
+        // or a read; `&s[k..]` may be out of range (a panic), so it stays between the
+        // prints; `&mut a[1..]` takes the address of `a` (#10), so the write through `m`
+        // must not move past the read of `a[0]`, and the slicing itself may panic.
+        let src = "fn Main() {\n    let mut a = [1i32, 2i32, 3i32];\n    let k = 5usize;\n    let s = \"abc\";\n    let n = s.len();\n    PrintLine(7i32);\n    let t = &s[k..];\n    PrintLine(8i32);\n    let m = &mut a[1..];\n    m[0] = 4i32;\n    let x = a[0];\n    let b = (s == \"x\");\n}\n";
+        assert_eq!(pairs(src), vec![1, 2, 4, 10]);
+        // A write to an element of a range place is an `IndexMut` call that may panic.
+        let src = "fn Main() {\n    let mut a = [1i32, 2i32, 3i32];\n    a[1..][0] = 4i32;\n    PrintLine(7i32);\n    let c = 1i32;\n}\n";
+        assert_eq!(pairs(src), vec![3]);
     }
 
     #[test]

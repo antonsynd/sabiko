@@ -1,0 +1,47 @@
+// `<`, `<=`, `>`, `>=` on `&str`: lexicographic by code unit (by byte in Rust, the same
+// order for ASCII): a proper prefix is smaller, the first difference decides, uppercase
+// sorts before lowercase, digits before letters, the empty string is smallest.
+fn Check(a: &str, b: &str) {
+    Print(a);
+    Print(" ? ");
+    Print(b);
+    Print(": ");
+    Print(a < b);
+    Print(" ");
+    Print(a <= b);
+    Print(" ");
+    Print(a > b);
+    Print(" ");
+    PrintLine(a >= b);
+}
+
+fn Smallest(a: &str, b: &str, c: &str) -> usize {
+    if a <= b && a <= c {
+        0
+    } else if b <= c {
+        1
+    } else {
+        2
+    }
+}
+
+fn Main() {
+    Check("abc", "abc");
+    Check("abc", "abd");
+    Check("abd", "abc");
+    Check("ab", "abc");
+    Check("abc", "ab");
+    Check("", "a");
+    Check("a", "");
+    Check("", "");
+    Check("Zebra", "apple");
+    Check("10", "9");
+    Check("b", "abc");
+    Check("a~", "a{");
+    let s = "pear apple fig";
+    Check(&s[..4], &s[5..10]);
+    Check(&s[11..], &s[..4]);
+    PrintLine(Smallest(&s[..4], &s[5..10], &s[11..]));
+    PrintLine(Smallest("b", "a", "a"));
+    PrintLine(Smallest("c", "c", "b"));
+}

@@ -1,0 +1,6 @@
+// A mutable range slice of an array bound without `mut`: E0596.
+fn Main() {
+    let a = [1, 2, 3];
+    let m = &mut a[1..];
+    m[0] = 5;
+}

@@ -87,14 +87,14 @@ SourceFile
    │ 
    │ Note: planned for Phase 5; see docs/PLAN.md
 ───╯
-[E0107] Error: not yet supported: range expressions
+[E0107] Error: not yet supported: range expressions outside an index
    ╭─[ errors_unsupported.sabi:8:18 ]
    │
  8 │     let range = 1..2;
    │                  ─┬  
    │                   ╰── not supported in this version of Sabiko
    │ 
-   │ Note: planned for Phase 5; see docs/PLAN.md
+   │ Note: only an index `e[a..b]` is supported until range values (generic types, Phase 6); see docs/PLAN.md
 ───╯
 [E0107] Error: not yet supported: closures
    ╭─[ errors_unsupported.sabi:9:13 ]
