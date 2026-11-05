@@ -8,6 +8,10 @@
 //! skipped with the `violation_percent` knob, which is how the default knobs produce the
 //! occasional use-after-move or conflicting borrow for the verdict comparison; with
 //! `borrow_clean()` the checks are never skipped.
+//!
+//! Enums and pattern matching live in the `matches` module.
+
+mod matches;
 
 use std::fmt::Write as _;
 
@@ -113,6 +117,9 @@ pub struct BodyGen<'a> {
     prefer_root: Option<usize>,
     /// Set by `stmt_method_call`: the next call of a method uses method syntax on a place.
     force_method: bool,
+    /// While positive, no check is skipped: code that may be unreachable (a match arm after
+    /// the first, an `else` after a pattern that may be irrefutable) holds no violation.
+    no_violations: u32,
 }
 
 const INDENT: &str = "    ";
@@ -144,6 +151,7 @@ impl<'a> BodyGen<'a> {
             budget,
             prefer_root: None,
             force_method: false,
+            no_violations: 0,
         };
         for p in &sig.params {
             gen.used_names.push(p.name.clone());
@@ -213,7 +221,17 @@ impl<'a> BodyGen<'a> {
 
     /// True when a check may be skipped: never in borrow-clean mode.
     fn violate(&mut self) -> bool {
-        !self.clean() && self.rng.chance(u32::from(self.knobs.violation_percent))
+        !self.clean()
+            && self.no_violations == 0
+            && self.rng.chance(u32::from(self.knobs.violation_percent))
+    }
+
+    /// Runs `f` with every check enforced (see `no_violations`).
+    fn strictly<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.no_violations += 1;
+        let out = f(self);
+        self.no_violations -= 1;
+        out
     }
 
     fn fresh_name(&mut self) -> String {
@@ -591,7 +609,7 @@ impl<'a> BodyGen<'a> {
             }
             Some(owner) => format!(
                 "{}::{}({})",
-                prog.structs[owner.strukt].name,
+                prog.val_name(owner.ty),
                 sig.name,
                 texts.join(", ")
             ),
@@ -619,7 +637,7 @@ impl<'a> BodyGen<'a> {
             50,
             25,
             if fns.is_empty() || depth == 0 { 0 } else { 25 },
-            if temporary && matches!(inner, ValTy::Struct(_)) {
+            if temporary && matches!(inner, ValTy::Struct(_) | ValTy::Enum(_)) {
                 8
             } else {
                 0
@@ -650,6 +668,10 @@ impl<'a> BodyGen<'a> {
                         };
                         Some((Expr::value(format!("({})", e.text)), false))
                     }
+                    ValTy::Enum(e) => {
+                        let e = self.variant_literal(e, depth);
+                        Some((Expr::value(format!("({})", e.text)), false))
+                    }
                     _ => None,
                 },
                 _ => None,
@@ -662,10 +684,14 @@ impl<'a> BodyGen<'a> {
     }
 
     fn val_expr(&mut self, ty: ValTy, depth: u32) -> Expr {
+        if !matches!(ty, ValTy::Prim(_)) && depth >= 2 && self.rng.chance(4) {
+            return self.inline_match(ty, depth);
+        }
         match ty {
             ValTy::Prim(p) => self.prim_expr(p, depth),
             ValTy::Struct(s) => self.struct_expr(s, depth),
             ValTy::Tuple(t) => self.tuple_expr(t, depth),
+            ValTy::Enum(e) => self.enum_expr(e, depth),
         }
     }
 
@@ -740,12 +766,28 @@ impl<'a> BodyGen<'a> {
         let d = depth.saturating_sub(1);
         match target {
             Prim::Int(_) => {
-                let source = match self.rng.weighted(&[60, 10, 10, 10, 10]) {
+                let fieldless: Vec<usize> = (0..self.prog.enums.len())
+                    .filter(|&e| self.prog.enums[e].fieldless())
+                    .collect();
+                let source = match self.rng.weighted(&[
+                    60,
+                    10,
+                    10,
+                    10,
+                    10,
+                    if fieldless.is_empty() { 0 } else { 12 },
+                ]) {
                     0 => Prim::Int(*self.rng.pick(&IntTy::ALL)),
                     1 => Prim::F32,
                     2 => Prim::F64,
                     3 => Prim::Bool,
-                    _ => Prim::Char,
+                    4 => Prim::Char,
+                    _ => {
+                        // A fieldless enum's discriminant (`E::A as u8`, which wraps).
+                        let e = *self.rng.pick(&fieldless);
+                        let e = self.enum_expr(e, d);
+                        return Expr::value(format!("({} as {})", e.text, target.name()));
+                    }
                 };
                 let e = self.prim_expr(source, d);
                 Expr::value(format!("({} as {})", e.text, target.name()))
@@ -856,6 +898,9 @@ impl<'a> BodyGen<'a> {
         if depth == 0 || self.rng.chance(15) {
             return self.prim_leaf(p);
         }
+        if depth >= 2 && self.rng.chance(4) {
+            return self.inline_match(ValTy::Prim(p), depth);
+        }
         let has_calls = !self
             .callables(|r| r == RetTy::Val(ValTy::Prim(p)))
             .is_empty();
@@ -882,6 +927,12 @@ impl<'a> BodyGen<'a> {
                     2 => return self.shift(int, depth),
                     3 => {
                         let operand = self.prim_expr(p, sub);
+                        // `--128i8` and `-(-128i8)` are out-of-range literals to rustc (only
+                        // the outer negation counts), so a negative literal is negated
+                        // through a cast: `(-(-128i8 as i8))`, which overflows at run time.
+                        if operand.text.starts_with('-') {
+                            return Expr::value(format!("(-({} as {}))", operand.text, p.name()));
+                        }
                         return Expr::value(format!("(-{})", operand.text));
                     }
                     4 => {
@@ -1147,6 +1198,7 @@ impl<'a> BodyGen<'a> {
         let in_loop = !self.loops.is_empty();
         let has_fns = self.fn_index > 0;
         let returns = self.sig.ret != RetTy::Unit;
+        let has_enums = !self.prog.enums.is_empty();
         let weights = [
             18,                                               // 0 let
             10,                                               // 1 let ref
@@ -1165,6 +1217,12 @@ impl<'a> BodyGen<'a> {
             1,                           // 14 guarded panic
             if self.prog.tuples.is_empty() { 0 } else { 10 }, // 15 destructuring let
             if self.has_methods() { 14 } else { 0 }, // 16 method call
+            if nesting_ok { 8 } else { 0 }, // 17 match statement
+            if nesting_ok { 5 } else { 0 }, // 18 let = match
+            if nesting_ok { 6 } else { 0 }, // 19 if let
+            if nesting_ok && has_enums { 3 } else { 0 }, // 20 while let
+            if self.remaining() > 4 { 4 } else { 0 }, // 21 let-else
+            4,                           // 22 destructuring let
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1189,6 +1247,12 @@ impl<'a> BodyGen<'a> {
                 }
             }
             16 => self.stmt_method_call(depth),
+            17 => self.stmt_match(depth),
+            18 => self.stmt_let_match(depth),
+            19 => self.stmt_if_let(depth),
+            20 => self.stmt_while_let(depth),
+            21 => self.stmt_let_else(depth),
+            22 => self.stmt_let_destructure(depth),
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));
@@ -1200,6 +1264,8 @@ impl<'a> BodyGen<'a> {
     fn random_val_ty(&mut self) -> ValTy {
         if !self.prog.structs.is_empty() && self.rng.chance(25) {
             ValTy::Struct(self.rng.index(self.prog.structs.len()))
+        } else if !self.prog.enums.is_empty() && self.rng.chance(25) {
+            ValTy::Enum(self.rng.index(self.prog.enums.len()))
         } else if !self.prog.tuples.is_empty() && self.rng.chance(20) {
             ValTy::Tuple(self.rng.index(self.prog.tuples.len()))
         } else if self.rng.chance(30) {
@@ -1428,20 +1494,33 @@ impl<'a> BodyGen<'a> {
         true
     }
 
-    /// Prints every primitive leaf of a struct in scope on one line.
+    /// Prints every primitive leaf of a struct or tuple in scope on one line, or an enum
+    /// through a `match` on a reference to it.
     fn stmt_show(&mut self) -> bool {
         let Some((place, _)) = self.any_place(Access::Borrow(false), |t| {
-            matches!(t, ValTy::Struct(_) | ValTy::Tuple(_))
+            matches!(t, ValTy::Struct(_) | ValTy::Tuple(_) | ValTy::Enum(_))
         }) else {
             return false;
         };
+        if let ValTy::Enum(e) = place.ty {
+            if self.remaining() < 6 {
+                return false;
+            }
+            self.show_enum(&format!("&{}", place.text), e);
+            return true;
+        }
         let line = self.show_line(&place.text, place.ty);
         self.line(&line);
         true
     }
 
+    /// Prints the primitive leaves of `base` (prints the type's name when it has none: a
+    /// struct of enums).
     fn show_line(&self, base: &str, ty: ValTy) -> String {
         let leaves = self.prog.leaves(ty);
+        if leaves.is_empty() {
+            return format!("PrintLine(\"{}\");", self.prog.val_name(ty));
+        }
         let mut out = String::new();
         let last = leaves.len() - 1;
         for (i, (path, _)) in leaves.iter().enumerate() {
@@ -1481,7 +1560,7 @@ impl<'a> BodyGen<'a> {
         }
         let callee = *self.rng.pick(&methods);
         let owner = self.prog.fns[callee].owner.expect("a method");
-        let ty = ValTy::Struct(owner.strukt);
+        let ty = owner.ty;
         let in_scope = self.candidates().iter().any(|p| p.ty == ty);
         if !in_scope || self.rng.chance(30) {
             // A fresh local to call it on.
@@ -1677,6 +1756,16 @@ impl<'a> BodyGen<'a> {
 
     fn stmt_return(&mut self, depth: u32) -> bool {
         let c = self.prim_expr(Prim::Bool, depth.saturating_sub(1));
+        let Some(ret) = self.return_text(depth) else {
+            return false;
+        };
+        self.line(&format!("if {} {{ {ret} }}", c.text));
+        true
+    }
+
+    /// `return;` or `return value;` for the function's return type; `None` when a
+    /// reference into the reference parameter cannot be returned now.
+    fn return_text(&mut self, depth: u32) -> Option<String> {
         let value = match self.sig.ret {
             RetTy::Unit => String::new(),
             RetTy::Val(v) => {
@@ -1690,16 +1779,12 @@ impl<'a> BodyGen<'a> {
                     v.mut_locks == 0 && (!mutable || v.shared_locks == 0)
                 });
                 if !free && !self.violate() {
-                    return false;
+                    return None;
                 }
-                match self.ref_tail(mutable, inner) {
-                    Some(t) => format!(" {t}"),
-                    None => return false,
-                }
+                format!(" {}", self.ref_tail(mutable, inner)?)
             }
         };
-        self.line(&format!("if {} {{ return{value}; }}", c.text));
-        true
+        Some(format!("return{value};"))
     }
 
     /// `*F(&mut x) = e;`, `F(&mut x).Field op= e;` for a function returning `&mut T`.
@@ -1770,9 +1855,18 @@ impl<'a> BodyGen<'a> {
             if self.rng.chance(30) {
                 continue;
             }
-            let base = if is_ref { format!("*{name}") } else { name };
-            let line = self.show_line(&base, ty);
-            self.line(&line);
+            if let ValTy::Enum(e) = ty {
+                let reference = if is_ref {
+                    format!("&*{name}")
+                } else {
+                    format!("&{name}")
+                };
+                self.show_enum(&reference, e);
+            } else {
+                let base = if is_ref { format!("*{name}") } else { name };
+                let line = self.show_line(&base, ty);
+                self.line(&line);
+            }
             printed += 1;
         }
     }

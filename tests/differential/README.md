@@ -101,8 +101,10 @@ The hand-written corpus is complemented by random programs from `sabiko_testgen`
 violation percentage). Every program is valid in both languages up to borrow checking and
 prints its results, so both oracles above apply to it. The subset is the one listed above
 plus `const` items, nested field paths, `break value`, compound assignment and casts between
-every integer type (`i128`/`u128` included), floats, `bool` and ASCII `char`; see the crate
-documentation for the exact list and the exclusions. `Knobs::default()` lets a few per cent
+every integer type (`i128`/`u128` included), floats, `bool` and ASCII `char`, and enums with
+`match`, `if let`, `while let`, `let`-`else` and destructuring `let`s (#8; every `match`
+exhaustive by construction); see the crate documentation for the exact list and the
+exclusions. `Knobs::default()` lets a few per cent
 of the generator's borrow-model checks be skipped so that some programs contain a use after
 move, a conflicting borrow, an assignment to an immutable binding or a write through `&`;
 `Knobs::borrow_clean()` never skips a check.

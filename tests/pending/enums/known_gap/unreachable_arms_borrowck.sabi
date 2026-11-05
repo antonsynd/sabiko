@@ -2,10 +2,11 @@
 // match lowering adds a false edge from each candidate to the next, so an arm after an
 // irrefutable one is still checked, and the `else` of an irrefutable `if let` or
 // `let`-`else` is kept; each marked line is an error in rustc (E0384, E0382), and Sabiko
-// accepts the program (it never reaches those blocks). Found by the generator (seed
-// 2001893), which now skips no check in a `match` arm after the first or in an `else`
-// (TODO in sabiko_testgen). Belongs in `differential/` as `err_` programs once MIR building
-// has false edges.
+// accepts the program (it never reaches those blocks). A move in such an arm also makes a
+// later use of the moved value an error in rustc only (seed 3000551). Found by the
+// generator (seed 2001893), which now makes no pattern unreachable (TODO in
+// sabiko_testgen). Belongs in `differential/` as `err_` programs once MIR building has
+// false edges.
 enum W { Only(i32, i32) }
 
 fn LaterArm() {

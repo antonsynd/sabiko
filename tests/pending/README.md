@@ -298,7 +298,7 @@ All but one run under rustc (`.expected` notes); none is required by #8.
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
 | `match_through_double_ref.sabi` | `match rr` for `rr: &&Cell`: code generation rejects `&&T` (E0500) until `Ref<T>` | exit 0 |
 | `guard_on_mut_ref_binding.sabi` | a guard on an arm binding a `&mut` scrutinee reference itself (`match &mut n { x if *x > 0 => .. }`): the guard reaches the binding through a `&&mut T`, E0500 until `Ref<T>` (a `&T` one is copied); found by the generator, which leaves such arms unguarded | exit 0 |
-| `unreachable_arms_borrowck.sabi` | rustc borrow-checks code that patterns make unreachable (false edges between match candidates; the `else` of an irrefutable `if let`/`let`-`else`), Sabiko does not: assignments to immutable bindings and uses after move there are E0384/E0382 in rustc and accepted by Sabiko; found by the generator, which skips no check in a later arm or an `else` | rejected (E0384, E0382) |
+| `unreachable_arms_borrowck.sabi` | rustc borrow-checks code that patterns make unreachable (false edges between match candidates; the `else` of an irrefutable `if let`/`let`-`else`), Sabiko does not: assignments to immutable bindings and uses after move there are E0384/E0382 in rustc and accepted by Sabiko; found by the generator, which makes no pattern unreachable | rejected (E0384, E0382) |
 
 ### Rules rustc applies (each confirmed by the program named)
 

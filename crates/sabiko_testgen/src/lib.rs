@@ -27,11 +27,23 @@
 //! reference locals, call results and temporaries, including chains through a returned
 //! reference and the two-phase shapes (#15) where later arguments read the receiver
 //! (`v.Add(v.Get())`) or a reborrowed `&mut` argument (`Use(m, m.X)`); `&self` methods
-//! return references into `self` whatever their other parameters. Not generated: arrays,
-//! enums, `match`, generics, closures, `&str` other than literals passed to
-//! `Print`/`PrintLine`/`Panic`, references in struct fields or tuples, `()` values,
-//! comparisons of tuples, recursion, shadowing, unbounded loops, and reads of
-//! uninitialised locals.
+//! return references into `self` whatever their other parameters. Enums (#8): unit, tuple
+//! and struct variants with payloads of primitives, tuples, structs and earlier enums
+//! (and structs, tuples and other enums holding enums), some `#[derive(Copy, Clone)]`,
+//! some with an `impl Drop` that matches on `self`, fieldless ones with explicit
+//! discriminants cast with `as`, `impl` blocks of enums; `match` as a statement, as a
+//! `let` initialiser and inline in expressions, `if let` (statement and expression),
+//! `while let` over a state local, `let`-`else` diverging with `return`, `break`,
+//! `continue` or a panic, and irrefutable destructuring `let`s of structs and
+//! single-variant enums. Patterns: variants (nested), literals and ranges (`a..=b`, `a..b`)
+//! of integers, `bool` and `char`, or-patterns, `_`, `..`, field shorthand, bindings by
+//! value, `mut`, `ref`, `ref mut` and `x @ p`, guards reading bindings and other locals,
+//! on places, references (default binding modes) and temporaries; every `match` is
+//! exhaustive by construction (see [`body`]'s `matches` module). Not generated: arrays,
+//! generics, closures, `&str` other than literals passed to `Print`/`PrintLine`/`Panic`,
+//! references in struct fields, tuples or enum payloads, `()` values, comparisons of
+//! tuples or enums, `&` patterns, half-open ranges, float patterns, recursion, shadowing,
+//! unbounded loops, and reads of uninitialised locals.
 //!
 //! With [`Knobs::default`] a small fraction of the scope-model checks are skipped on
 //! purpose, so some programs contain a use after move, a conflicting borrow, a write to an
@@ -60,6 +72,7 @@ pub struct Knobs {
     pub min_fns: usize,
     pub max_fns: usize,
     pub max_structs: usize,
+    pub max_enums: usize,
     /// Number of distinct tuple types.
     pub max_tuples: usize,
     pub max_consts: usize,
@@ -81,6 +94,7 @@ impl Default for Knobs {
             min_fns: 2,
             max_fns: 6,
             max_structs: 3,
+            max_enums: 3,
             max_tuples: 3,
             max_consts: 3,
             max_lines: 60,
@@ -131,7 +145,7 @@ pub fn generate(seed: u64, knobs: &Knobs) -> String {
         // spread over several blocks between the free functions.
         let indent = match prog.fns[i].owner {
             Some(owner) => {
-                let _ = writeln!(out, "impl {} {{", prog.structs[owner.strukt].name);
+                let _ = writeln!(out, "impl {} {{", prog.val_name(owner.ty));
                 "    "
             }
             None => "",
@@ -162,14 +176,20 @@ pub const NOOPS: &[&str] = &["let _ = ();", "{}", "();"];
 
 /// Line indices after which a statement can be inserted. Generated programs put every
 /// statement on its own line, indented by at least four spaces: a line ending in `;` ends
-/// a statement, one ending in `{` opens a block (`if`, `else`, `while`, `loop`), and both
-/// are followed by a statement position. Items and struct fields are never indented that
-/// way (fields end with `,`), and struct literals are written on one line.
+/// a statement, one ending in `{` opens a block (`if`, `else`, `while`, `loop`, a match
+/// arm's block, `let .. else`), and both are followed by a statement position. Items, struct
+/// fields and enum variants are never indented that way (they end with `,`), struct
+/// literals are written on one line, and a `match` header (`match x {`, `let v = match x
+/// {`) is followed by an arm, so it is not a boundary; an arm ends with `,` or `}`.
 pub fn statement_boundaries(program: &str) -> Vec<usize> {
     program
         .lines()
         .enumerate()
-        .filter(|(_, l)| l.starts_with("    ") && (l.ends_with(';') || l.ends_with('{')))
+        .filter(|(_, l)| {
+            let match_header = l.ends_with('{')
+                && (l.trim_start().starts_with("match ") || l.contains(" = match "));
+            l.starts_with("    ") && (l.ends_with(';') || l.ends_with('{')) && !match_header
+        })
         .map(|(i, _)| i)
         .collect()
 }
@@ -210,5 +230,22 @@ mod tests {
         assert_eq!(statement_boundaries(src), vec![7, 8, 9]);
         let with = insert_noops(src, 1);
         assert!(with.lines().count() > src.lines().count());
+    }
+
+    #[test]
+    fn boundaries_skip_variants_and_match_headers() {
+        // An arm follows a `match` header, so no statement goes after it; an arm's block
+        // and a `let`-`else` block open statement positions.
+        let src = "enum E {\n    A(i32),\n    B,\n}\n\nfn Main() {\n    let e = E::B;\n    match e {\n        E::A(n) => {\n            PrintLine(n);\n        }\n        E::B => PrintLine(0i32),\n    }\n    let v = match e {\n        _ => 1i32,\n    };\n    let E::A(m) = e else {\n        return;\n    };\n}\n";
+        assert_eq!(statement_boundaries(src), vec![6, 8, 9, 15, 16, 17, 18]);
+        for seed in 0..20 {
+            let with = insert_noops(src, seed);
+            assert!(
+                !with.contains("match e {\n        let _")
+                    && !with.contains("match e {\n        {}")
+                    && !with.contains("match e {\n        ();"),
+                "{with}"
+            );
+        }
     }
 }

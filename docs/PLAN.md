@@ -591,6 +591,37 @@ had dropped below their thresholds, mostly through tuples; new tests bring them 
 95.6% and 98.8% (`docs/TESTING.md`), and one survivor listed as equivalent turned out to
 be killable.
 
+Update (2026-11-05), generator for enums and `match` (#8): `sabiko_testgen` declares
+enums (unit, tuple and struct variants over primitives, tuples, structs and earlier enums,
+some `Copy`, some with an `impl Drop` that matches on `self`, fieldless ones with explicit
+discriminants cast with `as`, enum methods, enums in struct fields and tuples) and
+generates `match` as a statement, a `let` initialiser and inline, `if let`, `while let`
+over a state local, `let`-`else` and destructuring `let`s, with nested variant, literal,
+range, or-, `..`, shorthand, `mut`/`ref`/`ref mut`/`@` patterns and guards, on places,
+references and temporaries, moving out of the scrutinee where the scope model allows;
+every `match` is exhaustive by construction. With the fixes below, 2000 seeds at each of
+three bases (1000000, 2000000, 3000000) agree with rustc on all five properties. The runs
+found six compiler bugs, all fixed with regression programs: a guard on a match through a reference made the
+fake borrow's `&&T` temporary an E0500 (`run/enums/guards_through_references.sabi`), and
+so did a guard reading a top-level binding of a `&T` scrutinee (now copied; the `&mut` case
+is a known gap, `pending/enums/known_gap/guard_on_mut_ref_binding.sabi`, which the
+generator avoids); a `let` or `let`-`else` with a `ref`/`ref mut` binding did not extend
+its initialiser's temporary (a false E0413), and a failing `let`-`else` ran its `else`
+before dropping the initialiser's temporaries (`run/enums/if_let/let_else_temporaries.sabi`);
+casting a fieldless enum that implements `Drop` was accepted (`ui/typeck/enum_casts.sabi`),
+and so was `-(-128i8)`, whose literal rustc reads as `128i8` (only the outer of two
+negations counts; `ui/typeck/literal_ranges.sabi`).
+The reorder analysis now counts a `ref` binding as taking its scrutinee's address. Gap
+found and not fixed: rustc borrow-checks code that patterns make unreachable (false edges
+between match candidates, the `else` of an irrefutable `if let`/`let`-`else`) and Sabiko
+does not, so an assignment to an immutable binding there is E0384 in rustc only
+(`pending/enums/known_gap/unreachable_arms_borrowck.sabi`, seeds 2001893 and 3000551,
+where a move in an unreachable arm made a later use an error in rustc only); MIR building
+needs false edges. The generator makes no pattern unreachable (the arms before a cover
+are guarded, a cover's arms are disjoint, an `if let` or `let`-`else` pattern surely
+refutes; a validity test checks that Sabiko reports no unreachable pattern) and skips no
+check after a `match`'s first arm or in an `else`.
+
 ### Phase 5: Data types
 
 Work

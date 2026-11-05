@@ -118,9 +118,11 @@ fn programs_have_the_expected_shape() {
         );
         let lines = src.lines().count();
         total_lines += lines;
-        // The line budget covers the bodies; an `impl Drop` adds seven item lines.
+        // The line budget covers the bodies; a struct's `impl Drop` adds seven item lines,
+        // an enum at most eight and its `impl Drop` at most eleven, and a `match` started
+        // near the end of the budget may run past it by a few arms.
         assert!(
-            lines <= knobs.max_lines + 30 + 7 * knobs.max_structs,
+            lines <= knobs.max_lines + 40 + 7 * knobs.max_structs + 19 * knobs.max_enums,
             "seed {seed}: {lines} lines\n{src}"
         );
     }
@@ -215,4 +217,138 @@ fn programs_use_drop() {
         with_drop >= 100,
         "`impl Drop` in {with_drop} of {SEEDS} programs"
     );
+}
+
+/// No generated pattern is unreachable (E0330): Sabiko does not borrow-check code that
+/// patterns make unreachable and rustc does (a known gap, see `body::matches`), so a
+/// violation or a move there would make the verdicts differ.
+#[test]
+fn programs_have_no_unreachable_patterns() {
+    let mut found = Vec::new();
+    for knobs in [Knobs::default(), Knobs::borrow_clean()] {
+        for seed in 1..=SEEDS {
+            let src = generate(seed, &knobs);
+            let mut sink = DiagnosticSink::new();
+            let file = SourceMap::new().add("u.sabi", &src);
+            let ast = sabiko_parser::parse_file(file, &src, &mut sink);
+            let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+            let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
+            if sink
+                .diagnostics()
+                .iter()
+                .any(|d| d.code.to_string() == "E0330")
+            {
+                found.push(seed);
+            }
+        }
+    }
+    assert!(found.is_empty(), "unreachable patterns in seeds {found:?}");
+}
+
+/// A named property of a program's text and the least number of programs that have it.
+type Check = (&'static str, fn(&str) -> bool, usize);
+
+/// Enums and pattern matching (#8) are part of the subset: a fair share of programs
+/// declare enums (some `Copy`, some with `impl Drop`, some fieldless with explicit
+/// discriminants) and use every form of matching, so a construct that silently stopped
+/// being generated fails here.
+#[test]
+fn programs_use_enums_and_match() {
+    let knobs = Knobs::default();
+    let checks: [Check; 18] = [
+        ("enum", |s| s.contains("\nenum "), 300),
+        (
+            "Copy enum",
+            |s| s.contains("#[derive(Copy, Clone)]\nenum "),
+            120,
+        ),
+        (
+            "`impl Drop` for an enum",
+            |s| {
+                s.lines().any(|l| {
+                    l.starts_with("impl Drop for ")
+                        && s.contains(&format!("\nenum {} {{", &l[14..l.len() - 2]))
+                })
+            },
+            50,
+        ),
+        (
+            "explicit discriminant",
+            |s| {
+                s.lines()
+                    .any(|l| l.starts_with("    ") && l.ends_with(',') && l.contains(" = "))
+            },
+            30,
+        ),
+        (
+            "`match` statement",
+            |s| {
+                s.lines()
+                    .any(|l| l.trim_start().starts_with("match ") && l.ends_with('{'))
+            },
+            250,
+        ),
+        (
+            "`let` = `match`",
+            |s| {
+                s.lines()
+                    .any(|l| l.contains(" = match ") && l.ends_with('{'))
+            },
+            60,
+        ),
+        ("inline `match`", |s| s.contains("(match "), 150),
+        ("`if let`", |s| s.contains("if let "), 150),
+        ("`while let`", |s| s.contains("while let "), 25),
+        (
+            "`let`-`else`",
+            |s| {
+                s.lines()
+                    .any(|l| l.trim_start().starts_with("let ") && l.ends_with(" else {"))
+            },
+            120,
+        ),
+        (
+            "guard",
+            |s| {
+                s.lines()
+                    .any(|l| l.contains(" if ") && l.contains(" => ") && !l.contains("(if "))
+            },
+            100,
+        ),
+        ("`ref` binding", |s| s.contains("ref "), 120),
+        ("`ref mut` binding", |s| s.contains("ref mut "), 60),
+        ("`@` binding", |s| s.contains(" @ "), 60),
+        ("range pattern", |s| s.contains("..="), 100),
+        (
+            "or-pattern",
+            |s| s.lines().any(|l| l.contains(" | ") && l.contains("=>")),
+            100,
+        ),
+        ("match on a reference", |s| s.contains("match &"), 120),
+        (
+            "`impl` block of an enum",
+            |s| {
+                s.lines().any(|l| {
+                    l.starts_with("impl ")
+                        && !l.starts_with("impl Drop")
+                        && s.contains(&format!("\nenum {} {{", &l[5..l.len() - 2]))
+                })
+            },
+            80,
+        ),
+    ];
+    let mut counts = [0usize; 18];
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
+            *count += usize::from(check(&src));
+        }
+    }
+    let low: Vec<String> = checks
+        .iter()
+        .zip(counts)
+        .filter(|((_, _, min), count)| count < min)
+        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
+        .collect();
+    assert!(low.is_empty(), "of {SEEDS} programs: {}", low.join(", "));
 }
