@@ -100,7 +100,11 @@ fn mentions(body: &Body) -> Vec<Mentions> {
             };
             write(&mut m, place);
             match rvalue {
-                Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+                Rvalue::Use(op)
+                | Rvalue::UnaryOp(_, op)
+                | Rvalue::Cast(op, _)
+                | Rvalue::Repeat(op, _)
+                | Rvalue::PointerCoercion(op, _) => {
                     operand(&mut m, op);
                 }
                 Rvalue::BinaryOp(_, l, r) => {
@@ -112,7 +116,7 @@ fn mentions(body: &Body) -> Vec<Mentions> {
                         operand(&mut m, op);
                     }
                 }
-                Rvalue::Discriminant(p) => m[p.local.index()].other += 1,
+                Rvalue::Discriminant(p) | Rvalue::Len(p) => m[p.local.index()].other += 1,
                 Rvalue::Ref(_, p) => {
                     let entry = &mut m[p.local.index()];
                     entry.other += 1;
@@ -146,6 +150,12 @@ fn mentions(body: &Body) -> Vec<Mentions> {
             m[drop.place.local.index()].other += 1;
         }
     }
+    // The index of an element (`a[_t]`) is read wherever the place is used: never forwarded.
+    body.for_each_place(|p| {
+        for l in p.index_locals() {
+            m[l.index()].other += 1;
+        }
+    });
     m
 }
 
@@ -195,7 +205,9 @@ fn find_candidate(body: &Body) -> Option<Candidate> {
                 });
             }
             let sm = &m[src.local.index()];
-            if tm.uses != 1 || sm.borrowed || src.ty(body) != decl.ty {
+            // An element read checks its index, which may panic: moving the read past a
+            // statement that may panic too would change which panic happens.
+            if tm.uses != 1 || sm.borrowed || src.ty(body) != decl.ty || src.has_index() {
                 continue;
             }
             let Some(site) = find_use(body, &m, b, i, temp, src) else {
@@ -268,10 +280,14 @@ fn statement_reads(kind: &StatementKind, temp: Local) -> bool {
         return false;
     };
     match rvalue {
-        Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => is_temp(op, temp),
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => is_temp(op, temp),
         Rvalue::BinaryOp(_, l, r) => is_temp(l, temp) || is_temp(r, temp),
         Rvalue::Aggregate(_, ops) => ops.iter().any(|o| is_temp(o, temp)),
-        Rvalue::Ref(..) | Rvalue::Discriminant(_) => false,
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => false,
     }
 }
 
@@ -290,14 +306,16 @@ fn apply(body: &mut Body, c: &Candidate) {
         let replaced = match *site {
             UseSite::Statement(j) => match &mut data.statements[j].kind {
                 StatementKind::Assign(_, rvalue) => match rvalue {
-                    Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
-                        replace(op, c.temp, source)
-                    }
+                    Rvalue::Use(op)
+                    | Rvalue::UnaryOp(_, op)
+                    | Rvalue::Cast(op, _)
+                    | Rvalue::Repeat(op, _)
+                    | Rvalue::PointerCoercion(op, _) => replace(op, c.temp, source),
                     Rvalue::BinaryOp(_, l, r) => {
                         replace(l, c.temp, source) || replace(r, c.temp, source)
                     }
                     Rvalue::Aggregate(_, ops) => ops.iter_mut().any(|o| replace(o, c.temp, source)),
-                    Rvalue::Ref(..) | Rvalue::Discriminant(_) => false,
+                    Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => false,
                 },
                 _ => false,
             },

@@ -3,7 +3,8 @@
 //! Sabiko has no lifetime syntax yet, so every reference type gets an inferred origin:
 //! a [`RegionTy`] mirrors a [`Ty`] and carries one [`Origin`] per `Ref` node. Struct
 //! fields never hold references in this phase, so origins appear along chains of `Ref`s
-//! (`&&T`, `&mut &T`) and in the elements of tuples (`(&T, &mut U)`).
+//! (`&&T`, `&mut &T`), in the elements of tuples (`(&T, &mut U)`) and in the element of
+//! an array or slice, represented as a one-element tuple (`[&T; 3]`).
 //!
 //! Function signatures use *universal* origins: one per reference in the parameter types.
 //! The return type follows Rust's elision rules: in a method taking `&self` or `&mut self`
@@ -108,6 +109,10 @@ impl RegionTy {
             Ty::Tuple(elems) if ty.has_ref() => {
                 Self::Tuple(elems.iter().map(|e| Self::fresh(e, supply)).collect())
             }
+            // Every element of an array (or slice) has the same origins: one element.
+            Ty::Array(elem, _) | Ty::Slice(elem) if ty.has_ref() => {
+                Self::Tuple(vec![Self::fresh(elem, supply)])
+            }
             _ => Self::Other,
         }
     }
@@ -119,6 +124,9 @@ impl RegionTy {
             Ty::Ref(m, inner) => Self::Ref(*m, origin, Box::new(Self::uniform(inner, origin))),
             Ty::Tuple(elems) if ty.has_ref() => {
                 Self::Tuple(elems.iter().map(|e| Self::uniform(e, origin)).collect())
+            }
+            Ty::Array(elem, _) | Ty::Slice(elem) if ty.has_ref() => {
+                Self::Tuple(vec![Self::uniform(elem, origin)])
             }
             _ => Self::Other,
         }
@@ -180,6 +188,12 @@ impl RegionTy {
                 },
                 (PlaceElem::Field(..), _) => return Self::Other,
                 (PlaceElem::Downcast(_), _) => {}
+                // An array holding references is a one-element tuple of its element.
+                (PlaceElem::Index(_), Self::Tuple(elems)) => match elems.first() {
+                    Some(e) => cur = e,
+                    None => return Self::Other,
+                },
+                (PlaceElem::Index(_), _) => return Self::Other,
             }
         }
         cur.clone()

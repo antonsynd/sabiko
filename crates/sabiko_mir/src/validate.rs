@@ -55,6 +55,7 @@ fn compatible(from: &Ty, to: &Ty) -> bool {
         (Ty::Tuple(a), Ty::Tuple(b)) => {
             a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| compatible(x, y))
         }
+        (Ty::Array(a, n), Ty::Array(b, m)) => n == m && compatible(a, b),
         _ => false,
     }
 }
@@ -398,6 +399,23 @@ impl Validator<'_> {
                     self.err(bb, format!("field {index} of non-struct type {other:?}"));
                     return None;
                 }
+                (PlaceElem::Index(local), Ty::Array(elem, _) | Ty::Slice(elem)) => {
+                    match self.body.locals.get(local.index()) {
+                        Some(d) if d.ty == Ty::Prim(PrimTy::Usize) => {}
+                        Some(d) => {
+                            self.err(bb, format!("index local _{} has type {:?}", local.0, d.ty));
+                        }
+                        None => {
+                            self.err(bb, format!("index local _{} does not exist", local.0));
+                            return None;
+                        }
+                    }
+                    *elem
+                }
+                (PlaceElem::Index(_), other) => {
+                    self.err(bb, format!("index of non-array type {other:?}"));
+                    return None;
+                }
             };
         }
         Some(ty)
@@ -543,6 +561,51 @@ impl Validator<'_> {
                     self.err(bb, format!("discriminant of non-enum type {ty:?}"));
                 }
                 Some(Ty::Prim(sabiko_resolve::PrimTy::Isize))
+            }
+            Rvalue::Aggregate(AggregateKind::Array(elem), operands) => {
+                for op in operands {
+                    if let Some(ty) = self.operand_ty(bb, op) {
+                        if !compatible(&ty, elem) {
+                            self.err(
+                                bb,
+                                format!("array element of type {elem:?} initialised with {ty:?}"),
+                            );
+                        }
+                    }
+                }
+                let n = u64::try_from(operands.len()).expect("fewer than 2^64 elements");
+                Some(Ty::Array(Box::new(elem.clone()), n))
+            }
+            Rvalue::Repeat(op, n) => {
+                let ty = self.operand_ty(bb, op)?;
+                Some(Ty::Array(Box::new(ty), *n))
+            }
+            Rvalue::Len(place) => {
+                let ty = self.place_ty(bb, place)?;
+                if !matches!(ty, Ty::Array(..) | Ty::Slice(_) | Ty::Error) {
+                    self.err(bb, format!("length of non-array type {ty:?}"));
+                }
+                Some(Ty::Prim(PrimTy::Usize))
+            }
+            Rvalue::PointerCoercion(op, to) => {
+                let from = self.operand_ty(bb, op)?;
+                let ok = match (&from, to) {
+                    (Ty::Never | Ty::Error, _) => true,
+                    (Ty::Ref(mf, a), Ty::Ref(mt, b)) => {
+                        let mutability_ok = mf.is_mut() || !mt.is_mut();
+                        let shape_ok = match (&**a, &**b) {
+                            (Ty::Array(ea, _), Ty::Slice(eb)) => ea == eb,
+                            (Ty::Slice(ea), Ty::Slice(eb)) => ea == eb && mf != mt,
+                            _ => false,
+                        };
+                        mutability_ok && shape_ok
+                    }
+                    _ => false,
+                };
+                if !ok {
+                    self.err(bb, format!("pointer coercion of {from:?} to {to:?}"));
+                }
+                Some(to.clone())
             }
         }
     }
@@ -725,9 +788,12 @@ fn reachable_blocks(body: &Body) -> Vec<bool> {
 /// The places an rvalue reads or borrows.
 fn rvalue_places(rvalue: &Rvalue) -> Vec<&Place> {
     match rvalue {
-        Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
-            op.place().into_iter().collect()
-        }
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => op.place().into_iter().collect(),
+        Rvalue::Len(place) => vec![place],
         Rvalue::BinaryOp(_, l, r) => l.place().into_iter().chain(r.place()).collect(),
         Rvalue::Aggregate(_, ops) => ops.iter().filter_map(Operand::place).collect(),
         Rvalue::Ref(_, place) | Rvalue::Discriminant(place) => vec![place],

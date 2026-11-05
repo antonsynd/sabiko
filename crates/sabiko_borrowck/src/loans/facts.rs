@@ -558,8 +558,27 @@ impl Generator<'_> {
                     RegionTy::Tuple(tys)
                 }
             }
+            // Every element flows into the array's one element type.
+            Rvalue::Aggregate(AggregateKind::Array(elem), elems) => {
+                let tys: Vec<RegionTy> = elems.iter().map(|e| self.operand(e, location)).collect();
+                if !elem.has_ref() {
+                    return RegionTy::Other;
+                }
+                let target = RegionTy::fresh(elem, &mut self.supply);
+                let mid = self.table.mid(location);
+                for ty in &tys {
+                    self.relate(ty, &target, mid, false);
+                }
+                RegionTy::Tuple(vec![target])
+            }
+            Rvalue::Repeat(operand, _) => match self.operand(operand, location) {
+                RegionTy::Other => RegionTy::Other,
+                ty => RegionTy::Tuple(vec![ty]),
+            },
+            // The coerced reference borrows what the operand borrows.
+            Rvalue::PointerCoercion(operand, _) => self.operand(operand, location),
             Rvalue::Ref(kind, place) => self.borrow(kind.mutability(), place, location),
-            Rvalue::Discriminant(place) => {
+            Rvalue::Discriminant(place) | Rvalue::Len(place) => {
                 self.use_local(place.local, location);
                 self.access(place, AccessKind::Read, location);
                 RegionTy::Other
@@ -617,6 +636,9 @@ impl Generator<'_> {
         self.access(place, AccessKind::Write, location);
         match place.projection[..] {
             [] | [PlaceElem::Deref] => self.kill_loans_of_local(place.local, location),
+            // `a[i] = ..` may write another element than a loan's `a[j]`: it kills
+            // nothing, as in rustc.
+            _ if place.has_index() => {}
             _ => {
                 let mid = self.table.mid(location);
                 for (index, loan) in self.loans.iter().enumerate() {
@@ -732,7 +754,11 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
                 continue;
             };
             match rvalue {
-                Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+                Rvalue::Use(op)
+                | Rvalue::UnaryOp(_, op)
+                | Rvalue::Cast(op, _)
+                | Rvalue::Repeat(op, _)
+                | Rvalue::PointerCoercion(op, _) => {
                     op.place().into_iter().for_each(|p| add(p, at));
                 }
                 Rvalue::BinaryOp(_, l, r) => {
@@ -745,7 +771,9 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
                     .iter()
                     .filter_map(Operand::place)
                     .for_each(|p| add(p, at)),
-                Rvalue::Ref(_, place) | Rvalue::Discriminant(place) => add(place, at),
+                Rvalue::Ref(_, place) | Rvalue::Discriminant(place) | Rvalue::Len(place) => {
+                    add(place, at);
+                }
             }
         }
         let at = Location::terminator_of(body, bb);

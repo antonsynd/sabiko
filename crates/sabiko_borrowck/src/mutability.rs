@@ -2,7 +2,7 @@
 //!
 //! Follows rustc: walk the projections from the root local. The root's own mutability is
 //! that of its binding (temporaries and the return place are mutable). A field keeps the
-//! state so far. Dereferencing a `&mut T` makes everything beyond it mutable, whatever the
+//! state so far, as does an array or slice element. Dereferencing a `&mut T` makes everything beyond it mutable, whatever the
 //! binding holding the reference: `*r = 1` is fine for `let r: &mut i32`. Dereferencing a
 //! `&T` makes everything beyond it immutable for good.
 
@@ -47,6 +47,12 @@ pub fn place_mutability(place: &Place, body: &Body) -> PlaceMutability {
             },
             PlaceElem::Field(_, field_ty) => ty = field_ty.clone(),
             PlaceElem::Downcast(_) => {}
+            // An element is as mutable as its array (or the slice behind a reference).
+            PlaceElem::Index(_) => {
+                if let Ty::Array(elem, _) | Ty::Slice(elem) = ty {
+                    ty = *elem;
+                }
+            }
         }
     }
     if mutable {

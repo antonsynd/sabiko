@@ -178,6 +178,13 @@ impl Printer<'_> {
                     let _ = write!(s, ".{name}");
                     ty = field_ty.clone();
                 }
+                PlaceElem::Index(local) => {
+                    let _ = write!(s, "[_{}]", local.0);
+                    ty = match ty {
+                        sabiko_types::Ty::Array(elem, _) | sabiko_types::Ty::Slice(elem) => *elem,
+                        other => other,
+                    };
+                }
             }
         }
         s
@@ -213,6 +220,15 @@ impl Printer<'_> {
                 format!("{op:?}({}, {})", self.operand(lhs), self.operand(rhs))
             }
             Rvalue::Cast(op, ty) => format!("{} as {}", self.operand(op), self.ty(ty)),
+            Rvalue::PointerCoercion(op, ty) => {
+                format!("{} as {} (pointer coercion)", self.operand(op), self.ty(ty))
+            }
+            Rvalue::Repeat(op, n) => format!("[{}; {n}]", self.operand(op)),
+            Rvalue::Len(place) => format!("Len({})", self.place(place)),
+            Rvalue::Aggregate(AggregateKind::Array(_), elems) => {
+                let ops: Vec<String> = elems.iter().map(|op| self.operand(op)).collect();
+                format!("[{}]", ops.join(", "))
+            }
             Rvalue::Aggregate(AggregateKind::Tuple, elems) => {
                 let ops: Vec<String> = elems.iter().map(|op| self.operand(op)).collect();
                 if ops.len() == 1 {

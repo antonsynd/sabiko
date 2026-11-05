@@ -169,6 +169,8 @@ impl ErrorCode {
     pub const MOVE_OUT_OF_DROP: Self = Self(418);
     /// Assigning or mutably borrowing a scrutinee inside a match guard (rustc's E0510).
     pub const MUTATE_IN_GUARD: Self = Self(419);
+    /// Moving a non-`Copy` value out of an array or slice element (rustc's E0508).
+    pub const MOVE_OUT_OF_INDEX: Self = Self(420);
 
     // Code generation (E05xx)
     /// A construct the CIL backend cannot lower yet.

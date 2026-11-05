@@ -409,7 +409,11 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
                 other[place.local.index()] += 1;
             }
             match rvalue {
-                Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+                Rvalue::Use(op)
+                | Rvalue::UnaryOp(_, op)
+                | Rvalue::Cast(op, _)
+                | Rvalue::Repeat(op, _)
+                | Rvalue::PointerCoercion(op, _) => {
                     operand(op, &mut uses, &mut other);
                 }
                 Rvalue::BinaryOp(_, l, r) => {
@@ -421,7 +425,9 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
                         operand(op, &mut uses, &mut other);
                     }
                 }
-                Rvalue::Ref(_, p) | Rvalue::Discriminant(p) => other[p.local.index()] += 1,
+                Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => {
+                    other[p.local.index()] += 1;
+                }
             }
         }
         match &data.terminator().kind {
@@ -1269,6 +1275,7 @@ impl FnCx<'_, '_> {
             return;
         }
         match place.projection.last() {
+            Some(PlaceElem::Index(_)) => todo!("index codegen"),
             None => match self.slots[place.local.index()] {
                 Slot::Arg(i) => self.ldarg(i),
                 Slot::Local(i) => self.ldloc(i),
@@ -1320,6 +1327,7 @@ impl FnCx<'_, '_> {
     /// Pushes the address of `place`.
     fn addr(&mut self, place: &Place, span: Span) {
         match place.projection.last() {
+            Some(PlaceElem::Index(_)) => todo!("index codegen"),
             None => match self.slots[place.local.index()] {
                 Slot::Arg(i) => self.short("ldarga", i, 0, 1),
                 Slot::Local(i) => self.ldloca(i),
@@ -1355,6 +1363,7 @@ impl FnCx<'_, '_> {
     fn store(&mut self, place: &Place, span: Span, push: impl FnOnce(&mut Self)) {
         let ty = place.ty(self.body);
         match place.projection.last() {
+            Some(PlaceElem::Index(_)) => todo!("index codegen"),
             None => {
                 push(self);
                 match self.slots[place.local.index()] {
@@ -1520,6 +1529,10 @@ impl FnCx<'_, '_> {
 
     fn rvalue(&mut self, rvalue: &Rvalue, result_ty: &Ty, span: Span) {
         match rvalue {
+            Rvalue::Repeat(..)
+            | Rvalue::Len(_)
+            | Rvalue::PointerCoercion(..)
+            | Rvalue::Aggregate(AggregateKind::Array(_), _) => todo!("arrays"),
             Rvalue::Use(op) => self.operand(op, span),
             Rvalue::Ref(_, place) => {
                 let pointee = place.ty(self.body);

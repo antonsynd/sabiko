@@ -198,6 +198,68 @@ impl Body {
         &self.cleanups[scope.index()]
     }
 
+    /// Calls `f` on every place the body's statements, terminators and cleanup scopes
+    /// mention (operands, destinations, borrowed, dropped and mentioned places).
+    pub fn for_each_place(&self, mut f: impl FnMut(&Place)) {
+        let operand = |op: &Operand, f: &mut dyn FnMut(&Place)| {
+            if let Some(p) = op.place() {
+                f(p);
+            }
+        };
+        for data in &self.blocks {
+            for stmt in &data.statements {
+                match &stmt.kind {
+                    StatementKind::Assign(place, rvalue) => {
+                        f(place);
+                        match rvalue {
+                            Rvalue::Use(op)
+                            | Rvalue::UnaryOp(_, op)
+                            | Rvalue::Cast(op, _)
+                            | Rvalue::Repeat(op, _)
+                            | Rvalue::PointerCoercion(op, _) => operand(op, &mut f),
+                            Rvalue::BinaryOp(_, l, r) => {
+                                operand(l, &mut f);
+                                operand(r, &mut f);
+                            }
+                            Rvalue::Aggregate(_, ops) => {
+                                for op in ops {
+                                    operand(op, &mut f);
+                                }
+                            }
+                            Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => f(p),
+                        }
+                    }
+                    StatementKind::PlaceMention(p) => f(p),
+                    StatementKind::StorageLive(_)
+                    | StatementKind::StorageDead(_)
+                    | StatementKind::Nop => {}
+                }
+            }
+            if let Some(term) = &data.terminator {
+                match &term.kind {
+                    TerminatorKind::SwitchInt { discr, .. } => operand(discr, &mut f),
+                    TerminatorKind::Call {
+                        args, destination, ..
+                    } => {
+                        for a in args {
+                            operand(a, &mut f);
+                        }
+                        f(destination);
+                    }
+                    TerminatorKind::Drop { place, .. } => f(place),
+                    TerminatorKind::Goto { .. }
+                    | TerminatorKind::Return
+                    | TerminatorKind::Unreachable => {}
+                }
+            }
+        }
+        for cleanup in &self.cleanups {
+            for drop in &cleanup.drops {
+                f(&drop.place);
+            }
+        }
+    }
+
     /// The cleanup scopes protecting `bb`, innermost first.
     #[must_use]
     pub fn cleanup_chain(&self, bb: BasicBlock) -> Vec<CleanupScope> {
@@ -281,6 +343,30 @@ impl Place {
         self
     }
 
+    /// `place[index]`: an element of the array or slice in `place`.
+    #[must_use]
+    pub fn index(mut self, index: Local) -> Self {
+        self.projection.push(PlaceElem::Index(index));
+        self
+    }
+
+    /// The locals holding the indices of the place's `Index` projections.
+    pub fn index_locals(&self) -> impl Iterator<Item = Local> + '_ {
+        self.projection.iter().filter_map(|e| match e {
+            PlaceElem::Index(l) => Some(*l),
+            _ => None,
+        })
+    }
+
+    /// Whether the place goes through an `Index` projection (an element of an array or a
+    /// slice): using it checks the index against the length, which may panic.
+    #[must_use]
+    pub fn has_index(&self) -> bool {
+        self.projection
+            .iter()
+            .any(|e| matches!(e, PlaceElem::Index(_)))
+    }
+
     /// `(place as V)`: the place viewed as the variant `index` of its enum.
     #[must_use]
     pub fn downcast(mut self, index: usize) -> Self {
@@ -300,6 +386,10 @@ impl Place {
                 },
                 PlaceElem::Field(_, field_ty) => field_ty.clone(),
                 PlaceElem::Downcast(_) => ty,
+                PlaceElem::Index(_) => match ty {
+                    Ty::Array(elem, _) | Ty::Slice(elem) => *elem,
+                    other => panic!("index of non-array type {other:?}"),
+                },
             };
         }
         ty
@@ -318,6 +408,11 @@ pub enum PlaceElem {
     /// `Field` of the variant. The type stays the enum's. Reading through it is only
     /// meaningful when the place holds that variant, which match lowering guarantees.
     Downcast(usize),
+    /// `[index]`: the element of an array (`[T; N]`) or a slice (`[T]`, only reached
+    /// through a `Deref`) at the `usize` held by the local. Every use of a place with an
+    /// index checks it against the length first and panics with rustc's message when it
+    /// is out of bounds; the backend emits that check (as it does arithmetic checks).
+    Index(Local),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -420,10 +515,46 @@ pub enum Rvalue {
     /// The discriminant of the enum in `place`, as an `isize` (decision 15). A read of
     /// the place for the borrow checker.
     Discriminant(Place),
+    /// `[operand; count]`: an array of `count` copies of the operand (moved in when
+    /// `count` is 1, never used when it is 0).
+    Repeat(Operand, u64),
+    /// The length of the array or slice in `place`, a `usize`: `N` for `[T; N]`, the
+    /// slice's length for `[T]`. Built for `e.len()` from a shared reborrow of the
+    /// receiver (`Len(*tmp)` with `tmp = &e`), so the borrow checker sees rustc's autoref.
+    Len(Place),
+    /// A reference coerced to another pointer representation: `&[T; N]` / `&mut [T; N]`
+    /// to `&[T]` / `&mut [T]` (unsizing), or `&mut [T]` to `&[T]`. The result is the
+    /// type given, and borrows what the operand borrows.
+    PointerCoercion(Operand, Ty),
+}
+
+/// The places an rvalue reads, moves, borrows or measures.
+pub fn rvalue_places(rvalue: &Rvalue) -> impl Iterator<Item = &Place> {
+    let (one, many): (Option<&Place>, &[Operand]) = match rvalue {
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => (op.place(), &[]),
+        Rvalue::BinaryOp(_, l, r) => {
+            return l
+                .place()
+                .into_iter()
+                .chain(r.place())
+                .collect::<Vec<_>>()
+                .into_iter();
+        }
+        Rvalue::Aggregate(_, ops) => (None, ops.as_slice()),
+        Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => (Some(p), &[]),
+    };
+    one.into_iter()
+        .chain(many.iter().filter_map(Operand::place))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// What an [`Rvalue::Aggregate`] builds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AggregateKind {
     /// A struct (a unit struct has no operands).
     Adt(DefId),
@@ -432,6 +563,9 @@ pub enum AggregateKind {
     Tuple,
     /// The variant `.1` of the enum `.0`, from the variant's fields.
     Variant(DefId, usize),
+    /// An array `[a, b, c]` of the given element type, from its elements in order (the
+    /// type is needed for `[]`).
+    Array(Ty),
 }
 
 impl Rvalue {
@@ -453,6 +587,13 @@ impl Rvalue {
                 Ty::Adt(*def)
             }
             Rvalue::Discriminant(_) => Ty::Prim(sabiko_resolve::PrimTy::Isize),
+            Rvalue::Repeat(op, n) => Ty::Array(Box::new(op.ty(body)), *n),
+            Rvalue::Len(_) => Ty::Prim(sabiko_resolve::PrimTy::Usize),
+            Rvalue::PointerCoercion(_, ty) => ty.clone(),
+            Rvalue::Aggregate(AggregateKind::Array(elem), ops) => Ty::Array(
+                Box::new(elem.clone()),
+                u64::try_from(ops.len()).expect("fewer than 2^64 elements"),
+            ),
             Rvalue::Aggregate(AggregateKind::Tuple, ops) => {
                 Ty::Tuple(ops.iter().map(|op| op.ty(body)).collect::<Vec<_>>().into())
             }
