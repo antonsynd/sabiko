@@ -338,7 +338,7 @@ exception, `ReturnPtrToStack` (decision 30: ECMA-335 rejects every function retu
 reference; the borrow checker covers it). Deferred: `Drop` scopes as `try/finally` and the
 drop-order tests go with drop elaboration to Phase 5 (nothing has drop glue yet, decision
 26); `i128`/`u128`, `&&T` and `()`-typed parameters/fields are hard errors (E0500) until
-their representations are decided; ref-to-ref and panic messages lack source positions.
+their representations are decided (since decided: decisions 42, 52 and 63); ref-to-ref and panic messages lack source positions.
 
 **Milestone A** (end of Phase 4): the examples from both design notes (`add_one`,
 `move_point`, partial borrows) compile, verify, run, and the rejection examples are
@@ -413,7 +413,8 @@ between references (all six operators, with rustc's `&`/`&mut` mixing rules) typ
 compare the referents; MIR reborrows each operand as a shared temporary and dereferences it
 after both operands ran, as rustc's `PartialEq::eq(&l, &r)` does, and the generator produces
 such comparisons. One verdict gap remains: rustc's borrow of a reference *variable* used as
-an operand (`r == { r = &y; r }`), which needs `&&T` codegen. Non-BMP `char` literals are
+an operand (`r == { r = &y; r }`), which needs `&&T` codegen (lowered since #11, but not
+used for this yet, decision 63). Non-BMP `char` literals are
 the type checker's E0318 instead of a codegen E0500. The borrow of a diverging expression is
 typed `&!` as in rustc, `&!` locals get no storage (decision 44), and a block with a tail is
 typed by its tail even after a diverging statement; together these close the four known
@@ -439,7 +440,7 @@ rustc's `file:line:column` and per-operator message, through explicit overflow c
 debug builds instead of `.ovf` opcodes (decision 43). The run-time differential harness
 compares full panic reports, including locations, and supports `//@ release`; the generator
 emits 128-bit types; run-pass pins `.stderr`. Still E0500: `&&T` and `()`-typed parameters
-and fields. Generated `u128` literals stay below 2^127.
+and fields (lowered since, decisions 52 and 63). Generated `u128` literals stay below 2^127.
 
 Update (2026-10-29), benchmarks (decision 50): `benchmarks/` compares six Sabiko programs
 with the same algorithms in hand-written C# (rustc as a reference) nightly, in
@@ -482,7 +483,7 @@ and 2000 seeds at each of the bases 1200000, 4400000 and 8800000 agree with rust
 allocating nothing; the other benchmarks did not move beyond noise. Gaps: comparing tuples (`==`, `<`, ...) and
 destructuring assignment (`(a, b) = (b, a)`) are E0107 (the comparison traits are Phase 6;
 `tests/pending/tuples/known_gap/equality.sabi`); `&&T` and `&()`, also as tuple elements,
-stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`); the two-phase
+stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`; since lowered, #11); the two-phase
 reborrow `Use(m, m.0)` waits for #15; a tuple holding a reference cannot be a struct field
 (lifetimes, Phase 9); constants cannot be tuples (E0315); literal and other refutable
 patterns are E0107 until `match`. Pre-existing then: `let _ = place;` read the place where
@@ -523,7 +524,8 @@ in-process, the cost of 64-bit overflow checks through runtime helpers (decision
 checked `fibonacci` shows too, not of the calls. The other benchmarks did not move. Gaps:
 associated constants (`tests/pending/methods/known_gap/associated_consts.sabi`, E0107),
 `&&P` and `&mut &mut P` receivers at run time (`known_gap/double_ref_receivers.sabi`: borrow
-checking accepts them, code generation still rejects `&&T` with E0500 until `Ref<T>`),
+checking accepts them, code generation still rejects `&&T` with E0500 until `Ref<T>`; since
+lowered, #11),
 trait impls (Phase 6, with `impl Drop` first, decision 46), generic impls, `self: Type`
 receivers, methods on primitives, tuples and references (E0211), methods returning `!`
 (`!` cannot be written in a signature yet), and C#-facing instance methods (Phase 8 export
@@ -610,7 +612,7 @@ the changed lines leaves only equivalent survivors (the paragraph after). Benchm
 gap is the candidates re-reading the tag where a decision tree (as in rustc) would switch
 once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p`, half-open
 ranges, primitive associated constants in patterns, `==` on enums (Phase 6), a match
-through `&&T` (`Ref<T>`), string literal patterns (with
+through `&&T` (`Ref<T>`; since lowered, #11), string literal patterns (with
 `&str`, #10), float range patterns (rejected with a misleading message), code that patterns
 make unreachable is not borrow-checked (rustc's false edges), and an arm that tests a
 scrutinee a failed guard moved out (E0406; rustc tests once). Moving a non-`Copy` field out
@@ -688,7 +690,7 @@ launch, allocating only for printing an `f64`. Known gaps (`tests/pending/arrays
 range indexing and slicing (ranges are not expressions yet), slice patterns, `for` loops,
 `==`/`<` on arrays and slices (Phase 6), `const` items of array type (E0315), slice
 methods other than `len()`, arrays and slices of references (E0500: an inline array cannot
-hold a managed pointer; waits for `Ref<T>`), and rustc's deny-by-default
+hold a managed pointer, nor the `Ref<T>` wrapper #11 added, which is a `ref struct`; #43), and rustc's deny-by-default
 `unconditional_panic` lint for constant out-of-bounds indices, which Sabiko does not run
 (it has no constant-propagation lints, like `arithmetic_overflow`): such programs compile
 and panic at run time. `.get(i)` moved to Phase 6 with `Option` (decision 47).
@@ -748,7 +750,8 @@ in `tests/pending/strings/` landed and agrees with rustc: 39 verdict programs in
 the borrow being taken before the bounds), 48 run-time programs in
 `tests/differential/run/{strings,arrays}/` (every panic message and location), 9 UI
 programs in `tests/ui/{parse,typeck}/`. Known gaps: range values (`let r = 1..3;`),
-comparing `str` places (`*s == *t`, E0208) and `&&str` operands (E0500 until #11), `&str`
+comparing `str` places (`*s == *t`, E0208) and `&&str` operands (E0500 until #11, since
+lowered), `&str`
 in structs, enums and arrays (#43), and every other `str` and slice method (`chars()`,
 `is_empty()`, ..., #45).
 
@@ -809,7 +812,10 @@ against drops rather than retrofitted.
   range values wait for generics (Phase 6).
 - `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
   generic types that may hold it are emitted with `allows ref struct`. This also lowers
-  `&&T`.
+  `&&T`. Done for `&&T`, `&()` and references in tuples (#11, decision 63; see the status
+  note above): `Ref<T>`/`RefMut<T>` are generated per module with a `byreflike`
+  parameter, ready to be a generic argument once Phase 6 has generic types; arrays and
+  slices of references remain (#43).
 
 Verification
 - Exhaustiveness UI tests (missing variant, unreachable arm, nested patterns).
