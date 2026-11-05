@@ -100,8 +100,10 @@ fn pat() -> impl Strategy<Value = Pat> {
     prop_oneof![
         Just(PatKind::Wild),
         (any::<bool>(), name()).prop_map(|(mutable, n)| PatKind::Ident {
+            by_ref: false,
             mutable,
-            name: ident(&n)
+            name: ident(&n),
+            sub: None,
         }),
     ]
     .prop_map(|kind| Pat {
@@ -263,7 +265,12 @@ fn block_with(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Block> {
             prop::option::of(ty()),
             prop::option::of(inner.clone())
         )
-            .prop_map(|(pat, ty, init)| StmtKind::Let(LetStmt { pat, ty, init })),
+            .prop_map(|(pat, ty, init)| StmtKind::Let(LetStmt {
+                pat,
+                ty,
+                init,
+                els: None,
+            })),
         // Block-like expressions may omit the semicolon; others may not.
         (inner.clone(), any::<bool>()).prop_map(|(expr, semi)| {
             let semi = semi || !expr.is_block_like();
@@ -533,6 +540,16 @@ fn strip_parens_expr(e: &mut Expr) {
         ExprKind::Struct { fields, .. } => fields
             .iter_mut()
             .for_each(|f| strip_parens_expr(&mut f.value)),
+        ExprKind::Match { scrutinee, arms } => {
+            strip_parens_expr(scrutinee);
+            for arm in arms {
+                if let Some(g) = &mut arm.guard {
+                    strip_parens_expr(g);
+                }
+                strip_parens_expr(&mut arm.body);
+            }
+        }
+        ExprKind::Let(_, e) => strip_parens_expr(e),
     }
 }
 
@@ -542,6 +559,9 @@ fn strip_parens_block(b: &mut Block) {
             StmtKind::Let(l) => {
                 if let Some(init) = &mut l.init {
                     strip_parens_expr(init);
+                }
+                if let Some(els) = &mut l.els {
+                    strip_parens_block(els);
                 }
             }
             StmtKind::Expr { expr, .. } => strip_parens_expr(expr),
@@ -564,7 +584,7 @@ fn strip_parens_item(item: &mut Item) {
         ItemKind::Fn(func) => strip_parens_block(&mut func.body),
         ItemKind::Const(c) => strip_parens_expr(&mut c.value),
         ItemKind::Impl(imp) => imp.items.iter_mut().for_each(strip_parens_item),
-        ItemKind::Struct(_) => {}
+        ItemKind::Struct(_) | ItemKind::Enum(_) => {}
     }
 }
 

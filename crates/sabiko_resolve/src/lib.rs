@@ -29,8 +29,8 @@
 use std::collections::HashMap;
 
 use sabiko_ast::{
-    Block, Expr, ExprKind, FnDecl, ImplDecl, Item, ItemKind, NodeId, Pat, PatKind, Path,
-    SourceFile, Stmt, StmtKind, StructKind, Type, TypeKind,
+    Block, Expr, ExprKind, FieldDef, FnDecl, ImplDecl, Item, ItemKind, NodeId, Pat, PatKind, Path,
+    SourceFile, Stmt, StmtKind, StructKind, Type, TypeKind, VariantData,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_span::Span;
@@ -165,6 +165,10 @@ pub enum DefKind {
     Fn,
     Struct,
     Const,
+    Enum,
+    /// A variant of an enum; its `parent` is the enum. Not in the item namespace: it is
+    /// named `E::V` (or `Self::V`).
+    Variant,
 }
 
 impl DefKind {
@@ -174,7 +178,15 @@ impl DefKind {
             Self::Fn => "function",
             Self::Struct => "struct",
             Self::Const => "constant",
+            Self::Enum => "enum",
+            Self::Variant => "variant",
         }
+    }
+
+    /// Whether the definition is a type: a struct or an enum.
+    #[must_use]
+    pub fn is_type(self) -> bool {
+        matches!(self, Self::Struct | Self::Enum)
     }
 }
 
@@ -219,8 +231,9 @@ pub struct DefInfo {
     pub item_index: usize,
     /// For an associated function, its index among the members of its `impl` block.
     pub member_index: Option<usize>,
-    /// For an associated function, the struct its `impl` block is for; `None` for other
-    /// items, and for the members of an `impl` whose type did not resolve.
+    /// For an associated function, the struct (or enum) its `impl` block is for; for a
+    /// variant, its enum; `None` for other items, and for the members of an `impl` whose
+    /// type did not resolve.
     pub parent: Option<DefId>,
     /// `Some` for a compiler builtin, `None` for every user item.
     pub builtin: Option<Builtin>,
@@ -241,7 +254,8 @@ pub struct LocalInfo {
     pub mutable: bool,
     /// Span of the binding's name.
     pub span: Span,
-    /// The `Pat` node that introduced it.
+    /// The `Pat` node that introduced it (the first alternative's, in an or-pattern, whose
+    /// other alternatives' identifier patterns bind the same local).
     pub pat: NodeId,
     /// The function the binding lives in.
     pub owner: DefId,
@@ -277,6 +291,12 @@ pub struct ResolveResults {
     /// associated function: method calls and `Type::Name` paths do not find it, except to
     /// report an explicit destructor call.
     drop_impls: HashMap<DefId, DefId>,
+    /// The variants of each enum, in declaration order.
+    variants: HashMap<DefId, Vec<DefId>>,
+    /// Identifier patterns that name a constant or a unit struct instead of binding
+    /// (`LIMIT => ..`), and the path of every path, tuple-struct and struct pattern, keyed
+    /// by the `Pat` node.
+    pat_res: HashMap<NodeId, Res>,
 }
 
 impl ResolveResults {
@@ -339,6 +359,32 @@ impl ResolveResults {
         self.drop_impls.values().any(|&d| d == def)
     }
 
+    /// The variants of the enum `def`, in declaration order (empty for anything else).
+    #[must_use]
+    pub fn variants(&self, def: DefId) -> &[DefId] {
+        self.variants.get(&def).map_or(&[], Vec::as_slice)
+    }
+
+    /// The index of a variant within its enum.
+    #[must_use]
+    pub fn variant_index(&self, variant: DefId) -> usize {
+        let parent = self
+            .def(variant)
+            .parent
+            .expect("a variant has its enum as parent");
+        self.variants(parent)
+            .iter()
+            .position(|&v| v == variant)
+            .expect("a variant is among its enum's variants")
+    }
+
+    /// What a pattern names, for an identifier pattern that compares (a constant or a unit
+    /// struct: `None` for a binding) and for path, tuple-struct and struct patterns.
+    #[must_use]
+    pub fn pat_res(&self, pat: NodeId) -> Option<Res> {
+        self.pat_res.get(&pat).copied()
+    }
+
     /// The `self` binding of a method; `None` for a function without a `self` parameter.
     #[must_use]
     pub fn self_local(&self, def: DefId) -> Option<LocalId> {
@@ -367,7 +413,8 @@ impl ResolveResults {
         &self.locals[id.0 as usize]
     }
 
-    /// The local introduced by an identifier pattern; `None` for `_`.
+    /// The local introduced by an identifier pattern; `None` for `_` and for an identifier
+    /// that names a constant or a unit struct.
     #[must_use]
     pub fn local_of_pat(&self, pat: NodeId) -> Option<LocalId> {
         self.pat_locals.get(&pat).copied()
@@ -390,6 +437,7 @@ impl ResolveResults {
 pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
     let mut r = Resolver {
         results: ResolveResults::default(),
+        unit_structs: std::collections::HashSet::new(),
         items: HashMap::new(),
         scopes: Vec::new(),
         sink,
@@ -404,8 +452,20 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
     r.results
 }
 
+/// A name a pattern binds.
+#[derive(Clone, Debug)]
+struct Binding {
+    name: String,
+    local: LocalId,
+    span: Span,
+    by_ref: bool,
+    mutable: bool,
+}
+
 struct Resolver<'d> {
     results: ResolveResults,
+    /// The unit structs of the file, which a lone identifier in a pattern names.
+    unit_structs: std::collections::HashSet<DefId>,
     /// First definition of each item name.
     items: HashMap<String, DefId>,
     scopes: Vec<Vec<(String, LocalId)>>,
@@ -437,6 +497,7 @@ impl Resolver<'_> {
                 ItemKind::Fn(_) => DefKind::Fn,
                 ItemKind::Struct(_) => DefKind::Struct,
                 ItemKind::Const(_) => DefKind::Const,
+                ItemKind::Enum(_) => DefKind::Enum,
                 ItemKind::Impl(imp) => {
                     // The members are definitions of their own, in source order, but not in
                     // the item namespace: they are reached as `Type::Name` or as methods.
@@ -471,6 +532,16 @@ impl Resolver<'_> {
                 builtin: None,
             });
             self.results.item_defs.insert(item.id, id);
+            if let ItemKind::Enum(e) = &item.kind {
+                self.collect_variants(id, index, e);
+            }
+            if let ItemKind::Struct(sabiko_ast::StructDecl {
+                kind: StructKind::Unit,
+                ..
+            }) = &item.kind
+            {
+                self.unit_structs.insert(id);
+            }
             if let Some(&first) = self.items.get(&name.name) {
                 let first_span = self.results.def(first).span;
                 self.sink.emit(
@@ -507,6 +578,53 @@ impl Resolver<'_> {
             });
             self.items.insert(builtin.name().to_owned(), id);
         }
+    }
+
+    /// The variants of the enum `adt`, each a definition with the enum as parent. A second
+    /// variant of one name is E0200 (rustc's E0428) and gets no definition.
+    fn collect_variants(&mut self, adt: DefId, index: usize, e: &sabiko_ast::EnumDecl) {
+        let mut ids = Vec::new();
+        let mut seen: HashMap<&str, Span> = HashMap::new();
+        for v in &e.variants {
+            if let Some(&prev) = seen.get(v.name.name.as_str()) {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_DEFINITION,
+                        format!("the name `{}` is defined multiple times", v.name.name),
+                    )
+                    .with_label(v.name.span, format!("`{}` redefined here", v.name.name))
+                    .with_label(
+                        prev,
+                        format!("previous definition of `{}` here", v.name.name),
+                    )
+                    .with_note("a variant name must be unique within its enum"),
+                );
+                continue;
+            }
+            seen.insert(&v.name.name, v.name.span);
+            let id = self.new_def(DefInfo {
+                kind: DefKind::Variant,
+                name: v.name.name.clone(),
+                span: v.name.span,
+                node: v.id,
+                item_index: index,
+                member_index: None,
+                parent: Some(adt),
+                builtin: None,
+            });
+            self.results.item_defs.insert(v.id, id);
+            ids.push(id);
+        }
+        self.results.variants.insert(adt, ids);
+    }
+
+    /// The variant `name` of the enum `adt`.
+    fn variant(&self, adt: DefId, name: &str) -> Option<DefId> {
+        self.results
+            .variants(adt)
+            .iter()
+            .copied()
+            .find(|&v| self.results.def(v).name == name)
     }
 
     /// Resolves the type of every `impl` block, records each member's parent struct and
@@ -738,24 +856,26 @@ impl Resolver<'_> {
             ItemKind::Fn(f) => self.resolve_fn(def, f),
             ItemKind::Struct(s) => {
                 if let StructKind::Named(fields) = &s.kind {
-                    let mut seen: HashMap<&str, Span> = HashMap::new();
-                    for field in fields {
-                        if let Some(&prev) = seen.get(field.name.name.as_str()) {
-                            self.sink.emit(
-                                Diagnostic::error(
-                                    ErrorCode::DUPLICATE_FIELD_DEFINITION,
-                                    format!("field `{}` is already declared", field.name.name),
-                                )
-                                .with_label(field.name.span, "field already declared")
-                                .with_label(
-                                    prev,
-                                    format!("`{}` first declared here", field.name.name),
-                                ),
-                            );
-                        } else {
-                            seen.insert(&field.name.name, field.name.span);
+                    self.resolve_fields(fields);
+                }
+            }
+            ItemKind::Enum(e) => {
+                for v in &e.variants {
+                    match &v.data {
+                        VariantData::Unit => {}
+                        VariantData::Tuple(tys) => {
+                            for t in tys {
+                                self.resolve_type(t, true);
+                            }
                         }
-                        self.resolve_type(&field.ty, true);
+                        VariantData::Named(fields) => self.resolve_fields(fields),
+                    }
+                    if let Some(d) = &v.discriminant {
+                        self.current_fn = Some(def);
+                        self.scopes.push(Vec::new());
+                        self.resolve_expr(d);
+                        self.scopes.pop();
+                        self.current_fn = None;
                     }
                 }
             }
@@ -767,6 +887,26 @@ impl Resolver<'_> {
                 self.scopes.pop();
                 self.current_fn = None;
             }
+        }
+    }
+
+    /// The fields of a struct or a struct variant: unique names (E0204) and their types.
+    fn resolve_fields(&mut self, fields: &[FieldDef]) {
+        let mut seen: HashMap<&str, Span> = HashMap::new();
+        for field in fields {
+            if let Some(&prev) = seen.get(field.name.name.as_str()) {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_FIELD_DEFINITION,
+                        format!("field `{}` is already declared", field.name.name),
+                    )
+                    .with_label(field.name.span, "field already declared")
+                    .with_label(prev, format!("`{}` first declared here", field.name.name)),
+                );
+            } else {
+                seen.insert(&field.name.name, field.name.span);
+            }
+            self.resolve_type(&field.ty, true);
         }
     }
 
@@ -825,58 +965,220 @@ impl Resolver<'_> {
         self.current_fn = None;
     }
 
-    fn bind_pat(&mut self, pat: &Pat, is_param: bool) {
+    /// Resolves `pat` and binds its names in the innermost scope, returning the bindings.
+    fn bind_pat(&mut self, pat: &Pat, is_param: bool) -> Vec<Binding> {
+        let mut out = Vec::new();
+        self.walk_pat(pat, is_param, None, &mut out);
+        let scope = self.scopes.last_mut().expect("a scope is open");
+        for b in &out {
+            scope.push((b.name.clone(), b.local));
+        }
+        out
+    }
+
+    /// Resolves the paths of `pat` and creates (or, inside an alternative of an
+    /// or-pattern other than the first, reuses from `reuse`) the locals of its bindings,
+    /// appending them to `out` in source order.
+    #[allow(clippy::too_many_lines)]
+    fn walk_pat(
+        &mut self,
+        pat: &Pat,
+        is_param: bool,
+        reuse: Option<&[Binding]>,
+        out: &mut Vec<Binding>,
+    ) {
         match &pat.kind {
-            PatKind::Ident { mutable, name } => {
-                let id =
-                    LocalId(u32::try_from(self.results.locals.len()).expect("too many locals"));
-                self.results.locals.push(LocalInfo {
+            PatKind::Ident {
+                by_ref,
+                mutable,
+                name,
+                sub,
+            } => {
+                if !by_ref && !mutable && sub.is_none() {
+                    if let Some(res) = self.ident_pat_path(&name.name) {
+                        self.results.pat_res.insert(pat.id, res);
+                        return;
+                    }
+                }
+                let existing = reuse.and_then(|r| r.iter().find(|b| b.name == name.name));
+                let local = if let Some(b) = existing {
+                    if b.by_ref != *by_ref || b.mutable != *mutable {
+                        self.sink.emit(
+                            Diagnostic::error(
+                                ErrorCode::OR_PATTERN_BINDING_MODE,
+                                format!(
+                                    "variable `{}` is bound inconsistently across `|` patterns",
+                                    name.name
+                                ),
+                            )
+                            .with_label(name.span, "bound in different ways")
+                            .with_label(b.span, "first binding"),
+                        );
+                    }
+                    b.local
+                } else {
+                    let id =
+                        LocalId(u32::try_from(self.results.locals.len()).expect("too many locals"));
+                    self.results.locals.push(LocalInfo {
+                        name: name.name.clone(),
+                        mutable: *mutable,
+                        span: name.span,
+                        pat: pat.id,
+                        owner: self.current_fn.expect("bindings only occur inside items"),
+                        is_param,
+                    });
+                    id
+                };
+                self.results.pat_locals.insert(pat.id, local);
+                out.push(Binding {
                     name: name.name.clone(),
-                    mutable: *mutable,
+                    local,
                     span: name.span,
-                    pat: pat.id,
-                    owner: self.current_fn.expect("bindings only occur inside items"),
-                    is_param,
+                    by_ref: *by_ref,
+                    mutable: *mutable,
                 });
-                self.results.pat_locals.insert(pat.id, id);
-                self.scopes
-                    .last_mut()
-                    .expect("a scope is open")
-                    .push((name.name.clone(), id));
+                if let Some(sub) = sub {
+                    self.walk_pat(sub, is_param, reuse, out);
+                }
             }
-            PatKind::Wild => {}
+            PatKind::Wild | PatKind::Rest => {}
             PatKind::Tuple(elems) => {
                 for p in elems {
-                    self.bind_pat(p, is_param);
+                    self.walk_pat(p, is_param, reuse, out);
                 }
+            }
+            PatKind::Path(path) => {
+                let res = self.resolve_value_path(path);
+                self.results.pat_res.insert(pat.id, res);
+            }
+            PatKind::TupleStruct(path, elems) => {
+                let res = if path.is_single() {
+                    self.unknown_tuple_variant(path)
+                } else {
+                    self.resolve_value_path(path)
+                };
+                self.results.pat_res.insert(pat.id, res);
+                for p in elems {
+                    self.walk_pat(p, is_param, reuse, out);
+                }
+            }
+            PatKind::Struct { path, fields, .. } => {
+                let res = self.resolve_struct_path(path);
+                self.results.pat_res.insert(pat.id, res);
+                for f in fields {
+                    self.walk_pat(&f.pat, is_param, reuse, out);
+                }
+            }
+            PatKind::Lit(e) => self.resolve_expr(e),
+            PatKind::Range(lo, hi, _) => {
+                self.resolve_expr(lo);
+                self.resolve_expr(hi);
+            }
+            PatKind::Or(alts) => {
+                let mut first = Vec::new();
+                self.walk_pat(&alts[0], is_param, reuse, &mut first);
+                for alt in &alts[1..] {
+                    let mut names = Vec::new();
+                    self.walk_pat(alt, is_param, Some(&first), &mut names);
+                    for b in &first {
+                        if !names.iter().any(|n| n.name == b.name) {
+                            self.missing_in_alternative(&b.name, alt.span, b.span);
+                        }
+                    }
+                    for n in names {
+                        if !first.iter().any(|b| b.name == n.name) {
+                            self.missing_in_alternative(&n.name, alts[0].span, n.span);
+                            first.push(n);
+                        }
+                    }
+                }
+                out.extend(first);
             }
         }
     }
 
-    /// Binds a `let` pattern. A name bound twice in one pattern (`let (x, x) = t;`) is an
-    /// error; both bindings are still made, the second shadowing the first.
+    /// E0218 (rustc's E0408): `name`, bound at `bound`, is missing from the alternative at
+    /// `alt`.
+    fn missing_in_alternative(&mut self, name: &str, alt: Span, bound: Span) {
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::OR_PATTERN_BINDING_MISSING,
+                format!("variable `{name}` is not bound in all patterns"),
+            )
+            .with_label(alt, format!("pattern doesn't bind `{name}`"))
+            .with_label(bound, "variable not in all patterns"),
+        );
+    }
+
+    /// `V(..)` with a single-segment path: there are no tuple structs, and variants are
+    /// named through their enum.
+    fn unknown_tuple_variant(&mut self, path: &Path) -> Res {
+        let name = &path.segments[0];
+        let mut d = Diagnostic::error(
+            ErrorCode::UNRESOLVED_VALUE,
+            format!(
+                "cannot find tuple struct or tuple variant `{}` in this scope",
+                name.name
+            ),
+        )
+        .with_label(name.span, "not found in this scope");
+        let owners: Vec<String> = self
+            .results
+            .variants
+            .iter()
+            .filter(|(_, vs)| vs.iter().any(|&v| self.results.def(v).name == name.name))
+            .map(|(e, _)| self.results.def(*e).name.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if let Some(owner) = owners.first() {
+            d = d.with_note(format!(
+                "`{}` is a variant of `{owner}`: write `{owner}::{}`",
+                name.name, name.name
+            ));
+        }
+        self.sink.emit(d);
+        Res::Err
+    }
+
+    /// What a lone identifier in a pattern names when it does not bind: a constant or a
+    /// unit struct of the file, unless a local of that name shadows it (rustc looks the
+    /// name up the same way).
+    fn ident_pat_path(&self, name: &str) -> Option<Res> {
+        if self.lookup_local(name).is_some() {
+            return None;
+        }
+        let &def = self.items.get(name)?;
+        let info = self.results.def(def);
+        match info.kind {
+            DefKind::Const => Some(Res::Def(def)),
+            DefKind::Struct if self.unit_structs.contains(&def) => Some(Res::Def(def)),
+            _ => None,
+        }
+    }
+
+    /// Binds a whole pattern (of a `let`, a `match` arm, an `if let`): each name at most
+    /// once per pattern (E0209, rustc's E0416), or-pattern alternatives aside.
     fn bind_let_pat(&mut self, pat: &Pat) {
-        let mut names = Vec::new();
-        pat_bindings(pat, &mut names);
+        let bindings = self.bind_pat(pat, false);
         let mut seen: HashMap<&str, Span> = HashMap::new();
-        for name in names {
-            if let Some(&prev) = seen.get(name.name.as_str()) {
+        for b in &bindings {
+            if let Some(&prev) = seen.get(b.name.as_str()) {
                 self.sink.emit(
                     Diagnostic::error(
                         ErrorCode::DUPLICATE_BINDING,
                         format!(
                             "identifier `{}` is bound more than once in the same pattern",
-                            name.name
+                            b.name
                         ),
                     )
-                    .with_label(name.span, "used in a pattern more than once")
+                    .with_label(b.span, "used in a pattern more than once")
                     .with_label(prev, "first use of the name"),
                 );
             } else {
-                seen.insert(&name.name, name.span);
+                seen.insert(&b.name, b.span);
             }
         }
-        self.bind_pat(pat, false);
     }
 
     fn lookup_local(&self, name: &str) -> Option<LocalId> {
@@ -970,7 +1272,7 @@ impl Resolver<'_> {
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
-                DefKind::Struct => Res::Def(def),
+                DefKind::Struct | DefKind::Enum => Res::Def(def),
                 kind => {
                     let d = Diagnostic::error(
                         ErrorCode::WRONG_NAMESPACE,
@@ -1032,6 +1334,20 @@ impl Resolver<'_> {
                 // Unit structs are values; the type checker rejects named structs used
                 // as values, since it knows the struct's shape.
                 DefKind::Fn | DefKind::Const | DefKind::Struct => Res::Def(def),
+                kind @ (DefKind::Enum | DefKind::Variant) => {
+                    let d = Diagnostic::error(
+                        ErrorCode::WRONG_NAMESPACE,
+                        format!("expected value, found {} `{}`", kind.describe(), name.name),
+                    )
+                    .with_label(name.span, "not a value")
+                    .with_note(format!(
+                        "a variant is named through its enum: `{}::Variant`",
+                        name.name
+                    ));
+                    self.sink
+                        .emit(Self::with_definition_label(d, info, &name.name));
+                    Res::Err
+                }
             };
         }
         let mut d = Diagnostic::error(
@@ -1094,6 +1410,9 @@ impl Resolver<'_> {
             }
             Res::Local(_) | Res::Err => return Res::Err,
         };
+        if let Some(def) = self.variant(adt, &item.name) {
+            return Res::Def(def);
+        }
         if let Some(def) = self.results.assoc_fn(adt, &item.name) {
             return Res::Def(def);
         }
@@ -1103,8 +1422,25 @@ impl Resolver<'_> {
                 return Res::Def(def);
             }
         }
-        let what = format!("struct `{}`", self.results.def(adt).name);
-        self.unknown_assoc_item(item, &what);
+        let info = self.results.def(adt);
+        let what = format!("{} `{}`", info.kind.describe(), info.name);
+        if info.kind == DefKind::Enum {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNKNOWN_ASSOC_ITEM,
+                    format!(
+                        "no variant or associated item named `{}` found for {what}",
+                        item.name
+                    ),
+                )
+                .with_label(
+                    item.span,
+                    format!("variant or associated item not found in `{}`", info.name),
+                ),
+            );
+        } else {
+            self.unknown_assoc_item(item, &what);
+        }
         Res::Err
     }
 
@@ -1124,13 +1460,51 @@ impl Resolver<'_> {
         );
     }
 
+    /// The path of a struct literal or pattern: a struct, or `E::V` naming a variant (any
+    /// kind: the type checker reports a variant of the wrong shape).
     fn resolve_struct_path(&mut self, path: &Path) -> Res {
-        if !path.is_single() {
-            return self.unsupported_path(path);
+        match path.segments.len() {
+            1 => {}
+            2 => {
+                let res = self.resolve_assoc_path(path);
+                return match res {
+                    Res::Def(def) if self.results.def(def).kind == DefKind::Fn => {
+                        let name = path.last();
+                        self.sink.emit(
+                            Diagnostic::error(
+                                ErrorCode::WRONG_NAMESPACE,
+                                format!(
+                                    "expected struct or variant, found associated function `{}`",
+                                    self.results.qualified_name(def)
+                                ),
+                            )
+                            .with_label(name.span, "not a struct or a variant"),
+                        );
+                        Res::Err
+                    }
+                    res => res,
+                };
+            }
+            _ => return self.unsupported_path(path),
         }
         let name = &path.segments[0];
         if name.name == "Self" {
-            return self.resolve_self_type(name.span);
+            return match self.resolve_self_type(name.span) {
+                Res::Def(def) if self.results.def(def).kind == DefKind::Enum => {
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::WRONG_NAMESPACE,
+                            "expected struct, found enum `Self`",
+                        )
+                        .with_label(
+                            name.span,
+                            "`Self` is an enum here: name a variant, `Self::V`",
+                        ),
+                    );
+                    Res::Err
+                }
+                res => res,
+            };
         }
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
@@ -1173,6 +1547,17 @@ impl Resolver<'_> {
         }
     }
 
+    /// The condition of an `if` or `while`, in a scope the caller opened: a `let` binds its
+    /// pattern there, after its scrutinee is resolved.
+    fn resolve_cond(&mut self, cond: &Expr) {
+        if let ExprKind::Let(pat, scrutinee) = &cond.kind {
+            self.resolve_expr(scrutinee);
+            self.bind_let_pat(pat);
+        } else {
+            self.resolve_expr(cond);
+        }
+    }
+
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Let(l) => {
@@ -1181,6 +1566,10 @@ impl Resolver<'_> {
                 }
                 if let Some(init) = &l.init {
                     self.resolve_expr(init);
+                }
+                if let Some(els) = &l.els {
+                    // The `else` block does not see the pattern's bindings.
+                    self.resolve_block(els);
                 }
                 self.bind_let_pat(&l.pat);
             }
@@ -1231,15 +1620,40 @@ impl Resolver<'_> {
             }
             ExprKind::Block(b) => self.resolve_block(b),
             ExprKind::If { cond, then, els } => {
-                self.resolve_expr(cond);
+                // `if let`: the bindings are visible in the `then` block only.
+                self.scopes.push(Vec::new());
+                self.resolve_cond(cond);
                 self.resolve_block(then);
+                self.scopes.pop();
                 if let Some(e) = els {
                     self.resolve_expr(e);
                 }
             }
             ExprKind::While { cond, body } => {
-                self.resolve_expr(cond);
+                self.scopes.push(Vec::new());
+                self.resolve_cond(cond);
                 self.resolve_block(body);
+                self.scopes.pop();
+            }
+            ExprKind::Let(pat, scrutinee) => {
+                // Only as a whole condition, which `resolve_cond` handles; the parser
+                // never produces one elsewhere.
+                self.resolve_expr(scrutinee);
+                self.scopes.push(Vec::new());
+                self.bind_let_pat(pat);
+                self.scopes.pop();
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                self.resolve_expr(scrutinee);
+                for arm in arms {
+                    self.scopes.push(Vec::new());
+                    self.bind_let_pat(&arm.pat);
+                    if let Some(g) = &arm.guard {
+                        self.resolve_expr(g);
+                    }
+                    self.resolve_expr(&arm.body);
+                    self.scopes.pop();
+                }
             }
             ExprKind::Loop { body } => self.resolve_block(body),
             ExprKind::Break(e) | ExprKind::Return(e) => {
@@ -1258,17 +1672,14 @@ impl Resolver<'_> {
     }
 }
 
-/// The identifiers a pattern binds, left to right.
+/// The identifiers a pattern may bind, left to right (the first alternative of an
+/// or-pattern only).
 fn pat_bindings<'p>(pat: &'p Pat, out: &mut Vec<&'p sabiko_ast::Ident>) {
-    match &pat.kind {
-        PatKind::Ident { name, .. } => out.push(name),
-        PatKind::Wild => {}
-        PatKind::Tuple(elems) => {
-            for p in elems {
-                pat_bindings(p, out);
-            }
+    pat.walk_idents(&mut |p| {
+        if let PatKind::Ident { name, .. } = &p.kind {
+            out.push(name);
         }
-    }
+    });
 }
 
 #[cfg(test)]

@@ -30,11 +30,7 @@ impl Cx<'_> {
         if let Ty::Adt(def) = ty {
             let items = &self.typeck.items;
             if items.drop_impl(*def).is_some()
-                && !items
-                    .adt(*def)
-                    .fields
-                    .iter()
-                    .any(|f| items.needs_drop(&f.ty))
+                && !items.adt(*def).all_field_tys().any(|t| items.needs_drop(t))
             {
                 return self.own_drop_call(*def, ty, span);
             }
@@ -76,6 +72,36 @@ impl Cx<'_> {
             }
         }
         let own = steps.len();
+        if let Some(adt) = self.typeck.items.as_enum(ty).cloned() {
+            // An enum: each variant's fields, by a helper that does nothing unless its
+            // variant is the one held; only one of them drops anything.
+            let Ty::Adt(def) = ty else { unreachable!() };
+            let mut helpers = Vec::new();
+            for (v, variant) in adt.variants().iter().enumerate() {
+                if !variant
+                    .fields
+                    .iter()
+                    .any(|f| self.typeck.items.needs_drop(&f.ty))
+                {
+                    continue;
+                }
+                let helper = format!("{name}.{}", variant.name);
+                steps.push(vec![
+                    "ldarg.0".to_owned(),
+                    format!(
+                        "call void {}::{}({cil}&)",
+                        types::quote(&self.class_name),
+                        types::quote(&helper)
+                    ),
+                ]);
+                helpers.push((v, helper));
+            }
+            self.glue_method(name, &cil, &[], &steps, own, out);
+            for (v, helper) in helpers {
+                self.variant_glue(*def, v, &helper, &cil, out);
+            }
+            return;
+        }
         let field_tys: Vec<Ty> = match ty {
             Ty::Adt(def) => self
                 .typeck
@@ -101,11 +127,78 @@ impl Cx<'_> {
             step.push(self.drop_glue_call(field_ty, span));
             steps.push(step);
         }
+        self.glue_method(name, &cil, &[], &steps, own, out);
+    }
+
+    /// The drop of the fields of variant `variant` of the enum `def` held at the address
+    /// in argument 0, if the enum holds that variant.
+    fn variant_glue(
+        &mut self,
+        def: sabiko_resolve::DefId,
+        variant: usize,
+        name: &str,
+        cil: &str,
+        out: &mut String,
+    ) {
+        let span = Span::dummy();
+        let adt = self.typeck.items.adt(def).clone();
+        let v = adt.variant(variant).clone();
+        let payload = self.payload_field_ref(def, variant);
+        let mut steps = Vec::new();
+        for (index, field) in v.fields.iter().enumerate() {
+            if !self.typeck.items.needs_drop(&field.ty) {
+                continue;
+            }
+            let field_ref = self.variant_field_ref(def, variant, index, &field.ty, span);
+            steps.push(vec![
+                "ldarg.0".to_owned(),
+                format!("ldflda {payload}"),
+                format!("ldflda {field_ref}"),
+                self.drop_glue_call(&field.ty, span),
+            ]);
+        }
+        let tag = self.tag_field_ref(def);
+        let tag_ty = self.tag_type(def);
+        let load_discr = match tag_ty {
+            sabiko_resolve::PrimTy::I32 => format!("ldc.i4 {}", v.discr),
+            _ => format!("ldc.i8 {}", v.discr),
+        };
+        let prologue = [
+            "ldarg.0".to_owned(),
+            format!("ldfld {tag}"),
+            load_discr,
+            "beq ACTIVE".to_owned(),
+            "ret".to_owned(),
+            "ACTIVE:".to_owned(),
+        ];
+        self.glue_method(name, cil, &prologue, &steps, 0, out);
+    }
+
+    /// A glue method: `prologue`, then `steps`, each but the last (and the first `own`,
+    /// whose handler runs every step after `own`) protected by a `fault` handler that runs
+    /// the steps after it.
+    #[allow(clippy::unused_self)]
+    fn glue_method(
+        &self,
+        name: &str,
+        cil: &str,
+        prologue: &[String],
+        steps: &[Vec<String>],
+        own: usize,
+        out: &mut String,
+    ) {
         let _ = writeln!(
             out,
             "  .method public hidebysig static void {}({cil}& 'self') cil managed\n  {{\n    .maxstack 2",
             types::quote(name)
         );
+        for line in prologue {
+            if line.ends_with(':') {
+                let _ = writeln!(out, "  {line}");
+            } else {
+                let _ = writeln!(out, "    {line}");
+            }
+        }
         for (k, step) in steps.iter().enumerate() {
             // The fields after this step: all of them after the own `drop`.
             let rest = &steps[(k + 1).max(own)..];

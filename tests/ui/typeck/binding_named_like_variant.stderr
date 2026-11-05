@@ -1,0 +1,21 @@
+[E0325] Error: pattern binding `Red` is named the same as one of the variants of the type `Light`
+    ╭─[ tests/ui/typeck/binding_named_like_variant.sabi:11:9 ]
+    │
+ 11 │         Red => 1, //~ ERROR E0325 pattern binding `Red` is named the same as one of the variants of the
+    │         ─┬─  
+    │          ╰─── to match on the variant, qualify the path: `Light::Red`
+────╯
+[E0325] Error: pattern binding `Green` is named the same as one of the variants of the type `Light`
+    ╭─[ tests/ui/typeck/binding_named_like_variant.sabi:12:9 ]
+    │
+ 12 │         Green => 2, //~ ERROR E0325 pattern binding `Green` is named the same as one of the variants of
+    │         ──┬──  
+    │           ╰──── to match on the variant, qualify the path: `Light::Green`
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/binding_named_like_variant.sabi:12:9 ]
+    │
+ 12 │         Green => 2, //~ ERROR E0325 pattern binding `Green` is named the same as one of the variants of
+    │         ──┬──  
+    │           ╰──── no value can reach this
+────╯

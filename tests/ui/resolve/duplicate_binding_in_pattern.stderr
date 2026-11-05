@@ -1,0 +1,18 @@
+[E0209] Error: identifier `a` is bound more than once in the same pattern
+   ╭─[ tests/ui/resolve/duplicate_binding_in_pattern.sabi:7:32 ]
+   │
+ 7 │         Shape::Rect { W: a, H: a } => a, //~ ERROR E0209 identifier `a` is bound more than once in the same pattern
+   │                          ┬     ┬  
+   │                          │     ╰── used in a pattern more than once
+   │                          │        
+   │                          ╰──────── first use of the name
+───╯
+[E0209] Error: identifier `b` is bound more than once in the same pattern
+   ╭─[ tests/ui/resolve/duplicate_binding_in_pattern.sabi:8:24 ]
+   │
+ 8 │         Shape::Pair(b, b) => b, //~ ERROR E0209 identifier `b` is bound more than once in the same pattern
+   │                     ┬  ┬  
+   │                     │  ╰── used in a pattern more than once
+   │                     │     
+   │                     ╰───── first use of the name
+───╯

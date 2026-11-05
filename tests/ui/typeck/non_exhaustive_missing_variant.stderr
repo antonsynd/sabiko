@@ -1,0 +1,18 @@
+[E0328] Error: non-exhaustive patterns: `Light::Green` not covered
+   ╭─[ tests/ui/typeck/non_exhaustive_missing_variant.sabi:7:11 ]
+   │
+ 7 │     match l { //~ ERROR E0328 non-exhaustive patterns: `Light::Green` not covered
+   │           ┬  
+   │           ╰── pattern `Light::Green` not covered
+   │ 
+   │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+───╯
+[E0328] Error: non-exhaustive patterns: `Light::Yellow`, `Light::Green` and `Light::Blinking(_)` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_missing_variant.sabi:15:11 ]
+    │
+ 15 │     match l { //~ ERROR E0328 non-exhaustive patterns: `Light::Yellow`, `Light::Green` and
+    │           ┬  
+    │           ╰── patterns `Light::Yellow`, `Light::Green` and `Light::Blinking(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

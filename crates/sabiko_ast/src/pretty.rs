@@ -75,6 +75,7 @@ impl Printer {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn item(&mut self, item: &Item) {
         self.meta(&item.attrs, &item.docs);
         self.vis(item.vis);
@@ -129,6 +130,48 @@ impl Printer {
                 self.expr(&c.value, 0);
                 self.out.push_str(";\n");
             }
+            ItemKind::Enum(e) => {
+                let _ = write!(self.out, "enum {} {{", e.name.name);
+                self.indent += 1;
+                for v in &e.variants {
+                    self.newline();
+                    self.meta(&v.attrs, &v.docs);
+                    self.out.push_str(&v.name.name);
+                    match &v.data {
+                        VariantData::Unit => {}
+                        VariantData::Tuple(tys) => {
+                            self.out.push('(');
+                            for (i, t) in tys.iter().enumerate() {
+                                if i > 0 {
+                                    self.out.push_str(", ");
+                                }
+                                self.ty(t);
+                            }
+                            self.out.push(')');
+                        }
+                        VariantData::Named(fields) => {
+                            self.out.push_str(" {");
+                            for (i, f) in fields.iter().enumerate() {
+                                self.out.push_str(if i > 0 { ", " } else { " " });
+                                let _ = write!(self.out, "{}: ", f.name.name);
+                                self.ty(&f.ty);
+                            }
+                            self.out
+                                .push_str(if fields.is_empty() { "}" } else { " }" });
+                        }
+                    }
+                    if let Some(d) = &v.discriminant {
+                        self.out.push_str(" = ");
+                        self.expr(d, 0);
+                    }
+                    self.out.push(',');
+                }
+                self.indent -= 1;
+                if !e.variants.is_empty() {
+                    self.newline();
+                }
+                self.out.push_str("}\n");
+            }
             ItemKind::Impl(imp) => {
                 self.out.push_str("impl ");
                 if let Some(t) = &imp.trait_ref {
@@ -175,27 +218,99 @@ impl Printer {
         }
     }
 
+    fn pats(&mut self, elems: &[Pat]) {
+        for (i, p) in elems.iter().enumerate() {
+            if i > 0 {
+                self.out.push_str(", ");
+            }
+            self.pat(p);
+        }
+    }
+
+    /// A pattern; an or-pattern is parenthesised, so this is right in every position but
+    /// the top of a `match` arm or an `if let`/`while let` (see [`Self::top_pat`]).
     fn pat(&mut self, pat: &Pat) {
+        if let PatKind::Or(_) = pat.kind {
+            self.out.push('(');
+            self.top_pat(pat);
+            self.out.push(')');
+        } else {
+            self.top_pat(pat);
+        }
+    }
+
+    fn top_pat(&mut self, pat: &Pat) {
         match &pat.kind {
-            PatKind::Ident { mutable, name } => {
+            PatKind::Ident {
+                by_ref,
+                mutable,
+                name,
+                sub,
+            } => {
+                if *by_ref {
+                    self.out.push_str("ref ");
+                }
                 if *mutable {
                     self.out.push_str("mut ");
                 }
                 self.out.push_str(&name.name);
+                if let Some(sub) = sub {
+                    self.out.push_str(" @ ");
+                    self.pat(sub);
+                }
             }
             PatKind::Wild => self.out.push('_'),
+            PatKind::Rest => self.out.push_str(".."),
             PatKind::Tuple(elems) => {
                 self.out.push('(');
-                for (i, p) in elems.iter().enumerate() {
-                    if i > 0 {
-                        self.out.push_str(", ");
-                    }
-                    self.pat(p);
-                }
-                if elems.len() == 1 {
+                self.pats(elems);
+                if elems.len() == 1 && !matches!(elems[0].kind, PatKind::Rest) {
                     self.out.push(',');
                 }
                 self.out.push(')');
+            }
+            PatKind::Path(path) => self.out.push_str(&path_str(path)),
+            PatKind::TupleStruct(path, elems) => {
+                self.out.push_str(&path_str(path));
+                self.out.push('(');
+                self.pats(elems);
+                self.out.push(')');
+            }
+            PatKind::Struct { path, fields, rest } => {
+                self.out.push_str(&path_str(path));
+                self.out.push_str(" {");
+                for (i, f) in fields.iter().enumerate() {
+                    self.out.push_str(if i > 0 { ", " } else { " " });
+                    if f.shorthand {
+                        self.pat(&f.pat);
+                    } else {
+                        let _ = write!(self.out, "{}: ", f.name.name);
+                        self.pat(&f.pat);
+                    }
+                }
+                if rest.is_some() {
+                    self.out
+                        .push_str(if fields.is_empty() { " .." } else { ", .." });
+                }
+                self.out.push_str(if fields.is_empty() && rest.is_none() {
+                    "}"
+                } else {
+                    " }"
+                });
+            }
+            PatKind::Lit(e) => self.expr(e, 0),
+            PatKind::Range(lo, hi, end) => {
+                self.expr(lo, 0);
+                self.out.push_str(end.as_str());
+                self.expr(hi, 0);
+            }
+            PatKind::Or(alts) => {
+                for (i, p) in alts.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push_str(" | ");
+                    }
+                    self.pat(p);
+                }
             }
         }
     }
@@ -231,7 +346,17 @@ impl Printer {
                 }
                 if let Some(init) = &l.init {
                     self.out.push_str(" = ");
-                    self.expr(init, 0);
+                    if l.els.is_some() && needs_let_else_parens(init) {
+                        self.out.push('(');
+                        self.expr(init, 0);
+                        self.out.push(')');
+                    } else {
+                        self.expr(init, 0);
+                    }
+                }
+                if let Some(els) = &l.els {
+                    self.out.push_str(" else ");
+                    self.block(els);
                 }
                 self.out.push(';');
             }
@@ -433,6 +558,41 @@ impl Printer {
                 self.out
                     .push_str(if fields.is_empty() { "}" } else { " }" });
             }
+            ExprKind::Match { scrutinee, arms } => {
+                self.out.push_str("match ");
+                self.cond(scrutinee);
+                self.out.push_str(" {");
+                self.indent += 1;
+                for arm in arms {
+                    self.newline();
+                    self.top_pat(&arm.pat);
+                    if let Some(g) = &arm.guard {
+                        self.out.push_str(" if ");
+                        self.expr(g, 0);
+                    }
+                    self.out.push_str(" => ");
+                    self.expr(&arm.body, 0);
+                    self.out.push(',');
+                }
+                self.indent -= 1;
+                if !arms.is_empty() {
+                    self.newline();
+                }
+                self.out.push('}');
+            }
+            ExprKind::Let(pat, e) => {
+                self.out.push_str("let ");
+                self.top_pat(pat);
+                self.out.push_str(" = ");
+                // `&&` and `||` would make a let chain; a struct literal is not allowed.
+                if needs_cond_parens(e) || precedence(e) <= BinOp::And.precedence() {
+                    self.out.push('(');
+                    self.expr(e, 0);
+                    self.out.push(')');
+                } else {
+                    self.expr(e, 0);
+                }
+            }
         }
         if paren {
             self.out.push(')');
@@ -520,12 +680,40 @@ fn leftmost_is_block(e: &Expr) -> bool {
     }
 }
 
+/// Whether the initialiser of a `let`-`else` must be parenthesised: one ending in `}`
+/// (a block-like expression) or in a lazy boolean operator is not allowed there.
+fn needs_let_else_parens(e: &Expr) -> bool {
+    matches!(e.kind, ExprKind::Binary(BinOp::And | BinOp::Or, ..)) || rightmost_is_brace(e)
+}
+
+/// Whether the last token printed for `e` is a `}`.
+fn rightmost_is_brace(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Block(_)
+        | ExprKind::If { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Loop { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::Struct { .. } => true,
+        ExprKind::Binary(_, _, r)
+        | ExprKind::Assign(_, r)
+        | ExprKind::AssignOp(_, _, r)
+        | ExprKind::Unary(_, r)
+        | ExprKind::Ref { expr: r, .. }
+        | ExprKind::Deref(r)
+        | ExprKind::Break(Some(r))
+        | ExprKind::Return(Some(r)) => rightmost_is_brace(r),
+        _ => false,
+    }
+}
+
 /// Whether the first token printed for `e` opens a block-like expression.
 fn leftmost_is_block_like(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Block(_)
         | ExprKind::If { .. }
         | ExprKind::While { .. }
+        | ExprKind::Match { .. }
         | ExprKind::Loop { .. } => true,
         ExprKind::Binary(_, l, _) | ExprKind::Assign(l, _) | ExprKind::AssignOp(_, l, _) => {
             leftmost_is_block_like(l)
@@ -554,6 +742,7 @@ fn precedence(e: &Expr) -> u8 {
         | ExprKind::If { .. }
         | ExprKind::While { .. }
         | ExprKind::Loop { .. }
+        | ExprKind::Match { .. }
         | ExprKind::Struct { .. } => ATOM_PRECEDENCE,
         ExprKind::Call { .. }
         | ExprKind::MethodCall { .. }
@@ -567,6 +756,7 @@ fn precedence(e: &Expr) -> u8 {
         | ExprKind::AssignOp(..)
         | ExprKind::Break(_)
         | ExprKind::Return(_)
+        | ExprKind::Let(..)
         | ExprKind::Continue => 0,
     }
 }

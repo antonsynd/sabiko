@@ -142,6 +142,7 @@ impl Checker<'_> {
                     self.check_operand(field, span);
                 }
             }
+            Rvalue::Discriminant(place) => self.check_read(place, span),
             Rvalue::Ref(kind, place) => {
                 self.check_read(place, span);
                 if kind.mutability() == Mutability::Mut {
@@ -342,8 +343,11 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
         _ => format!("_{}", place.local.0),
     };
     let mut ty = decl.ty.clone();
+    let mut variant = None;
     for (index, elem) in place.projection.iter().enumerate() {
         match elem {
+            // rustc names a variant's field as the enum's: `s.0` for `(s as Full).0`.
+            PlaceElem::Downcast(v) => variant = Some(*v),
             PlaceElem::Deref => {
                 let followed_by_field =
                     matches!(place.projection.get(index + 1), Some(PlaceElem::Field(..)));
@@ -357,12 +361,16 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
             }
             PlaceElem::Field(field, field_ty) => {
                 let name = match &ty {
-                    Ty::Adt(def) => typeck
-                        .items
-                        .adt(*def)
-                        .fields
-                        .get(*field)
-                        .map_or_else(|| field.to_string(), |f| f.name.clone()),
+                    Ty::Adt(def) => {
+                        let adt = typeck.items.adt(*def);
+                        let fields = match variant.take() {
+                            Some(v) => &adt.variant(v).fields,
+                            None => &adt.fields,
+                        };
+                        fields
+                            .get(*field)
+                            .map_or_else(|| field.to_string(), |f| f.name.clone())
+                    }
                     _ => field.to_string(),
                 };
                 let _ = write!(out, ".{name}");

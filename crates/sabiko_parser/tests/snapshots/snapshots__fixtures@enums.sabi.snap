@@ -1,0 +1,165 @@
+---
+source: crates/sabiko_parser/tests/snapshots.rs
+expression: out
+input_file: crates/sabiko_parser/tests/fixtures/enums.sabi
+---
+SourceFile
+  Enum Light
+    Attr derive(Copy, Clone)
+    Doc " A light."
+    Variant Red
+    Variant Yellow
+      Discriminant
+        Lit 3
+    Variant Green
+  Enum Shape
+    Variant Dot
+    Variant Square
+      Type i32
+    Variant Rect
+      Field W
+        Type i32
+      Field H
+        Type i32
+    Variant Pair
+      Type Light
+      TupleType
+        Type i32
+        Type bool
+  Enum Never
+  Fn F
+    Param
+      Pat s
+      Type Shape
+    Param
+      Pat l
+      Ref
+        Type Light
+    Ret
+      Type i32
+    Block
+      Let
+        Pat n
+        Init
+          Match
+            Path s
+            Arm
+              PathPat Shape::Dot
+              Lit 0
+            Arm
+              TupleStructPat Shape::Square
+                Pat w
+              Guard
+                Binary >
+                  Path w
+                  Lit 0
+              Path w
+            Arm
+              OrPat
+                TupleStructPat Shape::Square
+                  Pat _
+                TupleStructPat Shape::Pair
+                  Pat ..
+              Block
+                Tail
+                  Lit 1
+            Arm
+              StructPat Shape::Rect
+                FieldPat W (shorthand)
+                  Pat W
+                FieldPat H
+                  Pat ref mut h
+                Rest
+              Binary *
+                Path W
+                Deref
+                  Path h
+      Expr
+        Match
+          Deref
+            Path l
+          Arm
+            OrPat
+              PathPat Light::Red
+              PathPat Light::Green
+            Block
+          Arm
+            Pat x
+              At
+                PathPat Light::Yellow
+            Block
+      Semi
+        Match
+          Path n
+          Arm
+            RangePat ..=
+              Unary -
+                Lit 5
+              Unary -
+                Lit 1
+            Lit 1
+          Arm
+            LitPat
+              Lit 0
+            Lit 2
+          Arm
+            OrPat
+              RangePat ..
+                Lit 1
+                Lit 10
+              LitPat
+                Lit 20
+            Lit 3
+          Arm
+            RangePat ..=
+              Path LIMIT
+              Path i32::MAX
+            Lit 4
+          Arm
+            Pat mut other
+            Path other
+      Semi
+        If
+          Let
+            TupleStructPat Shape::Square
+              Pat x
+            Call
+              Path Make
+          Block
+            Tail
+              Path x
+          Else
+            Block
+              Tail
+                Lit 0
+      Expr
+        While
+          Let
+            TuplePat
+              Pat Some
+              Pat ..
+            Tuple
+              Lit 3
+              Lit 4
+          Block
+      Let
+        TupleStructPat Shape::Square
+          Pat q
+        Init
+          Path s
+        Else
+          Block
+            Tail
+              Return
+                Lit 0
+      Let
+        OrPat
+          PathPat Shape::Dot
+          TupleStructPat Shape::Square
+            Pat _
+        Init
+          Path s
+      Semi
+        Lit 'a'
+      Tail
+        Lit 0

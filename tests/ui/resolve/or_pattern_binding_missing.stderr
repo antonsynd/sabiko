@@ -1,0 +1,18 @@
+[E0218] Error: variable `h` is not bound in all patterns
+   ╭─[ tests/ui/resolve/or_pattern_binding_missing.sabi:8:9 ]
+   │
+ 8 │         Shape::Square(w) | Shape::Rect(w, h) => w, //~ ERROR E0218 variable `h` is not bound in all patterns
+   │         ────────┬───────                  ┬  
+   │                 ╰──────────────────────────── pattern doesn't bind `h`
+   │                                           │  
+   │                                           ╰── variable not in all patterns
+───╯
+[E0218] Error: variable `a` is not bound in all patterns
+    ╭─[ tests/ui/resolve/or_pattern_binding_missing.sabi:15:28 ]
+    │
+ 15 │         Shape::Square(a) | Shape::Dot => 1, //~ ERROR E0218 variable `a` is not bound in all patterns
+    │                       ┬    ─────┬────  
+    │                       │         ╰────── pattern doesn't bind `a`
+    │                       │                
+    │                       ╰──────────────── variable not in all patterns
+────╯

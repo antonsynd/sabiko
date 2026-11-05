@@ -70,6 +70,12 @@ impl ErrorCode {
     pub const MISSING_DROP_FN: Self = Self(216);
     /// An item of an `impl Drop` other than `drop` (rustc's E0407).
     pub const NOT_A_DROP_MEMBER: Self = Self(217);
+    /// A name bound in one alternative of an or-pattern but not in another (rustc's
+    /// E0408).
+    pub const OR_PATTERN_BINDING_MISSING: Self = Self(218);
+    /// A name bound by reference in one alternative of an or-pattern and by value (or with
+    /// another mutability) in another (rustc's E0409).
+    pub const OR_PATTERN_BINDING_MODE: Self = Self(219);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -106,6 +112,30 @@ impl ErrorCode {
     pub const EXPLICIT_DROP_CALL: Self = Self(323);
     /// `#[derive(Copy)]` on a type that implements `Drop` (rustc's E0184).
     pub const COPY_WITH_DESTRUCTOR: Self = Self(324);
+    /// A binding named like a variant of the enum it matches (rustc's deny-by-default
+    /// E0170): it binds instead of comparing.
+    pub const BINDING_NAMED_LIKE_VARIANT: Self = Self(325);
+    /// A pattern or constructor of the wrong kind for its variant or struct: `V(x)` for a
+    /// unit or struct variant, `V` for a tuple variant, `V()` for a unit variant (rustc's
+    /// E0532, E0164, E0533, E0618).
+    pub const VARIANT_SHAPE_MISMATCH: Self = Self(326);
+    /// A tuple-variant pattern with the wrong number of fields (rustc's E0023).
+    pub const PATTERN_ARITY: Self = Self(327);
+    /// A `match` that does not cover every value of its scrutinee (rustc's E0004).
+    pub const NON_EXHAUSTIVE_MATCH: Self = Self(328);
+    /// A refutable pattern in a `let` or a parameter (rustc's E0005).
+    pub const REFUTABLE_PATTERN: Self = Self(329);
+    /// Warning: a pattern no value can reach (rustc's `unreachable_patterns` lint).
+    pub const UNREACHABLE_PATTERN: Self = Self(330);
+    /// Warning: an `if let`, `while let` or `let`-`else` whose pattern always matches
+    /// (rustc's `irrefutable_let_patterns` lint).
+    pub const IRREFUTABLE_LET_PATTERN: Self = Self(331);
+    /// A range pattern whose lower bound exceeds its upper bound (rustc's E0030), or an
+    /// empty exclusive range (E0579).
+    pub const INVALID_RANGE_PATTERN: Self = Self(332);
+    /// Two variants with the same discriminant (rustc's E0081), an implicit discriminant
+    /// that overflows (E0370), or an explicit discriminant on an enum with a field (E0732).
+    pub const INVALID_DISCRIMINANT: Self = Self(333);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);
@@ -128,6 +158,8 @@ impl ErrorCode {
     pub const COPY_NOT_IMPLEMENTABLE: Self = Self(417);
     /// A non-`Copy` field moved out of a value whose type implements `Drop` (rustc's E0509).
     pub const MOVE_OUT_OF_DROP: Self = Self(418);
+    /// Assigning or mutably borrowing a scrutinee inside a match guard (rustc's E0510).
+    pub const MUTATE_IN_GUARD: Self = Self(419);
 
     // Code generation (E05xx)
     /// A construct the CIL backend cannot lower yet.

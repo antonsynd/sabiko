@@ -1,0 +1,19 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// The arms of a match used as a value must agree: E0308 "`match` arms have incompatible
+// types" (a diverging arm takes the others' type, run/enums/diverging_arms.sabi). A guard
+// must be a `bool`.
+enum Light { Red, Green }
+
+fn F(l: Light) -> i32 {
+    match l {
+        Light::Red => 1,
+        Light::Green => true, //~ ERROR E0300 mismatched types
+    }
+}
+
+fn G(l: Light, n: i32) -> i32 {
+    match l {
+        Light::Red if n => 1, //~ ERROR E0300 mismatched types
+        _ => 2,
+    }
+}

@@ -1,0 +1,14 @@
+[E0332] Error: lower bound for range pattern must be less than or equal to upper bound
+   ╭─[ tests/ui/typeck/range_pattern_errors.sabi:6:9 ]
+   │
+ 6 │         5..=1 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+   │         ┬  
+   │         ╰── lower bound larger than upper bound
+───╯
+[E0332] Error: lower bound for range pattern must be less than upper bound
+    ╭─[ tests/ui/typeck/range_pattern_errors.sabi:10:9 ]
+    │
+ 10 │         3..3 => 1, //~ ERROR E0332 lower bound for range pattern must be less than upper bound
+    │         ──┬─  
+    │           ╰─── this range is empty
+────╯

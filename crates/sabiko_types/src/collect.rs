@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sabiko_ast::{ItemKind, SelfKind, SourceFile, StructKind, Type, TypeKind};
+use sabiko_ast::{ItemKind, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
@@ -43,18 +43,86 @@ pub struct FieldDef {
     pub span: Span,
 }
 
+/// A struct, or an enum (`variants` is `Some`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdtDef {
     pub name: String,
+    /// A struct's fields; empty for an enum, whose fields are its variants'.
     pub fields: Vec<FieldDef>,
     /// `struct S;`
     pub is_unit: bool,
     /// `#[derive(Copy)]`: values are copied, not moved.
     pub is_copy: bool,
     pub span: Span,
+    /// The variants of an enum, in declaration order; `None` for a struct.
+    pub variants: Option<Vec<VariantDef>>,
 }
 
 impl AdtDef {
+    #[must_use]
+    pub fn field_index(&self, name: &str) -> Option<usize> {
+        self.fields.iter().position(|f| f.name == name)
+    }
+
+    #[must_use]
+    pub fn is_enum(&self) -> bool {
+        self.variants.is_some()
+    }
+
+    /// The variants of an enum; empty for a struct.
+    #[must_use]
+    pub fn variants(&self) -> &[VariantDef] {
+        self.variants.as_deref().unwrap_or(&[])
+    }
+
+    /// The variant at `index` of an enum.
+    #[must_use]
+    pub fn variant(&self, index: usize) -> &VariantDef {
+        &self.variants()[index]
+    }
+
+    /// Every field type of the value: a struct's fields, or every variant's fields.
+    pub fn all_field_tys(&self) -> impl Iterator<Item = &Ty> {
+        self.fields
+            .iter()
+            .chain(self.variants().iter().flat_map(|v| v.fields.iter()))
+            .map(|f| &f.ty)
+    }
+
+    /// Whether every variant is a unit variant (and there is at least one): `as` casts the
+    /// value to its discriminant.
+    #[must_use]
+    pub fn is_fieldless_enum(&self) -> bool {
+        self.variants
+            .as_ref()
+            .is_some_and(|vs| vs.iter().all(|v| v.kind == VariantKind::Unit))
+    }
+}
+
+/// How a variant is written: `A`, `B(T)` or `C { F: T }` (or a struct: unit or named).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum VariantKind {
+    Unit,
+    Tuple,
+    Named,
+}
+
+/// One variant of an enum.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VariantDef {
+    /// The variant's own definition (`DefKind::Variant`).
+    pub def: DefId,
+    pub name: String,
+    pub kind: VariantKind,
+    /// Its fields; a tuple variant's are named `0`, `1`, ...
+    pub fields: Vec<FieldDef>,
+    /// The discriminant value, filled in after constant evaluation (decision 15): explicit,
+    /// or one more than the previous variant's (0 for the first).
+    pub discr: i128,
+    pub span: Span,
+}
+
+impl VariantDef {
     #[must_use]
     pub fn field_index(&self, name: &str) -> Option<usize> {
         self.fields.iter().position(|f| f.name == name)
@@ -106,6 +174,30 @@ impl ItemTypes {
         &self.adts[&def]
     }
 
+    /// The enum a type names, if it is one.
+    #[must_use]
+    pub fn as_enum(&self, ty: &Ty) -> Option<&AdtDef> {
+        match ty {
+            Ty::Adt(def) => self.adts.get(def).filter(|a| a.is_enum()),
+            _ => None,
+        }
+    }
+
+    /// Whether a value of `ty` cannot exist: `!` (and the types [`Ty::is_uninhabited`]
+    /// covers) or an enum without variants.
+    #[must_use]
+    pub fn is_uninhabited(&self, ty: &Ty) -> bool {
+        ty.is_uninhabited() || self.as_enum(ty).is_some_and(|a| a.variants().is_empty())
+    }
+
+    pub(crate) fn set_discriminants(&mut self, adt: DefId, discrs: &[i128]) {
+        if let Some(variants) = self.adts.get_mut(&adt).and_then(|a| a.variants.as_mut()) {
+            for (v, &d) in variants.iter_mut().zip(discrs) {
+                v.discr = d;
+            }
+        }
+    }
+
     #[must_use]
     pub fn const_ty(&self, def: DefId) -> &Ty {
         &self.const_tys[&def]
@@ -117,9 +209,9 @@ impl ItemTypes {
         self.drop_impls.get(&adt).copied()
     }
 
-    /// Whether a value of `ty` has drop glue: a struct with an `impl Drop`, or a struct or
-    /// tuple with a field (element) that has drop glue. References, primitives, `()` and
-    /// `Copy` types never do.
+    /// Whether a value of `ty` has drop glue: a struct or enum with an `impl Drop`, or a
+    /// struct, enum or tuple with a field (element) that has drop glue. References,
+    /// primitives, `()` and `Copy` types never do.
     #[must_use]
     pub fn needs_drop(&self, ty: &Ty) -> bool {
         match ty {
@@ -130,7 +222,7 @@ impl ItemTypes {
     }
 
     /// Whether values of `ty` are copied rather than moved. Like [`Ty::is_copy`] but
-    /// aware of `#[derive(Copy)]` on structs.
+    /// aware of `#[derive(Copy)]` on structs and enums.
     #[must_use]
     pub fn is_copy(&self, ty: &Ty) -> bool {
         match ty {
@@ -187,6 +279,41 @@ fn check_no_reference(ty: &Ty, span: Span, sink: &mut DiagnosticSink) {
             )
             .with_note("planned for Phase 9; see docs/PLAN.md"),
         );
+    }
+}
+
+/// The fields of a struct or a struct variant; the resolver reported duplicate names, and
+/// the first of each is kept.
+fn lower_fields(
+    fields: &[sabiko_ast::FieldDef],
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> Vec<FieldDef> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for f in fields {
+        if !seen.insert(f.name.name.as_str()) {
+            continue;
+        }
+        out.push(field_def(f.name.name.clone(), &f.ty, f.span, resolve, sink));
+    }
+    out
+}
+
+fn field_def(
+    name: String,
+    ty: &Type,
+    span: Span,
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> FieldDef {
+    let lowered = lower_sig_type(ty, resolve);
+    check_sized(&lowered, ty.span, sink);
+    check_no_reference(&lowered, ty.span, sink);
+    FieldDef {
+        name,
+        ty: lowered,
+        span,
     }
 }
 
@@ -278,6 +405,7 @@ fn fn_sig(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn collect(
     file: &SourceFile,
     resolve: &ResolveResults,
@@ -296,25 +424,7 @@ pub(crate) fn collect(
             }
             ItemKind::Struct(s) => {
                 let (fields, is_unit) = match &s.kind {
-                    StructKind::Named(fields) => {
-                        let mut out = Vec::new();
-                        let mut seen = HashSet::new();
-                        for f in fields {
-                            // The resolver reported duplicates; keep the first.
-                            if !seen.insert(f.name.name.as_str()) {
-                                continue;
-                            }
-                            let ty = lower_sig_type(&f.ty, resolve);
-                            check_sized(&ty, f.ty.span, sink);
-                            check_no_reference(&ty, f.ty.span, sink);
-                            out.push(FieldDef {
-                                name: f.name.name.clone(),
-                                ty,
-                                span: f.span,
-                            });
-                        }
-                        (out, false)
-                    }
+                    StructKind::Named(fields) => (lower_fields(fields, resolve, sink), false),
                     StructKind::Unit => (Vec::new(), true),
                 };
                 let is_copy = derives_copy(item, sink);
@@ -326,6 +436,7 @@ pub(crate) fn collect(
                         is_unit,
                         is_copy,
                         span: s.name.span,
+                        variants: None,
                     },
                 );
             }
@@ -333,6 +444,49 @@ pub(crate) fn collect(
                 let ty = lower_sig_type(&c.ty, resolve);
                 check_sized(&ty, c.ty.span, sink);
                 items.const_tys.insert(def, ty);
+            }
+            ItemKind::Enum(e) => {
+                let mut variants = Vec::new();
+                let mut seen = HashSet::new();
+                for v in &e.variants {
+                    // The resolver reported duplicates and defined the first only.
+                    if !seen.insert(v.name.name.as_str()) {
+                        continue;
+                    }
+                    let (kind, fields) = match &v.data {
+                        VariantData::Unit => (VariantKind::Unit, Vec::new()),
+                        VariantData::Tuple(tys) => (
+                            VariantKind::Tuple,
+                            tys.iter()
+                                .enumerate()
+                                .map(|(i, t)| field_def(i.to_string(), t, t.span, resolve, sink))
+                                .collect(),
+                        ),
+                        VariantData::Named(fields) => {
+                            (VariantKind::Named, lower_fields(fields, resolve, sink))
+                        }
+                    };
+                    variants.push(VariantDef {
+                        def: resolve.def_of_item(v.id),
+                        name: v.name.name.clone(),
+                        kind,
+                        fields,
+                        discr: 0,
+                        span: v.name.span,
+                    });
+                }
+                let is_copy = derives_copy(item, sink);
+                items.adts.insert(
+                    def,
+                    AdtDef {
+                        name: e.name.name.clone(),
+                        fields: Vec::new(),
+                        is_unit: false,
+                        is_copy,
+                        span: e.name.span,
+                        variants: Some(variants),
+                    },
+                );
             }
         }
     }
@@ -359,7 +513,7 @@ pub(crate) fn collect(
             }
         }
     }
-    for adt in resolve.defs_of_kind(DefKind::Struct) {
+    for adt in adt_defs(resolve) {
         if let Some(def) = resolve.drop_impl(adt) {
             items.drop_impls.insert(adt, def);
             if let Some(f) = file.all_items().find_map(|item| match &item.kind {
@@ -439,11 +593,21 @@ fn check_drop_signature(
     }
 }
 
+/// The structs and enums of the file, in source order.
+fn adt_defs(resolve: &ResolveResults) -> impl Iterator<Item = DefId> + '_ {
+    resolve
+        .defs
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| d.kind.is_type())
+        .map(|(i, _)| DefId(u32::try_from(i).expect("fewer than 2^32 items")))
+}
+
 /// The structs whose values have drop glue (see [`ItemTypes::needs_drop`]), to a fixpoint:
 /// a struct needs drop when it has an `impl Drop` or a field type that needs drop.
 fn structs_needing_drop(resolve: &ResolveResults, items: &ItemTypes) -> HashSet<DefId> {
     let mut set: HashSet<DefId> = items.drop_impls.keys().copied().collect();
-    let structs: Vec<DefId> = resolve.defs_of_kind(DefKind::Struct).collect();
+    let structs: Vec<DefId> = adt_defs(resolve).collect();
     loop {
         let before = set.len();
         let probe = ItemTypes {
@@ -451,12 +615,7 @@ fn structs_needing_drop(resolve: &ResolveResults, items: &ItemTypes) -> HashSet<
             ..ItemTypes::default()
         };
         for &def in &structs {
-            if items
-                .adt(def)
-                .fields
-                .iter()
-                .any(|f| probe.needs_drop(&f.ty))
-            {
+            if items.adt(def).all_field_tys().any(|t| probe.needs_drop(t)) {
                 set.insert(def);
             }
         }
@@ -469,7 +628,7 @@ fn structs_needing_drop(resolve: &ResolveResults, items: &ItemTypes) -> HashSet<
 /// `#[derive(Copy)]` requires every field to be `Copy` (E0417) and no `impl Drop` (E0324):
 /// a copy would be dropped twice.
 fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
-    for def in resolve.defs_of_kind(DefKind::Struct) {
+    for def in adt_defs(resolve) {
         let adt = items.adt(def);
         if !adt.is_copy {
             continue;
@@ -487,7 +646,8 @@ fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Di
                 )),
             );
         }
-        for field in &adt.fields {
+        let variant_fields = adt.variants().iter().flat_map(|v| v.fields.iter());
+        for field in adt.fields.iter().chain(variant_fields) {
             if !items.is_copy(&field.ty) {
                 sink.emit(
                     Diagnostic::error(
@@ -516,7 +676,7 @@ fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Di
 fn check_recursive_structs(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
     let mut reported: HashSet<DefId> = HashSet::new();
     let mut done = HashSet::new();
-    for def in resolve.defs_of_kind(DefKind::Struct) {
+    for def in adt_defs(resolve) {
         if reported.contains(&def) || done.contains(&def) {
             continue;
         }
@@ -550,7 +710,7 @@ fn check_recursive_structs(resolve: &ResolveResults, items: &ItemTypes, sink: &m
                 d = d.with_label(items.adt(*member).span, "recursive type has infinite size");
             }
             sink.emit(d.with_note(
-                "a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5",
+                "a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7",
             ));
         }
     }
@@ -577,9 +737,9 @@ fn find_cycle(
     stack: &mut Vec<DefId>,
     done: &mut HashSet<DefId>,
 ) -> Option<Vec<DefId>> {
-    for field in &items.adt(current).fields {
+    for field_ty in items.adt(current).all_field_tys() {
         let mut contained = Vec::new();
-        structs_by_value(&field.ty, &mut contained);
+        structs_by_value(field_ty, &mut contained);
         for next in &contained {
             if let Some(pos) = stack.iter().position(|d| d == next) {
                 let mut members = stack[pos..].to_vec();

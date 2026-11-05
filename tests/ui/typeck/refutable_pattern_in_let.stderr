@@ -1,0 +1,18 @@
+[E0329] Error: refutable pattern in local binding
+   ╭─[ tests/ui/typeck/refutable_pattern_in_let.sabi:8:9 ]
+   │
+ 8 │     let Cell::Value(n) = c; //~ ERROR E0329 refutable pattern in local binding
+   │         ───────┬──────  
+   │                ╰──────── pattern `Cell::Empty` not covered
+   │ 
+   │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+───╯
+[E0329] Error: refutable pattern in local binding
+   ╭─[ tests/ui/typeck/refutable_pattern_in_let.sabi:9:9 ]
+   │
+ 9 │     let (0, m) = t; //~ ERROR E0329 refutable pattern in local binding
+   │         ───┬──  
+   │            ╰──── patterns `(i32::MIN..=-1_i32, _)` and `(1_i32..=i32::MAX, _)` not covered
+   │ 
+   │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+───╯

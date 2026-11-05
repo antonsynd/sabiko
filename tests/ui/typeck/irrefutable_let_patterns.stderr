@@ -1,0 +1,23 @@
+[E0331] Warning: irrefutable `if let` pattern
+   ╭─[ tests/ui/typeck/irrefutable_let_patterns.sabi:7:8 ]
+   │
+ 7 │     if let One::Only(n) = o { //~ WARN E0331 irrefutable `if let` pattern
+   │        ──────────┬─────────  
+   │                  ╰─────────── this pattern will always match
+───╯
+[E0331] Warning: unreachable `else` clause
+    ╭─[ tests/ui/typeck/irrefutable_let_patterns.sabi:10:42 ]
+    │
+ 10 │ ╭─▶     let One::Only(m) = One::Only(2) else { //~ WARN E0331 unreachable `else` clause
+    ┆ ┆   
+ 12 │ ├─▶     };
+    │ │            
+    │ ╰──────────── assigning to binding pattern will always succeed
+────╯
+[E0331] Warning: irrefutable `while let` pattern
+    ╭─[ tests/ui/typeck/irrefutable_let_patterns.sabi:14:11 ]
+    │
+ 14 │     while let x = k { //~ WARN E0331 irrefutable `while let` pattern
+    │           ────┬────  
+    │               ╰────── this pattern will always match
+────╯

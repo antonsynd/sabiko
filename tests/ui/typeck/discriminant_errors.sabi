@@ -1,0 +1,12 @@
+// Sabiko codes for rustc's: E0333 for E0081, E0333 for E0370, E0333 for E0732.
+// Explicit discriminants: duplicates (E0081, also an implicit one equal to an explicit
+// one), overflow of the implicit increment (E0370), a value out of range of `isize`
+// (overflowing_literals), and a discriminant on an enum with a payload variant, which
+// needs a `#[repr]` attribute (E0732).
+enum A { X = 1, Y = 1 } //~ ERROR E0333 discriminant value `1` assigned more than once
+
+enum B { X = 2, Y = 1, Z } //~ ERROR E0333 discriminant value `2` assigned more than once
+
+enum C { X = 9223372036854775807, Y } //~ ERROR E0333 enum discriminant overflowed
+
+enum D { X = 1, Y(i32) } //~ ERROR E0333 `#[repr(inttype)]` must be specified for enums with explicit

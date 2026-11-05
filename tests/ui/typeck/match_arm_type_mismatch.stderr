@@ -1,0 +1,14 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/match_arm_type_mismatch.sabi:10:25 ]
+    │
+ 10 │         Light::Green => true, //~ ERROR E0300 mismatched types
+    │                         ──┬─  
+    │                           ╰─── expected `i32`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/match_arm_type_mismatch.sabi:16:23 ]
+    │
+ 16 │         Light::Red if n => 1, //~ ERROR E0300 mismatched types
+    │                       ┬  
+    │                       ╰── expected `bool`, found `i32`
+────╯

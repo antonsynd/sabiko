@@ -1,0 +1,33 @@
+[E0200] Error: the name `Red` is defined multiple times
+   ╭─[ tests/ui/resolve/enum_definition_errors.sabi:5:26 ]
+   │
+ 5 │ enum Light { Red, Green, Red } //~ ERROR E0200 the name `Red` is defined multiple times
+   │              ─┬─         ─┬─  
+   │               │           ╰─── `Red` redefined here
+   │               │               
+   │               ╰─────────────── previous definition of `Red` here
+   │ 
+   │ Note: a variant name must be unique within its enum
+───╯
+[E0200] Error: the name `Dir` is defined multiple times
+   ╭─[ tests/ui/resolve/enum_definition_errors.sabi:9:6 ]
+   │
+ 7 │ struct Dir { X: i32 }
+   │        ─┬─  
+   │         ╰─── previous definition of `Dir` here
+   │ 
+ 9 │ enum Dir { North } //~ ERROR E0200 the name `Dir` is defined multiple times
+   │      ─┬─  
+   │       ╰─── `Dir` redefined here
+   │ 
+   │ Note: items share one namespace: a struct, function and constant may not have the same name
+───╯
+[E0204] Error: field `W` is already declared
+    ╭─[ tests/ui/resolve/enum_definition_errors.sabi:11:29 ]
+    │
+ 11 │ enum Shape { Rect { W: i32, W: i32 } } //~ ERROR E0204 field `W` is already declared
+    │                     ┬       ┬  
+    │                     │       ╰── field already declared
+    │                     │          
+    │                     ╰────────── `W` first declared here
+────╯

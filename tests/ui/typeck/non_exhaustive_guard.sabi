@@ -1,0 +1,12 @@
+// Sabiko codes for rustc's: E0328 for E0004.
+// A guarded arm does not count towards exhaustiveness, even when the guards together
+// cover every value.
+enum Cell { Empty, Value(i32) }
+
+fn F(c: Cell) -> i32 {
+    match c { //~ ERROR E0328 non-exhaustive patterns: `Cell::Value(_)` not covered
+        Cell::Empty => 0,
+        Cell::Value(n) if n >= 0 => 1,
+        Cell::Value(n) if n < 0 => 2,
+    }
+}

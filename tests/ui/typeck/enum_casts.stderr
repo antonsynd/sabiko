@@ -1,0 +1,36 @@
+[E0308] Error: non-primitive cast: `Shape` as `i32`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:10:13 ]
+    │
+ 10 │     let a = Shape::Dot as i32; //~ ERROR E0308 non-primitive cast: `Shape` as `i32`
+    │             ────────┬────────  
+    │                     ╰────────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: casting `Light` as `f64` is invalid
+    ╭─[ tests/ui/typeck/enum_casts.sabi:11:13 ]
+    │
+ 11 │     let b = Light::Red as f64; //~ ERROR E0308 casting `Light` as `f64` is invalid
+    │             ────────┬────────  
+    │                     ╰────────── invalid cast
+    │ 
+    │ Note: an enum casts to an integer type only
+────╯
+[E0308] Error: non-primitive cast: `i32` as `Light`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:12:13 ]
+    │
+ 12 │     let c = 1 as Light; //~ ERROR E0308 non-primitive cast: `i32` as `Light`
+    │             ─────┬────  
+    │                  ╰────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: cannot cast `Light` as `bool`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:13:13 ]
+    │
+ 13 │     let d = Light::Green as bool; //~ ERROR E0308 cannot cast `Light` as `bool`
+    │             ──────────┬─────────  
+    │                       ╰─────────── invalid cast
+    │ 
+    │ Note: compare the discriminant instead: `e as i32 != 0`
+────╯

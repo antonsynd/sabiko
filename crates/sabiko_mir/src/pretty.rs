@@ -137,8 +137,23 @@ impl Printer<'_> {
     fn place(&self, place: &Place) -> String {
         let mut s = format!("_{}", place.local.0);
         let mut ty = self.body.local_decl(place.local).ty.clone();
+        let mut variant: Option<usize> = None;
         for elem in &place.projection {
             match elem {
+                PlaceElem::Downcast(index) => {
+                    let name = match &ty {
+                        sabiko_types::Ty::Adt(def) => self
+                            .typeck
+                            .items
+                            .adt(*def)
+                            .variants()
+                            .get(*index)
+                            .map_or_else(|| index.to_string(), |v| v.name.clone()),
+                        _ => index.to_string(),
+                    };
+                    s = format!("({s} as {name})");
+                    variant = Some(*index);
+                }
                 PlaceElem::Deref => {
                     s = format!("(*{s})");
                     ty = match ty {
@@ -148,13 +163,16 @@ impl Printer<'_> {
                 }
                 PlaceElem::Field(index, field_ty) => {
                     let name = match &ty {
-                        sabiko_types::Ty::Adt(def) => self
-                            .typeck
-                            .items
-                            .adt(*def)
-                            .fields
-                            .get(*index)
-                            .map_or_else(|| index.to_string(), |f| f.name.clone()),
+                        sabiko_types::Ty::Adt(def) => {
+                            let adt = self.typeck.items.adt(*def);
+                            let fields = match variant.take() {
+                                Some(v) => &adt.variant(v).fields,
+                                None => &adt.fields,
+                            };
+                            fields
+                                .get(*index)
+                                .map_or_else(|| index.to_string(), |f| f.name.clone())
+                        }
                         _ => index.to_string(),
                     };
                     let _ = write!(s, ".{name}");
@@ -177,10 +195,10 @@ impl Printer<'_> {
         match rv {
             Rvalue::Use(op) => self.operand(op),
             Rvalue::Ref(kind, place) => {
-                let two_phase = if kind.is_two_phase() {
-                    "two_phase "
-                } else {
-                    ""
+                let two_phase = match kind {
+                    k if k.is_two_phase() => "two_phase ",
+                    crate::BorrowKind::Fake => "fake ",
+                    _ => "",
                 };
                 format!(
                     "&{two_phase}{}{}",
@@ -221,6 +239,27 @@ impl Printer<'_> {
                     .collect();
                 format!("{} {{ {} }}", adt.name, inits.join(", "))
             }
+            Rvalue::Aggregate(AggregateKind::Variant(def, index), fields) => {
+                let adt = self.typeck.items.adt(*def);
+                let v = adt.variant(*index);
+                let ops: Vec<String> = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, op)| {
+                        let name = v
+                            .fields
+                            .get(i)
+                            .map_or_else(|| i.to_string(), |f| f.name.clone());
+                        format!("{name}: {}", self.operand(op))
+                    })
+                    .collect();
+                if ops.is_empty() {
+                    format!("{}::{}", adt.name, v.name)
+                } else {
+                    format!("{}::{} {{ {} }}", adt.name, v.name, ops.join(", "))
+                }
+            }
+            Rvalue::Discriminant(place) => format!("discriminant({})", self.place(place)),
         }
     }
 

@@ -1,0 +1,28 @@
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/unreachable_arms.sabi:11:9 ]
+    │
+ 11 │         Light::Green => 3, //~ WARN E0330 unreachable pattern
+    │         ──────┬─────  
+    │               ╰─────── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/unreachable_arms.sabi:19:9 ]
+    │
+ 19 │         Light::Red => 3, //~ WARN E0330 unreachable pattern
+    │         ─────┬────  
+    │              ╰────── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/unreachable_arms.sabi:28:9 ]
+    │
+ 28 │         5..=15 => 3, //~ WARN E0330 unreachable pattern
+    │         ───┬──  
+    │            ╰──── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/unreachable_arms.sabi:29:9 ]
+    │
+ 29 │         1 | 20 => 4, //~ WARN E0330 unreachable pattern
+    │         ┬  
+    │         ╰── no value can reach this
+────╯

@@ -203,7 +203,7 @@ fn for_each_rvalue_operand<'a>(rvalue: &'a Rvalue, mut f: impl FnMut(&'a Operand
             f(rhs);
         }
         Rvalue::Aggregate(_, fields) => fields.iter().for_each(f),
-        Rvalue::Ref(..) => {}
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) => {}
     }
 }
 
@@ -431,6 +431,9 @@ impl MoveChecker<'_> {
             StatementKind::Assign(dest, rvalue) => {
                 if let Rvalue::Ref(_, place) = rvalue {
                     self.check_use(place, UseKind::Borrow, location, statement.span);
+                } else if let Rvalue::Discriminant(place) = rvalue {
+                    // Matching reads the discriminant: a use of the whole value.
+                    self.check_use(place, UseKind::Use, location, statement.span);
                 } else {
                     let mut operands = Vec::new();
                     for_each_rvalue_operand(rvalue, |op| operands.push(op));
@@ -508,7 +511,7 @@ impl MoveChecker<'_> {
                 projection: place.projection[..cut].to_vec(),
             };
             let kind = match place.projection[cut] {
-                PlaceElem::Field(..) => UseKind::PartialAssign,
+                PlaceElem::Field(..) | PlaceElem::Downcast(_) => UseKind::PartialAssign,
                 PlaceElem::Deref => UseKind::Use,
             };
             if let Some(index) = self.paths.closest(&base) {
@@ -531,8 +534,11 @@ impl MoveChecker<'_> {
     fn check_move_out_of_drop_type(&mut self, place: &Place, span: Span) {
         let mut ty = self.body.local_decl(place.local).ty.clone();
         for (index, elem) in place.projection.iter().enumerate() {
-            let PlaceElem::Field(_, field_ty) = elem else {
-                return;
+            let field_ty = match elem {
+                PlaceElem::Field(_, field_ty) => field_ty,
+                // `(e as V)` is still `e`: its fields are checked at the next `Field`.
+                PlaceElem::Downcast(_) => continue,
+                PlaceElem::Deref => return,
             };
             if let Ty::Adt(adt) = ty {
                 if self.typeck.items.drop_impl(adt).is_some() {

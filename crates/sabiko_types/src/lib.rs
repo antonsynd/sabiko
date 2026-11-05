@@ -10,17 +10,19 @@ pub mod check;
 pub mod collect;
 pub mod consts;
 pub mod infer;
+mod patterns;
 pub mod ty;
+pub mod usefulness;
 
 use std::collections::HashMap;
 
-pub use check::{BodyTypes, FieldAccess, MethodCallee};
-pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes};
+pub use check::{rest_positions, BodyTypes, FieldAccess, MethodCallee, PatConst};
+pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes, VariantDef, VariantKind};
 pub use consts::ConstValue;
 pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_resolve::{DefId, ResolveResults};
+use sabiko_resolve::{DefId, PrimTy, ResolveResults};
 pub use ty::{Mutability, Ty, TyVid};
 
 #[derive(Clone, Debug, Default)]
@@ -51,7 +53,7 @@ pub fn typeck(
     resolve: &ResolveResults,
     sink: &mut DiagnosticSink,
 ) -> TypeckResults {
-    let items = collect::collect(file, resolve, sink);
+    let mut items = collect::collect(file, resolve, sink);
     let mut bodies = HashMap::new();
     for item in file.all_items() {
         if let ItemKind::Impl(_) = item.kind {
@@ -69,21 +71,50 @@ pub fn typeck(
                 let cx = check::FnCtxt::new(resolve, &items, sink, ty);
                 bodies.insert(def, cx.check_const(&c.value));
             }
+            ItemKind::Enum(e) => {
+                // An explicit discriminant is an `isize` constant of its own.
+                for v in &e.variants {
+                    let Some(d) = &v.discriminant else {
+                        continue;
+                    };
+                    if resolve
+                        .variants(def)
+                        .iter()
+                        .any(|&vd| resolve.def(vd).node == v.id)
+                    {
+                        let vdef = resolve.def_of_item(v.id);
+                        let cx = check::FnCtxt::new(resolve, &items, sink, Ty::Prim(PrimTy::Isize));
+                        bodies.insert(vdef, cx.check_const(d));
+                    }
+                }
+            }
             ItemKind::Struct(_) | ItemKind::Impl(_) => {}
         }
     }
-    let const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = file
-        .items
-        .iter()
-        .filter_map(|item| match &item.kind {
+    let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::new();
+    for item in &file.items {
+        match &item.kind {
             ItemKind::Const(c) => {
                 let def = resolve.def_of_item(item.id);
-                Some((def, (&c.value, &bodies[&def])))
+                const_bodies.insert(def, (&c.value, &bodies[&def]));
             }
-            _ => None,
-        })
-        .collect();
+            ItemKind::Enum(e) => {
+                for v in &e.variants {
+                    if let Some(d) = &v.discriminant {
+                        let vdef = resolve.def_of_item(v.id);
+                        if let Some(b) = bodies.get(&vdef) {
+                            const_bodies.insert(vdef, (d, b));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     let consts = consts::eval_all(resolve, &const_bodies, sink);
+    patterns::discriminants(file, resolve, &consts, &mut items, sink);
+    patterns::pattern_values(file, resolve, &consts, &mut bodies, sink);
+    patterns::exhaustiveness(file, resolve, &items, &mut bodies, sink);
     TypeckResults {
         items,
         bodies,

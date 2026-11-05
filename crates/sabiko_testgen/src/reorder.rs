@@ -233,18 +233,13 @@ impl FnCx<'_, '_> {
                     if let Some(init) = &l.init {
                         self.collect_address_taken(init);
                         if self.may_hold_mut_loan(init) {
-                            let mut pats = vec![&l.pat];
-                            while let Some(pat) = pats.pop() {
-                                match &pat.kind {
-                                    PatKind::Ident { .. } => {
-                                        if let Some(local) = self.resolve.local_of_pat(pat.id) {
-                                            self.mut_derived.insert(local);
-                                        }
-                                    }
-                                    PatKind::Tuple(elems) => pats.extend(elems),
-                                    PatKind::Wild => {}
+                            let mut locals = Vec::new();
+                            l.pat.walk_idents(&mut |pat| {
+                                if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                                    locals.push(local);
                                 }
-                            }
+                            });
+                            self.mut_derived.extend(locals);
                         }
                     }
                 }
@@ -371,17 +366,22 @@ impl FnCx<'_, '_> {
         let mut s = Summary::default();
         match &stmt.kind {
             StmtKind::Let(l) => {
-                let mut pats = vec![&l.pat];
-                while let Some(pat) = pats.pop() {
-                    match &pat.kind {
-                        PatKind::Ident { .. } => {
-                            if let Some(local) = self.resolve.local_of_pat(pat.id) {
-                                self.local(local, Mode::Write, &mut s);
-                            }
-                        }
-                        PatKind::Tuple(elems) => pats.extend(elems),
-                        PatKind::Wild => {}
+                if l.els.is_some()
+                    || !matches!(
+                        l.pat.kind,
+                        PatKind::Ident { .. } | PatKind::Tuple(_) | PatKind::Wild
+                    )
+                {
+                    s.control = true;
+                }
+                let mut locals = Vec::new();
+                l.pat.walk_idents(&mut |pat| {
+                    if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                        locals.push(local);
                     }
+                });
+                for local in locals {
+                    self.local(local, Mode::Write, &mut s);
                 }
                 if let Some(init) = &l.init {
                     s.effect |= self.needs_drop(init);
@@ -537,6 +537,8 @@ impl FnCx<'_, '_> {
             | ExprKind::Break(_)
             | ExprKind::Continue
             | ExprKind::Return(_)
+            | ExprKind::Match { .. }
+            | ExprKind::Let(..)
             | ExprKind::Index(..) => s.control = true,
         }
     }
@@ -622,6 +624,16 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
                 f(Child::Expr(&field.value));
             }
         }
+        ExprKind::Match { scrutinee, arms } => {
+            f(Child::Expr(scrutinee));
+            for arm in arms {
+                if let Some(g) = &arm.guard {
+                    f(Child::Expr(g));
+                }
+                f(Child::Expr(&arm.body));
+            }
+        }
+        ExprKind::Let(_, scrutinee) => f(Child::Expr(scrutinee)),
     }
 }
 

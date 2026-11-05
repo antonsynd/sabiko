@@ -281,6 +281,13 @@ impl Place {
         self
     }
 
+    /// `(place as V)`: the place viewed as the variant `index` of its enum.
+    #[must_use]
+    pub fn downcast(mut self, index: usize) -> Self {
+        self.projection.push(PlaceElem::Downcast(index));
+        self
+    }
+
     /// The type of the place, from the local's type and the projections.
     #[must_use]
     pub fn ty(&self, body: &Body) -> Ty {
@@ -292,6 +299,7 @@ impl Place {
                     other => panic!("deref of non-reference type {other:?}"),
                 },
                 PlaceElem::Field(_, field_ty) => field_ty.clone(),
+                PlaceElem::Downcast(_) => ty,
             };
         }
         ty
@@ -303,9 +311,13 @@ pub enum PlaceElem {
     /// `*place`; the base must have a reference type.
     Deref,
     /// `.field`; the base must be a struct or a tuple (whose elements are numbered from
-    /// 0). The field's type is recorded so places can be typed without consulting item
-    /// tables.
+    /// 0), or an enum downcast to a variant (whose fields are numbered from 0). The
+    /// field's type is recorded so places can be typed without consulting item tables.
     Field(usize, Ty),
+    /// `(place as V)`: an enum viewed as its variant `V` (by index), only followed by a
+    /// `Field` of the variant. The type stays the enum's. Reading through it is only
+    /// meaningful when the place holds that variant, which match lowering guarantees.
+    Downcast(usize),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -350,6 +362,10 @@ impl Eq for Constant {}
 pub enum BorrowKind {
     /// `&place`.
     Shared,
+    /// A *fake* (shallow) borrow made while a match guard runs, of a place the match
+    /// tested: it conflicts with assignments to and mutable borrows of the place (rustc's
+    /// E0510) but not with reads. Code generation emits nothing for it.
+    Fake,
     /// `&mut place`. A *two-phase* borrow (`two_phase`) is only reserved where it is
     /// created and activated at its single use, the call it is an argument of: until then
     /// it acts as a shared borrow, so the call's later arguments may still read the place.
@@ -372,7 +388,7 @@ impl BorrowKind {
     #[must_use]
     pub fn mutability(self) -> Mutability {
         match self {
-            Self::Shared => Mutability::Not,
+            Self::Shared | Self::Fake => Mutability::Not,
             Self::Mut { .. } => Mutability::Mut,
         }
     }
@@ -401,6 +417,9 @@ pub enum Rvalue {
     Cast(Operand, Ty),
     /// A struct value from its fields, in declaration order, or a tuple from its elements.
     Aggregate(AggregateKind, Vec<Operand>),
+    /// The discriminant of the enum in `place`, as an `isize` (decision 15). A read of
+    /// the place for the borrow checker.
+    Discriminant(Place),
 }
 
 /// What an [`Rvalue::Aggregate`] builds.
@@ -411,6 +430,8 @@ pub enum AggregateKind {
     /// A tuple of at least one element; its type is the tuple of the operands' types
     /// (`()` is a constant, never an aggregate).
     Tuple,
+    /// The variant `.1` of the enum `.0`, from the variant's fields.
+    Variant(DefId, usize),
 }
 
 impl Rvalue {
@@ -428,7 +449,10 @@ impl Rvalue {
                 }
             }
             Rvalue::Cast(_, ty) => ty.clone(),
-            Rvalue::Aggregate(AggregateKind::Adt(def), _) => Ty::Adt(*def),
+            Rvalue::Aggregate(AggregateKind::Adt(def) | AggregateKind::Variant(def, _), _) => {
+                Ty::Adt(*def)
+            }
+            Rvalue::Discriminant(_) => Ty::Prim(sabiko_resolve::PrimTy::Isize),
             Rvalue::Aggregate(AggregateKind::Tuple, ops) => {
                 Ty::Tuple(ops.iter().map(|op| op.ty(body)).collect::<Vec<_>>().into())
             }

@@ -107,6 +107,8 @@ pub enum ItemKind {
     Const(ConstDecl),
     /// `impl Type { fn ... }`: an inherent impl block; `impl Drop for Type { .. }`.
     Impl(ImplDecl),
+    /// `enum Name { A, B(T), C { F: T } }`
+    Enum(EnumDecl),
 }
 
 impl Item {
@@ -117,6 +119,7 @@ impl Item {
             ItemKind::Fn(f) => Some(&f.name),
             ItemKind::Struct(s) => Some(&s.name),
             ItemKind::Const(c) => Some(&c.name),
+            ItemKind::Enum(e) => Some(&e.name),
             ItemKind::Impl(_) => None,
         }
     }
@@ -211,6 +214,52 @@ pub struct FieldDef {
     pub span: Span,
 }
 
+/// `enum Name { .. }`: non-generic, with unit, tuple and struct variants.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnumDecl {
+    pub name: Ident,
+    pub variants: Vec<Variant>,
+}
+
+/// One variant of an enum: `A`, `A = 3`, `B(i32, bool)` or `C { X: i32 }`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Variant {
+    pub id: NodeId,
+    pub attrs: Vec<Attribute>,
+    pub docs: Vec<String>,
+    pub name: Ident,
+    pub data: VariantData,
+    /// `= expr`, an explicit discriminant.
+    pub discriminant: Option<Expr>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VariantData {
+    /// `A`
+    Unit,
+    /// `B(T, U)`: the field types, named `0`, `1`, ...
+    Tuple(Vec<Type>),
+    /// `C { X: T }`
+    Named(Vec<FieldDef>),
+}
+
+impl VariantData {
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Unit => 0,
+            Self::Tuple(tys) => tys.len(),
+            Self::Named(fields) => fields.len(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstDecl {
     pub name: Ident,
@@ -249,13 +298,101 @@ pub struct Pat {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatKind {
-    /// `x` or `mut x`
-    Ident { mutable: bool, name: Ident },
+    /// `x`, `mut x`, `ref x`, `ref mut x`, each optionally `@ subpattern`. A lone
+    /// identifier that names a constant or a unit struct is a path pattern, which the
+    /// resolver decides (it binds nothing then).
+    Ident {
+        by_ref: bool,
+        mutable: bool,
+        name: Ident,
+        sub: Option<Box<Pat>>,
+    },
     /// `_`
     Wild,
-    /// `(a, (b, _))`, `(a,)`, `()`: irrefutable tuple destructuring. `(p)` without a comma
-    /// is just `p`.
+    /// `..` inside a tuple or tuple-variant pattern: any number of elements.
+    Rest,
+    /// `(a, (b, _))`, `(a,)`, `()`, `(a, ..)`. `(p)` without a comma is just `p`.
     Tuple(Vec<Pat>),
+    /// `E::V`, `Self::V`: a unit variant (or another path with `::`).
+    Path(Path),
+    /// `E::V(a, ..)`
+    TupleStruct(Path, Vec<Pat>),
+    /// `E::V { X, Y: p, .. }`, `S { X, .. }`; `rest` is the span of a trailing `..`.
+    Struct {
+        path: Path,
+        fields: Vec<FieldPat>,
+        rest: Option<Span>,
+    },
+    /// A literal, possibly negated: the expression is an `ExprKind::Lit` or a
+    /// `ExprKind::Unary(Neg, Lit)`.
+    Lit(Box<Expr>),
+    /// `a..=b` or `a..b`; each bound is a (possibly negated) literal or a path.
+    Range(Box<Expr>, Box<Expr>, RangeEnd),
+    /// `p | q | ..`, at least two alternatives.
+    Or(Vec<Pat>),
+}
+
+/// `Name: pat` or the shorthand `Name` (also `ref Name`, `mut Name`) in a struct pattern.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldPat {
+    pub name: Ident,
+    pub pat: Pat,
+    /// Written as `Name` (the pattern is a binding of that name).
+    pub shorthand: bool,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RangeEnd {
+    /// `..=`
+    Included,
+    /// `..`
+    Excluded,
+}
+
+impl RangeEnd {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Included => "..=",
+            Self::Excluded => "..",
+        }
+    }
+}
+
+impl Pat {
+    /// Calls `f` for every identifier pattern in `self` that may introduce a binding, in
+    /// source order (the first alternative of an or-pattern only).
+    pub fn walk_idents<'a>(&'a self, f: &mut impl FnMut(&'a Pat)) {
+        match &self.kind {
+            PatKind::Ident { sub, .. } => {
+                f(self);
+                if let Some(sub) = sub {
+                    sub.walk_idents(f);
+                }
+            }
+            PatKind::Tuple(elems) | PatKind::TupleStruct(_, elems) => {
+                for p in elems {
+                    p.walk_idents(f);
+                }
+            }
+            PatKind::Struct { fields, .. } => {
+                for fp in fields {
+                    fp.pat.walk_idents(f);
+                }
+            }
+            PatKind::Or(alts) => {
+                if let Some(first) = alts.first() {
+                    first.walk_idents(f);
+                }
+            }
+            PatKind::Wild
+            | PatKind::Rest
+            | PatKind::Path(_)
+            | PatKind::Lit(_)
+            | PatKind::Range(..) => {}
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -292,6 +429,19 @@ pub struct LetStmt {
     pub pat: Pat,
     pub ty: Option<Type>,
     pub init: Option<Expr>,
+    /// `let p = e else { .. };`: the block that runs when `p` does not match; it must
+    /// diverge.
+    pub els: Option<Box<Block>>,
+}
+
+/// `pat if guard => body` in a `match`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Arm {
+    pub id: NodeId,
+    pub pat: Pat,
+    pub guard: Option<Expr>,
+    pub body: Expr,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -358,6 +508,14 @@ pub enum ExprKind {
         path: Path,
         fields: Vec<FieldInit>,
     },
+    /// `match scrutinee { arms }`
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<Arm>,
+    },
+    /// `let pat = expr`: only as the whole condition of an `if` or `while` (`if let`,
+    /// `while let`); let chains are edition 2024.
+    Let(Box<Pat>, Box<Expr>),
 }
 
 impl Expr {
@@ -370,6 +528,7 @@ impl Expr {
                 | ExprKind::If { .. }
                 | ExprKind::While { .. }
                 | ExprKind::Loop { .. }
+                | ExprKind::Match { .. }
         )
     }
 }

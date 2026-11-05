@@ -1,0 +1,27 @@
+[E0328] Error: non-exhaustive patterns: `Light::Red` and `Light::Green` not covered
+    ╭─[ tests/ui/typeck/match_without_arms_on_inhabited_type.sabi:10:11 ]
+    │
+ 10 │     match l {} //~ ERROR E0328 non-exhaustive patterns: `Light::Red` and `Light::Green` not covered
+    │           ┬  
+    │           ╰── patterns `Light::Red` and `Light::Green` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: type `i32` is non-empty
+    ╭─[ tests/ui/typeck/match_without_arms_on_inhabited_type.sabi:14:11 ]
+    │
+ 14 │     match n {} //~ ERROR E0328 non-exhaustive patterns: type `i32` is non-empty
+    │           ┬  
+    │           ╰── pattern `i32::MIN..=i32::MAX` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: type `P` is non-empty
+    ╭─[ tests/ui/typeck/match_without_arms_on_inhabited_type.sabi:15:11 ]
+    │
+ 15 │     match p {} //~ ERROR E0328 non-exhaustive patterns: type `P` is non-empty
+    │           ┬  
+    │           ╰── pattern `P { .. }` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

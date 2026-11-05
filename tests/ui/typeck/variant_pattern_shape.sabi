@@ -1,0 +1,35 @@
+// Sabiko codes for rustc's: E0301 for E0026, E0302 for E0027, E0326 for E0164, E0326 for E0532, E0327 for E0023.
+// A variant pattern must have its variant's shape: E0023 for the wrong number of tuple
+// fields, E0026 for an unknown field, E0027 for a missing field without `..`, E0532 for
+// a tuple pattern on a unit variant or a unit pattern naming a tuple variant, E0164 for a
+// tuple pattern on a struct variant.
+enum Shape { Dot, Square(i32), Rect { W: i32, H: i32 } }
+
+fn F(s: Shape) -> i32 {
+    match s {
+        Shape::Square(a, b) => 1, //~ ERROR E0327 this pattern has 2 fields, but the corresponding tuple variant has 1
+        _ => 0,
+    }
+}
+
+fn G(s: Shape) -> i32 {
+    match s {
+        Shape::Rect { W: w, D: d, .. } => w, //~ ERROR E0301 variant `Shape::Rect` does not have a field named `D`
+        _ => 0,
+    }
+}
+
+fn H(s: Shape) -> i32 {
+    match s {
+        Shape::Rect { W: w } => w, //~ ERROR E0302 pattern does not mention field `H`
+        _ => 0,
+    }
+}
+
+fn I(s: Shape) -> i32 {
+    match s {
+        Shape::Dot(x) => x, //~ ERROR E0326 expected tuple struct or tuple variant, found unit variant
+        Shape::Square => 1, //~ ERROR E0326 expected unit struct, unit variant or constant, found tuple variant
+        Shape::Rect(w, h) => w, //~ ERROR E0326 expected tuple struct or tuple variant, found struct variant
+    }
+}

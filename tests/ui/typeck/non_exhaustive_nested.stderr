@@ -1,0 +1,27 @@
+[E0328] Error: non-exhaustive patterns: `Cell::Value(false)` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_nested.sabi:10:11 ]
+    │
+ 10 │     match c { //~ ERROR E0328 non-exhaustive patterns: `Cell::Value(false)` not covered
+    │           ┬  
+    │           ╰── pattern `Cell::Value(false)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `Shape::Rect { Filled: false, .. }` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_nested.sabi:17:11 ]
+    │
+ 17 │     match s { //~ ERROR E0328 non-exhaustive patterns: `Shape::Rect { Filled: false, .. }` not
+    │           ┬  
+    │           ╰── pattern `Shape::Rect { Filled: false, .. }` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `(Cell::Empty, false)` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_nested.sabi:24:11 ]
+    │
+ 24 │     match (c, b) { //~ ERROR E0328 non-exhaustive patterns: `(Cell::Empty, false)` not covered
+    │           ───┬──  
+    │              ╰──── pattern `(Cell::Empty, false)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

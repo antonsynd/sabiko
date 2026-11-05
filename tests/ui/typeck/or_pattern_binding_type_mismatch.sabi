@@ -1,0 +1,9 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// A name bound in several alternatives must have the same type in each: E0308.
+enum Mixed { Int(i32), Flag(bool) }
+
+fn F(m: Mixed) -> i32 {
+    match m {
+        Mixed::Int(x) | Mixed::Flag(x) => 1, //~ ERROR E0300 mismatched types
+    }
+}

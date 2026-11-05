@@ -1,0 +1,32 @@
+[E0304] Error: this enum variant takes 1 argument but 2 arguments were supplied
+   ╭─[ tests/ui/typeck/variant_construction_shape.sabi:8:13 ]
+   │
+ 5 │ enum Shape { Dot, Square(i32), Rect { W: i32, H: i32 } }
+   │                   ───┬──  
+   │                      ╰──── variant defined here
+   │ 
+ 8 │     let a = Shape::Square(1, 2); //~ ERROR E0304 this enum variant takes 1 argument but 2 arguments were supplied
+   │             ─────────┬─────────  
+   │                      ╰─────────── expected 1 argument
+───╯
+[E0302] Error: missing field `H` in initializer of `Shape`
+   ╭─[ tests/ui/typeck/variant_construction_shape.sabi:9:13 ]
+   │
+ 9 │     let b = Shape::Rect { W: 1 }; //~ ERROR E0302 missing field `H` in initializer of `Shape`
+   │             ─────┬─────  
+   │                  ╰─────── missing `H`
+───╯
+[E0305] Error: expected function, found enum variant `Shape::Dot`
+    ╭─[ tests/ui/typeck/variant_construction_shape.sabi:10:13 ]
+    │
+ 10 │     let c = Shape::Dot(); //~ ERROR E0305 expected function, found enum variant `Shape::Dot`
+    │             ─────┬────  
+    │                  ╰────── a unit variant is a value: remove the `()`
+────╯
+[E0212] Error: no variant or associated item named `Circle` found for enum `Shape`
+    ╭─[ tests/ui/typeck/variant_construction_shape.sabi:11:20 ]
+    │
+ 11 │     let d = Shape::Circle(3); //~ ERROR E0212 no variant or associated item named `Circle` found for enum `Shape`
+    │                    ───┬──  
+    │                       ╰──── variant or associated item not found in `Shape`
+────╯

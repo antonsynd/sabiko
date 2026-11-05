@@ -218,6 +218,9 @@ impl Evaluator<'_, '_> {
                         silent: true,
                     })
                 }
+                Res::Def(d) if self.resolve.def(d).kind == DefKind::Variant => {
+                    Err(non_const(expr.span, "enum values"))
+                }
                 Res::Def(_) => Err(non_const(expr.span, "struct values")),
                 Res::Local(_) => Err(non_const(expr.span, "local variables")),
                 Res::Prim(_) | Res::Err => Err(failed(expr.span, "unresolved name")),
@@ -270,6 +273,9 @@ impl Evaluator<'_, '_> {
             }
             ExprKind::Block(_) => Err(non_const(expr.span, "blocks")),
             ExprKind::If { .. } => Err(non_const(expr.span, "`if` expressions")),
+            ExprKind::Match { .. } | ExprKind::Let(..) => {
+                Err(non_const(expr.span, "`match` expressions"))
+            }
             ExprKind::Call { .. } | ExprKind::MethodCall { .. } => {
                 Err(non_const(expr.span, "function calls"))
             }

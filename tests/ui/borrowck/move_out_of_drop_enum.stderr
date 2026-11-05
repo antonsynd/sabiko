@@ -1,0 +1,11 @@
+[E0418] Error: cannot move out of type `Holder`, which implements the `Drop` trait
+    ╭─[ tests/ui/borrowck/move_out_of_drop_enum.sabi:18:21 ]
+    │
+ 18 │         Holder::One(t) => { //~ ERROR E0418 cannot move out of type `Holder`, which implements the `Drop` trait
+    │                     ┬  
+    │                     ╰── cannot move out of here
+    │ 
+    │ Note 1: move occurs because `h.0` has type `Token`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: `h` is dropped as a whole by its `drop`; borrow the field instead
+────╯

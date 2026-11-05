@@ -310,8 +310,36 @@ impl Validator<'_> {
             return None;
         };
         let mut ty = decl.ty.clone();
+        let mut variant: Option<usize> = None;
         for elem in &place.projection {
+            let downcast = variant.take();
             ty = match (elem, ty) {
+                (PlaceElem::Downcast(index), Ty::Adt(def)) => {
+                    let adt = self.typeck.items.adt(def);
+                    if *index >= adt.variants().len() {
+                        self.err(
+                            bb,
+                            format!(
+                                "downcast to variant {index} of `{}`, which has {}",
+                                adt.name,
+                                adt.variants().len()
+                            ),
+                        );
+                        return None;
+                    }
+                    variant = Some(*index);
+                    Ty::Adt(def)
+                }
+                (PlaceElem::Downcast(_), other) => {
+                    self.err(bb, format!("downcast of non-enum type {other:?}"));
+                    return None;
+                }
+                (PlaceElem::Field(..), Ty::Adt(def))
+                    if self.typeck.items.adt(def).is_enum() && downcast.is_none() =>
+                {
+                    self.err(bb, "field of an enum without a downcast to a variant");
+                    return None;
+                }
                 (PlaceElem::Deref, Ty::Ref(_, inner)) => *inner,
                 (PlaceElem::Deref, other) => {
                     self.err(bb, format!("deref of non-reference type {other:?}"));
@@ -319,7 +347,11 @@ impl Validator<'_> {
                 }
                 (PlaceElem::Field(index, field_ty), Ty::Adt(def)) => {
                     let adt = self.typeck.items.adt(def);
-                    match adt.fields.get(*index) {
+                    let fields = match downcast {
+                        Some(v) => &adt.variant(v).fields,
+                        None => &adt.fields,
+                    };
+                    match fields.get(*index) {
                         Some(f) if f.ty == *field_ty => field_ty.clone(),
                         Some(f) => {
                             self.err(
@@ -399,6 +431,7 @@ impl Validator<'_> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn rvalue_ty(&mut self, bb: BasicBlock, rvalue: &Rvalue) -> Option<Ty> {
         match rvalue {
             Rvalue::Use(op) | Rvalue::UnaryOp(_, op) => self.operand_ty(bb, op),
@@ -467,6 +500,49 @@ impl Validator<'_> {
                     }
                 }
                 Some(Ty::Adt(*def))
+            }
+            Rvalue::Aggregate(AggregateKind::Variant(def, index), operands) => {
+                let adt = self.typeck.items.adt(*def);
+                let Some(v) = adt.variants().get(*index) else {
+                    self.err(
+                        bb,
+                        format!("aggregate of variant {index} of `{}`", adt.name),
+                    );
+                    return None;
+                };
+                let field_tys: Vec<Ty> = v.fields.iter().map(|f| f.ty.clone()).collect();
+                if operands.len() != field_tys.len() {
+                    self.err(
+                        bb,
+                        format!(
+                            "aggregate of `{}::{}` has {} operands for {} fields",
+                            adt.name,
+                            v.name,
+                            operands.len(),
+                            field_tys.len()
+                        ),
+                    );
+                }
+                for (op, field_ty) in operands.iter().zip(&field_tys) {
+                    if let Some(ty) = self.operand_ty(bb, op) {
+                        if !compatible(&ty, field_ty) {
+                            self.err(
+                                bb,
+                                format!(
+                                    "aggregate field of type {field_ty:?} initialised with {ty:?}"
+                                ),
+                            );
+                        }
+                    }
+                }
+                Some(Ty::Adt(*def))
+            }
+            Rvalue::Discriminant(place) => {
+                let ty = self.place_ty(bb, place)?;
+                if self.typeck.items.as_enum(&ty).is_none() {
+                    self.err(bb, format!("discriminant of non-enum type {ty:?}"));
+                }
+                Some(Ty::Prim(sabiko_resolve::PrimTy::Isize))
             }
         }
     }
@@ -654,6 +730,6 @@ fn rvalue_places(rvalue: &Rvalue) -> Vec<&Place> {
         }
         Rvalue::BinaryOp(_, l, r) => l.place().into_iter().chain(r.place()).collect(),
         Rvalue::Aggregate(_, ops) => ops.iter().filter_map(Operand::place).collect(),
-        Rvalue::Ref(_, place) => vec![place],
+        Rvalue::Ref(_, place) | Rvalue::Discriminant(place) => vec![place],
     }
 }
