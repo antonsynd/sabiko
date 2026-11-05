@@ -663,6 +663,28 @@ moved scrutinee again is E0406, which rustc accepts
 a float range pattern (`0.0..=1.0`, valid Rust) is rejected as "only `char` and numeric
 types are allowed in range patterns", which names `f64` as not numeric.
 
+Update (2026-11-05), generator for arrays and slices (#9): `sabiko_testgen` declares
+`[T; N]` of primitives, tuples, structs (`Copy` or not, with `impl Drop` or not), enums
+and arrays, with lengths 0 to 4 spelt as literals or `usize` constants, as locals, fields,
+enum payloads, tuple elements, parameters and returns, and `&[T]`/`&mut [T]` parameters,
+returns and annotated `let`s coerced from references to arrays; it generates array
+literals, `[]`, `[x; N]`, element reads, writes, compound assignments, borrows, method
+calls and scrutinees with constant and computed indices (sometimes out of bounds or
+overflowing), `.len()` and `while i < s.len()` loops (docs/TESTING.md). With the fixes
+below, 2000 seeds at each of three bases (7000000, 8000000, 9000000) agree with rustc on
+all five properties. The runs
+found four compiler bugs, all fixed with regression programs: `*s` for a slice reference
+was E0208 even where it is only borrowed, indexed or measured (`&*s`, `(*s)[i]`,
+`(*s).len()`; `run/arrays/slice_places.sabi`); an out-of-bounds index under a borrow
+(`&mut a[i]`) or in the initialiser of a `let` with a `ref` binding panicked at the `&` or
+the pattern instead of at `a[i]` (`run/arrays/index_out_of_bounds_borrow.sabi`,
+`index_out_of_bounds_ref_binding.sabi`); `[x; 0]` dropped `x` at the end of its statement
+instead of at once (`run/arrays/drops_zero_repeat.sabi`); and a failing `let`-`else` with a
+`ref` binding left its initialiser's cleanup scope open, so a value with drop glue made in
+its `else` block crashed MIR building (`run/enums/if_let/let_else_ref_binding_return.sabi`,
+not specific to arrays). The generator leaves out the known gaps (slice patterns, ranges,
+array comparison, arrays of references, `for` loops).
+
 ### Phase 5: Data types
 
 Work
