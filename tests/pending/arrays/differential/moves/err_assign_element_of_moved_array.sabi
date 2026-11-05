@@ -1,0 +1,11 @@
+// Assigning one element of a moved-from array does not reinitialise it: rustc rejects
+// the assignment itself with E0382 ("use of moved value: `a`"), so only a whole new array
+// revives `a` (ok_array_move_then_reassign).
+struct Token { Id: i32 }
+
+fn Main() {
+    let mut a = [Token { Id: 1 }];
+    let b = a;
+    a[0] = Token { Id: 3 };
+    PrintLine(b[0].Id);
+}

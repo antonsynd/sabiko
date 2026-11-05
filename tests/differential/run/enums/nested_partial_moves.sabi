@@ -1,0 +1,52 @@
+// Partial moves through nested enums and enums in struct fields: what a binding moves out
+// is dropped where it went, the rest with its owner, and only the variant the enum holds.
+// Drop flags are set from the discriminants when the value is written (decision 57).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Inner { X(D, D), Y(D) }
+
+enum Outer { A(Inner, D), B }
+
+struct Holder { Slot: Inner, Tag: D }
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Make(which: i32, base: i32) -> Outer {
+    match which {
+        0 => Outer::A(Inner::X(D { Id: base }, D { Id: base + 1 }), D { Id: base + 2 }),
+        1 => Outer::A(Inner::Y(D { Id: base }), D { Id: base + 2 }),
+        _ => Outer::B,
+    }
+}
+
+fn Main() {
+    let mut which = 0;
+    while which < 3 {
+        let o = Make(which, which * 10);
+        match o {
+            Outer::A(Inner::X(first, _), _) => Consume(first),
+            Outer::A(Inner::Y(_), ref tail) => {
+                Print("tail ");
+                PrintLine(tail.Id);
+            }
+            Outer::B => PrintLine("b"),
+        }
+        PrintLine("end of iteration");
+        which += 1;
+    }
+    let h = Holder { Slot: Inner::X(D { Id: 100 }, D { Id: 101 }), Tag: D { Id: 102 } };
+    if let Inner::X(_, second) = h.Slot {
+        Consume(second);
+    }
+    PrintLine("before holder ends");
+}

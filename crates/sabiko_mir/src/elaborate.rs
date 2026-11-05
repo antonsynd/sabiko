@@ -73,10 +73,15 @@ pub fn elaborate_body(body: &mut Body, typeck: &TypeckResults) {
 #[derive(Debug)]
 struct PathNode {
     place: Place,
-    /// The children, by field (element) index, in declaration order.
-    children: Vec<(usize, usize)>,
-    /// For a leaf (a struct with its own `drop`), its index among the leaves.
+    /// The children, by field (element) index, in declaration order; for an enum, by
+    /// variant and field.
+    children: Vec<(Option<usize>, usize, usize)>,
+    /// For a leaf (a struct or enum with its own `drop`), its index among the leaves.
     leaf: Option<usize>,
+    /// For a path inside a variant of an enum: the enums (outermost first) and the
+    /// discriminants they must hold for the path to hold a value at all. Its leaves'
+    /// drop flags are set from these when the enum is written (see `Rewriter`).
+    conds: Vec<(Place, i128)>,
 }
 
 #[derive(Debug, Default)]
@@ -109,43 +114,76 @@ impl DropPaths {
                 continue;
             }
             let local = Local(u32::try_from(index).expect("fewer than 2^32 locals"));
-            let root = paths.add(&Place::local(local), &decl.ty, typeck);
+            let root = paths.add(&Place::local(local), &decl.ty, &[], typeck);
             paths.roots.insert(local, root);
         }
         paths
     }
 
-    fn add(&mut self, place: &Place, ty: &Ty, typeck: &TypeckResults) -> usize {
+    fn add(
+        &mut self,
+        place: &Place,
+        ty: &Ty,
+        conds: &[(Place, i128)],
+        typeck: &TypeckResults,
+    ) -> usize {
         let index = self.nodes.len();
         self.nodes.push(PathNode {
             place: place.clone(),
             children: Vec::new(),
             leaf: None,
+            conds: conds.to_vec(),
         });
-        let fields: Vec<Ty> = match ty {
+        // (variant, field, type, the variant's discriminant)
+        let fields: Vec<(Option<usize>, usize, Ty, i128)> = match ty {
             Ty::Adt(def) if typeck.items.drop_impl(*def).is_some() => {
                 self.nodes[index].leaf = Some(self.leaf_nodes.len());
                 self.leaf_nodes.push(index);
                 return index;
             }
-            Ty::Adt(def) => typeck
-                .items
-                .adt(*def)
-                .fields
+            Ty::Adt(def) => {
+                let adt = typeck.items.adt(*def);
+                if adt.is_enum() {
+                    adt.variants()
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(v, variant)| {
+                            variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(move |(f, fd)| (Some(v), f, fd.ty.clone(), variant.discr))
+                        })
+                        .collect()
+                } else {
+                    adt.fields
+                        .iter()
+                        .enumerate()
+                        .map(|(f, fd)| (None, f, fd.ty.clone(), 0))
+                        .collect()
+                }
+            }
+            Ty::Tuple(elems) => elems
                 .iter()
-                .map(|f| f.ty.clone())
+                .enumerate()
+                .map(|(f, t)| (None, f, t.clone(), 0))
                 .collect(),
-            Ty::Tuple(elems) => elems.to_vec(),
-            other => unreachable!("a type with drop glue is a struct or a tuple, not {other:?}"),
+            other => {
+                unreachable!("a type with drop glue is a struct, enum or tuple, not {other:?}")
+            }
         };
-        for (field, field_ty) in fields.iter().enumerate() {
-            if typeck.items.needs_drop(field_ty) {
-                let child = self.add(
-                    &place.clone().field(field, field_ty.clone()),
-                    field_ty,
-                    typeck,
-                );
-                self.nodes[index].children.push((field, child));
+        for (variant, field, field_ty, discr) in fields {
+            if typeck.items.needs_drop(&field_ty) {
+                let (child_place, child_conds) = match variant {
+                    Some(v) => {
+                        let mut c = conds.to_vec();
+                        c.push((place.clone(), discr));
+                        (place.clone().downcast(v).field(field, field_ty.clone()), c)
+                    }
+                    None => (place.clone().field(field, field_ty.clone()), conds.to_vec()),
+                };
+                let child = self.add(&child_place, &field_ty, &child_conds, typeck);
+                self.nodes[index].children.push((variant, field, child));
             }
         }
         index
@@ -156,17 +194,32 @@ impl DropPaths {
             return Lookup::Untracked;
         };
         let mut node = mut_root;
+        let mut variant = None;
         for elem in &place.projection {
-            let PlaceElem::Field(field, _) = elem else {
-                return Lookup::Untracked;
-            };
             if self.nodes[node].leaf.is_some() {
                 return Lookup::InLeaf(node);
             }
-            match self.nodes[node].children.iter().find(|(f, _)| f == field) {
-                Some(&(_, child)) => node = child,
+            let field = match elem {
+                PlaceElem::Field(field, _) => field,
+                PlaceElem::Downcast(v) => {
+                    variant = Some(*v);
+                    continue;
+                }
+                PlaceElem::Deref => return Lookup::Untracked,
+            };
+            let selector = variant.take();
+            match self.nodes[node]
+                .children
+                .iter()
+                .find(|(v, f, _)| *v == selector && f == field)
+            {
+                Some(&(_, _, child)) => node = child,
                 None => return Lookup::Untracked,
             }
+        }
+        if variant.is_some() {
+            // `(e as V)` itself is never a place of its own.
+            return Lookup::Untracked;
         }
         Lookup::Node(node)
     }
@@ -182,7 +235,7 @@ impl DropPaths {
         match self.nodes[node].leaf {
             Some(leaf) => out.push(leaf),
             None => {
-                for &(_, child) in &self.nodes[node].children {
+                for &(_, _, child) in &self.nodes[node].children {
                     self.collect_leaves(child, out);
                 }
             }
@@ -271,7 +324,7 @@ fn rvalue_moves(rvalue: &Rvalue) -> Vec<&Place> {
         Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => vec![op],
         Rvalue::BinaryOp(_, l, r) => vec![l, r],
         Rvalue::Aggregate(_, ops) => ops.iter().collect(),
-        Rvalue::Ref(..) => Vec::new(),
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) => Vec::new(),
     };
     ops.into_iter()
         .filter_map(|op| match op {
@@ -385,7 +438,10 @@ fn collect_actions(
         return;
     }
     let place = paths.nodes[node].place.clone();
-    if states.iter().all(|&s| s == LeafState::Init) {
+    // A path inside a variant holds a value only when its enum holds that variant, which
+    // its flag says: never dropped unconditionally.
+    let conditional = !paths.nodes[node].conds.is_empty();
+    if states.iter().all(|&s| s == LeafState::Init) && !conditional {
         out.push(Action { place, flag: None });
         return;
     }
@@ -396,7 +452,7 @@ fn collect_actions(
         });
         return;
     }
-    for &(_, child) in &paths.nodes[node].children {
+    for &(_, _, child) in &paths.nodes[node].children {
         collect_actions(paths, child, leaf, out);
     }
 }
@@ -571,6 +627,20 @@ fn old_value_actions(
 // Rewrite
 // ------------------------------------------------------------------------------------------
 
+fn assign_bool(flag: Local, value: bool, span: sabiko_span::Span) -> Statement {
+    Statement {
+        kind: StatementKind::Assign(
+            Place::local(flag),
+            Rvalue::Use(Operand::Constant(Constant {
+                ty: Ty::BOOL,
+                value: ConstValue::Bool(value),
+                span,
+            })),
+        ),
+        span,
+    }
+}
+
 struct Rewriter<'a> {
     body: &'a mut Body,
     paths: &'a DropPaths,
@@ -642,28 +712,67 @@ impl Rewriter<'_> {
             .collect()
     }
 
-    /// `flag = value` for the flagged leaves among `leaves`.
+    /// `flag = value` for the flagged leaves among `leaves`. A leaf inside a variant of
+    /// an enum holds a value after a write only if the enum holds that variant: its flag is
+    /// set to the comparison of the discriminants with the variants on its path.
     fn flag_writes(
-        &self,
+        &mut self,
         leaves: &[usize],
         value: bool,
         span: sabiko_span::Span,
     ) -> Vec<Statement> {
-        leaves
-            .iter()
-            .filter_map(|&leaf| self.flags[leaf])
-            .map(|flag| Statement {
-                kind: StatementKind::Assign(
-                    Place::local(flag),
-                    Rvalue::Use(Operand::Constant(Constant {
-                        ty: Ty::BOOL,
-                        value: ConstValue::Bool(value),
+        let mut out = Vec::new();
+        for &leaf in leaves {
+            let Some(flag) = self.flags[leaf] else {
+                continue;
+            };
+            let conds = self.paths.nodes[self.paths.leaf_nodes[leaf]].conds.clone();
+            if !value || conds.is_empty() {
+                out.push(assign_bool(flag, value, span));
+                continue;
+            }
+            for (i, (enum_place, discr)) in conds.into_iter().enumerate() {
+                let isize = Ty::Prim(sabiko_resolve::PrimTy::Isize);
+                let d = self.new_temp(isize.clone(), span);
+                out.push(Statement {
+                    kind: StatementKind::Assign(Place::local(d), Rvalue::Discriminant(enum_place)),
+                    span,
+                });
+                let is = Rvalue::BinaryOp(
+                    BinOp::Eq,
+                    Operand::Copy(Place::local(d)),
+                    Operand::Constant(Constant {
+                        ty: isize,
+                        value: ConstValue::Int(discr),
                         span,
-                    })),
-                ),
-                span,
-            })
-            .collect()
+                    }),
+                );
+                if i == 0 {
+                    out.push(Statement {
+                        kind: StatementKind::Assign(Place::local(flag), is),
+                        span,
+                    });
+                } else {
+                    let b = self.new_temp(Ty::BOOL, span);
+                    out.push(Statement {
+                        kind: StatementKind::Assign(Place::local(b), is),
+                        span,
+                    });
+                    out.push(Statement {
+                        kind: StatementKind::Assign(
+                            Place::local(flag),
+                            Rvalue::BinaryOp(
+                                BinOp::BitAnd,
+                                Operand::Copy(Place::local(flag)),
+                                Operand::Copy(Place::local(b)),
+                            ),
+                        ),
+                        span,
+                    });
+                }
+            }
+        }
+        out
     }
 
     fn rewrite_block(&mut self, bb: BasicBlock, plan: &Plan) {

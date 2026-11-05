@@ -1,0 +1,59 @@
+// Match lowering (#8): discriminant switches, literal and range tests, or-pattern
+// candidates, guards (fake borrow, bindings by reference until the guard holds), moves
+// out of the scrutinee, `if let`, `while let`, `let`-`else`, and drop flags conditioned
+// on the variant for a partially moved enum.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+enum Shape { Dot, Square(i32), Rect { W: i32, H: i32 } }
+
+enum Slot { Empty, Full(D) }
+
+fn Area(s: &Shape) -> i32 {
+    match s {
+        Shape::Dot => 0,
+        Shape::Square(w) if *w > 10 => 100,
+        Shape::Square(w) => *w * *w,
+        Shape::Rect { W, H } => *W * *H,
+    }
+}
+
+fn Classify(n: i32) -> i32 {
+    match n {
+        0 => 0,
+        1 | 2 => 1,
+        3..=9 => 2,
+        _ => 3,
+    }
+}
+
+fn Take(s: Slot) -> i32 {
+    match s {
+        Slot::Full(d) => d.Id,
+        Slot::Empty => 0,
+    }
+}
+
+fn Peek(s: Slot) -> i32 {
+    if let Slot::Full(ref d) = s {
+        return d.Id;
+    }
+    let Slot::Full(d) = s else {
+        return 0;
+    };
+    d.Id
+}
+
+fn Count(mut n: i32) -> i32 {
+    let mut steps = 0;
+    while let 1..=100 = n {
+        n -= 7;
+        steps += 1;
+    }
+    steps
+}

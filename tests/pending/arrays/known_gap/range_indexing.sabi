@@ -1,0 +1,26 @@
+// KNOWN GAP (not in #9): indexing with ranges, `&a[1..3]`, `&a[..2]`, `&a[1..]`, `&a[..]`,
+// `&mut s[1..]`, and a slice of a slice. Ranges are not expressions in Sabiko yet; the
+// result is a sub-span (`ReadOnlySpan<T>.Slice`), and the out-of-range panics have their
+// own messages ("range end index 4 out of range for slice of length 3").
+fn Sum(s: &[i32]) -> i32 {
+    let mut t = 0;
+    let mut i = 0;
+    while i < s.len() {
+        t += s[i];
+        i += 1;
+    }
+    t
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4, 5];
+    PrintLine(Sum(&a[1..3]));
+    PrintLine(Sum(&a[..2]));
+    PrintLine(Sum(&a[3..]));
+    PrintLine(a[..].len());
+    let s: &mut [i32] = &mut a[1..];
+    s[0] = 20;
+    let inner = &s[1..3];
+    PrintLine(inner.len() as i32 + inner[1]);
+    PrintLine(a[1]);
+}

@@ -1,0 +1,9 @@
+// `a.len()` borrows the whole array (an autoref'd `&a`, unsized to `&[i32]`), which
+// conflicts with a live `&mut a[0]`: E0502.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let r = &mut a[0];
+    let n = a.len();
+    *r = n as i32;
+    PrintLine(a[0]);
+}

@@ -1,0 +1,9 @@
+// Indexing gives no disjoint borrows: `&mut a[0]` and `&mut a[1]` borrow the same place
+// `a[_]` as far as the borrow checker knows, so the second is E0499 while the first lives.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let first = &mut a[0];
+    let second = &mut a[1];
+    *first += *second;
+    PrintLine(a[0]);
+}

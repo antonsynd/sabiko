@@ -10,17 +10,19 @@ pub mod check;
 pub mod collect;
 pub mod consts;
 pub mod infer;
+mod patterns;
 pub mod ty;
+pub mod usefulness;
 
 use std::collections::HashMap;
 
-pub use check::{BodyTypes, FieldAccess, MethodCallee};
-pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes};
+pub use check::{rest_positions, BodyTypes, FieldAccess, MethodCallee, PatConst};
+pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes, VariantDef, VariantKind};
 pub use consts::ConstValue;
 pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_resolve::{DefId, ResolveResults};
+use sabiko_resolve::{DefId, PrimTy, ResolveResults};
 pub use ty::{Mutability, Ty, TyVid};
 
 #[derive(Clone, Debug, Default)]
@@ -51,7 +53,7 @@ pub fn typeck(
     resolve: &ResolveResults,
     sink: &mut DiagnosticSink,
 ) -> TypeckResults {
-    let items = collect::collect(file, resolve, sink);
+    let mut items = collect::collect(file, resolve, sink);
     let mut bodies = HashMap::new();
     for item in file.all_items() {
         if let ItemKind::Impl(_) = item.kind {
@@ -69,26 +71,64 @@ pub fn typeck(
                 let cx = check::FnCtxt::new(resolve, &items, sink, ty);
                 bodies.insert(def, cx.check_const(&c.value));
             }
+            ItemKind::Enum(e) => {
+                // An explicit discriminant is an `isize` constant of its own.
+                for v in &e.variants {
+                    let Some(d) = &v.discriminant else {
+                        continue;
+                    };
+                    if let Some(vdef) = variant_def(resolve, def, v) {
+                        let cx = check::FnCtxt::new(resolve, &items, sink, Ty::Prim(PrimTy::Isize));
+                        bodies.insert(vdef, cx.check_const(d));
+                    }
+                }
+            }
             ItemKind::Struct(_) | ItemKind::Impl(_) => {}
         }
     }
-    let const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = file
-        .items
-        .iter()
-        .filter_map(|item| match &item.kind {
+    let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::new();
+    for item in &file.items {
+        match &item.kind {
             ItemKind::Const(c) => {
                 let def = resolve.def_of_item(item.id);
-                Some((def, (&c.value, &bodies[&def])))
+                const_bodies.insert(def, (&c.value, &bodies[&def]));
             }
-            _ => None,
-        })
-        .collect();
+            ItemKind::Enum(e) => {
+                let def = resolve.def_of_item(item.id);
+                for v in &e.variants {
+                    if let (Some(d), Some(vdef)) = (&v.discriminant, variant_def(resolve, def, v)) {
+                        if let Some(b) = bodies.get(&vdef) {
+                            const_bodies.insert(vdef, (d, b));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     let consts = consts::eval_all(resolve, &const_bodies, sink);
+    patterns::discriminants(file, resolve, &consts, &mut items, sink);
+    patterns::pattern_values(file, resolve, &consts, &mut bodies, sink);
+    patterns::exhaustiveness(file, resolve, &items, &mut bodies, sink);
     TypeckResults {
         items,
         bodies,
         consts,
     }
+}
+
+/// The definition of a variant of enum `def`; `None` for a variant whose name repeats an
+/// earlier one's (reported by the resolver, which defines only the first).
+pub(crate) fn variant_def(
+    resolve: &ResolveResults,
+    def: DefId,
+    v: &sabiko_ast::Variant,
+) -> Option<DefId> {
+    resolve
+        .variants(def)
+        .iter()
+        .copied()
+        .find(|&vd| resolve.def(vd).node == v.id)
 }
 
 #[cfg(test)]
@@ -652,6 +692,26 @@ fn F(m: &mut (i32, bool)) {
         );
     }
 
+    /// Struct, tuple-variant and struct-variant patterns give their bindings the fields'
+    /// types, also around a `..` that stands for several elements.
+    #[test]
+    fn struct_and_variant_pattern_bindings() {
+        let src = r"
+struct P { X: i32, Y: bool }
+enum E { V(u8, i16, char, u64), W { A: i8, B: () } }
+fn F(p: P, e: E, f: E) {
+    let P { X: x, Y: y } = p;
+    if let E::V(a, .., d) = e {}
+    if let E::W { B: b, .. } = f {}
+}";
+        let (r, resolve, msgs) = run(src);
+        assert!(msgs.is_empty(), "{msgs:#?}");
+        assert_eq!(
+            local_types(&r, &resolve, "F"),
+            ["p: P", "e: E", "f: E", "x: i32", "y: bool", "a: u8", "d: u64", "b: ()"]
+        );
+    }
+
     /// Each error is reported once: a method call on a receiver whose type is already an
     /// error reports nothing more.
     #[test]
@@ -678,5 +738,37 @@ fn F(s: S) {
                 "E0107 not yet supported: indexing [indexing are not yet supported]",
             ]
         );
+    }
+
+    /// The pattern passes after type checking mark a body as erroneous when they report
+    /// an error in it (a non-exhaustive `match`, a range bound that is a local), so that
+    /// no MIR is built for it; a warning does not.
+    #[test]
+    fn pattern_errors_mark_the_body() {
+        let src = r"
+enum E { A, B }
+fn F(e: E) -> i32 { match e { E::A => 1 } }
+fn G(n: i32) -> i32 { let low = 1; match n { low..=5 => 1, _ => 0 } }
+fn H(e: E) -> i32 { match e { E::A => 1, E::A => 2, _ => 3 } }
+";
+        let (r, resolve, msgs) = run(src);
+        assert_eq!(
+            msgs,
+            [
+                "E0328 non-exhaustive patterns: `E::B` not covered [pattern `E::B` not covered]",
+                "E0315 runtime values cannot be referenced in patterns [references a runtime value]",
+                "E0330 unreachable pattern [no value can reach this]",
+            ]
+        );
+        let has_errors = |name: &str| {
+            let def = resolve
+                .defs_of_kind(DefKind::Fn)
+                .find(|d| resolve.def(*d).name == name)
+                .unwrap();
+            r.body(def).has_errors
+        };
+        assert!(has_errors("F"));
+        assert!(has_errors("G"));
+        assert!(!has_errors("H"));
     }
 }

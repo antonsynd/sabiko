@@ -1,0 +1,20 @@
+// A moved-from array is usable again after a whole new array is assigned, also per loop
+// iteration.
+struct Token { Id: i32 }
+
+fn Take(a: [Token; 2]) -> i32 {
+    a[0].Id + a[1].Id
+}
+
+fn Main() {
+    let mut a = [Token { Id: 1 }, Token { Id: 2 }];
+    let b = a;
+    a = [Token { Id: 3 }, Token { Id: 4 }];
+    PrintLine(a[0].Id + b[0].Id);
+    let mut i = 0;
+    while i < 3 {
+        PrintLine(Take(a));
+        a = [Token { Id: i }, Token { Id: i + 1 }];
+        i += 1;
+    }
+}

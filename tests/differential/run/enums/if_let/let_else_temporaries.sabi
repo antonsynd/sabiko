@@ -1,0 +1,63 @@
+// (drops, #12) The temporaries of a `let`-`else` initialiser are dropped before its `else`
+// block runs (Sabiko ran `else` first). When the pattern has a `ref`/`ref mut` binding (an
+// extending pattern) the initialiser's value lives to the end of the block on success, in
+// `let`-`else` and in a plain destructuring `let` alike (E0413 before; generator seeds 19
+// and 30). A panic in `else` does not drop the temporaries again.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Holder { One(D, i32), Nothing(D) }
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Pick(k: i32) -> Holder {
+    if k > 0 { Holder::One(Make(k), k * 10) } else { Holder::Nothing(Make(-k)) }
+}
+
+fn Plain(k: i32) {
+    let Holder::One(_, n) = Pick(k) else {
+        PrintLine("else runs after the drop");
+        return;
+    };
+    Print("plain ");
+    PrintLine(n);
+}
+
+fn Extended(k: i32) {
+    let Holder::One(ref d, n) = Pick(k) else {
+        PrintLine("else runs after the drop");
+        return;
+    };
+    Print("extended ");
+    PrintLine(d.Id + n);
+    PrintLine("end of block");
+}
+
+fn Main() {
+    Plain(1);
+    Plain(-2);
+    Extended(3);
+    Extended(-4);
+    PrintLine("--");
+    {
+        let D { Id: ref mut id } = Make(5);
+        *id += 100;
+        let (ref x, _) = (Make(6), 0);
+        let (y, ref z) = (Make(7), Make(8));
+        Print("in block ");
+        PrintLine(*id + x.Id + y.Id + z.Id);
+    }
+    PrintLine("--");
+    let Holder::One(ref d, _) = Pick(-9) else {
+        Panic("no holder");
+    };
+    PrintLine(d.Id);
+}

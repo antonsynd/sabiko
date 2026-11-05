@@ -1,0 +1,9 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/or_pattern_binding_type_mismatch.sabi:7:37 ]
+   │
+ 7 │         Mixed::Int(x) | Mixed::Flag(x) => 1, //~ ERROR E0300 mismatched types
+   │                                     ┬  
+   │                                     ╰── expected `i32`, found `bool`
+   │ 
+   │ Note: a binding must have the same type in every alternative of an or-pattern
+───╯

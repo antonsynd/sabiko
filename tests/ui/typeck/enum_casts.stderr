@@ -1,0 +1,52 @@
+[E0308] Error: non-primitive cast: `Shape` as `i32`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:17:13 ]
+    │
+ 17 │     let a = Shape::Dot as i32; //~ ERROR E0308 non-primitive cast: `Shape` as `i32`
+    │             ────────┬────────  
+    │                     ╰────────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: casting `Light` as `f64` is invalid
+    ╭─[ tests/ui/typeck/enum_casts.sabi:18:13 ]
+    │
+ 18 │     let b = Light::Red as f64; //~ ERROR E0308 casting `Light` as `f64` is invalid
+    │             ────────┬────────  
+    │                     ╰────────── invalid cast
+    │ 
+    │ Note: an enum casts to an integer type only
+────╯
+[E0308] Error: non-primitive cast: `i32` as `Light`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:19:13 ]
+    │
+ 19 │     let c = 1 as Light; //~ ERROR E0308 non-primitive cast: `i32` as `Light`
+    │             ─────┬────  
+    │                  ╰────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯
+[E0308] Error: cannot cast `Light` as `bool`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:20:13 ]
+    │
+ 20 │     let d = Light::Green as bool; //~ ERROR E0308 cannot cast `Light` as `bool`
+    │             ──────────┬─────────  
+    │                       ╰─────────── invalid cast
+    │ 
+    │ Note: compare the discriminant instead: `e as i32 != 0`
+────╯
+[E0308] Error: cannot cast enum `Lamp` into integer `u8` because it implements `Drop`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:21:13 ]
+    │
+ 21 │     let e = Lamp::Off as u8; //~ ERROR E0308 cannot cast enum `Lamp` into integer `u8` because it implements `Drop`
+    │             ───────┬───────  
+    │                    ╰───────── invalid cast
+────╯
+[E0308] Error: non-primitive cast: `Shape` as `bool`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:22:13 ]
+    │
+ 22 │     let f = Shape::Dot as bool; //~ ERROR E0308 non-primitive cast: `Shape` as `bool`
+    │             ─────────┬────────  
+    │                      ╰────────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯

@@ -131,7 +131,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     ret
   }
 
-  .method public hidebysig static int32 'Length'([in] valuetype 'Line'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'l') cil managed
+  .method public hidebysig static int32 'Length'([in] valuetype 'Line'& 'l') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -300,7 +300,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     ldloc.s 9
     stfld valuetype 'Point' 'Line'::'B'
     ldloca.s 7
-    call int32 'Structs'::'Length'(valuetype 'Line'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'Structs'::'Length'(valuetype 'Line'&)
     stloc.s 10
   BB4:
     ldloca.s 7

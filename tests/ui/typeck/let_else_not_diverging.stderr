@@ -1,0 +1,11 @@
+[E0300] Error: `else` clause of `let...else` does not diverge
+   ╭─[ tests/ui/typeck/let_else_not_diverging.sabi:6:33 ]
+   │
+ 6 │ ╭─▶     let Cell::Value(n) = c else { //~ ERROR E0300 `else` clause of `let...else` does not diverge
+   ┆ ┆   
+ 8 │ ├─▶     };
+   │ │            
+   │ ╰──────────── expected `!`, found `()`
+   │     
+   │     Note: try adding a diverging expression, such as `return` or `Panic(..)`
+───╯

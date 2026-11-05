@@ -1,0 +1,12 @@
+// Passing an array of non-Copy elements by value moves it: the second call is E0382.
+struct Token { Id: i32 }
+
+fn Take(a: [Token; 2]) -> i32 {
+    a[0].Id + a[1].Id
+}
+
+fn Main() {
+    let a = [Token { Id: 1 }, Token { Id: 2 }];
+    PrintLine(Take(a));
+    PrintLine(Take(a));
+}

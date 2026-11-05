@@ -330,7 +330,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
     ret
   }
 
-  .method public hidebysig static int32 'Refs'([in] int32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'x', int32& 'y') cil managed
+  .method public hidebysig static int32 'Refs'([in] int32& 'x', int32& 'y') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )

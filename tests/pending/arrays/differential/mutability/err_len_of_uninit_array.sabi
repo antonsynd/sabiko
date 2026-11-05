@@ -1,0 +1,6 @@
+// `a.len()` reads (borrows) `a`, so it must be initialised, although the length is known
+// from the type: E0381.
+fn Main() {
+    let a: [i32; 3];
+    PrintLine(a.len());
+}

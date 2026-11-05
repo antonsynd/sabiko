@@ -26,6 +26,7 @@
 //! cannot: a returned reference never points at the returning frame.
 
 mod drops;
+mod enums;
 mod func;
 mod types;
 
@@ -88,8 +89,10 @@ pub fn emit_il(
     sink: &mut DiagnosticSink,
 ) -> Option<String> {
     let struct_names: Vec<String> = resolve
-        .defs_of_kind(DefKind::Struct)
-        .map(|d| resolve.def(d).name.clone())
+        .defs
+        .iter()
+        .filter(|d| d.kind.is_type())
+        .map(|d| d.name.clone())
         .collect();
     let class_name = module_class_name(&options.assembly_name, &struct_names);
     let mut cx = Cx {
@@ -298,10 +301,17 @@ impl Cx<'_> {
         }
     }
 
-    /// Every struct, with the functions of its `impl` blocks as static methods.
+    /// Every struct and enum, with the functions of its `impl` blocks as static methods.
     fn structs(&mut self, bodies: &[Body], out: &mut String) {
-        let defs: Vec<_> = self.resolve.defs_of_kind(DefKind::Struct).collect();
+        let defs: Vec<_> = (0..self.resolve.defs.len())
+            .map(|i| sabiko_resolve::DefId(u32::try_from(i).expect("fewer than 2^32 items")))
+            .filter(|&d| self.resolve.def(d).kind.is_type())
+            .collect();
         for def in defs {
+            if self.resolve.def(def).kind == DefKind::Enum {
+                self.enum_type(def, bodies, out);
+                continue;
+            }
             let adt = self.typeck.items.adt(def).clone();
             let _ = writeln!(
                 out,

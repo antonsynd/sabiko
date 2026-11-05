@@ -1,0 +1,19 @@
+// Sabiko codes for rustc's: E0329 for E0005.
+// `let` takes an irrefutable pattern: a variant of a multi-variant enum, or a literal, is
+// E0005 (`let else` is the refutable form, ui/if_let/). A single-variant enum's pattern
+// is irrefutable (run/enums/single_variant.sabi). A struct pattern is refutable when a
+// field's is.
+enum Cell { Empty, Value(i32) }
+
+struct P { X: i32, Y: bool }
+
+fn F(c: Cell, t: (i32, i32)) -> i32 {
+    let Cell::Value(n) = c; //~ ERROR E0329 refutable pattern in local binding
+    let (0, m) = t; //~ ERROR E0329 refutable pattern in local binding
+    n + m
+}
+
+fn G(p: P) -> bool {
+    let P { X: 0, Y: y } = p; //~ ERROR E0329 refutable pattern in local binding
+    y
+}

@@ -1,0 +1,21 @@
+// KNOWN GAP (not in #9): `for` loops. The language has `while` and `loop` only (SPEC
+// §11.2); `for x in a`, `for x in &a`, `for x in s` (slices) and `for i in 0..a.len()`
+// need iterators (Phase 6 traits) and ranges.
+fn Main() {
+    let a = [1, 2, 3];
+    let mut total = 0;
+    for x in a {
+        total += x;
+    }
+    for x in &a {
+        total += *x;
+    }
+    let s: &[i32] = &a;
+    for x in s {
+        total += x;
+    }
+    for i in 0..a.len() {
+        total += a[i];
+    }
+    PrintLine(total);
+}

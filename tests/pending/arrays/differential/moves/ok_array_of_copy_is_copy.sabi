@@ -1,0 +1,20 @@
+// An array of Copy elements is Copy: assigning or passing it copies, the original stays
+// usable and unchanged (also an array of a Copy struct, and a nested array).
+#[derive(Copy, Clone)]
+struct P { X: i32 }
+
+fn Sum(a: [i32; 3]) -> i32 {
+    a[0] + a[1] + a[2]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let mut b = a;
+    b[0] = 9;
+    PrintLine(Sum(a) + Sum(a) + Sum(b));
+    let ps = [P { X: 1 }; 2];
+    let qs = ps;
+    let m = [[0u8; 2]; 2];
+    let row = m[1];
+    PrintLine(ps[0].X + qs[1].X + m[0][0] as i32 + row[0] as i32);
+}

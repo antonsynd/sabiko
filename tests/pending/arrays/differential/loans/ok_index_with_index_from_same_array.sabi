@@ -1,0 +1,11 @@
+// An index computed from the array itself, read before the element is written:
+// `a[a[0] as usize] = a[1]`, `a[a.len() - 1] += 1`, and a nested `m[m[0][0]][..]`.
+fn Main() {
+    let mut a = [2, 7, 0];
+    a[a[0] as usize] = a[1];
+    a[a.len() - 1] += 1;
+    a[a[2] as usize % 3] *= a[a.len() - 3];
+    let mut m: [[usize; 2]; 2] = [[1, 0], [0, 1]];
+    m[m[0][0]][m[1][1]] = 5;
+    PrintLine(a[0] + a[1] + a[2] + m[1][1] as i32);
+}

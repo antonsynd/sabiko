@@ -1,0 +1,27 @@
+[E0328] Error: non-exhaustive patterns: `(false, true)` not covered
+   ╭─[ tests/ui/typeck/non_exhaustive_bool_char.sabi:7:11 ]
+   │
+ 7 │     match (a, b) { //~ ERROR E0328 non-exhaustive patterns: `(false, true)` not covered
+   │           ───┬──  
+   │              ╰──── pattern `(false, true)` not covered
+   │ 
+   │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+───╯
+[E0328] Error: non-exhaustive patterns: `'\0'..='@'`, `'['..='`'`, `'{'..='\u{d7ff}'` and 1 more not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_bool_char.sabi:14:11 ]
+    │
+ 14 │     match c { //~ ERROR E0328 non-exhaustive patterns: `'\0'..='@'`, `'['..='`'`,
+    │           ┬  
+    │           ╰── patterns `'\0'..='@'`, `'['..='`'`, `'{'..='\u{d7ff}'` and 1 more not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `'𐀀'..='\u{10ffff}'` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_bool_char.sabi:25:11 ]
+    │
+ 25 │     match c { //~ ERROR E0328 non-exhaustive patterns: `'𐀀'..='\u{10ffff}'` not covered
+    │           ┬  
+    │           ╰── pattern `'𐀀'..='\u{10ffff}'` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

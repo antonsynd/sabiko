@@ -1,0 +1,10 @@
+// Moving a non-Copy field out of an element is a move out of the array too: E0508.
+struct Token { Id: i32 }
+
+struct Wrapper { Inner: Token }
+
+fn Main() {
+    let a = [Wrapper { Inner: Token { Id: 1 } }];
+    let inner = a[0].Inner;
+    PrintLine(inner.Id);
+}

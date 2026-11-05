@@ -1,0 +1,5 @@
+// A by-value array parameter is an immutable binding: `a[0] += 1` is E0594.
+fn Bumped(a: [i32; 3]) -> [i32; 3] {
+    a[0] += 1;
+    a
+}

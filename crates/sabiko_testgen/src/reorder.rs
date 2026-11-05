@@ -30,7 +30,8 @@
 //!   (`&mut` locals count as writes, and so do `&` locals that may hold a mutable loan:
 //!   `let d = &*m;` for `m: &mut T` keeps `m`'s loan alive while `d` is used), or mentions
 //!   a local whose address is taken anywhere in the function (a write, `&mut` borrow or
-//!   move of it counts as a write).
+//!   move of it counts as a write). A pattern with a `ref`/`ref mut` binding takes the
+//!   address of the place it matches (`while let ref mut p @ E::A = d` borrows `d`).
 //!
 //! Method bodies are analysed like function bodies.
 //!
@@ -231,20 +232,20 @@ impl FnCx<'_, '_> {
             match &stmt.kind {
                 StmtKind::Let(l) => {
                     if let Some(init) = &l.init {
+                        if has_ref_binding(&l.pat) {
+                            if let Some(local) = self.root_local(init) {
+                                self.address_taken.insert(local);
+                            }
+                        }
                         self.collect_address_taken(init);
                         if self.may_hold_mut_loan(init) {
-                            let mut pats = vec![&l.pat];
-                            while let Some(pat) = pats.pop() {
-                                match &pat.kind {
-                                    PatKind::Ident { .. } => {
-                                        if let Some(local) = self.resolve.local_of_pat(pat.id) {
-                                            self.mut_derived.insert(local);
-                                        }
-                                    }
-                                    PatKind::Tuple(elems) => pats.extend(elems),
-                                    PatKind::Wild => {}
+                            let mut locals = Vec::new();
+                            l.pat.walk_idents(&mut |pat| {
+                                if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                                    locals.push(local);
                                 }
-                            }
+                            });
+                            self.mut_derived.extend(locals);
                         }
                     }
                 }
@@ -260,6 +261,12 @@ impl FnCx<'_, '_> {
     fn collect_address_taken(&mut self, e: &Expr) {
         let borrowed = match &e.kind {
             ExprKind::Ref { expr, .. } => Some(expr),
+            // A `ref`/`ref mut` binding borrows the scrutinee (seed 1000244 swapped an
+            // assignment to `d` past a use of `prev` from `while let ref mut prev @ .. = d`).
+            ExprKind::Match { scrutinee, arms } if arms.iter().any(|a| has_ref_binding(&a.pat)) => {
+                Some(scrutinee)
+            }
+            ExprKind::Let(pat, scrutinee) if has_ref_binding(pat) => Some(scrutinee),
             // An autoref'd receiver is borrowed.
             ExprKind::MethodCall { receiver, .. }
                 if self.types.method_calls[&e.id].autoref.is_some() =>
@@ -371,17 +378,22 @@ impl FnCx<'_, '_> {
         let mut s = Summary::default();
         match &stmt.kind {
             StmtKind::Let(l) => {
-                let mut pats = vec![&l.pat];
-                while let Some(pat) = pats.pop() {
-                    match &pat.kind {
-                        PatKind::Ident { .. } => {
-                            if let Some(local) = self.resolve.local_of_pat(pat.id) {
-                                self.local(local, Mode::Write, &mut s);
-                            }
-                        }
-                        PatKind::Tuple(elems) => pats.extend(elems),
-                        PatKind::Wild => {}
+                if l.els.is_some()
+                    || !matches!(
+                        l.pat.kind,
+                        PatKind::Ident { .. } | PatKind::Tuple(_) | PatKind::Wild
+                    )
+                {
+                    s.control = true;
+                }
+                let mut locals = Vec::new();
+                l.pat.walk_idents(&mut |pat| {
+                    if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                        locals.push(local);
                     }
+                });
+                for local in locals {
+                    self.local(local, Mode::Write, &mut s);
                 }
                 if let Some(init) = &l.init {
                     s.effect |= self.needs_drop(init);
@@ -537,6 +549,8 @@ impl FnCx<'_, '_> {
             | ExprKind::Break(_)
             | ExprKind::Continue
             | ExprKind::Return(_)
+            | ExprKind::Match { .. }
+            | ExprKind::Let(..)
             | ExprKind::Index(..) => s.control = true,
         }
     }
@@ -549,6 +563,15 @@ impl FnCx<'_, '_> {
             self.expr(tail, Mode::Read, s);
         }
     }
+}
+
+/// Whether a pattern has a `ref` or `ref mut` binding.
+fn has_ref_binding(pat: &sabiko_ast::Pat) -> bool {
+    let mut found = false;
+    pat.walk_idents(&mut |p| {
+        found |= matches!(p.kind, PatKind::Ident { by_ref: true, .. });
+    });
+    found
 }
 
 /// Operators that can panic at run time (overflow, division by zero, over-wide shifts).
@@ -622,6 +645,16 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
                 f(Child::Expr(&field.value));
             }
         }
+        ExprKind::Match { scrutinee, arms } => {
+            f(Child::Expr(scrutinee));
+            for arm in arms {
+                if let Some(g) = &arm.guard {
+                    f(Child::Expr(g));
+                }
+                f(Child::Expr(&arm.body));
+            }
+        }
+        ExprKind::Let(_, scrutinee) => f(Child::Expr(scrutinee)),
     }
 }
 
@@ -716,6 +749,16 @@ mod tests {
         // into a value with drop glue as well, so it stays before `let w`; `let z` / `let
         // mut n` swap (one effect, disjoint locals).
         assert_eq!(pairs(src), vec![16]);
+    }
+
+    #[test]
+    fn ref_bindings_take_the_address_of_the_scrutinee() {
+        // `prev` borrows `d` mutably (seed 1000244): `d = 3i32;` must not move before the
+        // last use of `prev`, although the two statements name different locals.
+        let src = "fn Main() {\n    let mut d = 1i32;\n    let mut k = 0i32;\n    while let ref mut prev @ 1i32 = d {\n        k += 1i32;\n        *prev += 0i32;\n        d = 3i32;\n    }\n}\n";
+        // `let mut d` / `let mut k` swap; `k += 1` / `*prev += 0` are two effects, and
+        // `*prev += 0` / `d = 3` write the same memory.
+        assert_eq!(pairs(src), vec![1]);
     }
 
     #[test]

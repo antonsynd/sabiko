@@ -1,0 +1,7 @@
+// Indexing through a `&[Token; 2]` auto-dereferences; moving the element out is E0508
+// (not E0507: the array is the place moved out of).
+struct Token { Id: i32 }
+
+fn Second(r: &[Token; 2]) -> Token {
+    r[1]
+}

@@ -1,0 +1,9 @@
+// A reference to an element of a block-local array used after the block: E0597.
+fn Main() {
+    let r;
+    {
+        let a = [1, 2, 3];
+        r = &a[1];
+    }
+    PrintLine(*r);
+}

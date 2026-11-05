@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_mir::{
-    Body, Constant, LocalKind, Operand, Place, Rvalue, Statement, StatementKind, TerminatorKind,
+    AggregateKind, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue, Statement,
+    StatementKind, TerminatorKind,
 };
 use sabiko_span::FileId;
 use sabiko_types::{ConstValue, Ty};
@@ -224,11 +225,141 @@ fn validator_rejects_misused_two_phase_borrow() {
         "{errors:#?}"
     );
 
+    // `_u = copy _t;` after the borrow: a second use, as an operand.
+    let mut read_twice = bodies.clone();
+    let reader = read_twice[f].locals.len() - 1;
+    read_twice[f].blocks[bb].statements.insert(
+        index + 1,
+        Statement {
+            kind: StatementKind::Assign(
+                Place::local(sabiko_mir::Local(u32::try_from(reader).unwrap())),
+                Rvalue::Use(Operand::Copy(Place::local(temp))),
+            ),
+            span,
+        },
+    );
+    let errors = sabiko_mir::validate::validate_all(&read_twice, &typeck);
+    assert!(
+        errors.iter().any(|e| e.contains("used 2 times")),
+        "{errors:#?}"
+    );
+
     let mut into_user = bodies.clone();
     into_user[f].locals[temp.index()].kind = LocalKind::User;
     let errors = sabiko_mir::validate::validate_all(&into_user, &typeck);
     assert!(
         errors.iter().any(|e| e.contains("not a temporary")),
         "{errors:#?}"
+    );
+}
+
+/// Enum places and variant aggregates must be well-formed: a field of an enum only after a
+/// downcast, a downcast only of an enum and to one of its variants, and a variant
+/// aggregate with one operand of the right type per field of an existing variant.
+#[test]
+fn validator_rejects_malformed_enum_mir() {
+    let src = "enum E { A, B(i32) }\n\
+        fn F(e: E) -> i32 { match e { E::B(n) => n, E::A => 0 } }\n\
+        fn G(n: i32) -> E { E::B(n) }";
+    let (bodies, typeck) = lower(src).expect("valid program");
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let rejects = |bodies: &[Body], message: &str| {
+        let errors = sabiko_mir::validate::validate_all(bodies, &typeck);
+        assert!(
+            errors.iter().any(|e| e.contains(message)),
+            "expected {message:?}: {errors:#?}"
+        );
+    };
+
+    // The binding `n = copy (_1 as B).0` in `F`.
+    let f = bodies.iter().position(|b| b.name == "F").expect("F");
+    let (bb, index) = bodies[f]
+        .blocks
+        .iter()
+        .enumerate()
+        .find_map(|(bb, data)| {
+            data.statements
+                .iter()
+                .position(|s| {
+                    matches!(&s.kind, StatementKind::Assign(_, Rvalue::Use(Operand::Copy(p)))
+                        if p.projection.len() == 2)
+                })
+                .map(|i| (bb, i))
+        })
+        .expect("the binding reads a field of a variant");
+    let with_source = |edit: &dyn Fn(&mut Place)| {
+        let mut bodies = bodies.clone();
+        let StatementKind::Assign(_, Rvalue::Use(Operand::Copy(p))) =
+            &mut bodies[f].blocks[bb].statements[index].kind
+        else {
+            unreachable!("found above")
+        };
+        edit(p);
+        bodies
+    };
+    rejects(
+        &with_source(&|p| p.projection[0] = PlaceElem::Downcast(7)),
+        "downcast to variant 7 of `E`, which has 2",
+    );
+    rejects(
+        &with_source(&|p| {
+            p.projection.remove(0);
+        }),
+        "field of an enum without a downcast to a variant",
+    );
+    let mut not_enum = bodies.clone();
+    not_enum[f].locals[1].ty = Ty::I32;
+    rejects(&not_enum, "downcast of non-enum type");
+
+    // The aggregate `E::B(n)` in `G`.
+    let g = bodies.iter().position(|b| b.name == "G").expect("G");
+    let (bb, index) = bodies[g]
+        .blocks
+        .iter()
+        .enumerate()
+        .find_map(|(bb, data)| {
+            data.statements
+                .iter()
+                .position(|s| {
+                    matches!(
+                        &s.kind,
+                        StatementKind::Assign(_, Rvalue::Aggregate(AggregateKind::Variant(..), _))
+                    )
+                })
+                .map(|i| (bb, i))
+        })
+        .expect("`E::B(n)` is a variant aggregate");
+    let with_aggregate = |edit: &dyn Fn(&mut AggregateKind, &mut Vec<Operand>)| {
+        let mut bodies = bodies.clone();
+        let StatementKind::Assign(_, Rvalue::Aggregate(kind, ops)) =
+            &mut bodies[g].blocks[bb].statements[index].kind
+        else {
+            unreachable!("found above")
+        };
+        edit(kind, ops);
+        bodies
+    };
+    let constant = |ty: Ty, value: ConstValue| {
+        Operand::Constant(Constant {
+            ty,
+            value,
+            span: sabiko_span::Span::dummy(),
+        })
+    };
+    rejects(
+        &with_aggregate(&|_, ops| ops.push(constant(Ty::I32, ConstValue::Int(1)))),
+        "aggregate of `E::B` has 2 operands for 1 fields",
+    );
+    rejects(
+        &with_aggregate(&|_, ops| ops[0] = constant(Ty::BOOL, ConstValue::Bool(true))),
+        "aggregate field of type",
+    );
+    rejects(
+        &with_aggregate(&|kind, _| {
+            if let AggregateKind::Variant(_, v) = kind {
+                *v = 9;
+            }
+        }),
+        "aggregate of variant 9 of `E`",
     );
 }

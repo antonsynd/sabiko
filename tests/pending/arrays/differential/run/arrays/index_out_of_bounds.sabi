@@ -1,0 +1,15 @@
+// Reading past the end panics with rustc's message, "index out of bounds: the len is 3 but
+// the index is 3", located at the start of the indexing expression; the output before it
+// is kept. The index comes from a parameter (a constant index is rejected at compile time,
+// ui/unconditional_panic.sabi).
+fn Get(a: [i32; 3], i: usize) -> i32 {
+    a[i]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    PrintLine(Get(a, 0));
+    PrintLine(Get(a, 2));
+    PrintLine(Get(a, 3));
+    PrintLine("not reached");
+}

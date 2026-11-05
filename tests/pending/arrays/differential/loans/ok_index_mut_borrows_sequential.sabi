@@ -1,0 +1,19 @@
+// Two `&mut` borrows of elements one after the other: the first is dead before the second
+// is taken, so the same indices as err_index_mut_borrows_conflict are accepted. (Using
+// `a.len()` on the right of `*second += ..` would not be: the right operand is evaluated
+// while `second` is live.)
+fn Bump(n: &mut i32) {
+    *n += 1;
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    let n = a.len() as i32;
+    let first = &mut a[0];
+    *first += 10;
+    let second = &mut a[1];
+    *second += n;
+    Bump(&mut a[2]);
+    Bump(&mut a[2]);
+    PrintLine(a[0] + a[1] + a[2]);
+}

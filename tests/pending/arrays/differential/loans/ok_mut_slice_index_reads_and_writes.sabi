@@ -1,0 +1,21 @@
+// Through a `&mut [i32]` the elements can be read and written in one expression
+// (`s[s.len() - 1] += s[0]`: built-in indexing, no `IndexMut` call), reborrowed for a
+// call, and the slice reborrowed as `&[i32]`; the array is usable once the slice is dead.
+fn Bump(n: &mut i32) {
+    *n += 1;
+}
+
+fn Total(s: &[i32]) -> i32 {
+    s[0] + s[1] + s[2]
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    let s: &mut [i32] = &mut a;
+    s[s.len() - 1] += s[0];
+    s[0] = s[1] * s[2];
+    Bump(&mut s[1]);
+    let t: &[i32] = s;
+    PrintLine(Total(t));
+    PrintLine(a[0] + a[1] + a[2]);
+}

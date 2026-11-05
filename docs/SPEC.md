@@ -34,9 +34,28 @@ names which phase owns which section.
   nested expression (parentheses, a block's statement, a call argument, an `else if`), a
   prefix operator, each binary operator or cast of a chain, each postfix call, index or
   field access, or a `&` in a type; `&&` counts twice
-- Patterns. Implemented (Phase 5, #6): `x`, `mut x`, `_` and tuple patterns `(p, ..)`
-  (`(p,)` for one element, `()`), nested, in `let` and in parameters; `(p)` is `p`. Literal,
-  `ref`, `&`, struct and enum patterns are E0107 until `match` arrives
+- Enums (Phase 5, #8): `enum E { A, B(T, U), C { F: T }, D = 3 }`, non-generic (generic
+  parameters are E0107 until Phase 6), with `#[derive(Copy, Clone)]` and `impl` blocks
+  (also `impl Drop for E`) as for structs. Variants are named `E::V` or `Self::V`: a unit
+  variant is a value, a tuple variant a constructor `E::V(a, b)`, a struct variant a
+  literal `E::V { F: a }`. A struct-like variant's fields take doc comments but not `pub`
+  (E0100, rustc's E0449)
+- Patterns (#6, #8): `_`; bindings `x`, `mut x`, `ref x`, `ref mut x`, each optionally
+  `@ subpattern`; literals (integer, possibly negated, float, `bool`, `char`) and ranges
+  `a..=b`, `a..b` whose bounds are literals or constants (a local is E0315, rustc's
+  E0080); paths `E::V`; tuple patterns
+  `(p, ..)`, tuple-variant patterns `E::V(p, ..)` and struct patterns `S { F: p, G, ref H,
+  .. }` (struct or struct variant), with at most one `..` among the elements; or-patterns
+  `p | q` (a leading `|` is allowed in a `match` arm and an `if let`); `(p)` is `p`. A lone
+  identifier that names a constant or a unit struct compares instead of binding, as in
+  rustc. A top-level or-pattern in a `let` or a parameter needs parentheses (E0100, as in
+  rustc). Not yet supported (E0107): reference patterns `&p`, half-open ranges `a..` and
+  `..=b`, string literal patterns (with `&str`, #10), slice patterns
+- `match e { p if guard => body, .. }`; the scrutinee may not be a bare struct literal
+  (E0108). A block-like arm body needs no comma. `if let p = e { .. } else { .. }`, `while
+  let p = e { .. }` and `let p = e else { .. };`; let chains (`if let p = e && c`) are
+  edition 2024 and rejected (E0100), and the initialiser of a `let`-`else` may not end with
+  `}` or be a lazy boolean (E0100)
 - Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays,
   slices, named types, generics
 - Tuple expressions `(a,)`, `(a, b)`; `(e)` is a parenthesised expression. Element access
@@ -57,7 +76,7 @@ field and a method may share a name (`c.Count` and `c.Count()`). Inside an `impl
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System
 - Structs and layout
-- Enums and layout
+- Enums and layout: see §10 (Enums) and §11.2
 - References and the `ref struct` rule
 - `unmanaged` and `Copy`
 - Traits and interfaces, generics and constraints
@@ -126,7 +145,10 @@ dropped as rustc drops them (edition 2021):
   an `if` or `while` condition's temporaries (and those of a `&&`/`||` operand) are
   dropped before the branch or body runs; `let r = &temp;` and `let t = (&temp, ..);`
   extend the temporary to the end of the block (`r = &temp;` does not: E0413, rustc's
-  E0716); a block's tail expression's temporaries are dropped after the block's locals
+  E0716), and so does a `let` (or `let`-`else`) whose pattern has a `ref`/`ref mut`
+  binding, for its initialiser's value (`let S { ref mut a, .. } = Make();`, rustc's
+  extending patterns); a failing `let`-`else` drops its initialiser's temporaries before
+  the `else` block runs; a block's tail expression's temporaries are dropped after the block's locals
   (a function body's after its locals and before its parameters); the operand of
   `return` is not a tail, its temporaries go first.
 - `let _ = <value>;` drops the value at once, `let _x = ..;` at the end of the block, and
@@ -167,6 +189,23 @@ output is the same.
 
 Implemented by `sabiko_codegen` (textual IL assembled by `ilasm`; decision 3).
 
+Enums (decision 57). An enum is a top-level `public sequential ansi sealed` value type like
+a struct: a field `Tag` (`Tag_` if a variant is called `Tag`) holding the variant's
+discriminant, `int32` unless a discriminant needs `int64`, then one public field per
+variant that has fields, named after the variant, of a nested `sequential` value type
+`<Variant>Payload` (decision 59) holding the variant's fields (a struct variant's by name, a tuple variant's
+as `Item1`, `Item2`, ...). Payloads do not overlap yet (decision 15). An enum without
+variants still has its `Tag`. C# reads `Shape::Rect { W, H }` as `s.Tag == 2` and
+`s.Rect.W`. A variant value is built in place like a struct literal: `initobj`, the tag,
+then each payload field through `ldflda` of the payload; a downcast place `(e as V).F` is
+`ldflda E::V` then the field; `discriminant(e)` loads the tag and widens it to `native
+int`; a fieldless enum cast with `as` loads the tag of the value and converts it like an
+integer of the tag's type. A `switchInt` on a discriminant compares with each target in
+turn. Drop glue of an enum with drop glue calls its own `drop` (if any), then one helper
+per variant with droppable fields, which returns at once unless the enum holds its
+variant and otherwise drops the variant's fields in order, each step protected like a
+struct's. Fake borrows (match guards) emit nothing and their temporaries have no local.
+
 Methods (decision 53). Every function of a struct's `impl` blocks, method or not, is a
 `public static` method of the struct's own value type, its receiver the first parameter:
 `&self` is `[in] valuetype P&` with `IsReadOnlyAttribute`, `&mut self` a `valuetype P&`,
@@ -190,10 +229,18 @@ Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u
 usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value types
 `System.Int128`/`System.UInt128` (decision 42); `f32`/`f64` are `float32`/`float64`;
 `bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
-`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
-`modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
-value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
-`&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. A tuple
+`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures an `&T`
+parameter is `[in]` and an `&T` return carries
+`modreq(System.Runtime.InteropServices.InAttribute)`, and the parameter (or the return
+value) has the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly
+T`, as C# itself emits them for a non-virtual method (decision 59);
+`&mut T` is a plain `ref T`. An enum (decisions 15 and 57, names by decision 59) is a
+`sequential` value type with a `Tag` field (`int32`, or `int64` when a discriminant needs
+it; `Tag_` when a variant is called `Tag`) holding the discriminant, then one field per
+variant with fields, named after the variant, of a nested value type `<Variant>Payload`
+(`_` appended while that names another member) holding a struct variant's fields by name
+and a tuple variant's as `Item1`, `Item2`, ...; C# reads `Shape::Rect { W, H }` as
+`s.Tag` and `s.Rect.W` (`tests/interop/enum_layout`). `&str` is `System.ReadOnlySpan<char>` by value. A tuple
 (decision 52) is a `System.ValueTuple` instantiation, as in C#: arities 1 to 7 hold their
 elements in `Item1`..`Item7`, a longer tuple is the eight-parameter `ValueTuple` whose
 `Rest` holds the tuple of the remaining elements (`t.7` is `t.Rest.Item1`); a tuple with a
@@ -346,8 +393,8 @@ verify every assembly they run; a verification error is a compiler bug.
 ## 11. Static semantics (Phase 2 subset)
 
 What the compiler enforces today for the Phase 1 language subset (`fn`, `struct`, `const`,
-no generics, enums or arrays; tuples since #6, inherent `impl` blocks and methods since
-#7). This section is folded into §3, §4 and §6
+no generics or arrays; tuples since #6, inherent `impl` blocks and methods since #7,
+enums, `match` and patterns since #8). This section is folded into §3, §4 and §6
 as they fill in. Error codes are in `crates/sabiko_diagnostics`; each rule has a UI test
 under `tests/ui/resolve` or `tests/ui/typeck`.
 
@@ -384,6 +431,17 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   members are not associated functions: `T::drop` and `t.drop()` find an inherent `drop`
   first and the destructor otherwise (then E0323). An item of the file named `Drop`
   shadows the trait: `impl Drop for T` is then E0203 (rustc's E0404).
+- Enums (#8) are items like structs (`impl` blocks, `impl Drop`). Their variants are not in
+  the item namespace: `E::V` and `Self::V` name them, before an associated function of the
+  same name; a variant name is unique within its enum (E0200, rustc's E0428), and so is a
+  struct variant's field (E0204, E0124). An enum or a variant used as a value without a
+  path to a variant is E0203; `V(..)` with a lone name is E0202 with a note naming `E::V`;
+  an unknown `E::X` is E0212 (rustc's E0599).
+- Patterns bind per pattern: `match` arms, `if let` and `while let` bind for their arm,
+  `then` block or body; `let`-`else` binds in the enclosing block after the statement (the
+  `else` block does not see the bindings). Every alternative of an or-pattern binds the
+  same names to the same locals (E0218, rustc's E0408) with the same binding mode (`ref`,
+  `mut`: E0219, rustc's E0409).
 
 ### 11.2 Types and inference
 
@@ -410,7 +468,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - An unsuffixed integer literal has type `{integer}`, unifies with any integer type and
   defaults to `i32`; a float literal is `{float}` and defaults to `f64`. A literal that
   does not fit the type it ends up with is an error (E0314), including after negation
-  (`-129` as `i8`) and when the type comes from a cast (`300 as u8`).
+  (`-129` as `i8`) and when the type comes from a cast (`300 as u8`). Of two nested
+  negations only the outer counts, as in rustc: the literal of `-(-128i8)` is `128i8`.
 - A `let` whose type nothing constrains is an error (E0313). Deferred initialisation
   (`let x; x = 1;`) is allowed; the type comes from the assignment.
 - Tuples. `(a, b)` has type `(A, B)`. Against an expected tuple type of the same arity
@@ -435,6 +494,52 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   outside makes every inner binding `&`): Rust 2021's default binding modes. A `mut x`
   binding there binds by value again, as in Rust 2021 (a copy, or a move, which E0407
   rejects out of a reference).
+- Enums (#8). `E::V` is a value of type `E` for a unit variant; `E::V(a, b)` constructs a
+  tuple variant (E0304 for the wrong count, rustc's E0061; `E::Unit()` is E0305, E0618);
+  `E::V { F: a }` a struct variant, with a struct literal's checks. A tuple variant's
+  constructor is not a value yet (E0317); a struct variant without braces is E0326. An
+  explicit discriminant `V = e` is an `isize` constant; the others count up from the
+  previous one (0 first). Duplicates, an implicit discriminant past `isize::MAX` and an
+  explicit discriminant on an enum with a field (which needs `#[repr]`) are E0333 (rustc's
+  E0081, E0370, E0732). A fieldless enum casts with `as` to any integer type, giving its
+  discriminant, wrapped like an integer cast; nothing else casts from or to an enum
+  (E0308). `#[derive(Copy)]` needs `Copy` payloads (E0417); an enum without the derive is
+  moved, even a fieldless one. An enum that contains itself by value is E0206. An enum
+  without variants is uninhabited: `match n {}` on it has type `!`.
+- Pattern typing (#8). A pattern that is not a binding (a literal, range, path, tuple,
+  tuple-variant or struct pattern) matched against a reference looks through it, and every
+  binding inside binds by reference (`&` or `&mut` like the reference, `&` once any `&`
+  was crossed): Rust 2021's default binding modes. `ref x` and `ref mut x` always bind a
+  reference; `mut x` under a by-reference default binds by value again. A literal has the
+  matched type (E0314 when it does not fit, E0300 for another type); a range needs an
+  integer or `char` type, a lower bound not above the upper one (E0332, rustc's E0030),
+  and for `a..b` a non-empty range (E0332, E0579). A variant pattern must be of the
+  scrutinee's enum (E0300) and of the right kind (E0326: `V(x)` for a unit or struct
+  variant, `V` for a tuple variant, rustc's E0532/E0164); a tuple-variant pattern has as
+  many elements as the variant, `..` standing for any number (E0327, E0023); a struct
+  pattern names existing fields (E0301, E0026) and all of them unless it ends with `..`
+  (E0302, E0027). The bindings of an or-pattern have one type (E0300). A binding named like
+  a unit variant of the enum it matches is E0325 (rustc's deny-by-default E0170).
+- `match` (#8). The arms' bodies are checked against the expected type, or against the
+  first one that does not diverge (E0300 "`match` arms have incompatible types"); a guard
+  is `bool`. The match diverges when its scrutinee does or every arm does; without arms
+  it is `!`. `if let` and `while let` type like `if` and `while`; a `let`-`else` block must
+  diverge (E0300).
+- Exhaustiveness and reachability (#8, decision 58), as rustc's usefulness algorithm
+  decides them: a `match` must cover every value of its scrutinee (E0328, rustc's E0004,
+  listing up to three missing patterns as rustc does: "`A`, `B` and `C(_)` not covered",
+  "`i32::MIN..=-1_i32` and `3_i32..=i32::MAX` not covered", "type `i32` is non-empty" for
+  a `match` without arms); guarded arms count for nothing; integers are covered by ranges
+  that together span the type; `char` ranges cover Unicode scalar values (rustc's
+  `0..=0xD7FF` and `0xE000..=0x10FFFF`), so covering only the Basic Multilingual Plane
+  leaves `'𐀀'..='\u{10ffff}'` uncovered although a Sabiko `char` cannot hold those values
+  (decision 31): Sabiko must not accept invalid Rust; floats are never covered by literals.
+  A scrutinee reached through a dereference (`match *r`, or `match r.F` for a reference
+  `r`, whose field access dereferences it) is not assumed valid, so its
+  uninhabited variants must be matched, as in rustc. A `let` or parameter pattern must be
+  irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
+  single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
+  pattern always matches (E0331).
 - Coercions: `!` to any type, and `&mut T` to `&T`. Nothing else: no `&T` to `&mut T`, no
   numeric widening, no autoref outside method receivers.
 - Method calls `e.Name(args)` (#7, decision 53). The receiver is checked first. Only
@@ -644,9 +749,33 @@ Signatures and lifetimes (E0414–E0416):
   `*x` for `x: &mut &i32, y: &i32` is E0415 ("lifetime may not live long enough" in Rust).
   References in struct fields stay rejected until Phase 9.
 
+Patterns and `match` (#8, decision 57). A `match` evaluates its scrutinee once, into a
+temporary unless it is a place, and reads only what its arms test: a variant pattern of
+an enum with more than one variant reads the discriminant, a literal or range reads the
+value; a lone `_` arm, a binding or a single-variant enum's pattern reads nothing. So
+matching a partially moved enum is E0406 (rustc's E0382), matching a mutably borrowed one
+E0411 (E0503), an uninitialised one E0405 (E0381), while `match c { _ => .. }` touches
+nothing. A by-value binding copies or moves its part of the scrutinee (`Slot::Full(t)`
+moves `t` out of `s`, leaving `s` partially moved; out of a reference it is E0407, out of
+a value whose type implements `Drop` E0418); `ref`/`ref mut` bindings borrow it, and the
+loan lives as long as the binding is used. Arms are tried in order; a guard runs only when
+its pattern matched, once per matching alternative of an or-pattern, and a false guard
+tries the next candidate. While a guard runs, the scrutinee is fake-borrowed: assigning
+it or borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
+leaves its memory as it was; decision 60), although an arm after a failed guard that
+tests the moved scrutinee again is E0406, which rustc, testing once before any guard,
+accepts (a known gap, `tests/pending/enums/known_gap/`); the arm's bindings denote shared
+references to their parts, so a guard cannot move out of them, cannot assign a
+binding (`mut n`) or write through one (`ref mut n`), both E0403 (rustc's E0594), and an
+assignment to the scrutinee also conflicts with a binding's borrow (E0410, E0506). Once
+the guard holds, the by-value bindings move or copy, so an arm that is not taken moves
+nothing. Variants of one enum are disjoint places, as are their fields. A partially moved
+enum is dropped field by field, each behind a drop flag set from the discriminant when the
+enum is written, so only the variant it holds is dropped.
+
 The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
 ↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597 (E0716 for a temporary); E0414 ↔ E0515;
 E0415 ↔ the uncoded "lifetime may not live long enough"; E0416 ↔ E0106; E0417 ↔ E0204;
-E0418 ↔ E0509.
+E0418 ↔ E0509; E0419 ↔ E0510.
 The differential harness compares verdicts (accept vs borrow error), not codes. The
 mutability family maps as E0400 ↔ E0384, E0401/E0403 ↔ E0594, E0402/E0404 ↔ E0596.

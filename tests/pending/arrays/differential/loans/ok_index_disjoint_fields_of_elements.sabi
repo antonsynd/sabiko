@@ -1,0 +1,18 @@
+// Two index projections with unknown indices may name the same element, but different
+// fields below them never overlap: `&mut a[i].X` and `&mut a[j].Y` are accepted whatever
+// `i` and `j` are (rustc compares the projections after the indices).
+struct P { X: i32, Y: i32 }
+
+fn Mix(i: usize, j: usize) -> i32 {
+    let mut a = [P { X: 1, Y: 2 }, P { X: 3, Y: 4 }];
+    let x = &mut a[i].X;
+    let y = &mut a[j].Y;
+    *x += *y;
+    *y += 1;
+    a[i].X + a[j].Y
+}
+
+fn Main() {
+    PrintLine(Mix(0, 0));
+    PrintLine(Mix(0, 1));
+}

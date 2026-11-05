@@ -1,0 +1,17 @@
+// Copy elements are copied out of an index (integers, a Copy struct, a tuple of Copy
+// values); the array keeps them, and a Copy field of a non-Copy element can be read.
+#[derive(Copy, Clone)]
+struct P { X: i32 }
+
+struct Token { Id: i32 }
+
+fn Main() {
+    let mut a = [P { X: 1 }, P { X: 2 }];
+    let p = a[0];
+    a[0].X = 5;
+    let t = [(1, true), (2, false)];
+    let pair = t[1];
+    let tokens = [Token { Id: 7 }];
+    let id = tokens[0].Id;
+    PrintLine(p.X + a[0].X + pair.0 + id);
+}

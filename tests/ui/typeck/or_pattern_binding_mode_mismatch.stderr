@@ -1,0 +1,18 @@
+[E0219] Error: variable `x` is bound inconsistently across `|` patterns
+   ╭─[ tests/ui/typeck/or_pattern_binding_mode_mismatch.sabi:7:41 ]
+   │
+ 7 │         Pair::Left(ref x) | Pair::Right(x) => 1, //~ ERROR E0219 variable `x` is bound inconsistently across `|` patterns
+   │                        ┬                ┬  
+   │                        │                ╰── bound in different ways
+   │                        │                   
+   │                        ╰─────────────────── first binding
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/or_pattern_binding_mode_mismatch.sabi:7:41 ]
+   │
+ 7 │         Pair::Left(ref x) | Pair::Right(x) => 1, //~ ERROR E0219 variable `x` is bound inconsistently across `|` patterns
+   │                                         ┬  
+   │                                         ╰── expected `&i32`, found `i32`
+   │ 
+   │ Note: a binding must have the same type in every alternative of an or-pattern
+───╯

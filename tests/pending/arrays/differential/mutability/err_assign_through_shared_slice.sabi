@@ -1,0 +1,6 @@
+// Nothing is writable through `&[i32]`: E0594 ("cannot assign to `s[_]`, which is behind a
+// `&` reference"), for plain and compound assignment.
+fn Clear(s: &[i32]) {
+    s[0] = 0;
+    s[1] += 1;
+}

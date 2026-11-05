@@ -1,0 +1,9 @@
+[E0417] Error: the trait `Copy` cannot be implemented for type `Slot`
+   ╭─[ tests/ui/borrowck/derive_copy_enum_with_non_copy_payload.sabi:7:25 ]
+   │
+ 7 │ enum Slot { Empty, Full(Token) } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `Slot`
+   │      ──┬─               ──┬──  
+   │        │                  ╰──── this field does not implement `Copy`: `Token`
+   │        │                       
+   │        ╰─────────────────────── `Copy` derived here
+───╯

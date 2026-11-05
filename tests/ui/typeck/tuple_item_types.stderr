@@ -5,7 +5,7 @@
    │        ┬  
    │        ╰── recursive type has infinite size
    │ 
-   │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+   │ Note: a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7
 ───╯
 [E0107] Error: not yet supported: references in struct fields
    ╭─[ tests/ui/typeck/tuple_item_types.sabi:7:15 ]

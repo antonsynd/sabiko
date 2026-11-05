@@ -1,0 +1,13 @@
+// An inner index out of bounds in `m[i][j]`: the message gives the inner array's length,
+// and the location is the start of the whole expression `m[i][j]`.
+fn At(m: &[[i32; 2]; 3], i: usize, j: usize) -> i32 {
+    let v = m[i][j];
+    v
+}
+
+fn Main() {
+    let m = [[1, 2], [3, 4], [5, 6]];
+    PrintLine(At(&m, 2, 1));
+    PrintLine(At(&m, 1, 2));
+    PrintLine("not reached");
+}

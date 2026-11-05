@@ -1,6 +1,6 @@
-//! The type universe of the generated subset: the primitive types, user structs, tuples
-//! of value types, and references to any of them (never to references; tuples never hold
-//! references).
+//! The type universe of the generated subset: the primitive types, user structs and enums,
+//! tuples of value types, and references to any of them (never to references; tuples,
+//! struct fields and enum payloads never hold references).
 
 /// The twelve integer types of the shared subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -151,13 +151,14 @@ impl Prim {
     }
 }
 
-/// A type a value can have: a primitive, a struct (by index into the program's structs) or
-/// a tuple (by index into the program's tuple types).
+/// A type a value can have: a primitive, a struct (by index into the program's structs), a
+/// tuple (by index into the program's tuple types) or an enum (by index into its enums).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValTy {
     Prim(Prim),
     Struct(usize),
     Tuple(usize),
+    Enum(usize),
 }
 
 /// A type a local or parameter can have. References point at values only (`&&T` is not

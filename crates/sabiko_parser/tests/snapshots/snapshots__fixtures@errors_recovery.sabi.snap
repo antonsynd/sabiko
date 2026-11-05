@@ -9,7 +9,13 @@ SourceFile
   Fn Third
     Block
       Expr
-        Block
+        If
+          Binary ==
+            Path x
+            Struct Point
+              FieldInit X
+                Lit 1
+          Block
       Semi
         Call
           Path PrintLine
@@ -17,6 +23,9 @@ SourceFile
             Lit "ok"
   Fn Fourth
     Block
+  Enum Later
+    Variant A
+    Variant B
   Fn Fifth
     Block
 --- diagnostics ---
@@ -91,15 +100,6 @@ SourceFile
  22 │ fn Fourth() { let s = "bad \q escape"; let c = 'ab'; let big = 340282366920938463463374607431768211456; }
     │                                                                ───────────────────┬───────────────────  
     │                                                                                   ╰───────────────────── does not fit in 128 bits
-────╯
-[E0107] Error: not yet supported: `enum` items
-    ╭─[ errors_recovery.sabi:24:1 ]
-    │
- 24 │ enum Later { A, B }
-    │ ──┬─  
-    │   ╰─── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
 ────╯
 [E0110] Error: `self` parameter is only allowed in associated functions
     ╭─[ errors_recovery.sabi:26:10 ]

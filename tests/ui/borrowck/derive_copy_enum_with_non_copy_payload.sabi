@@ -1,0 +1,7 @@
+// Sabiko codes for rustc's: E0417 for E0204.
+// `#[derive(Copy, Clone)]` on an enum needs every payload to be Copy and Clone: E0204 for
+// Copy and E0277 for Clone, at the payload (like a struct's field, Sabiko's E0417 today).
+struct Token { Id: i32 }
+
+#[derive(Copy, Clone)]
+enum Slot { Empty, Full(Token) } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `Slot`

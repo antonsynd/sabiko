@@ -1,0 +1,12 @@
+// The reference `Largest` returns borrows the whole array passed in: assigning any element
+// while it is live is E0506.
+fn Largest(s: &[i32]) -> &i32 {
+    if s[0] > s[1] { &s[0] } else { &s[1] }
+}
+
+fn Main() {
+    let mut a = [4, 9, 2];
+    let m = Largest(&a);
+    a[2] = 0;
+    PrintLine(*m);
+}

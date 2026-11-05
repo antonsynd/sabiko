@@ -1,0 +1,17 @@
+// The length is part of an array's type: an array of another length is E0308 ("expected
+// an array with a size of 3, found one with a size of 2") at a return value, an annotated
+// `let`, a call argument and an assignment. Nothing converts between lengths.
+fn Sum(a: [i32; 3]) -> i32 {
+    a[0] + a[1] + a[2]
+}
+
+fn Pair() -> [i32; 2] {
+    [1, 2, 3] //~ rustc E0308: mismatched types [expected an array with a size of 2, found one with a size of 3]
+}
+
+fn Main() {
+    let a: [i32; 3] = [1, 2]; //~ rustc E0308: mismatched types [expected an array with a size of 3, found one with a size of 2]
+    let b = Sum([4, 5, 6, 7]); //~ rustc E0308: mismatched types [expected an array with a size of 3, found one with a size of 4]
+    let mut c = [0; 2];
+    c = [1, 2, 3]; //~ rustc E0308: mismatched types [expected an array with a size of 2, found one with a size of 3]
+}

@@ -1,0 +1,18 @@
+[E0419] Error: cannot assign `c` in match guard
+    ╭─[ tests/ui/borrowck/guard_assigns_scrutinee.sabi:12:29 ]
+    │
+ 12 │         Cell::Value(_) if { c = Cell::Empty; false } => 1, //~ ERROR E0419 cannot assign `c` in match guard
+    │                           ─────────┬───┬────────────  
+    │                                    ╰────────────────── cannot assign
+    │                                        │              
+    │                                        ╰────────────── value is immutable in match guard: `c`
+────╯
+[E0419] Error: cannot mutably borrow `c` in match guard
+    ╭─[ tests/ui/borrowck/guard_assigns_scrutinee.sabi:13:35 ]
+    │
+ 13 │         Cell::Value(_) if { Clear(&mut c); false } => 2, //~ ERROR E0419 cannot mutably borrow `c` in match guard
+    │                           ───────────┬┬───────────  
+    │                                      ╰────────────── cannot mutably borrow
+    │                                       │             
+    │                                       ╰───────────── value is immutable in match guard: `c`
+────╯

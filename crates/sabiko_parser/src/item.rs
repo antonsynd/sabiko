@@ -1,10 +1,12 @@
 //! Items, attributes, types, patterns, blocks and statements.
 
 use sabiko_ast::{
-    Attribute, Block, ConstDecl, FieldDef, FnDecl, Ident, ImplDecl, Item, ItemKind, LetStmt, Param,
-    Pat, PatKind, Path, SelfKind, SelfParam, SourceFile, Stmt, StmtKind, StructDecl, StructKind,
-    Type, TypeKind, Visibility,
+    Attribute, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDef, FieldPat, FnDecl, Ident,
+    ImplDecl, Item, ItemKind, LetStmt, Param, Pat, PatKind, Path, RangeEnd, SelfKind, SelfParam,
+    SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type, TypeKind, UnOp, Variant, VariantData,
+    Visibility,
 };
+use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::TokenKind;
 use sabiko_span::Span;
 
@@ -93,9 +95,7 @@ impl Parser<'_, '_> {
             }
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()?),
             TokenKind::Const => ItemKind::Const(self.parse_const()?),
-            TokenKind::Enum => {
-                return Err(self.unsupported_item("`enum` items", "planned for Phase 5"))
-            }
+            TokenKind::Enum => ItemKind::Enum(self.parse_enum()?),
             TokenKind::Impl => ItemKind::Impl(self.parse_impl()?),
             TokenKind::Trait => {
                 return Err(self.unsupported_item("`trait` items", "planned for Phase 6"))
@@ -119,7 +119,7 @@ impl Parser<'_, '_> {
                 let d = sabiko_diagnostics::Diagnostic::error(
                     sabiko_diagnostics::ErrorCode::EXPECTED_ITEM,
                     format!(
-                        "expected an item (`fn`, `struct`, `const` or `impl`), found {}",
+                        "expected an item (`fn`, `struct`, `enum`, `const` or `impl`), found {}",
                         self.describe_current_pub()
                     ),
                 )
@@ -454,7 +454,7 @@ impl Parser<'_, '_> {
             return Err(self.emit(d));
         }
         let id = self.new_id();
-        let pat = self.parse_pat()?;
+        let pat = self.parse_pat_no_top_or("function parameters")?;
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type()?;
         Ok(Param {
@@ -485,7 +485,7 @@ impl Parser<'_, '_> {
                 self.bump();
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RBrace) && !self.at_eof() {
-                    fields.push(self.parse_field_def()?);
+                    fields.push(self.parse_field_def(false)?);
                     if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }
@@ -498,17 +498,29 @@ impl Parser<'_, '_> {
         Ok(StructDecl { name, kind })
     }
 
-    fn parse_field_def(&mut self) -> PResult<FieldDef> {
+    /// A field of a struct, or of a struct-like enum variant (`in_variant`), whose fields
+    /// share the enum's visibility and so cannot be `pub` (rustc's E0449; reported, then
+    /// parsing goes on with the field private).
+    fn parse_field_def(&mut self, in_variant: bool) -> PResult<FieldDef> {
         let start = self.peek().span;
         let mut docs = Vec::new();
         while self.at(TokenKind::DocComment) {
             let t = self.bump();
             docs.push(self.text(t)[3..].to_owned());
         }
-        let vis = if self.eat(TokenKind::Pub).is_some() {
-            Visibility::Public
-        } else {
-            Visibility::Private
+        let vis = match self.eat(TokenKind::Pub) {
+            Some(tok) if in_variant => {
+                let d = Diagnostic::error(
+                    ErrorCode::UNEXPECTED_TOKEN,
+                    "visibility qualifiers are not permitted here",
+                )
+                .with_label(tok.span, "remove the qualifier")
+                .with_note("enum variants and their fields always share the visibility of the enum they are in");
+                self.emit(d);
+                Visibility::Private
+            }
+            Some(_) => Visibility::Public,
+            None => Visibility::Private,
         };
         let id = self.new_id();
         let name = self.parse_ident()?;
@@ -520,6 +532,83 @@ impl Parser<'_, '_> {
             vis,
             name,
             ty,
+            span: self.span_from(start),
+        })
+    }
+
+    /// `enum Name { A, B(T, U), C { X: T }, D = 3 }`.
+    fn parse_enum(&mut self) -> PResult<EnumDecl> {
+        self.expect(TokenKind::Enum)?;
+        let name = self.parse_ident()?;
+        if self.at(TokenKind::Lt) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported(
+                "generic parameters",
+                span,
+                "generic enums are planned for Phase 6",
+            ));
+        }
+        self.expect(TokenKind::LBrace)?;
+        let mut variants = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at_eof() {
+            variants.push(self.parse_variant()?);
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(EnumDecl { name, variants })
+    }
+
+    fn parse_variant(&mut self) -> PResult<Variant> {
+        let start = self.peek().span;
+        let mut docs = Vec::new();
+        let mut attrs = Vec::new();
+        loop {
+            match self.peek_kind() {
+                TokenKind::DocComment => {
+                    let t = self.bump();
+                    docs.push(self.text(t)[3..].to_owned());
+                }
+                TokenKind::Hash => attrs.push(self.parse_attribute()?),
+                _ => break,
+            }
+        }
+        let id = self.new_id();
+        let name = self.parse_ident()?;
+        let data = match self.peek_kind() {
+            TokenKind::LParen => {
+                self.bump();
+                let (tys, _) =
+                    self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_type))?;
+                VariantData::Tuple(tys)
+            }
+            TokenKind::LBrace => {
+                self.bump();
+                let mut fields = Vec::new();
+                while !self.at(TokenKind::RBrace) && !self.at_eof() {
+                    fields.push(self.parse_field_def(true)?);
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RBrace)?;
+                VariantData::Named(fields)
+            }
+            _ => VariantData::Unit,
+        };
+        let discriminant = if self.eat(TokenKind::Eq).is_some() {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+        Ok(Variant {
+            id,
+            attrs,
+            docs,
+            name,
+            data,
+            discriminant,
             span: self.span_from(start),
         })
     }
@@ -701,7 +790,52 @@ impl Parser<'_, '_> {
 
     // ---- patterns --------------------------------------------------------------------------
 
+    /// A pattern of a `let` or a parameter (`what`): a top-level or-pattern needs
+    /// parentheses there, as in rustc.
+    pub(crate) fn parse_pat_no_top_or(&mut self, what: &str) -> PResult<Pat> {
+        let pat = self.parse_pat()?;
+        if self.at(TokenKind::Pipe) {
+            let span = pat.span.to(self.peek().span);
+            let d = Diagnostic::error(
+                ErrorCode::UNEXPECTED_TOKEN,
+                format!("{what} require top-level or-patterns in parentheses"),
+            )
+            .with_label(span, "add parentheses around the or-pattern");
+            return Err(self.emit(d));
+        }
+        Ok(pat)
+    }
+
+    /// A pattern that may be an or-pattern `p | q`: a `match` arm, `if let`, `while let`,
+    /// or inside parentheses and other delimiters. A leading `|` is allowed.
+    pub(crate) fn parse_pat_or(&mut self) -> PResult<Pat> {
+        self.nested(|p| {
+            let start = p.peek().span;
+            let id = p.new_id();
+            p.eat(TokenKind::Pipe);
+            let first = p.parse_pat()?;
+            if !p.at(TokenKind::Pipe) {
+                return Ok(first);
+            }
+            let mut alts = vec![first];
+            while p.eat(TokenKind::Pipe).is_some() {
+                alts.push(p.parse_pat()?);
+            }
+            Ok(Pat {
+                id,
+                kind: PatKind::Or(alts),
+                span: p.span_from(start),
+            })
+        })
+    }
+
+    /// One alternative of a pattern: everything but a top-level `|`.
     pub(crate) fn parse_pat(&mut self) -> PResult<Pat> {
+        self.nested(Self::parse_pat_inner)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn parse_pat_inner(&mut self) -> PResult<Pat> {
         let start = self.peek().span;
         let id = self.new_id();
         let kind = match self.peek_kind() {
@@ -709,63 +843,109 @@ impl Parser<'_, '_> {
                 self.bump();
                 PatKind::Wild
             }
-            TokenKind::Mut => {
+            TokenKind::DotDot => {
                 self.bump();
-                let name = self.parse_ident()?;
-                PatKind::Ident {
-                    mutable: true,
-                    name,
-                }
-            }
-            TokenKind::Ident => {
-                if matches!(
-                    self.nth_kind(1),
-                    TokenKind::LBrace | TokenKind::LParen | TokenKind::PathSep
-                ) {
-                    let span = start;
+                if self.at_range_bound() {
                     return Err(self.error_unsupported(
-                        "destructuring patterns",
-                        span,
-                        "planned for Phase 5",
+                        "half-open range patterns",
+                        start,
+                        "not planned yet",
                     ));
                 }
-                let name = self.parse_ident()?;
-                PatKind::Ident {
-                    mutable: false,
-                    name,
-                }
+                PatKind::Rest
+            }
+            TokenKind::DotDotEq => {
+                return Err(self.error_unsupported(
+                    "half-open range patterns",
+                    start,
+                    "not planned yet",
+                ));
             }
             TokenKind::Ref => {
-                return Err(self.error_unsupported("`ref` bindings", start, "planned for Phase 5"))
+                self.bump();
+                let mutable = self.eat(TokenKind::Mut).is_some();
+                self.parse_binding(true, mutable)?
             }
-            TokenKind::Amp => {
+            TokenKind::Mut => {
+                self.bump();
+                if self.at(TokenKind::Ref) {
+                    let d = Diagnostic::error(
+                        ErrorCode::UNEXPECTED_TOKEN,
+                        "the order of `mut` and `ref` is incorrect",
+                    )
+                    .with_label(
+                        start.to(self.peek().span),
+                        "try switching the order: `ref mut`",
+                    );
+                    return Err(self.emit(d));
+                }
+                self.parse_binding(false, true)?
+            }
+            TokenKind::Ident | TokenKind::SelfType | TokenKind::SelfValue => {
+                let path = self.parse_path()?;
+                match self.peek_kind() {
+                    TokenKind::LParen => {
+                        self.bump();
+                        let (elems, _) = self.nested(|p| {
+                            p.parse_comma_list(TokenKind::RParen, Self::parse_pat_or)
+                        })?;
+                        PatKind::TupleStruct(path, elems)
+                    }
+                    TokenKind::LBrace => self.parse_struct_pat(path)?,
+                    TokenKind::DotDot | TokenKind::DotDotEq => {
+                        let lo = self.path_expr(path);
+                        self.parse_range_pat(lo, start)?
+                    }
+                    _ if path.is_single() && path.segments[0].name != "Self" => {
+                        let name = path.segments.into_iter().next().expect("one segment");
+                        if name.name == "self" {
+                            let d = Diagnostic::error(
+                                ErrorCode::EXPECTED_PATTERN,
+                                "expected a pattern, found `self`",
+                            )
+                            .with_label(name.span, "`self` is not a binding name");
+                            return Err(self.emit(d));
+                        }
+                        self.binding_rest(false, false, name)?
+                    }
+                    _ => PatKind::Path(path),
+                }
+            }
+            TokenKind::Amp | TokenKind::AndAnd => {
                 return Err(self.error_unsupported(
                     "reference patterns",
                     start,
-                    "planned for Phase 5",
+                    "not planned yet: a pattern matched against a reference looks through it",
                 ))
             }
             TokenKind::LParen => {
                 self.bump();
                 let (mut elems, trailing_comma) =
-                    self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_pat))?;
-                if elems.len() == 1 && !trailing_comma {
+                    self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_pat_or))?;
+                if elems.len() == 1 && !trailing_comma && !matches!(elems[0].kind, PatKind::Rest) {
                     // `(p)` is `p`.
-                    return Ok(elems.pop().expect("one element"));
+                    let mut inner = elems.pop().expect("one element");
+                    if let PatKind::Or(_) = inner.kind {
+                        // Keep the parentheses' span: `let (A | B) = ..` is accepted.
+                        inner.span = self.span_from(start);
+                    }
+                    return Ok(inner);
                 }
                 PatKind::Tuple(elems)
             }
             TokenKind::Int
+            | TokenKind::Float
             | TokenKind::Str
             | TokenKind::Char
             | TokenKind::True
             | TokenKind::False
             | TokenKind::Minus => {
-                return Err(self.error_unsupported(
-                    "literal patterns",
-                    start,
-                    "planned for Phase 5",
-                ));
+                let lit = self.parse_lit_pat_expr()?;
+                if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
+                    self.parse_range_pat(lit, start)?
+                } else {
+                    PatKind::Lit(Box::new(lit))
+                }
             }
             k if k.is_keyword() => {
                 // "expected identifier, found keyword `fn`"
@@ -773,11 +953,11 @@ impl Parser<'_, '_> {
                 unreachable!("parse_ident fails on keywords")
             }
             _ => {
-                let d = sabiko_diagnostics::Diagnostic::error(
-                    sabiko_diagnostics::ErrorCode::EXPECTED_PATTERN,
+                let d = Diagnostic::error(
+                    ErrorCode::EXPECTED_PATTERN,
                     format!("expected a pattern, found {}", self.describe_current_pub()),
                 )
-                .with_label(start, "expected a binding name or `_` here");
+                .with_label(start, "expected a pattern here");
                 return Err(self.emit(d));
             }
         };
@@ -786,6 +966,149 @@ impl Parser<'_, '_> {
             kind,
             span: self.span_from(start),
         })
+    }
+
+    /// `name` or `name @ pat` after `ref`, `mut` or `ref mut`.
+    fn parse_binding(&mut self, by_ref: bool, mutable: bool) -> PResult<PatKind> {
+        let name = self.parse_ident()?;
+        self.binding_rest(by_ref, mutable, name)
+    }
+
+    fn binding_rest(&mut self, by_ref: bool, mutable: bool, name: Ident) -> PResult<PatKind> {
+        let sub = if self.eat(TokenKind::At).is_some() {
+            Some(Box::new(self.parse_pat()?))
+        } else {
+            None
+        };
+        Ok(PatKind::Ident {
+            by_ref,
+            mutable,
+            name,
+            sub,
+        })
+    }
+
+    fn path_expr(&mut self, path: Path) -> Expr {
+        let start = path.span;
+        Expr {
+            id: self.new_id(),
+            kind: ExprKind::Path(path),
+            span: start,
+        }
+    }
+
+    /// Whether the current token can start the upper bound of a range pattern.
+    fn at_range_bound(&self) -> bool {
+        matches!(
+            self.peek_kind(),
+            TokenKind::Int
+                | TokenKind::Float
+                | TokenKind::Char
+                | TokenKind::Minus
+                | TokenKind::Ident
+                | TokenKind::SelfType
+        )
+    }
+
+    /// A literal in a pattern, possibly negated: `5`, `-3`, `'a'`, `true`, `"s"`.
+    fn parse_lit_pat_expr(&mut self) -> PResult<Expr> {
+        let start = self.peek().span;
+        if self.eat(TokenKind::Minus).is_some() {
+            if !matches!(self.peek_kind(), TokenKind::Int | TokenKind::Float) {
+                return Err(self.error_expected("a numeric literal after `-` in a pattern"));
+            }
+            let inner = self.parse_lit_pat_expr()?;
+            return Ok(Expr {
+                id: self.new_id(),
+                kind: ExprKind::Unary(UnOp::Neg, Box::new(inner)),
+                span: self.span_from(start),
+            });
+        }
+        let lit = self.parse_lit()?;
+        Ok(Expr {
+            id: self.new_id(),
+            kind: ExprKind::Lit(lit),
+            span: self.span_from(start),
+        })
+    }
+
+    /// The rest of `lo..=hi` or `lo..hi`, at the `..=` or `..`.
+    fn parse_range_pat(&mut self, lo: Expr, start: Span) -> PResult<PatKind> {
+        let end = if self.eat(TokenKind::DotDotEq).is_some() {
+            RangeEnd::Included
+        } else {
+            self.expect(TokenKind::DotDot)?;
+            RangeEnd::Excluded
+        };
+        if !self.at_range_bound() {
+            let span = self.span_from(start);
+            return Err(self.error_unsupported(
+                "half-open range patterns",
+                span,
+                "not planned yet",
+            ));
+        }
+        let hi = if matches!(self.peek_kind(), TokenKind::Ident | TokenKind::SelfType) {
+            let path = self.parse_path()?;
+            self.path_expr(path)
+        } else {
+            self.parse_lit_pat_expr()?
+        };
+        Ok(PatKind::Range(Box::new(lo), Box::new(hi), end))
+    }
+
+    /// `Path { X, Y: p, ref Z, .. }`, at the `{`.
+    fn parse_struct_pat(&mut self, path: Path) -> PResult<PatKind> {
+        self.expect(TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        let mut rest = None;
+        while !self.at(TokenKind::RBrace) && !self.at_eof() {
+            if self.at(TokenKind::DotDot) {
+                rest = Some(self.bump().span);
+                break;
+            }
+            let fstart = self.peek().span;
+            let shorthand_mode = match self.peek_kind() {
+                TokenKind::Ref => {
+                    self.bump();
+                    Some((true, self.eat(TokenKind::Mut).is_some()))
+                }
+                TokenKind::Mut => {
+                    self.bump();
+                    Some((false, true))
+                }
+                _ => None,
+            };
+            let name = self.parse_ident()?;
+            let (pat, shorthand) = match shorthand_mode {
+                None if self.eat(TokenKind::Colon).is_some() => (self.parse_pat_or()?, false),
+                mode => {
+                    let (by_ref, mutable) = mode.unwrap_or((false, false));
+                    let pat = Pat {
+                        id: self.new_id(),
+                        kind: PatKind::Ident {
+                            by_ref,
+                            mutable,
+                            name: name.clone(),
+                            sub: None,
+                        },
+                        span: self.span_from(fstart),
+                    };
+                    (pat, true)
+                }
+            };
+            fields.push(FieldPat {
+                name,
+                pat,
+                shorthand,
+                span: self.span_from(fstart),
+            });
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(PatKind::Struct { path, fields, rest })
     }
 
     // ---- blocks and statements --------------------------------------------------------------
@@ -855,7 +1178,7 @@ impl Parser<'_, '_> {
             TokenKind::Let => {
                 let id = self.new_id();
                 self.bump();
-                let pat = self.parse_pat()?;
+                let pat = self.parse_pat_no_top_or("`let` bindings")?;
                 let ty = if self.eat(TokenKind::Colon).is_some() {
                     Some(self.parse_type()?)
                 } else {
@@ -866,21 +1189,28 @@ impl Parser<'_, '_> {
                 } else {
                     None
                 };
-                if self.at(TokenKind::Else) {
-                    let span = self.peek().span;
-                    return Err(self.error_unsupported(
-                        "`let`-`else`",
-                        span,
-                        "planned for Phase 5",
-                    ));
-                }
+                let els = match &init {
+                    Some(init) if self.at(TokenKind::Else) => {
+                        if init_ends_badly_for_let_else(init) {
+                            let d = Diagnostic::error(
+                                ErrorCode::UNEXPECTED_TOKEN,
+                                "the initialiser of a `let`-`else` cannot end with `}` or a lazy boolean operator",
+                            )
+                            .with_label(init.span, "wrap this expression in parentheses");
+                            return Err(self.emit(d));
+                        }
+                        self.bump();
+                        Some(Box::new(self.parse_block()?))
+                    }
+                    _ => None,
+                };
                 if !self.at(TokenKind::Semi) {
                     return Err(self.error_expected_after_prev("`;`"));
                 }
                 self.bump();
                 Ok(StmtOrTail::Stmt(Stmt {
                     id,
-                    kind: StmtKind::Let(LetStmt { pat, ty, init }),
+                    kind: StmtKind::Let(LetStmt { pat, ty, init, els }),
                     span: self.span_from(start),
                 }))
             }
@@ -919,6 +1249,35 @@ impl Parser<'_, '_> {
                 Err(self.error_expected_after_prev("`;`"))
             }
         }
+    }
+}
+
+/// rustc rejects `let p = { .. } else { .. };` and `let p = a && b else { .. };`: the
+/// initialiser of a `let`-`else` may not end with `}` or be a lazy boolean.
+fn init_ends_badly_for_let_else(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Binary(sabiko_ast::BinOp::And | sabiko_ast::BinOp::Or, ..) => true,
+        _ => ends_with_brace(e),
+    }
+}
+
+fn ends_with_brace(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Block(_)
+        | ExprKind::If { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Loop { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::Struct { .. } => true,
+        ExprKind::Binary(_, _, r)
+        | ExprKind::Assign(_, r)
+        | ExprKind::AssignOp(_, _, r)
+        | ExprKind::Unary(_, r)
+        | ExprKind::Ref { expr: r, .. }
+        | ExprKind::Deref(r)
+        | ExprKind::Break(Some(r))
+        | ExprKind::Return(Some(r)) => ends_with_brace(r),
+        _ => false,
     }
 }
 

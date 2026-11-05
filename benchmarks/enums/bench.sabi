@@ -1,0 +1,136 @@
+// Enums and `match` in a hot loop (#8): a small stack machine whose instructions are an
+// enum with unit, tuple and struct variants, interpreted by a `match` with guards and
+// or-patterns, and a traffic-light state machine stepped by `state = match (state, input)`.
+// The C# program is a tagged struct with a `Kind` field and `switch` statements, as a C#
+// developer would write it. Every intermediate stays far below 2^63.
+
+const Rounds: i64 = 2_000_000;
+const Modulus: i64 = 1_000_003;
+
+#[derive(Clone, Copy)]
+enum Op {
+    Push(i64),
+    Add,
+    Mul,
+    Dup,
+    Swap,
+    Mod { By: i64 },
+    JumpIfSmall { Below: i64, To: i64 },
+    Halt,
+}
+
+#[derive(Clone, Copy)]
+enum Light { Red, Green, Yellow(i64), Blinking }
+
+struct Machine { A: i64, B: i64, Depth: i64 }
+
+impl Machine {
+    fn Push(&mut self, v: i64) {
+        self.B = self.A;
+        self.A = v;
+        self.Depth += 1;
+    }
+
+    fn Pop(&mut self) -> i64 {
+        let v = self.A;
+        self.A = self.B;
+        self.Depth -= 1;
+        v
+    }
+}
+
+fn Fetch(pc: i64, seed: i64) -> Op {
+    match pc {
+        0 => Op::Push(seed),
+        1 => Op::Push(31),
+        2 => Op::Mul,
+        3 => Op::Push(7),
+        4 => Op::Add,
+        5 => Op::Mod { By: Modulus },
+        6 => Op::Dup,
+        7 => Op::Swap,
+        8 => Op::Add,
+        9 => Op::JumpIfSmall { Below: 1000, To: 1 },
+        _ => Op::Halt,
+    }
+}
+
+fn Run(seed: i64) -> i64 {
+    let mut m = Machine { A: 0, B: 0, Depth: 0 };
+    let mut pc = 0;
+    let mut steps = 0;
+    loop {
+        steps += 1;
+        match Fetch(pc, seed) {
+            Op::Push(v) => m.Push(v),
+            Op::Add => {
+                let x = m.Pop();
+                let y = m.Pop();
+                m.Push((x + y) % Modulus);
+            }
+            Op::Mul => {
+                let x = m.Pop();
+                let y = m.Pop();
+                m.Push(x * y % Modulus);
+            }
+            Op::Dup => {
+                let x = m.A;
+                m.Push(x);
+            }
+            Op::Swap => {
+                let x = m.A;
+                m.A = m.B;
+                m.B = x;
+            }
+            Op::Mod { By: by } => {
+                let x = m.Pop();
+                m.Push(x % by);
+            }
+            Op::JumpIfSmall { Below: below, To: to } if m.A < below => {
+                pc = to;
+                continue;
+            }
+            Op::JumpIfSmall { .. } => {}
+            Op::Halt => break,
+        }
+        pc += 1;
+    }
+    m.A + steps + m.Depth
+}
+
+fn Next(state: Light, input: i64) -> Light {
+    match (state, input % 4) {
+        (Light::Red, 0 | 1) => Light::Green,
+        (Light::Red, _) => Light::Red,
+        (Light::Green, 3) => Light::Blinking,
+        (Light::Green, _) => Light::Yellow(input % 5),
+        (Light::Yellow(n), _) if n > 0 => Light::Yellow(n - 1),
+        (Light::Yellow(_), _) => Light::Red,
+        (Light::Blinking, 2) => Light::Red,
+        (Light::Blinking, _) => Light::Blinking,
+    }
+}
+
+fn Score(l: Light) -> i64 {
+    match l {
+        Light::Red => 1,
+        Light::Green => 2,
+        Light::Yellow(n) => 3 + n,
+        Light::Blinking => 7,
+    }
+}
+
+fn Main() {
+    let mut total: i64 = 0;
+    let mut state = Light::Red;
+    let mut i: i64 = 0;
+    while i < Rounds {
+        if i % 64 == 0 {
+            total = (total + Run(i % 977)) % Modulus;
+        }
+        state = Next(state, i * 7 + total);
+        total = (total + Score(state)) % Modulus;
+        i += 1;
+    }
+    PrintLine(total);
+}

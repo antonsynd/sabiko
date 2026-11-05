@@ -1,0 +1,20 @@
+// With a `mut` binding: element assignment, compound assignment, a field of an element,
+// an element of a nested array and of an array field, and `&mut` of an element.
+struct P { X: i32 }
+
+struct Grid { Cells: [i32; 2] }
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    a[0] = 4;
+    a[1] += a[0];
+    let mut ps = [P { X: 1 }, P { X: 2 }];
+    ps[1].X *= 3;
+    let mut m = [[0; 3]; 2];
+    m[1][2] = 5;
+    let mut g = Grid { Cells: [0, 0] };
+    g.Cells[1] = 7;
+    let r = &mut a[2];
+    *r -= 1;
+    PrintLine(a[0] + a[1] + a[2] + ps[1].X + m[1][2] + g.Cells[1]);
+}

@@ -1,0 +1,29 @@
+// A guard that moves the scrutinee out and fails, followed by arms that test it again.
+// rustc tests the discriminant once, before any guard, so the later arms do not read the
+// moved value; Sabiko's candidates test it again (decision 57), which the move checks
+// report as a use of a moved value (E0406).
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+enum Slot { Empty, Full(D) }
+
+fn Consume(s: Slot) -> bool {
+    false
+}
+
+fn Run(s: Slot) -> i32 {
+    match s {
+        Slot::Full(_) if Consume(s) => 1,
+        Slot::Empty => 0,
+        Slot::Full(_) => 2,
+    }
+}
+
+fn Main() {
+    PrintLine(Run(Slot::Full(D { Id: 7 })));
+}

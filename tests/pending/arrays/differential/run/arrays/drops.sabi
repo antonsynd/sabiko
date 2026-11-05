@@ -1,0 +1,69 @@
+// (drops, #12) Arrays of `impl Drop` structs: the elements are dropped first to last
+// (index 0 first) at the end of the array's scope, a nested array row by row, an array
+// field in its struct's field order; assigning an element makes the new value, evaluates
+// the index, then drops the old element; an array moved into a function is dropped there,
+// one returned from a function where the caller's binding ends; `[x; 0]` drops `x` at
+// once, `[x; 1]` moves it into the array.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Holder { First: D, Items: [D; 2], Last: D }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Consume(a: [D; 2]) {
+    PrintLine("in Consume");
+}
+
+fn Build(base: i32) -> [D; 2] {
+    [Make(base), Make(base + 1)]
+}
+
+fn Main() {
+    {
+        let a = [Make(1), Make(2), Make(3)];
+        PrintLine("end of block");
+    }
+    {
+        let mut a = [Make(4), Make(5)];
+        a[Idx(1)] = Make(6);
+        PrintLine("assigned");
+    }
+    {
+        let m = [[Make(7), Make(8)], [Make(9), Make(10)]];
+        PrintLine("end of nested");
+    }
+    {
+        let h = Holder { Last: Make(14), Items: [Make(12), Make(13)], First: Make(11) };
+        PrintLine("end of holder");
+    }
+    Consume([Make(15), Make(16)]);
+    PrintLine("after Consume");
+    {
+        let b = Build(17);
+        PrintLine("built");
+    }
+    {
+        let none = [Make(19); 0];
+        PrintLine("after [x; 0]");
+        let one = [Make(20); 1];
+        PrintLine("after [x; 1]");
+    }
+    PrintLine("end of Main");
+}

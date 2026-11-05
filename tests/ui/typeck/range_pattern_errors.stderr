@@ -1,0 +1,42 @@
+[E0332] Error: lower bound for range pattern must be less than or equal to upper bound
+   ╭─[ tests/ui/typeck/range_pattern_errors.sabi:7:9 ]
+   │
+ 7 │         5..=1 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+   │         ┬  
+   │         ╰── lower bound larger than upper bound
+───╯
+[E0332] Error: lower bound for range pattern must be less than upper bound
+    ╭─[ tests/ui/typeck/range_pattern_errors.sabi:11:9 ]
+    │
+ 11 │         3..3 => 1, //~ ERROR E0332 lower bound for range pattern must be less than upper bound
+    │         ──┬─  
+    │           ╰─── this range is empty
+────╯
+[E0332] Error: lower bound for range pattern must be less than or equal to upper bound
+    ╭─[ tests/ui/typeck/range_pattern_errors.sabi:19:9 ]
+    │
+ 19 │         200..=100 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+    │         ─┬─  
+    │          ╰─── lower bound larger than upper bound
+────╯
+[E0332] Error: lower bound for range pattern must be less than or equal to upper bound
+    ╭─[ tests/ui/typeck/range_pattern_errors.sabi:25:9 ]
+    │
+ 25 │         'z'..='a' => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+    │         ─┬─  
+    │          ╰─── lower bound larger than upper bound
+────╯
+[E0332] Error: lower bound for range pattern must be less than upper bound
+    ╭─[ tests/ui/typeck/range_pattern_errors.sabi:26:9 ]
+    │
+ 26 │         'q'..'q' => 2, //~ ERROR E0332 lower bound for range pattern must be less than upper bound
+    │         ────┬───  
+    │             ╰───── this range is empty
+────╯
+[E0315] Error: runtime values cannot be referenced in patterns
+    ╭─[ tests/ui/typeck/range_pattern_errors.sabi:35:9 ]
+    │
+ 35 │         low..=5 => 1, //~ ERROR E0315 runtime values cannot be referenced in patterns
+    │         ─┬─  
+    │          ╰─── references a runtime value
+────╯

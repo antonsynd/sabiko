@@ -40,7 +40,8 @@ fn name() -> impl Strategy<Value = String> {
     ]
 }
 
-fn lit() -> impl Strategy<Value = Lit> {
+/// An integer or float literal, the literals a pattern may negate.
+fn num_lit() -> impl Strategy<Value = Lit> {
     prop_oneof![
         (
             any::<u128>(),
@@ -60,9 +61,15 @@ fn lit() -> impl Strategy<Value = Lit> {
                 text: format!("{a}.{b}"),
                 suffix
             }),
-        any::<bool>().prop_map(Lit::Bool),
-        any::<char>().prop_map(Lit::Char),
-        ".*".prop_map(Lit::Str),
+    ]
+}
+
+fn lit() -> impl Strategy<Value = Lit> {
+    prop_oneof![
+        2 => num_lit(),
+        1 => any::<bool>().prop_map(Lit::Bool),
+        1 => any::<char>().prop_map(Lit::Char),
+        1 => ".*".prop_map(Lit::Str),
     ]
 }
 
@@ -96,26 +103,129 @@ fn ty() -> impl Strategy<Value = Type> {
     })
 }
 
-fn pat() -> impl Strategy<Value = Pat> {
+/// A path of one to `max` segments: `a`, `Foo::b`.
+fn path_upto(max: usize) -> impl Strategy<Value = Path> {
+    prop::collection::vec(name(), 1..=max).prop_map(|segs| Path {
+        segments: segs.iter().map(|s| ident(s)).collect(),
+        span: SP,
+    })
+}
+
+fn neg(l: Lit) -> Expr {
+    mk(ExprKind::Unary(UnOp::Neg, Box::new(mk(ExprKind::Lit(l)))))
+}
+
+/// The expression of a literal pattern: any literal, or a negated number (`-5`).
+fn lit_pat_expr() -> impl Strategy<Value = Expr> {
     prop_oneof![
-        Just(PatKind::Wild),
-        (any::<bool>(), name()).prop_map(|(mutable, n)| PatKind::Ident {
-            mutable,
-            name: ident(&n)
-        }),
+        lit().prop_map(|l| mk(ExprKind::Lit(l))),
+        num_lit().prop_map(neg)
     ]
-    .prop_map(|kind| Pat {
+}
+
+/// A bound of a range pattern: a number (possibly negated), a character or a path.
+fn range_bound() -> impl Strategy<Value = Expr> {
+    prop_oneof![
+        num_lit().prop_map(|l| mk(ExprKind::Lit(l))),
+        num_lit().prop_map(neg),
+        any::<char>().prop_map(|c| mk(ExprKind::Lit(Lit::Char(c)))),
+        path_upto(2).prop_map(|p| mk(ExprKind::Path(p))),
+    ]
+}
+
+fn mk_pat(kind: PatKind) -> Pat {
+    Pat {
         id: ID,
         kind,
         span: SP,
-    })
-    .prop_recursive(3, 8, 3, |inner| {
-        prop::collection::vec(inner, 0..4).prop_map(|elems| Pat {
-            id: ID,
-            kind: PatKind::Tuple(elems),
+    }
+}
+
+/// Patterns of every kind. `..` (`Rest`) appears only as an element of a tuple or
+/// tuple-struct pattern, and a one-segment `Path` would read back as a binding, so path
+/// patterns have two segments. Or-patterns may appear anywhere: the printer
+/// parenthesises them where the grammar needs it (`let`, parameters, `@`).
+fn pat() -> BoxedStrategy<Pat> {
+    let leaf = prop_oneof![
+        Just(PatKind::Wild),
+        (any::<bool>(), any::<bool>(), name()).prop_map(|(by_ref, mutable, n)| PatKind::Ident {
+            by_ref,
+            mutable,
+            name: ident(&n),
+            sub: None,
+        }),
+        (name(), name()).prop_map(|(a, b)| PatKind::Path(Path {
+            segments: vec![ident(&a), ident(&b)],
             span: SP,
-        })
+        })),
+        lit_pat_expr().prop_map(|e| PatKind::Lit(Box::new(e))),
+        (
+            range_bound(),
+            range_bound(),
+            prop_oneof![Just(RangeEnd::Included), Just(RangeEnd::Excluded)]
+        )
+            .prop_map(|(lo, hi, end)| PatKind::Range(Box::new(lo), Box::new(hi), end)),
+    ]
+    .prop_map(mk_pat);
+    leaf.prop_recursive(3, 12, 3, |inner| {
+        // Elements of a tuple or tuple-struct pattern, with a `..` somewhere or not.
+        let elems = (
+            prop::collection::vec(inner.clone(), 0..3),
+            prop::option::of(0usize..3),
+        )
+            .prop_map(|(mut elems, rest)| {
+                if let Some(i) = rest {
+                    elems.insert(i.min(elems.len()), mk_pat(PatKind::Rest));
+                }
+                elems
+            });
+        let field = prop_oneof![
+            // `X`, `ref X`, `mut X`, `ref mut X`
+            (name(), any::<bool>(), any::<bool>()).prop_map(|(n, by_ref, mutable)| FieldPat {
+                name: ident(&n),
+                pat: mk_pat(PatKind::Ident {
+                    by_ref,
+                    mutable,
+                    name: ident(&n),
+                    sub: None,
+                }),
+                shorthand: true,
+                span: SP,
+            }),
+            // `X: pat`
+            (name(), inner.clone()).prop_map(|(n, pat)| FieldPat {
+                name: ident(&n),
+                pat,
+                shorthand: false,
+                span: SP,
+            }),
+        ];
+        prop_oneof![
+            elems.clone().prop_map(PatKind::Tuple),
+            (path_upto(2), elems).prop_map(|(p, elems)| PatKind::TupleStruct(p, elems)),
+            (
+                path_upto(2),
+                prop::collection::vec(field, 0..3),
+                any::<bool>()
+            )
+                .prop_map(|(path, fields, rest)| PatKind::Struct {
+                    path,
+                    fields,
+                    rest: rest.then_some(SP),
+                }),
+            prop::collection::vec(inner.clone(), 2..4).prop_map(PatKind::Or),
+            (any::<bool>(), any::<bool>(), name(), inner).prop_map(|(by_ref, mutable, n, sub)| {
+                PatKind::Ident {
+                    by_ref,
+                    mutable,
+                    name: ident(&n),
+                    sub: Some(Box::new(sub)),
+                }
+            }),
+        ]
+        .prop_map(mk_pat)
     })
+    .boxed()
 }
 
 /// A field name: an identifier, or a tuple index.
@@ -181,7 +291,29 @@ fn expr() -> impl Strategy<Value = Expr> {
     ];
     leaf.prop_recursive(4, 24, 3, |inner| {
         let block = block_with(inner.clone());
+        // The condition of an `if` or `while`: an expression, or a `let` (`if let`,
+        // `while let`), which is only allowed as the whole condition.
+        let cond = prop_oneof![
+            3 => inner.clone(),
+            1 => (pat(), inner.clone())
+                .prop_map(|(p, e)| mk(ExprKind::Let(Box::new(p), Box::new(e)))),
+        ];
+        let arm = (pat(), prop::option::of(inner.clone()), inner.clone()).prop_map(
+            |(pat, guard, body)| Arm {
+                id: ID,
+                pat,
+                guard,
+                body,
+                span: SP,
+            },
+        );
         prop_oneof![
+            (inner.clone(), prop::collection::vec(arm, 0..3)).prop_map(|(s, arms)| mk(
+                ExprKind::Match {
+                    scrutinee: Box::new(s),
+                    arms
+                }
+            )),
             (prop_oneof![Just(UnOp::Neg), Just(UnOp::Not)], inner.clone())
                 .prop_map(|(op, e)| mk(ExprKind::Unary(op, Box::new(e)))),
             (binop(), inner.clone(), inner.clone()).prop_map(|(op, l, r)| mk(ExprKind::Binary(
@@ -221,17 +353,14 @@ fn expr() -> impl Strategy<Value = Expr> {
             inner.clone().prop_map(|e| mk(ExprKind::Deref(Box::new(e)))),
             (inner.clone(), ty()).prop_map(|(e, t)| mk(ExprKind::Cast(Box::new(e), t))),
             block.clone().prop_map(|b| mk(ExprKind::Block(b))),
-            (
-                inner.clone(),
-                block.clone(),
-                prop::option::of(block.clone())
-            )
-                .prop_map(|(c, t, e)| mk(ExprKind::If {
+            (cond.clone(), block.clone(), prop::option::of(block.clone())).prop_map(
+                |(c, t, e)| mk(ExprKind::If {
                     cond: Box::new(c),
                     then: t,
                     els: e.map(|b| Box::new(mk(ExprKind::Block(b)))),
-                })),
-            (inner.clone(), block.clone()).prop_map(|(c, b)| mk(ExprKind::While {
+                })
+            ),
+            (cond, block.clone()).prop_map(|(c, b)| mk(ExprKind::While {
                 cond: Box::new(c),
                 body: b
             })),
@@ -261,9 +390,22 @@ fn block_with(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Block> {
         (
             pat(),
             prop::option::of(ty()),
-            prop::option::of(inner.clone())
+            prop::option::of(inner.clone()),
+            // The `else` block of a `let`-`else`: `{}` or `{ tail }`.
+            prop::option::of(prop::option::of(inner.clone()).prop_map(|tail| Block {
+                id: ID,
+                stmts: vec![],
+                tail: tail.map(Box::new),
+                span: SP,
+            }))
         )
-            .prop_map(|(pat, ty, init)| StmtKind::Let(LetStmt { pat, ty, init })),
+            .prop_map(|(pat, ty, init, els)| StmtKind::Let(LetStmt {
+                pat,
+                ty,
+                // `let`-`else` needs an initialiser.
+                els: els.filter(|_| init.is_some()).map(Box::new),
+                init,
+            })),
         // Block-like expressions may omit the semicolon; others may not.
         (inner.clone(), any::<bool>()).prop_map(|(expr, semi)| {
             let semi = semi || !expr.is_block_like();
@@ -325,10 +467,12 @@ fn block_with(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Block> {
         .boxed()
 }
 
-fn item() -> impl Strategy<Value = Item> {
-    let vis = prop_oneof![Just(Visibility::Private), Just(Visibility::Public)];
-    let docs = prop::collection::vec(" doc [a-z ]*", 0..2);
-    let attrs = prop::collection::vec(
+fn docs() -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec(" doc [a-z ]*", 0..2)
+}
+
+fn attrs() -> impl Strategy<Value = Vec<Attribute>> {
+    prop::collection::vec(
         prop_oneof![
             Just(String::new()),
             Just("(Copy, Clone)".to_owned()),
@@ -342,8 +486,48 @@ fn item() -> impl Strategy<Value = Item> {
             span: SP,
         }),
         0..2,
-    );
+    )
+}
+
+/// An enum variant: unit, tuple or struct-like, with attributes, doc comments and an
+/// optional discriminant. Fields of a struct-like variant may have doc comments but no
+/// visibility (rustc's E0449).
+fn variant() -> impl Strategy<Value = Variant> {
+    let field = (docs(), name(), ty()).prop_map(|(docs, n, ty)| FieldDef {
+        id: ID,
+        docs,
+        vis: Visibility::Private,
+        name: ident(&n),
+        ty,
+        span: SP,
+    });
+    let data = prop_oneof![
+        Just(VariantData::Unit),
+        prop::collection::vec(ty(), 0..3).prop_map(VariantData::Tuple),
+        prop::collection::vec(field, 0..3).prop_map(VariantData::Named),
+    ];
+    (attrs(), docs(), name(), data, prop::option::of(expr())).prop_map(
+        |(attrs, docs, n, data, discriminant)| Variant {
+            id: ID,
+            attrs,
+            docs,
+            name: ident(&n),
+            data,
+            discriminant,
+            span: SP,
+        },
+    )
+}
+
+fn item() -> impl Strategy<Value = Item> {
+    let vis = prop_oneof![Just(Visibility::Private), Just(Visibility::Public)];
     let kind = prop_oneof![
+        (name(), prop::collection::vec(variant(), 0..4)).prop_map(|(n, variants)| {
+            ItemKind::Enum(EnumDecl {
+                name: ident(&n),
+                variants,
+            })
+        }),
         fn_decl(false).prop_map(ItemKind::Fn),
         (
             any::<bool>(),
@@ -398,7 +582,7 @@ fn item() -> impl Strategy<Value = Item> {
             value
         })),
     ];
-    (attrs, docs, vis, kind).prop_map(|(attrs, docs, vis, kind)| Item {
+    (attrs(), docs(), vis, kind).prop_map(|(attrs, docs, vis, kind)| Item {
         id: ID,
         attrs,
         docs,
@@ -533,6 +717,16 @@ fn strip_parens_expr(e: &mut Expr) {
         ExprKind::Struct { fields, .. } => fields
             .iter_mut()
             .for_each(|f| strip_parens_expr(&mut f.value)),
+        ExprKind::Match { scrutinee, arms } => {
+            strip_parens_expr(scrutinee);
+            for arm in arms {
+                if let Some(g) = &mut arm.guard {
+                    strip_parens_expr(g);
+                }
+                strip_parens_expr(&mut arm.body);
+            }
+        }
+        ExprKind::Let(_, e) => strip_parens_expr(e),
     }
 }
 
@@ -542,6 +736,9 @@ fn strip_parens_block(b: &mut Block) {
             StmtKind::Let(l) => {
                 if let Some(init) = &mut l.init {
                     strip_parens_expr(init);
+                }
+                if let Some(els) = &mut l.els {
+                    strip_parens_block(els);
                 }
             }
             StmtKind::Expr { expr, .. } => strip_parens_expr(expr),
@@ -564,6 +761,11 @@ fn strip_parens_item(item: &mut Item) {
         ItemKind::Fn(func) => strip_parens_block(&mut func.body),
         ItemKind::Const(c) => strip_parens_expr(&mut c.value),
         ItemKind::Impl(imp) => imp.items.iter_mut().for_each(strip_parens_item),
+        ItemKind::Enum(e) => e
+            .variants
+            .iter_mut()
+            .filter_map(|v| v.discriminant.as_mut())
+            .for_each(strip_parens_expr),
         ItemKind::Struct(_) => {}
     }
 }
@@ -583,6 +785,60 @@ proptest! {
         // Fixpoint: printing the parsed tree reproduces the text.
         prop_assert_eq!(pretty(&parsed), src);
     }
+}
+
+/// Parses `src` (which must have no errors), prints it, and checks that the printed text
+/// parses back to the same tree and is a fixpoint. Returns the printed text.
+fn assert_roundtrips(src: &str) -> String {
+    let mut sink = DiagnosticSink::new();
+    let mut file = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+    assert!(!sink.has_errors(), "{src}: {:#?}", sink.diagnostics());
+    strip_parens_file(&mut file);
+    let printed = pretty(&file);
+    let mut sink = DiagnosticSink::new();
+    let mut parsed = sabiko_parser::parse_file(FileId(0), &printed, &mut sink);
+    assert!(
+        !sink.has_errors(),
+        "diagnostics on printed source:\n{printed}\n{:#?}",
+        sink.diagnostics()
+    );
+    strip_parens_file(&mut parsed);
+    assert_eq!(dump(&parsed), dump(&file), "printed:\n{printed}");
+    assert_eq!(pretty(&parsed), printed, "printer is not a fixpoint");
+    printed
+}
+
+/// Regressions found when the generator learned enums, patterns, `match`, `if let`,
+/// `while let` and `let`-`else` (#8):
+/// - the printer dropped the doc comments of a struct-like variant's fields;
+/// - `break`/`return` without an operand before the `=>` of a match guard took `=>` for
+///   the start of their operand (rustc accepts `_ if break => ..`);
+/// - an arm body that starts with a block-like expression but is not one
+///   (`if c {} else {}[i]`) was printed bare, and a block-like expression ends an arm as it
+///   ends a statement, so the rest no longer parsed (rustc reads it the same way).
+#[test]
+fn match_and_enum_syntax_roundtrips() {
+    let printed = assert_roundtrips("enum E { A { /// width\n W: i32, H: i32 } = 1, B }");
+    assert_eq!(
+        printed,
+        "enum E {\n    A {\n        /// width\n        W: i32,\n        H: i32,\n    } = 1,\n    B,\n}\n"
+    );
+    assert_roundtrips("fn F() { loop { match 0 { _ if break => 1, _ if return => 2, _ => 3 }; } }");
+    let printed =
+        assert_roundtrips("fn F(b: bool) -> i32 { match 0 { _ => (if b { a } else { c }[0]), } }");
+    assert!(printed.contains("_ => (if b {"), "{printed}");
+    let printed = assert_roundtrips("fn F() { match 0 { _ => ({ 1 } + 2), } }");
+    assert!(printed.contains("_ => ({"), "{printed}");
+    // Every pattern kind, in every position a pattern can take.
+    assert_roundtrips(
+        "fn F((A | B): T, E::V(ref mut x @ (1 | 2), ..): T) {
+            let S { X, ref Y, mut Z, W: (_, ..), .. } = s else { return };
+            let (-5..=-1 | 'a'..'z' | E::A..=E::B) = n;
+            if let E::V { X: 1.5, Y: \"s\" } | E::U = e {}
+            while let (a, .., z) = t {}
+            match m { x if x > 0 => {} -1 | 0 => (), E::W() | E::Z {} => return, }
+        }",
+    );
 }
 
 /// Regression: `x as i32 < y` is rejected by the parser (the `<` reads as the start of

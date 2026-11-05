@@ -46,6 +46,7 @@ pub fn place_mutability(place: &Place, body: &Body) -> PlaceMutability {
                 other => ty = other,
             },
             PlaceElem::Field(_, field_ty) => ty = field_ty.clone(),
+            PlaceElem::Downcast(_) => {}
         }
     }
     if mutable {

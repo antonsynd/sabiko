@@ -179,6 +179,7 @@ impl RegionTy {
                     None => return Self::Other,
                 },
                 (PlaceElem::Field(..), _) => return Self::Other,
+                (PlaceElem::Downcast(_), _) => {}
             }
         }
         cur.clone()

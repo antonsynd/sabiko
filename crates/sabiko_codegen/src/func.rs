@@ -394,7 +394,16 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             let StatementKind::Assign(place, rvalue) = &stmt.kind else {
                 continue;
             };
-            if place.is_local() && !matches!(rvalue, Rvalue::Aggregate(AggregateKind::Adt(_), _)) {
+            if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _) = rvalue {
+                // Emits nothing.
+                continue;
+            }
+            if place.is_local()
+                && !matches!(
+                    rvalue,
+                    Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), _)
+                )
+            {
                 defs[place.local.index()] += 1;
             } else {
                 other[place.local.index()] += 1;
@@ -412,7 +421,7 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
                         operand(op, &mut uses, &mut other);
                     }
                 }
-                Rvalue::Ref(_, p) => other[p.local.index()] += 1,
+                Rvalue::Ref(_, p) | Rvalue::Discriminant(p) => other[p.local.index()] += 1,
             }
         }
         match &data.terminator().kind {
@@ -468,9 +477,38 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
+        // A guard's fake borrow of the scrutinee emits nothing (it only exists for the
+        // borrow checker), so its temporary needs no slot. Nor does a temporary that nothing
+        // writes: a `&&T` one (no CIL type yet) is left over when simplification removes an
+        // unreachable guarded arm with its fake borrow, or from a `&&T` call result nobody
+        // stores.
+        let mut written = vec![false; body.locals.len()];
+        let mut fake = vec![false; body.locals.len()];
+        for data in &body.blocks {
+            for stmt in &data.statements {
+                if let StatementKind::Assign(place, rvalue) = &stmt.kind {
+                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _)) {
+                        fake[place.local.index()] |= place.is_local();
+                    } else {
+                        written[place.local.index()] = true;
+                    }
+                }
+            }
+            if let Some(term) = &data.terminator {
+                if let TerminatorKind::Call { destination, .. } = &term.kind {
+                    written[destination.local.index()] = true;
+                }
+            }
+        }
         for (i, decl) in body.locals.iter().enumerate() {
+            let unwritten_ref_ref = decl.kind == LocalKind::Temp
+                && !written[i]
+                && matches!(&decl.ty, Ty::Ref(_, inner) if matches!(**inner, Ty::Ref(..)));
             // `()`, `!` and `&!` (decisions 32 and 44) have no values to store.
-            let elided = decl.ty.is_unit() || decl.ty.is_uninhabited();
+            let elided = decl.ty.is_unit()
+                || decl.ty.is_uninhabited()
+                || (fake[i] && !written[i])
+                || unwritten_ref_ref;
             let slot = match decl.kind {
                 // A `()` parameter is a `Sabiko.Runtime.Unit` (decision 52); nothing reads it.
                 LocalKind::Arg => {
@@ -968,6 +1006,14 @@ impl FnCx<'_, '_> {
             self.aggregate(place, *def, operands, span);
             return;
         }
+        if let Rvalue::Aggregate(AggregateKind::Variant(def, variant), operands) = rvalue {
+            self.variant_aggregate(place, *def, *variant, operands, span);
+            return;
+        }
+        if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _) = rvalue {
+            // A fake borrow only exists for the borrow checker.
+            return;
+        }
         self.store(place, span, |this| this.rvalue(rvalue, &ty, span));
     }
 
@@ -1192,6 +1238,15 @@ impl FnCx<'_, '_> {
     /// field reference for the final `ldfld`/`ldflda`/`stfld`.
     fn field_base(&mut self, parent: &Place, index: usize, field_ty: &Ty, span: Span) -> String {
         let base_ty = parent.ty(self.body);
+        if let (Some(PlaceElem::Downcast(variant)), Ty::Adt(def)) =
+            (parent.projection.last(), &base_ty)
+        {
+            // `(e as V).f`: the payload's address, then its field.
+            self.addr(parent, span);
+            return self
+                .cx
+                .variant_field_ref(*def, *variant, index, field_ty, span);
+        }
         self.addr(parent, span);
         let (rest, field) = self.cx.field_path(&base_ty, index, field_ty, span);
         for hop in rest {
@@ -1228,6 +1283,11 @@ impl FnCx<'_, '_> {
                 let parent = Self::parent(place);
                 self.load(&parent, span);
                 self.load_indirect(&ty, span);
+            }
+            Some(PlaceElem::Downcast(_)) => {
+                // MIR building never reads a variant as a whole.
+                self.cx.unsupported("a read of a whole enum variant", span);
+                self.ldc_i4(0);
             }
         }
     }
@@ -1277,6 +1337,16 @@ impl FnCx<'_, '_> {
                 let parent = Self::parent(place);
                 self.load(&parent, span);
             }
+            Some(PlaceElem::Downcast(variant)) => {
+                // The address of the variant's payload inside the enum.
+                let parent = Self::parent(place);
+                let Ty::Adt(def) = parent.ty(self.body) else {
+                    unreachable!("a downcast applies to an enum")
+                };
+                self.addr(&parent, span);
+                let payload = self.cx.payload_field_ref(def, *variant);
+                self.op(format!("ldflda {payload}"), 1, 1);
+            }
         }
     }
 
@@ -1305,6 +1375,9 @@ impl FnCx<'_, '_> {
                 self.load(&parent, span);
                 push(self);
                 self.store_indirect(&ty, span);
+            }
+            Some(PlaceElem::Downcast(_)) => {
+                self.cx.unsupported("a write of a whole enum variant", span);
             }
         }
     }
@@ -1462,12 +1535,30 @@ impl FnCx<'_, '_> {
             Rvalue::Cast(operand, to) => {
                 let from = operand.ty(self.body);
                 self.operand(operand, span);
-                self.cast(&from, to, span);
+                if let Ty::Adt(def) = from {
+                    // A fieldless enum casts to its discriminant: the tag of the value.
+                    let tag = self.cx.tag_field_ref(def);
+                    self.op(format!("ldfld {tag}"), 1, 1);
+                    let tag_ty = Ty::Prim(self.cx.tag_type(def));
+                    self.cast(&tag_ty, to, span);
+                } else {
+                    self.cast(&from, to, span);
+                }
+            }
+            Rvalue::Discriminant(place) => {
+                let Ty::Adt(def) = place.ty(self.body) else {
+                    unreachable!("a discriminant of an enum")
+                };
+                self.addr(place, span);
+                let tag = self.cx.tag_field_ref(def);
+                self.op(format!("ldfld {tag}"), 1, 1);
+                let tag_ty = Ty::Prim(self.cx.tag_type(def));
+                self.cast(&tag_ty, &Ty::Prim(PrimTy::Isize), span);
             }
             Rvalue::Aggregate(AggregateKind::Tuple, operands) => {
                 self.tuple(result_ty, operands, span);
             }
-            Rvalue::Aggregate(AggregateKind::Adt(_), _) => {
+            Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), _) => {
                 // Handled by `assign`; an aggregate elsewhere would need staging.
                 self.cx
                     .unsupported("a struct literal in this position", span);
@@ -1499,6 +1590,58 @@ impl FnCx<'_, '_> {
             self.ldloca(target);
             self.operand(operand, span);
             let field_ref = self.field_ref(&ty, index, &field.ty, span);
+            self.op(format!("stfld {field_ref}"), 2, 0);
+        }
+        if in_place.is_none() {
+            self.store(place, span, |this| this.ldloc(target));
+        }
+    }
+
+    /// A variant of an enum, built like a struct: the whole value zeroed, the tag set to
+    /// the discriminant, then each field of the payload.
+    fn variant_aggregate(
+        &mut self,
+        place: &Place,
+        def: DefId,
+        variant: usize,
+        operands: &[Operand],
+        span: Span,
+    ) {
+        let adt = self.cx.typeck.items.adt(def).clone();
+        let ty = Ty::Adt(def);
+        let reads_dest = operands
+            .iter()
+            .any(|o| o.place().is_some_and(|p| p.local == place.local));
+        let in_place = match (place.is_local(), self.slots[place.local.index()]) {
+            (true, Slot::Local(i)) if !reads_dest => Some(i),
+            _ => None,
+        };
+        let target = in_place.unwrap_or_else(|| self.scratch(&ty, span));
+        self.ldloca(target);
+        self.op(
+            format!("initobj valuetype {}", types::quote(&adt.name)),
+            1,
+            0,
+        );
+        let tag_ty = self.cx.tag_type(def);
+        self.ldloca(target);
+        #[allow(clippy::cast_sign_loss)]
+        let discr = adt.variant(variant).discr as u128;
+        self.int_const(discr, tag_ty);
+        let tag = self.cx.tag_field_ref(def);
+        self.op(format!("stfld {tag}"), 2, 0);
+        let payload = self.cx.payload_field_ref(def, variant);
+        for (index, operand) in operands.iter().enumerate() {
+            let field_ty = adt.variant(variant).fields[index].ty.clone();
+            if field_ty.is_unit() || field_ty.is_never() {
+                continue;
+            }
+            self.ldloca(target);
+            self.op(format!("ldflda {payload}"), 1, 1);
+            self.operand(operand, span);
+            let field_ref = self
+                .cx
+                .variant_field_ref(def, variant, index, &field_ty, span);
             self.op(format!("stfld {field_ref}"), 2, 0);
         }
         if in_place.is_none() {

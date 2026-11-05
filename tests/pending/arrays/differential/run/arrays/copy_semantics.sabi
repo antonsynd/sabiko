@@ -1,0 +1,42 @@
+// Arrays of Copy elements are values: `let b = a` copies, a by-value parameter is a copy
+// the callee may change, a returned array is a new value, an array inside a Copy struct is
+// copied with it, and copying a row out of a nested array does not alias it.
+#[derive(Copy, Clone)]
+struct Frame { Regs: [i32; 3], Pc: i32 }
+
+fn Doubled(mut a: [i32; 3]) -> [i32; 3] {
+    let mut i = 0;
+    while i < 3 {
+        a[i] *= 2;
+        i += 1;
+    }
+    a
+}
+
+fn Step(mut f: Frame) -> Frame {
+    f.Regs[0] += 1;
+    f.Pc += 4;
+    f
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let mut b = a;
+    b[0] = 50;
+    PrintLine(a[0]);
+    PrintLine(b[0]);
+    let d = Doubled(a);
+    PrintLine(a[2]);
+    PrintLine(d[2]);
+    let f = Frame { Regs: [7, 8, 9], Pc: 0 };
+    let g = Step(Step(f));
+    PrintLine(f.Regs[0]);
+    PrintLine(g.Regs[0]);
+    PrintLine(g.Pc);
+    let mut m = [[1, 2], [3, 4]];
+    let mut row = m[0];
+    row[1] = 20;
+    m[1] = row;
+    PrintLine(m[0][1]);
+    PrintLine(m[1][1]);
+}

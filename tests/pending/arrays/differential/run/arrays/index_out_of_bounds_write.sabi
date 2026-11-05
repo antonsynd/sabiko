@@ -1,0 +1,19 @@
+// An out-of-bounds element assignment: the right operand is evaluated first (its output
+// appears), then the index, then the bounds check panics before anything is written.
+fn Val(v: i32) -> i32 {
+    Print("value ");
+    PrintLine(v);
+    v
+}
+
+fn Set(a: &mut [i32; 2], i: usize) {
+    a[i] = Val(i as i32 * 10);
+}
+
+fn Main() {
+    let mut a = [0; 2];
+    Set(&mut a, 1);
+    PrintLine(a[1]);
+    Set(&mut a, 2);
+    PrintLine("not reached");
+}

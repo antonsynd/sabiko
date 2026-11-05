@@ -1,0 +1,174 @@
+== layout
+Color (sequential struct) { Tag: System.Int32 }
+Code (sequential struct) { Tag: System.Int64 }
+Token (sequential struct) { Tag_: System.Int32, Value: Token+ValuePayload }
+  Token+ValuePayload (sequential struct) { Item1: System.Int32 }
+Wrapper (sequential struct) { Tag: System.Int32, Item: Wrapper+ItemPayload_, ItemPayload: Wrapper+ItemPayloadPayload }
+  Wrapper+ItemPayload_ (sequential struct) { Item1: System.Int32 }
+  Wrapper+ItemPayloadPayload (sequential struct) { Item1: System.Boolean }
+Point (sequential struct) { X: System.Int32, Y: System.Int32 }
+Shape (sequential struct) { Tag: System.Int32, Circle: Shape+CirclePayload, Rect: Shape+RectPayload, Line: Shape+LinePayload }
+  Shape+CirclePayload (sequential struct) { Item1: System.Double }
+  Shape+RectPayload (sequential struct) { W: System.Int32, H: System.Int32 }
+  Shape+LinePayload (sequential struct) { Item1: Point, Item2: Point }
+Event (sequential struct) { Tag: System.Int32, Click: Event+ClickPayload, Key: Event+KeyPayload, Draw: Event+DrawPayload }
+  Event+ClickPayload (sequential struct) { Item1: Point }
+  Event+KeyPayload (sequential struct) { Code: Code, Shift: System.Boolean }
+  Event+DrawPayload (sequential struct) { Item1: Shape, Item2: Color }
+== fieldless enums
+Code::Low as i64: -2
+Code::Huge as i64: 5000000000
+Code::Next tag: -1
+Code::Next tag: 300
+Code::Next tag: 5000000000
+Code::Next tag: -2
+ColorOf(0) tag: 0
+ColorOf(1) tag: 1
+ColorOf(2) tag: 2
+ColorOf(3) tag: 2
+== a variant called Tag
+TokenValue(Value(4)): 4
+TokenValue(Tag): -1
+CountDown(&mut Value(4)): 10
+token tag after CountDown: 0
+== a variant named like a payload type
+Unwrap(Item(7)): 7
+Unwrap(ItemPayload(true)): 1
+== shapes
+tag 0 Area: 6.75
+tag 0 Kind: 10
+tag 0 unchanged by Scale: 0
+scaled radius: 3
+tag 1 Area: 12
+tag 1 Kind: 20
+tag 1 unchanged by Scale: 1
+scaled rect: (6, 8)
+tag 2 Area: 0
+tag 2 Kind: 30
+tag 2 unchanged by Scale: 2
+line start kept: (1, 1)
+line end x: 3
+line end y: 5
+tag 3 Area: 0
+tag 3 Kind: 40
+tag 3 unchanged by Scale: 3
+tag 1 Area: 25
+tag 1 Kind: 20
+tag 1 unchanged by Scale: 1
+scaled rect: (10, 10)
+tag 2 Area: 0
+tag 2 Kind: 30
+tag 2 unchanged by Scale: 2
+line start kept: (0, 0)
+line end x: 8
+line end y: -4
+Square(7) payload: (1, 7, 7)
+== events
+c#:     click 0 0 [1]
+sabiko: click 0 0
+  Classify: 1
+  DrawnColor: -1
+  KeyCode: 0
+  moved: click 10 20 [3]
+c#:     click -3 8 [2]
+sabiko: click -3 8
+  Classify: 2
+  DrawnColor: -1
+  KeyCode: 0
+  moved: click 7 28 [3]
+c#:     click 2 2 [3]
+sabiko: click 2 2
+  Classify: 3
+  DrawnColor: -1
+  KeyCode: 0
+  moved: click 12 22 [3]
+c#:     key 5000000000 shift true [4]
+sabiko: key 5000000000 shift true
+  Classify: 4
+  DrawnColor: -1
+  KeyCode: 5000000000
+  moved: key -2 shift true [5]
+c#:     key 5000000000 shift false [6]
+sabiko: key 5000000000 shift false
+  Classify: 6
+  DrawnColor: -1
+  KeyCode: 5000000000
+  moved: key -2 shift false [5]
+c#:     key -1 shift true [5]
+sabiko: key -1 shift true
+  Classify: 5
+  DrawnColor: -1
+  KeyCode: -1
+  moved: key 300 shift true [6]
+c#:     key 300 shift true [6]
+sabiko: key 300 shift true
+  Classify: 6
+  DrawnColor: -1
+  KeyCode: 300
+  moved: key 5000000000 shift true [4]
+c#:     draw kind 40 area 0 color 2 [7]
+sabiko: draw kind 40 area 0 color 2
+  Classify: 7
+  DrawnColor: 2
+  KeyCode: 0
+  moved: draw kind 40 area 0 color 2 [7]
+c#:     draw kind 20 area 4 color 0 [8]
+sabiko: draw kind 20 area 4 color 0
+  Classify: 8
+  DrawnColor: 0
+  KeyCode: 0
+  moved: draw kind 20 area 4 color 0 [8]
+c#:     draw kind 20 area 6 color 0 [10]
+sabiko: draw kind 20 area 6 color 0
+  Classify: 10
+  DrawnColor: 0
+  KeyCode: 0
+  moved: draw kind 20 area 6 color 0 [10]
+c#:     draw kind 10 area 0.75 color 2 [9]
+sabiko: draw kind 10 area 0.75 color 2
+  Classify: 9
+  DrawnColor: 2
+  KeyCode: 0
+  moved: draw kind 10 area 0.75 color 2 [9]
+c#:     draw kind 10 area 12 color 1 [10]
+sabiko: draw kind 10 area 12 color 1
+  Classify: 10
+  DrawnColor: 1
+  KeyCode: 0
+  moved: draw kind 10 area 12 color 1 [10]
+c#:     quit [0]
+sabiko: quit
+  Classify: 0
+  DrawnColor: -1
+  KeyCode: 0
+  moved: click 10 20 [3]
+c#:     key -2 shift false [5]
+sabiko: key -2 shift false
+  Classify: 5
+  DrawnColor: -1
+  KeyCode: -2
+  moved: key -1 shift false [5]
+c#:     draw kind 20 area 9 color 0 [8]
+sabiko: draw kind 20 area 9 color 0
+  Classify: 8
+  DrawnColor: 0
+  KeyCode: 0
+  moved: draw kind 20 area 9 color 0 [8]
+c#:     click 0 0 [1]
+sabiko: click 0 0
+  Classify: 1
+  DrawnColor: -1
+  KeyCode: 0
+  moved: click 10 20 [3]
+== reading what Sabiko built
+MakeKey payload: (1, 300, True)
+Quit moved becomes Click: (0, -1, -2)
+moved line: (2, 2, 3, 4, 5)
+== a struct by value, in and ref
+Dot: -7
+Mirror: (-5, 4)
+== a tag no variant has
+default(Code) as i64: 0
+Code::Next(default) panics: internal error: entered unreachable code
+Area(tag 9) panics: internal error: entered unreachable code
+all checks passed

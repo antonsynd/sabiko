@@ -6,6 +6,9 @@ input_file: crates/sabiko_parser/tests/fixtures/errors_unsupported.sabi
 SourceFile
   Fn F
     Block
+      Expr
+        Match
+          Path x
       Let
         TuplePat
           Pat a
@@ -17,6 +20,20 @@ SourceFile
         Init
           Field 0
             Path x
+      Expr
+        If
+          Let
+            TupleStructPat Some
+              Pat x
+            Path y
+          Block
+      Expr
+        While
+          Let
+            TupleStructPat Some
+              Pat x
+            Path y
+          Block
   Fn I
     Param
       Pat x
@@ -39,15 +56,6 @@ SourceFile
             Field 0
               Path t
 --- diagnostics ---
-[E0107] Error: not yet supported: `match` expressions
-   ╭─[ errors_unsupported.sabi:2:5 ]
-   │
- 2 │     match x { }
-   │     ──┬──  
-   │       ╰──── not supported in this version of Sabiko
-   │ 
-   │ Note: planned for Phase 5; see docs/PLAN.md
-───╯
 [E0107] Error: not yet supported: `for` loops
    ╭─[ errors_unsupported.sabi:3:5 ]
    │
@@ -99,24 +107,6 @@ SourceFile
  10 │     'outer: loop { break 'outer; }
     │     ───┬──  
     │        ╰──── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
-────╯
-[E0107] Error: not yet supported: `if let`
-    ╭─[ errors_unsupported.sabi:11:8 ]
-    │
- 11 │     if let Some(x) = y { }
-    │        ─┬─  
-    │         ╰─── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
-────╯
-[E0107] Error: not yet supported: `while let`
-    ╭─[ errors_unsupported.sabi:12:11 ]
-    │
- 12 │     while let Some(x) = y { }
-    │           ─┬─  
-    │            ╰─── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 5; see docs/PLAN.md
 ────╯

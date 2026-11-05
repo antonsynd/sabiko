@@ -1,0 +1,41 @@
+// Arrays of tuples and tuples of arrays: `a[i].0`, `a[i].1 = ..`, destructuring an element
+// with `let (x, y) = a[i]`, `t.0[1]`, and an array returned inside a tuple.
+fn MinMax(s: &[i32]) -> (i32, i32) {
+    let mut lo = s[0];
+    let mut hi = s[0];
+    let mut i = 1;
+    while i < s.len() {
+        if s[i] < lo {
+            lo = s[i];
+        }
+        if s[i] > hi {
+            hi = s[i];
+        }
+        i += 1;
+    }
+    (lo, hi)
+}
+
+fn Split(n: i32) -> ([i32; 2], bool) {
+    ([n / 10, n % 10], n >= 10)
+}
+
+fn Main() {
+    let mut pairs = [(1, true), (2, false), (3, true)];
+    pairs[1].0 += 40;
+    pairs[2].1 = false;
+    let (n, flag) = pairs[1];
+    PrintLine(n);
+    PrintLine(flag);
+    PrintLine(pairs[2].1);
+    let (lo, hi) = MinMax(&[4, -3, 9, 0]);
+    PrintLine(lo);
+    PrintLine(hi);
+    let mut t = ([5, 6], 'x');
+    t.0[1] = 60;
+    PrintLine(t.0[0] + t.0[1]);
+    let (digits, big) = Split(47);
+    PrintLine(digits[0] * 100 + digits[1]);
+    PrintLine(big);
+    PrintLine(Split(3).0[1]);
+}

@@ -1,0 +1,26 @@
+// (drops, #12) A panic while an array literal is being built: the elements already made
+// are dropped, the last made first (they are operands of the unfinished aggregate), then
+// the locals.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    if id < 0 {
+        Panic("negative id");
+    }
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Main() {
+    let first = Make(1);
+    let a = [Make(2), Make(3), Make(-4), Make(5)];
+    PrintLine("not reached");
+}

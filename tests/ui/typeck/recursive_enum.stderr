@@ -1,0 +1,22 @@
+[E0206] Error: recursive type `List` has infinite size
+   ╭─[ tests/ui/typeck/recursive_enum.sabi:5:6 ]
+   │
+ 5 │ enum List { Nil, Cons(i32, List) } //~ ERROR E0206 recursive type `List` has infinite size
+   │      ──┬─  
+   │        ╰─── recursive type has infinite size
+   │ 
+   │ Note: a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7
+───╯
+[E0206] Error: recursive types `Node` and `Link` have infinite size
+   ╭─[ tests/ui/typeck/recursive_enum.sabi:7:8 ]
+   │
+ 7 │ struct Node { Next: Link } //~ ERROR E0206 recursive types `Node` and `Link` have infinite size
+   │        ──┬─  
+   │          ╰─── recursive type has infinite size
+   │ 
+ 9 │ enum Link { End, More(Node) }
+   │      ──┬─  
+   │        ╰─── recursive type has infinite size
+   │ 
+   │ Note: a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7
+───╯

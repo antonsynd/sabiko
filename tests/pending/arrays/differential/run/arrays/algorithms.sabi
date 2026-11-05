@@ -1,0 +1,79 @@
+// `while` loops over arrays and slices, the shape the JIT must compile without its own
+// bounds checks (issue #9's note): insertion sort through `&mut [i32]`, binary search
+// over a sorted `&[i32]`, a sieve over `[bool; 100]`, and a prefix sum into a second array.
+fn Sort(s: &mut [i32]) {
+    let mut i = 1;
+    while i < s.len() {
+        let key = s[i];
+        let mut j = i;
+        while j > 0 && s[j - 1] > key {
+            s[j] = s[j - 1];
+            j -= 1;
+        }
+        s[j] = key;
+        i += 1;
+    }
+}
+
+fn Find(s: &[i32], target: i32) -> i32 {
+    let mut lo = 0;
+    let mut hi = s.len();
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if s[mid] == target {
+            return mid as i32;
+        }
+        if s[mid] < target {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    -1
+}
+
+fn Main() {
+    let mut a = [31, -4, 15, 9, 26, 5, 3, 58, 9, 7];
+    Sort(&mut a);
+    let mut i = 0;
+    while i < a.len() {
+        Print(a[i]);
+        Print(' ');
+        i += 1;
+    }
+    PrintLine("");
+    PrintLine(Find(&a, 26));
+    PrintLine(Find(&a, 10));
+    let mut composite = [false; 100];
+    let mut p = 2;
+    while p * p < 100 {
+        if !composite[p] {
+            let mut k = p * p;
+            while k < 100 {
+                composite[k] = true;
+                k += p;
+            }
+        }
+        p += 1;
+    }
+    let mut count = 0;
+    let mut largest = 0;
+    let mut n = 2;
+    while n < composite.len() {
+        if !composite[n] {
+            count += 1;
+            largest = n;
+        }
+        n += 1;
+    }
+    PrintLine(count);
+    PrintLine(largest);
+    let mut prefix = [0i64; 10];
+    prefix[0] = a[0] as i64;
+    let mut q = 1;
+    while q < prefix.len() {
+        prefix[q] = prefix[q - 1] + a[q] as i64;
+        q += 1;
+    }
+    PrintLine(prefix[9]);
+}

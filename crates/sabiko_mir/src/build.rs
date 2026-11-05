@@ -51,6 +51,10 @@ use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResul
 use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
+mod matches;
+
+use matches::{has_or, BindMode};
+
 use crate::{
     AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, CleanupData, CleanupDrop,
     CleanupScope, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue, Statement,
@@ -131,6 +135,9 @@ struct Builder<'a> {
     /// The span of the outermost parentheses around an expression, for the expressions
     /// that have them (see [`Builder::span_of`]).
     paren_spans: HashMap<NodeId, Span>,
+    /// While a match guard is lowered: the place each of its arm's bindings denotes (a
+    /// shared reference to its part of the scrutinee, see `matches`).
+    guard_places: HashMap<LocalId, Place>,
 }
 
 impl<'a> Builder<'a> {
@@ -175,13 +182,18 @@ impl<'a> Builder<'a> {
         }
         for (param, ty) in f.params.iter().zip(inputs) {
             let (name, mutability, source) = match &param.pat.kind {
-                PatKind::Ident { mutable, name } => (
+                PatKind::Ident {
+                    by_ref: false,
+                    mutable,
+                    name,
+                    sub: None,
+                } if resolve.local_of_pat(param.pat.id).is_some() => (
                     Some(name.name.clone()),
                     Mutability::from_bool(*mutable),
                     resolve.local_of_pat(param.pat.id),
                 ),
-                // A tuple pattern destructures the argument at the start of the body.
-                PatKind::Wild | PatKind::Tuple(_) => (None, Mutability::Not, None),
+                // Any other pattern destructures the argument at the start of the body.
+                _ => (None, Mutability::Not, None),
             };
             let local = Local(u32::try_from(locals.len()).expect("fewer than 2^32 locals"));
             if let Some(id) = source {
@@ -221,6 +233,7 @@ impl<'a> Builder<'a> {
             current: BasicBlock::START,
             failed: false,
             paren_spans: HashMap::new(),
+            guard_places: HashMap::new(),
         }
     }
 
@@ -239,9 +252,16 @@ impl<'a> Builder<'a> {
             let Some(param) = arg.index().checked_sub(first_param).map(|i| &f.params[i]) else {
                 continue;
             };
-            if let PatKind::Tuple(_) = param.pat.kind {
+            if self.body.local_decl(arg).source.is_none()
+                && !matches!(param.pat.kind, PatKind::Wild)
+            {
                 let saved = self.push_temp_scope();
-                self.bind_pattern(&param.pat, Place::local(arg));
+                self.bind_pat(
+                    &param.pat,
+                    Place::local(arg),
+                    &matches::Choice::new(),
+                    BindMode::Declare,
+                );
                 self.close_temp_scope(saved, param_span(f));
             }
         }
@@ -898,7 +918,7 @@ impl<'a> Builder<'a> {
                 self.as_place(inner)
             }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
-                Res::Local(id) => Place::local(self.mir_local(id)),
+                Res::Local(id) => self.binding_place(id),
                 _ => Place::local(self.as_temp(expr)),
             },
             ExprKind::Field(base, _) => {
@@ -951,7 +971,7 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Local(id) => {
-                    let op = self.place_operand(Place::local(self.mir_local(id)));
+                    let op = self.place_operand(self.binding_place(id));
                     self.assign(dest.clone(), Rvalue::Use(op), span);
                 }
                 Res::Def(def) => match self.def_kind(def) {
@@ -966,7 +986,17 @@ impl<'a> Builder<'a> {
                             span,
                         );
                     }
-                    DefKind::Fn => unreachable!("function items as values are rejected"),
+                    DefKind::Variant => {
+                        let (adt, index) = self.types.variant_exprs[&expr.id];
+                        self.assign(
+                            dest.clone(),
+                            Rvalue::Aggregate(AggregateKind::Variant(adt, index), Vec::new()),
+                            span,
+                        );
+                    }
+                    DefKind::Fn | DefKind::Enum => {
+                        unreachable!("functions and enums as values are rejected")
+                    }
                 },
                 Res::Prim(_) | Res::Err => unreachable!("unresolved path in a checked body"),
             },
@@ -994,6 +1024,29 @@ impl<'a> Builder<'a> {
             ExprKind::Assign(..) | ExprKind::AssignOp(..) => {
                 self.lower_assign(expr);
                 self.assign(dest.clone(), Self::unit_rvalue(span), span);
+            }
+            ExprKind::Call { args, .. } if self.types.variant_exprs.contains_key(&expr.id) => {
+                // `E::V(a, b)`: the variant's fields, in order.
+                let (adt, index) = self.types.variant_exprs[&expr.id];
+                let tys: Vec<Ty> = self
+                    .typeck
+                    .items
+                    .adt(adt)
+                    .variant(index)
+                    .fields
+                    .iter()
+                    .map(|f| f.ty.clone())
+                    .collect();
+                let operands = args
+                    .iter()
+                    .zip(&tys)
+                    .map(|(a, ty)| self.coerced_operand(a, Some(ty), false))
+                    .collect();
+                self.assign(
+                    dest.clone(),
+                    Rvalue::Aggregate(AggregateKind::Variant(adt, index), operands),
+                    span,
+                );
             }
             ExprKind::Call { callee, args } => {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
@@ -1050,18 +1103,30 @@ impl<'a> Builder<'a> {
                 let Res::Def(def) = self.resolve.res(expr.id) else {
                     unreachable!("unresolved struct literal in a checked body")
                 };
-                let adt = self.typeck.items.adt(def);
+                let variant = self.types.variant_exprs.get(&expr.id).copied();
+                let (kind, field_defs) = match variant {
+                    Some((adt, index)) => (
+                        AggregateKind::Variant(adt, index),
+                        self.typeck.items.adt(adt).variant(index).fields.clone(),
+                    ),
+                    None => (
+                        AggregateKind::Adt(def),
+                        self.typeck.items.adt(def).fields.clone(),
+                    ),
+                };
                 // Initialisers run in source order; the aggregate lists declaration order.
-                let mut operands: Vec<Option<Operand>> = vec![None; adt.fields.len()];
+                let mut operands: Vec<Option<Operand>> = vec![None; field_defs.len()];
                 let indices: Vec<usize> = fields
                     .iter()
                     .map(|f| {
-                        adt.field_index(&f.name.name)
+                        field_defs
+                            .iter()
+                            .position(|d| d.name == f.name.name)
                             .expect("struct literal fields exist in a checked body")
                     })
                     .collect();
                 for (field, index) in fields.iter().zip(indices) {
-                    let field_ty = adt.fields[index].ty.clone();
+                    let field_ty = field_defs[index].ty.clone();
                     operands[index] =
                         Some(self.coerced_operand(&field.value, Some(&field_ty), false));
                 }
@@ -1069,12 +1134,12 @@ impl<'a> Builder<'a> {
                     .into_iter()
                     .map(|op| op.expect("every field is initialised in a checked body"))
                     .collect();
-                self.assign(
-                    dest.clone(),
-                    Rvalue::Aggregate(AggregateKind::Adt(def), operands),
-                    span,
-                );
+                self.assign(dest.clone(), Rvalue::Aggregate(kind, operands), span);
             }
+            ExprKind::Match { scrutinee, arms } => {
+                self.lower_match(Some(dest), scrutinee, arms, span);
+            }
+            ExprKind::Let(..) => unreachable!("`let` is only lowered as an `if`/`while` condition"),
             ExprKind::MethodCall { receiver, args, .. } => {
                 self.lower_method_call(dest, expr, receiver, args, span);
             }
@@ -1264,6 +1329,7 @@ impl<'a> Builder<'a> {
                 self.lower_if(None, cond, then, els.as_deref(), span);
             }
             ExprKind::While { cond, body } => self.lower_while(cond, body, span),
+            ExprKind::Match { scrutinee, arms } => self.lower_match(None, scrutinee, arms, span),
             ExprKind::Loop { body } => self.lower_loop(None, body, span),
             ExprKind::Break(value) => self.lower_break(value.as_deref(), span),
             ExprKind::Continue => self.lower_continue(span),
@@ -1405,6 +1471,10 @@ impl<'a> Builder<'a> {
         els: Option<&Expr>,
         span: Span,
     ) {
+        if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
+            self.lower_if_let(dest, pat, scrutinee, then, els, span);
+            return;
+        }
         // The condition and each branch are temporary scopes of their own: a
         // condition's temporaries are dropped before the branch runs.
         let (discr, cond_temps) = self.condition(cond, span);
@@ -1438,6 +1508,10 @@ impl<'a> Builder<'a> {
     /// `while cond { body }`. The condition's temporaries die at the start of both
     /// successors, so each iteration starts from the same storage state.
     fn lower_while(&mut self, cond: &Expr, body: &Block, span: Span) {
+        if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
+            self.lower_while_let(pat, scrutinee, body, span);
+            return;
+        }
         let header = self.new_block();
         self.terminate(TerminatorKind::Goto { target: header }, span);
         self.enter(header);
@@ -1562,21 +1636,38 @@ impl<'a> Builder<'a> {
     /// rustc: each binding copies or moves its own element out of it, and `_` touches
     /// nothing (`let (a, _) = t;` leaves `t.1` usable). Any other initialiser is
     /// evaluated into a temporary first; the referent of `&<rvalue>` lives as long as the
-    /// bindings (temporary lifetime extension, as for `let r = &<rvalue>;`). Without an
-    /// initialiser the bindings are only declared.
+    /// bindings (temporary lifetime extension, as for `let r = &<rvalue>;`), and so does
+    /// the initialiser's own temporary when the pattern has a `ref`/`ref mut` binding
+    /// (rustc's extending patterns: `let S { ref mut a, .. } = F();` borrows a value that
+    /// lives to the end of the block). Without an initialiser the bindings are only
+    /// declared.
     fn lower_let_tuple(&mut self, pat: &Pat, init: Option<&Expr>) {
         let Some(init) = init else {
             self.declare_pattern_locals(pat);
             return;
         };
+        let extending = is_extending_pattern(pat);
         let place = if is_place_expr(self.resolve, init) {
             self.as_place(init)
         } else if let Some(temp) = self.extended_ref(init) {
             Place::local(temp)
         } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
             let ty = self.ty(init).clone();
-            let temp = self.new_temp(ty, init.span);
+            let temp = if extending {
+                self.new_temp_in_block_scope(ty, init.span)
+            } else {
+                self.new_temp(ty, init.span)
+            };
             self.tuple_into(&Place::local(temp), init, true);
+            self.temp_complete(temp);
+            Place::local(temp)
+        } else if extending {
+            let ty = self.ty(init).clone();
+            let temp = self.new_temp_in_block_scope(ty, init.span);
+            if !writes_once(init) {
+                self.open_pending(temp);
+            }
+            self.expr_into_dest(&Place::local(temp), init);
             self.temp_complete(temp);
             Place::local(temp)
         } else {
@@ -1587,60 +1678,7 @@ impl<'a> Builder<'a> {
             self.declare_pattern_locals(pat);
             return;
         }
-        self.bind_pattern(pat, place);
-    }
-
-    /// Binds the names of `pat` to the parts of `place`, which holds a value of the
-    /// pattern's type (or a reference to it, for default binding modes).
-    fn bind_pattern(&mut self, pat: &Pat, place: Place) {
-        match &pat.kind {
-            PatKind::Ident { .. } => {
-                let id = self
-                    .resolve
-                    .local_of_pat(pat.id)
-                    .expect("identifier patterns introduce locals");
-                let local = self.declare_user_local(id, pat.span);
-                let rvalue = match self.types.ref_bindings.get(&pat.id) {
-                    Some(&m) => Rvalue::Ref(BorrowKind::new(m), place),
-                    None => Rvalue::Use(self.place_operand(place)),
-                };
-                self.assign(Place::local(local), rvalue, pat.span);
-            }
-            PatKind::Wild => {}
-            PatKind::Tuple(elems) => {
-                let mut place = place;
-                for _ in 0..self.types.pat_derefs.get(&pat.id).copied().unwrap_or(0) {
-                    place = place.deref();
-                }
-                let elem_tys = match place.ty(&self.body) {
-                    Ty::Tuple(tys) => *tys,
-                    _ => Vec::new(),
-                };
-                for (i, (p, ty)) in elems.iter().zip(elem_tys).enumerate() {
-                    self.bind_pattern(p, place.clone().field(i, ty));
-                }
-            }
-        }
-    }
-
-    /// Declares every binding of `pat` without initialising it (`let (a, b);`).
-    fn declare_pattern_locals(&mut self, pat: &Pat) {
-        match &pat.kind {
-            PatKind::Ident { .. } => {
-                let id = self
-                    .resolve
-                    .local_of_pat(pat.id)
-                    .expect("identifier patterns introduce locals");
-                let local = self.declare_user_local(id, pat.span);
-                self.open_pending(local);
-            }
-            PatKind::Wild => {}
-            PatKind::Tuple(elems) => {
-                for p in elems {
-                    self.declare_pattern_locals(p);
-                }
-            }
-        }
+        self.bind_pat(pat, place, &matches::Choice::new(), BindMode::Declare);
     }
 
     /// Lowers one statement. Temporaries it creates die when it ends.
@@ -1649,8 +1687,16 @@ impl<'a> Builder<'a> {
         // A `let` inside an initialiser (`let x = { let y = &F(); .. };`) has its own.
         let outer_extend_at = self.extend_at.take();
         match &stmt.kind {
+            StmtKind::Let(l) if l.els.is_some() || has_or(&l.pat) => match &l.init {
+                Some(init) => self.lower_let_else(&l.pat, init, l.els.as_deref()),
+                None => self.declare_pattern_locals(&l.pat),
+            },
             StmtKind::Let(l) => match &l.pat.kind {
-                PatKind::Ident { .. } => {
+                PatKind::Ident {
+                    by_ref: false,
+                    sub: None,
+                    ..
+                } if self.resolve.local_of_pat(l.pat.id).is_some() => {
                     let id = self
                         .resolve
                         .local_of_pat(l.pat.id)
@@ -1708,13 +1754,31 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                PatKind::Tuple(_) => self.lower_let_tuple(&l.pat, l.init.as_ref()),
+                _ => self.lower_let_tuple(&l.pat, l.init.as_ref()),
             },
             StmtKind::Expr { expr, .. } => self.lower_expr_discard(expr),
             StmtKind::Empty => {}
         }
         self.close_temp_scope(saved, stmt.span);
         self.extend_at = outer_extend_at;
+    }
+}
+
+/// Whether a `let` pattern extends the temporary holding its initialiser to the end of the
+/// enclosing block (rustc's *extending pattern*): a `ref`/`ref mut` binding, or a tuple,
+/// tuple-struct, struct or or-pattern with an extending subpattern. A binding under a
+/// default binding mode does not count, as in rustc (it borrows through a reference, not
+/// from the initialiser's temporary).
+fn is_extending_pattern(pat: &Pat) -> bool {
+    match &pat.kind {
+        PatKind::Ident { by_ref, .. } => *by_ref,
+        PatKind::Tuple(elems) | PatKind::TupleStruct(_, elems) | PatKind::Or(elems) => {
+            elems.iter().any(is_extending_pattern)
+        }
+        PatKind::Struct { fields, .. } => fields.iter().any(|f| is_extending_pattern(&f.pat)),
+        PatKind::Wild | PatKind::Rest | PatKind::Path(_) | PatKind::Lit(_) | PatKind::Range(..) => {
+            false
+        }
     }
 }
 
@@ -1739,6 +1803,7 @@ fn param_span(f: &FnDecl) -> Span {
 fn writes_once(expr: &Expr) -> bool {
     match &strip_parens(expr).kind {
         ExprKind::If { .. }
+        | ExprKind::Match { .. }
         | ExprKind::While { .. }
         | ExprKind::Loop { .. }
         | ExprKind::Break(_)

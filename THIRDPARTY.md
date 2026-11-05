@@ -11,7 +11,12 @@ the Apache License 2.0. Copyright (c) The Rust Project Contributors.
 Any file containing adapted code carries a header naming its origin. This section
 lists them:
 
-- (none yet)
+- `crates/sabiko_types/src/usefulness.rs`: the exhaustiveness and reachability checker
+  (the usefulness algorithm, constructor splitting, integer range encoding and witness
+  selection) is adapted from `compiler/rustc_pattern_analysis` (`usefulness.rs`,
+  `constructor.rs`, `rustc.rs`), and its witness printing from
+  `compiler/rustc_mir_build/src/thir/pattern/check_match.rs` and
+  `compiler/rustc_middle/src/thir.rs` (`PatRange`) / `rustc_pattern_analysis/src/rustc/print.rs`.
 
 ## Toolchain
 

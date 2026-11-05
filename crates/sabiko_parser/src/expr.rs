@@ -1,6 +1,8 @@
 //! Expressions: a Pratt loop for binary operators over a recursive descent core.
 
-use sabiko_ast::{BinOp, Expr, ExprKind, FieldInit, Lit, Type, TypeKind, UnOp, CAST_PRECEDENCE};
+use sabiko_ast::{
+    Arm, BinOp, Expr, ExprKind, FieldInit, Lit, Type, TypeKind, UnOp, CAST_PRECEDENCE,
+};
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::literal::{self, LiteralError};
 use sabiko_lexer::TokenKind;
@@ -505,11 +507,7 @@ impl Parser<'_, '_> {
             TokenKind::If => self.parse_if(),
             TokenKind::While => {
                 self.bump();
-                if self.at(TokenKind::Let) {
-                    let span = self.peek().span;
-                    return Err(self.error_unsupported("`while let`", span, "planned for Phase 5"));
-                }
-                let cond = self.parse_expr_no_struct()?;
+                let cond = self.parse_cond()?;
                 let body = self.parse_block()?;
                 Ok(self.mk(
                     ExprKind::While {
@@ -579,7 +577,9 @@ impl Parser<'_, '_> {
                         .with_note(
                             "surround the struct literal with parentheses: `(Point { ... })`",
                         );
-                        return Err(self.emit(d));
+                        // Recover as rustc does: read the literal and go on.
+                        self.emit(d);
+                        return self.parse_struct_literal(path, start);
                     }
                 }
                 if self.at(TokenKind::Bang) && self.nth_kind(1) == TokenKind::LParen {
@@ -592,9 +592,7 @@ impl Parser<'_, '_> {
                 }
                 Ok(self.mk(ExprKind::Path(path), start))
             }
-            TokenKind::Match => {
-                Err(self.error_unsupported("`match` expressions", start, "planned for Phase 5"))
-            }
+            TokenKind::Match => self.parse_match(),
             TokenKind::For => {
                 Err(self.error_unsupported("`for` loops", start, "planned for Phase 5"))
             }
@@ -629,11 +627,7 @@ impl Parser<'_, '_> {
 
     fn parse_if(&mut self) -> PResult<Expr> {
         let start = self.expect(TokenKind::If)?.span;
-        if self.at(TokenKind::Let) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("`if let`", span, "planned for Phase 5"));
-        }
-        let cond = self.parse_expr_no_struct()?;
+        let cond = self.parse_cond()?;
         let then = self.parse_block()?;
         let els = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {
@@ -651,6 +645,84 @@ impl Parser<'_, '_> {
                 cond: Box::new(cond),
                 then,
                 els,
+            },
+            start,
+        ))
+    }
+
+    /// The condition of an `if` or `while`: an expression, or `let pat = expr`. Let chains
+    /// (`let p = e && c`) are edition 2024 only, and rejected.
+    fn parse_cond(&mut self) -> PResult<Expr> {
+        if !self.at(TokenKind::Let) {
+            return self.parse_expr_no_struct();
+        }
+        let start = self.bump().span;
+        let pat = self.parse_pat_or()?;
+        self.expect(TokenKind::Eq)?;
+        let saved = self.no_struct_literal;
+        self.no_struct_literal = true;
+        // Above `&&` and `||`, which would make a let chain.
+        let scrutinee = self.nested(|p| p.parse_binary(BinOp::And.precedence() + 1));
+        self.no_struct_literal = saved;
+        let scrutinee = scrutinee?;
+        if matches!(self.peek_kind(), TokenKind::AndAnd | TokenKind::OrOr) {
+            let span = start.to(self.peek().span);
+            return Err(self.let_chain_error(span));
+        }
+        Ok(self.mk(ExprKind::Let(Box::new(pat), Box::new(scrutinee)), start))
+    }
+
+    fn let_chain_error(&mut self, span: Span) -> crate::ParseError {
+        let d = Diagnostic::error(
+            ErrorCode::UNEXPECTED_TOKEN,
+            "let chains are only allowed in Rust 2024 or later",
+        )
+        .with_label(span, "a `let` in a condition must be the whole condition")
+        .with_note("Sabiko follows edition 2021; nest an `if` inside the `if let` instead");
+        self.emit(d)
+    }
+
+    /// `match scrutinee { pat if guard => body, .. }`. A block-like body ends its arm, so
+    /// the comma after it is optional.
+    fn parse_match(&mut self) -> PResult<Expr> {
+        let start = self.expect(TokenKind::Match)?.span;
+        let scrutinee = self.parse_expr_no_struct()?;
+        self.expect(TokenKind::LBrace)?;
+        let arms = self.in_delimited(TokenKind::RBrace, |p| {
+            let mut arms = Vec::new();
+            while !p.at(TokenKind::RBrace) && !p.at_eof() {
+                let arm_start = p.peek().span;
+                let id = p.new_id();
+                let pat = p.parse_pat_or()?;
+                let guard = if p.eat(TokenKind::If).is_some() {
+                    Some(p.parse_expr()?)
+                } else {
+                    None
+                };
+                p.expect(TokenKind::FatArrow)?;
+                p.stmt_start = true;
+                let body = p.parse_expr();
+                p.stmt_start = false;
+                let body = body?;
+                let block_like = body.is_block_like();
+                arms.push(Arm {
+                    id,
+                    pat,
+                    guard,
+                    body,
+                    span: p.span_from(arm_start),
+                });
+                if p.eat(TokenKind::Comma).is_none() && !block_like && !p.at(TokenKind::RBrace) {
+                    return Err(p.error_expected_after_prev("`,`"));
+                }
+            }
+            p.expect(TokenKind::RBrace)?;
+            Ok(arms)
+        })?;
+        Ok(self.mk(
+            ExprKind::Match {
+                scrutinee: Box::new(scrutinee),
+                arms,
             },
             start,
         ))
@@ -698,6 +770,7 @@ impl Parser<'_, '_> {
 
     /// Whether the current token begins an operand for `break`/`return`. In a condition
     /// (`while break {}`), a `{` starts the loop body, not a block operand (as in rustc).
+    /// A `=>` ends a match guard (`_ if break => ..`).
     fn can_start_operand(&self) -> bool {
         if self.no_struct_literal && self.at(TokenKind::LBrace) {
             return false;
@@ -711,10 +784,11 @@ impl Parser<'_, '_> {
                 | TokenKind::Comma
                 | TokenKind::Eof
                 | TokenKind::Else
+                | TokenKind::FatArrow
         )
     }
 
-    fn parse_lit(&mut self) -> PResult<Lit> {
+    pub(crate) fn parse_lit(&mut self) -> PResult<Lit> {
         let tok = self.bump();
         let text = self.text(tok);
         match tok.kind {

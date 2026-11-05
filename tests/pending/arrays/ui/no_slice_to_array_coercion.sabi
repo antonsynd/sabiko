@@ -1,0 +1,16 @@
+// The unsized coercion goes one way, `&[T; N]` to `&[T]` (and `&mut [T; N]` to `&mut [T]`
+// or `&[T]`): a slice does not become an array reference, a `&` does not become a
+// `&mut [T]`, the element type must be the same, and a borrow is not an array. All E0308.
+fn Three(a: &[i32; 3]) -> i32 {
+    a[0]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let s: &[i32] = &a;
+    let b: &[i32; 3] = s; //~ rustc E0308: mismatched types [expected `&[i32; 3]`, found `&[i32]`]
+    let c = Three(s); //~ rustc E0308: mismatched types [expected `&[i32; 3]`, found `&[i32]`]
+    let m: &mut [i32] = &a; //~ rustc E0308: mismatched types [types differ in mutability]
+    let w: &[i64] = &a; //~ rustc E0308: mismatched types [expected `&[i64]`, found `&[i32; 3]`]
+    let x: [i32; 3] = &a; //~ rustc E0308: mismatched types [expected `[i32; 3]`, found `&[i32; 3]`]
+}

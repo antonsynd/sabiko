@@ -1,0 +1,12 @@
+// A `mut` array parameter is a local copy the function may change and return.
+fn Bumped(mut a: [i32; 3]) -> [i32; 3] {
+    a[0] += 1;
+    a[2] = a[0] * 10;
+    a
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let b = Bumped(a);
+    PrintLine(a[0] + b[0] + b[2]);
+}

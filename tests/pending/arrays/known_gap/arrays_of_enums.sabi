@@ -1,0 +1,36 @@
+// KNOWN GAP (needs #8): arrays of enums, matched by value and through a reference, and
+// assigned. In scope for #9 once enums exist; staged here so the arrays set does not
+// depend on #8's order.
+#[derive(Copy, Clone)]
+enum Light { Red, Yellow, Green }
+
+enum Slot { Empty, Full(i32) }
+
+fn Next(l: Light) -> Light {
+    match l {
+        Light::Red => Light::Green,
+        Light::Green => Light::Yellow,
+        Light::Yellow => Light::Red,
+    }
+}
+
+fn Main() {
+    let mut lights = [Light::Red; 3];
+    lights[1] = Next(lights[0]);
+    lights[2] = Next(lights[1]);
+    let mut i = 0;
+    while i < lights.len() {
+        match lights[i] {
+            Light::Red => PrintLine("red"),
+            Light::Yellow => PrintLine("yellow"),
+            Light::Green => PrintLine("green"),
+        }
+        i += 1;
+    }
+    let mut slots = [Slot::Empty, Slot::Full(4)];
+    slots[0] = Slot::Full(1);
+    match &slots[1] {
+        Slot::Full(n) => PrintLine(*n),
+        Slot::Empty => PrintLine("empty"),
+    }
+}

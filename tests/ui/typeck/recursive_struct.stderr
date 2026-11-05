@@ -5,7 +5,7 @@
    │        ──┬─  
    │          ╰─── recursive type has infinite size
    │ 
-   │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+   │ Note: a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7
 ───╯
 [E0206] Error: recursive types `A` and `B` have infinite size
     ╭─[ tests/ui/typeck/recursive_struct.sabi:6:8 ]
@@ -18,7 +18,7 @@
     │        ┬  
     │        ╰── recursive type has infinite size
     │ 
-    │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+    │ Note: a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7
 ────╯
 [E0206] Error: recursive types `Outer`, `Inner` and `Deepest` have infinite size
     ╭─[ tests/ui/typeck/recursive_struct.sabi:14:8 ]
@@ -35,7 +35,7 @@
     │        ───┬───  
     │           ╰───── recursive type has infinite size
     │ 
-    │ Note: a struct cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 5
+    │ Note: a struct or enum cannot contain itself by value; indirection (`Box<T>`) arrives in Phase 7
 ────╯
 [E0107] Error: not yet supported: references in struct fields
     ╭─[ tests/ui/typeck/recursive_struct.sabi:29:11 ]

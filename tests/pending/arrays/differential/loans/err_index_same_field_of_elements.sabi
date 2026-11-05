@@ -1,0 +1,11 @@
+// The same field below two index projections may be the same place: `&mut a[i].X` and
+// `&mut a[j].X` are E0499 (compare ok_index_disjoint_fields_of_elements).
+struct P { X: i32, Y: i32 }
+
+fn Mix(i: usize, j: usize) -> i32 {
+    let mut a = [P { X: 1, Y: 2 }, P { X: 3, Y: 4 }];
+    let x = &mut a[i].X;
+    let y = &mut a[j].X;
+    *x += *y;
+    a[0].X
+}

@@ -163,6 +163,36 @@ impl Reporter<'_> {
         let span = self.span_at(location);
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
+        if data.fake {
+            // The scrutinee is frozen while a match guard runs (rustc's E0510); moving it
+            // out does not conflict with the fake borrow.
+            let (message, label) = match invalidation.kind {
+                AccessKind::Write => (
+                    format!("cannot assign `{accessed}` in match guard"),
+                    "cannot assign",
+                ),
+                _ => (
+                    format!("cannot mutably borrow `{accessed}` in match guard"),
+                    "cannot mutably borrow",
+                ),
+            };
+            if matches!(
+                invalidation.kind,
+                AccessKind::Write
+                    | AccessKind::MutBorrow
+                    | AccessKind::Reservation
+                    | AccessKind::Activation
+            ) {
+                return Some(
+                    Diagnostic::error(ErrorCode::MUTATE_IN_GUARD, message)
+                        .with_label(span, label)
+                        .with_label(
+                            data.span,
+                            format!("value is immutable in match guard: `{borrowed}`"),
+                        ),
+                );
+            }
+        }
         let diag = match invalidation.kind {
             AccessKind::MutBorrow | AccessKind::Reservation | AccessKind::Activation
                 if data.mutability.is_mut() =>

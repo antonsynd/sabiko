@@ -1,0 +1,48 @@
+// Guards over bindings that are references: by-value bindings of `&i32` tuple elements,
+// default binding modes through `&` and `&mut` scrutinees, and a guard that fails so the
+// next arm is tried. Inside a guard each binding is read through a shared reference
+// (rustc's by-reference guard bindings); a binding that is itself a reference is reborrowed.
+enum Cell { Empty, Value(i32) }
+
+fn Larger(a: &i32, b: &i32) -> i32 {
+    match (a, b) {
+        (x, y) if *x > *y => *x,
+        (_, y) => *y,
+    }
+}
+
+fn Bump(c: &mut Cell) -> i32 {
+    match c {
+        Cell::Value(n) if *n < 0 => {
+            *n = 0;
+            -1
+        }
+        Cell::Value(n) => {
+            *n += 1;
+            *n
+        }
+        Cell::Empty => 0,
+    }
+}
+
+fn Describe(c: &Cell, limit: i32) -> i32 {
+    match *c {
+        Cell::Value(n) if n > limit => 2,
+        Cell::Value(ref n) if *n == limit => 1,
+        _ => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Larger(&3, &9));
+    PrintLine(Larger(&12, &9));
+    let mut c = Cell::Value(-5);
+    PrintLine(Bump(&mut c));
+    PrintLine(Bump(&mut c));
+    PrintLine(Bump(&mut c));
+    let mut e = Cell::Empty;
+    PrintLine(Bump(&mut e));
+    PrintLine(Describe(&c, 1));
+    PrintLine(Describe(&c, 2));
+    PrintLine(Describe(&c, 3));
+}

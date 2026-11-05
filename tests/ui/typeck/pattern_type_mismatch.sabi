@@ -1,0 +1,21 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// A pattern must have the scrutinee's type: a char literal against an `i32`, a variant of
+// another enum, a tuple of the wrong arity (E0308).
+enum Light { Red, Green }
+
+enum Dir { North, South }
+
+fn F(n: i32, l: Light, t: (i32, i32)) -> i32 {
+    let a = match n {
+        'a' => 1, //~ ERROR E0300 mismatched types
+        _ => 0,
+    };
+    let b = match l {
+        Dir::North => 1, //~ ERROR E0300 mismatched types
+        _ => 0,
+    };
+    let c = match t {
+        (x, y, z) => x, //~ ERROR E0300 mismatched types
+    };
+    a + b + c
+}

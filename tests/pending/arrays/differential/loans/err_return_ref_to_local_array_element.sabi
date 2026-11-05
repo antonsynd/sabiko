@@ -1,0 +1,6 @@
+// Returning a reference to an element of a local array: E0515, even though the elided
+// lifetime ties the result to the parameter.
+fn Pick(n: &i32) -> &i32 {
+    let a = [*n, *n + 1];
+    &a[1]
+}

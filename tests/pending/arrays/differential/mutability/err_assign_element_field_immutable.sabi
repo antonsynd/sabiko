@@ -1,0 +1,8 @@
+// A field of an element of an immutable array is immutable: E0594.
+struct P { X: i32 }
+
+fn Main() {
+    let a = [P { X: 1 }];
+    a[0].X = 2;
+    PrintLine(a[0].X);
+}

@@ -1,0 +1,16 @@
+// A `&mut self` method on an element autorefs `&mut a[1]`, which conflicts with a live
+// shared borrow of `a[0]`: E0502.
+struct Counter { N: i32 }
+
+impl Counter {
+    fn Inc(&mut self) {
+        self.N += 1;
+    }
+}
+
+fn Main() {
+    let mut a = [Counter { N: 0 }, Counter { N: 5 }];
+    let r = &a[0];
+    a[1].Inc();
+    PrintLine(r.N);
+}

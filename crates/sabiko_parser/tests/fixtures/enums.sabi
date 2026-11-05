@@ -1,0 +1,31 @@
+/// A light.
+#[derive(Copy, Clone)]
+enum Light { Red, Yellow = 3, Green, }
+enum Shape { Dot, Square(i32), Rect { W: i32, H: i32 }, Pair(Light, (i32, bool)) }
+enum Never {}
+
+fn F(s: Shape, l: &Light) -> i32 {
+    let n = match s {
+        Shape::Dot => 0,
+        Shape::Square(w) if w > 0 => w,
+        | Shape::Square(_) | Shape::Pair(..) => { 1 }
+        Shape::Rect { W, H: ref mut h, .. } => W * *h,
+    };
+    match *l {
+        Light::Red | Light::Green => {}
+        x @ Light::Yellow => {}
+    }
+    match n {
+        -5..=-1 => 1,
+        0 => 2,
+        1..10 | 20 => 3,
+        LIMIT..=i32::MAX => 4,
+        mut other => other,
+    };
+    if let Shape::Square(x) = Make() { x } else { 0 };
+    while let (Some, ..) = (3, 4) {}
+    let Shape::Square(q) = s else { return 0 };
+    let (Shape::Dot | Shape::Square(_)) = s;
+    'a';
+    0
+}

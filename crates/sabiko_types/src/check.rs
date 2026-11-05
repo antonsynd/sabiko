@@ -8,14 +8,14 @@
 use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{
-    BinOp, Block, Expr, ExprKind, FnDecl, Lit, NodeId, Pat, PatKind, Stmt, StmtKind, Type,
+    Arm, BinOp, Block, Expr, ExprKind, FnDecl, Lit, NodeId, Pat, PatKind, Stmt, StmtKind, Type,
     TypeKind, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
-use crate::collect::{self, ItemTypes};
+use crate::collect::{self, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
 use crate::ty::{Mutability, Ty};
 
@@ -59,8 +59,32 @@ pub struct BodyTypes {
     pub coerced_tuples: HashSet<NodeId>,
     /// The callee of every method call, keyed by the `ExprKind::MethodCall` node.
     pub method_calls: HashMap<NodeId, MethodCallee>,
+    /// The type of the value each pattern node is matched against, before it looks
+    /// through references (see `pat_derefs`), keyed by the `Pat` node.
+    pub pat_types: HashMap<NodeId, Ty>,
+    /// The variant a tuple-struct, struct or path pattern names, as `(enum, index)`.
+    pub pat_variants: HashMap<NodeId, (DefId, usize)>,
+    /// The variant an expression builds, as `(enum, index)`: a unit variant path, a
+    /// tuple-variant constructor call (keyed by the call) or a struct-variant literal.
+    pub variant_exprs: HashMap<NodeId, (DefId, usize)>,
+    /// The values literal, range and constant patterns compare with, keyed by the `Pat`
+    /// node; filled in after constant evaluation (`crate::patterns`).
+    pub pat_consts: HashMap<NodeId, PatConst>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
+}
+
+/// What a literal, constant or range pattern compares the matched value with.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PatConst {
+    /// Equal to the value (a literal or a constant).
+    Value(crate::ConstValue),
+    /// Within `lo..=hi` (`inclusive`) or `lo..hi`.
+    Range {
+        lo: crate::ConstValue,
+        hi: crate::ConstValue,
+        inclusive: bool,
+    },
 }
 
 impl BodyTypes {
@@ -113,11 +137,20 @@ pub(crate) struct FnCtxt<'a> {
     ref_bindings: HashMap<NodeId, Mutability>,
     coerced_tuples: HashSet<NodeId>,
     method_calls: HashMap<NodeId, MethodCallee>,
+    pat_types: HashMap<NodeId, Ty>,
+    pat_variants: HashMap<NodeId, (DefId, usize)>,
+    variant_exprs: HashMap<NodeId, (DefId, usize)>,
+    /// Bindings already typed by an earlier alternative of an or-pattern: a later
+    /// alternative's binding of the same local must have the same type.
+    or_bindings: HashSet<LocalId>,
     ret_ty: Ty,
     loops: Vec<LoopCtxt>,
     diverges: bool,
     /// Set while checking the operand of unary `-`, so `-128i8` is in range.
     negating: bool,
+    /// Set while checking a `-` that is itself the operand of a `-`: as in rustc, only the
+    /// outer negation counts, so the literal of `-(-128i8)` is `128i8`, out of range.
+    double_negation: bool,
     int_lits: Vec<IntLit>,
     casts: Vec<PendingCast>,
     /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
@@ -150,10 +183,15 @@ impl<'a> FnCtxt<'a> {
             ref_bindings: HashMap::new(),
             coerced_tuples: HashSet::new(),
             method_calls: HashMap::new(),
+            pat_types: HashMap::new(),
+            pat_variants: HashMap::new(),
+            variant_exprs: HashMap::new(),
+            or_bindings: HashSet::new(),
             ret_ty,
             loops: Vec::new(),
             diverges: false,
             negating: false,
+            double_negation: false,
             int_lits: Vec::new(),
             casts: Vec::new(),
             pending_negs: Vec::new(),
@@ -369,6 +407,24 @@ impl<'a> FnCtxt<'a> {
                     (None, None) => self.infer.new_var(VarKind::General),
                 };
                 let init_span = l.init.as_ref().map(|e| e.span);
+                if let Some(els) = &l.els {
+                    // The `else` block must diverge: it is checked against `!`, with the
+                    // pattern's bindings not in scope.
+                    let before = self.diverges;
+                    self.diverges = false;
+                    self.check_block(els, None);
+                    if !self.diverges {
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::TYPE_MISMATCH,
+                                "`else` clause of `let...else` does not diverge",
+                            )
+                            .with_label(els.span, "expected `!`, found `()`")
+                            .with_note("try adding a diverging expression, such as `return` or `Panic(..)`"),
+                        );
+                    }
+                    self.diverges = before;
+                }
                 self.check_pat(&l.pat, &ty, init_span);
             }
             StmtKind::Expr { expr, semi } => {
@@ -431,7 +487,7 @@ impl<'a> FnCtxt<'a> {
                 }
                 Ty::Unit
             }
-            ExprKind::Call { callee, args } => self.check_call(callee, args, expr.span),
+            ExprKind::Call { callee, args } => self.check_call(expr.id, callee, args, expr.span),
             ExprKind::MethodCall {
                 receiver,
                 method,
@@ -593,6 +649,15 @@ impl<'a> FnCtxt<'a> {
                 Ty::Never
             }
             ExprKind::Struct { fields, .. } => self.check_struct_literal(expr, fields),
+            ExprKind::Match { scrutinee, arms } => {
+                self.check_match(expr, scrutinee, arms, expected)
+            }
+            ExprKind::Let(pat, scrutinee) => {
+                // Only as the condition of an `if` or `while`, where it is a `bool`.
+                let ty = self.check_expr(scrutinee, None);
+                self.check_pat(pat, &ty, Some(scrutinee.span));
+                Ty::BOOL
+            }
         }
     }
 
@@ -638,6 +703,7 @@ impl<'a> FnCtxt<'a> {
         self.check_pat_in_mode(pat, ty, None, init_span);
     }
 
+    #[allow(clippy::too_many_lines)]
     fn check_pat_in_mode(
         &mut self,
         pat: &Pat,
@@ -645,43 +711,88 @@ impl<'a> FnCtxt<'a> {
         by_ref: Option<Mutability>,
         init_span: Option<Span>,
     ) {
+        self.pat_types.insert(pat.id, ty.clone());
+        if let Some(res) = self.resolve.pat_res(pat.id) {
+            if let PatKind::Ident { .. } = pat.kind {
+                // A constant or a unit struct named by a lone identifier: it compares.
+                let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
+                self.check_path_pat(pat, res, &ty, init_span);
+                return;
+            }
+        }
         match &pat.kind {
-            PatKind::Ident { mutable, .. } => {
-                let Some(local) = self.resolve.local_of_pat(pat.id) else {
-                    return;
-                };
-                let binding_ty = match by_ref {
-                    Some(m) if !mutable => {
+            PatKind::Ident {
+                by_ref: explicit_ref,
+                mutable,
+                name,
+                sub,
+            } => {
+                if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                    let binding_ty = if *explicit_ref {
+                        let m = Mutability::from_bool(*mutable);
                         self.ref_bindings.insert(pat.id, m);
                         Ty::Ref(m, Box::new(ty.clone()))
+                    } else {
+                        match by_ref {
+                            Some(m) if !mutable => {
+                                self.ref_bindings.insert(pat.id, m);
+                                Ty::Ref(m, Box::new(ty.clone()))
+                            }
+                            _ => ty.clone(),
+                        }
+                    };
+                    if self.or_bindings.contains(&local) {
+                        // A later alternative of an or-pattern: the same type as before.
+                        let first = self.local_types[&local].clone();
+                        if self.infer.unify(&first, &binding_ty).is_err() {
+                            let (f, b) = (self.ty_str(&first), self.ty_str(&binding_ty));
+                            self.error(
+                                Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+                                    .with_label(name.span, format!("expected `{f}`, found `{b}`"))
+                                    .with_note(
+                                        "a binding must have the same type in every alternative of an or-pattern",
+                                    ),
+                            );
+                        }
+                    } else {
+                        self.local_types.insert(local, binding_ty);
+                        self.local_spans.insert(local, pat.span);
                     }
-                    _ => ty.clone(),
-                };
-                self.local_types.insert(local, binding_ty);
-                self.local_spans.insert(local, pat.span);
+                }
+                if let Some(sub) = sub {
+                    self.check_pat_in_mode(sub, ty, by_ref, init_span);
+                }
             }
-            PatKind::Wild => {}
+            PatKind::Wild | PatKind::Rest => {}
+            PatKind::Or(alts) => {
+                let mut bound = Vec::new();
+                for (i, alt) in alts.iter().enumerate() {
+                    self.check_pat_in_mode(alt, ty, by_ref, init_span);
+                    if i == 0 {
+                        alt.walk_idents(&mut |p| {
+                            if let Some(l) = self.resolve.local_of_pat(p.id) {
+                                bound.push(l);
+                            }
+                        });
+                        for &l in &bound {
+                            self.or_bindings.insert(l);
+                        }
+                    }
+                }
+                for l in bound {
+                    self.or_bindings.remove(&l);
+                }
+            }
             PatKind::Tuple(elems) => {
-                let mut ty = self.shallow(ty);
-                let mut by_ref = by_ref;
-                let mut derefs = 0;
-                while let Ty::Ref(m, inner) = ty {
-                    // `&mut` keeps `ref mut` unless an outer `&` already made it `ref`.
-                    by_ref = Some(match by_ref {
-                        Some(Mutability::Not) => Mutability::Not,
-                        _ => m,
-                    });
-                    derefs += 1;
-                    ty = self.shallow(&inner);
-                }
-                if derefs > 0 {
-                    self.pat_derefs.insert(pat.id, derefs);
-                }
+                let (ty, by_ref) = self.peel_pat_refs(pat, ty, by_ref);
+                let rest = elems.iter().position(|p| matches!(p.kind, PatKind::Rest));
+                let fixed = elems.len() - usize::from(rest.is_some());
                 let elem_tys = match ty {
-                    Ty::Tuple(tys) if tys.len() == elems.len() => *tys,
-                    Ty::Unit if elems.is_empty() => Vec::new(),
-                    Ty::Error => vec![Ty::Error; elems.len()],
-                    Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                    Ty::Tuple(tys) if rest.is_none() && tys.len() == elems.len() => *tys,
+                    Ty::Tuple(tys) if rest.is_some() && tys.len() >= fixed => *tys,
+                    Ty::Unit if fixed == 0 => Vec::new(),
+                    Ty::Error => vec![Ty::Error; fixed],
+                    Ty::Infer(v) if rest.is_none() && self.infer.kind(v) == VarKind::General => {
                         let tys: Vec<Ty> = elems
                             .iter()
                             .map(|_| self.infer.new_var(VarKind::General))
@@ -696,13 +807,432 @@ impl<'a> FnCtxt<'a> {
                     }
                     other => {
                         self.pat_mismatch(pat, elems.len(), &other, init_span);
-                        vec![Ty::Error; elems.len()]
+                        vec![Ty::Error; fixed]
                     }
                 };
-                for (p, t) in elems.iter().zip(&elem_tys) {
-                    self.check_pat_in_mode(p, t, by_ref, init_span);
+                self.check_subpats(elems, &elem_tys, by_ref, init_span);
+            }
+            PatKind::Path(_) => {
+                let res = self.resolve.pat_res(pat.id).unwrap_or(Res::Err);
+                let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
+                self.check_path_pat(pat, res, &ty, init_span);
+            }
+            PatKind::TupleStruct(path, elems) => {
+                let (ty, by_ref) = self.peel_pat_refs(pat, ty, by_ref);
+                let rest = elems.iter().position(|p| matches!(p.kind, PatKind::Rest));
+                let fixed = elems.len() - usize::from(rest.is_some());
+                let field_tys = match self.resolve.pat_res(pat.id) {
+                    Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Variant => {
+                        let (adt_def, index) = self.variant_of(def);
+                        let adt = self.items.adt(adt_def).clone();
+                        let variant = adt.variant(index);
+                        let vname = self.resolve.qualified_name(def);
+                        match variant.kind {
+                            VariantKind::Tuple => {
+                                self.expect_enum_pat(pat, adt_def, &ty, init_span);
+                                self.pat_variants.insert(pat.id, (adt_def, index));
+                                let n = variant.fields.len();
+                                if (rest.is_none() && fixed != n) || fixed > n {
+                                    self.error(
+                                        Diagnostic::error(
+                                            ErrorCode::PATTERN_ARITY,
+                                            format!(
+                                                "this pattern has {} field{}, but the corresponding tuple variant has {n} field{}",
+                                                fixed,
+                                                if fixed == 1 { "" } else { "s" },
+                                                if n == 1 { "" } else { "s" }
+                                            ),
+                                        )
+                                        .with_label(pat.span, format!("expected {n} field{}, found {fixed}", if n == 1 { "" } else { "s" }))
+                                        .with_label(variant.span, "tuple variant has fields here"),
+                                    );
+                                    None
+                                } else {
+                                    Some(
+                                        variant
+                                            .fields
+                                            .iter()
+                                            .map(|f| f.ty.clone())
+                                            .collect::<Vec<_>>(),
+                                    )
+                                }
+                            }
+                            VariantKind::Unit => {
+                                self.shape_error(
+                                    path.span,
+                                    format!("expected tuple struct or tuple variant, found unit variant `{vname}`"),
+                                    "not a tuple struct or tuple variant",
+                                );
+                                None
+                            }
+                            VariantKind::Named => {
+                                self.shape_error(
+                                    path.span,
+                                    format!("expected tuple struct or tuple variant, found struct variant `{vname}`"),
+                                    "not a tuple struct or tuple variant",
+                                );
+                                None
+                            }
+                        }
+                    }
+                    Some(Res::Def(def)) => {
+                        let info = self.resolve.def(def);
+                        let what = format!(
+                            "expected tuple struct or tuple variant, found {} `{}`",
+                            info.kind.describe(),
+                            info.name
+                        );
+                        self.shape_error(path.span, what, "not a tuple struct or tuple variant");
+                        None
+                    }
+                    _ => None,
+                };
+                let field_tys = field_tys.unwrap_or_else(|| vec![Ty::Error; fixed]);
+                self.check_subpats(elems, &field_tys, by_ref, init_span);
+            }
+            PatKind::Struct { fields, rest, .. } => {
+                let (ty, by_ref) = self.peel_pat_refs(pat, ty, by_ref);
+                let target = match self.resolve.pat_res(pat.id) {
+                    Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Variant => {
+                        let (adt_def, index) = self.variant_of(def);
+                        self.expect_enum_pat(pat, adt_def, &ty, init_span);
+                        self.pat_variants.insert(pat.id, (adt_def, index));
+                        let adt = self.items.adt(adt_def);
+                        Some((
+                            adt.variant(index).fields.clone(),
+                            format!("variant `{}`", self.resolve.qualified_name(def)),
+                        ))
+                    }
+                    Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Struct => {
+                        if self.try_coerce(&Ty::Adt(def), &ty).is_err() {
+                            self.mismatch(pat.span, &ty, &Ty::Adt(def));
+                        }
+                        let adt = self.items.adt(def);
+                        Some((adt.fields.clone(), format!("struct `{}`", adt.name)))
+                    }
+                    _ => None,
+                };
+                let Some((defs, what)) = target else {
+                    for f in fields {
+                        self.check_pat_in_mode(&f.pat, &Ty::Error, by_ref, init_span);
+                    }
+                    return;
+                };
+                let mut seen = vec![false; defs.len()];
+                for f in fields {
+                    if let Some(i) = defs.iter().position(|d| d.name == f.name.name) {
+                        if seen[i] {
+                            self.error(
+                                Diagnostic::error(
+                                    ErrorCode::DUPLICATE_FIELD_INIT,
+                                    format!(
+                                        "field `{}` bound multiple times in the pattern",
+                                        f.name.name
+                                    ),
+                                )
+                                .with_label(f.name.span, "multiple uses of field"),
+                            );
+                        }
+                        seen[i] = true;
+                        let fty = defs[i].ty.clone();
+                        self.check_pat_in_mode(&f.pat, &fty, by_ref, init_span);
+                    } else {
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::UNKNOWN_FIELD,
+                                format!("{what} does not have a field named `{}`", f.name.name),
+                            )
+                            .with_label(f.name.span, format!("{what} does not have this field")),
+                        );
+                        self.check_pat_in_mode(&f.pat, &Ty::Error, by_ref, init_span);
+                    }
+                }
+                if rest.is_none() {
+                    let missing: Vec<String> = defs
+                        .iter()
+                        .zip(&seen)
+                        .filter(|(_, s)| !**s)
+                        .map(|(d, _)| format!("`{}`", d.name))
+                        .collect();
+                    if !missing.is_empty() {
+                        let list = join_and(&missing);
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::MISSING_FIELDS,
+                                format!(
+                                    "pattern does not mention field{} {list}",
+                                    if missing.len() == 1 { "" } else { "s" }
+                                ),
+                            )
+                            .with_label(
+                                pat.span,
+                                format!(
+                                    "missing field{} {list}",
+                                    if missing.len() == 1 { "" } else { "s" }
+                                ),
+                            )
+                            .with_note("ignore the other fields with `..`"),
+                        );
+                    }
                 }
             }
+            PatKind::Lit(e) => {
+                // A string literal matches a `&str` itself; any other literal looks
+                // through references.
+                let ty = if matches!(e.kind, ExprKind::Lit(Lit::Str(_))) {
+                    // Comparing `&str` values comes with `&str` support (#10).
+                    self.unsupported(
+                        "string literal patterns",
+                        pat.span,
+                        "planned with `&str` support (#10)",
+                    );
+                    ty.clone()
+                } else {
+                    self.peel_pat_refs(pat, ty, by_ref).0
+                };
+                self.check_pat_expr(e, &ty);
+            }
+            PatKind::Range(lo, hi, _) => {
+                let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
+                self.check_pat_expr(lo, &ty);
+                self.check_pat_expr(hi, &ty);
+                let t = self.shallow(&ty);
+                let ok = match &t {
+                    Ty::Prim(p) => p.is_integer() || *p == PrimTy::Char,
+                    Ty::Infer(v) => self.infer.kind(*v) == VarKind::Int,
+                    Ty::Error => true,
+                    _ => false,
+                };
+                if !ok {
+                    let found = self.ty_str(&t);
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TYPE_MISMATCH,
+                            "only `char` and numeric types are allowed in range patterns",
+                        )
+                        .with_label(
+                            pat.span,
+                            format!("this is of type `{found}` but it should be `char` or numeric"),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Checks `pats` (with at most one `..`) against `tys`, the types of the elements or
+    /// fields; `..` stands for the ones in the middle.
+    fn check_subpats(
+        &mut self,
+        pats: &[Pat],
+        tys: &[Ty],
+        by_ref: Option<Mutability>,
+        init_span: Option<Span>,
+    ) {
+        for (p, ty) in pats.iter().zip(rest_positions(pats, tys.len())) {
+            match ty {
+                Some(i) => {
+                    let t = tys.get(i).cloned().unwrap_or(Ty::Error);
+                    self.check_pat_in_mode(p, &t, by_ref, init_span);
+                }
+                None => self.pat_types.insert(p.id, Ty::Error).map_or((), |_| ()),
+            }
+        }
+    }
+
+    /// A pattern that is not a binding matched against a reference looks through it
+    /// (Rust 2021's default binding modes): every reference peeled makes the default
+    /// binding mode `ref` (`ref mut` for `&mut`, unless a `&` was already crossed).
+    fn peel_pat_refs(
+        &mut self,
+        pat: &Pat,
+        ty: &Ty,
+        by_ref: Option<Mutability>,
+    ) -> (Ty, Option<Mutability>) {
+        let mut ty = self.shallow(ty);
+        let mut by_ref = by_ref;
+        let mut derefs = 0;
+        while let Ty::Ref(m, inner) = ty {
+            by_ref = Some(match by_ref {
+                Some(Mutability::Not) => Mutability::Not,
+                _ => m,
+            });
+            derefs += 1;
+            ty = self.shallow(&inner);
+        }
+        if derefs > 0 {
+            self.pat_derefs.insert(pat.id, derefs);
+        }
+        (ty, by_ref)
+    }
+
+    /// A path pattern (`E::V`, a constant, a unit struct) against a value of `ty`
+    /// (references already peeled).
+    fn check_path_pat(&mut self, pat: &Pat, res: Res, ty: &Ty, init_span: Option<Span>) {
+        let Res::Def(def) = res else {
+            return;
+        };
+        let info = self.resolve.def(def);
+        match info.kind {
+            DefKind::Variant => {
+                let (adt_def, index) = self.variant_of(def);
+                let kind = self.items.adt(adt_def).variant(index).kind;
+                let name = self.resolve.qualified_name(def);
+                match kind {
+                    VariantKind::Unit => {
+                        self.expect_enum_pat(pat, adt_def, ty, init_span);
+                        self.pat_variants.insert(pat.id, (adt_def, index));
+                    }
+                    VariantKind::Tuple => self.shape_error(
+                        pat.span,
+                        format!("expected unit struct, unit variant or constant, found tuple variant `{name}`"),
+                        "not a unit struct, unit variant or constant",
+                    ),
+                    VariantKind::Named => self.shape_error(
+                        pat.span,
+                        format!("expected unit struct, unit variant or constant, found struct variant `{name}`"),
+                        "not a unit struct, unit variant or constant",
+                    ),
+                }
+            }
+            DefKind::Const => {
+                let cty = self.items.const_ty(def).clone();
+                if self.try_coerce(&cty, ty).is_err() {
+                    self.pat_type_mismatch(pat.span, ty, &cty, init_span);
+                }
+            }
+            DefKind::Struct if self.items.adt(def).is_unit => {
+                if self.try_coerce(&Ty::Adt(def), ty).is_err() {
+                    self.pat_type_mismatch(pat.span, ty, &Ty::Adt(def), init_span);
+                }
+            }
+            kind => {
+                let name = info.name.clone();
+                self.shape_error(
+                    pat.span,
+                    format!(
+                        "expected unit struct, unit variant or constant, found {} `{name}`",
+                        kind.describe()
+                    ),
+                    "not a unit struct, unit variant or constant",
+                );
+            }
+        }
+    }
+
+    /// The enum and index of a variant definition.
+    fn variant_of(&self, variant: DefId) -> (DefId, usize) {
+        let parent = self
+            .resolve
+            .def(variant)
+            .parent
+            .expect("a variant has its enum as parent");
+        (parent, self.resolve.variant_index(variant))
+    }
+
+    /// The value matched by a variant pattern must be of the variant's enum.
+    fn expect_enum_pat(&mut self, pat: &Pat, adt: DefId, ty: &Ty, init_span: Option<Span>) {
+        if self.try_coerce(&Ty::Adt(adt), ty).is_err() {
+            self.pat_type_mismatch(pat.span, ty, &Ty::Adt(adt), init_span);
+        }
+    }
+
+    fn pat_type_mismatch(
+        &mut self,
+        span: Span,
+        expected: &Ty,
+        found: &Ty,
+        init_span: Option<Span>,
+    ) {
+        let (e, f) = (self.ty_str(expected), self.ty_str(found));
+        let mut d = Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+            .with_label(span, format!("expected `{e}`, found `{f}`"));
+        if let Some(init) = init_span {
+            d = d.with_label(init, format!("this expression has type `{e}`"));
+        }
+        self.error(d);
+    }
+
+    fn shape_error(&mut self, span: Span, message: String, label: &str) {
+        self.error(
+            Diagnostic::error(ErrorCode::VARIANT_SHAPE_MISMATCH, message).with_label(span, label),
+        );
+    }
+
+    /// A literal or a range bound in a pattern: an expression of the matched type.
+    fn check_pat_expr(&mut self, e: &Expr, ty: &Ty) {
+        self.check_expr(e, Some(ty));
+    }
+
+    /// `match scrutinee { arms }`. The arms' bodies are checked against the expectation,
+    /// or else against each other (the first that does not diverge decides); guards are
+    /// `bool`. The match diverges when its scrutinee does or every arm's body does; a
+    /// `match` without arms has type `!`.
+    fn check_match(
+        &mut self,
+        expr: &Expr,
+        scrutinee: &Expr,
+        arms: &[Arm],
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let scrut_ty = self.check_expr(scrutinee, None);
+        let scrut_diverges = self.diverges;
+        let mut result: Option<Ty> = expected.cloned();
+        let mut first_ty: Option<(Ty, Span)> = None;
+        let mut all_diverge = true;
+        for arm in arms {
+            self.diverges = false;
+            self.check_pat(&arm.pat, &scrut_ty, Some(scrutinee.span));
+            if let Some(g) = &arm.guard {
+                self.check_expr(g, Some(&Ty::BOOL));
+            }
+            self.diverges = false;
+            let ty = match (&result, expected) {
+                (_, Some(exp)) => self.check_expr(&arm.body, Some(exp)),
+                (Some(r), None) => {
+                    let r = r.clone();
+                    let found = self.check_expr(&arm.body, None);
+                    if self.try_coerce(&found, &r).is_err() {
+                        let (e, f) = (self.ty_str(&r), self.ty_str(&found));
+                        let mut d = Diagnostic::error(
+                            ErrorCode::TYPE_MISMATCH,
+                            "`match` arms have incompatible types",
+                        )
+                        .with_label(arm.body.span, format!("expected `{e}`, found `{f}`"));
+                        if let Some((_, span)) = &first_ty {
+                            d = d.with_label(*span, format!("this is found to be of type `{e}`"));
+                        }
+                        self.error(d.with_label(expr.span, "`match` arms have incompatible types"));
+                    }
+                    found
+                }
+                (None, None) => {
+                    let found = self.check_expr(&arm.body, None);
+                    if !self.shallow(&found).is_never() {
+                        result = Some(found.clone());
+                        first_ty = Some((found.clone(), arm.body.span));
+                    }
+                    found
+                }
+            };
+            let _ = ty;
+            all_diverge &= self.diverges;
+        }
+        self.diverges = scrut_diverges || all_diverge;
+        if arms.is_empty() {
+            return Ty::Never;
+        }
+        match result {
+            Some(t) if expected.is_none() => t,
+            Some(t) => {
+                // Every arm was coerced to the expectation; `!` arms only diverge.
+                if all_diverge {
+                    Ty::Never
+                } else {
+                    t
+                }
+            }
+            None => Ty::Never,
         }
     }
 
@@ -814,6 +1344,49 @@ impl<'a> FnCtxt<'a> {
                         Ty::FnDef(d)
                     }
                     DefKind::Const => self.items.const_ty(d).clone(),
+                    DefKind::Variant => {
+                        let (adt, index) = self.variant_of(d);
+                        let kind = self.items.adt(adt).variant(index).kind;
+                        let name = self.resolve.qualified_name(d);
+                        match kind {
+                            VariantKind::Unit => {
+                                self.variant_exprs.insert(expr.id, (adt, index));
+                                Ty::Adt(adt)
+                            }
+                            VariantKind::Tuple if callee => Ty::FnDef(d),
+                            VariantKind::Tuple => {
+                                self.error(
+                                    Diagnostic::error(
+                                        ErrorCode::FN_ITEM_AS_VALUE,
+                                        format!("the constructor of variant `{name}` cannot be used as a value yet"),
+                                    )
+                                    .with_label(expr.span, "tuple-variant constructors are only callable")
+                                    .with_note("function pointers and closures are planned for Phase 6; see docs/PLAN.md"),
+                                );
+                                Ty::Error
+                            }
+                            VariantKind::Named => {
+                                self.shape_error(
+                                    path.span,
+                                    format!("expected value, found struct variant `{name}`"),
+                                    "not a value",
+                                );
+                                Ty::Error
+                            }
+                        }
+                    }
+                    DefKind::Enum => {
+                        let name = info.name.clone();
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::WRONG_NAMESPACE,
+                                format!("expected value, found enum `{name}`"),
+                            )
+                            .with_label(path.span, "not a value")
+                            .with_note("a variant is named through its enum: `Self::Variant`"),
+                        );
+                        Ty::Error
+                    }
                     DefKind::Struct => {
                         let adt = self.items.adt(d);
                         if adt.is_unit {
@@ -842,10 +1415,14 @@ impl<'a> FnCtxt<'a> {
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
         if op == UnOp::Neg {
-            self.negating = matches!(strip_parens(operand).kind, ExprKind::Lit(Lit::Int { .. }));
+            let inner = std::mem::take(&mut self.double_negation);
+            let operand = &strip_parens(operand).kind;
+            self.negating = !inner && matches!(operand, ExprKind::Lit(Lit::Int { .. }));
+            self.double_negation = matches!(operand, ExprKind::Unary(UnOp::Neg, _));
         }
         let ty = self.check_expr(operand, expected);
         self.negating = false;
+        self.double_negation = false;
         let resolved = self.shallow(&ty);
         let ok = match (&resolved, op) {
             (Ty::Error | Ty::Never, _) => true,
@@ -1156,7 +1733,8 @@ impl<'a> FnCtxt<'a> {
         ty
     }
 
-    fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> Ty {
+    #[allow(clippy::too_many_lines)]
+    fn check_call(&mut self, id: NodeId, callee: &Expr, args: &[Expr], span: Span) -> Ty {
         let target = strip_parens(callee);
         let callee_ty = if let ExprKind::Path(_) = &target.kind {
             let t = self.check_path(target, true);
@@ -1170,6 +1748,32 @@ impl<'a> FnCtxt<'a> {
         };
         let def = match self.shallow(&callee_ty) {
             Ty::FnDef(d) => d,
+            Ty::Adt(_)
+                if strip_parens(callee).id == target.id
+                    && self.variant_exprs.contains_key(&target.id) =>
+            {
+                // `E::Unit()`: a unit variant is a value, not a constructor.
+                let ExprKind::Path(path) = &target.kind else {
+                    unreachable!("recorded for a path")
+                };
+                let name = path
+                    .segments
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("::");
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::NOT_CALLABLE,
+                        format!("expected function, found enum variant `{name}`"),
+                    )
+                    .with_label(callee.span, "a unit variant is a value: remove the `()`"),
+                );
+                for a in args {
+                    self.check_expr(a, None);
+                }
+                return Ty::Error;
+            }
             Ty::Error => {
                 for a in args {
                     self.check_expr(a, None);
@@ -1193,6 +1797,23 @@ impl<'a> FnCtxt<'a> {
         };
         if let Some(builtin @ (Builtin::Print | Builtin::PrintLine)) = self.items.builtin(def) {
             return self.check_print_call(builtin, args, span);
+        }
+        if self.resolve.def(def).kind == DefKind::Variant {
+            // `E::V(a, b)`: a tuple variant's constructor.
+            let (adt, index) = self.variant_of(def);
+            let variant = self.items.adt(adt).variant(index).clone();
+            if variant.fields.len() != args.len() {
+                let d =
+                    Self::wrong_arg_count("enum variant", variant.fields.len(), args.len(), span)
+                        .with_label(variant.span, "variant defined here");
+                self.error(d);
+            }
+            for (i, a) in args.iter().enumerate() {
+                let expected = variant.fields.get(i).map(|f| f.ty.clone());
+                self.check_expr(a, expected.as_ref());
+            }
+            self.variant_exprs.insert(id, (adt, index));
+            return Ty::Adt(adt);
         }
         if self.resolve.is_drop_fn(def) {
             // `D::drop(&mut d)`.
@@ -1701,7 +2322,24 @@ impl<'a> FnCtxt<'a> {
             }
             return Ty::Error;
         };
-        let adt = self.items.adt(def).clone();
+        let (def, adt) = if self.resolve.def(def).kind == DefKind::Variant {
+            // `E::V { .. }`: the variant's fields; the value is an `E`.
+            let (enum_def, index) = self.variant_of(def);
+            self.variant_exprs.insert(expr.id, (enum_def, index));
+            let e = self.items.adt(enum_def);
+            let v = e.variant(index);
+            let adt = collect::AdtDef {
+                name: e.name.clone(),
+                fields: v.fields.clone(),
+                is_unit: false,
+                is_copy: false,
+                span: v.span,
+                variants: None,
+            };
+            (enum_def, adt)
+        } else {
+            (def, self.items.adt(def).clone())
+        };
         let mut seen: Vec<Option<Span>> = vec![None; adt.fields.len()];
         for f in fields {
             if let Some(i) = adt.field_index(&f.name.name) {
@@ -1803,6 +2441,14 @@ impl<'a> FnCtxt<'a> {
             }
             local_types.insert(id, t);
         }
+        let mut pat_types = HashMap::new();
+        for (id, ty) in std::mem::take(&mut self.pat_types) {
+            let mut t = self.infer.resolve_with_defaults(&ty);
+            if t.has_infer() {
+                t = Ty::Error;
+            }
+            pat_types.insert(id, t);
+        }
         let mut expr_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.expr_types) {
             let mut t = self.infer.resolve_with_defaults(&ty);
@@ -1863,6 +2509,10 @@ impl<'a> FnCtxt<'a> {
             ref_bindings: self.ref_bindings,
             coerced_tuples: self.coerced_tuples,
             method_calls: self.method_calls,
+            pat_types,
+            pat_variants: self.pat_variants,
+            variant_exprs: self.variant_exprs,
+            pat_consts: HashMap::new(),
             has_errors,
         }
     }
@@ -1907,6 +2557,13 @@ impl<'a> FnCtxt<'a> {
         if from.is_error() || to.is_error() || from.is_never() || from == to {
             return;
         }
+        let fieldless = self
+            .items
+            .as_enum(from)
+            .is_some_and(crate::collect::AdtDef::is_fieldless_enum);
+        // rustc rejects casting an enum that implements `Drop` (formerly the
+        // `cenum_impl_drop_cast` lint): the cast would read a value whose drop then runs.
+        let drop_impl = matches!(from, Ty::Adt(d) if self.items.drop_impl(*d).is_some());
         let ok = match (from, to) {
             (Ty::Prim(f), Ty::Prim(t)) => {
                 (f.is_numeric() && t.is_numeric())
@@ -1914,6 +2571,8 @@ impl<'a> FnCtxt<'a> {
                     || (*f == PrimTy::Char && t.is_integer())
                     || (*f == PrimTy::U8 && *t == PrimTy::Char)
             }
+            // A fieldless enum casts to its discriminant.
+            (Ty::Adt(_), Ty::Prim(t)) if fieldless => t.is_integer() && !drop_impl,
             _ => false,
         };
         if ok {
@@ -1921,6 +2580,27 @@ impl<'a> FnCtxt<'a> {
         }
         let (f, t) = (self.ty_str(from), self.ty_str(to));
         let d = match (from, to) {
+            (Ty::Adt(_), Ty::Prim(p)) if fieldless && drop_impl && p.is_integer() => {
+                Diagnostic::error(
+                    ErrorCode::INVALID_CAST,
+                    format!(
+                        "cannot cast enum `{f}` into integer `{t}` because it implements `Drop`"
+                    ),
+                )
+                .with_label(span, "invalid cast")
+            }
+            (Ty::Adt(_), Ty::Prim(PrimTy::Bool)) if fieldless => Diagnostic::error(
+                ErrorCode::INVALID_CAST,
+                format!("cannot cast `{f}` as `bool`"),
+            )
+            .with_label(span, "invalid cast")
+            .with_note("compare the discriminant instead: `e as i32 != 0`"),
+            (Ty::Adt(_), Ty::Prim(_)) if fieldless => Diagnostic::error(
+                ErrorCode::INVALID_CAST,
+                format!("casting `{f}` as `{t}` is invalid"),
+            )
+            .with_label(span, "invalid cast")
+            .with_note("an enum casts to an integer type only"),
             (Ty::Prim(PrimTy::Char), _) | (_, Ty::Prim(PrimTy::Char))
                 if from.is_integer() || to.is_integer() =>
             {
@@ -1975,6 +2655,30 @@ fn strip_parens(mut e: &Expr) -> &Expr {
 }
 
 /// `1 element`, `3 elements`.
+/// For each of `pats` (at most one `..` among them), the index of the element or field
+/// it matches among `len`; `None` for the `..` itself.
+pub fn rest_positions(pats: &[Pat], len: usize) -> Vec<Option<usize>> {
+    let rest = pats.iter().position(|p| matches!(p.kind, PatKind::Rest));
+    let after = rest.map_or(0, |r| pats.len() - r - 1);
+    pats.iter()
+        .enumerate()
+        .map(|(i, _)| match rest {
+            Some(r) if i == r => None,
+            Some(r) if i > r => Some(len.saturating_sub(after) + (i - r - 1)),
+            _ => Some(i),
+        })
+        .collect()
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn join_and(items: &[String]) -> String {
+    match items.len() {
+        0 => String::new(),
+        1 => items[0].clone(),
+        n => format!("{} and {}", items[..n - 1].join(", "), items[n - 1]),
+    }
+}
+
 fn elements(n: usize) -> String {
     if n == 1 {
         "1 element".to_owned()

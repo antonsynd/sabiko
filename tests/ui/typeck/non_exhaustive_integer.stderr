@@ -1,0 +1,27 @@
+[E0328] Error: non-exhaustive patterns: `i32::MIN..=-1_i32` and `3_i32..=i32::MAX` not covered
+   ╭─[ tests/ui/typeck/non_exhaustive_integer.sabi:6:11 ]
+   │
+ 6 │     match n { //~ ERROR E0328 non-exhaustive patterns: `i32::MIN..=-1_i32` and `3_i32..=i32::MAX`
+   │           ┬  
+   │           ╰── patterns `i32::MIN..=-1_i32` and `3_i32..=i32::MAX` not covered
+   │ 
+   │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+───╯
+[E0328] Error: non-exhaustive patterns: `u8::MAX` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_integer.sabi:13:11 ]
+    │
+ 13 │     match n { //~ ERROR E0328 non-exhaustive patterns: `u8::MAX` not covered
+    │           ┬  
+    │           ╰── pattern `u8::MAX` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `0_i8` not covered
+    ╭─[ tests/ui/typeck/non_exhaustive_integer.sabi:20:11 ]
+    │
+ 20 │     match n { //~ ERROR E0328 non-exhaustive patterns: `0_i8` not covered
+    │           ┬  
+    │           ╰── pattern `0_i8` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

@@ -112,6 +112,7 @@ fn mentions(body: &Body) -> Vec<Mentions> {
                         operand(&mut m, op);
                     }
                 }
+                Rvalue::Discriminant(p) => m[p.local.index()].other += 1,
                 Rvalue::Ref(_, p) => {
                     let entry = &mut m[p.local.index()];
                     entry.other += 1;
@@ -270,7 +271,7 @@ fn statement_reads(kind: &StatementKind, temp: Local) -> bool {
         Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => is_temp(op, temp),
         Rvalue::BinaryOp(_, l, r) => is_temp(l, temp) || is_temp(r, temp),
         Rvalue::Aggregate(_, ops) => ops.iter().any(|o| is_temp(o, temp)),
-        Rvalue::Ref(..) => false,
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) => false,
     }
 }
 
@@ -296,7 +297,7 @@ fn apply(body: &mut Body, c: &Candidate) {
                         replace(l, c.temp, source) || replace(r, c.temp, source)
                     }
                     Rvalue::Aggregate(_, ops) => ops.iter_mut().any(|o| replace(o, c.temp, source)),
-                    Rvalue::Ref(..) => false,
+                    Rvalue::Ref(..) | Rvalue::Discriminant(_) => false,
                 },
                 _ => false,
             },

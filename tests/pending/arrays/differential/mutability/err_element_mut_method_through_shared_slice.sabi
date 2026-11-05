@@ -1,0 +1,12 @@
+// A `&mut self` method on an element of a `&[Counter]` needs `&mut s[0]`: E0596.
+struct Counter { N: i32 }
+
+impl Counter {
+    fn Inc(&mut self) {
+        self.N += 1;
+    }
+}
+
+fn IncFirst(s: &[Counter]) {
+    s[0].Inc();
+}

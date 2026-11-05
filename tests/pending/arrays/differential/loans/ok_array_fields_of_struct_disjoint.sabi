@@ -1,0 +1,13 @@
+// Arrays in different fields of a struct are disjoint places: elements of `g.Left` and
+// `g.Right` can be borrowed mutably at once, and `g.Count` written meanwhile.
+struct Grid { Left: [i32; 2], Right: [i32; 2], Count: i32 }
+
+fn Main() {
+    let mut g = Grid { Left: [1, 2], Right: [3, 4], Count: 0 };
+    let l = &mut g.Left[0];
+    let r = &mut g.Right[1];
+    g.Count += 1;
+    *l += *r;
+    *r += 1;
+    PrintLine(g.Left[0] + g.Right[1] + g.Count);
+}

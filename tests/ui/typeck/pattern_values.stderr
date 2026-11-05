@@ -1,0 +1,35 @@
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/pattern_values.sabi:12:9 ]
+    │
+ 12 │         Limit => 2, //~ WARN E0330 unreachable pattern
+    │         ──┬──  
+    │           ╰──── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/pattern_values.sabi:14:9 ]
+    │
+ 14 │         1..=Limit => 4, //~ WARN E0330 unreachable pattern
+    │         ────┬────  
+    │             ╰────── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/pattern_values.sabi:32:9 ]
+    │
+ 32 │         -1.5 => 3, //~ WARN E0330 unreachable pattern
+    │         ──┬─  
+    │           ╰─── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/pattern_values.sabi:37:9 ]
+    │
+ 37 │         0.100000001 => 2, //~ WARN E0330 unreachable pattern
+    │         ─────┬─────  
+    │              ╰─────── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/pattern_values.sabi:47:9 ]
+    │
+ 47 │         9 => 3, //~ WARN E0330 unreachable pattern
+    │         ┬  
+    │         ╰── no value can reach this
+────╯

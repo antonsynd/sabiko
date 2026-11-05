@@ -1,0 +1,30 @@
+// A guard may move the scrutinee out (a move leaves its memory unchanged, so the fake
+// borrow does not object); it is then dropped by whoever took it, once, whether the guard
+// holds or not, and the arms after it must not test it again.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+enum Slot { Empty, Full(D) }
+
+fn Consume(s: Slot, keep: bool) -> bool {
+    PrintLine(if keep { "guard holds" } else { "guard fails" });
+    keep
+}
+
+fn Run(s: Slot, keep: bool) -> i32 {
+    match s {
+        Slot::Full(_) if Consume(s, keep) => 1,
+        _ => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(Run(Slot::Full(D { Id: 7 }), true));
+    PrintLine(Run(Slot::Full(D { Id: 8 }), false));
+    PrintLine(Run(Slot::Empty, true));
+}

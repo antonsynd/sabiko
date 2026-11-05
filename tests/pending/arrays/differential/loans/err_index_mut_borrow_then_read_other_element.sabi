@@ -1,0 +1,9 @@
+// While `a[0]` is mutably borrowed no element can be read: `a[1]` is E0503 ("cannot use
+// `a[_]` because it was mutably borrowed").
+fn Main() {
+    let mut a = [1, 2, 3];
+    let r = &mut a[0];
+    let x = a[1];
+    *r = x;
+    PrintLine(a[0]);
+}

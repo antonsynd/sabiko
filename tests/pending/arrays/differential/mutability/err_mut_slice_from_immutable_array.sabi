@@ -1,0 +1,9 @@
+// `&mut a` coerced to `&mut [i32]` still borrows `a` mutably: E0596 without `mut`.
+fn Clear(s: &mut [i32]) {
+    s[0] = 0;
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    Clear(&mut a);
+}

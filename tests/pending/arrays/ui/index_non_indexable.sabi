@@ -1,0 +1,14 @@
+// Only arrays and slices (and references to them) can be indexed: an integer, a struct
+// and a tuple are E0608 ("cannot index into a value of type `i32`"); a `&str` is E0277
+// (strings are indexed by ranges, not supported here).
+struct P { X: i32 }
+
+fn Main() {
+    let x: i32 = 5;
+    let p = P { X: 1 };
+    let t = (1, 2);
+    let a = x[0]; //~ rustc E0608: cannot index into a value of type `i32`
+    let b = p[0]; //~ rustc E0608: cannot index into a value of type `P`
+    let c = t[0]; //~ rustc E0608: cannot index into a value of type `({integer}, {integer})`
+    let d = "abc"[0]; //~ rustc E0277: the type `str` cannot be indexed by `{integer}` [string indices are ranges of `usize`]
+}

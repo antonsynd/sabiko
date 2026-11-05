@@ -77,7 +77,7 @@ tests/
   ui/                compile-fail + diagnostics golden tests
   codegen/           .il golden tests
   run-pass/          compile, assemble, run, compare stdout
-  interop/           C# xunit projects consuming Sabiko DLLs and vice versa
+  interop/           C# programs (csc, no SDK) consuming Sabiko DLLs; later vice versa
   differential/      programs valid in both Rust and Sabiko, compared against rustc
 docs/
   PLAN.md, SPEC.md (grammar + semantics), DECISIONS.md (ADR log), THIRDPARTY.md
@@ -591,6 +591,78 @@ had dropped below their thresholds, mostly through tuples; new tests bring them 
 95.6% and 98.8% (`docs/TESTING.md`), and one survivor listed as equivalent turned out to
 be killable.
 
+Update (2026-11-05), enums and `match` (#8, decisions 57 to 60): `enum` items with unit,
+tuple and struct variants and explicit discriminants, variant constructors and literals,
+`as` casts of fieldless enums, `impl` blocks and `impl Drop` on enums; patterns (literals,
+ranges, bindings with `ref`/`ref mut`/`@`, wildcards and `..`, tuple, tuple-variant and
+struct patterns, or-patterns) in `match` with guards, `if let`, `while let`, `let`-`else`,
+`let` and parameters; exhaustiveness and reachability by a port of rustc's usefulness
+algorithm (decision 58). Enums are value types with a tag and one payload field per variant
+(decision 57, C#-facing names by decision 59, checked from C# by `tests/interop/enum_layout`);
+matches lower to sequential candidates with rustc's guard semantics (fake borrows,
+bindings by reference until the guard holds; a guard may move the scrutinee, decision 60),
+and drop elaboration follows partial moves into variants behind discriminant-set flags.
+Everything staged in `tests/pending/enums/` landed (30 run-time programs in
+`differential/run/enums/`, verdict pairs in `differential/{moves,loans,enums}/`, UI tests
+per stage); the generator covers every construct (paragraph below) and mutation testing on
+the changed lines leaves only equivalent survivors (the paragraph after). Benchmark
+`enums`: Sabiko takes 1.5 to 1.9 times as long as C# in-process and allocates nothing; the
+gap is the candidates re-reading the tag where a decision tree (as in rustc) would switch
+once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p`, half-open
+ranges, primitive associated constants in patterns, `==` on enums (Phase 6), a match
+through `&&T` (`Ref<T>`), string literal patterns (with
+`&str`, #10), float range patterns (rejected with a misleading message), code that patterns
+make unreachable is not borrow-checked (rustc's false edges), and an arm that tests a
+scrutinee a failed guard moved out (E0406; rustc tests once). Moving a non-`Copy` field out
+of a `Drop` enum is reported at the binding (E0418) where rustc reports E0509 at the
+scrutinee. C# still rejects names Sabiko allows side by side in one type (a field and a
+method of one name; an enum method named like a payload field or `Tag`).
+
+Update (2026-11-05), generator for enums and `match` (#8): `sabiko_testgen` declares
+enums (unit, tuple and struct variants over primitives, tuples, structs and earlier enums,
+some `Copy`, some with an `impl Drop` that matches on `self`, fieldless ones with explicit
+discriminants cast with `as`, enum methods, enums in struct fields and tuples) and
+generates `match` as a statement, a `let` initialiser and inline, `if let`, `while let`
+over a state local, `let`-`else` and destructuring `let`s, with nested variant, literal,
+range, or-, `..`, shorthand, `mut`/`ref`/`ref mut`/`@` patterns and guards, on places,
+references and temporaries, moving out of the scrutinee where the scope model allows;
+every `match` is exhaustive by construction. With the fixes below, 2000 seeds at each of
+three bases (1000000, 2000000, 3000000) agree with rustc on all five properties. The runs
+found six compiler bugs, all fixed with regression programs: a guard on a match through a reference made the
+fake borrow's `&&T` temporary an E0500 (`run/enums/guards_through_references.sabi`), and
+so did a guard reading a top-level binding of a `&T` or `&mut T` scrutinee (now a shared
+reborrow of its target, `run/enums/guards_on_mut_references.sabi`); a `let` or `let`-`else` with a `ref`/`ref mut` binding did not extend
+its initialiser's temporary (a false E0413), and a failing `let`-`else` ran its `else`
+before dropping the initialiser's temporaries (`run/enums/if_let/let_else_temporaries.sabi`);
+casting a fieldless enum that implements `Drop` was accepted (`ui/typeck/enum_casts.sabi`),
+and so was `-(-128i8)`, whose literal rustc reads as `128i8` (only the outer of two
+negations counts; `ui/typeck/literal_ranges.sabi`).
+The reorder analysis now counts a `ref` binding as taking its scrutinee's address. Gap
+found and not fixed: rustc borrow-checks code that patterns make unreachable (false edges
+between match candidates, the `else` of an irrefutable `if let`/`let`-`else`) and Sabiko
+does not, so an assignment to an immutable binding there is E0384 in rustc only
+(`pending/enums/known_gap/unreachable_arms_borrowck.sabi`, seeds 2001893 and 3000551,
+where a move in an unreachable arm made a later use an error in rustc only); MIR building
+needs false edges. The generator makes no pattern unreachable (the arms before a cover
+are guarded, a cover's arms are disjoint, an `if let` or `let`-`else` pattern surely
+refutes; a validity test checks that Sabiko reports no unreachable pattern) and skips no
+check after a `match`'s first arm or in an `else`.
+
+Update (2026-11-05), mutation testing of enums and `match` (#8) on the lines the branch
+changed (`docs/TESTING.md`): before the new tests, 81.4% (`sabiko_types`), 88.7%
+(`sabiko_mir`), 87.3% (`sabiko_codegen`) and 80.0% (`sabiko_borrowck`), after them
+97.3%, 99.1%, 94.5% and 100%, with only equivalent survivors left. The survivors found four
+bugs, now fixed: a repeated variant name with explicit discriminants panicked
+the type checker, a local as a range pattern bound was accepted and its function never
+built (a `MissingMethodException` at run time; E0315 now), `match r.F` through a reference
+`r` could omit an uninhabited variant rustc requires, and a pattern with an unresolved path
+was also reported as non-exhaustive, refutable or unreachable. A guard may now move the
+scrutinee out, as in rustc (decision 60). Gap: an arm after such a guard that tests the
+moved scrutinee again is E0406, which rustc accepts
+(`tests/pending/enums/known_gap/move_scrutinee_in_guard_then_test.sabi`). Also noticed:
+a float range pattern (`0.0..=1.0`, valid Rust) is rejected as "only `char` and numeric
+types are allowed in range patterns", which names `f64` as not numeric.
+
 ### Phase 5: Data types
 
 Work
@@ -611,7 +683,8 @@ against drops rather than retrofitted.
 - `enum` with unit, tuple and struct variants, non-generic (generic enums come with Phase 6,
   decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
-  as in rustc).
+  as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
+  and `let`-`else`; see the status notes above).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
@@ -622,7 +695,8 @@ against drops rather than retrofitted.
 Verification
 - Exhaustiveness UI tests (missing variant, unreachable arm, nested patterns).
 - Enum layout tests from C#: a C# test reads tag/payload fields of a Sabiko enum and
-  matches on it (the first `tests/interop` harness).
+  matches on it (the first `tests/interop` harness). Done: `tests/interop/enum_layout`,
+  run by `crates/sabikoc/tests/interop.rs` (docs/TESTING.md, Interop; decision 59).
 - Drop-order tests (from Phase 4): reverse declaration order, conditional drops through
   flags, drops during unwinding, compared against rustc. Done (#12):
   `tests/differential/run/drops/` and the generator.

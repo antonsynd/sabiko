@@ -1,0 +1,8 @@
+// String literal patterns are valid Rust but compare `&str` values, which arrive with
+// `&str` support (#10); until then they are E0107.
+fn F(s: &str) -> i32 {
+    match s {
+        "a" => 1, //~ ERROR E0107 not yet supported: string literal patterns
+        _ => 0,
+    }
+}

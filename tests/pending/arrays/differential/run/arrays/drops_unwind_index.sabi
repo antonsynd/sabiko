@@ -1,0 +1,23 @@
+// (drops, #12) An out-of-bounds index panics with arrays of `impl Drop` structs live: the
+// unwinding drops them as a scope end would, elements first to last, the later local
+// first; the panic report names the indexing expression.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Get(a: &[D; 3], i: usize) -> i32 {
+    a[i].Id
+}
+
+fn Main() {
+    let a = [D { Id: 1 }, D { Id: 2 }, D { Id: 3 }];
+    let b = [D { Id: 4 }, D { Id: 5 }];
+    PrintLine(Get(&a, 2));
+    PrintLine(Get(&a, 3));
+    PrintLine("not reached");
+}

@@ -1,0 +1,18 @@
+//@ release
+// In a release build arithmetic wraps, element arithmetic and index arithmetic alike, but
+// the bounds check stays: `i - 1` for `i = 0` wraps to 18446744073709551615 and indexing
+// with it panics with the out-of-bounds message.
+fn Previous(a: &[i8; 4], i: usize) -> i8 {
+    a[i - 1]
+}
+
+fn Main() {
+    let mut a: [i8; 4] = [100, 2, 3, 127];
+    a[0] += 100;
+    a[3] += 1;
+    PrintLine(a[0]);
+    PrintLine(a[3]);
+    PrintLine(Previous(&a, 4));
+    PrintLine(Previous(&a, 0));
+    PrintLine("not reached");
+}

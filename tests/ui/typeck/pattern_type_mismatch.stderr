@@ -1,0 +1,29 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/pattern_type_mismatch.sabi:10:9 ]
+    │
+ 10 │         'a' => 1, //~ ERROR E0300 mismatched types
+    │         ─┬─  
+    │          ╰─── expected `i32`, found `char`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/pattern_type_mismatch.sabi:14:9 ]
+    │
+ 13 │     let b = match l {
+    │                   ┬  
+    │                   ╰── this expression has type `Light`
+ 14 │         Dir::North => 1, //~ ERROR E0300 mismatched types
+    │         ─────┬────  
+    │              ╰────── expected `Light`, found `Dir`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/pattern_type_mismatch.sabi:18:9 ]
+    │
+ 17 │     let c = match t {
+    │                   ┬  
+    │                   ╰── this expression has type `(i32, i32)`
+ 18 │         (x, y, z) => x, //~ ERROR E0300 mismatched types
+    │         ────┬────  
+    │             ╰────── expected `(i32, i32)`, found a tuple with 3 elements
+    │ 
+    │ Note: expected a tuple with 2 elements, found one with 3 elements
+────╯

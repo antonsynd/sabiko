@@ -58,6 +58,7 @@ impl Dumper {
         });
     }
 
+    #[allow(clippy::too_many_lines)]
     fn item(&mut self, item: &Item) {
         let vis = if item.vis == Visibility::Public {
             "pub "
@@ -117,6 +118,39 @@ impl Dumper {
                     d.expr(&c.value);
                 });
             }
+            ItemKind::Enum(e) => {
+                self.line(&format!("{vis}Enum {}", e.name.name));
+                self.nested(|d| {
+                    d.meta(&item.attrs, &item.docs);
+                    for v in &e.variants {
+                        d.line(&format!("Variant {}", v.name.name));
+                        d.nested(|d| {
+                            d.meta(&v.attrs, &v.docs);
+                            match &v.data {
+                                VariantData::Unit => {}
+                                VariantData::Tuple(tys) => {
+                                    for t in tys {
+                                        d.ty(t);
+                                    }
+                                }
+                                VariantData::Named(fields) => {
+                                    for f in fields {
+                                        d.line(&format!("Field {}", f.name.name));
+                                        d.nested(|d| {
+                                            d.meta(&[], &f.docs);
+                                            d.ty(&f.ty);
+                                        });
+                                    }
+                                }
+                            }
+                            if let Some(e) = &v.discriminant {
+                                d.line("Discriminant");
+                                d.nested(|d| d.expr(e));
+                            }
+                        });
+                    }
+                });
+            }
             ItemKind::Impl(imp) => {
                 match &imp.trait_ref {
                     Some(t) => self.line(&format!("{vis}Impl {} for", t.name)),
@@ -164,18 +198,75 @@ impl Dumper {
 
     fn pat(&mut self, pat: &Pat) {
         match &pat.kind {
-            PatKind::Ident { mutable, name } => {
+            PatKind::Ident {
+                by_ref,
+                mutable,
+                name,
+                sub,
+            } => {
                 self.line(&format!(
-                    "Pat {}{}",
+                    "Pat {}{}{}",
+                    if *by_ref { "ref " } else { "" },
                     if *mutable { "mut " } else { "" },
                     name.name
                 ));
+                if let Some(sub) = sub {
+                    self.nested(|d| {
+                        d.line("At");
+                        d.nested(|d| d.pat(sub));
+                    });
+                }
             }
             PatKind::Wild => self.line("Pat _"),
+            PatKind::Rest => self.line("Pat .."),
             PatKind::Tuple(elems) => {
                 self.line("TuplePat");
                 self.nested(|d| {
                     for p in elems {
+                        d.pat(p);
+                    }
+                });
+            }
+            PatKind::Path(path) => self.line(&format!("PathPat {}", path_str(path))),
+            PatKind::TupleStruct(path, elems) => {
+                self.line(&format!("TupleStructPat {}", path_str(path)));
+                self.nested(|d| {
+                    for p in elems {
+                        d.pat(p);
+                    }
+                });
+            }
+            PatKind::Struct { path, fields, rest } => {
+                self.line(&format!("StructPat {}", path_str(path)));
+                self.nested(|d| {
+                    for f in fields {
+                        d.line(&format!(
+                            "FieldPat {}{}",
+                            f.name.name,
+                            if f.shorthand { " (shorthand)" } else { "" }
+                        ));
+                        d.nested(|d| d.pat(&f.pat));
+                    }
+                    if rest.is_some() {
+                        d.line("Rest");
+                    }
+                });
+            }
+            PatKind::Lit(e) => {
+                self.line("LitPat");
+                self.nested(|d| d.expr(e));
+            }
+            PatKind::Range(lo, hi, end) => {
+                self.line(&format!("RangePat {}", end.as_str()));
+                self.nested(|d| {
+                    d.expr(lo);
+                    d.expr(hi);
+                });
+            }
+            PatKind::Or(alts) => {
+                self.line("OrPat");
+                self.nested(|d| {
+                    for p in alts {
                         d.pat(p);
                     }
                 });
@@ -208,6 +299,10 @@ impl Dumper {
                     if let Some(init) = &l.init {
                         d.line("Init");
                         d.nested(|d| d.expr(init));
+                    }
+                    if let Some(els) = &l.els {
+                        d.line("Else");
+                        d.nested(|d| d.block(els));
                     }
                 });
             }
@@ -361,6 +456,30 @@ impl Dumper {
                         d.line(&format!("FieldInit {}", f.name.name));
                         d.nested(|d| d.expr(&f.value));
                     }
+                });
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                self.line("Match");
+                self.nested(|d| {
+                    d.expr(scrutinee);
+                    for arm in arms {
+                        d.line("Arm");
+                        d.nested(|d| {
+                            d.pat(&arm.pat);
+                            if let Some(g) = &arm.guard {
+                                d.line("Guard");
+                                d.nested(|d| d.expr(g));
+                            }
+                            d.expr(&arm.body);
+                        });
+                    }
+                });
+            }
+            ExprKind::Let(pat, e) => {
+                self.line("Let");
+                self.nested(|d| {
+                    d.pat(pat);
+                    d.expr(e);
                 });
             }
         }

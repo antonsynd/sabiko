@@ -122,6 +122,8 @@ pub struct LoanData {
     /// For a two-phase borrow, the location of the use that activates it (a call). `None`
     /// for an ordinary borrow, which is active from its creation.
     pub activation: Option<Location>,
+    /// A fake borrow of a match scrutinee while a guard runs (`BorrowKind::Fake`).
+    pub fake: bool,
 }
 
 impl LoanData {
@@ -338,6 +340,7 @@ impl Generator<'_> {
                         location,
                         span: statement.span,
                         activation,
+                        fake: *kind == sabiko_mir::BorrowKind::Fake,
                     });
                 }
             }
@@ -540,7 +543,7 @@ impl Generator<'_> {
                 self.operand(rhs, location);
                 RegionTy::Other
             }
-            Rvalue::Aggregate(AggregateKind::Adt(_), fields) => {
+            Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), fields) => {
                 for field in fields {
                     self.operand(field, location);
                 }
@@ -556,6 +559,11 @@ impl Generator<'_> {
                 }
             }
             Rvalue::Ref(kind, place) => self.borrow(kind.mutability(), place, location),
+            Rvalue::Discriminant(place) => {
+                self.use_local(place.local, location);
+                self.access(place, AccessKind::Read, location);
+                RegionTy::Other
+            }
         }
     }
 
@@ -677,6 +685,11 @@ impl Generator<'_> {
             if except == Some(Loan(index)) {
                 continue;
             }
+            // A move leaves the scrutinee's memory as it was, so a guard may move it out
+            // (rustc leaves this to the move checks, which reject any later use).
+            if loan.fake && kind == AccessKind::Move {
+                continue;
+            }
             let reading = matches!(kind, AccessKind::Read | AccessKind::SharedBorrow);
             let mutability = if reading && loan.is_reserved_at(location, &self.dominators) {
                 Mutability::Not
@@ -732,7 +745,7 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
                     .iter()
                     .filter_map(Operand::place)
                     .for_each(|p| add(p, at)),
-                Rvalue::Ref(_, place) => add(place, at),
+                Rvalue::Ref(_, place) | Rvalue::Discriminant(place) => add(place, at),
             }
         }
         let at = Location::terminator_of(body, bb);
@@ -768,10 +781,11 @@ pub fn places_conflict(
         return false;
     }
     for (a, b) in access.projection.iter().zip(&borrowed.projection) {
-        if let (PlaceElem::Field(fa, _), PlaceElem::Field(fb, _)) = (a, b) {
-            if fa != fb {
-                return false;
-            }
+        match (a, b) {
+            (PlaceElem::Field(fa, _), PlaceElem::Field(fb, _)) if fa != fb => return false,
+            // Two variants of one enum never hold values at the same time.
+            (PlaceElem::Downcast(va), PlaceElem::Downcast(vb)) if va != vb => return false,
+            _ => {}
         }
     }
     if kind.is_shallow() && borrowed.projection.len() > access.projection.len() {
