@@ -752,6 +752,29 @@ comparing `str` places (`*s == *t`, E0208) and `&&str` operands (E0500 until #11
 in structs, enums and arrays (#43), and every other `str` and slice method (`chars()`,
 `is_empty()`, ..., #45).
 
+Update (2026-11-05), generator for strings and range slicing (#10): `sabiko_testgen`
+generates `&str` locals, parameters and returns (`fn F(s: &str) -> &str` by elision),
+ASCII string literals with escapes, range places of strings, arrays and slices in all six
+forms with constant and computed bounds (sometimes out of range, reversed or overflowing:
+about 3.5% of borrow-clean programs end in a slicing panic), borrowed, indexed, measured,
+sliced again and walked in loops, `.len()` and the six comparisons of `&str`, and `match`,
+`if let`, `while let` and `let`-`else` on strings (docs/TESTING.md). 2000 seeds at each of
+three bases (10000000, 11000000, 12000000) agree with rustc on all five properties. The
+runs found two compiler bugs, neither specific to strings or ranges and both older than
+#10, which the generator avoids with TODOs: while unwinding, an evaluated operand with drop
+glue of a block's tail is dropped after the block's locals instead of before them (`let a
+= D { .. }; G { A: D { .. }, B: 10 / k }`), and an evaluated call or aggregate operand with
+drop glue is dropped after a later operand's statement temporary instead of before it
+(`Use(D { .. }, Get(&D { .. }, 0))`). Both look like an operand dropped in an enclosing
+temporary scope rather than its own. They also found three generator bugs, fixed.
+
+Update (2026-11-05), mutation testing of strings and range slicing (#10) on the lines the
+branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`), 90.7%
+(`sabiko_mir`) and 91.7% (`sabiko_codegen`), with `sabiko_parser` and `sabiko_borrowck` at
+100%; after them 100% everywhere but `sabiko_codegen`, whose two survivors are
+equivalent. Among the killing tests: slicing is a point that may panic for drop
+elaboration (`run/strings/drops_unwind_slice`).
+
 ### Phase 5: Data types
 
 Work

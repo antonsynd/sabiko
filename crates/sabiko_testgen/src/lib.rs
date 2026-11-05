@@ -47,12 +47,21 @@
 //! `Copy` operands for N >= 2); element reads, writes, compound assignments and borrows
 //! with constant indices and computed ones that may be out of bounds or overflow;
 //! `.len()`; `while i < s.len()` loops; arrays as fields, tuple elements, enum payloads,
-//! parameters and returns, copied or moved whole (never out of an element). Not generated:
-//! slice patterns, ranges, array comparison, arrays of references,
-//! generics, closures, `&str` other than literals passed to `Print`/`PrintLine`/`Panic`,
-//! references in struct fields, tuples or enum payloads, `()` values, comparisons of
-//! tuples or enums, `&` patterns, half-open ranges, float patterns, recursion, shadowing,
-//! unbounded loops, and reads of uninitialised locals.
+//! parameters and returns, copied or moved whole (never out of an element). Strings and
+//! range indexing (#10): `&str` locals, parameters and returns (`fn F(s: &str) -> &str`,
+//! by elision, or a literal from any single reference parameter), ASCII string literals
+//! with escapes, range places of strings, arrays and slices in all six forms (`&s[1..k]`,
+//! `&mut a[i..]`, `a[..2][k] = v`, `s[1..][..2]`, `x[a..=b].len()`) with constant and
+//! computed bounds that are sometimes out of range or overflow, `.len()` of strings, the
+//! six comparisons of `&str` operands, `match` (literals, or-patterns, guarded bindings, a
+//! catch-all), `if let` and `let`-`else` on strings, and loops walking a string or range
+//! place by index or shrinking a `mut` `&str` (see [`body`]'s `strings` and `arrays`
+//! modules). Not generated: slice patterns, ranges as values, array comparison, arrays
+//! of references, generics, closures, `&&str` (#11), `&mut str`, comparisons of `str`
+//! places, non-ASCII text, references (`&str` included, #43) in struct fields, tuples,
+//! arrays or enum payloads, `()` values, comparisons of tuples or enums, `&` patterns,
+//! half-open range patterns, float patterns, recursion, shadowing, unbounded loops, and
+//! reads of uninitialised locals.
 //!
 //! With [`Knobs::default`] a small fraction of the scope-model checks are skipped on
 //! purpose, so some programs contain a use after move, a conflicting borrow, a write to an

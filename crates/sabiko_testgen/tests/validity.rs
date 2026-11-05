@@ -519,3 +519,283 @@ fn programs_use_arrays() {
     eprintln!("of {SEEDS} programs: {}", report.join(", "));
     assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
 }
+
+/// The bracketed groups of a line that hold a range at their top level (`[1..]`,
+/// `[..(s.len() - 1usize)]`), as `(start, end)` byte offsets of the brackets, with the
+/// range's form: `a..b`, `a..`, `..b`, `..`, `a..=b` or `..=b`.
+fn range_groups(line: &str) -> Vec<(usize, usize, &'static str)> {
+    let bytes = line.as_bytes();
+    let mut out = Vec::new();
+    let mut stack: Vec<(usize, Option<usize>)> = Vec::new();
+    let mut parens = 0usize;
+    let mut quoted = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if quoted {
+            if c == b'\\' {
+                i += 1;
+            } else if c == b'"' {
+                quoted = false;
+            }
+        } else {
+            match c {
+                b'"' => quoted = true,
+                b'[' => stack.push((i, None)),
+                b'(' => parens += 1,
+                b')' => parens = parens.saturating_sub(1),
+                b'.' if bytes.get(i + 1) == Some(&b'.') => {
+                    if let Some(top) = stack.last_mut() {
+                        top.1.get_or_insert(i);
+                    }
+                    i += 1;
+                }
+                b']' => {
+                    if let Some((open, Some(dots))) = stack.pop() {
+                        let lo = !line[open + 1..dots].trim().is_empty();
+                        let inclusive = bytes.get(dots + 2) == Some(&b'=');
+                        let hi = !line[dots + if inclusive { 3 } else { 2 }..i]
+                            .trim()
+                            .is_empty();
+                        let form = match (lo, inclusive, hi) {
+                            (true, true, _) => "a..=b",
+                            (false, true, _) => "..=b",
+                            (true, false, true) => "a..b",
+                            (true, false, false) => "a..",
+                            (false, false, true) => "..b",
+                            (false, false, false) => "..",
+                        };
+                        out.push((open, i, form));
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    let _ = parens;
+    out
+}
+
+fn any_range(s: &str, pred: impl Fn(&str, usize, usize, &str) -> bool) -> bool {
+    s.lines().any(|l| {
+        range_groups(l)
+            .into_iter()
+            .any(|(open, close, form)| pred(l, open, close, form))
+    })
+}
+
+/// Whether a line of `s` starts with a place that ends in an element of a range place
+/// and assigns to it (`a[1..][k] = `, `p.A[..2][0].X += `).
+fn writes_through_range(s: &str) -> bool {
+    s.lines().any(|l| {
+        let t = l.trim_start();
+        let offset = l.len() - t.len();
+        if !t.starts_with(|c: char| c.is_ascii_lowercase()) {
+            return false;
+        }
+        let Some(assign) = ["= ", "+= ", "-= ", "*= ", "^= ", "|= "]
+            .iter()
+            .filter_map(|op| t.find(&format!("] {op}")))
+            .min()
+        else {
+            return false;
+        };
+        range_groups(l)
+            .iter()
+            .any(|&(_, close, _)| close < offset + assign && l[close + 1..].starts_with('['))
+    })
+}
+
+/// Strings and range indexing (#10) are part of the subset: a fair share of programs use
+/// `&str` locals, parameters and returns, literals with escapes, every range form on
+/// strings, arrays and slices, comparisons, matches on strings and the loops.
+#[test]
+#[allow(clippy::too_many_lines)] // one table of checks
+fn programs_use_strings_and_ranges() {
+    let knobs = Knobs::default();
+    let checks: [Check; 28] = [
+        (
+            "`&str` parameter",
+            |s| {
+                s.lines()
+                    .any(|l| l.trim_start().starts_with("fn ") && l.contains(": &str"))
+            },
+            50,
+        ),
+        ("`-> &str`", |s| s.contains("-> &str {"), 15),
+        ("`&str` local", |s| s.contains(": &str = "), 120),
+        (
+            "escape in a string",
+            |s| {
+                [
+                    "\\n", "\\t", "\\\\", "\\\"", "\\'", "\\0", "\\x41", "\\u{61}",
+                ]
+                .iter()
+                .any(|e| s.contains(e))
+            },
+            120,
+        ),
+        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 120),
+        ("`a..`", |s| any_range(s, |_, _, _, f| f == "a.."), 150),
+        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 80),
+        ("`..`", |s| any_range(s, |_, _, _, f| f == ".."), 70),
+        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 120),
+        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 80),
+        (
+            "computed bound",
+            |s| any_range(s, |l, open, close, _| l[open..close].contains(" % ")),
+            80,
+        ),
+        (
+            "bound measuring the base",
+            |s| any_range(s, |l, open, close, _| l[open..close].contains(".len()")),
+            80,
+        ),
+        (
+            "slice of a string literal",
+            |s| any_range(s, |l, open, _, _| l[..open].ends_with('"')),
+            150,
+        ),
+        (
+            "range of a range",
+            |s| {
+                s.lines().any(|l| {
+                    let groups = range_groups(l);
+                    groups
+                        .iter()
+                        .any(|&(_, close, _)| groups.iter().any(|&(open, _, _)| open == close + 1))
+                })
+            },
+            100,
+        ),
+        (
+            "`.len()` of a range place",
+            |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with(".len()")),
+            120,
+        ),
+        (
+            "`&mut` of a range place",
+            |s| {
+                any_range(s, |l, open, _, _| {
+                    let before = &l[..open];
+                    before
+                        .rfind("&mut ")
+                        .is_some_and(|at| !before[at + 5..].contains([' ', '(', '[']))
+                })
+            },
+            15,
+        ),
+        (
+            "element of a range place",
+            |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with('[')),
+            150,
+        ),
+        ("write through a range place", writes_through_range, 15),
+        (
+            "`while i < x[..].len()`",
+            |s| {
+                s.lines().any(|l| {
+                    l.trim_start().starts_with("while ")
+                        && l.ends_with("].len() {")
+                        && !range_groups(l).is_empty()
+                })
+            },
+            15,
+        ),
+        (
+            "string comparison",
+            |s| {
+                ["==", "!=", "<", "<=", ">", ">="]
+                    .iter()
+                    .any(|op| s.contains(&format!(" {op} \"")) || s.contains(&format!("\" {op} ")))
+            },
+            100,
+        ),
+        (
+            "`match` arm of string literals",
+            |s| {
+                s.lines()
+                    .any(|l| l.trim_start().starts_with('"') && l.contains(" => "))
+            },
+            60,
+        ),
+        (
+            "string or-pattern",
+            |s| {
+                s.lines()
+                    .any(|l| l.contains("\" | \"") && l.contains(" => "))
+            },
+            100,
+        ),
+        (
+            "guarded binding of a string",
+            |s| {
+                s.lines().any(|l| {
+                    let t = l.trim_start();
+                    let name: String = t.chars().take_while(char::is_ascii_lowercase).collect();
+                    !name.is_empty()
+                        && t[name.len()..].starts_with(" if ")
+                        && (t.contains(&format!(" if {name}.len()"))
+                            || t.contains(&format!(" if {name} ")))
+                })
+            },
+            25,
+        ),
+        ("`if let` on a string", |s| s.contains("if let \""), 40),
+        (
+            "`let`-`else` on a string",
+            |s| {
+                s.lines().any(|l| {
+                    let t = l.trim_start();
+                    (t.starts_with("let \"") || t.starts_with("let (\"")) && t.ends_with(" else {")
+                })
+            },
+            40,
+        ),
+        ("`while let` on a string", |s| s.contains("while let \""), 8),
+        (
+            "`while i < s.len()` over a string",
+            |s| {
+                let lines: Vec<&str> = s.lines().collect();
+                lines.windows(2).any(|w| {
+                    let t = w[0].trim_start();
+                    t.starts_with("while ")
+                        && t.ends_with(".len() {")
+                        && (w[1].contains("..=") || w[1].contains("..") && w[1].contains('&'))
+                        && w[1].contains('[')
+                })
+            },
+            25,
+        ),
+        (
+            "shrinking a `&str`",
+            |s| {
+                s.lines().any(|l| {
+                    let t = l.trim_start();
+                    let name: String = t.chars().take_while(char::is_ascii_lowercase).collect();
+                    !name.is_empty() && t[name.len()..].starts_with(&format!(" = &{name}["))
+                })
+            },
+            25,
+        ),
+    ];
+    let mut counts = [0usize; 28];
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
+            *count += usize::from(check(&src));
+        }
+    }
+    let report: Vec<String> = checks
+        .iter()
+        .zip(counts)
+        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
+        .collect();
+    let low = checks
+        .iter()
+        .zip(counts)
+        .any(|((_, _, min), count)| count < *min);
+    eprintln!("of {SEEDS} programs: {}", report.join(", "));
+    assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
+}

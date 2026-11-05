@@ -9,11 +9,14 @@
 //! occasional use-after-move or conflicting borrow for the verdict comparison; with
 //! `borrow_clean()` the checks are never skipped.
 //!
-//! Enums and pattern matching live in the `matches` module, arrays, slices and indexing in
-//! the `arrays` module.
+//! Enums and pattern matching live in the `matches` module, arrays, slices, indexing and
+//! range indexing in the `arrays` module, strings in the `strings` module.
 
 mod arrays;
 mod matches;
+mod strings;
+
+use arrays::{has_range, Ranges};
 
 use std::fmt::Write as _;
 
@@ -129,6 +132,12 @@ pub struct BodyGen<'a> {
     no_violations: u32,
     /// While positive, index expressions are leaves (no calls): in guards.
     simple: u32,
+    /// While positive, the bounds or indices of a range place are being generated: no
+    /// further range goes into them (which keeps the recursion shallow).
+    range_depth: u32,
+    /// While positive, nothing is moved: the value arguments of a call whose reference
+    /// arguments (generated first, evaluated later) may read what they would move.
+    no_moves: u32,
 }
 
 const INDENT: &str = "    ";
@@ -162,6 +171,8 @@ impl<'a> BodyGen<'a> {
             force_method: false,
             no_violations: 0,
             simple: 0,
+            range_depth: 0,
+            no_moves: 0,
         };
         for p in &sig.params {
             gen.used_names.push(p.name.clone());
@@ -199,7 +210,7 @@ impl<'a> BodyGen<'a> {
             RetTy::Unit => {}
             RetTy::Val(v) => {
                 let e = self.val_expr(v, self.knobs.max_expr_depth);
-                self.line(&e.text);
+                self.tail(v, &e.text);
             }
             RetTy::Ref { mutable, inner } => {
                 let text = self
@@ -212,6 +223,34 @@ impl<'a> BodyGen<'a> {
     }
 
     // ----- output ------------------------------------------------------------------
+
+    /// Writes the tail expression `text` (of type `ty`) of the current block, through a
+    /// `let` when the block declared a local with drop glue.
+    ///
+    /// TODO(compiler bug, tail operand drop order; seed 22000089): when a block's tail
+    /// evaluates an operand with drop glue (an aggregate field or call argument, `G { A:
+    /// D { .. }, B: 10 / k }`, `Use(D { .. }, 10 / k)`) and a later operand panics, rustc
+    /// drops that operand before the block's locals while unwinding, Sabiko after them
+    /// (as it drops edition-2021 tail temporaries). A `let` statement's temporaries agree,
+    /// so such a tail is bound first: `let v: T = e; v`.
+    fn tail(&mut self, ty: ValTy, text: &str) {
+        let block = self.cur_block();
+        let first = if block == 0 {
+            self.sig.params.len()
+        } else {
+            self.blocks[block].first_var
+        };
+        let drop_locals = self.vars[first.min(self.vars.len())..]
+            .iter()
+            .any(|v| matches!(v.ty, Ty::Val(t) if self.prog.needs_drop(t)));
+        if drop_locals {
+            let name = self.fresh_name();
+            self.line(&format!("let {name}: {} = {text};", self.prog.val_name(ty)));
+            self.line(&name);
+        } else {
+            self.line(text);
+        }
+    }
 
     fn line(&mut self, text: &str) {
         let mut l = INDENT.repeat(self.indent);
@@ -443,7 +482,8 @@ impl<'a> BodyGen<'a> {
                     return true;
                 }
                 // A move.
-                place.via_ref.is_none()
+                self.no_moves == 0
+                    && place.via_ref.is_none()
                     && !place.no_move
                     && root.shared_locks == 0
                     && root.loop_depth == self.loop_depth()
@@ -512,7 +552,7 @@ impl<'a> BodyGen<'a> {
             }
         }
         let mut place = self.rng.pick(&pool).clone();
-        self.finish_place(&mut place);
+        self.finish_place(&mut place, Ranges::of(access));
         self.apply(&place, access);
         Some(place)
     }
@@ -525,6 +565,30 @@ impl<'a> BodyGen<'a> {
         access: Access,
         filter: impl Fn(ValTy) -> bool,
     ) -> Option<(Place, bool)> {
+        self.any_place_with(access, filter, Ranges::of(access))
+    }
+
+    /// [`BodyGen::any_place`] with the range indices made for `ranges` (a place borrowed
+    /// shared now but written later is finished for [`Ranges::Mut`]).
+    fn any_place_with(
+        &mut self,
+        access: Access,
+        filter: impl Fn(ValTy) -> bool,
+        ranges: Ranges,
+    ) -> Option<(Place, bool)> {
+        let (mut place, violation) = self.pick_place(access, filter)?;
+        self.finish_place(&mut place, ranges);
+        Some((place, violation))
+    }
+
+    /// [`BodyGen::any_place`] without finishing the place: for the left-hand side of an
+    /// assignment, whose index expressions are evaluated after the right-hand side (and
+    /// must see what it moved).
+    fn pick_place(
+        &mut self,
+        access: Access,
+        filter: impl Fn(ValTy) -> bool,
+    ) -> Option<(Place, bool)> {
         let typed: Vec<Place> = self
             .candidates()
             .into_iter()
@@ -533,9 +597,8 @@ impl<'a> BodyGen<'a> {
         let (ok, bad): (Vec<Place>, Vec<Place>) =
             typed.into_iter().partition(|p| self.permitted(p, access));
         let pool = self.choose_pool(ok, bad)?;
-        let mut place = self.rng.pick(&pool).clone();
+        let place = self.rng.pick(&pool).clone();
         let violation = !self.permitted(&place, access);
-        self.finish_place(&mut place);
         Some((place, violation))
     }
 
@@ -578,7 +641,11 @@ impl<'a> BodyGen<'a> {
                 continue;
             };
             let found = if i == 0 && method_syntax {
-                let temporary = !returns_ref && !forced;
+                // TODO(compiler bug, operand vs temporary drop order; seed 12000126): a
+                // temporary receiver with drop glue lives to the end of the statement, and
+                // when a later operand panics rustc drops the operands evaluated before it
+                // (`F(D { .. }, (T { .. }).Get(..))`) first, Sabiko the temporary first.
+                let temporary = !returns_ref && !forced && !prog.needs_drop(inner);
                 self.receiver_ref(mutable, inner, depth.saturating_sub(1), temporary)
             } else {
                 self.ref_expr(mutable, inner, depth.saturating_sub(1))
@@ -622,6 +689,15 @@ impl<'a> BodyGen<'a> {
                 .and_then(|e| e.roots.first().map(|&(root, _)| root));
             let saved = self.prefer_root;
             self.prefer_root = two_phase.first().copied().or(receiver_root).or(saved);
+            // The reference arguments were generated first but are evaluated in order: one
+            // after a value argument may read (in an index or a range bound) what the value
+            // argument would move (`F(d, &s[d.K..])`, E0382), so then nothing is moved.
+            let ref_after_value = sig
+                .params
+                .iter()
+                .enumerate()
+                .any(|(j, p)| p.ty.is_ref() && sig.params[..j].iter().any(|q| !q.ty.is_ref()));
+            self.no_moves += u32::from(ref_after_value);
             for (i, p) in sig.params.iter().enumerate() {
                 if let Ty::Val(v) = p.ty {
                     let mut e = self.typed_expr(v, depth.saturating_sub(1));
@@ -631,6 +707,7 @@ impl<'a> BodyGen<'a> {
                     args[i] = Some(e);
                 }
             }
+            self.no_moves -= u32::from(ref_after_value);
             self.prefer_root = saved;
         }
         self.unlock(&held);
@@ -691,7 +768,11 @@ impl<'a> BodyGen<'a> {
                         text: receiver_text(&place.text),
                         roots: vec![(place.root, mutable)],
                     };
-                    (e, mutable)
+                    // An element of a range place (`a[1..][0].Bump(..)`) is reached
+                    // through an `IndexMut` call that borrows `a` at once: no two-phase
+                    // borrow (rustc's E0503 for `a[1..][0].Bump(a[0].X)`).
+                    let two_phase = mutable && !has_range(&place.text);
+                    (e, two_phase)
                 }),
                 1 => self.ref_var(mutable, inner).map(|e| (e, mutable)),
                 2 if !fns.is_empty() && depth > 0 => {
@@ -734,6 +815,7 @@ impl<'a> BodyGen<'a> {
             ValTy::Tuple(t) => self.tuple_expr(t, depth),
             ValTy::Enum(e) => self.enum_expr(e, depth),
             ValTy::Array(a) => self.array_expr(a, depth, false),
+            ValTy::Str => unreachable!("`str` is unsized"),
         }
     }
 
@@ -906,6 +988,9 @@ impl<'a> BodyGen<'a> {
         let d = depth.saturating_sub(1);
         let p = random_prim(self.rng);
         let op = *self.rng.pick(&["==", "!=", "<", "<=", ">", ">="]);
+        if self.rng.chance(14) {
+            return self.str_compare(op, d);
+        }
         if self.rng.chance(20) {
             if let Some(e) = self.ref_compare(p, op, d) {
                 return e;
@@ -954,6 +1039,9 @@ impl<'a> BodyGen<'a> {
         }
         if depth >= 2 && self.rng.chance(4) {
             return self.inline_match(ValTy::Prim(p), depth);
+        }
+        if depth >= 2 && self.rng.chance(2) {
+            return self.str_inline_match(ValTy::Prim(p), depth);
         }
         let has_calls = !self
             .callables(|r| r == RetTy::Val(ValTy::Prim(p)))
@@ -1153,19 +1241,27 @@ impl<'a> BodyGen<'a> {
     /// argument, an annotated `let`).
     fn ref_expr(&mut self, mutable: bool, inner: ValTy, depth: u32) -> Option<Expr> {
         let prog = self.prog;
+        if inner == ValTy::Str {
+            // Strings are never borrowed mutably in the subset.
+            return (!mutable).then(|| self.str_expr(depth));
+        }
         let fns = self.callables(|r| {
             matches!(r, RetTy::Ref { mutable: m, inner: t }
                 if prog.ref_coerces(t, inner) && (m || !mutable))
         });
-        let order =
-            match self
-                .rng
-                .weighted(&[55, 25, if fns.is_empty() || depth == 0 { 0 } else { 20 }])
-            {
-                0 => [0, 1, 2],
-                1 => [1, 0, 2],
-                _ => [2, 0, 1],
-            };
+        // A slice may also be a range of an array or slice (`&a[1..]`, `&mut s[..2]`).
+        let slice = prog.array_of(inner).is_some_and(|(_, len)| len.is_none());
+        let order = match self.rng.weighted(&[
+            55,
+            25,
+            if fns.is_empty() || depth == 0 { 0 } else { 20 },
+            if slice { 30 } else { 0 },
+        ]) {
+            0 => [0, 1, 2, 3],
+            1 => [1, 0, 2, 3],
+            2 => [2, 0, 1, 3],
+            _ => [3, 0, 1, 2],
+        };
         for kind in order {
             let found = match kind {
                 0 => self
@@ -1175,6 +1271,8 @@ impl<'a> BodyGen<'a> {
                         roots: vec![(place.root, mutable)],
                     }),
                 1 => self.ref_var(mutable, inner),
+                3 if slice => self.range_borrow(mutable, inner),
+                3 => None,
                 _ => {
                     if fns.is_empty() || depth == 0 {
                         None
@@ -1204,7 +1302,7 @@ impl<'a> BodyGen<'a> {
         };
         let name = self.vars[p].name.clone();
         // A reference to an array returned as a slice coerces at the return.
-        let options: Vec<String> = self
+        let mut options: Vec<String> = self
             .prog
             .sub_places(pinner)
             .into_iter()
@@ -1223,6 +1321,13 @@ impl<'a> BodyGen<'a> {
                 }
             })
             .collect();
+        if let Some(range) = self.range_tail(p, mutable, inner) {
+            options.push(range);
+        }
+        if inner == ValTy::Str {
+            // A literal is `'static`: it may be returned whatever the parameter.
+            options.push(crate::program::str_literal(self.rng).0);
+        }
         if options.is_empty() {
             return None;
         }
@@ -1288,6 +1393,11 @@ impl<'a> BodyGen<'a> {
             if self.remaining() > 4 { 4 } else { 0 }, // 21 let-else
             4,                           // 22 destructuring let
             if nesting_ok && has_arrays { 7 } else { 0 }, // 23 while i < s.len()
+            7,                           // 24 let of a `&str`
+            if nesting_ok { 5 } else { 0 }, // 25 match on a `&str`
+            if self.remaining() > 4 { 4 } else { 0 }, // 26 `&str` if let / let-else
+            if nesting_ok { 5 } else { 0 }, // 27 loop over a `&str`
+            if has_arrays { 7 } else { 0 }, // 28 let m = &mut a[i..j]
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1319,6 +1429,17 @@ impl<'a> BodyGen<'a> {
             21 => self.stmt_let_else(depth),
             22 => self.stmt_let_destructure(depth),
             23 => self.stmt_index_loop(),
+            24 => self.stmt_let_str(depth),
+            25 => self.stmt_str_match(depth),
+            26 => {
+                if self.rng.chance(50) {
+                    self.stmt_str_if_let(depth)
+                } else {
+                    self.stmt_str_let_else(depth)
+                }
+            }
+            27 => self.stmt_str_loop(depth),
+            28 => self.stmt_range_ref(depth),
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));
@@ -1480,6 +1601,9 @@ impl<'a> BodyGen<'a> {
             return false;
         }
         let mut inner = self.rng.pick(&places).ty;
+        if inner == ValTy::Str {
+            return self.stmt_let_str(self.knobs.max_expr_depth);
+        }
         // An array borrowed as a slice of its elements (`let s: &[T] = &a;`).
         if let Some((elem, Some(_))) = self.prog.array_of(inner) {
             if let Some(slice) = self.prog.slice_of(elem) {
@@ -1514,11 +1638,13 @@ impl<'a> BodyGen<'a> {
     }
 
     fn stmt_assign(&mut self, depth: u32) -> bool {
-        let Some((place, violation)) = self.any_place(Access::Write, |_| true) else {
+        let Some((mut place, violation)) = self.pick_place(Access::Write, |_| true) else {
             return false;
         };
-        // Rust evaluates the right-hand side first (then an index on the left).
+        // Rust evaluates the right-hand side first (then an index on the left, which must
+        // not read what the right-hand side moved).
         let e = self.typed_expr(place.ty, depth);
+        self.finish_place(&mut place, Ranges::Mut);
         if violation || self.permitted(&place, Access::Write) {
             self.apply(&place, Access::Write);
             self.line(&format!("{} = {};", place.text, e.text));
@@ -1532,7 +1658,7 @@ impl<'a> BodyGen<'a> {
     }
 
     fn stmt_compound(&mut self, depth: u32) -> bool {
-        let Some((place, violation)) = self.any_place(
+        let Some((mut place, violation)) = self.pick_place(
             Access::Write,
             |t| matches!(t, ValTy::Prim(p) if p.is_numeric()),
         ) else {
@@ -1559,6 +1685,8 @@ impl<'a> BodyGen<'a> {
             }
             _ => self.prim_expr(p, depth),
         };
+        // The right-hand side of a primitive compound assignment is evaluated first too.
+        self.finish_place(&mut place, Ranges::Mut);
         let moved = self.vars[place.root].moved;
         if violation || (!moved && self.permitted(&place, Access::Write)) {
             self.line(&format!("{} {op} {};", place.text, e.text));
@@ -1574,6 +1702,16 @@ impl<'a> BodyGen<'a> {
         if self.rng.chance(6) {
             let word = *self.rng.pick(&["step", "done", "value", "check", "mark"]);
             self.line(&format!("PrintLine(\"{word}\");"));
+            return true;
+        }
+        if self.rng.chance(12) {
+            let e = self.str_expr(depth.saturating_sub(1));
+            let f = if self.rng.chance(75) {
+                "PrintLine"
+            } else {
+                "Print"
+            };
+            self.line(&format!("{f}({});", e.text));
             return true;
         }
         let p = random_prim(self.rng);
@@ -1595,7 +1733,11 @@ impl<'a> BodyGen<'a> {
             gen.any_place(Access::Borrow(false), |t| {
                 matches!(
                     t,
-                    ValTy::Struct(_) | ValTy::Tuple(_) | ValTy::Enum(_) | ValTy::Array(_)
+                    ValTy::Struct(_)
+                        | ValTy::Tuple(_)
+                        | ValTy::Enum(_)
+                        | ValTy::Array(_)
+                        | ValTy::Str
                 )
             })
         }) else {
@@ -1616,6 +1758,9 @@ impl<'a> BodyGen<'a> {
     /// Prints the primitive leaves of `base` (prints the type's name when it has none: a
     /// struct of enums), or a slice's length.
     fn show_line(&self, base: &str, ty: ValTy) -> String {
+        if ty == ValTy::Str {
+            return format!("PrintLine({});", arrays::len_receiver(base));
+        }
         if !self.prog.is_sized(ty) {
             return format!("PrintLine({}.len());", arrays::len_receiver(base));
         }

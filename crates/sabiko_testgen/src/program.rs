@@ -49,6 +49,61 @@ pub const CHARS: &[char] = &[
     '/', ':', '=', '?', '@', '_', '~',
 ];
 
+/// String literals (#10) as source text. TODO(decision 62): all of them are ASCII, since
+/// Sabiko's strings are UTF-16, so `len()` and the indices of a range differ from rustc's
+/// UTF-8 bytes on other text (by design, not a bug; no generated string may hold a
+/// non-ASCII character, escapes included). The words share letters, so that comparisons, slices and literal patterns
+/// often meet; a few hold escapes (`\n`, `\t`, `\\`, `\"`, `\'`, `\0`, `\x41`,
+/// `\u{61}`), and none a semicolon or a brace outside `\u{..}` (the line-based tools
+/// look at line ends).
+pub const STR_LITERALS: &[&str] = &[
+    "", "a", "b", "c", "ab", "ba", "bc", "abc", "cab", "abcab", "xyz", "key", "val", "key=val",
+    "A", "Ab", "a b", "hello", "Hello!", "0", "10", "9", "~", "a-b", "--x--", "  ",
+];
+pub const STR_ESCAPED: &[&str] = &[
+    "tab\\there",
+    "line\\nbreak",
+    "q\\\"t",
+    "back\\\\",
+    "it\\'s",
+    "\\x41\\x62c",
+    "\\u{61}z",
+    "nul\\0",
+    "\\t",
+    "\\n",
+    "a\\nb",
+];
+
+/// The length (in bytes, all ASCII) of the value of a string literal's source text: the
+/// escapes [`STR_ESCAPED`] uses count one each.
+pub fn str_len(src: &str) -> usize {
+    let bytes = src.as_bytes();
+    let (mut i, mut n) = (0, 0);
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += match bytes[i + 1] {
+                b'x' => 4,
+                b'u' => src[i..].find('}').expect("a closing brace") + 1,
+                _ => 2,
+            };
+        } else {
+            i += 1;
+        }
+        n += 1;
+    }
+    n
+}
+
+/// A random string literal, with quotes, and its length.
+pub fn str_literal(rng: &mut Rng) -> (String, usize) {
+    let src = if rng.chance(12) {
+        *rng.pick(STR_ESCAPED)
+    } else {
+        *rng.pick(STR_LITERALS)
+    };
+    (format!("\"{src}\""), str_len(src))
+}
+
 #[derive(Debug, Clone)]
 pub struct Field {
     pub name: String,
@@ -258,13 +313,14 @@ impl Program {
             Ty::Val(ValTy::Array(a)) => {
                 self.arrays[a].len.is_some() && self.is_copy(Ty::Val(self.arrays[a].elem))
             }
-            Ty::Ref { mutable: true, .. } => false,
+            // Nor is a `str`.
+            Ty::Val(ValTy::Str) | Ty::Ref { mutable: true, .. } => false,
         }
     }
 
-    /// Whether values of type `v` have a size: everything but a slice.
+    /// Whether values of type `v` have a size: everything but a slice and `str`.
     pub fn is_sized(&self, v: ValTy) -> bool {
-        !matches!(v, ValTy::Array(a) if self.arrays[a].len.is_none())
+        !matches!(v, ValTy::Str) && !matches!(v, ValTy::Array(a) if self.arrays[a].len.is_none())
     }
 
     /// The element type and length (`None` for a slice) of an array or slice type.
@@ -300,13 +356,35 @@ impl Program {
         match v {
             ValTy::Struct(s) => self.structs[s].drop.is_some(),
             ValTy::Enum(e) => self.enums[e].drop,
-            ValTy::Prim(_) | ValTy::Tuple(_) | ValTy::Array(_) => false,
+            ValTy::Prim(_) | ValTy::Tuple(_) | ValTy::Array(_) | ValTy::Str => false,
+        }
+    }
+
+    /// Whether a value of type `v` has drop glue: an `impl Drop` in it, at any depth.
+    pub fn needs_drop(&self, v: ValTy) -> bool {
+        match v {
+            ValTy::Prim(_) | ValTy::Str => false,
+            ValTy::Struct(s) => {
+                let def = &self.structs[s];
+                def.drop.is_some() || def.fields.iter().any(|f| self.needs_drop(f.ty))
+            }
+            ValTy::Enum(e) => {
+                let def = &self.enums[e];
+                def.drop
+                    || def
+                        .variants
+                        .iter()
+                        .any(|var| var.elems().iter().any(|&(_, t)| self.needs_drop(t)))
+            }
+            ValTy::Tuple(t) => self.tuples[t].iter().any(|&e| self.needs_drop(e)),
+            ValTy::Array(a) => self.needs_drop(self.arrays[a].elem),
         }
     }
 
     pub fn val_name(&self, v: ValTy) -> String {
         match v {
             ValTy::Prim(p) => p.name().to_owned(),
+            ValTy::Str => "str".to_owned(),
             ValTy::Struct(s) => self.structs[s].name.clone(),
             ValTy::Enum(e) => self.enums[e].name.clone(),
             ValTy::Array(a) => {
@@ -360,7 +438,7 @@ impl Program {
     fn collect_leaves(&self, v: ValTy, prefix: String, out: &mut Vec<(String, Prim)>) {
         match v {
             ValTy::Prim(p) => out.push((prefix, p)),
-            ValTy::Enum(_) => {}
+            ValTy::Enum(_) | ValTy::Str => {}
             ValTy::Struct(s) => {
                 for f in &self.structs[s].fields {
                     self.collect_leaves(f.ty, format!("{prefix}.{}", f.name), out);
@@ -404,8 +482,8 @@ impl Program {
                         .ty
                 }
                 ValTy::Tuple(t) => self.tuples[t][seg.parse::<usize>().expect("an index")],
-                ValTy::Prim(_) | ValTy::Enum(_) | ValTy::Array(_) => {
-                    unreachable!("primitives, enums and arrays have no fields")
+                ValTy::Prim(_) | ValTy::Enum(_) | ValTy::Array(_) | ValTy::Str => {
+                    unreachable!("primitives, enums, arrays and strings have no fields")
                 }
             };
         }
@@ -432,7 +510,7 @@ impl Program {
                         .ty
                 }
                 ValTy::Tuple(t) => self.tuples[t][seg[1..].parse::<usize>().expect("an index")],
-                ValTy::Prim(_) | ValTy::Enum(_) => unreachable!("no sub-places"),
+                ValTy::Prim(_) | ValTy::Enum(_) | ValTy::Str => unreachable!("no sub-places"),
             };
         }
         out
@@ -481,7 +559,7 @@ impl Program {
                     self.collect_sub_places(def.elem, &format!("{prefix}[{k}]"), depth + 1, out);
                 }
             }
-            ValTy::Prim(_) | ValTy::Enum(_) => {}
+            ValTy::Prim(_) | ValTy::Enum(_) | ValTy::Str => {}
         }
     }
 
@@ -966,7 +1044,7 @@ fn gen_array(rng: &mut Rng, program: &mut Program, elem: ValTy) {
             len_text,
         });
     }
-    if program.slice_of(elem).is_none() && rng.chance(70) {
+    if program.slice_of(elem).is_none() && rng.chance(85) {
         program.arrays.push(ArrayDef {
             elem,
             len: None,
@@ -1209,7 +1287,10 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
         .filter(|&a| program.arrays[a].len.is_none())
         .collect();
     let inner = |rng: &mut Rng| {
-        if !slices.is_empty() && rng.chance(22) {
+        if rng.chance(20) {
+            // `&str` (#10); never `&mut str` (see below).
+            ValTy::Str
+        } else if !slices.is_empty() && rng.chance(22) {
             // A slice, unsized behind the reference.
             ValTy::Array(*rng.pick(&slices))
         } else if !sized.is_empty() && rng.chance(15) {
@@ -1234,10 +1315,13 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
             mutable: false,
             inner: inner(rng),
         },
-        _ => Ty::Ref {
-            mutable: true,
-            inner: inner(rng),
-        },
+        _ => {
+            let inner = inner(rng);
+            Ty::Ref {
+                mutable: inner != ValTy::Str,
+                inner,
+            }
+        }
     }
 }
 
@@ -1348,6 +1432,11 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
             };
             let targets = program.sub_places(inner);
             let (_, mut target) = *rng.pick(&targets);
+            // A `&str` (#10): a slice of a `&str` parameter, or a literal (`'static`)
+            // whatever the parameter.
+            if rng.chance(25) {
+                target = ValTy::Str;
+            }
             // An array returned as a slice of its elements (`&[T; N]` to `&[T]`).
             if let Some((elem, Some(_))) = program.array_of(target) {
                 if let Some(slice) = program.slice_of(elem) {
@@ -1357,7 +1446,7 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
                 }
             }
             RetTy::Ref {
-                mutable: mutable && rng.chance(60),
+                mutable: mutable && target != ValTy::Str && rng.chance(60),
                 inner: target,
             }
         }
@@ -1412,4 +1501,39 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
         program.fns.push(sig);
     }
     program
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{str_len, STR_ESCAPED, STR_LITERALS};
+
+    /// The literal pool's values are distinct (patterns of one `match` pick distinct
+    /// sources, which must not be equal values, or an arm would be unreachable) and the
+    /// lengths of the escaped ones are counted right.
+    #[test]
+    fn string_literals_are_distinct_ascii_values() {
+        let unescape = |src: &str| -> String {
+            src.replace("\\x41", "A")
+                .replace("\\x62", "b")
+                .replace("\\u{61}", "a")
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace("\\0", "\0")
+                .replace("\\'", "'")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+        };
+        let mut values: Vec<String> = Vec::new();
+        for src in STR_LITERALS.iter().chain(STR_ESCAPED) {
+            let value = unescape(src);
+            assert!(value.is_ascii(), "{src}");
+            assert!(
+                !src.contains(['{', '}', ';']) || src.contains("\\u{"),
+                "{src}"
+            );
+            assert_eq!(str_len(src), value.len(), "{src}");
+            assert!(!values.contains(&value), "{src} repeats a value");
+            values.push(value);
+        }
+    }
 }
