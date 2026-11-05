@@ -761,7 +761,7 @@ sliced again and walked in loops, `.len()` and the six comparisons of `&str`, an
 `if let`, `while let` and `let`-`else` on strings (docs/TESTING.md). 2000 seeds at each of
 three bases (10000000, 11000000, 12000000) agree with rustc on all five properties. The
 runs found two compiler bugs, neither specific to strings or ranges and both older than
-#10, which the generator avoids with TODOs: while unwinding, an evaluated operand with drop
+#10, which the generator avoids with TODOs (#54): while unwinding, an evaluated operand with drop
 glue of a block's tail is dropped after the block's locals instead of before them (`let a
 = D { .. }; G { A: D { .. }, B: 10 / k }`), and an evaluated call or aggregate operand with
 drop glue is dropped after a later operand's statement temporary instead of before it

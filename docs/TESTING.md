@@ -108,7 +108,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   index like a computed index (it may panic; `&a[i..]` takes `a`'s address; an
   `IndexMut` place writes its base). 2000 seeds at each of the bases 10000000, 11000000
   and 12000000 pass all five properties; about 3.5% of borrow-clean programs end in a
-  slicing panic. The runs found two compiler bugs, both in the drop order while unwinding,
+  slicing panic. The runs found two compiler bugs (#54), both in the drop order while unwinding,
   neither involving strings or ranges, which the generator avoids with TODOs: an operand
   with drop glue of a block's tail (`G { A: D { .. }, B: 10 / k }` after `let a = D {
   .. };`) is dropped after the block's locals instead of before them (tails with locals

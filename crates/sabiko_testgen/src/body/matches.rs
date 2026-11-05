@@ -1413,7 +1413,7 @@ impl BodyGen<'_> {
         let sty = self.matchable_ty();
         let s = self.scrutinee(sty, depth.saturating_sub(2));
         if s.mode == Mode::Move && s.place_root.is_none() && self.prog.needs_drop(sty) {
-            // TODO(compiler bug, operand vs temporary drop order; seed 12000126): a
+            // TODO(#54, operand vs temporary drop order; seed 12000126): a
             // temporary scrutinee with drop glue lives to the end of the statement, and
             // when a later operand panics rustc drops the operands evaluated before this
             // expression first, Sabiko the temporary first (see `BodyGen::call`).

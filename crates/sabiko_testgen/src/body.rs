@@ -227,7 +227,7 @@ impl<'a> BodyGen<'a> {
     /// Writes the tail expression `text` (of type `ty`) of the current block, through a
     /// `let` when the block declared a local with drop glue.
     ///
-    /// TODO(compiler bug, tail operand drop order; seed 22000089): when a block's tail
+    /// TODO(#54, tail operand drop order; seed 22000089): when a block's tail
     /// evaluates an operand with drop glue (an aggregate field or call argument, `G { A:
     /// D { .. }, B: 10 / k }`, `Use(D { .. }, 10 / k)`) and a later operand panics, rustc
     /// drops that operand before the block's locals while unwinding, Sabiko after them
@@ -641,7 +641,7 @@ impl<'a> BodyGen<'a> {
                 continue;
             };
             let found = if i == 0 && method_syntax {
-                // TODO(compiler bug, operand vs temporary drop order; seed 12000126): a
+                // TODO(#54, operand vs temporary drop order; seed 12000126): a
                 // temporary receiver with drop glue lives to the end of the statement, and
                 // when a later operand panics rustc drops the operands evaluated before it
                 // (`F(D { .. }, (T { .. }).Get(..))`) first, Sabiko the temporary first.
