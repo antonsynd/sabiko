@@ -1,0 +1,43 @@
+// (drops, #12) A `let`-`else` whose pattern has a `ref mut` binding keeps its initialiser's
+// temporary to the end of the block; when the pattern fails, the temporary is dropped and
+// the `else` block returns a tuple holding a value with drop glue. MIR building panicked
+// ("a local with a cleanup scope is in an open scope"): the temporary's cleanup scope
+// stayed open below the statement's other temporaries (found by the program generator,
+// seed 8000252).
+struct D {
+    Id: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Kind {
+    Both(i32, i32),
+    Named(D),
+}
+
+fn Make(k: Kind) -> Kind {
+    k
+}
+
+fn Gather(k: Kind) -> (bool, D) {
+    let Kind::Both(next, ref mut tmp) = Make(k) else {
+        return (false, D { Id: 2i32 });
+    };
+    *tmp += 1i32;
+    PrintLine(*tmp);
+    (true, D { Id: next })
+}
+
+fn Main() {
+    let (ok, d) = Gather(Kind::Named(D { Id: 1i32 }));
+    PrintLine(ok);
+    PrintLine(d.Id);
+    let (ok2, e) = Gather(Kind::Both(5i32, 6i32));
+    PrintLine(ok2);
+    PrintLine(e.Id);
+}
