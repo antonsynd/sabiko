@@ -22,7 +22,7 @@
 //! mut` rules now and then, which gives E0505/E0507/E0509/E0596-style errors, but only
 //! in code that is surely reachable (see `Arm::first`).
 //!
-//! TODO(#8 follow-up): Sabiko does not borrow-check code that the patterns make
+//! TODO(#47): Sabiko does not borrow-check code that the patterns make
 //! unreachable, where rustc does (its match lowering adds false edges from each candidate
 //! to the next, and an irrefutable `if let`/`let`-`else` keeps its `else`): an assignment
 //! to an immutable binding or a use after move in an unreachable arm (`match W::Only(1, 2)
