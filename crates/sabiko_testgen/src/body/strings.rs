@@ -9,19 +9,22 @@
 //!
 //! A `&str` is a shared reference ([`Ty::STR`]) to the unsized [`ValTy::Str`], which only
 //! a reference local or parameter `s` holds: the place `*s`, sliced as `s[a..b]` and
-//! measured as `s.len()`. Nothing writes through one and nothing borrows a `&str` local
-//! itself, so a string's loans only matter where it may carry another loan: a `&str`
-//! returned by a method taking `&mut self` keeps the receiver borrowed, and a local bound
-//! to it gets a region (`bind_ref`). A `&str` made of literals and plain `&str` locals is a
-//! plain local that lives to the end of its block, as rustc lets it (a slice of `*s`
-//! borrows the string, not `s`, so it may outlive `s` and `s` may be reassigned meanwhile).
+//! measured as `s.len()`. Nothing writes through one, and a `&str` local itself is only
+//! borrowed by a `&&str` or `&mut &str` local (#11, the `refs` module: `let ss = &s;`,
+//! `ss.len()`, `(*ss) == "a"`, `ss == &t`, `let m = &mut t; *m = "lit";`), which has a
+//! region of its own and locks the local meanwhile. So a string's loans only matter where
+//! it may carry another loan: a `&str` returned by a method taking `&mut self` keeps the
+//! receiver borrowed, and a local bound to it gets a region (`bind_ref`). A `&str` made of
+//! literals and plain `&str` locals is a plain local that lives to the end of its block,
+//! as rustc lets it (a slice of `*s` borrows the string, not `s`, so it may outlive `s`
+//! and `s` may be reassigned meanwhile).
 //!
 //! Every `match` on a string is exhaustive by its last arm (`_` or a binding), every other
 //! arm's literals are distinct from all others and a binding before the last arm is
 //! guarded, so no arm is unreachable (see the `matches` module on TODO(#47)).
 //!
-//! Not generated: TODO(#11) `&&str` (E0500 until #11): no `&s` of a `&str` local and no
-//! `&str` behind another reference or in a reference parameter's referent. TODO(#43)
+//! Not generated: string patterns on a `&&str` scrutinee (`match ss { "a" => .. }`), a
+//! `&str` in a reference parameter's referent other than `&&str`. TODO(#43)
 //! `&str` in structs, enums and arrays (and so in their patterns), and in the generator's
 //! tuple types. TODO(E0208) comparisons of `str` places (`*s == *t`): only `&str`
 //! operands are compared. Ranges as values (E0107 outside an index), `&mut str`, and
@@ -92,7 +95,13 @@ impl BodyGen<'_> {
         ]);
         match choice {
             1 => {
-                if let Some(e) = self.ref_var(false, ValTy::Str) {
+                // `ss` of a `&&str` now and then (`ss.len()`, `ss[1..]`: auto-deref).
+                let double = if self.rng.chance(20) {
+                    self.ref_ref_str_base()
+                } else {
+                    None
+                };
+                if let Some(e) = double.or_else(|| self.ref_var(false, ValTy::Str)) {
                     return StrBase {
                         text: e.text,
                         roots: e.roots,
@@ -211,6 +220,12 @@ impl BodyGen<'_> {
     /// `(a op b)` between two `&str` operands, the left one's loans held while the right
     /// one is generated (both are alive until the comparison).
     pub(super) fn str_compare(&mut self, op: &str, depth: u32) -> Expr {
+        if self.rng.chance(15) {
+            // Between `&&str` operands (#11): `(ss == &s)`, `(&&*s < ss)`.
+            if let Some(e) = self.ref_ref_compare(ValTy::Str, op) {
+                return e;
+            }
+        }
         let a = self.str_expr(depth);
         self.lock(&a.roots);
         let b = self.str_expr(depth);
@@ -227,7 +242,7 @@ impl BodyGen<'_> {
     }
 
     /// Declares a `&str` local bound to `e`: plain, or with a region over `e`'s loans.
-    fn bind_str(&mut self, name: String, mutable: bool, e: &Expr) -> usize {
+    pub(super) fn bind_str(&mut self, name: String, mutable: bool, e: &Expr) -> usize {
         if self.is_plain_str(e) {
             self.declare(name, Ty::STR, mutable, false)
         } else {

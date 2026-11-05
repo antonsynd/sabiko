@@ -799,3 +799,92 @@ fn programs_use_strings_and_ranges() {
     eprintln!("of {SEEDS} programs: {}", report.join(", "));
     assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
 }
+
+/// Whether a function of `s` has a parameter of a type starting with `ty`.
+fn param(s: &str, ty: &str) -> bool {
+    s.lines()
+        .any(|l| l.trim_start().starts_with("fn ") && l.contains(&format!(": {ty}")))
+}
+
+/// Whether a line of `s` is `<lead><name><rest>`, with `<name>` a lowercase local name.
+fn line_with_name(s: &str, lead: &str, rest: &str) -> bool {
+    s.lines().any(|l| {
+        let Some(t) = l.trim_start().strip_prefix(lead) else {
+            return false;
+        };
+        let name: String = t.chars().take_while(char::is_ascii_lowercase).collect();
+        !name.is_empty() && t[name.len()..].starts_with(rest)
+    })
+}
+
+/// References to references (#11) are part of the subset: double reference locals made
+/// by borrowing reference locals, reads and writes through them, retargets through `&mut
+/// &T`, double reference parameters and the arguments passed to them.
+#[test]
+fn programs_use_references_to_references() {
+    let knobs = Knobs::default();
+    let checks: [Check; 11] = [
+        ("`&&T` parameter", |s| param(s, "&&"), 40),
+        ("`&&mut T` parameter", |s| param(s, "&&mut "), 10),
+        ("`&mut &mut T` parameter", |s| param(s, "&mut &mut "), 15),
+        ("`&&str` parameter", |s| param(s, "&&str"), 8),
+        (
+            "annotated double reference local",
+            |s| {
+                s.lines().any(|l| {
+                    let t = l.trim_start();
+                    t.starts_with("let ") && (t.contains(": &&") || t.contains(": &mut &"))
+                })
+            },
+            70,
+        ),
+        (
+            "`&mut` of a reference local",
+            |s| line_with_name(s, "let ", ": &mut &"),
+            35,
+        ),
+        (
+            "write through `&mut &mut`",
+            |s| line_with_name(s, "**", " = "),
+            8,
+        ),
+        (
+            "retarget through `&mut &T`",
+            |s| line_with_name(s, "*", " = &") || line_with_name(s, "*", " = \""),
+            50,
+        ),
+        (
+            "`&&x` argument",
+            |s| s.contains("(&&") || s.contains(", &&") || s.contains("(& &mut "),
+            6,
+        ),
+        (
+            "explicit dereferences of a double reference",
+            |s| s.lines().any(|l| l.contains("(**")),
+            40,
+        ),
+        (
+            "`let` of a borrowed borrow",
+            |s| line_with_name(s, "let ", " = &&") || line_with_name(s, "let ", " = &mut &"),
+            15,
+        ),
+    ];
+    let mut counts = [0usize; 11];
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
+            *count += usize::from(check(&src));
+        }
+    }
+    let report: Vec<String> = checks
+        .iter()
+        .zip(counts)
+        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
+        .collect();
+    let low = checks
+        .iter()
+        .zip(counts)
+        .any(|((_, _, min), count)| count < *min);
+    eprintln!("of {SEEDS} programs: {}", report.join(", "));
+    assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
+}
