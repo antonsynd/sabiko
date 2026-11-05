@@ -1,0 +1,30 @@
+// (drops, #12) An element read that panics is a point where a live value with drop glue
+// must be dropped by the unwinding, even when every other point that may panic comes
+// after the value is moved away: `d` is moved into `Consume` after the read.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume(d: D) {
+    Print("consume ");
+    PrintLine(d.Id);
+}
+
+fn Step(a: &[i32; 2], i: usize) {
+    let d = D { Id: a[0] };
+    let x = a[i];
+    Consume(d);
+    PrintLine(x);
+}
+
+fn Main() {
+    let a = [7, 8];
+    Step(&a, 1);
+    Step(&a, 2);
+    PrintLine("not reached");
+}

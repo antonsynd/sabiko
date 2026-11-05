@@ -288,6 +288,23 @@ mod tests {
         assert!(cx.unify(&Ty::Error, &Ty::BOOL).is_ok());
     }
 
+    /// Arrays unify element and length; slices element.
+    #[test]
+    fn arrays_and_slices_unify_structurally() {
+        let mut cx = InferCtxt::new();
+        let v = cx.new_var(VarKind::General);
+        let slice = |t: Ty| Ty::Slice(Box::new(t));
+        cx.unify(&slice(v.clone()), &slice(Ty::BOOL)).unwrap();
+        assert_eq!(cx.resolve(&v), Ty::BOOL);
+        assert!(cx.unify(&slice(Ty::BOOL), &slice(Ty::I32)).is_err());
+        let w = cx.new_var(VarKind::General);
+        let array = |t: Ty, n| Ty::Array(Box::new(t), n);
+        cx.unify(&array(w.clone(), 3), &array(Ty::I32, 3)).unwrap();
+        assert_eq!(cx.resolve(&w), Ty::I32);
+        assert!(cx.unify(&array(Ty::I32, 2), &array(Ty::I32, 3)).is_err());
+        assert!(cx.unify(&array(Ty::I32, 2), &slice(Ty::I32)).is_err());
+    }
+
     /// Resolution goes through references and through variables bound to references,
     /// keeping mutability and applying literal defaults at any depth.
     #[test]

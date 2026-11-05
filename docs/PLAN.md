@@ -715,6 +715,16 @@ its `else` block crashed MIR building (`run/enums/if_let/let_else_ref_binding_re
 not specific to arrays). The generator leaves out the known gaps (slice patterns, ranges,
 array comparison, arrays of references, `for` loops).
 
+Update (2026-11-05), mutation testing of arrays and slices (#9) on the lines the branch
+changed (`docs/TESTING.md`): before the new tests, 75.7% (`sabiko_types`), 83.3%
+(`sabiko_mir`), 82.0% (`sabiko_codegen`) and 65.2% (`sabiko_borrowck`), after them 100%,
+98.8%, 96.6% and 91.3%, with only equivalent survivors left. The survivors found three
+bugs, now fixed: `let s: &[_] = &a;` panicked the compiler (the coercion's target kept the
+unresolved `_`), and two bounds checks were lost, so an index out of bounds did not panic:
+an element read whose value is discarded (`a[i];`, deleted by copy forwarding) and the
+read of a `()` element. Also noticed: a move out of a slice element names the place
+`*s[_]` where rustc writes `s[_]` (E0420's note).
+
 ### Phase 5: Data types
 
 Work

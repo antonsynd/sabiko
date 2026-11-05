@@ -1,0 +1,38 @@
+// Indexing slices that are not held by a local of their own: a call's result, used once
+// (kept on the evaluation stack), and a slice in a tuple field, of a local and of a
+// call's result. A `&mut [T]` returned by a call and coerced to `&[T]` (a `Span<T>` made
+// a `ReadOnlySpan<T>`), as an argument and in an annotated `let`.
+fn View(a: &[i32; 3]) -> &[i32] {
+    a
+}
+
+fn Pair(s: &[i32]) -> (&[i32], i32) {
+    (s, 7)
+}
+
+fn Head(s: &mut [i32]) -> &mut [i32] {
+    s[0] += 10;
+    s
+}
+
+fn Sum(s: &[i32]) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < s.len() {
+        total += s[i];
+        i += 1;
+    }
+    total
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    PrintLine(View(&a)[1]);
+    let t: (&[i32], i32) = (&a, 1);
+    PrintLine(t.0[2] + t.1);
+    let p = Pair(&a);
+    PrintLine(p.0[0] + p.1 + Pair(&a).0[1]);
+    PrintLine(Sum(Head(&mut a)));
+    let h: &[i32] = Head(&mut a);
+    PrintLine(h[0] + h.len() as i32);
+}

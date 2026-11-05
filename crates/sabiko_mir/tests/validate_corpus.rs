@@ -363,3 +363,136 @@ fn validator_rejects_malformed_enum_mir() {
         "aggregate of variant 9 of `E`",
     );
 }
+
+/// Element places and pointer coercions must be well-formed: an index local is a
+/// `usize`; a coercion unsizes a reference to an array of the same element type, or turns
+/// a `&mut [T]` into a `&[T]`, and never adds `mut`. An operand of error type is accepted
+/// as a coercion's source, as everywhere.
+#[test]
+fn validator_rejects_malformed_array_mir() {
+    let src = "fn Head(s: &mut [i32]) -> &mut [i32] { s }\n\
+               fn F(a: &mut [i32; 3], i: usize) -> i32 {\n\
+               let s: &mut [i32] = a;\n\
+               let r: &[i32] = Head(s);\n\
+               r[i]\n\
+               }";
+    let (bodies, typeck) = lower(src).expect("valid program");
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let f = bodies.iter().position(|b| b.name == "F").expect("F");
+    let rejects = |bodies: &[Body], message: &str| {
+        let errors = sabiko_mir::validate::validate_all(bodies, &typeck);
+        assert!(
+            errors.iter().any(|e| e.contains(message)),
+            "expected {message:?}: {errors:#?}"
+        );
+    };
+
+    // The index local of `(*r)[_k]`, retyped.
+    let index = bodies[f]
+        .blocks
+        .iter()
+        .flat_map(|b| &b.statements)
+        .find_map(|s| match &s.kind {
+            StatementKind::Assign(_, Rvalue::Use(Operand::Copy(p))) => p.index_locals().next(),
+            _ => None,
+        })
+        .expect("`r[i]` reads an element");
+    let mut bad_index = bodies.clone();
+    bad_index[f].locals[index.index()].ty = Ty::I32;
+    rejects(&bad_index, "has type Prim(I32)");
+
+    // The two coercions: `&mut [i32; 3]` to `&mut [i32]`, then `&mut [i32]` to `&[i32]`.
+    let coercions: Vec<(usize, usize)> = bodies[f]
+        .blocks
+        .iter()
+        .enumerate()
+        .flat_map(|(bb, data)| {
+            data.statements
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| {
+                    matches!(
+                        s.kind,
+                        StatementKind::Assign(_, Rvalue::PointerCoercion(..))
+                    )
+                })
+                .map(move |(i, _)| (bb, i))
+        })
+        .collect();
+    assert_eq!(coercions.len(), 2, "{:#?}", bodies[f]);
+    let with_target = |which: usize, to: Ty| {
+        let mut bodies = bodies.clone();
+        let (bb, i) = coercions[which];
+        let StatementKind::Assign(dest, Rvalue::PointerCoercion(_, target)) =
+            &mut bodies[f].blocks[bb].statements[i].kind
+        else {
+            unreachable!("found above")
+        };
+        *target = to.clone();
+        let local = dest.local;
+        bodies[f].locals[local.index()].ty = to;
+        bodies
+    };
+    let slice = |t: Ty| Ty::Slice(Box::new(t));
+    // `&mut [i32; 3]` to `&mut [bool]`, and the slice coercion adding nothing or `mut`, or
+    // changing the element type.
+    rejects(
+        &with_target(0, Ty::mut_ref(slice(Ty::BOOL))),
+        "pointer coercion",
+    );
+    rejects(
+        &with_target(1, Ty::mut_ref(slice(Ty::I32))),
+        "pointer coercion",
+    );
+    rejects(
+        &with_target(1, Ty::shared_ref(slice(Ty::BOOL))),
+        "pointer coercion",
+    );
+    // `&[i32; 3]` to `&mut [i32]`: the array is shared.
+    let mut shared_array = bodies.clone();
+    let (bb, i) = coercions[0];
+    let StatementKind::Assign(_, Rvalue::PointerCoercion(op, _)) =
+        &shared_array[f].blocks[bb].statements[i].kind
+    else {
+        unreachable!("found above")
+    };
+    let source = op.place().expect("a place operand").local;
+    shared_array[f].locals[source.index()].ty = Ty::shared_ref(Ty::Array(Box::new(Ty::I32), 3));
+    rejects(&shared_array, "pointer coercion");
+    // An operand of error type is no wrong coercion (its move is reported, as a move of a
+    // `Copy` type).
+    let mut error_operand = bodies.clone();
+    error_operand[f].locals[source.index()].ty = Ty::Error;
+    let errors = sabiko_mir::validate::validate_all(&error_operand, &typeck);
+    assert!(
+        !errors.iter().any(|e| e.contains("pointer coercion")),
+        "{errors:#?}"
+    );
+}
+
+/// An array value may be written where an array of the same length is expected whose
+/// elements it is compatible with (`[&mut i32; 1]` as `[&i32; 1]`, as for a tuple); a
+/// length or element type that differs is reported.
+#[test]
+fn validator_compares_arrays_element_by_element() {
+    let (bodies, typeck) =
+        lower("fn F(x: [&mut i32; 1]) -> [&mut i32; 1] { x }").expect("valid program");
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let retyped = |ty: Ty| {
+        let mut bodies = bodies.clone();
+        bodies[0].locals[0].ty = ty;
+        sabiko_mir::validate::validate_all(&bodies, &typeck)
+    };
+    let errors = retyped(Ty::Array(Box::new(Ty::shared_ref(Ty::I32)), 1));
+    assert!(errors.is_empty(), "{errors:#?}");
+    for ty in [
+        Ty::Array(Box::new(Ty::shared_ref(Ty::I32)), 2),
+        Ty::Array(Box::new(Ty::shared_ref(Ty::BOOL)), 1),
+    ] {
+        let errors = retyped(ty);
+        assert!(
+            errors.iter().any(|e| e.contains("assignment of")),
+            "{errors:#?}"
+        );
+    }
+}

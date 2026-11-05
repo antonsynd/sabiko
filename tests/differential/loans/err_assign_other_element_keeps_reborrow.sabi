@@ -1,0 +1,12 @@
+// Overwriting `a[1]` does not kill the reborrow of `*a[0]` (the index could name the same
+// element): writing `*a[0]` while `r` is used later is E0506.
+fn F() {
+    let mut x = 1;
+    let mut y = 2;
+    let mut z = 3;
+    let mut a = [&mut x, &mut y];
+    let r = &mut *a[0];
+    a[1] = &mut z;
+    *a[0] = 5;
+    *r = 6;
+}

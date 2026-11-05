@@ -1,0 +1,27 @@
+// `[x; N]` of every kind of constant, zero (all bits clear) or not: integers, `bool`,
+// `char` (`'\0'` and others), floats (`0.0`, and `-0.0`, which has a bit set), and `()`;
+// and of a value computed at run time.
+fn Main() {
+    let ints = [0u16; 3];
+    let ones = [7i64; 2];
+    let flags = [false; 2];
+    let sets = [true; 2];
+    let nul = ['\0'; 2];
+    let letters = ['x'; 3];
+    let zeros = [0.0; 2];
+    let negative_zeros = [-0.0f32; 2];
+    let halves = [1.5; 2];
+    let units = [(); 4];
+    PrintLine(ints[2] as i64 + ones[1]);
+    PrintLine(flags[1] || sets[0]);
+    PrintLine(nul[1] as u32);
+    Print(letters[0]);
+    PrintLine(letters[2]);
+    PrintLine(zeros[1]);
+    PrintLine(1.0 / negative_zeros[1]);
+    PrintLine(halves[0] + halves[1]);
+    PrintLine(units.len());
+    let n = ones[0] * 3;
+    let computed = [n; 2];
+    PrintLine(computed[1]);
+}

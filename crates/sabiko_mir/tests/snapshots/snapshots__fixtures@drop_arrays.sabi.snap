@@ -1,0 +1,134 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/drop_arrays.sabi
+---
+fn D::drop(_1: &mut D) {
+    let mut _0: ();
+    let mut _2: ();
+    let mut _3: i32;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = copy (*_1).Id;
+        _2 = PrintLine(copy _3) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Main() {
+    let mut _0: ();
+    let _1: [D; 2];                      // a
+    let mut _2: D;
+    let mut _3: D;
+    let _4: [D; 0];                      // empty
+    let _5: [i32; 2];                    // plain
+    let _6: ([D; 1], i32);               // t
+    let mut _7: [D; 1];
+    let mut _8: D;
+    cleanup c0: _2 => drop(_2);
+    cleanup c1 in c0: _3 => drop(_3);
+    cleanup c2: _1 => drop(_1);
+    cleanup c3 in c2: _2 => drop(_2);
+    cleanup c4 in c2: _8 => drop(_8);
+    cleanup c5 in c2: _8 => drop(_8);
+    cleanup c6 in c5: _7 => drop(_7);
+    cleanup c7 in c2: _6 => drop(_6);
+    cleanup c8 in c7: _8 => drop(_8);
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = D { Id: const 1_i32 };
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c0): {
+        StorageLive(_3);
+        _3 = D { Id: const 2_i32 };
+        goto -> bb2;
+    }
+
+    bb2 (cleanup c1): {
+        _1 = [move _2, move _3];
+        goto -> bb3;
+    }
+
+    bb3 (cleanup c3): {
+        drop(_3) -> bb4;
+    }
+
+    bb4 (cleanup c2): {
+        StorageDead(_3);
+        drop(_2) -> bb5;
+    }
+
+    bb5 (cleanup c2): {
+        StorageDead(_2);
+        StorageLive(_4);
+        _4 = [];
+        StorageLive(_5);
+        _5 = [const 3_i32, const 4_i32];
+        StorageLive(_6);
+        StorageLive(_7);
+        StorageLive(_8);
+        _8 = D { Id: const 5_i32 };
+        goto -> bb6;
+    }
+
+    bb6 (cleanup c4): {
+        _7 = [move _8];
+        goto -> bb7;
+    }
+
+    bb7 (cleanup c6): {
+        _6 = (move _7, const 6_i32);
+        goto -> bb8;
+    }
+
+    bb8 (cleanup c8): {
+        drop(_7) -> bb9;
+    }
+
+    bb9 (cleanup c7): {
+        StorageDead(_7);
+        drop(_8) -> bb10;
+    }
+
+    bb10 (cleanup c7): {
+        StorageDead(_8);
+        _0 = const ();
+        goto -> bb11;
+    }
+
+    bb11 (cleanup c2): {
+        drop(_6) -> bb12;
+    }
+
+    bb12: {
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageDead(_4);
+        drop(_1) -> bb13;
+    }
+
+    bb13: {
+        StorageDead(_1);
+        goto -> bb14;
+    }
+
+    bb14: {
+        return;
+    }
+}

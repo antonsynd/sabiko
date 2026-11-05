@@ -2767,6 +2767,11 @@ mod tests {
         let behind_ref = Ty::shared_ref(tup(&[Ty::BOOL, Ty::Error]));
         assert_eq!(check_match(&cx, &behind_ref, &[]), Report::default());
         assert_eq!(check_match(&cx, &tup(&[Ty::Error]), &[]), Report::default());
+        // And as an array or slice element.
+        let array = Ty::Array(Box::new(Ty::Error), 2);
+        assert_eq!(check_match(&cx, &array, &[]), Report::default());
+        let slice = Ty::shared_ref(Ty::Slice(Box::new(Ty::Error)));
+        assert_eq!(check_match(&cx, &slice, &[]), Report::default());
         let arm = Arm {
             pat: Pat {
                 kind: PatKind::Ctor {

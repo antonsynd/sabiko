@@ -1,0 +1,20 @@
+// An array of `()` stores nothing, but reading an element still checks its index (a
+// `let`, a tuple element, a call argument): in bounds through an array and a slice, then
+// out of bounds, which panics (the read was skipped as a `()` value).
+fn Unit(u: (), n: i32) -> i32 {
+    n
+}
+
+fn Read(a: &[(); 3], s: &[()], i: usize) {
+    let x = a[i];
+    let t = (s[i], i);
+    PrintLine(Unit(a[i], 1) + t.1 as i32);
+}
+
+fn Main() {
+    let mut units = [(); 3];
+    units[1] = ();
+    Read(&units, &units, 2);
+    Read(&units, &units, 3);
+    PrintLine("not reached");
+}

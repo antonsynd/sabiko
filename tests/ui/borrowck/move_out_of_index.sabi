@@ -1,0 +1,37 @@
+// Moving a non-Copy value out of an array or slice element (rustc's E0508), at any depth
+// and through references; the message names the array or slice type. Copying a `Copy`
+// element or field out is fine.
+struct Token {
+    Id: i32,
+}
+
+struct Holder {
+    Inner: Token,
+}
+
+fn Take(t: Token) {}
+
+fn Array(a: [Token; 2]) {
+    let t = a[0]; //~ ERROR E0420 cannot move out of type `[Token; 2]`, a non-copy array
+    let id = a[1].Id;
+}
+
+fn Field(a: [Holder; 3], i: usize) {
+    Take(a[i].Inner); //~ ERROR E0420 cannot move out of type `[Holder; 3]`, a non-copy array
+}
+
+fn ThroughArrayRef(r: &[Token; 2]) -> Token {
+    r[1] //~ ERROR E0420 cannot move out of type `[Token; 2]`, a non-copy array
+}
+
+fn Slice(s: &[Token]) -> Token {
+    s[0] //~ ERROR E0420 cannot move out of type `[Token]`, a non-copy slice
+}
+
+fn MutSlice(s: &mut [Token]) {
+    Take(s[s.len() - 1]); //~ ERROR E0420 cannot move out of type `[Token]`, a non-copy slice
+}
+
+fn Nested(grid: [[Token; 2]; 2]) {
+    let t = grid[0][1]; //~ ERROR E0420 cannot move out of type `[[Token; 2]; 2]`, a non-copy array
+}

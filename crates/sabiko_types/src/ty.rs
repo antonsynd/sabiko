@@ -234,6 +234,21 @@ mod tests {
         assert!(tuple(vec![Ty::mut_ref(tuple(vec![Ty::Never]))]).is_uninhabited());
         assert!(!tuple(vec![Ty::BOOL, Ty::Unit]).is_uninhabited());
         assert!(!Ty::shared_ref(Ty::BOOL).is_uninhabited());
+        // An array of `!` is uninhabited unless it is empty, as in rustc.
+        assert!(Ty::Array(Box::new(Ty::Never), 2).is_uninhabited());
+        assert!(Ty::Array(Box::new(Ty::Never), 1).is_uninhabited());
+        assert!(!Ty::Array(Box::new(Ty::Never), 0).is_uninhabited());
+        assert!(!Ty::Array(Box::new(Ty::BOOL), 2).is_uninhabited());
+    }
+
+    #[test]
+    fn has_ref_through_tuples_arrays_and_slices() {
+        assert!(Ty::shared_ref(Ty::BOOL).has_ref());
+        assert!(tuple(vec![Ty::BOOL, Ty::mut_ref(Ty::Unit)]).has_ref());
+        assert!(Ty::Array(Box::new(Ty::shared_ref(Ty::I32)), 2).has_ref());
+        assert!(Ty::Slice(Box::new(tuple(vec![Ty::mut_ref(Ty::I32)]))).has_ref());
+        assert!(!Ty::Array(Box::new(Ty::I32), 2).has_ref());
+        assert!(!Ty::Slice(Box::new(Ty::BOOL)).has_ref());
     }
 
     #[test]

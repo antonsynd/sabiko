@@ -1,41 +1,48 @@
 [E0319] Error: no method named `len` found for type `i32`
-    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:11:15 ]
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:12:15 ]
     │
- 11 │     let n = x.len(); //~ ERROR E0319 no method named `len` found for type `i32`
+ 12 │     let n = x.len(); //~ ERROR E0319 no method named `len` found for type `i32`
     │               ─┬─  
     │                ╰─── method not found
     │ 
     │ Note: only structs have methods (inherent `impl` blocks)
 ────╯
 [E0319] Error: no method named `len` found for struct `P`
-    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:12:15 ]
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:13:15 ]
     │
- 12 │     let m = p.len(); //~ ERROR E0319 no method named `len` found for struct `P`
+ 13 │     let m = p.len(); //~ ERROR E0319 no method named `len` found for struct `P`
     │               ─┬─  
     │                ╰─── method not found
 ────╯
 [E0319] Error: no method named `Len` found for `[{integer}; 2]`
-    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:13:15 ]
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:14:15 ]
     │
- 13 │     let k = a.Len(); //~ ERROR E0319 no method named `Len` found for `[{integer}; 2]`
+ 14 │     let k = a.Len(); //~ ERROR E0319 no method named `Len` found for `[{integer}; 2]`
     │               ─┬─  
     │                ╰─── method not found
     │ 
     │ Note: arrays and slices have one method for now, `len()`
 ────╯
 [E0304] Error: this method takes 0 arguments but 1 argument was supplied
-    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:14:13 ]
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:15:13 ]
     │
- 14 │     let j = a.len(1); //~ ERROR E0304 this method takes 0 arguments but 1 argument was supplied
+ 15 │     let j = a.len(1); //~ ERROR E0304 this method takes 0 arguments but 1 argument was supplied
     │             ────┬───  
     │                 ╰───── expected 0 arguments
 ────╯
 [E0320] Error: attempted to take value of method `len` on type `[{integer}; 2]`
-    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:15:15 ]
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:16:15 ]
     │
- 15 │     let l = a.len; //~ ERROR E0320 attempted to take value of method `len` on type `[{integer}; 2]`
+ 16 │     let l = a.len; //~ ERROR E0320 attempted to take value of method `len` on type `[{integer}; 2]`
     │               ─┬─  
     │                ╰─── method, not a field
     │ 
     │ Note: use parentheses to call the method: `len()`
+────╯
+[E0301] Error: no field `Count` on type `[{integer}; 2]`
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:17:15 ]
+    │
+ 17 │     let c = a.Count; //~ ERROR E0301 no field `Count` on type `[{integer}; 2]`
+    │               ──┬──  
+    │                 ╰──── unknown field
 ────╯

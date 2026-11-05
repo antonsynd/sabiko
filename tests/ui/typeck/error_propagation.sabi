@@ -20,6 +20,11 @@ fn Unresolved() {
         0..=9 => 1,
         _ => 2,
     };
+    let g = Missing[0]; //~ ERROR E0202 cannot find value `Missing`
+}
+
+fn ArrayOfUnknown(a: [Nope; 2]) { //~ ERROR E0201 cannot find type `Nope`
+    let b: bool = a;
 }
 
 fn FailedOperator() {

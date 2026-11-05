@@ -1,7 +1,8 @@
 // Sabiko codes for rustc's: E0336 for E0608, E0336 for E0277.
 // Only arrays and slices (and references to them) can be indexed: an integer, a struct
-// and a tuple are E0608 ("cannot index into a value of type `i32`"); a `&str` is E0277
-// (strings are indexed by ranges, not supported here).
+// and a tuple are E0608 ("cannot index into a value of type `i32`"), an integer whose
+// type is not yet known too (`{integer}`, not "type annotations needed"); a `&str` is
+// E0277 (strings are indexed by ranges, not supported here).
 struct P { X: i32 }
 
 fn Main() {
@@ -12,4 +13,6 @@ fn Main() {
     let b = p[0]; //~ ERROR E0336 cannot index into a value of type `P`
     let c = t[0]; //~ ERROR E0336 cannot index into a value of type `({integer}, {integer})`
     let d = "abc"[0]; //~ ERROR E0336 cannot index into a value of type `&str`
+    let e = 5;
+    let f = e[0]; //~ ERROR E0336 cannot index into a value of type `{integer}`
 }
