@@ -1,0 +1,9 @@
+[E0417] Error: the trait `Copy` cannot be implemented for type `Hand`
+   ╭─[ tests/ui/typeck/derive_copy_with_non_copy_array_field.sabi:9:15 ]
+   │
+ 9 │ struct Hand { Cards: [Token; 2] } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `Hand`
+   │        ──┬─   ────────┬────────  
+   │          │            ╰────────── this field does not implement `Copy`: `[Token; 2]`
+   │          │                       
+   │          ╰─────────────────────── `Copy` derived here
+───╯

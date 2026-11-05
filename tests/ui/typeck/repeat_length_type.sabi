@@ -1,0 +1,11 @@
+// Sabiko codes for rustc's: E0300 for E0308, E0307 for E0600.
+// An array length is a `usize`: a suffixed literal of another type, or a constant of
+// another type, is E0308; `-1` as a `usize` is E0600.
+const LEN: i32 = 2;
+
+fn Main() {
+    let a = [0; 3i32]; //~ ERROR E0300 mismatched types
+    let b: [i32; 2u8] = [1, 2]; //~ ERROR E0300 mismatched types
+    let c = [0; LEN]; //~ ERROR E0300 mismatched types
+    let d = [0; -1]; //~ ERROR E0307 cannot apply unary operator `-` to type `usize`
+}

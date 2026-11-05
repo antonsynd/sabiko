@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace Sabiko.Runtime;
@@ -78,6 +79,22 @@ public static class Checks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static void ShiftRightOverflow(string location) =>
         throw new PanicException("attempt to shift right with overflow", location);
+
+    /// <summary>
+    /// <c>index out of bounds: the len is {len} but the index is {index}</c>: an array or
+    /// slice element read, written or borrowed at an index past its end. Generated code
+    /// passes the length and the index (both <c>usize</c>) before the location.
+    /// </summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void IndexOutOfBounds(nuint len, nuint index, string location) =>
+        throw new PanicException(
+            string.Concat(
+                "index out of bounds: the len is ",
+                len.ToString(CultureInfo.InvariantCulture),
+                " but the index is ",
+                index.ToString(CultureInfo.InvariantCulture)),
+            location);
 
     /// <summary>
     /// <c>internal error: entered unreachable code</c>, without a location: code generation

@@ -1,0 +1,13 @@
+// Sabiko codes for rustc's: E0306 for E0369, E0307 for E0600, E0308 for E0605, E0300 for
+// E0277.
+// Arrays have no arithmetic and do not cast: `a + b` is E0369, `-a` E0600, `a as i32`
+// E0605, and an element plus an array E0277. (`==` and `<` on arrays are valid Rust:
+// known_gap/array_equality.sabi.)
+fn Main() {
+    let a: [i32; 2] = [1, 2];
+    let b: [i32; 2] = [3, 4];
+    let c = a + b; //~ ERROR E0306 binary operation `+` cannot be applied to type `[i32; 2]`
+    let d = -a; //~ ERROR E0307 cannot apply unary operator `-` to type `[i32; 2]`
+    let e = a as i32; //~ ERROR E0308 non-primitive cast: `[i32; 2]` as `i32`
+    let f = a[0] + b; //~ ERROR E0300 mismatched types
+}

@@ -1,0 +1,45 @@
+[E0335] Error: the type `[i32]` cannot be indexed by `i32`
+    ╭─[ tests/ui/typeck/index_type_not_usize.sabi:11:15 ]
+    │
+ 11 │     let x = a[i]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `i32`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `u32`
+    ╭─[ tests/ui/typeck/index_type_not_usize.sabi:12:15 ]
+    │
+ 12 │     let y = a[j]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u32`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `u64`
+    ╭─[ tests/ui/typeck/index_type_not_usize.sabi:13:15 ]
+    │
+ 13 │     let z = a[k]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u64`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0307] Error: cannot apply unary operator `-` to type `usize`
+    ╭─[ tests/ui/typeck/index_type_not_usize.sabi:14:16 ]
+    │
+ 14 │     let w = a[-1]; //~ ERROR E0307 cannot apply unary operator `-` to type `usize`
+    │                ┬  
+    │                ╰── cannot apply unary operator `-`
+    │ 
+    │ Note: unsigned values cannot be negated
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `bool`
+    ╭─[ tests/ui/typeck/index_type_not_usize.sabi:16:15 ]
+    │
+ 16 │     let v = s[true]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `bool`
+    │               ──┬─  
+    │                 ╰─── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯

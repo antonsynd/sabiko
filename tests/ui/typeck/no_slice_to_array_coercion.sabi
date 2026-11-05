@@ -1,0 +1,17 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// The unsized coercion goes one way, `&[T; N]` to `&[T]` (and `&mut [T; N]` to `&mut [T]`
+// or `&[T]`): a slice does not become an array reference, a `&` does not become a
+// `&mut [T]`, the element type must be the same, and a borrow is not an array. All E0308.
+fn Three(a: &[i32; 3]) -> i32 {
+    a[0]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let s: &[i32] = &a;
+    let b: &[i32; 3] = s; //~ ERROR E0300 mismatched types
+    let c = Three(s); //~ ERROR E0300 mismatched types
+    let m: &mut [i32] = &a; //~ ERROR E0300 mismatched types
+    let w: &[i64] = &a; //~ ERROR E0300 mismatched types
+    let x: [i32; 3] = &a; //~ ERROR E0300 mismatched types
+}

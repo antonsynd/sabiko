@@ -1,0 +1,18 @@
+[E0300] Error: `PrintLine` cannot print a value of type `[i32; 3]`
+   ╭─[ tests/ui/typeck/print_array.sabi:6:15 ]
+   │
+ 6 │     PrintLine(a); //~ ERROR E0300 `PrintLine` cannot print a value of type `[i32; 3]`
+   │               ┬  
+   │               ╰── expected a printable value, found `[i32; 3]`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+───╯
+[E0300] Error: `Print` cannot print a value of type `&[i32]`
+   ╭─[ tests/ui/typeck/print_array.sabi:8:11 ]
+   │
+ 8 │     Print(s); //~ ERROR E0300 `Print` cannot print a value of type `&[i32]`
+   │           ┬  
+   │           ╰── expected a printable value, found `&[i32]`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+───╯

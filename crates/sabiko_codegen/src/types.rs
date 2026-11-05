@@ -11,6 +11,18 @@ use crate::Cx;
 /// `ReadOnlySpan<char>`, the lowering of `&str`.
 pub(crate) const STR_SPAN: &str = "valuetype [System.Runtime]System.ReadOnlySpan`1<char>";
 
+/// `Span<T>` and `ReadOnlySpan<T>` as classes, the lowering of `&mut [T]` and `&[T]`.
+pub(crate) const SPAN_CLASS: &str = "[System.Runtime]System.Span`1";
+pub(crate) const READ_ONLY_SPAN_CLASS: &str = "[System.Runtime]System.ReadOnlySpan`1";
+
+/// `System.Runtime.InteropServices.MemoryMarshal`, whose `CreateSpan` and
+/// `CreateReadOnlySpan` make a span over the elements of an inline array.
+pub(crate) const MEMORY_MARSHAL: &str =
+    "[System.Runtime]System.Runtime.InteropServices.MemoryMarshal";
+
+/// The one field of the value type an array `[T; N]` is lowered to (decision 61).
+pub(crate) const ARRAY_ELEMENT_FIELD: &str = "'Element'";
+
 /// `System.Int128` and `System.UInt128` as classes (in method references) and as value
 /// types (in signatures and locals): the lowering of `i128`/`u128` (decision 42).
 pub(crate) const INT128_CLASS: &str = "[System.Runtime]System.Int128";
@@ -77,6 +89,26 @@ pub(crate) fn is_str(ty: &Ty) -> bool {
     matches!(ty, Ty::Prim(PrimTy::Str))
 }
 
+pub(crate) fn is_slice(ty: &Ty) -> bool {
+    matches!(ty, Ty::Slice(_))
+}
+
+/// `Span<T>` (`mutable`) or `ReadOnlySpan<T>` of the element type `elem`, as a type
+/// (with `valuetype`); the class is [`span_class`].
+pub(crate) fn span_type(cx: &mut Cx<'_>, elem: &Ty, mutable: bool, span: Span) -> String {
+    format!("valuetype {}", span_class(cx, elem, mutable, span))
+}
+
+/// `Span<T>` or `ReadOnlySpan<T>` as a class, for member references.
+pub(crate) fn span_class(cx: &mut Cx<'_>, elem: &Ty, mutable: bool, span: Span) -> String {
+    let class = if mutable {
+        SPAN_CLASS
+    } else {
+        READ_ONLY_SPAN_CLASS
+    };
+    format!("{class}<{}>", cil_type(cx, elem, span))
+}
+
 /// The CIL type of a primitive, or `None` for `str`, which only exists behind a reference.
 pub(crate) fn prim_type(p: PrimTy) -> Option<&'static str> {
     Some(match p {
@@ -125,6 +157,16 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
         ),
         Ty::Adt(def) => format!("valuetype {}", quote(&cx.resolve.def(*def).name)),
         Ty::Ref(_, inner) if is_str(inner) => STR_SPAN.to_owned(),
+        Ty::Ref(m, inner) if is_slice(inner) => {
+            let Ty::Slice(elem) = &**inner else {
+                unreachable!()
+            };
+            if elem.has_ref() {
+                cx.unsupported("a slice of references", span);
+                return "int32".to_owned();
+            }
+            span_type(cx, elem, m.is_mut(), span)
+        }
         Ty::Ref(_, inner) => match &**inner {
             Ty::Ref(..) => {
                 cx.unsupported("a reference to a reference", span);
@@ -138,11 +180,15 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
         },
         Ty::Unit => UNIT.to_owned(),
         Ty::Tuple(elems) => tuple_type(cx, ty, elems, span),
+        Ty::Array(..) => match cx.inline_array(ty, span) {
+            Some(name) => format!("valuetype {}", quote(&name)),
+            None => "int32".to_owned(),
+        },
         Ty::Never => {
             cx.unsupported("a value of type `!` here", span);
             "int32".to_owned()
         }
-        Ty::Array(..) | Ty::Slice(_) | Ty::FnDef(_) | Ty::Infer(_) | Ty::Error => {
+        Ty::Slice(_) | Ty::FnDef(_) | Ty::Infer(_) | Ty::Error => {
             cx.unsupported("this type", span);
             "int32".to_owned()
         }
@@ -201,7 +247,7 @@ pub(crate) fn param_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
 pub(crate) fn ret_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
     match ty {
         Ty::Unit | Ty::Never => "void".to_owned(),
-        Ty::Ref(m, inner) if !m.is_mut() && !is_str(inner) => {
+        Ty::Ref(m, inner) if !m.is_mut() && !is_str(inner) && !is_slice(inner) => {
             format!("{} {IN_MODREQ}", cil_type(cx, ty, span))
         }
         _ => cil_type(cx, ty, span),

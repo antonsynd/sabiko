@@ -1540,6 +1540,14 @@ impl<'a> Builder<'a> {
                 let target = self.ty(lhs).clone();
                 let rhs = self.coerced_operand(rhs, Some(&target), false);
                 let place = self.as_place(lhs);
+                if place.has_index()
+                    && matches!(rhs, Operand::Move(_))
+                    && self.typeck.items.needs_drop(&target)
+                {
+                    // `a[i] = v`: the index is checked before `v` moves (rustc's bounds
+                    // check precedes the store), so a panic there still drops `v`.
+                    self.push_stmt(StatementKind::PlaceMention(place.clone()), span);
+                }
                 self.assign(place, Rvalue::Use(rhs), span);
             }
             ExprKind::AssignOp(op, lhs, rhs) => {

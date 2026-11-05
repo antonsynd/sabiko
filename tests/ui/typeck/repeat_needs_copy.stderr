@@ -1,0 +1,27 @@
+[E0334] Error: the trait bound `Token: Copy` is not satisfied
+    ╭─[ tests/ui/typeck/repeat_needs_copy.sabi:17:14 ]
+    │
+ 17 │     let a = [t; 2]; //~ ERROR E0334 the trait bound `Token: Copy` is not satisfied
+    │              ┬  
+    │              ╰── the trait `Copy` is not implemented for `Token`
+    │ 
+    │ Note: the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)
+────╯
+[E0334] Error: the trait bound `Token: Copy` is not satisfied
+    ╭─[ tests/ui/typeck/repeat_needs_copy.sabi:21:14 ]
+    │
+ 21 │     let b = [Make(); TWO]; //~ ERROR E0334 the trait bound `Token: Copy` is not satisfied
+    │              ───┬──  
+    │                 ╰──── the trait `Copy` is not implemented for `Token`
+    │ 
+    │ Note: the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)
+────╯
+[E0334] Error: the trait bound `Token: Copy` is not satisfied
+    ╭─[ tests/ui/typeck/repeat_needs_copy.sabi:25:14 ]
+    │
+ 25 │     let c = [Token { Id: 2 }; 3]; //~ ERROR E0334 the trait bound `Token: Copy` is not satisfied
+    │              ───────┬───────  
+    │                     ╰───────── the trait `Copy` is not implemented for `Token`
+    │ 
+    │ Note: the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)
+────╯

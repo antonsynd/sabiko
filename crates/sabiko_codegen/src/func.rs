@@ -33,8 +33,8 @@ use std::fmt::Write as _;
 use sabiko_diagnostics::ErrorCode;
 use sabiko_mir::{
     AggregateKind, BasicBlock, BinOp, Body, CleanupScope, ConstValue, Constant, Local, LocalKind,
-    Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty,
-    UnOp,
+    Mutability, Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator,
+    TerminatorKind, Ty, UnOp,
 };
 use sabiko_resolve::{Builtin, DefId, PrimTy};
 use sabiko_span::Span;
@@ -367,6 +367,17 @@ enum DefMode {
     DupSpill,
 }
 
+/// Where the elements of an array or slice are reachable as a span (see
+/// `FnCx::element_span`).
+struct ElementSpan {
+    slot: Slot,
+    elem: Ty,
+    /// A `Span<T>`, not a `ReadOnlySpan<T>`.
+    mutable: bool,
+    /// An array's length, known statically.
+    len: Option<u64>,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Pending {
     local: u16,
@@ -449,6 +460,13 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
         }
     }
+    // An element's index is read twice (the bounds check, then the element): never kept
+    // on the stack.
+    body.for_each_place(|p| {
+        for l in p.index_locals() {
+            other[l.index()] += 1;
+        }
+    });
     // Cleanup handlers read drop flags and borrow the places they drop.
     for cleanup in &body.cleanups {
         for drop in &cleanup.drops {
@@ -994,7 +1012,12 @@ impl FnCx<'_, '_> {
     fn stmt(&mut self, stmt: &Statement) {
         match &stmt.kind {
             StatementKind::Assign(place, rvalue) => self.assign(place, rvalue, stmt.span),
-            // A mention reads nothing (`let _ = place;`).
+            // A mention reads nothing (`let _ = place;`), but checks the indices of the
+            // elements it goes through (`let _ = a[9];` panics, as in rustc).
+            StatementKind::PlaceMention(place) if place.has_index() => {
+                self.addr(place, stmt.span);
+                self.op("pop", 1, 0);
+            }
             StatementKind::StorageLive(_)
             | StatementKind::StorageDead(_)
             | StatementKind::PlaceMention(_)
@@ -1005,7 +1028,12 @@ impl FnCx<'_, '_> {
     fn assign(&mut self, place: &Place, rvalue: &Rvalue, span: Span) {
         let ty = place.ty(self.body);
         if ty.is_unit() || ty.is_uninhabited() {
-            // Rvalues have no side effects; a unit store is nothing.
+            // Rvalues have no side effects; a unit store is nothing, but an element's
+            // index is still checked.
+            if place.has_index() && !ty.is_uninhabited() {
+                self.addr(place, span);
+                self.op("pop", 1, 0);
+            }
             return;
         }
         if let Rvalue::Aggregate(AggregateKind::Adt(def), operands) = rvalue {
@@ -1272,10 +1300,18 @@ impl FnCx<'_, '_> {
     fn load(&mut self, place: &Place, span: Span) {
         let ty = place.ty(self.body);
         if ty.is_unit() || ty.is_uninhabited() {
+            if place.has_index() && !ty.is_uninhabited() {
+                // Nothing to read, but the index is still checked.
+                self.addr(place, span);
+                self.op("pop", 1, 0);
+            }
             return;
         }
         match place.projection.last() {
-            Some(PlaceElem::Index(_)) => todo!("index codegen"),
+            Some(PlaceElem::Index(_)) => {
+                self.addr(place, span);
+                self.load_indirect(&ty, span);
+            }
             None => match self.slots[place.local.index()] {
                 Slot::Arg(i) => self.ldarg(i),
                 Slot::Local(i) => self.ldloc(i),
@@ -1327,7 +1363,10 @@ impl FnCx<'_, '_> {
     /// Pushes the address of `place`.
     fn addr(&mut self, place: &Place, span: Span) {
         match place.projection.last() {
-            Some(PlaceElem::Index(_)) => todo!("index codegen"),
+            Some(PlaceElem::Index(index)) => {
+                let parent = Self::parent(place);
+                self.element_addr(&parent, *index, span);
+            }
             None => match self.slots[place.local.index()] {
                 Slot::Arg(i) => self.short("ldarga", i, 0, 1),
                 Slot::Local(i) => self.ldloca(i),
@@ -1363,7 +1402,11 @@ impl FnCx<'_, '_> {
     fn store(&mut self, place: &Place, span: Span, push: impl FnOnce(&mut Self)) {
         let ty = place.ty(self.body);
         match place.projection.last() {
-            Some(PlaceElem::Index(_)) => todo!("index codegen"),
+            Some(PlaceElem::Index(_)) => {
+                self.addr(place, span);
+                push(self);
+                self.store_indirect(&ty, span);
+            }
             None => {
                 push(self);
                 match self.slots[place.local.index()] {
@@ -1529,18 +1572,27 @@ impl FnCx<'_, '_> {
 
     fn rvalue(&mut self, rvalue: &Rvalue, result_ty: &Ty, span: Span) {
         match rvalue {
-            Rvalue::Repeat(..)
-            | Rvalue::Len(_)
-            | Rvalue::PointerCoercion(..)
-            | Rvalue::Aggregate(AggregateKind::Array(_), _) => todo!("arrays"),
+            Rvalue::Aggregate(AggregateKind::Array(elem), operands) => {
+                self.array_literal(result_ty, elem, operands, span);
+            }
+            Rvalue::Repeat(operand, n) => self.repeat(result_ty, operand, *n, span),
+            Rvalue::Len(place) => self.len(place, span),
+            Rvalue::PointerCoercion(operand, to) => self.pointer_coercion(operand, to, span),
             Rvalue::Use(op) => self.operand(op, span),
-            Rvalue::Ref(_, place) => {
+            Rvalue::Ref(kind, place) => {
                 let pointee = place.ty(self.body);
                 if pointee.is_unit() || pointee.is_never() {
                     self.cx.unsupported("a reference to `()`", span);
                     self.ldc_i4(0);
                 } else {
                     self.addr(place, span);
+                    if let Ty::Slice(elem) = &pointee {
+                        // The address of a slice is its span: a shared reborrow of a
+                        // `&mut [T]` (`&*s`) views the `Span<T>` as a `ReadOnlySpan<T>`.
+                        if self.slice_source_is_mut(place) && !kind.mutability().is_mut() {
+                            self.span_to_read_only(elem, span);
+                        }
+                    }
                 }
             }
             Rvalue::UnaryOp(op, operand) => self.unary(*op, operand, span),
@@ -1577,6 +1629,323 @@ impl FnCx<'_, '_> {
                     .unsupported("a struct literal in this position", span);
                 self.ldc_i4(0);
             }
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Arrays and slices (decision 61)
+    // ----------------------------------------------------------------------------------
+
+    /// Whether the slice place `place` (`*r`) is reached through a `&mut [T]`, whose span
+    /// is a `Span<T>`, rather than a `&[T]` (`ReadOnlySpan<T>`).
+    fn slice_source_is_mut(&self, place: &Place) -> bool {
+        let reference = Self::parent(place);
+        matches!(reference.ty(self.body), Ty::Ref(m, _) if m.is_mut())
+    }
+
+    /// `Span<T>` to `ReadOnlySpan<T>`, on the value on top of the stack.
+    fn span_to_read_only(&mut self, elem: &Ty, span: Span) {
+        let mutable = types::span_class(self.cx, elem, true, span);
+        self.op(
+            format!(
+                "call valuetype {}<!0> valuetype {mutable}::op_Implicit(valuetype {}<!0>)",
+                types::READ_ONLY_SPAN_CLASS,
+                types::SPAN_CLASS
+            ),
+            1,
+            1,
+        );
+    }
+
+    /// Pushes a span over the elements of the array whose address is on the stack:
+    /// `MemoryMarshal.CreateSpan(ref a.Element, N)` (`CreateReadOnlySpan` for a shared
+    /// view). An empty array has no element to start a span at: the address is dropped
+    /// and an empty span pushed.
+    fn array_span(&mut self, array: &Ty, mutable: bool, span: Span) {
+        let Ty::Array(elem, n) = array else {
+            unreachable!("a span over a non-array")
+        };
+        let elem_cil = types::cil_type(self.cx, elem, span);
+        if *n == 0 {
+            self.op("pop", 1, 0);
+            let span_ty = Ty::Ref(
+                Mutability::from_bool(mutable),
+                Box::new(Ty::Slice(elem.clone())),
+            );
+            let tmp = self.scratch(&span_ty, span);
+            let cil = types::cil_type(self.cx, &span_ty, span);
+            self.ldloca(tmp);
+            self.op(format!("initobj {cil}"), 1, 0);
+            self.ldloc(tmp);
+            return;
+        }
+        let array_cil = types::cil_type(self.cx, array, span);
+        let array_name = array_cil.trim_start_matches("valuetype ");
+        self.op(
+            format!(
+                "ldflda {elem_cil} {array_name}::{}",
+                types::ARRAY_ELEMENT_FIELD
+            ),
+            1,
+            1,
+        );
+        self.ldc_i4(i32::try_from(*n).expect("array lengths fit an int32 (checked when lowered)"));
+        let (class, create) = if mutable {
+            (types::SPAN_CLASS, "CreateSpan")
+        } else {
+            (types::READ_ONLY_SPAN_CLASS, "CreateReadOnlySpan")
+        };
+        self.op(
+            format!(
+                "call valuetype {class}<!!0> {}::{create}<{elem_cil}>(!!0&, int32)",
+                types::MEMORY_MARSHAL
+            ),
+            2,
+            1,
+        );
+    }
+
+    /// Makes the elements of the array or slice place `base` reachable as a span and says
+    /// where it is: an array's span is built into a scratch local; a slice behind a
+    /// reference held by an argument or a local is used where it is, anything else is
+    /// copied into a scratch local.
+    fn element_span(&mut self, base: &Place, span: Span) -> ElementSpan {
+        match base.ty(self.body) {
+            Ty::Array(elem, n) => {
+                let span_ty = Ty::mut_ref(Ty::Slice(elem.clone()));
+                let tmp = self.scratch(&span_ty, span);
+                self.addr(base, span);
+                self.array_span(&base.ty(self.body), true, span);
+                self.stloc(tmp);
+                ElementSpan {
+                    slot: Slot::Local(tmp),
+                    elem: *elem,
+                    mutable: true,
+                    len: Some(n),
+                }
+            }
+            Ty::Slice(elem) => {
+                let reference = Self::parent(base);
+                let mutable = self.slice_source_is_mut(base);
+                if reference.is_local() && !self.stackable[reference.local.index()] {
+                    let slot = self.slots[reference.local.index()];
+                    if matches!(slot, Slot::Arg(_) | Slot::Local(_)) {
+                        return ElementSpan {
+                            slot,
+                            elem: *elem,
+                            mutable,
+                            len: None,
+                        };
+                    }
+                }
+                let span_ty = Ty::Ref(
+                    Mutability::from_bool(mutable),
+                    Box::new(Ty::Slice(elem.clone())),
+                );
+                let tmp = self.scratch(&span_ty, span);
+                self.load(&reference, span);
+                self.stloc(tmp);
+                ElementSpan {
+                    slot: Slot::Local(tmp),
+                    elem: *elem,
+                    mutable,
+                    len: None,
+                }
+            }
+            other => panic!("an element of non-array type {other:?}"),
+        }
+    }
+
+    /// Pushes the address of the span an [`ElementSpan`] describes.
+    fn span_address(&mut self, es: &ElementSpan) {
+        match es.slot {
+            Slot::Arg(i) => self.short("ldarga", i, 0, 1),
+            Slot::Local(i) => self.ldloca(i),
+            Slot::None => unreachable!("a span always has storage"),
+        }
+    }
+
+    /// Pushes the length of an [`ElementSpan`] as a `native int`, or (`unsigned`) as the
+    /// `usize` it is.
+    fn span_len(&mut self, es: &ElementSpan, unsigned: bool, span: Span) {
+        let conv = if unsigned { "conv.u" } else { "conv.i" };
+        if let Some(n) = es.len {
+            self.ldc_i4(i32::try_from(n).expect("array lengths fit an int32"));
+        } else {
+            self.span_address(es);
+            let class = types::span_class(self.cx, &es.elem, es.mutable, span);
+            self.op(
+                format!("call instance int32 valuetype {class}::get_Length()"),
+                1,
+                1,
+            );
+        }
+        self.op(conv, 1, 1);
+    }
+
+    /// Pushes the address of element `index` of the array or slice place `base`, after
+    /// checking the index against the length: `index < len` as unsigned native integers
+    /// (the index is a `usize`; the length, never negative, widened with `conv.i`, the
+    /// shape after which RyuJIT drops the span's own check in a loop), else
+    /// `Checks.IndexOutOfBounds(len, index, location)`, rustc's panic.
+    fn element_addr(&mut self, base: &Place, index: Local, span: Span) {
+        let es = self.element_span(base, span);
+        let index_place = Place::local(index);
+        let ok = self.fresh_label();
+        self.load(&index_place, span);
+        self.span_len(&es, false, span);
+        self.op(format!("blt.un {ok}"), 2, 0);
+        if let Some(location) = self.cx.location(span) {
+            self.span_len(&es, true, span);
+            self.load(&index_place, span);
+            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+            self.op(
+                format!(
+                    "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)"
+                ),
+                3,
+                0,
+            );
+        } else {
+            self.op("ldstr \"index out of bounds\"", 0, 1);
+            self.op(
+                format!("call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail(string)"),
+                1,
+                0,
+            );
+        }
+        self.throw_after_helper();
+        self.label(&ok);
+        self.span_address(&es);
+        self.load(&index_place, span);
+        self.op("conv.i4", 1, 1);
+        let class = types::span_class(self.cx, &es.elem, es.mutable, span);
+        let ret = if es.mutable {
+            "!0&".to_owned()
+        } else {
+            format!("!0& {}", types::IN_MODREQ)
+        };
+        self.op(
+            format!("call instance {ret} valuetype {class}::get_Item(int32)"),
+            2,
+            1,
+        );
+    }
+
+    /// `[a, b, c]`: built in a scratch local through a span over its elements, then
+    /// pushed.
+    fn array_literal(&mut self, array: &Ty, elem: &Ty, operands: &[Operand], span: Span) {
+        let tmp = self.scratch(array, span);
+        let array_cil = types::cil_type(self.cx, array, span);
+        if operands.is_empty() {
+            self.ldloca(tmp);
+            self.op(format!("initobj {array_cil}"), 1, 0);
+            self.ldloc(tmp);
+            return;
+        }
+        let span_ty = Ty::mut_ref(Ty::Slice(Box::new(elem.clone())));
+        let sp = self.scratch(&span_ty, span);
+        self.ldloca(tmp);
+        self.array_span(array, true, span);
+        self.stloc(sp);
+        let class = types::span_class(self.cx, elem, true, span);
+        for (i, op) in operands.iter().enumerate() {
+            self.ldloca(sp);
+            self.ldc_i4(i32::try_from(i).expect("array lengths fit an int32"));
+            self.op(
+                format!("call instance !0& valuetype {class}::get_Item(int32)"),
+                2,
+                1,
+            );
+            self.operand_value(op, span);
+            self.store_indirect(elem, span);
+        }
+        self.ldloc(tmp);
+    }
+
+    /// `[x; N]`: the operand is read once, then copied into every element with
+    /// `Span<T>.Fill`; a zero constant (`[0; N]`, `[false; N]`) is just `initobj`.
+    fn repeat(&mut self, array: &Ty, operand: &Operand, n: u64, span: Span) {
+        let Ty::Array(elem, _) = array else {
+            unreachable!("a repeat builds an array")
+        };
+        let array_cil = types::cil_type(self.cx, array, span);
+        let is_zero = match operand {
+            Operand::Constant(c) => match &c.value {
+                ConstValue::Int(0)
+                | ConstValue::Uint(0)
+                | ConstValue::Bool(false)
+                | ConstValue::Unit => true,
+                ConstValue::Char(c) => *c == '\0',
+                ConstValue::Float(f) => f.to_bits() == 0,
+                _ => false,
+            },
+            Operand::Copy(_) | Operand::Move(_) => false,
+        };
+        let tmp = self.scratch(array, span);
+        if is_zero || n == 0 {
+            if !is_zero {
+                // `[x; 0]` never holds `x` (MIR building reads it elsewhere).
+                self.operand_value(operand, span);
+                self.op("pop", 1, 0);
+            }
+            self.ldloca(tmp);
+            self.op(format!("initobj {array_cil}"), 1, 0);
+            self.ldloc(tmp);
+            return;
+        }
+        let value = self.scratch(elem, span);
+        self.operand_value(operand, span);
+        self.stloc(value);
+        let span_ty = Ty::mut_ref(Ty::Slice(elem.clone()));
+        let sp = self.scratch(&span_ty, span);
+        self.ldloca(tmp);
+        self.array_span(array, true, span);
+        self.stloc(sp);
+        self.ldloca(sp);
+        self.ldloc(value);
+        let class = types::span_class(self.cx, elem, true, span);
+        self.op(
+            format!("call instance void valuetype {class}::Fill(!0)"),
+            2,
+            0,
+        );
+        self.ldloc(tmp);
+    }
+
+    /// `Len(place)`: an array's length is its type's; a slice's is its span's.
+    fn len(&mut self, place: &Place, span: Span) {
+        match place.ty(self.body) {
+            Ty::Array(_, n) => {
+                // The place is `*r` for a reference `r` that may be waiting on the stack.
+                self.addr(place, span);
+                self.op("pop", 1, 0);
+                self.int_const(u128::from(n), PrimTy::Usize);
+            }
+            Ty::Slice(_) => {
+                let es = self.element_span(place, span);
+                self.span_len(&es, true, span);
+            }
+            other => panic!("the length of non-array type {other:?}"),
+        }
+    }
+
+    /// A reference coerced to a span: `&[T; N]` (`&mut`) to `&[T]` (`&mut [T]`), or a
+    /// `&mut [T]` (`Span<T>`) to `&[T]` (`ReadOnlySpan<T>`).
+    fn pointer_coercion(&mut self, operand: &Operand, to: &Ty, span: Span) {
+        let from = operand.ty(self.body);
+        self.operand(operand, span);
+        match (&from, to) {
+            (Ty::Ref(_, array), Ty::Ref(m, _)) if matches!(**array, Ty::Array(..)) => {
+                self.array_span(array, m.is_mut(), span);
+            }
+            (Ty::Ref(_, slice), Ty::Ref(_, _)) => {
+                let Ty::Slice(elem) = &**slice else {
+                    unreachable!("a pointer coercion from a slice")
+                };
+                self.span_to_read_only(elem, span);
+            }
+            _ => unreachable!("pointer coercion of {from:?} to {to:?}"),
         }
     }
 

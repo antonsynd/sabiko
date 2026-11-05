@@ -1,0 +1,9 @@
+// Sabiko codes for rustc's: E0417 for E0204.
+// `#[derive(Copy, Clone)]` on a struct with an array field needs a Copy element type:
+// `[Token; 2]` is not Copy (E0204, Sabiko's E0417) and not Clone either (E0277 from the
+// `Clone` derive), both reported at the struct, so this is not a differential program.
+// An array of a Copy type is fine (run/arrays/copy_semantics.sabi).
+struct Token { Id: i32 }
+
+#[derive(Copy, Clone)]
+struct Hand { Cards: [Token; 2] } //~ ERROR E0417 the trait `Copy` cannot be implemented for type `Hand`

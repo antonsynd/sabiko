@@ -1,0 +1,9 @@
+// Sabiko codes for rustc's: E0300 for E0277.
+// Arrays and slices are not printable (`Print`/`PrintLine` take a `Display` value):
+// E0277 "`[i32; 3]` doesn't implement `std::fmt::Display`".
+fn Main() {
+    let a: [i32; 3] = [1, 2, 3];
+    PrintLine(a); //~ ERROR E0300 `PrintLine` cannot print a value of type `[i32; 3]`
+    let s: &[i32] = &a;
+    Print(s); //~ ERROR E0300 `Print` cannot print a value of type `&[i32]`
+}

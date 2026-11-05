@@ -1,0 +1,17 @@
+// Sabiko codes for rustc's: E0335 for E0277, E0307 for an uncoded error.
+// Arrays and slices are indexed by `usize` only (E0277 "the type `[i32]` cannot be indexed
+// by `i32`"; the array is named as the slice it unsizes to): no other integer type
+// converts implicitly. An unsuffixed literal index is a `usize`, so a negative one is an
+// uncoded error, and a `bool` is E0277 too.
+fn Main() {
+    let a: [i32; 3] = [1, 2, 3];
+    let i: i32 = 1;
+    let j: u32 = 1;
+    let k: u64 = 1;
+    let x = a[i]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `i32`
+    let y = a[j]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u32`
+    let z = a[k]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u64`
+    let w = a[-1]; //~ ERROR E0307 cannot apply unary operator `-` to type `usize`
+    let s: &[i32] = &a;
+    let v = s[true]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `bool`
+}

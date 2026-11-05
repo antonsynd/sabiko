@@ -104,6 +104,7 @@ pub fn emit_il(
         class_name,
         had_error: false,
         byref_tuples: Vec::new(),
+        inline_arrays: Vec::new(),
         drop_glues: Vec::new(),
     };
 
@@ -149,6 +150,7 @@ pub fn emit_il(
     }
     out.push_str("}\n");
     cx.byref_tuple_structs(&mut out);
+    cx.inline_array_structs(&mut out);
     if cx.had_error {
         None
     } else {
@@ -169,6 +171,9 @@ pub(crate) struct Cx<'a> {
     /// Tuple types containing references, each lowered to a generated `ref struct`
     /// (decision 52), in order of first use, with their type names.
     byref_tuples: Vec<(Ty, String)>,
+    /// Array types, each lowered to a generated inline-array value type (decision 61), in
+    /// order of first use, with their type names.
+    inline_arrays: Vec<(Ty, String)>,
     /// Types whose drop glue the module needs, in order of first use, with the glue
     /// method's name (decision 55).
     drop_glues: Vec<(Ty, String)>,
@@ -246,6 +251,77 @@ impl Cx<'_> {
             }
         }
         name
+    }
+
+    /// The name of the generated value type for `ty`, an array type (decision 61): the
+    /// array type as Sabiko writes it (`[i32; 3]`), which no user type can be called.
+    /// Registers the type for [`Cx::inline_array_structs`]. `None`, after reporting, for
+    /// an array the backend cannot lower: one holding references (an inline array cannot
+    /// hold managed pointers), or longer than an `int32` can count.
+    pub(crate) fn inline_array(&mut self, ty: &Ty, span: Span) -> Option<String> {
+        if let Some((_, name)) = self.inline_arrays.iter().find(|(t, _)| t == ty) {
+            return Some(name.clone());
+        }
+        let Ty::Array(elem, n) = ty else {
+            unreachable!("an inline array of a non-array type")
+        };
+        if elem.has_ref() {
+            self.unsupported("an array holding references", span);
+            return None;
+        }
+        if i32::try_from(*n).is_err() {
+            self.unsupported("an array of more than 2147483647 elements", span);
+            return None;
+        }
+        let name = ty.display(self.resolve);
+        self.inline_arrays.push((ty.clone(), name.clone()));
+        types::cil_type(self, elem, span);
+        Some(name)
+    }
+
+    /// Emits the value type of every array type the module used: `[T; N]` for `N > 0` is
+    /// a `sequential` struct with one field of type `T`, `Element`, and
+    /// `[InlineArray(N)]`, which makes the runtime lay out `N` of them (C# 12's inline
+    /// arrays); `[T; 0]` is an empty struct, since the runtime rejects an inline array of
+    /// length 0. An element type may register another array, emitted in turn.
+    fn inline_array_structs(&mut self, out: &mut String) {
+        if self.had_error {
+            return;
+        }
+        let mut next = 0;
+        while next < self.inline_arrays.len() {
+            let (ty, name) = self.inline_arrays[next].clone();
+            next += 1;
+            let Ty::Array(elem, n) = &ty else {
+                continue;
+            };
+            let _ = writeln!(
+                out,
+                "\n.class public sequential ansi sealed beforefieldinit {} extends [System.Runtime]System.ValueType\n{{",
+                types::quote(&name)
+            );
+            if *n == 0 {
+                out.push_str("  .pack 0\n  .size 1\n}\n");
+                continue;
+            }
+            let bytes: Vec<String> = u32::try_from(*n)
+                .expect("checked when registered")
+                .to_le_bytes()
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect();
+            let _ = writeln!(
+                out,
+                "  .custom instance void [System.Runtime]System.Runtime.CompilerServices.InlineArrayAttribute::.ctor(int32) = ( 01 00 {} 00 00 )",
+                bytes.join(" ")
+            );
+            let cil = types::cil_type(self, elem, Span::dummy());
+            let _ = writeln!(
+                out,
+                "  .field public {cil} {}\n}}",
+                types::ARRAY_ELEMENT_FIELD
+            );
+        }
     }
 
     /// Emits the generated `ref struct` of every tuple type with references that the
@@ -389,7 +465,7 @@ impl Cx<'_> {
     /// pointer.
     pub(crate) fn is_byref(ty: &Ty) -> bool {
         match ty {
-            Ty::Ref(_, inner) => !types::is_str(inner),
+            Ty::Ref(_, inner) => !types::is_str(inner) && !types::is_slice(inner),
             _ => false,
         }
     }

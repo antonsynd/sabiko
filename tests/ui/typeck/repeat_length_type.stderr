@@ -1,0 +1,28 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/repeat_length_type.sabi:7:17 ]
+   │
+ 7 │     let a = [0; 3i32]; //~ ERROR E0300 mismatched types
+   │                 ──┬─  
+   │                   ╰─── expected `usize`, found `i32`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/repeat_length_type.sabi:8:18 ]
+   │
+ 8 │     let b: [i32; 2u8] = [1, 2]; //~ ERROR E0300 mismatched types
+   │                  ─┬─  
+   │                   ╰─── expected `usize`, found `u8`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/repeat_length_type.sabi:9:17 ]
+   │
+ 9 │     let c = [0; LEN]; //~ ERROR E0300 mismatched types
+   │                 ─┬─  
+   │                  ╰─── expected `usize`, found `i32`
+───╯
+[E0307] Error: cannot apply unary operator `-` to type `usize`
+    ╭─[ tests/ui/typeck/repeat_length_type.sabi:10:18 ]
+    │
+ 10 │     let d = [0; -1]; //~ ERROR E0307 cannot apply unary operator `-` to type `usize`
+    │                  ┬  
+    │                  ╰── cannot apply unary operator `-`
+────╯
