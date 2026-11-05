@@ -610,18 +610,17 @@ impl<'a> FnCtxt<'a> {
                 let inner_expected = match expected.map(|e| self.shallow(e)) {
                     // Only a diverging operand fits `&!`; checking against `!` would
                     // report the operand rather than the reference (rustc: "expected
-                    // `&!`, found `&{integer}`").
-                    Some(Ty::Ref(_, t)) if !t.is_never() => Some(*t),
+                    // `&!`, found `&{integer}`"). Where a `&[T]` is expected the operand
+                    // is an array (`&[1, 2]`, `&a`), which the reference then unsizes:
+                    // that coercion unifies the element types.
+                    Some(Ty::Ref(_, t))
+                        if !t.is_never() && !matches!(self.shallow(&t), Ty::Slice(_)) =>
+                    {
+                        Some(*t)
+                    }
                     _ => None,
                 };
                 let errors_before = self.sink.error_count();
-                if let Some(Ty::Slice(_)) = inner_expected.as_ref().map(|t| self.shallow(t)) {
-                    // `&[1, 2]` where `&[i32]` is expected: the operand is an array, which
-                    // the reference unsizes; the slice only guides its element type.
-                    let inner_ty = self.check_expr_kind(inner, inner_expected.as_ref());
-                    let inner_ty = self.record(inner, inner_ty);
-                    return Ty::Ref(m, Box::new(inner_ty));
-                }
                 // A diverging operand gives `&!`, as in rustc: the borrow is not a
                 // coercion site, so `let q: &Point = &loop {};` is a mismatch, while
                 // `*&return 9` is `!` again. The code after it is unreachable.

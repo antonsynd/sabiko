@@ -1,0 +1,39 @@
+// Unsizing at coercion sites whose operand is not a plain array place: a block, an `if`, a
+// parenthesised array, a borrowed literal extended by a `let`, a tuple element, a call
+// argument and a return value. The expected `&[T]` does not reach inside the borrow: the
+// operand keeps its array type and the reference is unsized, unifying the element types
+// (`&[0; 3]` as `&[u8]` makes the elements `u8`).
+fn Total(s: &[u8]) -> u32 {
+    let mut t = 0;
+    let mut i = 0;
+    while i < s.len() {
+        t += s[i] as u32;
+        i += 1;
+    }
+    t
+}
+
+fn Pick(c: bool, p: &([i64; 2], [i64; 3])) -> &[i64] {
+    if c { &p.0 } else { &p.1 }
+}
+
+fn Lens(p: (&[i32], usize)) -> usize {
+    p.0.len() + p.1
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let b = [4, 5, 6];
+    let s: &[i32] = &{ a };
+    let t: &[i32] = &if s.len() > 2 { a } else { b };
+    let u: &[i32] = &(b);
+    PrintLine(s[0] + t[1] + u[2]);
+    let z: &[u8] = &[200; 3];
+    PrintLine(Total(z) + Total(&[1, 2, 3]));
+    let e: &[i32] = &[];
+    PrintLine(e.len());
+    let p: (&[i32], usize) = (&[7, 8], 3);
+    PrintLine(Lens(p) + Lens((&a, 1)));
+    let pair = ([10, 20], [30, 40, 50]);
+    PrintLine(Pick(true, &pair).len() + Pick(false, &pair)[2] as usize);
+}
