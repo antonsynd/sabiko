@@ -266,7 +266,38 @@ where a `()` value must be stored (a parameter, a struct field, a tuple element)
 reference to `!` (`&!`, `&&!`, ...) or a tuple with such an element have no storage
 (decisions 32, 44 and 52), and assignments to them are dropped. No `()` value is ever
 loaded or stored; a call or tuple-constructor argument of type `()` loads a zero-initialised
-`Unit` local instead. Not lowered yet (E0500): `&&T` and `&()`, also as tuple elements.
+`Unit` local instead. A reference to `()` (`&()`, `&mut ()`, `&&()`, ...) is lowered
+exactly as `()` is (decision 63): it has one observable value, so it has no storage in a
+local, is a `Unit` as a parameter or tuple element and `void` as a return type, and a read
+through it reads nothing.
+
+References to references (#11, decision 63). The CLR has no pointer to a managed pointer,
+and a managed pointer can be neither a generic argument nor a field of anything but a
+`ref struct`. A reference that something else points at, or that a tuple holds, is
+therefore kept in a wrapper generated into the module: `Ref<T>` (`'Ref`1'`) for a shared
+reference and `RefMut<T>` (`'RefMut`1'`) for a mutable one, each a `readonly ref struct`
+with one `initonly` field `Value`, a managed pointer to `T` (`ref readonly T` and `ref T`
+to C#, the former marked with `IsReadOnlyAttribute`), and a constructor taking that
+pointer. The type parameter is `byreflike` (C#'s `allows ref struct`), so wrappers nest:
+`T` is the referent's own storage type, itself a wrapper for `&&&i32`
+(`Ref<Ref<int32>>`). The wrapper is the storage of a reference place in three cases: a
+local holding a reference that some borrow (not a guard's fake borrow) takes the address
+of (`let rr = &r;`, `&mut r`, also a two-phase borrow), which is declared as the wrapper;
+a parameter likewise borrowed, which keeps its `T&` (`[in] T&`) type in the signature and
+is copied into a wrapper local on entry (`ldarg; newobj; stloc`); and every tuple element
+of reference type, so a tuple with references (decision 52) has `Ref<T>`/`RefMut<T>`
+fields while its constructor still takes the managed pointers and wraps them. A reference
+to a reference is then a managed pointer to a wrapper (`&&i32` is `Ref<int32>&`, `[in]` as
+a parameter like any `&T`), and the place it points to is a wrapper. Reading a reference
+from a wrapper place loads the wrapper's address (`ldloca`, `ldflda`, or the outer
+pointer) and its `Value` (`ldfld !0& valuetype 'Ref`1'<int32>::'Value'`); writing one
+builds a new wrapper (`newobj`) and stores it whole over the old one (`stloc`, `stfld`,
+`stobj`), so nothing writes `Value` after construction. Other reference locals and
+parameters stay plain managed pointers. `&str` and `&[T]` are span values, not pointers, so
+`&&str` is a managed pointer to a `ReadOnlySpan<char>` and needs no wrapper (a wrapper
+appears at `&&&str`). Not lowered yet (E0500): arrays and slices of references (`[&T; N]`,
+`&[&T]`, `&[&str]`, #43), since an inline array can hold neither a managed pointer nor a
+`ref struct`.
 
 Arrays and slices (#9, decision 61). An array type `[T; N]` is a value type generated into
 the module and named after the Sabiko type (`'[i32; 3]'`): for `N > 0` a `sequential`
@@ -397,8 +428,9 @@ moved), and the comparison reads `*l` and `*r` (`ldind.*`) after both operands r
 rustc's `PartialEq::eq(&l, &r)` does. The referents therefore stay borrowed while the right
 operand runs (`r == { *r = 3; s }` is E0410, rustc E0506). One divergence remains: rustc
 also borrows a reference *variable* used as an operand, so `r == { r = &y; r }` is E0506
-there and accepted by Sabiko (comparing the old referent with the new one); expressing that
-loan needs a `&&T` temporary, which code generation does not support yet. Casts: integer
+there and accepted by Sabiko (comparing the old referent with the new one). Expressing that
+loan needs a `&&T` temporary, which code generation lowers since decision 63, but at the
+cost of storing every compared reference local in a `Ref<T>` wrapper; it is not done yet. Casts: integer
 to integer `conv.*` chosen by the target, with sign extension decided by the source
 (`conv.i8` from signed, `conv.u8` from unsigned sources); integer to float `conv.r4`/`conv.r8`
 preceded by `conv.r.un` for unsigned sources; float to `i32`/`i64`/`isize` and their
@@ -568,8 +600,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   place is unsized: it may be borrowed (`&s[1..]`, `&mut a[..2]`), indexed
   (`a[1..][0] = 5`) or measured (`s[2..].len()`), and is E0208 anywhere else (a `let`, an
   argument, an operand). `== != < <= > >=` compare two `&str` (references of the same depth
-  otherwise compare their referents, so `&&str` operands type-check too, but code
-  generation rejects `&&str`, E0500, until #11); comparing `str` places (`*s == *t`) is
+  otherwise compare their referents, so `&&str` operands compare the strings, decision
+  63); comparing `str` places (`*s == *t`) is
   E0208. Equality is by code unit, and so is the order, which is Rust's order (by Unicode
   scalar value) except between a character above U+FFFF and one from U+E000 to U+FFFF.
   A string literal pattern matches a `&str` exactly (it does not look through another

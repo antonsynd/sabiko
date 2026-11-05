@@ -538,7 +538,11 @@ array slices and a `stackalloc` span to `&[i32]` (`ReadOnlySpan<int>`) and `&mut
 (`Span<int>`) parameters, holds a `ref readonly int` that a Sabiko function returns into
 the C# array, indexes the inline arrays Sabiko returns (C# 12 inline-array indexing) and
 one in a struct field, passes an array by `ref` and `in`, and catches the panic of an
-out-of-bounds index; it passed on its first run.
+out-of-bounds index; it passed on its first run. `ref_wrappers` (#11, decision 63) builds
+the module's `Ref<int>`, `Ref<Ref<long>>` and `RefMut<int>` over C# locals and passes them
+to `&&i32`, `&&&i64` and `&mut &mut i32` parameters (`in` and `ref`). Its first run found
+that C# cannot read a wrapper's `Value` (CS0570: a `ref` field whose type parameter allows
+`ref struct`s), which the decision records.
 
 ## Dependencies
 
