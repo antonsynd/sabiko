@@ -56,8 +56,13 @@ names which phase owns which section.
   let p = e { .. }` and `let p = e else { .. };`; let chains (`if let p = e && c`) are
   edition 2024 and rejected (E0100), and the initialiser of a `let`-`else` may not end with
   `}` or be a lazy boolean (E0100)
-- Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays,
-  slices, named types, generics
+- Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays
+  `[T; N]`, slices `[T]`, named types, generics
+- Arrays and slices (Phase 5, #9): array literals `[a, b, c]` and `[]` (a trailing comma
+  is allowed), repeat expressions `[x; N]`, indexing `e[i]` and `e.len()`. The length `N`
+  of `[T; N]` and `[x; N]` is a constant expression of its own (rustc's anonymous
+  constant). Slice patterns (`[a, b]`, `[first, .., last]`) are E0107; ranges and
+  slicing (`&a[1..3]`) wait for range expressions
 - Tuple expressions `(a,)`, `(a, b)`; `(e)` is a parenthesised expression. Element access
   `t.0` takes a decimal index as written; `t.0.1` (lexed as `t`, `.`, the float `0.1`) is
   two accesses, as in rustc, and a suffixed index (`t.0u8`) is a syntax error (E0100)
@@ -121,7 +126,12 @@ dropped as rustc drops them (edition 2021):
 
 - A value's own `drop` runs first, with its fields intact (it may read and change them);
   then its fields with drop glue are dropped in declaration order (not the order of the
-  struct literal), recursively. A tuple drops its elements first to last.
+  struct literal), recursively. A tuple drops its elements first to last, and so does an
+  array (#9): when one element's `drop` panics, the elements after it are still dropped
+  while unwinding. An array is moved and dropped whole (nothing moves out of an element,
+  E0420); assigning an element drops the old element after the store, like any
+  assignment; `[x; 0]` evaluates `x` and drops it at the end of the statement, `[x; 1]`
+  moves it in. An array of length 0 has no drop glue.
 - Locals are dropped at the end of their block, the last declared first (by declaration,
   not by initialisation: in `let a: D; let b = ..; a = ..;`, `b` goes first); parameters
   after the body's locals, the last parameter first. Shadowing drops nothing. `return`,
@@ -254,6 +264,32 @@ reference to `!` (`&!`, `&&!`, ...) or a tuple with such an element have no stor
 (decisions 32, 44 and 52), and assignments to them are dropped. No `()` value is ever
 loaded or stored; a call or tuple-constructor argument of type `()` loads a zero-initialised
 `Unit` local instead. Not lowered yet (E0500): `&&T` and `&()`, also as tuple elements.
+
+Arrays and slices (#9, decision 61). An array type `[T; N]` is a value type generated into
+the module and named after the Sabiko type (`'[i32; 3]'`): for `N > 0` a `sequential`
+struct with one field `Element` of type `T` and `[InlineArray(N)]`, which makes the
+runtime lay out `N` elements (C# 12's inline arrays; the same layout as C#'s fixed-size
+buffers); for `N = 0` an empty struct (the runtime rejects an inline array of length 0).
+A reference to an array is a managed pointer to that struct (`'[i32; 3]'&`, `[in]` when
+shared, as for any `&T`). `&[T]` is `System.ReadOnlySpan<T>` and `&mut [T]` is
+`System.Span<T>`, by value, as for `&str`. An element is reached through a span over the
+array's elements, `MemoryMarshal.CreateSpan(ref a.Element, N)`, or over the slice itself,
+and the span's `get_Item`; before that, the index (a `native uint`) is compared, unsigned,
+with the length widened by `conv.i` (the shape after which RyuJIT drops the span's own
+check in a `while i < s.len()` loop), and a failure calls
+`Sabiko.Runtime.Checks::IndexOutOfBounds(native uint len, native uint index, string
+location)`, which panics with rustc's `index out of bounds: the len is {len} but the index
+is {index}` at the indexing expression's location, in release builds too. Every use of an
+element place checks its indices: reads, writes, borrows and `let _ = a[i];`. An array
+literal is built in a scratch local through a span; `[x; N]` reads `x` once and fills the
+elements with `Span<T>.Fill`, or is `initobj` for a zero constant. Unsizing (`&[T; N]` to
+`&[T]`) is `CreateReadOnlySpan`/`CreateSpan` over the array's elements; `&mut [T]` to
+`&[T]` is `Span<T>`'s implicit conversion. `.len()` of an array is the constant `N`, of a
+slice the span's `Length`. An array with drop glue gets glue that drops its elements first
+to last, each in a protected region whose `fault` handler drops the remaining ones. Not
+lowered yet (E0500): arrays and slices holding references (`[&T; N]`, `&[&str]`): an
+inline array cannot hold a managed pointer or a `ref struct`; arrays longer than
+`int32::MAX`.
 
 Statements and expressions. After borrow checking, copy forwarding (decision 51,
 `sabiko_mir::forward`) replaces a compiler temporary that holds a copy of a place
@@ -442,6 +478,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `else` block does not see the bindings). Every alternative of an or-pattern binds the
   same names to the same locals (E0218, rustc's E0408) with the same binding mode (`ref`,
   `mut`: E0219, rustc's E0409).
+- An array length or repeat count (#9) is resolved as a constant of its own: `const` items
+  are in scope, the locals and parameters of the enclosing function are not (E0220,
+  "attempt to use a non-constant value in a constant", rustc's E0435).
 
 ### 11.2 Types and inference
 
@@ -472,6 +511,29 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   negations only the outer counts, as in rustc: the literal of `-(-128i8)` is `128i8`.
 - A `let` whose type nothing constrains is an error (E0313). Deferred initialisation
   (`let x; x = 1;`) is allowed; the type comes from the assignment.
+- Arrays and slices (#9). `[T; N]` has a length `N` that is a `usize` constant
+  expression: literals, `const` items and constant arithmetic (another type is E0300,
+  `-1` E0307, a local E0220); the constants are evaluated first, so a signature may use
+  them (`fn F(a: [i32; N])`). A constant of array type, and an array expression inside a
+  constant, are not supported yet (E0315). `[T]` is unsized: only `&[T]` and `&mut [T]`
+  exist, a `[T]` parameter, `let` or `*s` is E0208, and its element type must be sized.
+  `[a, b, c]` has type `[T; 3]`, every element checked against the element type (the
+  expected one, else the first element's), so `[1, true]` is E0300 at `true`; `[]` takes
+  its element type from the context. `[x; N]` checks `x` against the element type and
+  `N` as above; for `N` other than 0 or 1, `x`'s type must be `Copy` unless `x` names a
+  `const` item (E0334, rustc's E0277). The length is part of the type: arrays of two
+  lengths are E0300 with the note "expected an array with a size of 3, found one with a
+  size of 2", and nothing converts between lengths. `e[i]` looks through any number of
+  references to an array or slice (E0336 for anything else, rustc's E0608) and needs a
+  `usize` index (E0335 "the type `[i32]` cannot be indexed by `i32`", rustc's E0277); an
+  unsuffixed literal or an integer variable becomes `usize`. It is a place of the element
+  type. `e.len()` on an array or slice (through references) is a `usize`; any other
+  method of one is E0319, `e.len` E0320, an argument E0304. `&[T; N]` coerces to `&[T]`
+  and `&mut [T; N]` to `&mut [T]` or `&[T]` (unsizing) at every coercion site, and
+  `&mut [T]` to `&[T]`; `&[T]` never converts back to an array (E0300). Arrays of `Copy`
+  elements are `Copy`. Arrays are not printable, have no arithmetic and do not cast;
+  comparing arrays or slices (`==`, `<`, ...) is valid Rust but E0107 until the comparison
+  traits (Phase 6). A struct containing itself through an array is E0206.
 - Tuples. `(a, b)` has type `(A, B)`. Against an expected tuple type of the same arity
   (an annotation, a parameter, a return type, an assignment target), each element is
   checked and coerced against its expected element type, so the elements are coercion
@@ -628,7 +690,11 @@ Checked on the MIR by `sabiko_borrowck` (E0400–E0405):
   deferred assignment on each path (E0400 otherwise). Reading a binding that may not have
   been assigned on every path is E0405.
 - A pattern's bindings are separate locals: in `let (a, mut b) = t;` only `b` is
-  mutable. Tuple elements are fields: everything below about `p.X` holds for `t.0`.
+  mutable. Tuple elements are fields: everything below about `p.X` holds for `t.0`, and
+  array elements likewise for `a[i]` (#9): writing or `&mut`-borrowing an element needs a
+  `mut` array (E0401, E0402), an element of a slice behind `&[T]` is never writable
+  (E0403, E0404) and one behind `&mut [T]` always is, whatever the binding. Writing an
+  element of an array that may not be initialised is E0405.
 - Field mutability follows the binding: `p.X = 1` and `&mut p.X` require `p` to be
   declared `mut` (E0401, E0402). A `mut` binding allows assignment and `&mut` borrows of
   itself and of any field.
@@ -644,7 +710,7 @@ Checked on the MIR by `sabiko_borrowck` (E0400–E0405):
 
 ### 11.4 Borrow checking (Phase 3 subset)
 
-Checked on the MIR by `sabiko_borrowck` (E0406–E0418), after the mutability and
+Checked on the MIR by `sabiko_borrowck` (E0406–E0420), after the mutability and
 initialisation rules of §11.3. Every rule below is also a rule of Rust, and
 `tests/differential/` holds a program per rule that `rustc` must judge the same way.
 
@@ -676,6 +742,11 @@ Moves (E0406, E0407):
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
+- Nothing that is not `Copy` moves out of an array or slice element (#9), at any depth
+  (`a[i]`, `a[i].Inner`, `s[0]` through a reference): E0420, rustc's E0508 ("cannot move
+  out of type `[T; N]`, a non-copy array"); borrow the element instead. A whole array
+  moves like any value (`let b = a;`, an argument, an array literal's elements move into
+  it), and writing an element of a moved array is a use of the moved value (E0406).
 - No non-`Copy` field may be moved out of a value whose type implements `Drop`, at any
   depth (`o.Inner`, `o.Inner.X`, also out of a by-value `self`): its `drop` will see the
   whole value (E0418, rustc's E0509). Moving the whole value, or a field of a struct
@@ -707,7 +778,10 @@ Loans (E0408–E0413):
   until `p`'s last use); its elements' origins are tracked one by one.
 - Loans of disjoint fields (`&mut p.X` and `&mut p.Y`, `&mut t.0` and `&mut t.1`) do not
   conflict; two loans of the
-  same field do.
+  same field do. Indices are never compared (#9, as in rustc): `&mut a[0]` and `&mut a[1]`
+  conflict, and so do a loan of `a[i]` and any access to `a[j]` or to `a` itself, such as
+  `a.len()` (a shared borrow of `a`) while `&mut a[0]` is live; fields of elements stay
+  disjoint (`&mut a[i].X` and `&mut a[j].Y`). Writing an element kills no loan.
 - A referent must outlive every reference to it: a reference to an inner-block local used
   after the block ends is E0413. A value with drop glue is dropped at the end of its scope
   (§7), which ends its loans the same way; the drop is not a use of the references the

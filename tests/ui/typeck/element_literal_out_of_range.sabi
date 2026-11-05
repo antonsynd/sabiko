@@ -1,4 +1,4 @@
-// Sabiko codes for rustc's: E0314 for an uncoded error.
+// Sabiko codes for rustc's: E0314 for the deny-by-default `overflowing_literals` lint.
 // An unsuffixed literal element takes the array's element type, so `300` in a `[u8; 2]`
 // and `128` in a `[i8; 1]` are out of range: the deny-by-default `overflowing_literals`
 // lint, an error without a code (Sabiko's E0314); the repeat operand `-128` fits an `i8`.
