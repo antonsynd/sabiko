@@ -1,10 +1,25 @@
 // Sabiko codes for rustc's: E0208 for E0277.
 // `[T]` has no size known at compile time: a by-value `[i32]` parameter and `let v = *r;`
 // for `r: &[i32]` are E0277 ("the size for values of type `[i32]` cannot be known at
-// compilation time"). Slices exist only behind `&` and `&mut`.
+// compilation time"). Slices exist only behind `&` and `&mut`, and their elements, like
+// an array's, must be sized: `[[i32]; 2]`, `&[[u8]]` and `&mut [str]` are E0277 too.
 fn Take(s: [i32]) -> i32 { //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
     0
 }
+
+fn Rows(s: [[i32; 2]]) -> i32 { //~ ERROR E0208 the size for values of type `[[i32; 2]]` cannot be known at compilation time
+    0
+}
+
+fn Refs(s: [&mut u8]) {} //~ ERROR E0208 the size for values of type `[&mut u8]` cannot be known at compilation time
+
+fn Units(s: [()]) {} //~ ERROR E0208 the size for values of type `[()]` cannot be known at compilation time
+
+fn Elems(a: [[i32]; 2]) {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+
+fn Nested(r: &[[u8]]) {} //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
+
+fn Strs(r: &mut [str]) {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
 
 fn Main() {
     let a = [1, 2, 3];

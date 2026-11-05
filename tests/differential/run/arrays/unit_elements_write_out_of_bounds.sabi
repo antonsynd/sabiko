@@ -1,0 +1,15 @@
+// An array of `()` stores nothing, but writing an element still checks its index: in
+// bounds through an array and a slice, then out of bounds, which panics.
+fn Write(a: &mut [(); 2], i: usize) {
+    a[i] = ();
+    let s: &mut [()] = a;
+    s[i] = ();
+    PrintLine(i);
+}
+
+fn Main() {
+    let mut units = [(); 2];
+    Write(&mut units, 1);
+    Write(&mut units, 2);
+    PrintLine("not reached");
+}

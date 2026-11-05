@@ -1,0 +1,15 @@
+// An unsizing coercion whose target element type is inferred: `&[_]` and `&mut [_]`
+// take the element type of the array they view (the coercion's target type was
+// recorded with the unresolved `_`, and the compiler panicked on the invalid MIR).
+fn Main() {
+    let mut a = [1, 2, 3];
+    let grid = [[4u8; 2]; 3];
+    let s: &[_] = &a;
+    PrintLine(s.len());
+    PrintLine(s[2]);
+    let rows: &[_] = &grid;
+    PrintLine(rows[1][0]);
+    let m: &mut [_] = &mut a;
+    m[0] = 9;
+    PrintLine(m[0]);
+}

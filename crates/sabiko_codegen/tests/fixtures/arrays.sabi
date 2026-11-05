@@ -1,0 +1,53 @@
+// Arrays and slices: `[x; N]` of a zero constant of each kind (`initobj` only) and of
+// other values (`Span<T>.Fill`), element reads and writes through an array and a slice,
+// elements of `()` (nothing stored, but the index is checked), a discarded element read
+// (kept for its bounds check), and the spans indexed: a slice held by a parameter is used
+// where it is, a slice in a tuple field or returned by a call is copied first; a
+// `&mut [T]` call result coerced to `&[T]` becomes a `ReadOnlySpan<T>`.
+fn Repeats() -> i32 {
+    let ints = [0u16; 3];
+    let flags = [false; 2];
+    let units = [(); 4];
+    let nul = ['\0'; 2];
+    let zeros = [0.0; 2];
+    let letters = ['x'; 3];
+    let negative_zeros = [-0.0f32; 2];
+    let halves = [1.5; 2];
+    let sevens = [7; 2];
+    ints[1] as i32 + sevens[0] + letters.len() as i32
+}
+
+fn Units(a: &mut [(); 2], s: &[()], i: usize) {
+    a[i] = ();
+    let x = s[i];
+    s[i];
+}
+
+fn Elements(a: &mut [i32; 3], s: &mut [i32], i: usize) -> i32 {
+    a[i] = s[i];
+    s[0] += a[2];
+    s[i];
+    a[0] + s[1]
+}
+
+fn View(a: &[i32; 3]) -> &[i32] {
+    a
+}
+
+fn Head(s: &mut [i32]) -> &mut [i32] {
+    s
+}
+
+fn Sources(a: &[i32; 3], t: (&[i32], i32), m: &mut [i32]) -> i32 {
+    let h: &[i32] = Head(m);
+    View(a)[1] + t.0[2] + t.1 + h[0]
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    let mut b = [4, 5, 6];
+    let mut units = [(); 2];
+    Units(&mut units, &[(), ()], 1);
+    let mut c = [7, 8];
+    let n = Repeats() + Elements(&mut a, &mut b, 1) + Sources(&a, (&b, 1), &mut c);
+}

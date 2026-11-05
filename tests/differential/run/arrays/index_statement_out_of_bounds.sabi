@@ -1,0 +1,20 @@
+// An element read whose value is discarded (`a[i];`, `let _ = a[i];`) still checks its
+// index: in bounds it does nothing, out of bounds it panics (copy forwarding deleted the
+// unused read, and with it the check).
+fn Discard(a: &[i32], i: usize) {
+    a[i];
+    PrintLine(i);
+}
+
+fn Underscore(a: &[i32; 3], i: usize) {
+    let _ = a[i];
+    PrintLine(i);
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    Underscore(&a, 2);
+    Discard(&a, 2);
+    Discard(&a, 3);
+    PrintLine("not reached");
+}

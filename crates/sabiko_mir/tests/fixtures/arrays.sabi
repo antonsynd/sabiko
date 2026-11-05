@@ -1,0 +1,53 @@
+// Arrays and slices: literals and repeats whose elements take the element type of an
+// expected array (`[&[i32]; 2]` coerces each `&[i32; 3]`), indexing with its bounds
+// check, `.len()`, slices of arrays and `&[_]` in annotations, and pointer coercions:
+// `&[T; N]` to `&[T]`, `&mut [T]` to `&[T]` (a place is reborrowed as `&[T]` instead),
+// and none for a `&[T]` passed on as `&[T]`. A discarded element read (`s[i];`, or of a
+// `()` element) is kept for its bounds check, also after copy forwarding.
+const N: usize = 2;
+
+fn Sum(s: &[i32]) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < s.len() {
+        total += s[i];
+        i += 1;
+    }
+    total
+}
+
+fn Twice(s: &[i32]) -> i32 {
+    Sum(s) + Sum(s)
+}
+
+fn Head(s: &mut [i32]) -> &mut [i32] {
+    s
+}
+
+fn Same(s: &[i32]) -> &[i32] {
+    s
+}
+
+fn Fill(s: &mut [i32], v: i32) -> i32 {
+    s[0] = v;
+    let r: &[i32] = s;
+    let t = Twice(r);
+    let h: &[i32] = Head(s);
+    t + Twice(Same(h))
+}
+
+fn Discard(s: &[i32], units: [(); 2], i: usize) {
+    s[i];
+    let u = units[i];
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    let grid = [[0u8; N]; 3];
+    let rows: &[[u8; N]] = &grid;
+    let any: &[_] = &grid;
+    let views: [&[i32]; 2] = [&a, &a];
+    let same: [&[i32]; 2] = [&a; 2];
+    let k = views[1][0] + same[0].len() as i32 + rows[2][1] as i32 + any.len() as i32;
+    let n = Fill(&mut a, k);
+}

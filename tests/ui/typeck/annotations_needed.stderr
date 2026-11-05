@@ -19,3 +19,10 @@
    │         ┬  
    │         ╰── consider giving `z` an explicit type
 ───╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:40:18 ]
+    │
+ 40 │     let w: i32 = v[0]; //~ ERROR E0313 type annotations needed
+    │                  ┬  
+    │                  ╰── the type of the indexed value must be known
+────╯

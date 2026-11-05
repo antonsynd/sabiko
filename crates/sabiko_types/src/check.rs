@@ -2802,10 +2802,25 @@ impl<'a> FnCtxt<'a> {
             pat_consts: HashMap::new(),
             index_derefs: self.index_derefs,
             len_calls: self.len_calls,
-            coercions: self.coercions,
+            coercions: Self::resolved_coercions(&mut self.infer, self.coercions),
             repeat_counts: self.repeat_counts,
             has_errors,
         }
+    }
+
+    /// The pointer coercions with their targets resolved: the target of `let s: &[_] = &a;`
+    /// is only known once `_` is. Anything still unknown was reported with its local.
+    fn resolved_coercions(
+        infer: &mut InferCtxt,
+        coercions: HashMap<NodeId, Ty>,
+    ) -> HashMap<NodeId, Ty> {
+        coercions
+            .into_iter()
+            .map(|(id, ty)| {
+                let t = infer.resolve_with_defaults(&ty);
+                (id, if t.has_infer() { Ty::Error } else { t })
+            })
+            .collect()
     }
 
     /// `[x; N]` with `N` other than 0 or 1 copies `x`: its type must be `Copy`, unless it

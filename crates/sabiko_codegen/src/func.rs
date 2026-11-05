@@ -1029,7 +1029,13 @@ impl FnCx<'_, '_> {
         let ty = place.ty(self.body);
         if ty.is_unit() || ty.is_uninhabited() {
             // Rvalues have no side effects; a unit store is nothing, but an element's
-            // index is still checked.
+            // index is still checked: the one read (`x = a[i]`, which loads nothing
+            // else), then the one written.
+            if let Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) = rvalue {
+                if src.has_index() {
+                    self.load(src, span);
+                }
+            }
             if place.has_index() && !ty.is_uninhabited() {
                 self.addr(place, span);
                 self.op("pop", 1, 0);

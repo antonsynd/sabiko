@@ -27,8 +27,10 @@
 //! place reads, so reading it later gives the same value as reading the copy. Every
 //! operand that outlives a call (`F(p.A, Bump(&mut p))`, the miscompile decision 36
 //! fixed) or a write that may alias it keeps its temporary. A temporary assigned a copy
-//! and never read is deleted too (reads have no side effects). The pass removes the
-//! storage markers of the temporaries it deletes, and the `nop`s it leaves.
+//! and never read is deleted too (reads have no side effects), unless the copy reads an
+//! element: its bounds check may panic, so a copy of an element is never forwarded nor
+//! deleted. The pass removes the storage markers of the temporaries it deletes, and the
+//! `nop`s it leaves.
 
 use crate::{
     Body, Local, LocalKind, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
@@ -196,6 +198,12 @@ fn find_candidate(body: &Body) -> Option<Candidate> {
             if decl.kind != LocalKind::Temp || tm.defs != 1 || tm.other != 0 || src.local == temp {
                 continue;
             }
+            // An element read checks its index, which may panic: it is not deleted when
+            // its value is never used (`a[i];`), nor moved past a statement that may panic
+            // too, which would change which panic happens.
+            if src.has_index() {
+                continue;
+            }
             if tm.uses == 0 {
                 return Some(Candidate {
                     block: b,
@@ -205,9 +213,7 @@ fn find_candidate(body: &Body) -> Option<Candidate> {
                 });
             }
             let sm = &m[src.local.index()];
-            // An element read checks its index, which may panic: moving the read past a
-            // statement that may panic too would change which panic happens.
-            if tm.uses != 1 || sm.borrowed || src.ty(body) != decl.ty || src.has_index() {
+            if tm.uses != 1 || sm.borrowed || src.ty(body) != decl.ty {
                 continue;
             }
             let Some(site) = find_use(body, &m, b, i, temp, src) else {

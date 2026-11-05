@@ -143,3 +143,51 @@
     │                  ─────┬────  
     │                       ╰────── in this constant
 ────╯
+[E0315] Error: arrays cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:38:11 ]
+    │
+ 38 │ const AR: [i32; 2] = [1, 2]; //~ ERROR E0315 arrays cannot be used in constants yet
+    │           ────┬───  
+    │               ╰───── a constant of array type
+    │ 
+    │ Note: constants are scalars for now; see docs/PLAN.md
+────╯
+[E0315] Error: array values cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:38:22 ]
+    │
+ 38 │ const AR: [i32; 2] = [1, 2]; //~ ERROR E0315 arrays cannot be used in constants yet
+    │                      ───┬──  
+    │                         ╰──── in this constant
+────╯
+[E0315] Error: arrays cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:40:11 ]
+    │
+ 40 │ const AS: &[i32] = &[1]; //~ ERROR E0315 arrays cannot be used in constants yet
+    │           ───┬──  
+    │              ╰──── a constant of array type
+    │ 
+    │ Note: constants are scalars for now; see docs/PLAN.md
+────╯
+[E0315] Error: references cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:40:20 ]
+    │
+ 40 │ const AS: &[i32] = &[1]; //~ ERROR E0315 arrays cannot be used in constants yet
+    │                    ──┬─  
+    │                      ╰─── in this constant
+────╯
+[E0315] Error: arrays cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:42:11 ]
+    │
+ 42 │ const AT: (i32, [u8; 1]) = (1, [2]); //~ ERROR E0315 arrays cannot be used in constants yet
+    │           ───────┬──────  
+    │                  ╰──────── a constant of array type
+    │ 
+    │ Note: constants are scalars for now; see docs/PLAN.md
+────╯
+[E0315] Error: tuple values cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:42:28 ]
+    │
+ 42 │ const AT: (i32, [u8; 1]) = (1, [2]); //~ ERROR E0315 arrays cannot be used in constants yet
+    │                            ────┬───  
+    │                                ╰───── in this constant
+────╯

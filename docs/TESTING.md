@@ -369,6 +369,63 @@ Equivalent survivors:
   counted as a definition is staged in a scratch local that takes its place: the IL of
   every fixture is unchanged, and the run-time corpora pass).
 
+Arrays and slices (#9) were checked the same way: `cargo mutants --in-diff` on the lines
+the branch changed in `crates/` against its mainline base, with the same test packages
+(`--timeout 300` for `sabiko_borrowck` and `sabiko_types`, 600 for the crates whose
+suites run `sabikoc`). One codegen mutant (`+=` as `*=` in `inline_array_structs`) used up
+the memory before it was killed, and counts as caught; the one `sabiko_mir` timeout
+(`apply` emptied, so copy forwarding never stops) is a kill too. Score = (caught +
+timeout) / viable:
+
+| Crate | Mutants | Before (caught + timeout / viable) | After | Remaining survivors |
+| --- | --- | --- | --- | --- |
+| `sabiko_types` | 159 | 106 + 0 / 140 (75.7%) | 140 + 0 / 140 (100%) | none |
+| `sabiko_mir` | 104 | 69 + 1 / 84 (83.3%) | 82 + 1 / 84 (98.8%) | 1 equivalent |
+| `sabiko_codegen` | 90 | 73 + 0 / 89 (82.0%) | 86 + 0 / 89 (96.6%) | 3 equivalent |
+| `sabiko_borrowck` | 32 | 15 + 0 / 23 (65.2%) | 21 + 0 / 23 (91.3%) | 2 equivalent |
+
+The survivors found three bugs, each fixed with a regression test: an unsizing coercion
+to an inferred element type (`let s: &[_] = &a;`) recorded its target with the unresolved
+`_`, so MIR validation failed and the compiler panicked (`run/arrays/
+inferred_slice_annotation`, the MIR fixture `arrays`); copy forwarding deleted an element
+read whose value is unused (`a[i];`, rustc panics out of bounds), and with it the bounds
+check (`run/arrays/index_statement_out_of_bounds`); and the backend skipped the read of a
+`()` element (`let x = a[i];` for `a: [(); 3]`), so an index out of bounds did not panic
+(`run/arrays/unit_elements_read_out_of_bounds`).
+
+Killing tests: UI fixtures (`borrowck/move_out_of_index`, rustc's E0508 for arrays and
+slices at any depth; `typeck/annotations_needed`, `consts`, `error_propagation`,
+`index_non_indexable`, `len_on_wrong_type`, `recursive_struct`, `repeat_length_type`,
+`unsized_slice_by_value`), compile-time verdicts against rustc (`loans/
+err_array_literal_of_refs_keeps_borrow`, `err_returned_array_of_refs_keeps_borrow`,
+`err_assign_other_element_keeps_reborrow`: writing `a[1]` does not kill a loan of
+`*a[0]`; `ok_tuple_reassign_ref_field_kills_reborrow`: writing `t.0` does;
+`moves/ok_compare_mut_refs_in_places`), run-time programs (`run/arrays/drops_unwind_read`:
+an element read is a point that may panic for drop elaboration; `repeat_values`,
+`slice_sources`, `unit_elements_write_out_of_bounds`), unit tests (array and slice
+unification, `is_uninhabited` of `[!; 0]`, `has_ref`, a match on an array of an error
+type), the MIR fixtures `arrays` and `drop_arrays` (elements take an expected element
+type, slices of arrays in annotations, `&mut [T]` to `&[T]` of a call result, drop glue
+of `[D; 0]`), MIR validator tests of arrays and coercions, and the IL fixture `arrays`
+(zero repeats as `initobj`, unit elements, spans from parameters, tuple fields and calls).
+
+Equivalent survivors:
+
+- `sabiko_borrowck`: `RegionTy::fresh`'s and `uniform`'s `has_ref()` guard on an array
+  or slice as `true` wraps an array without references as a one-element tuple of `Other`,
+  which is treated like `Other` (as for tuples above).
+- `sabiko_mir`: `forward::mentions`' `+=` for a `Len` as `*=` (a `Len` reads `*tmp` for a
+  temporary assigned a reborrow `tmp = &e`, which is never a forwarding candidate; the IL
+  of every corpus program is unchanged).
+- `sabiko_codegen`: `stackable_locals`' `+=` for index locals as `*=` (an index local is a
+  temporary that is only ever read as an index, so `uses` is 0 and it is not stackable
+  either way); `load`'s `has_index() && !is_uninhabited()` as `||` (no `()` place but an
+  element is ever loaded: an assignment of `()` reads only an element source, a `()`
+  operand pushes a default `Unit`, and `()` comparisons are constants); and
+  `element_span`'s `!stackable` as `stackable` (a slice held by a parameter or local is
+  copied into a scratch span first, which views the same elements). The IL of every
+  corpus program is unchanged under the first two.
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library
