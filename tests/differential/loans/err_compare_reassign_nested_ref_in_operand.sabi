@@ -1,0 +1,13 @@
+// `rr == ..` for `rr: &&i32` borrows `rr` itself as well (rustc E0506).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let r = &x;
+    let s = &y;
+    let mut rr = &r;
+    let same = rr == {
+        rr = &s;
+        rr
+    };
+    PrintLine(same);
+}

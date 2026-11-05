@@ -1,0 +1,11 @@
+// Only the compared field is borrowed: the right operand may assign another one.
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut t = (&x, &y);
+    let same = t.0 == {
+        t.1 = &x;
+        &y
+    };
+    PrintLine(same);
+}

@@ -1,5 +1,5 @@
 // Auto-deref through two references to a tuple: `rr.1.1` for `rr: &&(i32, (i32, i32))`
-// (`&&T` is a pointer to a `Ref<T>` wrapper, decision 63).
+// (`&&T` is a pointer to a `Ref<T>` wrapper, decision 64).
 fn Main() {
     let t = (1, (2, 3));
     let r = &t;

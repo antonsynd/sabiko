@@ -1,0 +1,42 @@
+[E0410] Error: cannot assign to `r` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_compare_reassign_operand.sabi:9:9 ]
+    │
+  8 │ ╭─▶     let same = r == {
+    │ │                  ┬  
+    │ │                  ╰── `r` is borrowed here
+  9 │ │           r = &y; //~ ERROR E0410 cannot assign to `r` because it is borrowed
+    │ │           ───┬──  
+    │ │              ╰──── assignment to borrowed `r` occurs here
+    ┆ ┆   
+ 11 │ ├─▶     };
+    │ │            
+    │ ╰──────────── borrow later used here
+────╯
+[E0412] Error: cannot move out of `r` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_compare_reassign_operand.sabi:18:17 ]
+    │
+ 17 │ ╭─▶     let same = r == {
+    │ │                  ┬  
+    │ │                  ╰── borrow of `*r` occurs here
+ 18 │ │           let t = r; //~ ERROR E0412 cannot move out of `r` because it is borrowed
+    │ │                   ┬  
+    │ │                   ╰── move out of `r` occurs here
+    ┆ ┆   
+ 20 │ ├─▶     };
+    │ │            
+    │ ╰──────────── borrow later used here
+────╯
+[E0410] Error: cannot assign to `s` because it is borrowed
+    ╭─[ tests/ui/borrowck/loan_compare_reassign_operand.sabi:27:9 ]
+    │
+ 26 │ ╭─▶     let less = s < {
+    │ │                  ┬  
+    │ │                  ╰── `s` is borrowed here
+ 27 │ │           s = "b"; //~ ERROR E0410 cannot assign to `s` because it is borrowed
+    │ │           ───┬───  
+    │ │              ╰───── assignment to borrowed `s` occurs here
+    ┆ ┆   
+ 29 │ ├─▶     };
+    │ │            
+    │ ╰──────────── borrow later used here
+────╯

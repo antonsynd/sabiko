@@ -1,0 +1,31 @@
+// The left operand of a comparison of references stays borrowed itself while the right
+// operand runs, as rustc's `PartialEq::eq(&r, ..)` borrows it (decision 63). Each
+// conflict is reported once, also when the reborrow of `*r` conflicts as well.
+fn Shared() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let same = r == {
+        r = &y; //~ ERROR E0410 cannot assign to `r` because it is borrowed
+        r
+    };
+    PrintLine(same);
+}
+
+fn MovedMut(mut a: i32) {
+    let r = &mut a;
+    let same = r == {
+        let t = r; //~ ERROR E0412 cannot move out of `r` because it is borrowed
+        t
+    };
+    PrintLine(same);
+}
+
+fn Str() {
+    let mut s = "a";
+    let less = s < {
+        s = "b"; //~ ERROR E0410 cannot assign to `s` because it is borrowed
+        "c"
+    };
+    PrintLine(less);
+}

@@ -338,7 +338,7 @@ exception, `ReturnPtrToStack` (decision 30: ECMA-335 rejects every function retu
 reference; the borrow checker covers it). Deferred: `Drop` scopes as `try/finally` and the
 drop-order tests go with drop elaboration to Phase 5 (nothing has drop glue yet, decision
 26); `i128`/`u128`, `&&T` and `()`-typed parameters/fields are hard errors (E0500) until
-their representations are decided (since decided: decisions 42, 52 and 63); ref-to-ref and panic messages lack source positions.
+their representations are decided (since decided: decisions 42, 52 and 64); ref-to-ref and panic messages lack source positions.
 
 **Milestone A** (end of Phase 4): the examples from both design notes (`add_one`,
 `move_point`, partial borrows) compile, verify, run, and the rejection examples are
@@ -414,7 +414,7 @@ compare the referents; MIR reborrows each operand as a shared temporary and dere
 after both operands ran, as rustc's `PartialEq::eq(&l, &r)` does, and the generator produces
 such comparisons. One verdict gap remains: rustc's borrow of a reference *variable* used as
 an operand (`r == { r = &y; r }`), which needs `&&T` codegen (lowered since #11, but not
-used for this yet, decision 63). Non-BMP `char` literals are
+used for this yet, decision 64). Non-BMP `char` literals are
 the type checker's E0318 instead of a codegen E0500. The borrow of a diverging expression is
 typed `&!` as in rustc, `&!` locals get no storage (decision 44), and a block with a tail is
 typed by its tail even after a diverging statement; together these close the four known
@@ -440,7 +440,7 @@ rustc's `file:line:column` and per-operator message, through explicit overflow c
 debug builds instead of `.ovf` opcodes (decision 43). The run-time differential harness
 compares full panic reports, including locations, and supports `//@ release`; the generator
 emits 128-bit types; run-pass pins `.stderr`. Still E0500: `&&T` and `()`-typed parameters
-and fields (lowered since, decisions 52 and 63). Generated `u128` literals stay below 2^127.
+and fields (lowered since, decisions 52 and 64). Generated `u128` literals stay below 2^127.
 
 Update (2026-10-29), benchmarks (decision 50): `benchmarks/` compares six Sabiko programs
 with the same algorithms in hand-written C# (rustc as a reference) nightly, in
@@ -778,7 +778,18 @@ branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`)
 equivalent. Among the killing tests: slicing is a point that may panic for drop
 elaboration (`run/strings/drops_unwind_slice`).
 
-Update (2026-11-05), references to references and to `()` (#11, decision 63): `&&T`,
+Update (2026-11-05), the last comparison verdict gap (decision 63): rustc's
+`PartialEq::eq(&r, ..)` borrows the left operand's reference *itself*, so
+`r == { r = &y; r }` is E0506 there and was accepted here. MIR building now adds a shallow
+fake borrow of a left place operand (`&fake shallow r`), mentioned once the right operand
+ran; it conflicts with writes, moves and mutable borrows of the place and its prefixes, not
+with accesses through it (the reborrow `&*r` checks those), and emits no code, so the IL of
+every run-pass, run-time differential and benchmark program is unchanged but for local
+names. `&str` operands, which are copied rather than reborrowed, get it too
+(`s == { s = "b"; s }`). Twenty `tests/differential/loans/*compare*` programs agree with
+rustc 1.99.1. No known comparison verdict gap remains.
+
+Update (2026-11-05), references to references and to `()` (#11, decision 64): `&&T`,
 `&mut &T`, `&mut &mut T` and deeper chains are lowered with two wrappers generated into
 the module, ``'Ref`1'<byreflike T>`` and ``'RefMut`1'<byreflike T>``, `readonly ref
 struct`s holding one `initonly !T&` field `Value`. A reference local that a borrow takes
@@ -807,8 +818,8 @@ scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mut
 borrowed; older than #11). Known gaps: deref coercion (`&&i32` to `&i32`, E0300),
 temporary lifetime extension below the second level (`let d = &&&x;`, E0413), `'static`
 promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
-references (Phase 9), rustc's borrow of a compared reference variable (`r == { r = &y; r
-}`), and arrays and slices of references (#43).
+references (Phase 9), and arrays and slices of references (#43). rustc's borrow of a
+compared reference variable (`r == { r = &y; r }`) is decision 63's shallow fake borrow.
 
 ### Phase 5: Data types
 
@@ -844,7 +855,7 @@ against drops rather than retrofitted.
   range values wait for generics (Phase 6).
 - `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
   generic types that may hold it are emitted with `allows ref struct`. This also lowers
-  `&&T`. Done for `&&T`, `&()` and references in tuples (#11, decision 63; see the status
+  `&&T`. Done for `&&T`, `&()` and references in tuples (#11, decision 64; see the status
   note above): `Ref<T>`/`RefMut<T>` are generated per module with a `byreflike`
   parameter, ready to be a generic argument once Phase 6 has generic types; arrays and
   slices of references remain (#43).

@@ -1,4 +1,4 @@
-// References to references and to `()` (decision 63): a borrowed reference local is held
+// References to references and to `()` (decision 64): a borrowed reference local is held
 // in its `Ref<T>` wrapper, a borrowed reference parameter is wrapped on entry, a
 // reference to a reference is a pointer to a wrapper, a tuple element that is a reference
 // is a wrapper, and `&()` is as stateless as `()`.

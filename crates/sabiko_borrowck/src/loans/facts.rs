@@ -31,8 +31,8 @@ use std::collections::HashMap;
 
 use polonius_engine::{AllFacts, FactTypes};
 use sabiko_mir::{
-    AggregateKind, BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem,
-    Rvalue, StatementKind, TerminatorKind,
+    AggregateKind, BasicBlock, Body, FakeBorrowKind, Local, LocalKind, Mutability, Operand, Place,
+    PlaceElem, Rvalue, StatementKind, TerminatorKind,
 };
 use sabiko_resolve::Builtin;
 use sabiko_span::Span;
@@ -122,8 +122,9 @@ pub struct LoanData {
     /// For a two-phase borrow, the location of the use that activates it (a call). `None`
     /// for an ordinary borrow, which is active from its creation.
     pub activation: Option<Location>,
-    /// A fake borrow of a match scrutinee while a guard runs (`BorrowKind::Fake`).
-    pub fake: bool,
+    /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a match scrutinee
+    /// while a guard runs, or a compared reference (a shallow borrow).
+    pub fake: Option<FakeBorrowKind>,
 }
 
 impl LoanData {
@@ -340,7 +341,7 @@ impl Generator<'_> {
                         location,
                         span: statement.span,
                         activation,
-                        fake: *kind == sabiko_mir::BorrowKind::Fake,
+                        fake: kind.fake(),
                     });
                 }
             }
@@ -607,7 +608,11 @@ impl Generator<'_> {
         } else {
             AccessKind::SharedBorrow
         };
-        self.access(place, kind, location);
+        // A compared reference's shallow borrow is no access of its own: the operand's
+        // reborrow (`&*r`) or copy, just before it, already reads the place deeply.
+        if self.loans[loan.index()].fake != Some(FakeBorrowKind::Shallow) {
+            self.access(place, kind, location);
+        }
         let origin = self.loans[loan.index()].origin;
         let mid = self.table.mid(location);
         self.all.loan_issued_at.push((origin, loan, mid));
@@ -719,7 +724,14 @@ impl Generator<'_> {
             }
             // A move leaves the scrutinee's memory as it was, so a guard may move it out
             // (rustc leaves this to the move checks, which reject any later use).
-            if loan.fake && kind == AccessKind::Move {
+            if loan.fake == Some(FakeBorrowKind::Guard) && kind == AccessKind::Move {
+                continue;
+            }
+            // A shallow borrow of a reference does not cover its referent: an access
+            // through it (`*r = 3`, `&mut *r`) is the reborrow's to check, if any.
+            if loan.fake == Some(FakeBorrowKind::Shallow)
+                && place.projection.len() > loan.place.projection.len()
+            {
                 continue;
             }
             let reading = matches!(kind, AccessKind::Read | AccessKind::SharedBorrow);

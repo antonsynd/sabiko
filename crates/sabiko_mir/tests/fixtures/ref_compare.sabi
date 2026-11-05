@@ -1,6 +1,7 @@
 // Comparisons between references compare the referents: each operand becomes a shared
 // reference temporary (a place is reborrowed, so `&mut` is not moved) and both are
-// dereferenced in the comparison, after both operands ran.
+// dereferenced in the comparison, after both operands ran. A left place operand is also
+// shallowly fake-borrowed until then: rustc borrows the reference itself (decision 63).
 fn Shared(a: &i32, b: &i32) -> bool {
     a < b
 }
@@ -21,4 +22,10 @@ fn Main() {
     *r = 3;
     PrintLine(same);
     PrintLine(Shared(&n, &m));
+}
+
+// A `&str` is compared as it is (#10): the left place is copied, and shallowly
+// fake-borrowed like the reference places above.
+fn Strs(a: &str, b: &str) -> bool {
+    a <= b
 }

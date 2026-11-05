@@ -1,0 +1,12 @@
+// rustc passes `&r` to `PartialEq::eq`, borrowing the reference `r` itself until the
+// comparison, so reassigning `r` in the right operand conflicts (rustc E0506).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let same = r == {
+        r = &y;
+        r
+    };
+    PrintLine(same);
+}

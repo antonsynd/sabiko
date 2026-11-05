@@ -31,8 +31,8 @@ use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 
 use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope};
 use crate::{
-    BasicBlock, BinOp, BorrowKind, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue,
-    StatementKind, TerminatorKind,
+    BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, Local, LocalDecl, LocalKind, Operand,
+    Place, Rvalue, StatementKind, TerminatorKind,
 };
 
 /// An enum and the index of one of its variants.
@@ -526,7 +526,7 @@ impl Builder<'_> {
         let fake = self.new_temp(Ty::shared_ref(place.ty(&self.body)), span);
         self.assign(
             Place::local(fake),
-            Rvalue::Ref(BorrowKind::Fake, place.clone()),
+            Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Guard), place.clone()),
             span,
         );
         let saved = std::mem::take(&mut self.guard_places);

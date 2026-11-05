@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use polonius_engine::{Algorithm, Output};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_mir::{Body, Local, LocalKind, Place, TerminatorKind, Ty};
+use sabiko_mir::{Body, FakeBorrowKind, Local, LocalKind, Place, TerminatorKind, Ty};
 use sabiko_resolve::{DefKind, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{FnSig, TypeckResults};
@@ -126,14 +126,33 @@ impl Reporter<'_> {
         errors.sort_unstable();
         errors.dedup();
         let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
+        // Points where a loan other than a compared reference's shallow borrow conflicts.
+        let real: HashSet<Point> = errors
+            .iter()
+            .filter(|&&(_, _, l)| !self.is_shallow(l))
+            .map(|&(_, p, _)| p)
+            .collect();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {
+                continue;
+            }
+            // `r == { let t = r; t }` conflicts with both the reborrow `&*r` and the
+            // shallow borrow of `r`: one report is enough, the reborrow's.
+            if self.is_shallow(loan) && real.contains(&point) {
                 continue;
             }
             if let Some(diag) = self.loan_error(location, point, loan) {
                 sink.emit(diag);
             }
         }
+    }
+
+    /// Whether the loan is a compared reference's shallow fake borrow.
+    fn is_shallow(&self, loan: Loan) -> bool {
+        self.facts
+            .loans
+            .get(loan.index())
+            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Shallow))
     }
 
     /// Whether the error is the activation of a two-phase borrow conflicting with a loan
@@ -163,7 +182,7 @@ impl Reporter<'_> {
         let span = self.span_at(location);
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
-        if data.fake {
+        if data.fake == Some(FakeBorrowKind::Guard) {
             // The scrutinee is frozen while a match guard runs (rustc's E0510); moving it
             // out does not conflict with the fake borrow.
             let (message, label) = match invalidation.kind {

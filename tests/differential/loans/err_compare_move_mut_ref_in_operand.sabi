@@ -1,0 +1,11 @@
+// Moving the compared `&mut` out in the right operand conflicts with its borrow (rustc
+// E0505).
+fn Main() {
+    let mut a = 1;
+    let r = &mut a;
+    let same = r == {
+        let t = r;
+        t
+    };
+    PrintLine(same);
+}
