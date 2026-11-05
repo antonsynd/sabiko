@@ -245,7 +245,6 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
     let mut _7: bool;
     let mut _8: D;
     cleanup c0: _3 => drop(_3) if _7;
-    cleanup c1: _6 => nothing;
 
     bb0: {
         StorageLive(_3);
@@ -271,12 +270,12 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
         StorageLive(_5);
         StorageLive(_6);
         _6 = D { Id: const 4_i32 };
-        goto -> bb3;
+        goto -> bb8;
     }
 
-    bb3 (cleanup c1): {
+    bb3: {
         _5 = [];
-        goto -> bb8;
+        goto -> bb4;
     }
 
     bb4: {
@@ -300,7 +299,7 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
     }
 
     bb8: {
-        drop(_6) -> bb4;
+        drop(_6) -> bb3;
     }
 }
 

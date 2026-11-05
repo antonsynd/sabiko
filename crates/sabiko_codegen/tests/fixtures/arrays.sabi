@@ -1,6 +1,6 @@
 // Arrays and slices (#9): element places are `Index` projections on a temporary holding
 // the index; `len()` reads the length through a shared reborrow; unsizing is a pointer
-// coercion; `[x; 0]` drops its operand at the statement's end; a nested element checks
+// coercion; `[x; 0]` drops its operand at once, as in rustc; a nested element checks
 // the outer index before the inner one runs; an element assignment of a value with drop
 // glue checks the index before the value moves.
 struct D { Id: i32 }

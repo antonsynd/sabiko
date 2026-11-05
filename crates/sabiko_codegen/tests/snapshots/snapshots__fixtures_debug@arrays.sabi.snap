@@ -683,14 +683,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     ldloca.s 3
     ldc.i4.4
     stfld int32 'D'::'Id'
+  BB7:
+    ldloca.s 3
+    call void 'D'::'Drop.drop'(valuetype 'D'&)
   BB3:
     ldloca.s 7
     initobj valuetype '[D; 0]'
     ldloc.s 7
     stloc.2
-  BB7:
-    ldloca.s 3
-    call void 'D'::'Drop.drop'(valuetype 'D'&)
   BB4:
     ret
   }
