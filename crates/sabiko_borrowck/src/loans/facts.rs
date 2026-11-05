@@ -12,7 +12,10 @@
 //! - Assignments, call arguments and call results relate the source's [`RegionTy`] to the
 //!   destination's, covariantly, with both directions below a `&mut`.
 //! - An access invalidates every live loan whose place it conflicts with (see
-//!   [`places_conflict`]); the kind of access is remembered for the diagnostic.
+//!   [`places_conflict`]); the kind of access is remembered for the diagnostic. Nothing
+//!   done to a shared reference itself (`m = ..`, `&mut m`, a move) conflicts with a loan
+//!   of a place reached through it (`&*m`): the referent is not the reference's to change
+//!   (rustc does not track such loans at all, `Place::ignore_borrow`; decision 65).
 //! - Overwriting a local or its `*local`, a call result and `StorageDead` kill every loan
 //!   rooted at that local; a deeper write kills the loans it conflicts with. Kills follow
 //!   invalidations (at `Mid` versus `Start`), so an error is still reported once and then
@@ -32,7 +35,7 @@ use std::collections::HashMap;
 use polonius_engine::{AllFacts, FactTypes};
 use sabiko_mir::{
     AggregateKind, BasicBlock, Body, FakeBorrowKind, Local, LocalKind, Mutability, Operand, Place,
-    PlaceElem, Rvalue, StatementKind, TerminatorKind,
+    PlaceElem, Rvalue, StatementKind, TerminatorKind, Ty,
 };
 use sabiko_resolve::Builtin;
 use sabiko_span::Span;
@@ -125,6 +128,12 @@ pub struct LoanData {
     /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a match scrutinee
     /// while a guard runs, or a compared reference (a shallow borrow).
     pub fake: Option<FakeBorrowKind>,
+    /// The index in `place.projection` of the first dereference of a shared reference,
+    /// when the place is reached through one (`*m` for `m: &i32`, `**mm` for
+    /// `mm: &mut &i32`); see [`places_conflict`]. Always `None` for a guard's fake
+    /// borrow, which also stands for rustc's shallow fake borrows of the scrutinee's
+    /// prefixes (`m` for `match *m`): those conflict with `&mut m` in the guard.
+    pub shared_deref: Option<usize>,
 }
 
 impl LoanData {
@@ -334,6 +343,9 @@ impl Generator<'_> {
                         self.activations.entry(at).or_default().push(loan);
                     }
                     self.loan_at.insert(location, loan);
+                    let shared_deref = (kind.fake() != Some(FakeBorrowKind::Guard))
+                        .then(|| first_shared_deref(self.body, place))
+                        .flatten();
                     self.loans.push(LoanData {
                         place: place.clone(),
                         mutability: kind.mutability(),
@@ -342,6 +354,7 @@ impl Generator<'_> {
                         span: statement.span,
                         activation,
                         fake: kind.fake(),
+                        shared_deref,
                     });
                 }
             }
@@ -657,7 +670,13 @@ impl Generator<'_> {
             _ => {
                 let mid = self.table.mid(location);
                 for (index, loan) in self.loans.iter().enumerate() {
-                    if places_conflict(place, AccessKind::Move, &loan.place, loan.mutability) {
+                    if places_conflict(
+                        place,
+                        AccessKind::Move,
+                        &loan.place,
+                        loan.shared_deref,
+                        loan.mutability,
+                    ) {
                         self.all.loan_killed_at.push((Loan(index), mid));
                     }
                 }
@@ -740,7 +759,7 @@ impl Generator<'_> {
             } else {
                 loan.mutability
             };
-            if places_conflict(place, kind, &loan.place, mutability) {
+            if places_conflict(place, kind, &loan.place, loan.shared_deref, mutability) {
                 self.all.loan_invalidated_at.push((start, Loan(index)));
                 self.invalidations
                     .entry((start, Loan(index)))
@@ -819,17 +838,25 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
     uses
 }
 
-/// Whether an access of `access` with `kind` conflicts with a loan of `borrowed`.
+/// Whether an access of `access` with `kind` conflicts with a loan of `borrowed`, whose
+/// first dereference of a shared reference, if any, is `borrowed.projection[shared_deref]`
+/// ([`LoanData::shared_deref`]).
 ///
 /// Two places rooted at different locals never conflict, nor do two that reach different
-/// fields of the same struct. Otherwise one is a prefix of the other: a shallow access
-/// cannot reach a loan that extends past it through a `Deref`, and the remaining cases are
-/// decided by [`AccessKind::conflicts_with`].
+/// fields of the same struct. Otherwise one is a prefix of the other. An access that stops
+/// before the loan's shared dereference, deep or shallow, cannot reach the loan: whatever
+/// it does to the reference (`m = &y`, `&mut m`, a move of `m` or of what holds it), the
+/// referent stays where it was and is never written through a `&` (rustc's
+/// `ignore_borrow`; a `&mut` dereference on the way, `&*mm`, still conflicts with `&mut mm`
+/// and a move of `mm`, since a `&mut` is unique). A shallow
+/// access cannot reach a loan that extends past it through any `Deref`. The remaining
+/// cases are decided by [`AccessKind::conflicts_with`].
 #[must_use]
 pub fn places_conflict(
     access: &Place,
     kind: AccessKind,
     borrowed: &Place,
+    shared_deref: Option<usize>,
     loan_mutability: Mutability,
 ) -> bool {
     if access.local != borrowed.local {
@@ -843,6 +870,9 @@ pub fn places_conflict(
             _ => {}
         }
     }
+    if shared_deref.is_some_and(|index| index >= access.projection.len()) {
+        return false;
+    }
     if kind.is_shallow() && borrowed.projection.len() > access.projection.len() {
         let rest = &borrowed.projection[access.projection.len()..];
         if rest.contains(&PlaceElem::Deref) {
@@ -850,4 +880,16 @@ pub fn places_conflict(
         }
     }
     kind.conflicts_with(loan_mutability)
+}
+
+/// The index in `place.projection` of its first dereference of a shared reference.
+fn first_shared_deref(body: &Body, place: &Place) -> Option<usize> {
+    (0..place.projection.len()).find(|&index| {
+        let base = Place {
+            local: place.local,
+            projection: place.projection[..index].to_vec(),
+        };
+        place.projection[index] == PlaceElem::Deref
+            && matches!(base.ty(body), Ty::Ref(Mutability::Not, _))
+    })
 }

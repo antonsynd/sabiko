@@ -1,0 +1,34 @@
+// A reborrow through a shared reference (`&*m`, `&m[1..]`, `&**mr`) outlives borrowing,
+// retargeting and copying the reference itself, and keeps pointing at the old referent
+// (generator seed 5001324).
+fn Main() {
+    let x = 1i32;
+    let y = 2i32;
+    let mut m: &i32 = &x;
+    let d: &i32 = &*m;
+    let a: &mut &i32 = &mut m;
+    *a = &y;
+    PrintLine(*d);
+    PrintLine(*m);
+    let e: &i32 = &*m;
+    {
+        let r = &mut m;
+        *r = &x;
+    }
+    let c = m;
+    m = &y;
+    PrintLine(*e + *c * 10 + *m * 100);
+    let mut s: &str = "abc";
+    let t: &str = &s[1..];
+    let u: &mut &str = &mut s;
+    *u = "x";
+    PrintLine(t);
+    PrintLine(s);
+    let mut mr: &mut &i32 = &mut m;
+    let f: &i32 = &**mr;
+    *mr = &x;
+    let g: &mut &mut &i32 = &mut mr;
+    **g = &y;
+    PrintLine(*f);
+    PrintLine(*m);
+}

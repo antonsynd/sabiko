@@ -1,0 +1,11 @@
+// A reborrow through a `&mut` (`&*m`, `m: &mut i32`) is still in conflict with borrowing
+// `m` mutably: a `&mut` is unique, so `&mut m` could write `x` through `**a` while `d`
+// reads it (rustc E0502).
+fn Main() {
+    let mut x = 1i32;
+    let mut m: &mut i32 = &mut x;
+    let d: &i32 = &*m;
+    let a: &mut &mut i32 = &mut m;
+    **a = 2;
+    PrintLine(*d);
+}

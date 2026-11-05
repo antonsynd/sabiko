@@ -1,0 +1,10 @@
+// Moving a `&mut` out while a reborrow through it lives is a conflict (rustc E0505), unlike
+// a shared reference, whose reborrows survive it being copied, borrowed or retargeted.
+fn Main() {
+    let mut x = 1i32;
+    let m: &mut i32 = &mut x;
+    let d: &i32 = &*m;
+    let n = m;
+    *n = 2;
+    PrintLine(*d);
+}

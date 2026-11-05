@@ -2166,3 +2166,192 @@ fn drop_conflicts_with_a_live_shared_loan_of_a_field() {
         );
     }
 }
+
+// ----------------------------------------------------------------------------------------
+// Loans behind a shared dereference (rustc's `ignore_borrow`): nothing done to the
+// reference itself reaches what was borrowed through it
+// ----------------------------------------------------------------------------------------
+
+/// What [`reborrow_then_access`] does to `m` while `d = &*m` lives.
+#[derive(Clone, Copy, Debug)]
+enum RefAccess {
+    /// `let a = &mut m; *a = &y;`
+    MutBorrow,
+    /// `m = &y;`
+    Assign,
+    /// `let m2 = move m;`
+    Move,
+}
+
+/// `let mut m = &x; let d = &*m; <access to m>; let n = *d;`, with `m: &mut i32` (and
+/// `&mut x`, `&mut y`) when `mut_ref`.
+fn reborrow_then_access(access: RefAccess, mut_ref: bool) -> (Fixture, Body) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let reference = |inner: Ty| {
+        if mut_ref {
+            Ty::mut_ref(inner)
+        } else {
+            Ty::shared_ref(inner)
+        }
+    };
+    let borrow = |place: Place| {
+        if mut_ref {
+            mutable(place)
+        } else {
+            shared(place)
+        }
+    };
+    let ref_ty = reference(Ty::I32);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let y = mir.user("y", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", ref_ty.clone(), Mutability::Mut);
+    let dr = mir.user("d", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let am = mir.user("a", Ty::mut_ref(ref_ty.clone()), Mutability::Not);
+    let m2 = mir.user("m2", ref_ty.clone(), Mutability::Not);
+    let ry = mir.temp(ref_ty);
+    let out = mir.user("n", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(y), use_int(2));
+    mir.assign(bb0, local(m), borrow(local(x)));
+    mir.assign(bb0, local(dr), shared(deref(m)));
+    mir.assign(bb0, local(ry), borrow(local(y)));
+    match access {
+        RefAccess::MutBorrow => {
+            mir.assign(bb0, local(am), mutable(local(m)));
+            mir.assign(bb0, deref(am), Rvalue::Use(mv(local(ry))));
+        }
+        RefAccess::Assign => {
+            mir.assign(bb0, local(m), Rvalue::Use(mv(local(ry))));
+        }
+        RefAccess::Move => {
+            mir.assign(bb0, local(m2), Rvalue::Use(mv(local(m))));
+        }
+    }
+    mir.assign(bb0, local(out), use_copy(deref(dr)));
+    mir.finish_unit(bb0);
+    (fx, mir.finish())
+}
+
+#[test]
+fn access_to_a_shared_reference_does_not_reach_a_reborrow_through_it() {
+    // let mut m: &i32 = &x; let d = &*m; let a = &mut m; *a = &y; PrintLine(*d);
+    // rustc accepts every access to `m` here: `d` points at `x`, which no change to `m`
+    // can touch (generator seed 5001324).
+    for access in [RefAccess::MutBorrow, RefAccess::Assign, RefAccess::Move] {
+        let (fx, body) = reborrow_then_access(access, false);
+        let messages = fx.messages(&body);
+        assert!(messages.is_empty(), "{access:?}: {messages:#?}");
+    }
+}
+
+#[test]
+fn access_to_a_mutable_reference_reaches_a_reborrow_through_it() {
+    // let mut m: &mut i32 = &mut x; let d = &*m; let a = &mut m; ..; PrintLine(*d);
+    // A `&mut` gives unique access: borrowing it mutably or moving it conflicts with `d`
+    // (rustc E0502 / E0505); only overwriting `m` is shallow and fine.
+    let expected = [
+        (
+            RefAccess::MutBorrow,
+            vec!["E0408 cannot borrow `m` as mutable because it is also borrowed as immutable"],
+        ),
+        (RefAccess::Assign, vec![]),
+        (
+            RefAccess::Move,
+            vec!["E0412 cannot move out of `m` because it is borrowed"],
+        ),
+    ];
+    for (access, messages) in expected {
+        let (fx, body) = reborrow_then_access(access, true);
+        assert_eq!(fx.messages(&body), messages, "{access:?}");
+    }
+}
+
+/// `let mut m = &x; let mut mr = &mut m; let d = &<reborrowed>; let a = &mut <borrowed>;
+/// *a = ..; PrintLine(*d);` with `mr: &mut &i32`.
+fn reborrow_through_mut_ref_to_ref(reborrowed: &Place, borrowed: Place) -> (Fixture, Body) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let m = mir.user("m", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let mr = mir.user("mr", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Mut);
+    let dr = mir.user(
+        "d",
+        Ty::shared_ref(borrowed_ty(reborrowed)),
+        Mutability::Not,
+    );
+    let am = mir.user("a", Ty::mut_ref(borrowed_ty(&borrowed)), Mutability::Not);
+    let out = mir.user("n", Ty::I32, Mutability::Not);
+    assert_eq!((m, mr, dr, am), (Local(2), Local(3), Local(4), Local(5)));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), shared(local(x)));
+    mir.assign(bb0, local(mr), mutable(local(m)));
+    mir.assign(bb0, local(dr), shared(reborrowed.clone()));
+    mir.assign(bb0, local(am), mutable(borrowed));
+    let mut read = deref(dr);
+    if reborrowed.projection.len() == 1 {
+        read = read.deref();
+    }
+    mir.assign(bb0, local(out), use_copy(read));
+    mir.finish_unit(bb0);
+    (fx, mir.finish())
+}
+
+/// The type of a place below `mr: &mut &i32`, by its number of dereferences.
+fn borrowed_ty(place: &Place) -> Ty {
+    match place.projection.len() {
+        0 => Ty::mut_ref(Ty::shared_ref(Ty::I32)),
+        1 => Ty::shared_ref(Ty::I32),
+        _ => Ty::I32,
+    }
+}
+
+#[test]
+fn reborrow_below_a_mut_ref_to_a_shared_ref() {
+    let mr = Local(3);
+    // `d = &**mr` goes through the shared `*mr`: neither `&mut mr` nor `&mut *mr` reaches
+    // it (rustc accepts both).
+    for borrowed in [local(mr), deref(mr)] {
+        let (fx, body) = reborrow_through_mut_ref_to_ref(&deref(mr).deref(), borrowed.clone());
+        let messages = fx.messages(&body);
+        assert!(messages.is_empty(), "{borrowed:?}: {messages:#?}");
+    }
+    // `d = &*mr` only goes through the `&mut`: `&mut mr` conflicts (rustc E0502).
+    let (fx, body) = reborrow_through_mut_ref_to_ref(&deref(mr), local(mr));
+    assert_eq!(
+        fx.messages(&body),
+        ["E0408 cannot borrow `mr` as mutable because it is also borrowed as immutable"]
+    );
+}
+
+/// `let mut m: &i32 = &x; let f = &fake <kind> *m; let a = &mut m; let _ = f;`
+fn fake_borrow_of_deref_then_mut_borrow(kind: FakeBorrowKind) -> (Fixture, Body) {
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let m = mir.user("m", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let f = mir.temp(Ty::shared_ref(Ty::I32));
+    let am = mir.user("a", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), shared(local(x)));
+    mir.assign(bb0, local(f), Rvalue::Ref(BorrowKind::Fake(kind), deref(m)));
+    mir.assign(bb0, local(am), mutable(local(m)));
+    mir.stmt(bb0, mention(f));
+    mir.finish_unit(bb0);
+    (fx, mir.finish())
+}
+
+#[test]
+fn fake_borrows_behind_a_shared_deref() {
+    // A compared `*rr` (`rr: &&i32`): rustc passes `&*rr` to `PartialEq::eq`, a loan it
+    // does not track, so `*rr == { let a = &mut rr; .. }` is accepted.
+    let (fx, body) = fake_borrow_of_deref_then_mut_borrow(FakeBorrowKind::Shallow);
+    fx.assert_clean(&body);
+    // A guard over `match *m` stands for rustc's shallow fake borrow of `m` too, which
+    // `&mut m` in the guard conflicts with (rustc E0510).
+    let (fx, body) = fake_borrow_of_deref_then_mut_borrow(FakeBorrowKind::Guard);
+    assert_eq!(fx.messages(&body).len(), 1);
+}

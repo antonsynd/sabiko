@@ -1,0 +1,20 @@
+// `d` reborrows `*m`, a place behind a shared reference: nothing done to `m` itself
+// (`&mut m`, the retarget through it) can touch what `d` points at, so rustc does not let
+// the loan conflict with them, and `d` keeps pointing at `x` (generator seed 5001324). The
+// `&str` form (`&s[1..]`, a reborrow of `*s`) behaves the same.
+fn Main() {
+    let x = 1i32;
+    let y = 2i32;
+    let mut m: &i32 = &x;
+    let d: &i32 = &*m;
+    let a: &mut &i32 = &mut m;
+    *a = &y;
+    PrintLine(*d);
+    PrintLine(*m);
+    let mut s: &str = "abc";
+    let t: &str = &s[1..];
+    let u: &mut &str = &mut s;
+    *u = "x";
+    PrintLine(t);
+    PrintLine(s);
+}

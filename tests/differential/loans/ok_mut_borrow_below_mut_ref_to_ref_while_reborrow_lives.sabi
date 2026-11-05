@@ -1,0 +1,15 @@
+// `d` reborrows `**mr`, which is behind the shared `*mr` (`mr: &mut &i32`): neither
+// `&mut *mr` (retargeting `m`) nor `&mut mr` reaches it, so both are fine while `d` lives.
+fn Main() {
+    let x = 1i32;
+    let y = 2i32;
+    let mut m: &i32 = &x;
+    let mut mr: &mut &i32 = &mut m;
+    let d: &i32 = &**mr;
+    let a: &mut &i32 = &mut *mr;
+    *a = &y;
+    let b: &mut &mut &i32 = &mut mr;
+    PrintLine(***b);
+    PrintLine(*d);
+    PrintLine(*m);
+}

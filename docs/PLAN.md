@@ -821,6 +821,23 @@ promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on do
 references (Phase 9), and arrays and slices of references (#43). rustc's borrow of a
 compared reference variable (`r == { r = &y; r }`) is decision 63's shallow fake borrow.
 
+Update (2026-11-05), loans behind a shared dereference (decision 65): the first of the two
+generator divergences above is fixed. A loan of a place reached through a `&T`
+(`d = &*m`, `&s[1..]`, `&**mr` for `mr: &mut &i32`, a compared `*rr`) no longer
+conflicts with any access, deep or shallow, that stops before that dereference: `&mut m`,
+`m = ..`, a retarget through `&mut m` and a move of `m` leave what `d` points at alone, as
+in rustc, which does not track such loans (`ignore_borrow`). A dereference of a `&mut` on
+the way still conflicts (`d = &*mm; &mut mm` is E0408, rustc E0502; moving `mm`, E0412),
+and a guard's fake borrow is exempt, since it also stands for rustc's shallow borrows of
+the scrutinee's prefixes. `ok_mut_borrow_of_ref_while_reborrow_lives` left
+`tests/pending/refs/known_gap/` for `tests/differential/loans/`, with three more verdict
+programs (`&**mr`, a compared `*rr`, the `&mut` counterparts) and a run-time one in
+`tests/differential/run/refs/`; hand-built MIR tests in `sabiko_borrowck/tests/loans.rs`
+cover each access kind. The generator now borrows any mutable `&str` local `&mut`, not
+only a fresh one; 2000 seeds at each of the bases 7000000, 8000000 and 9000000 pass all
+five properties. Still open, found while checking this: a guard over `match *m` that
+assigns `m` is accepted (rustc E0510).
+
 ### Phase 5: Data types
 
 Work

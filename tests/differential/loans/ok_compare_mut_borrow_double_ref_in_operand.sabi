@@ -1,0 +1,16 @@
+// Comparing `*rr` (`rr: &&i32`) borrows `*rr`, behind the shared `rr`: the right operand
+// may borrow `rr` mutably and retarget it, which leaves the left operand's `&i32` as it was.
+fn Main() {
+    let x = 1i32;
+    let y = 2i32;
+    let xr = &x;
+    let yr = &y;
+    let mut rr: &&i32 = &xr;
+    let same = *rr == {
+        let a = &mut rr;
+        *a = &yr;
+        *rr
+    };
+    PrintLine(same);
+    PrintLine(**rr);
+}

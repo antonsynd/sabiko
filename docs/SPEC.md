@@ -859,6 +859,12 @@ Loans (E0408–E0413):
   conflict, and so do a loan of `a[i]` and any access to `a[j]` or to `a` itself, such as
   `a.len()` (a shared borrow of `a`) while `&mut a[0]` is live; fields of elements stay
   disjoint (`&mut a[i].X` and `&mut a[j].Y`). Writing an element kills no loan.
+- A loan of a place behind a shared reference (`let d = &*m;` for `m: &i32`, `&s[1..]`,
+  `&**mr` for `mr: &mut &i32`) does not conflict with anything done to that reference
+  itself or to what holds it: `&mut m`, `m = &y`, a retarget through `&mut m` and a move
+  of `m` leave `d` pointing at the old referent, which stays borrowed while `d` lives
+  (decision 65, as rustc). Through a `&mut` it does conflict: with `d = &*mm` live,
+  `&mut mm` is E0408 and moving `mm` is E0412.
 - A referent must outlive every reference to it: a reference to an inner-block local used
   after the block ends is E0413. A value with drop glue is dropped at the end of its scope
   (§7), which ends its loans the same way; the drop is not a use of the references the

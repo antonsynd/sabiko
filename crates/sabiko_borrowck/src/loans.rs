@@ -539,6 +539,7 @@ mod tests {
             &field(p.clone(), 0),
             AccessKind::MutBorrow,
             &field(p, 1),
+            None,
             Mutability::Mut
         ));
     }
@@ -550,18 +551,21 @@ mod tests {
             &p,
             AccessKind::Write,
             &field(p.clone(), 1),
+            None,
             Mutability::Not
         ));
         assert!(facts::places_conflict(
             &field(p.clone(), 1),
             AccessKind::Read,
             &p,
+            None,
             Mutability::Mut
         ));
         assert!(!facts::places_conflict(
             &field(p.clone(), 1),
             AccessKind::Read,
             &p,
+            None,
             Mutability::Not
         ));
     }
@@ -574,26 +578,69 @@ mod tests {
             &r,
             AccessKind::Write,
             &deref,
+            None,
             Mutability::Mut
         ));
         assert!(!facts::places_conflict(
             &r,
             AccessKind::StorageDead,
             &deref,
+            None,
             Mutability::Mut
         ));
         assert!(facts::places_conflict(
             &r,
             AccessKind::Move,
             &deref,
+            None,
             Mutability::Mut
         ));
         assert!(facts::places_conflict(
             &deref,
             AccessKind::Write,
             &r,
+            None,
             Mutability::Not
         ));
         assert_eq!(deref.projection, [PlaceElem::Deref]);
+    }
+
+    /// A loan of `**r` whose first shared dereference is the second (`r: &mut &i32`).
+    #[test]
+    fn access_before_a_shared_deref_does_not_reach_the_loan() {
+        let r = Place::local(Local(1));
+        let inner = r.clone().deref();
+        let loan = inner.clone().deref();
+        for kind in [AccessKind::MutBorrow, AccessKind::Move, AccessKind::Write] {
+            for access in [&r, &inner] {
+                assert!(
+                    !facts::places_conflict(access, kind, &loan, Some(1), Mutability::Not),
+                    "{kind:?} of {access:?}"
+                );
+            }
+        }
+        // Through `&mut`s only, the same loan conflicts as before.
+        assert!(facts::places_conflict(
+            &inner,
+            AccessKind::MutBorrow,
+            &loan,
+            None,
+            Mutability::Not
+        ));
+        // An access through the shared dereference itself is decided as usual.
+        assert!(facts::places_conflict(
+            &loan,
+            AccessKind::Write,
+            &loan,
+            Some(1),
+            Mutability::Not
+        ));
+        assert!(!facts::places_conflict(
+            &loan,
+            AccessKind::Read,
+            &loan,
+            Some(1),
+            Mutability::Not
+        ));
     }
 }
