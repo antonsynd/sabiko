@@ -353,8 +353,11 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
             // rustc names a variant's field as the enum's: `s.0` for `(s as Full).0`.
             PlaceElem::Downcast(v) => variant = Some(*v),
             PlaceElem::Deref => {
-                let followed_by_field =
-                    matches!(place.projection.get(index + 1), Some(PlaceElem::Field(..)));
+                // rustc names the field or element through the reference: `p.x`, `s[_]`.
+                let followed_by_field = matches!(
+                    place.projection.get(index + 1),
+                    Some(PlaceElem::Field(..) | PlaceElem::Index(_))
+                );
                 if !followed_by_field {
                     out.insert(0, '*');
                 }

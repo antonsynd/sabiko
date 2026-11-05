@@ -722,8 +722,8 @@ changed (`docs/TESTING.md`): before the new tests, 75.7% (`sabiko_types`), 83.3%
 bugs, now fixed: `let s: &[_] = &a;` panicked the compiler (the coercion's target kept the
 unresolved `_`), and two bounds checks were lost, so an index out of bounds did not panic:
 an element read whose value is discarded (`a[i];`, deleted by copy forwarding) and the
-read of a `()` element. Also noticed: a move out of a slice element names the place
-`*s[_]` where rustc writes `s[_]` (E0420's note).
+read of a `()` element. Also noticed, and fixed: E0420's note named an element behind a
+reference `*s[_]` where rustc writes `s[_]`.
 
 ### Phase 5: Data types
 

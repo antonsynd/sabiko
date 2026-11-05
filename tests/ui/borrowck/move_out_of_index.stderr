@@ -27,7 +27,7 @@
     │     ──┬─  
     │       ╰─── cannot move out of here
     │ 
-    │ Note 1: move occurs because `*r[_]` has type `Token`, which does not implement the `Copy` trait
+    │ Note 1: move occurs because `r[_]` has type `Token`, which does not implement the `Copy` trait
     │ 
     │ Note 2: borrow the element instead (`&a[i]`), or replace it
 ────╯
@@ -38,7 +38,7 @@
     │     ──┬─  
     │       ╰─── cannot move out of here
     │ 
-    │ Note 1: move occurs because `*s[_]` has type `Token`, which does not implement the `Copy` trait
+    │ Note 1: move occurs because `s[_]` has type `Token`, which does not implement the `Copy` trait
     │ 
     │ Note 2: borrow the element instead (`&a[i]`), or replace it
 ────╯
@@ -49,7 +49,7 @@
     │          ───────┬──────  
     │                 ╰──────── cannot move out of here
     │ 
-    │ Note 1: move occurs because `*s[_]` has type `Token`, which does not implement the `Copy` trait
+    │ Note 1: move occurs because `s[_]` has type `Token`, which does not implement the `Copy` trait
     │ 
     │ Note 2: borrow the element instead (`&a[i]`), or replace it
 ────╯
