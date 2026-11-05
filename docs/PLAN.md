@@ -804,7 +804,8 @@ two borrow-check divergences, avoided with TODOs and staged in
 shared deref lives (`let d = &*m; let a = &mut m;`, accepted by rustc because a loan
 behind a shared reference does not conflict with `m` itself), and a guard fake-borrows a
 scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mutably
-borrowed; older than #11). Known gaps: deref coercion (`&&i32` to `&i32`, E0300),
+borrowed; older than #11), filed as #56 and #57. Known gaps (#58 unless noted): deref
+coercion (`&&i32` to `&i32`, E0300),
 temporary lifetime extension below the second level (`let d = &&&x;`, E0413), `'static`
 promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
 references (Phase 9), rustc's borrow of a compared reference variable (`r == { r = &y; r

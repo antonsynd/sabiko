@@ -1030,7 +1030,7 @@ impl BodyGen<'_> {
     /// Patterns after the first are generated without violations.
     fn arms(&mut self, s: &Scrut) -> Vec<Arm> {
         let mut arms: Vec<Arm> = Vec::new();
-        // TODO(Sabiko bug: a guard fake-borrows a scrutinee no pattern reads; seed 5001979):
+        // TODO(#57: a guard fake-borrows a scrutinee no pattern reads; seed 5001979):
         // `let r = &mut p; let x = match p { _ if g => 1, _ => 2 }; r.A += x;` is accepted
         // by rustc (no pattern inspects `p`, so there is no fake borrow) and is E0408 in
         // Sabiko. A scrutinee taken against the scope model (a violation: mutably borrowed

@@ -26,7 +26,7 @@
 //! `&&p` ones of primitives (`rr < &r`).
 //!
 //! Not generated: TODO(#43) double references in tuples, struct fields, arrays and enum
-//! payloads, as for single ones. TODO(#11 follow-up): three levels (`&&&T`), `&mut &T`
+//! payloads, as for single ones. TODO(#58): three levels (`&&&T`), `&mut &T`
 //! parameters (a callee can only retarget them to what the caller lent it), retargets of
 //! a reference local declared outside the loop the retarget is in (the new loan would be
 //! held at the top of the next iteration, which the scope model does not follow), and
@@ -276,7 +276,7 @@ impl BodyGen<'_> {
         let Ty::Ref { mutable, inner } = self.vars[r].ty else {
             unreachable!("a reference")
         };
-        // TODO(#11 follow-up, Sabiko bug: `&mut s` while a reborrow through `s` lives; seed
+        // TODO(#56: `&mut s` while a reborrow through `s` lives; seed
         // 5001324): Sabiko reports E0408 for `let d = &m[1..]; let a = &mut m; ..d..`
         // (and `let d = &*m;`), which rustc accepts: a loan through a shared reference does
         // not conflict with a borrow of the reference itself. A plain `&str` derived from
