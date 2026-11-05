@@ -725,6 +725,33 @@ an element read whose value is discarded (`a[i];`, deleted by copy forwarding) a
 read of a `()` element. Also noticed, and fixed: E0420's note named an element behind a
 reference `*s[_]` where rustc writes `s[_]`.
 
+Update (2026-11-05), strings and range slicing (#10, decision 62): ranges `a..b`, `a..`,
+`..b`, `..`, `a..=b` and `..=b` parse as the whole index of `e[...]` (elsewhere E0107;
+range values need `Range<T>`, Phase 6). Indexing a `&str`, an array or a slice by a range,
+through references, is a `str` or `[T]` place that can be borrowed (`&s[1..]`, `&mut
+a[..2]`), indexed (`a[1..][0] = 5`) or measured (`s[2..].len()`). MIR lowers it as rustc
+lowers its `Index::index`/`IndexMut::index_mut` call: a borrow of the base (mutable where
+the place is written, borrowed `&mut` or bound `ref mut`; not two-phase), unsized from an
+array, then the bounds, then the new `Rvalue::Subslice`, whose reference borrows what the
+base does, so the borrow checker needed no new rule. The backend checks the bounds inline
+in rustc's order and slices the span; a failure panics with rustc's message ("start byte
+index 7 is out of bounds for string of length 5", "range end index 9 out of range for
+slice of length 5", ...) located at the `[`, as rustc locates its `Index` call, in release
+builds too. `.len()` works on `&str`, the six comparisons on two `&str` (runtime
+`Str.Equal`/`Str.Compare`, by UTF-16 code unit), and string literal patterns in `match`,
+`if let`, `while let` and `let`-`else` (the usefulness port already handled them).
+Strings stay UTF-16: lengths and indices count code units where rustc counts UTF-8 bytes,
+so the corpora keep strings ASCII. Also fixed: a string literal holding a NUL was cut short
+there by `ilasm`; it is emitted as a `bytearray` now (`run/strings/len`). Everything staged
+in `tests/pending/strings/` landed and agrees with rustc: 39 verdict programs in
+`tests/differential/{loans,moves,mutability}/` (among them `&mut a[a.len() - 1..]`, E0502,
+the borrow being taken before the bounds), 48 run-time programs in
+`tests/differential/run/{strings,arrays}/` (every panic message and location), 9 UI
+programs in `tests/ui/{parse,typeck}/`. Known gaps: range values (`let r = 1..3;`),
+comparing `str` places (`*s == *t`, E0208) and `&&str` operands (E0500 until #11), `&str`
+in structs, enums and arrays (#43), and every other `str` and slice method (`chars()`,
+`is_empty()`, ..., #45).
+
 ### Phase 5: Data types
 
 Work
@@ -749,11 +776,14 @@ against drops rather than retrofitted.
   and `let`-`else`; see the status notes above); follow-ups: match borrow checking (#47),
   `&p` and open-range patterns (#49).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
-  Done (#9, decision 61; see the status note above); ranges and slicing, slice patterns,
-  `for` loops, slice methods other than `len()` (#45) and arrays of references (#43)
-  remain.
+  Done (#9, decision 61; see the status note above), and range slicing with #10; slice
+  patterns, `for` loops, slice methods other than `len()` (#45) and arrays of references
+  (#43) remain.
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
+  Done (#10, decision 62: slicing with ranges in index position, also of arrays and
+  slices, `.len()`, comparisons, string literal patterns; see the status note above);
+  range values wait for generics (Phase 6).
 - `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
   generic types that may hold it are emitted with `allows ref struct`. This also lowers
   `&&T`.

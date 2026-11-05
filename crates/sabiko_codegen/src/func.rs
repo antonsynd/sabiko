@@ -1980,7 +1980,15 @@ impl FnCx<'_, '_> {
             let branch = if bounds.inclusive { "bge.un" } else { "bgt.un" };
             self.op(format!("{branch} {fail}"), 2, 0);
         }
-        if let Some(lo) = &bounds.lo {
+        // The order check is static when the start is 0, or both bounds are constants in
+        // order (`a[1..3]`).
+        let lo_const = bounds.lo.as_ref().and_then(Self::const_int);
+        let ordered = match (lo_const, bounds.hi.as_ref().and_then(Self::const_int)) {
+            (Some(0), _) => true,
+            (Some(lo), Some(hi)) => lo <= hi + i128::from(bounds.inclusive),
+            _ => false,
+        };
+        if let Some(lo) = bounds.lo.as_ref().filter(|_| !ordered) {
             self.operand(lo, span);
             self.slice_end(s, &class, bounds, span);
             self.op(format!("bgt.un {fail}"), 2, 0);

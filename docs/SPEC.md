@@ -48,9 +48,9 @@ names which phase owns which section.
   .. }` (struct or struct variant), with at most one `..` among the elements; or-patterns
   `p | q` (a leading `|` is allowed in a `match` arm and an `if let`); `(p)` is `p`. A lone
   identifier that names a constant or a unit struct compares instead of binding, as in
-  rustc. A top-level or-pattern in a `let` or a parameter needs parentheses (E0100, as in
-  rustc). Not yet supported (E0107): reference patterns `&p`, half-open ranges `a..` and
-  `..=b`, string literal patterns (with `&str`, #10), slice patterns
+  rustc. A string literal pattern matches a `&str` (#10). A top-level or-pattern in a `let`
+  or a parameter needs parentheses (E0100, as in rustc). Not yet supported (E0107):
+  reference patterns `&p`, half-open ranges `a..` and `..=b`, slice patterns
 - `match e { p if guard => body, .. }`; the scrutinee may not be a bare struct literal
   (E0108). A block-like arm body needs no comma. `if let p = e { .. } else { .. }`, `while
   let p = e { .. }` and `let p = e else { .. };`; let chains (`if let p = e && c`) are
@@ -61,8 +61,11 @@ names which phase owns which section.
 - Arrays and slices (Phase 5, #9): array literals `[a, b, c]` and `[]` (a trailing comma
   is allowed), repeat expressions `[x; N]`, indexing `e[i]` and `e.len()`. The length `N`
   of `[T; N]` and `[x; N]` is a constant expression of its own (rustc's anonymous
-  constant). Slice patterns (`[a, b]`, `[first, .., last]`) are E0107; ranges and
-  slicing (`&a[1..3]`) wait for range expressions
+  constant). Slice patterns (`[a, b]`, `[first, .., last]`) are E0107
+- Ranges (#10): `a..b`, `a..`, `..b`, `..`, `a..=b` and `..=b`, only as the whole index of
+  `e[...]` (`&s[1..3]`, `&mut a[i..]`); the bounds are parsed at the precedence of `||`,
+  as in rustc, and `..=` needs an end (E0102). A range anywhere else, a value of type
+  `Range<T>` in Rust, is E0107 until generic types (Phase 6)
 - Tuple expressions `(a,)`, `(a, b)`; `(e)` is a parenthesised expression. Element access
   `t.0` takes a decimal index as written; `t.0.1` (lexed as `t`, `.`, the float `0.1`) is
   two accesses, as in rustc, and a suffixed index (`t.0u8`) is a syntax error (E0100)
@@ -290,6 +293,27 @@ to last, each in a protected region whose `fault` handler drops the remaining on
 lowered yet (E0500): arrays and slices holding references (`[&T; N]`, `&[&str]`): an
 inline array cannot hold a managed pointer or a `ref struct`; arrays longer than
 `int32::MAX`.
+
+Strings and range slicing (#10, decision 62). A `str` place is reached like a `[char]`
+one, through its `ReadOnlySpan<char>`; `.len()` is the span's `Length`. MIR lowers `e[a..b]`
+as rustc lowers its `Index::index` (`IndexMut::index_mut` where the place is written,
+borrowed `&mut` or bound `ref mut`) call: the base is borrowed first (an array's borrow
+unsized to a span), then the bounds are evaluated, then `Subslice(base, a..b)` makes the
+sub-slice, a reference of the base's type that borrows what the base does; the place is
+the sub-slice behind it. The backend loads the span, compares the bounds unsigned with its
+length and each other in rustc's order (`b <= len`, `b < len` for `..=b`, then `a <= b`,
+`a <= b + 1` for `..=b`), and calls the span's `Slice(start, length)`; a failure calls
+`Sabiko.Runtime.Checks::StrSliceFail` or `SliceFail(native uint start, native uint end,
+bool inclusive, native uint len, string location)`, which pick rustc's message (`start
+byte index 7 is out of bounds for string of length 5`, `end byte index ...`, `byte range
+starts at 3 but ends at 1`; for slices `range start index 7 out of range for slice of
+length 5`, `range end index ...`, `slice index starts at 3 but ends at 1`), located at the
+`[`, where rustc locates a panic of the `Index` call, in release builds too. `&s[..]` is
+the span itself. A comparison of two `&str` calls `Sabiko.Runtime.Str::Equal` (`==`,
+`!=`) or `Str::Compare` (the orderings), `MemoryExtensions.SequenceEqual` and
+`SequenceCompareTo` underneath; a string literal pattern is such a comparison. A string
+literal holding a NUL is a `ldstr bytearray (...)`, since `ilasm` ends a quoted string at
+an escaped NUL.
 
 Statements and expressions. After borrow checking, copy forwarding (decision 51,
 `sabiko_mir::forward`) replaces a compiler temporary that holds a copy of a place
@@ -534,6 +558,23 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   elements are `Copy`. Arrays are not printable, have no arithmetic and do not cast;
   comparing arrays or slices (`==`, `<`, ...) is valid Rust but E0107 until the comparison
   traits (Phase 6). A struct containing itself through an array is E0206.
+- Strings and range slicing (#10, decision 62). `str` is a sequence of UTF-16 code units
+  (decision 7): `s.len()` on a `&str` (through references) is a `usize` counting code
+  units, and range bounds are code-unit indices, where Rust counts UTF-8 bytes; the two
+  agree on ASCII text, so the differential corpus and the generator keep their strings
+  ASCII. A string is indexed by a range only (an integer index is E0336, rustc's E0277).
+  `e[r]` for a range `r` looks through references to a `str`, an array or a slice and is
+  a place of type `str` or `[T]`; each bound is checked against `usize` (E0300). The
+  place is unsized: it may be borrowed (`&s[1..]`, `&mut a[..2]`), indexed
+  (`a[1..][0] = 5`) or measured (`s[2..].len()`), and is E0208 anywhere else (a `let`, an
+  argument, an operand). `== != < <= > >=` compare two `&str` (references of the same depth
+  otherwise compare their referents, so `&&str` operands type-check too, but code
+  generation rejects `&&str`, E0500, until #11); comparing `str` places (`*s == *t`) is
+  E0208. Equality is by code unit, and so is the order, which is Rust's order (by Unicode
+  scalar value) except between a character above U+FFFF and one from U+E000 to U+FFFF.
+  A string literal pattern matches a `&str` exactly (it does not look through another
+  reference, E0300 against `&&str`, as in rustc) and never makes a match exhaustive: the
+  missing pattern is `&_`.
 - Tuples. `(a, b)` has type `(A, B)`. Against an expected tuple type of the same arity
   (an annotation, a parameter, a return type, an assignment target), each element is
   checked and coerced against its expected element type, so the elements are coercion
@@ -632,8 +673,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     E0277). `==` and `!=` accept any mix of `&` and `&mut` at every level; `<`, `<=`, `>`
     and `>=` need the same mutability on both sides, except that a `&mut` right operand of
     a `&` left one is accepted (rustc coerces it to the `&B` of `impl PartialOrd<&B> for
-    &A`). Structs and `&str` do not compare (operator traits arrive in Phase 6; `&str`
-    comparisons come with `&str` support).
+    &A`). Two `&str` compare as strings (#10). Structs do not compare (operator traits
+    arrive in Phase 6).
   - `&& ||`: `bool` operands, `bool` result.
   - Unary `-`: signed integer or float. Unary `!`: integer or `bool`.
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an

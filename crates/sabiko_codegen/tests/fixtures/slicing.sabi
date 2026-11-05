@@ -1,0 +1,33 @@
+// Range slicing (#10): the bounds are checked inline against the span's length, in
+// rustc's order, before `Slice(start, length)`; a failure calls `Checks.StrSliceFail` or
+// `Checks.SliceFail` with the location of the `[`. `&s[..]` is the span itself. `&str`
+// comparisons call `Str.Equal` and `Str.Compare`, string literal patterns too.
+fn Tail(s: &str) -> &str {
+    &s[1..]
+}
+
+fn Fill(s: &mut [i32]) {
+    s[1..=2][0] = 7;
+}
+
+fn Kind(s: &str) -> i32 {
+    match s {
+        "a" => 1,
+        "b" | "c" => 2,
+        _ => 3,
+    }
+}
+
+fn Main() {
+    let mut a = [1, 2, 3, 4];
+    let n = a[..3].len();
+    let m = &mut a[n - 2..];
+    m[0] = 9;
+    Fill(&mut a);
+    let s = "hello";
+    let same = &s[..] == Tail(s);
+    let before = s < "help";
+    PrintLine(Kind(&s[..=0]));
+    PrintLine(same);
+    PrintLine(before);
+}
