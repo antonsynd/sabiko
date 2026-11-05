@@ -52,6 +52,10 @@ pub enum Ty {
     Ref(Mutability, Box<Ty>),
     /// `(A,)`, `(A, B)`, ...: never empty, since `()` is [`Ty::Unit`].
     Tuple(Box<Vec<Ty>>),
+    /// `[T; N]`, with the length evaluated.
+    Array(Box<Ty>, u64),
+    /// `[T]`: unsized, only behind a reference.
+    Slice(Box<Ty>),
     /// The zero-sized type of a function item; only callable.
     FnDef(DefId),
     Infer(TyVid),
@@ -94,6 +98,7 @@ impl Ty {
             Ty::Never => true,
             Ty::Ref(_, inner) => inner.is_uninhabited(),
             Ty::Tuple(elems) => elems.iter().any(Ty::is_uninhabited),
+            Ty::Array(elem, n) => *n > 0 && elem.is_uninhabited(),
             _ => false,
         }
     }
@@ -131,7 +136,8 @@ impl Ty {
             Ty::Prim(_) | Ty::Unit | Ty::Never | Ty::FnDef(_) | Ty::Error => true,
             Ty::Ref(m, _) => !m.is_mut(),
             Ty::Tuple(elems) => elems.iter().all(Ty::is_copy),
-            Ty::Adt(_) | Ty::Infer(_) => false,
+            Ty::Array(elem, _) => elem.is_copy(),
+            Ty::Adt(_) | Ty::Slice(_) | Ty::Infer(_) => false,
         }
     }
 
@@ -139,18 +145,20 @@ impl Ty {
     pub fn has_infer(&self) -> bool {
         match self {
             Ty::Infer(_) => true,
-            Ty::Ref(_, inner) => inner.has_infer(),
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => inner.has_infer(),
             Ty::Tuple(elems) => elems.iter().any(Ty::has_infer),
             _ => false,
         }
     }
 
-    /// Whether the type contains a reference anywhere (directly, or in a tuple element).
+    /// Whether the type contains a reference anywhere (directly, or in a tuple element or
+    /// an array element).
     #[must_use]
     pub fn has_ref(&self) -> bool {
         match self {
             Ty::Ref(..) => true,
             Ty::Tuple(elems) => elems.iter().any(Ty::has_ref),
+            Ty::Array(elem, _) | Ty::Slice(elem) => elem.has_ref(),
             _ => false,
         }
     }
@@ -186,6 +194,18 @@ impl Ty {
                     out.push(',');
                 }
                 out.push(')');
+            }
+            Ty::Array(elem, n) => {
+                out.push('[');
+                elem.write(resolve, out);
+                out.push_str("; ");
+                out.push_str(&n.to_string());
+                out.push(']');
+            }
+            Ty::Slice(elem) => {
+                out.push('[');
+                elem.write(resolve, out);
+                out.push(']');
             }
             Ty::FnDef(d) => {
                 out.push_str("fn item `");

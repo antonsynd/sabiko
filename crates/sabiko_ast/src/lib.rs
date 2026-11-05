@@ -285,6 +285,10 @@ pub enum TypeKind {
     /// `(A,)`, `(A, B)`, ...: at least one element (`()` is [`TypeKind::Unit`]). A
     /// parenthesised type without a comma, `(A)`, is just `A`.
     Tuple(Vec<Type>),
+    /// `[T; N]`: the length is a constant expression of type `usize`.
+    Array(Box<Type>, Box<Expr>),
+    /// `[T]`: unsized, only valid behind a reference (`&[T]`, `&mut [T]`).
+    Slice(Box<Type>),
     /// `_` in a type position: ask inference.
     Infer,
 }
@@ -460,6 +464,10 @@ pub enum ExprKind {
     Unit,
     /// `(a,)`, `(a, b)`, ...: at least one element (`()` is [`ExprKind::Unit`]).
     Tuple(Vec<Expr>),
+    /// `[a, b, c]`, `[]`
+    Array(Vec<Expr>),
+    /// `[value; count]`: `count` is a constant expression of type `usize`.
+    Repeat(Box<Expr>, Box<Expr>),
     Paren(Box<Expr>),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),

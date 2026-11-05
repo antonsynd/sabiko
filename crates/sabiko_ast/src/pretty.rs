@@ -230,6 +230,18 @@ impl Printer {
                 }
                 self.out.push(')');
             }
+            TypeKind::Array(elem, len) => {
+                self.out.push('[');
+                self.ty(elem);
+                self.out.push_str("; ");
+                self.expr(len, 0);
+                self.out.push(']');
+            }
+            TypeKind::Slice(elem) => {
+                self.out.push('[');
+                self.ty(elem);
+                self.out.push(']');
+            }
             TypeKind::Infer => self.out.push('_'),
         }
     }
@@ -434,6 +446,23 @@ impl Printer {
                     self.out.push(',');
                 }
                 self.out.push(')');
+            }
+            ExprKind::Array(elems) => {
+                self.out.push('[');
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push_str(", ");
+                    }
+                    self.expr(e, 0);
+                }
+                self.out.push(']');
+            }
+            ExprKind::Repeat(value, count) => {
+                self.out.push('[');
+                self.expr(value, 0);
+                self.out.push_str("; ");
+                self.expr(count, 0);
+                self.out.push(']');
             }
             ExprKind::Paren(e) => {
                 self.out.push('(');
@@ -755,6 +784,8 @@ fn precedence(e: &Expr) -> u8 {
         | ExprKind::Path(_)
         | ExprKind::Unit
         | ExprKind::Tuple(_)
+        | ExprKind::Array(_)
+        | ExprKind::Repeat(..)
         | ExprKind::Paren(_)
         | ExprKind::Block(_)
         | ExprKind::If { .. }

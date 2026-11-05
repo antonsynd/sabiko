@@ -443,6 +443,7 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
         sink,
         current_fn: None,
         impl_scope: ImplScope::Outside,
+        const_floor: None,
     };
     r.collect_items(file);
     r.collect_impls(file);
@@ -474,6 +475,9 @@ struct Resolver<'d> {
     /// Whether the resolver is inside an `impl` block, and for which struct: what `Self`
     /// names.
     impl_scope: ImplScope,
+    /// Inside an array length or repeat count (a constant of its own, rustc's anonymous
+    /// constant): the number of scopes outside it, whose locals cannot be used there.
+    const_floor: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1198,7 +1202,13 @@ impl Resolver<'_> {
                 let res = self.resolve_type_path(path);
                 self.results.res.insert(ty.id, res);
             }
-            TypeKind::Ref { inner, .. } => self.resolve_type(inner, in_signature),
+            TypeKind::Ref { inner, .. } | TypeKind::Slice(inner) => {
+                self.resolve_type(inner, in_signature);
+            }
+            TypeKind::Array(elem, len) => {
+                self.resolve_type(elem, in_signature);
+                self.resolve_const_expr(len);
+            }
             TypeKind::Tuple(elems) => {
                 for t in elems {
                     self.resolve_type(t, in_signature);
@@ -1306,6 +1316,22 @@ impl Resolver<'_> {
         }
         let name = &path.segments[0];
         if let Some(local) = self.lookup_local(&name.name) {
+            let outside = self.const_floor.is_some_and(|floor| {
+                !self.scopes[floor..]
+                    .iter()
+                    .any(|scope| scope.iter().any(|(_, id)| *id == local))
+            });
+            if outside {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::NON_CONSTANT_VALUE,
+                        "attempt to use a non-constant value in a constant",
+                    )
+                    .with_label(name.span, "non-constant value")
+                    .with_note("an array length is a constant: use a `const` item"),
+                );
+                return Res::Err;
+            }
             return Res::Local(local);
         }
         if name.name == "self" {
@@ -1578,10 +1604,21 @@ impl Resolver<'_> {
         }
     }
 
+    /// An array length or repeat count: locals of the enclosing body are out of reach.
+    fn resolve_const_expr(&mut self, expr: &Expr) {
+        let saved = self.const_floor.replace(self.scopes.len());
+        self.resolve_expr(expr);
+        self.const_floor = saved;
+    }
+
     fn resolve_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Lit(_) | ExprKind::Unit | ExprKind::Continue => {}
-            ExprKind::Tuple(elems) => {
+            ExprKind::Repeat(value, count) => {
+                self.resolve_expr(value);
+                self.resolve_const_expr(count);
+            }
+            ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
                 for e in elems {
                     self.resolve_expr(e);
                 }

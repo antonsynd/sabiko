@@ -1143,7 +1143,9 @@ impl<'a> Builder<'a> {
             ExprKind::MethodCall { receiver, args, .. } => {
                 self.lower_method_call(dest, expr, receiver, args, span);
             }
-            ExprKind::Index(..) => unreachable!("indexing is rejected by the type checker"),
+            ExprKind::Index(..) | ExprKind::Array(_) | ExprKind::Repeat(..) => {
+                todo!("arrays in MIR building")
+            }
         }
     }
 

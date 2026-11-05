@@ -192,6 +192,17 @@ impl Dumper {
                     }
                 });
             }
+            TypeKind::Array(elem, len) => {
+                self.line("ArrayType");
+                self.nested(|d| {
+                    d.ty(elem);
+                    d.expr(len);
+                });
+            }
+            TypeKind::Slice(elem) => {
+                self.line("SliceType");
+                self.nested(|d| d.ty(elem));
+            }
             TypeKind::Infer => self.line("Type _"),
         }
     }
@@ -338,6 +349,21 @@ impl Dumper {
                     for e in elems {
                         d.expr(e);
                     }
+                });
+            }
+            ExprKind::Array(elems) => {
+                self.line("Array");
+                self.nested(|d| {
+                    for e in elems {
+                        d.expr(e);
+                    }
+                });
+            }
+            ExprKind::Repeat(value, count) => {
+                self.line("Repeat");
+                self.nested(|d| {
+                    d.expr(value);
+                    d.expr(count);
                 });
             }
             ExprKind::Paren(e) => {

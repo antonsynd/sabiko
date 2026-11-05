@@ -94,9 +94,25 @@ fn ty() -> impl Strategy<Value = Type> {
                 },
                 span: SP,
             }),
-            prop::collection::vec(inner, 1..4).prop_map(|elems| Type {
+            prop::collection::vec(inner.clone(), 1..4).prop_map(|elems| Type {
                 id: ID,
                 kind: TypeKind::Tuple(elems),
+                span: SP,
+            }),
+            (inner.clone(), 0u128..40).prop_map(|(t, n)| Type {
+                id: ID,
+                kind: TypeKind::Array(
+                    Box::new(t),
+                    Box::new(mk(ExprKind::Lit(Lit::Int {
+                        value: n,
+                        suffix: None
+                    })))
+                ),
+                span: SP,
+            }),
+            inner.prop_map(|t| Type {
+                id: ID,
+                kind: TypeKind::Slice(Box::new(t)),
                 span: SP,
             }),
         ]
@@ -344,6 +360,9 @@ fn expr() -> impl Strategy<Value = Expr> {
             (inner.clone(), field_name())
                 .prop_map(|(e, f)| mk(ExprKind::Field(Box::new(e), ident(&f)))),
             prop::collection::vec(inner.clone(), 1..4).prop_map(|elems| mk(ExprKind::Tuple(elems))),
+            prop::collection::vec(inner.clone(), 0..4).prop_map(|elems| mk(ExprKind::Array(elems))),
+            (inner.clone(), inner.clone())
+                .prop_map(|(v, n)| mk(ExprKind::Repeat(Box::new(v), Box::new(n)))),
             (inner.clone(), inner.clone())
                 .prop_map(|(e, i)| mk(ExprKind::Index(Box::new(e), Box::new(i)))),
             (any::<bool>(), inner.clone()).prop_map(|(mutable, e)| mk(ExprKind::Ref {
@@ -691,7 +710,13 @@ fn strip_parens_expr(e: &mut Expr) {
             strip_parens_expr(callee);
             args.iter_mut().for_each(strip_parens_expr);
         }
-        ExprKind::Tuple(elems) => elems.iter_mut().for_each(strip_parens_expr),
+        ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
+            elems.iter_mut().for_each(strip_parens_expr);
+        }
+        ExprKind::Repeat(v, n) => {
+            strip_parens_expr(v);
+            strip_parens_expr(n);
+        }
         ExprKind::MethodCall { receiver, args, .. } => {
             strip_parens_expr(receiver);
             args.iter_mut().for_each(strip_parens_expr);

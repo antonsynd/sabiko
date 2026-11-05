@@ -490,6 +490,10 @@ impl FnCx<'_, '_> {
                 }
             }
             // The receiver is borrowed as the method takes it, or read by value.
+            ExprKind::MethodCall { receiver, .. } if self.types.len_calls.contains_key(&e.id) => {
+                s.touch(Alias::Read);
+                self.expr(receiver, Mode::BorrowShared, s);
+            }
             ExprKind::MethodCall { receiver, args, .. } => {
                 s.effect = true;
                 match self.types.method_calls[&e.id].autoref {
@@ -529,11 +533,12 @@ impl FnCx<'_, '_> {
                     self.expr(&f.value, Mode::Read, s);
                 }
             }
-            ExprKind::Tuple(elems) => {
+            ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
                 for e in elems {
                     self.expr(e, Mode::Read, s);
                 }
             }
+            ExprKind::Repeat(x, _) => self.expr(x, Mode::Read, s),
             // A branch inside an expression stays inside the statement; its blocks may
             // only hold a value.
             ExprKind::If { cond, then, els } => {
@@ -591,11 +596,12 @@ enum Child<'e> {
 fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
     match &e.kind {
         ExprKind::Lit(_) | ExprKind::Path(_) | ExprKind::Unit | ExprKind::Continue => {}
-        ExprKind::Tuple(elems) => {
+        ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
             for e in elems {
                 f(Child::Expr(e));
             }
         }
+        ExprKind::Repeat(x, _) => f(Child::Expr(x)),
         ExprKind::Paren(x)
         | ExprKind::Unary(_, x)
         | ExprKind::Field(x, _)

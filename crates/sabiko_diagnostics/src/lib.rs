@@ -76,6 +76,8 @@ impl ErrorCode {
     /// A name bound by reference in one alternative of an or-pattern and by value (or with
     /// another mutability) in another (rustc's E0409).
     pub const OR_PATTERN_BINDING_MODE: Self = Self(219);
+    /// A local or parameter used in an array length or repeat count (rustc's E0435).
+    pub const NON_CONSTANT_VALUE: Self = Self(220);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -136,6 +138,13 @@ impl ErrorCode {
     /// Two variants with the same discriminant (rustc's E0081), an implicit discriminant
     /// that overflows (E0370), or an explicit discriminant on an enum with a field (E0732).
     pub const INVALID_DISCRIMINANT: Self = Self(333);
+    /// The operand of `[x; N]` (`N` neither 0 nor 1) is not `Copy` (rustc's E0277).
+    pub const REPEAT_NEEDS_COPY: Self = Self(334);
+    /// An index of a type other than `usize` (rustc's E0277, "the type `[T]` cannot be
+    /// indexed by `i32`").
+    pub const INVALID_INDEX_TYPE: Self = Self(335);
+    /// Indexing a value that is not an array or a slice (rustc's E0608).
+    pub const NOT_INDEXABLE: Self = Self(336);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

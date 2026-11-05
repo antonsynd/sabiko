@@ -304,6 +304,7 @@ fn ty_has_error(ty: &Ty) -> bool {
         Ty::Error | Ty::Infer(_) => true,
         Ty::Ref(_, inner) => ty_has_error(inner),
         Ty::Tuple(elems) => elems.iter().any(ty_has_error),
+        Ty::Array(elem, _) | Ty::Slice(elem) => ty_has_error(elem),
         _ => false,
     }
 }
@@ -810,6 +811,8 @@ impl<'a> Checker<'a> {
             Ty::Tuple(_) => CtorSet::Struct {
                 empty: self.is_uninhabited(ty),
             },
+            // No array or slice patterns yet: only wildcards and bindings match them.
+            Ty::Array(..) | Ty::Slice(_) => CtorSet::Unlistable,
             Ty::Adt(def) => {
                 let shape = self.adt(*def);
                 match &*shape {

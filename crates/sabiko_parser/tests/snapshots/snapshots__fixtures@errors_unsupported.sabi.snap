@@ -20,6 +20,12 @@ SourceFile
         Init
           Field 0
             Path x
+      Let
+        Pat v
+        Init
+          Array
+            Lit 1
+            Lit 2
       Expr
         If
           Let
@@ -40,6 +46,13 @@ SourceFile
       TupleType
         Type i32
         Type i32
+    Block
+  Fn J
+    Param
+      Pat x
+      ArrayType
+        Type i32
+        Lit 3
     Block
   Fn L
     Param
@@ -71,15 +84,6 @@ SourceFile
  5 │     let r = x?;
    │              ┬  
    │              ╰── not supported in this version of Sabiko
-   │ 
-   │ Note: planned for Phase 5; see docs/PLAN.md
-───╯
-[E0107] Error: not yet supported: array expressions
-   ╭─[ errors_unsupported.sabi:7:13 ]
-   │
- 7 │     let v = [1, 2];
-   │             ┬  
-   │             ╰── not supported in this version of Sabiko
    │ 
    │ Note: planned for Phase 5; see docs/PLAN.md
 ───╯
@@ -154,15 +158,6 @@ SourceFile
     │            ╰── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 6; see docs/PLAN.md
-────╯
-[E0107] Error: not yet supported: array and slice types
-    ╭─[ errors_unsupported.sabi:20:9 ]
-    │
- 20 │ fn J(x: [i32; 3]) {}
-    │         ┬  
-    │         ╰── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 5; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: functions without a body
     ╭─[ errors_unsupported.sabi:21:14 ]
