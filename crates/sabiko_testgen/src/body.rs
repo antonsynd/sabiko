@@ -1980,6 +1980,10 @@ impl<'a> BodyGen<'a> {
             }
             printed += 1;
         }
+        // `Main` always shows that it ran to the end (seed 110 printed nothing at all).
+        if printed == 0 && self.sig.name == "Main" {
+            self.line("PrintLine(\"end\");");
+        }
     }
 }
 

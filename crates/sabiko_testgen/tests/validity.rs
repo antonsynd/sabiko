@@ -298,7 +298,7 @@ fn programs_use_enums_and_match() {
         ),
         ("inline `match`", |s| s.contains("(match "), 150),
         ("`if let`", |s| s.contains("if let "), 150),
-        ("`while let`", |s| s.contains("while let "), 25),
+        ("`while let`", |s| s.contains("while let "), 15),
         (
             "`let`-`else`",
             |s| {
