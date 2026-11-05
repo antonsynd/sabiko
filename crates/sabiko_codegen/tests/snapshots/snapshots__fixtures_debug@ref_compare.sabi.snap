@@ -16,7 +16,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
 
 .class public abstract auto ansi sealed beforefieldinit 'RefCompare' extends [System.Runtime]System.Object
 {
-  .method public hidebysig static bool 'Unsigned'([in] uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'a', [in] uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'b') cil managed
+  .method public hidebysig static bool 'Unsigned'([in] uint8& 'a', [in] uint8& 'b') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -40,7 +40,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ret
   }
 
-  .method public hidebysig static bool 'FloatNe'(float64& 'a', [in] float64& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'b') cil managed
+  .method public hidebysig static bool 'FloatNe'(float64& 'a', [in] float64& 'b') cil managed
   {
     .param [2]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -64,7 +64,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ret
   }
 
-  .method public hidebysig static bool 'FloatGe'([in] float32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'a', [in] float32& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'b') cil managed
+  .method public hidebysig static bool 'FloatGe'([in] float32& 'a', [in] float32& 'b') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -90,7 +90,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ret
   }
 
-  .method public hidebysig static bool 'Fields'([in] valuetype 'P'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'p', [in] valuetype 'P'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'q') cil managed
+  .method public hidebysig static bool 'Fields'([in] valuetype 'P'& 'p', [in] valuetype 'P'& 'q') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -151,7 +151,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/ref_compare.sabi
     ldc.i4.2
     stloc.s 5
     ldloca.s 5
-    call bool 'RefCompare'::'Unsigned'(uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute), uint8& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call bool 'RefCompare'::'Unsigned'(uint8&, uint8&)
   BB2:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(bool)
   BB3:

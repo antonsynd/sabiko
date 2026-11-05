@@ -27,33 +27,33 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
 
 .class public sequential ansi sealed beforefieldinit 'Shape' extends [System.Runtime]System.ValueType
 {
-  .class nested public sequential ansi sealed beforefieldinit 'Square' extends [System.Runtime]System.ValueType
+  .class nested public sequential ansi sealed beforefieldinit 'SquarePayload' extends [System.Runtime]System.ValueType
   {
     .field public int32 'Item1'
   }
-  .class nested public sequential ansi sealed beforefieldinit 'Rect' extends [System.Runtime]System.ValueType
+  .class nested public sequential ansi sealed beforefieldinit 'RectPayload' extends [System.Runtime]System.ValueType
   {
     .field public int32 'W'
     .field public int32 'H'
   }
   .field public int32 'Tag'
-  .field public valuetype 'Shape'/'Square' 'Square'
-  .field public valuetype 'Shape'/'Rect' 'Rect'
+  .field public valuetype 'Shape'/'SquarePayload' 'Square'
+  .field public valuetype 'Shape'/'RectPayload' 'Rect'
 }
 
 .class public sequential ansi sealed beforefieldinit 'Slot' extends [System.Runtime]System.ValueType
 {
-  .class nested public sequential ansi sealed beforefieldinit 'Full' extends [System.Runtime]System.ValueType
+  .class nested public sequential ansi sealed beforefieldinit 'FullPayload' extends [System.Runtime]System.ValueType
   {
     .field public valuetype 'D' 'Item1'
   }
   .field public int32 'Tag'
-  .field public valuetype 'Slot'/'Full' 'Full'
+  .field public valuetype 'Slot'/'FullPayload' 'Full'
 }
 
 .class public abstract auto ansi sealed beforefieldinit 'Enums' extends [System.Runtime]System.Object
 {
-  .method public hidebysig static int32 'Area'([in] valuetype 'Shape'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 's') cil managed
+  .method public hidebysig static int32 'Area'([in] valuetype 'Shape'& 's') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -80,8 +80,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     br BB4
   BB5:
     ldarg.0
-    ldflda valuetype 'Shape'/'Square' 'Shape'::'Square'
-    ldflda int32 'Shape'/'Square'::'Item1'
+    ldflda valuetype 'Shape'/'SquarePayload' 'Shape'::'Square'
+    ldflda int32 'Shape'/'SquarePayload'::'Item1'
     stloc.1
     ldloc.1
     ldind.i4
@@ -90,8 +90,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     brfalse BB4
   BB6:
     ldarg.0
-    ldflda valuetype 'Shape'/'Square' 'Shape'::'Square'
-    ldflda int32 'Shape'/'Square'::'Item1'
+    ldflda valuetype 'Shape'/'SquarePayload' 'Shape'::'Square'
+    ldflda int32 'Shape'/'SquarePayload'::'Item1'
     stloc.0
   BB3:
     ldc.i4.s 100
@@ -116,12 +116,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     throw
   BB12:
     ldarg.0
-    ldflda valuetype 'Shape'/'Rect' 'Shape'::'Rect'
-    ldflda int32 'Shape'/'Rect'::'W'
+    ldflda valuetype 'Shape'/'RectPayload' 'Shape'::'Rect'
+    ldflda int32 'Shape'/'RectPayload'::'W'
     stloc.3
     ldarg.0
-    ldflda valuetype 'Shape'/'Rect' 'Shape'::'Rect'
-    ldflda int32 'Shape'/'Rect'::'H'
+    ldflda valuetype 'Shape'/'RectPayload' 'Shape'::'Rect'
+    ldflda int32 'Shape'/'RectPayload'::'H'
     stloc.s 4
   BB10:
     ldloc.3
@@ -145,8 +145,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     ret
   BB9:
     ldarg.0
-    ldflda valuetype 'Shape'/'Square' 'Shape'::'Square'
-    ldflda int32 'Shape'/'Square'::'Item1'
+    ldflda valuetype 'Shape'/'SquarePayload' 'Shape'::'Square'
+    ldflda int32 'Shape'/'SquarePayload'::'Item1'
     stloc.2
   BB7:
     ldloc.2
@@ -258,8 +258,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     ldc.i4.0
     stloc.2
     ldarga.s 0
-    ldflda valuetype 'Slot'/'Full' 'Slot'::'Full'
-    ldfld valuetype 'D' 'Slot'/'Full'::'Item1'
+    ldflda valuetype 'Slot'/'FullPayload' 'Slot'::'Full'
+    ldfld valuetype 'D' 'Slot'/'FullPayload'::'Item1'
     stloc.1
   BB1:
     ldloca.s 1
@@ -273,8 +273,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     brfalse BB6
   BB7:
     ldarga.s 0
-    ldflda valuetype 'Slot'/'Full' 'Slot'::'Full'
-    ldflda valuetype 'D' 'Slot'/'Full'::'Item1'
+    ldflda valuetype 'Slot'/'FullPayload' 'Slot'::'Full'
+    ldflda valuetype 'D' 'Slot'/'FullPayload'::'Item1'
     call void 'D'::'Drop.drop'(valuetype 'D'&)
     ldloc.0
     ret
@@ -315,8 +315,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     ret
   BB7:
     ldarga.s 0
-    ldflda valuetype 'Slot'/'Full' 'Slot'::'Full'
-    ldfld valuetype 'D' 'Slot'/'Full'::'Item1'
+    ldflda valuetype 'Slot'/'FullPayload' 'Slot'::'Full'
+    ldfld valuetype 'D' 'Slot'/'FullPayload'::'Item1'
     stloc.2
   BB5:
     ldloca.s 2
@@ -329,8 +329,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     ret
   BB2:
     ldarga.s 0
-    ldflda valuetype 'Slot'/'Full' 'Slot'::'Full'
-    ldflda valuetype 'D' 'Slot'/'Full'::'Item1'
+    ldflda valuetype 'Slot'/'FullPayload' 'Slot'::'Full'
+    ldflda valuetype 'D' 'Slot'/'FullPayload'::'Item1'
     stloc.1
   BB1:
     ldloc.1
@@ -425,8 +425,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     ret
   ACTIVE:
     ldarg.0
-    ldflda valuetype 'Slot'/'Full' 'Slot'::'Full'
-    ldflda valuetype 'D' 'Slot'/'Full'::'Item1'
+    ldflda valuetype 'Slot'/'FullPayload' 'Slot'::'Full'
+    ldflda valuetype 'D' 'Slot'/'FullPayload'::'Item1'
     call void 'D'::'Drop.drop'(valuetype 'D'&)
     ret
   }

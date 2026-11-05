@@ -77,7 +77,7 @@ tests/
   ui/                compile-fail + diagnostics golden tests
   codegen/           .il golden tests
   run-pass/          compile, assemble, run, compare stdout
-  interop/           C# xunit projects consuming Sabiko DLLs and vice versa
+  interop/           C# programs (csc, no SDK) consuming Sabiko DLLs; later vice versa
   differential/      programs valid in both Rust and Sabiko, compared against rustc
 docs/
   PLAN.md, SPEC.md (grammar + semantics), DECISIONS.md (ADR log), THIRDPARTY.md
@@ -623,7 +623,8 @@ against drops rather than retrofitted.
 Verification
 - Exhaustiveness UI tests (missing variant, unreachable arm, nested patterns).
 - Enum layout tests from C#: a C# test reads tag/payload fields of a Sabiko enum and
-  matches on it (the first `tests/interop` harness).
+  matches on it (the first `tests/interop` harness). Done: `tests/interop/enum_layout`,
+  run by `crates/sabikoc/tests/interop.rs` (docs/TESTING.md, Interop; decision 59).
 - Drop-order tests (from Phase 4): reverse declaration order, conditional drops through
   flags, drops during unwinding, compared against rustc. Done (#12):
   `tests/differential/run/drops/` and the generator.

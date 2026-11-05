@@ -77,7 +77,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     ret
   }
 
-  .method public hidebysig static int32 'Peek'([in] valuetype 'D'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute) 'd') cil managed
+  .method public hidebysig static int32 'Peek'([in] valuetype 'D'& 'd') cil managed
   {
     .param [1]
     .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
@@ -133,10 +133,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     {
   BB2:
     ldloca.s 0
-    call int32 'Drops'::'Peek'(valuetype 'D'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'Drops'::'Peek'(valuetype 'D'&)
   BB3:
     ldloca.s 1
-    call int32 'Drops'::'Peek'(valuetype 'D'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'Drops'::'Peek'(valuetype 'D'&)
     stloc.2
   BB4:
     conv.i8
@@ -368,7 +368,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
   BB3:
     ldloc.1
     ldloca.s 2
-    call int32 'Drops'::'Peek'(valuetype 'D'& modreq([System.Runtime]System.Runtime.InteropServices.InAttribute))
+    call int32 'Drops'::'Peek'(valuetype 'D'&)
     stloc.3
   BB4:
     conv.i8

@@ -485,7 +485,7 @@ impl Parser<'_, '_> {
                 self.bump();
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RBrace) && !self.at_eof() {
-                    fields.push(self.parse_field_def()?);
+                    fields.push(self.parse_field_def(false)?);
                     if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }
@@ -498,17 +498,29 @@ impl Parser<'_, '_> {
         Ok(StructDecl { name, kind })
     }
 
-    fn parse_field_def(&mut self) -> PResult<FieldDef> {
+    /// A field of a struct, or of a struct-like enum variant (`in_variant`), whose fields
+    /// share the enum's visibility and so cannot be `pub` (rustc's E0449; reported, then
+    /// parsing goes on with the field private).
+    fn parse_field_def(&mut self, in_variant: bool) -> PResult<FieldDef> {
         let start = self.peek().span;
         let mut docs = Vec::new();
         while self.at(TokenKind::DocComment) {
             let t = self.bump();
             docs.push(self.text(t)[3..].to_owned());
         }
-        let vis = if self.eat(TokenKind::Pub).is_some() {
-            Visibility::Public
-        } else {
-            Visibility::Private
+        let vis = match self.eat(TokenKind::Pub) {
+            Some(tok) if in_variant => {
+                let d = Diagnostic::error(
+                    ErrorCode::UNEXPECTED_TOKEN,
+                    "visibility qualifiers are not permitted here",
+                )
+                .with_label(tok.span, "remove the qualifier")
+                .with_note("enum variants and their fields always share the visibility of the enum they are in");
+                self.emit(d);
+                Visibility::Private
+            }
+            Some(_) => Visibility::Public,
+            None => Visibility::Private,
         };
         let id = self.new_id();
         let name = self.parse_ident()?;
@@ -575,7 +587,7 @@ impl Parser<'_, '_> {
                 self.bump();
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RBrace) && !self.at_eof() {
-                    fields.push(self.parse_field_def()?);
+                    fields.push(self.parse_field_def(true)?);
                     if self.eat(TokenKind::Comma).is_none() {
                         break;
                     }

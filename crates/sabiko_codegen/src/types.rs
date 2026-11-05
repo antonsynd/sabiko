@@ -185,23 +185,26 @@ pub(crate) fn is_byref_tuple(ty: &Ty) -> bool {
     matches!(ty, Ty::Tuple(_)) && ty.has_ref()
 }
 
-/// The CIL type of a parameter in a method signature (definition and call sites alike):
-/// shared references carry the `in` modreq; a `()` parameter is a `Sabiko.Runtime.Unit`.
+/// The CIL type of a parameter in a method signature (definition and call sites alike); a
+/// `()` parameter is a `Sabiko.Runtime.Unit`. A shared reference is a plain `T&` here: the
+/// definition marks it `[in]` with `IsReadOnlyAttribute`, which is how C# emits an `in`
+/// parameter of a non-virtual method. C# puts `modreq(InAttribute)` on `in` parameters of
+/// virtual methods only and rejects a static method that has one (CS0570, "not supported
+/// by the language"), which the `tests/interop` harness found.
 pub(crate) fn param_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
+    cil_type(cx, ty, span)
+}
+
+/// The CIL return type in a method signature: `()` and `!` returns are `void`, a shared
+/// reference carries the `in` modreq (C#'s `ref readonly` return, which has it on every
+/// method).
+pub(crate) fn ret_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
     match ty {
+        Ty::Unit | Ty::Never => "void".to_owned(),
         Ty::Ref(m, inner) if !m.is_mut() && !is_str(inner) => {
             format!("{} {IN_MODREQ}", cil_type(cx, ty, span))
         }
         _ => cil_type(cx, ty, span),
-    }
-}
-
-/// The CIL return type in a method signature: like [`param_type`], but `()` and `!`
-/// returns are `void`.
-pub(crate) fn ret_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
-    match ty {
-        Ty::Unit | Ty::Never => "void".to_owned(),
-        _ => param_type(cx, ty, span),
     }
 }
 

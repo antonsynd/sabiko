@@ -1,9 +1,11 @@
 //! Enum layout (decision 15): an enum is a `sequential` value type with a tag field holding
 //! the variant's discriminant, `int32` unless a discriminant needs `int64`, followed by one
-//! field per variant with fields: a nested `sequential` value type of the variant's name
-//! holding its fields (a struct variant's by name, a tuple variant's as `Item1`, `Item2`,
-//! ... as in a `System.ValueTuple`). Payloads do not overlap yet. So C# reads a
-//! `Shape::Rect { W, H }` as `s.Tag` and `s.Rect.W`.
+//! field per variant with fields, named after the variant, of a nested `sequential` value
+//! type `<Variant>Payload` holding its fields (a struct variant's by name, a tuple
+//! variant's as `Item1`, `Item2`, ... as in a `System.ValueTuple`). Payloads do not overlap
+//! yet. So C# reads a `Shape::Rect { W, H }` as `s.Tag` and `s.Rect.W`, and builds one with
+//! `new Shape { Tag = 1, Rect = new Shape.RectPayload { W = 3, H = 4 } }`
+//! (`tests/interop/enum_layout`).
 
 use std::fmt::Write as _;
 
@@ -46,7 +48,7 @@ impl Cx<'_> {
         let v = adt.variant(variant);
         format!(
             "valuetype {} {}::{}",
-            payload_class(adt, variant),
+            self.payload_class(def, variant),
             types::quote(&adt.name),
             types::quote(&v.name)
         )
@@ -65,7 +67,7 @@ impl Cx<'_> {
         let cil = types::cil_type(self, field_ty, span);
         format!(
             "{cil} {}::{}",
-            payload_class(&adt, variant),
+            self.payload_class(def, variant),
             types::quote(&payload_field_name(&adt, variant, index))
         )
     }
@@ -86,7 +88,7 @@ impl Cx<'_> {
             let _ = writeln!(
                 out,
                 "  .class nested public sequential ansi sealed beforefieldinit {} extends [System.Runtime]System.ValueType\n  {{",
-                types::quote(&v.name)
+                types::quote(&self.payload_type_name(def, index))
             );
             for (i, f) in v.fields.iter().enumerate() {
                 let ty = types::cil_type(self, &f.ty, f.span);
@@ -111,7 +113,7 @@ impl Cx<'_> {
             let _ = writeln!(
                 out,
                 "  .field public valuetype {} {}",
-                payload_class(&adt, index),
+                self.payload_class(def, index),
                 types::quote(&v.name)
             );
         }
@@ -122,6 +124,37 @@ impl Cx<'_> {
         }
         out.push_str("}\n\n");
     }
+
+    /// The name of the nested value type of variant `variant`'s payload: the variant's
+    /// name followed by `Payload`, with `_` appended while that names another member of
+    /// the enum (the payload field of a variant with fields, which has the variant's name,
+    /// the tag field, or a function of its `impl` blocks). The payload field has the
+    /// variant's name, so its type cannot: C# reports a nested type and a field of one name
+    /// as ambiguous (CS0229) and could use neither.
+    pub(crate) fn payload_type_name(&self, def: DefId, variant: usize) -> String {
+        let adt = self.typeck.items.adt(def);
+        let mut name = format!("{}Payload", adt.variant(variant).name);
+        while name == tag_name(adt)
+            || adt
+                .variants()
+                .iter()
+                .any(|v| !v.fields.is_empty() && v.name == name)
+            || self.resolve.assoc_fn(def, &name).is_some()
+        {
+            name.push('_');
+        }
+        name
+    }
+
+    /// The nested value type of a variant's payload: `'E'/'VPayload'`.
+    fn payload_class(&self, def: DefId, variant: usize) -> String {
+        let adt = self.typeck.items.adt(def);
+        format!(
+            "{}/{}",
+            types::quote(&adt.name),
+            types::quote(&self.payload_type_name(def, variant))
+        )
+    }
 }
 
 /// The tag field's name: `Tag`, or `Tag_` when a variant is called `Tag`.
@@ -131,15 +164,6 @@ fn tag_name(adt: &AdtDef) -> &'static str {
     } else {
         "Tag"
     }
-}
-
-/// The nested value type of a variant's payload: `'E'/'V'`.
-fn payload_class(adt: &AdtDef, variant: usize) -> String {
-    format!(
-        "{}/{}",
-        types::quote(&adt.name),
-        types::quote(&adt.variant(variant).name)
-    )
 }
 
 /// A payload field's name: a struct variant's own, `Item1`, `Item2`, ... for a tuple

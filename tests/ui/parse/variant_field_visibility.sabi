@@ -1,0 +1,13 @@
+// Fields of a struct-like variant share the enum's visibility, so `pub` on one is an error
+// (rustc's E0449). The parser reports it and goes on: the second `pub` is reported too.
+// Doc comments on such fields are fine.
+enum Shape {
+    Rect {
+        /// The width.
+        pub W: i32, //~ ERROR E0100 visibility qualifiers are not permitted here
+        H: i32,
+    },
+    Circle { pub R: i32 }, //~ ERROR E0100 visibility qualifiers are not permitted here
+}
+
+pub struct Point { pub X: i32 }

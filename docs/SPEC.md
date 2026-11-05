@@ -38,7 +38,8 @@ names which phase owns which section.
   parameters are E0107 until Phase 6), with `#[derive(Copy, Clone)]` and `impl` blocks
   (also `impl Drop for E`) as for structs. Variants are named `E::V` or `Self::V`: a unit
   variant is a value, a tuple variant a constructor `E::V(a, b)`, a struct variant a
-  literal `E::V { F: a }`
+  literal `E::V { F: a }`. A struct-like variant's fields take doc comments but not `pub`
+  (E0100, rustc's E0449)
 - Patterns (#6, #8): `_`; bindings `x`, `mut x`, `ref x`, `ref mut x`, each optionally
   `@ subpattern`; literals (integer, possibly negated, float, `bool`, `char`) and ranges
   `a..=b`, `a..b` whose bounds are literals or constants; paths `E::V`; tuple patterns
@@ -187,8 +188,8 @@ Implemented by `sabiko_codegen` (textual IL assembled by `ilasm`; decision 3).
 Enums (decision 57). An enum is a top-level `public sequential ansi sealed` value type like
 a struct: a field `Tag` (`Tag_` if a variant is called `Tag`) holding the variant's
 discriminant, `int32` unless a discriminant needs `int64`, then one public field per
-variant that has fields, named after the variant, of a nested `sequential` value type of
-the same name holding the variant's fields (a struct variant's by name, a tuple variant's
+variant that has fields, named after the variant, of a nested `sequential` value type
+`<Variant>Payload` (decision 59) holding the variant's fields (a struct variant's by name, a tuple variant's
 as `Item1`, `Item2`, ...). Payloads do not overlap yet (decision 15). An enum without
 variants still has its `Tag`. C# reads `Shape::Rect { W, H }` as `s.Tag == 2` and
 `s.Rect.W`. A variant value is built in place like a struct literal: `initobj`, the tag,
@@ -224,10 +225,18 @@ Types. `i8 i16 i32 i64 isize` are `int8 int16 int32 int64 native int`; `u8 u16 u
 usize` are `uint8 uint16 uint32 uint64 native uint`; `i128`/`u128` are the value types
 `System.Int128`/`System.UInt128` (decision 42); `f32`/`f64` are `float32`/`float64`;
 `bool` is `bool`; `char` is `char` (a UTF-16 code unit, decision 31); a struct is
-`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures `&T` carries
-`modreq(System.Runtime.InteropServices.InAttribute)` and the parameter (or the return
-value) the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly T`;
-`&mut T` is a plain `ref T`. `&str` is `System.ReadOnlySpan<char>` by value. A tuple
+`valuetype Name`. `&T` and `&mut T` are managed pointers `T&`; in signatures an `&T`
+parameter is `[in]` and an `&T` return carries
+`modreq(System.Runtime.InteropServices.InAttribute)`, and the parameter (or the return
+value) has the `IsReadOnlyAttribute` custom attribute, so C# sees `in T` and `ref readonly
+T`, as C# itself emits them for a non-virtual method (decision 59);
+`&mut T` is a plain `ref T`. An enum (decisions 15 and 57, names by decision 59) is a
+`sequential` value type with a `Tag` field (`int32`, or `int64` when a discriminant needs
+it; `Tag_` when a variant is called `Tag`) holding the discriminant, then one field per
+variant with fields, named after the variant, of a nested value type `<Variant>Payload`
+(`_` appended while that names another member) holding a struct variant's fields by name
+and a tuple variant's as `Item1`, `Item2`, ...; C# reads `Shape::Rect { W, H }` as
+`s.Tag` and `s.Rect.W` (`tests/interop/enum_layout`). `&str` is `System.ReadOnlySpan<char>` by value. A tuple
 (decision 52) is a `System.ValueTuple` instantiation, as in C#: arities 1 to 7 hold their
 elements in `Item1`..`Item7`, a longer tuple is the eight-parameter `ValueTuple` whose
 `Rest` holds the tuple of the remaining elements (`t.7` is `t.Rest.Item1`); a tuple with a

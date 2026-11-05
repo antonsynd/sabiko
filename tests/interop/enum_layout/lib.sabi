@@ -1,0 +1,227 @@
+// The Sabiko half of the `enum_layout` interop test: enums of every shape and the
+// functions and methods that build and consume them. `Test.cs` builds values by writing
+// the tag and payload fields, passes them by value, as `in` (`&E`) and as `ref` (`&mut E`),
+// reads the values these return, and checks that its own `switch` on the tag agrees with
+// Sabiko's `match`. The layout is decision 15's, described in `sabiko_codegen::enums`.
+
+// Fieldless, implicit discriminants 0, 1, 2: an `int32` tag.
+#[derive(Copy, Clone)]
+enum Color { Red, Green, Blue }
+
+// Explicit discriminants, a negative one, an implicit one after it (-1) and one beyond
+// the `int32` range: an `int64` tag.
+#[derive(Copy, Clone)]
+enum Code { Low = -2, Mid, High = 300, Huge = 5000000000 }
+
+// A variant called `Tag` renames the tag field to `Tag_`.
+#[derive(Copy, Clone)]
+enum Token { Tag, Value(i32) }
+
+// A variant's payload type is `<Variant>Payload`, unless another member has that name:
+// here the payload field of variant `ItemPayload`, so `Item`'s payload type is
+// `ItemPayload_` (and `ItemPayload`'s is `ItemPayloadPayload`).
+enum Wrapper { Item(i32), ItemPayload(bool) }
+
+#[derive(Copy, Clone)]
+struct Point { X: i32, Y: i32 }
+
+// Tuple, struct and unit variants.
+#[derive(Copy, Clone)]
+enum Shape { Circle(f64), Rect { W: i32, H: i32 }, Line(Point, Point), Empty }
+
+// A struct payload, enum payloads (fieldless and with fields) and a unit variant; not
+// `Copy`, so passing one by value moves it.
+enum Event { Click(Point), Key { Code: Code, Shift: bool }, Draw(Shape, Color), Quit }
+
+impl Code {
+    fn Value(self) -> i64 {
+        self as i64
+    }
+
+    fn Next(self) -> Code {
+        match self {
+            Code::Low => Code::Mid,
+            Code::Mid => Code::High,
+            Code::High => Code::Huge,
+            Code::Huge => Code::Low,
+        }
+    }
+}
+
+impl Shape {
+    fn Square(side: i32) -> Shape {
+        Shape::Rect { W: side, H: side }
+    }
+
+    fn Area(&self) -> f64 {
+        match self {
+            Shape::Circle(r) => 3.0 * *r * *r,
+            Shape::Rect { W, H } => (*W * *H) as f64,
+            Shape::Line(..) | Shape::Empty => 0.0,
+        }
+    }
+
+    fn Scale(&mut self, k: i32) {
+        match self {
+            Shape::Circle(r) => *r *= k as f64,
+            Shape::Rect { W, H } => {
+                *W *= k;
+                *H *= k;
+            }
+            Shape::Line(a, b) => {
+                b.X = a.X + (b.X - a.X) * k;
+                b.Y = a.Y + (b.Y - a.Y) * k;
+            }
+            Shape::Empty => {}
+        }
+    }
+
+    fn Kind(self) -> i32 {
+        match self {
+            Shape::Circle(_) => 10,
+            Shape::Rect { .. } => 20,
+            Shape::Line(_, _) => 30,
+            Shape::Empty => 40,
+        }
+    }
+}
+
+fn ColorOf(i: i32) -> Color {
+    match i {
+        0 => Color::Red,
+        1 => Color::Green,
+        _ => Color::Blue,
+    }
+}
+
+fn TokenValue(t: Token) -> i32 {
+    match t {
+        Token::Tag => -1,
+        Token::Value(v) => v,
+    }
+}
+
+fn Unwrap(w: Wrapper) -> i32 {
+    match w {
+        Wrapper::Item(n) => n,
+        Wrapper::ItemPayload(b) => b as i32,
+    }
+}
+
+// `while let`: sums v, v - 1, ..., 1 and leaves the token at `Token::Tag`.
+fn CountDown(t: &mut Token) -> i32 {
+    let mut sum = 0;
+    while let Token::Value(v) = *t {
+        sum += v;
+        *t = if v > 1 { Token::Value(v - 1) } else { Token::Tag };
+    }
+    sum
+}
+
+fn MakeLine(x1: i32, y1: i32, x2: i32, y2: i32) -> Shape {
+    Shape::Line(Point { X: x1, Y: y1 }, Point { X: x2, Y: y2 })
+}
+
+fn MakeKey(code: Code, shift: bool) -> Event {
+    Event::Key { Code: code, Shift: shift }
+}
+
+fn MakeDraw(s: Shape, c: Color) -> Event {
+    Event::Draw(s, c)
+}
+
+// Nested patterns, or-patterns, literals and guards, matched in place through `*e` (the
+// bindings copy `i32`s; a guard on a by-reference binding through `&` would need `&&i32`,
+// which code generation does not support yet). `Test.cs` has the same function written as
+// a `switch` on the tags.
+fn Classify(e: &Event) -> i32 {
+    match *e {
+        Event::Click(Point { X: 0, Y: 0 }) => 1,
+        Event::Click(Point { X, .. }) if X < 0 => 2,
+        Event::Click(_) => 3,
+        Event::Key { Code: Code::Huge, Shift: true } => 4,
+        Event::Key { Code: Code::Low | Code::Mid, .. } => 5,
+        Event::Key { .. } => 6,
+        Event::Draw(Shape::Empty, _) => 7,
+        Event::Draw(Shape::Rect { W, H }, Color::Red) if W == H => 8,
+        Event::Draw(_, Color::Blue) => 9,
+        Event::Draw(..) => 10,
+        Event::Quit => 0,
+    }
+}
+
+// Sabiko's own rendering of an event, printed through `Sabiko.Runtime.Console` between
+// the C# test's lines.
+fn Show(e: &Event) {
+    match e {
+        Event::Click(p) => {
+            Print("click ");
+            Print(p.X);
+            Print(' ');
+            PrintLine(p.Y);
+        }
+        Event::Key { Code: c, Shift: s } => {
+            Print("key ");
+            Print(c.Value());
+            Print(" shift ");
+            PrintLine(*s);
+        }
+        Event::Draw(s, c) => {
+            Print("draw kind ");
+            Print(s.Kind());
+            Print(" area ");
+            Print(s.Area());
+            Print(" color ");
+            PrintLine(*c as i32);
+        }
+        Event::Quit => PrintLine("quit"),
+    }
+}
+
+// Mutation through `&mut`: moves a click or a line, turns `Quit` into a click at the
+// offset, and replaces a key's code with the next one.
+fn Move(e: &mut Event, dx: i32, dy: i32) {
+    match e {
+        Event::Click(p) => {
+            p.X += dx;
+            p.Y += dy;
+        }
+        Event::Draw(Shape::Line(a, b), _) => {
+            a.X += dx;
+            a.Y += dy;
+            b.X += dx;
+            b.Y += dy;
+        }
+        Event::Key { Code, .. } => *Code = Code.Next(),
+        Event::Quit => *e = Event::Click(Point { X: dx, Y: dy }),
+        Event::Draw(..) => {}
+    }
+}
+
+// `let`-`else` on an event taken by value.
+fn KeyCode(e: Event) -> i64 {
+    let Event::Key { Code: c, .. } = e else {
+        return 0;
+    };
+    c.Value()
+}
+
+// `if let` on a nested payload.
+fn DrawnColor(e: &Event) -> i32 {
+    if let Event::Draw(_, c) = e {
+        *c as i32
+    } else {
+        -1
+    }
+}
+
+// A plain struct across the boundary: by value, `in` and `ref`.
+fn Dot(a: Point, b: &Point) -> i32 {
+    a.X * b.X + a.Y * b.Y
+}
+
+fn Mirror(p: &mut Point) {
+    let x = p.X;
+    p.X = p.Y;
+    p.Y = x;
+}

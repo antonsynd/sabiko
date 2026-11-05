@@ -78,15 +78,21 @@ pub fn toolchain_or_skip(test: &str) -> Option<Toolchain> {
     match toolchain() {
         Ok(t) => Some(t),
         Err(missing) => {
-            let require = std::env::var_os("SABIKO_REQUIRE_DOTNET").is_some_and(|v| v != "0");
-            let msg = format!(
-                "{test}: .NET toolchain not found ({missing} missing); run scripts/setup-dotnet.sh"
-            );
-            assert!(!require, "{msg} (SABIKO_REQUIRE_DOTNET is set)");
-            eprintln!("{msg}; skipping");
+            skip_without_dotnet(test, &missing);
             None
         }
     }
+}
+
+/// Prints a notice that `test` is skipped because `missing` is not installed, or panics
+/// when `SABIKO_REQUIRE_DOTNET` is set.
+pub fn skip_without_dotnet(test: &str, missing: &str) {
+    let require = std::env::var_os("SABIKO_REQUIRE_DOTNET").is_some_and(|v| v != "0");
+    let msg = format!(
+        "{test}: .NET toolchain not found ({missing} missing); run scripts/setup-dotnet.sh"
+    );
+    assert!(!require, "{msg} (SABIKO_REQUIRE_DOTNET is set)");
+    eprintln!("{msg}; skipping");
 }
 
 pub fn collect_sabi(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -115,9 +121,25 @@ pub fn compile_exe(
     out_dll: &Path,
     release: bool,
 ) -> Result<(), String> {
+    compile(tc, source, out_dll, "exe", release)
+}
+
+/// Compiles `source` to a library at `out_dll` (with `Sabiko.Runtime.dll` next to it).
+pub fn compile_dll(tc: &Toolchain, source: &Path, out_dll: &Path) -> Result<(), String> {
+    compile(tc, source, out_dll, "dll", false)
+}
+
+/// Runs the `sabikoc` binary under test with `--emit=<emit>` (`exe` or `dll`).
+fn compile(
+    tc: &Toolchain,
+    source: &Path,
+    out_dll: &Path,
+    emit: &str,
+    release: bool,
+) -> Result<(), String> {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_sabikoc"));
     cmd.arg(source)
-        .arg("--emit=exe")
+        .arg(format!("--emit={emit}"))
         .arg("-o")
         .arg(out_dll)
         .arg("--ilasm")
