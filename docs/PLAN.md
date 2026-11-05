@@ -778,6 +778,38 @@ branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`)
 equivalent. Among the killing tests: slicing is a point that may panic for drop
 elaboration (`run/strings/drops_unwind_slice`).
 
+Update (2026-11-05), references to references and to `()` (#11, decision 63): `&&T`,
+`&mut &T`, `&mut &mut T` and deeper chains are lowered with two wrappers generated into
+the module, ``'Ref`1'<byreflike T>`` and ``'RefMut`1'<byreflike T>``, `readonly ref
+struct`s holding one `initonly !T&` field `Value`. A reference local that a borrow takes
+the address of is declared as its wrapper (a borrowed reference parameter is copied into
+one on entry), every reference element of a tuple is a wrapper field, and the referent of
+a `&&T` is therefore a wrapper: a read is `ldfld Value` on its address, a write (a
+retarget through `&mut &T`) stores a new wrapper. References nobody borrows stay bare
+managed pointers, so programs without `&&T` compile to the same IL as before; `&&str` and
+`&&[T]` point at the span value and need no wrapper. A `&()` (or `&&()`) is lowered as
+`()` is: no storage, `Unit` as a parameter or tuple element, `void` as a return. MIR
+already dereferenced comparison operands, so `&&T` and `&&str` comparisons needed no new
+lowering; the three known gaps staged by #6, #7 and #8 (`&&` receivers, a match through
+`&&Enum`, auto-deref through `&&(..)`) now run. Everything staged in `tests/pending/refs/`
+outside `known_gap/` landed and agrees with rustc: 27 run-time programs in
+`tests/differential/run/refs/` and 23 verdict programs in
+`tests/differential/{loans,moves,mutability}/`. `tests/interop/ref_wrappers` builds
+`Ref<int>`, `Ref<Ref<long>>` and `RefMut<int>` in C# and passes them to Sabiko; C# cannot
+read `Value` (CS0570), so wrappers are opaque to it. The generator produces double
+references in about 45% of borrow-clean programs (docs/TESTING.md); 2000 seeds at each of
+the bases 4000000, 5000000 and 6000000 agree with rustc on all five properties. They found
+two borrow-check divergences, avoided with TODOs and staged in
+`tests/pending/refs/known_gap/`: `&mut m` is rejected while a reborrow through `m`'s
+shared deref lives (`let d = &*m; let a = &mut m;`, accepted by rustc because a loan
+behind a shared reference does not conflict with `m` itself), and a guard fake-borrows a
+scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mutably
+borrowed; older than #11). Known gaps: deref coercion (`&&i32` to `&i32`, E0300),
+temporary lifetime extension below the second level (`let d = &&&x;`, E0413), `'static`
+promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
+references (Phase 9), rustc's borrow of a compared reference variable (`r == { r = &y; r
+}`), and arrays and slices of references (#43).
+
 ### Phase 5: Data types
 
 Work

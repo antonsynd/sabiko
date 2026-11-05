@@ -102,7 +102,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   bounds and later indices are evaluated (no two-phase borrow), so these never read the
   base, and a `&mut self` call on an element of one is not treated as two-phase. The
   left-hand side of an assignment gets its indices after the right-hand side, which Rust
-  evaluates first. The constructs avoided carry TODOs: `&&str` (#11), `&str` in structs,
+  evaluates first. The constructs avoided carry TODOs: `&str` in structs,
   enums, arrays and the generator's tuple types (#43), comparisons of `str` places,
   non-ASCII text (decision 62), and the compiler bugs below. `reorder` treats a range
   index like a computed index (it may panic; `&a[i..]` takes `a`'s address; an
@@ -119,6 +119,28 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   unannotated `let v = [[], []];`, an assignment's index reading what its right-hand side
   moved, and a call's reference argument reading (in a range bound) what an earlier value
   argument moved.
+- References to references (#11, `body/refs.rs`): `Ty::RefRef` covers `&&T`, `&&mut T`,
+  `&mut &T` and `&mut &mut T` locals and parameters, `&&str` and `&&[T]` included, made by
+  borrowing reference locals and parameters (`let rr = &r;`, `let m = &mut r;`), a borrowed
+  place (`let rr = &&x;`) or by copying and reborrowing one. They are read as `**rr`, by
+  auto-deref (`rr.X`, `rr[0]`, `rr.len()`), with explicit derefs (`(*rr).X`) and as `*rr`
+  used as a `&T`; they are method receivers (`m.Bump(m.X)`, two-phase), `match`
+  scrutinees by value (`match **rr`) and through both references (`match rr`, a
+  top-level binding being the double reference), written through (`**m = v`), retargeted
+  (`*m = &y;`, `*m = "lit";`) and then read, compared, and passed as arguments. A
+  retarget adds the new target's loan to the retargeted local's borrows and kills the
+  `&mut` doing it. Elision counts lifetimes (`Ty::lifetimes`), so only a `&self` method
+  with a `&&T` parameter returns a reference (rustc's E0106 otherwise); nothing borrows a
+  literal directly (no `'static` promotion, #26). About 45% of borrow-clean programs hold
+  a double reference (906 of 2000 at base 5000000: 383 retarget, 70 write through `&mut
+  &mut T`); `programs_use_references_to_references` pins minimum counts for 11 of these
+  constructs. Avoided with TODOs: three levels, `&mut &T` parameters, a retarget in a
+  loop of a reference declared outside it, string patterns on a `&&str` scrutinee,
+  double references in aggregates (#43), and two borrow-check divergences the runs found
+  (staged in `tests/pending/refs/known_gap/`): `&mut m` while a reborrow through `m`'s
+  shared deref lives (seed 5001324), and a guard fake-borrowing a scrutinee no pattern
+  reads (seed 5001979, not specific to #11). 2000 seeds at each of the bases 4000000,
+  5000000 and 6000000 pass all five properties.
 - ILVerify runs on every assembly the tests produce. The only ignored error is
   `ReturnPtrToStack` (decision 30).
 - The MIR validator runs after every pass in the pipeline (debug builds panic on a
