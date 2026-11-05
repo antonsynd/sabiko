@@ -1054,9 +1054,12 @@ impl<'a> Builder<'a> {
                     unreachable!("a repeat expression has an array type")
                 };
                 if n == 0 {
-                    // `[x; 0]` evaluates `x` and holds nothing: the operand is a temporary
-                    // of the statement, dropped at its end (rustc drops it at once).
-                    let _ = self.as_temp(value);
+                    // `[x; 0]` evaluates `x` and holds nothing: rustc drops `x` at once,
+                    // before anything else in the statement runs (`F([d; 0], G())` drops
+                    // `d` before `G` runs). The drop at the end of the statement's scope
+                    // finds the temporary uninitialised; drop elaboration removes it.
+                    let temp = self.as_temp(value);
+                    self.drop_local(temp, span);
                     self.assign(
                         dest.clone(),
                         Rvalue::Aggregate(AggregateKind::Array(*elem), Vec::new()),
