@@ -1,0 +1,16 @@
+// `**mm += 1` through `&mut &mut i8` overflows in a debug build: "attempt to add with
+// overflow", located at the compound assignment.
+fn Bump(mm: &mut &mut i8) {
+    **mm += 1;
+}
+
+fn Main() {
+    let mut x: i8 = 125;
+    let mut m = &mut x;
+    Bump(&mut m);
+    PrintLine(*m);
+    Bump(&mut m);
+    PrintLine(*m);
+    Bump(&mut m);
+    PrintLine("not reached");
+}

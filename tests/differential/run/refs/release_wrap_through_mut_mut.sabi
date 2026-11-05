@@ -1,0 +1,15 @@
+//@ release
+// In a release build `**mm += 1` through `&mut &mut u8` wraps instead of panicking.
+fn Bump(mm: &mut &mut u8, k: u8) {
+    **mm += k;
+}
+
+fn Main() {
+    let mut x: u8 = 250;
+    let mut m = &mut x;
+    Bump(&mut m, 5);
+    PrintLine(*m);
+    Bump(&mut m, 3);
+    PrintLine(*m);
+    PrintLine(x);
+}

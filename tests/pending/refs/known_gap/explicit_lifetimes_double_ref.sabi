@@ -1,0 +1,29 @@
+// KNOWN GAP (explicit lifetimes, Phase 9): a function returning `&T` read through a
+// `&&T` parameter, or returning a `&&T`, needs named lifetimes; elision cannot say which
+// of `rr`'s two lifetimes the result borrows from (E0106 in rustc, E0416 in Sabiko for
+// `fn F(rr: &&i32) -> &i32`). Sabiko rejects `<'a>` as generic parameters (E0107).
+// Belongs in `differential/run/refs/` once lifetimes land.
+fn Inner<'a>(rr: &'a &'a i32) -> &'a i32 { *rr }
+
+fn Outer<'a, 'b>(rr: &'a &'b i32) -> &'b i32 { *rr }
+
+fn Same<'a>(rr: &'a &'a i32) -> &'a &'a i32 { rr }
+
+fn Retarget<'a>(m: &mut &'a i32, to: &'a i32) { *m = to; }
+
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let r = &x;
+    PrintLine(*Inner(&r));
+    let out: &i32;
+    {
+        let rr = &r;
+        out = Outer(rr);
+    }
+    PrintLine(*out);
+    PrintLine(**Same(&r));
+    let mut s = &x;
+    Retarget(&mut s, &y);
+    PrintLine(*s);
+}

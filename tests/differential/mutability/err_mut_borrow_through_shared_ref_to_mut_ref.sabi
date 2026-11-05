@@ -1,0 +1,8 @@
+// `&mut **rm` for `rm: &&mut i32` cannot borrow mutably through the shared outer reference.
+fn F() {
+    let mut x = 1;
+    let m = &mut x;
+    let rm = &m;
+    let a = &mut **rm;
+    *a = 2;
+}

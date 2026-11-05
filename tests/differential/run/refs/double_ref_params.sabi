@@ -1,0 +1,24 @@
+// `&&i32` and `&&&i32` parameters: passing `&&x`, `&r` and an existing `&&i32`, and
+// forwarding a parameter one level deeper (`&rr`) or one level shallower (`*rrr`).
+fn Read(rr: &&i32) -> i32 { **rr }
+
+fn ReadDeep(rrr: &&&i32) -> i32 { ***rrr + Read(*rrr) }
+
+fn Forward(rr: &&i32) -> i32 { ReadDeep(&rr) }
+
+fn Sum(a: &&i32, b: &&i32, c: &i32) -> i32 { **a + **b + *c }
+
+fn Main() {
+    let x = 3;
+    let y = 4;
+    let r = &x;
+    let rr = &r;
+    PrintLine(Read(&&x));
+    PrintLine(Read(&r));
+    PrintLine(Read(rr));
+    PrintLine(ReadDeep(&rr));
+    PrintLine(ReadDeep(&&&y));
+    PrintLine(Forward(rr));
+    PrintLine(Sum(rr, &&y, &x));
+    PrintLine(Sum(&&10, &&20, &30));
+}

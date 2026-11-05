@@ -1,0 +1,14 @@
+// `&()` and `&mut ()` loans end at their last use like any other: a `&mut ()` after the
+// shared ones are dead, then an assignment to the `()` place.
+fn F() {
+    let mut u = ();
+    let r = &u;
+    let rr = &r;
+    let v: () = **rr;
+    let m = &mut u;
+    *m = ();
+    let m2 = &mut u;
+    *m2 = ();
+    u = ();
+    let w: () = u;
+}

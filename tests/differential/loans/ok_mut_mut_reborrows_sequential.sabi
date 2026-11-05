@@ -1,0 +1,14 @@
+// Reborrows through `&mut &mut i32` used one after the other, then `m` and `x` again once
+// `mm` is dead.
+fn F() {
+    let mut x = 1;
+    let mut m = &mut x;
+    let mm = &mut m;
+    let a = &mut **mm;
+    *a = 3;
+    **mm += 1;
+    let b: &i32 = &**mm;
+    PrintLine(*b);
+    *m += 1;
+    PrintLine(x);
+}

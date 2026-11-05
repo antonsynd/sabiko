@@ -1,0 +1,11 @@
+// `*rr` for `rr: &&i32` copies the inner `&i32`, and `rr` itself is Copy: every copy stays
+// usable.
+fn F() {
+    let x = 1;
+    let r = &x;
+    let rr = &r;
+    let a = *rr;
+    let b = rr;
+    let c = rr;
+    PrintLine(*a + **b + **c + **rr);
+}

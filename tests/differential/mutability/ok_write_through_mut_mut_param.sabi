@@ -1,0 +1,13 @@
+// A `&mut &mut i32` parameter writes the value (`**mm`), and a `mut` binding `&mut &i32`
+// retargets its own copy of the outer reference.
+fn Set(mm: &mut &mut i32) {
+    **mm = 1;
+    **mm += 1;
+}
+
+fn Retarget(m: &mut &str) {
+    *m = "new";
+    let mut local: &str = "a";
+    let ml = &mut local;
+    *ml = *m;
+}

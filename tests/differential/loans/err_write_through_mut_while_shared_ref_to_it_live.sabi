@@ -1,0 +1,9 @@
+// `rm: &&mut i32` keeps a shared borrow of `m`; writing through `m` while `rm` is used
+// conflicts.
+fn F() {
+    let mut x = 1;
+    let m = &mut x;
+    let rm = &m;
+    *m = 3;
+    PrintLine(**rm);
+}

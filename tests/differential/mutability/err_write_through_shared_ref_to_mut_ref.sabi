@@ -1,0 +1,7 @@
+// `**rm = 3` for `rm: &&mut i32`: the outer shared reference makes the place immutable.
+fn F() {
+    let mut x = 1;
+    let m = &mut x;
+    let rm = &m;
+    **rm = 3;
+}
