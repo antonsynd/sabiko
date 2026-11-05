@@ -1054,9 +1054,12 @@ impl<'a> Builder<'a> {
                     unreachable!("a repeat expression has an array type")
                 };
                 if n == 0 {
-                    // `[x; 0]` evaluates `x` and holds nothing: the operand is a temporary
-                    // of the statement, dropped at its end (rustc drops it at once).
-                    let _ = self.as_temp(value);
+                    // `[x; 0]` evaluates `x` and holds nothing: rustc drops `x` at once,
+                    // before anything else in the statement runs (`F([d; 0], G())` drops
+                    // `d` before `G` runs). The drop at the end of the statement's scope
+                    // finds the temporary uninitialised; drop elaboration removes it.
+                    let temp = self.as_temp(value);
+                    self.drop_local(temp, span);
                     self.assign(
                         dest.clone(),
                         Rvalue::Aggregate(AggregateKind::Array(*elem), Vec::new()),
@@ -1173,6 +1176,15 @@ impl<'a> Builder<'a> {
                     self.lower_expr_discard(inner);
                 } else {
                     let place = self.as_place(inner);
+                    if place.has_index() {
+                        // `&mut a[i]`: rustc checks the index at the indexing expression,
+                        // before the borrow; a panic there is located at `a[i]`, not at
+                        // the `&` (a mention checks the indices and reads nothing).
+                        self.push_stmt(
+                            StatementKind::PlaceMention(place.clone()),
+                            self.span_of(inner),
+                        );
+                    }
                     self.assign(
                         dest.clone(),
                         Rvalue::Ref(BorrowKind::new(Mutability::from_bool(*mutable)), place),
@@ -1782,7 +1794,16 @@ impl<'a> Builder<'a> {
         };
         let extending = is_extending_pattern(pat);
         let place = if is_place_expr(self.resolve, init) {
-            self.as_place(init)
+            let place = self.as_place(init);
+            if place.has_index() {
+                // `let ref x = a[i];`: the index is checked at the initialiser, as in
+                // rustc, not where the pattern binds the first part of it.
+                self.push_stmt(
+                    StatementKind::PlaceMention(place.clone()),
+                    self.span_of(init),
+                );
+            }
+            place
         } else if let Some(temp) = self.extended_ref(init) {
             Place::local(temp)
         } else if let ExprKind::Tuple(_) = strip_parens(init).kind {

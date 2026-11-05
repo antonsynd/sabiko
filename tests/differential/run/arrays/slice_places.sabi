@@ -1,0 +1,37 @@
+// `*s` for a slice reference `s` is an unsized place: valid where it is borrowed (`&*s`,
+// `&mut *s`, `&(*s)`), indexed (`(*s)[i]`) or measured (`(*s).len()`); only its value has
+// no size (ui/typeck/unsized_slice_by_value.sabi). Sabiko reported E0208 for every `*s`
+// (found by the program generator, seed 122): explicit reborrows of slices, a reborrow
+// returned from a function, and a nested slice of arrays.
+fn Sum(s: &[i32]) -> i32 {
+    let mut i: usize = 0usize;
+    let mut t: i32 = 0i32;
+    while i < (*s).len() {
+        t += (*s)[i];
+        i += 1usize;
+    }
+    t
+}
+
+fn Bump(s: &mut [i32]) -> &mut [i32] {
+    let r: &mut [i32] = &mut *s;
+    r[0] += 1i32;
+    (*r)[1] *= 2i32;
+    let q: &[i32] = &*r;
+    PrintLine(q.len());
+    PrintLine(Sum(&*q));
+    &mut *s
+}
+
+fn Main() {
+    let mut a = [1i32, 2i32, 3i32];
+    let m: &mut [i32] = &mut a;
+    let n = Bump(&mut *m);
+    n[2] = 9i32;
+    let b: &[i32] = &(*m);
+    PrintLine(Sum(b));
+    let e: &[[u8; 2]] = &[[1u8, 2u8], [3u8, 4u8]];
+    let f: &[[u8; 2]] = &*e;
+    PrintLine((*f)[1][0]);
+    PrintLine((*e).len());
+}

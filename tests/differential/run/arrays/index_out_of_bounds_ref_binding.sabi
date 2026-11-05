@@ -1,0 +1,24 @@
+// `let ref x = a[i];` and `let S { A: ref x } = a[i];` check the index at the initialiser
+// `a[i]`, as in rustc; Sabiko located the panic at the pattern that binds a part of the
+// element. In-bounds bindings come first.
+struct S {
+    A: i32,
+}
+
+fn First(a: &[S; 2], i: usize) -> i32 {
+    let ref x = a[i];
+    x.A
+}
+
+fn Get(a: &[S; 2], i: usize) -> i32 {
+    let S { A: ref x } = a[i];
+    *x
+}
+
+fn Main() {
+    let a = [S { A: 5i32 }, S { A: 6i32 }];
+    PrintLine(First(&a, 0usize));
+    PrintLine(Get(&a, 1usize));
+    PrintLine(Get(&a, 2usize));
+    PrintLine("not reached");
+}

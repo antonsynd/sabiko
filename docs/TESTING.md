@@ -58,11 +58,29 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   guards, on places, references and temporaries, moving out of the scrutinee where the
   scope model allows; every `match` exhaustive by construction, with covers of variants,
   `bool` and contiguous integer ranges; the constructs it avoids carry a `TODO(#8
-  follow-up)`); both
+  follow-up)`) and arrays (#9, below); both
   oracles above, panic locations included, are
   applied to `SABIKO_GENERATED_SEEDS` programs (a small number per CI run, thousands
   nightly), and to reorderings of them (see Properties). A failure prints the seed and the
   program; `SABIKO_GENERATED_BASE_SEED` selects the range.
+
+  Arrays and slices (#9, `body/arrays.rs`): `[T; N]` of primitives, tuples, structs (`Copy`
+  or not, with `impl Drop` or not), enums and arrays, of lengths 0 to 4 written as literals
+  or `usize` constants (`[i32; LEN]`, `[u8; CAP + 1]`), as locals, struct fields, enum
+  payloads, tuple elements, parameters and returns, copied and moved whole; `&[T]` and
+  `&mut [T]` parameters, returns and annotated `let`s, coerced from references to arrays;
+  array literals, `[]` where the type is known, `[x; N]` (a non-`Copy` operand only for N
+  of 0 or 1); element reads, writes, compound assignments, borrows (`&mut a[i]`), method
+  receivers and scrutinees with constant indices and with computed ones that are sometimes
+  out of bounds or overflow, so rustc's `index out of bounds: the len is N but the index is
+  M` is compared with its location; `.len()`; `while i < s.len()` loops. Nothing is moved
+  out of an element (E0508) except by the violation knob, and a `&mut [T; N]` local coerced
+  to `&mut [T]` is not treated as a two-phase reborrow (it is not one in rustc). `reorder`
+  analyses indexing precisely (an index may panic unless it is a literal within an array's
+  length; `&a[i]` takes `a`'s address). 2000 seeds at each of the bases 7000000, 8000000
+  and 9000000 pass all five properties; the runs found four compiler bugs, fixed with
+  regression programs (docs/PLAN.md, Phase 5 status). About 2.5% of borrow-clean programs
+  end in an index-out-of-bounds panic, others in overflow panics of index arithmetic.
 - ILVerify runs on every assembly the tests produce. The only ignored error is
   `ReturnPtrToStack` (decision 30).
 - The MIR validator runs after every pass in the pipeline (debug builds panic on a

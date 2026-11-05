@@ -39,7 +39,16 @@
 //! of integers, `bool` and `char`, or-patterns, `_`, `..`, field shorthand, bindings by
 //! value, `mut`, `ref`, `ref mut` and `x @ p`, guards reading bindings and other locals,
 //! on places, references (default binding modes) and temporaries; every `match` is
-//! exhaustive by construction (see [`body`]'s `matches` module). Not generated: arrays,
+//! exhaustive by construction (see [`body`]'s `matches` module). Arrays and slices (#9):
+//! `[T; N]` of primitives, tuples, structs (`Copy` or not, with `impl Drop` or not),
+//! enums and arrays, with lengths 0 to 4 written as literals or `usize` constants (`LEN`,
+//! `LEN + 1`); `&[T]`/`&mut [T]` parameters, returns and annotated `let`s, coerced from
+//! references to arrays; array literals, `[]` where the type is known and `[x; N]` (only
+//! `Copy` operands for N >= 2); element reads, writes, compound assignments and borrows
+//! with constant indices and computed ones that may be out of bounds or overflow;
+//! `.len()`; `while i < s.len()` loops; arrays as fields, tuple elements, enum payloads,
+//! parameters and returns, copied or moved whole (never out of an element). Not generated:
+//! slice patterns, ranges, array comparison, arrays of references,
 //! generics, closures, `&str` other than literals passed to `Print`/`PrintLine`/`Panic`,
 //! references in struct fields, tuples or enum payloads, `()` values, comparisons of
 //! tuples or enums, `&` patterns, half-open ranges, float patterns, recursion, shadowing,
@@ -75,6 +84,8 @@ pub struct Knobs {
     pub max_enums: usize,
     /// Number of distinct tuple types.
     pub max_tuples: usize,
+    /// Number of distinct array types (`[T; N]`); slice types come on top.
+    pub max_arrays: usize,
     pub max_consts: usize,
     /// A soft limit on the total line count: bodies stop generating statements once it
     /// is reached, so a program exceeds it by at most a few closing lines.
@@ -96,6 +107,7 @@ impl Default for Knobs {
             max_structs: 3,
             max_enums: 3,
             max_tuples: 3,
+            max_arrays: 4,
             max_consts: 3,
             max_lines: 60,
             max_expr_depth: 3,

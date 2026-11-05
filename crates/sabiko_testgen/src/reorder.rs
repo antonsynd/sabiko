@@ -17,8 +17,10 @@
 //!   local is a move, and a reference local's use extends its loans);
 //! - at most one of them has an observable effect or may panic: a call (`Print`,
 //!   `PrintLine`, `Panic`, a user function or a method, which may print, panic or write
-//!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation or a
-//!   compound assignment, or a value with drop glue (whose `drop` prints): a `let` of one,
+//!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation, a
+//!   compound assignment, an index other than an integer literal within an array's length
+//!   (which may be out of bounds), a `[x; 0]` whose `x` has drop glue (it is dropped at
+//!   once), or a value with drop glue (whose `drop` prints): a `let` of one,
 //!   which fixes where it is dropped at the end of the block and whether a panic in
 //!   between drops it, an assignment that drops the old one, an assignment into part of
 //!   one or through a dereference (a panic in the other statement drops the value while
@@ -26,12 +28,14 @@
 //!   that drops its value;
 //! - they do not both touch memory that may be aliased, unless both only read it. A
 //!   statement touches aliased memory when it borrows (`&` reads, `&mut` writes, and so
-//!   does a method call's autoref'd receiver), dereferences, mentions a reference local
-//!   (`&mut` locals count as writes, and so do `&` locals that may hold a mutable loan:
-//!   `let d = &*m;` for `m: &mut T` keeps `m`'s loan alive while `d` is used), or mentions
-//!   a local whose address is taken anywhere in the function (a write, `&mut` borrow or
-//!   move of it counts as a write). A pattern with a `ref`/`ref mut` binding takes the
-//!   address of the place it matches (`while let ref mut p @ E::A = d` borrows `d`).
+//!   does a method call's autoref'd receiver; `.len()` borrows for the call only, a
+//!   read), dereferences (also implicitly, indexing through a reference), mentions a
+//!   reference local (`&mut` locals count as writes, and so do `&` locals that may hold a
+//!   mutable loan: `let d = &*m;` for `m: &mut T` keeps `m`'s loan alive while `d` is
+//!   used), or mentions a local whose address is taken anywhere in the function (a write,
+//!   `&mut` borrow or move of it counts as a write; `&a[i]` takes the address of `a`). A
+//!   pattern with a `ref`/`ref mut` binding takes the address of the place it matches
+//!   (`while let ref mut p @ E::A = d` borrows `d`).
 //!
 //! Method bodies are analysed like function bodies.
 //!
@@ -41,7 +45,7 @@
 
 use std::collections::{BTreeSet, HashSet};
 
-use sabiko_ast::{BinOp, Block, Expr, ExprKind, ItemKind, PatKind, Stmt, StmtKind, UnOp};
+use sabiko_ast::{BinOp, Block, Expr, ExprKind, ItemKind, Lit, PatKind, Stmt, StmtKind, UnOp};
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{LocalId, Res, ResolveResults};
 use sabiko_span::{FileId, Span};
@@ -267,9 +271,13 @@ impl FnCx<'_, '_> {
                 Some(scrutinee)
             }
             ExprKind::Let(pat, scrutinee) if has_ref_binding(pat) => Some(scrutinee),
-            // An autoref'd receiver is borrowed.
+            // An autoref'd receiver is borrowed (`.len()` borrows only for the call).
             ExprKind::MethodCall { receiver, .. }
-                if self.types.method_calls[&e.id].autoref.is_some() =>
+                if self
+                    .types
+                    .method_calls
+                    .get(&e.id)
+                    .is_some_and(|m| m.autoref.is_some()) =>
             {
                 Some(receiver)
             }
@@ -299,8 +307,11 @@ impl FnCx<'_, '_> {
     fn may_hold_mut_loan(&self, e: &Expr) -> bool {
         let here = match &e.kind {
             ExprKind::Ref { mutable: true, .. } => true,
-            ExprKind::MethodCall { .. } => self.types.method_calls[&e.id]
-                .autoref
+            ExprKind::MethodCall { .. } => self
+                .types
+                .method_calls
+                .get(&e.id)
+                .and_then(|m| m.autoref)
                 .is_some_and(sabiko_types::Mutability::is_mut),
             ExprKind::Path(_) => match self.resolve.res(e.id) {
                 Res::Local(local) => {
@@ -320,16 +331,19 @@ impl FnCx<'_, '_> {
         found
     }
 
-    /// The local a place expression starts from, through fields and parentheses (and
-    /// through a dereference: `&*r` borrows from what `r` points to, which `r`'s own
-    /// uses already account for).
+    /// The local a place expression starts from, through fields, indices and parentheses
+    /// (and through a dereference: `&*r` borrows from what `r` points to, which `r`'s own
+    /// uses already account for; so does `&r[i]` for a reference `r`).
     fn root_local(&self, e: &Expr) -> Option<LocalId> {
         match &e.kind {
             ExprKind::Path(_) => match self.resolve.res(e.id) {
                 Res::Local(l) => Some(l),
                 _ => None,
             },
-            ExprKind::Paren(x) | ExprKind::Field(x, _) | ExprKind::Deref(x) => self.root_local(x),
+            ExprKind::Paren(x)
+            | ExprKind::Field(x, _)
+            | ExprKind::Deref(x)
+            | ExprKind::Index(x, _) => self.root_local(x),
             _ => None,
         }
     }
@@ -423,9 +437,30 @@ impl FnCx<'_, '_> {
         self.needs_drop(e)
             || match &e.kind {
                 ExprKind::Paren(x) | ExprKind::Field(x, _) => self.writes_into_drop_value(x),
+                // An element of an array, or of a slice or array behind a reference.
+                ExprKind::Index(x, _) => {
+                    self.types.index_derefs.get(&e.id).is_some_and(|&n| n > 0)
+                        || self.writes_into_drop_value(x)
+                }
                 ExprKind::Deref(_) => true,
                 _ => false,
             }
+    }
+
+    /// Whether indexing `base` with `index` may panic: anything but an integer literal
+    /// below the length of an array (not behind a reference, whose length is in its type
+    /// all the same).
+    fn index_may_panic(&self, base: &Expr, index: &Expr) -> bool {
+        let mut ty = self.types.expr_ty(base.id);
+        while let Ty::Ref(_, inner) = ty {
+            ty = inner;
+        }
+        match (ty, &index.kind) {
+            (Ty::Array(_, len), ExprKind::Lit(Lit::Int { value, .. })) => {
+                *value >= u128::from(*len)
+            }
+            _ => true,
+        }
     }
 
     fn local(&self, local: LocalId, mode: Mode, s: &mut Summary) {
@@ -490,11 +525,12 @@ impl FnCx<'_, '_> {
                     self.expr(a, Mode::Read, s);
                 }
             }
-            // The receiver is borrowed as the method takes it, or read by value.
+            // `.len()` borrows its receiver for the call (an alias read if the receiver is
+            // borrowed elsewhere or a reference), and has no effect.
             ExprKind::MethodCall { receiver, .. } if self.types.len_calls.contains_key(&e.id) => {
-                s.touch(Alias::Read);
                 self.expr(receiver, Mode::BorrowShared, s);
             }
+            // The receiver is borrowed as the method takes it, or read by value.
             ExprKind::MethodCall { receiver, args, .. } => {
                 s.effect = true;
                 match self.types.method_calls[&e.id].autoref {
@@ -528,7 +564,25 @@ impl FnCx<'_, '_> {
                 });
                 self.expr(x, Mode::Read, s);
             }
-            ExprKind::Cast(x, _) | ExprKind::Repeat(x, _) => self.expr(x, Mode::Read, s),
+            ExprKind::Cast(x, _) => self.expr(x, Mode::Read, s),
+            // `[x; 0]` drops `x` at once, inside the statement.
+            ExprKind::Repeat(x, _) => {
+                s.effect |= self.needs_drop(x);
+                self.expr(x, Mode::Read, s);
+            }
+            // An element is used as the place is; the index is read, and may be out of
+            // bounds (a panic). Through a reference, the element is behind it.
+            ExprKind::Index(base, index) => {
+                s.effect |= self.index_may_panic(base, index);
+                if self.types.index_derefs.get(&e.id).is_some_and(|&n| n > 0) {
+                    s.touch(match mode {
+                        Mode::Write | Mode::BorrowMut => Alias::Write,
+                        Mode::Read | Mode::BorrowShared => Alias::Read,
+                    });
+                }
+                self.expr(base, mode, s);
+                self.expr(index, Mode::Read, s);
+            }
             ExprKind::Struct { fields, .. } => {
                 for f in fields {
                     self.expr(&f.value, Mode::Read, s);
@@ -555,8 +609,7 @@ impl FnCx<'_, '_> {
             | ExprKind::Continue
             | ExprKind::Return(_)
             | ExprKind::Match { .. }
-            | ExprKind::Let(..)
-            | ExprKind::Index(..) => s.control = true,
+            | ExprKind::Let(..) => s.control = true,
         }
     }
 
@@ -765,6 +818,30 @@ mod tests {
         // `let mut d` / `let mut k` swap; `k += 1` / `*prev += 0` are two effects, and
         // `*prev += 0` / `d = 3` write the same memory.
         assert_eq!(pairs(src), vec![1]);
+    }
+
+    #[test]
+    fn indexing_may_panic_unless_constant_and_in_bounds() {
+        // `a[1]` on a `[i32; 2]` cannot panic and `a.len()` has no effect, so both swap
+        // with a print; `a[k]` may be out of bounds, a panic the print must stay before.
+        let src = "fn Main() {\n    let a = [1i32, 2i32];\n    let k = 5usize;\n    let x = a[1];\n    PrintLine(7i32);\n    let y = a[k];\n    PrintLine(8i32);\n    let n = a.len();\n    PrintLine(9i32);\n}\n";
+        assert_eq!(pairs(src), vec![1, 2, 3, 6, 7]);
+    }
+
+    #[test]
+    fn element_borrows_take_the_address_of_the_array() {
+        // `&mut a[0]` borrows `a`: `a.len()` must not move before the write through `r`
+        // (the loan would then be live at the shared borrow of `.len()`).
+        let src = "fn Main() {\n    let mut a = [1i32, 2i32];\n    let b = 3i32;\n    let r = &mut a[0];\n    *r = 4i32;\n    let n = a.len();\n    let c = b;\n}\n";
+        assert_eq!(pairs(src), vec![1, 2, 5]);
+    }
+
+    #[test]
+    fn zero_length_repeats_drop_their_operand() {
+        // `[D { .. }; 0]` drops the `D` at once: an effect, although the array has no drop
+        // glue.
+        let src = "struct D {\n    A: i32,\n}\n\nimpl Drop for D {\n    fn drop(&mut self) {\n        PrintLine(self.A);\n    }\n}\n\nfn Main() {\n    let n = 1i32;\n    let z = [D { A: 2i32 }; 0];\n    PrintLine(n);\n    let m = 3i32;\n}\n";
+        assert_eq!(pairs(src), vec![11, 13]);
     }
 
     #[test]

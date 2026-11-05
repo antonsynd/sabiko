@@ -247,6 +247,7 @@ impl BodyGen<'_> {
             ValTy::Struct(s) => self.struct_literal(s, depth),
             ValTy::Tuple(t) => self.tuple_literal(t, depth),
             ValTy::Enum(e) => self.variant_literal(e, depth),
+            ValTy::Array(a) => self.array_literal(a, depth, false),
             ValTy::Prim(_) => unreachable!(),
         }
     }
@@ -261,7 +262,9 @@ impl BodyGen<'_> {
                 .candidates()
                 .into_iter()
                 .map(|p| p.ty)
-                .filter(|t| !matches!(t, ValTy::Prim(Prim::F32 | Prim::F64)))
+                .filter(|t| {
+                    !matches!(t, ValTy::Prim(Prim::F32 | Prim::F64)) && self.prog.is_sized(*t)
+                })
                 .collect();
             if !places.is_empty() {
                 let enums: Vec<ValTy> = places
@@ -320,7 +323,7 @@ impl BodyGen<'_> {
         let root = &self.vars[place.root];
         self.readable(place)
             && place.via_ref.is_none()
-            && !place.in_drop
+            && !place.no_move
             && root.shared_locks == 0
             && root.loop_depth == self.loop_depth()
     }
@@ -333,7 +336,8 @@ impl BodyGen<'_> {
             .collect();
         let (ok, bad): (Vec<Place>, Vec<Place>) = typed.into_iter().partition(|p| self.readable(p));
         let pool = self.choose_pool(ok, bad)?;
-        let place = self.rng.pick(&pool).clone();
+        let mut place = self.rng.pick(&pool).clone();
+        self.finish_place(&mut place);
         let strict_move = self.movable(&place);
         let can_ref = self.permitted(&place, Access::Borrow(false));
         let strict_ref_mut = self.permitted(&place, Access::Borrow(true));
@@ -504,7 +508,8 @@ impl BodyGen<'_> {
         let destructurable = match ty {
             ValTy::Struct(_) | ValTy::Tuple(_) => true,
             ValTy::Enum(e) => self.prog.enums[e].variants.len() == 1,
-            ValTy::Prim(_) => false,
+            // Slice patterns are not in the subset: an array is bound or ignored.
+            ValTy::Prim(_) | ValTy::Array(_) => false,
         };
         let choice = self.rng.weighted(&[
             20,
@@ -596,7 +601,9 @@ impl BodyGen<'_> {
                         .collect(),
                 )
             }
-            ValTy::Prim(_) => unreachable!("a primitive is not a composite"),
+            ValTy::Prim(_) | ValTy::Array(_) => {
+                unreachable!("a primitive or an array is not a composite")
+            }
         };
         let refined = match shape {
             Shape::Variant(_, Some((i, s))) | Shape::Field(i, s) => Some((*i, (**s).clone())),
@@ -721,7 +728,7 @@ impl BodyGen<'_> {
                 (if self.rng.chance(50) { "true" } else { "false" }).to_owned()
             }
             ValTy::Prim(Prim::Char) => self.char_refutable(cx),
-            ValTy::Prim(_) => self.irrefutable(ty, cx, in_drop, depth),
+            ValTy::Prim(_) | ValTy::Array(_) => self.irrefutable(ty, cx, in_drop, depth),
             ValTy::Enum(e) => self.enum_refutable(e, cx, in_drop, depth),
             ValTy::Struct(_) | ValTy::Tuple(_) => {
                 let n = match ty {
@@ -1096,6 +1103,13 @@ impl BodyGen<'_> {
     /// literals; nothing is moved, written or called, and the scrutinee is locked as the
     /// guard's fake borrow locks it.
     fn guard(&mut self, s: &Scrut, binds: &[usize]) -> String {
+        self.simple += 1;
+        let text = self.guard_text(s, binds);
+        self.simple -= 1;
+        text
+    }
+
+    fn guard_text(&mut self, s: &Scrut, binds: &[usize]) -> String {
         self.lock(&s.guard_lock);
         let saved = self.prefer_root;
         if !binds.is_empty() {
@@ -1131,7 +1145,8 @@ impl BodyGen<'_> {
                 pool.retain(|p| p.root == root);
             }
         }
-        let place = self.rng.pick(&pool).clone();
+        let mut place = self.rng.pick(&pool).clone();
+        self.simply(|gen| gen.finish_place(&mut place));
         let ValTy::Prim(p) = place.ty else {
             unreachable!()
         };
@@ -1575,7 +1590,8 @@ impl BodyGen<'_> {
             root: st,
             via_ref: None,
             whole: true,
-            in_drop: false,
+            no_move: false,
+            lens: Vec::new(),
         };
         let next = self.enum_expr(e, depth.saturating_sub(1));
         if self.permitted(&place, Access::Write) {
@@ -1615,6 +1631,8 @@ impl BodyGen<'_> {
                         format!("break {};", v.text)
                     }
                 }
+                // A `continue` would skip the index increment at the end of the body.
+                LoopKind::Index => "break;".to_owned(),
             }),
         }
     }

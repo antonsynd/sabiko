@@ -728,6 +728,21 @@ impl Builder<'_> {
             for &local in temps.iter().rev() {
                 self.end_local(local, span);
             }
+            if let Some((_, _, temp)) = extended {
+                // The statement's temporaries rank above the extended one, so its cleanup
+                // scope was not the innermost when it was dropped and stayed open: close
+                // it now (the chain is restored for the success path below). Left open,
+                // a cleanup scope opened in `else` would rank against a local that is in
+                // no scope (seed 8000252: `else { return (false, D { .. }); }`).
+                if let Some(index) = self.chain.iter().position(|&(l, _)| l == temp) {
+                    let above: Vec<Local> =
+                        self.chain.drain(index..).skip(1).map(|(l, _)| l).collect();
+                    for local in above {
+                        self.push_cleanup(local);
+                    }
+                    self.chain_changed();
+                }
+            }
             self.in_temp_scope(els.span, |this| this.lower_block_discard(els));
             self.terminate(TerminatorKind::Unreachable, span);
             self.scopes[self.temp_scope] = temps;

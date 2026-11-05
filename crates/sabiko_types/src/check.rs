@@ -135,6 +135,7 @@ struct PendingCast {
     to: Ty,
 }
 
+#[allow(clippy::struct_excessive_bools)] // independent flags of the expression being checked
 pub(crate) struct FnCtxt<'a> {
     resolve: &'a ResolveResults,
     items: &'a ItemTypes,
@@ -163,6 +164,12 @@ pub(crate) struct FnCtxt<'a> {
     /// Set while checking a `-` that is itself the operand of a `-`: as in rustc, only the
     /// outer negation counts, so the literal of `-(-128i8)` is `128i8`, out of range.
     double_negation: bool,
+    /// Set while checking an operand that is used as a place where an unsized type is
+    /// fine: the operand of `&`/`&mut`, the base of an index and the receiver of
+    /// `.len()`. There `*s` for `s: &[T]` is a valid place (`&*s`, `(*s)[i]`,
+    /// `(*s).len()`); only its value has no size. Consumed by the next expression checked
+    /// (passed through parentheses).
+    unsized_place: bool,
     int_lits: Vec<IntLit>,
     casts: Vec<PendingCast>,
     /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
@@ -214,6 +221,7 @@ impl<'a> FnCtxt<'a> {
             diverges: false,
             negating: false,
             double_negation: false,
+            unsized_place: false,
             int_lits: Vec::new(),
             casts: Vec::new(),
             pending_negs: Vec::new(),
@@ -561,6 +569,7 @@ impl<'a> FnCtxt<'a> {
 
     #[allow(clippy::too_many_lines)]
     fn check_expr_kind(&mut self, expr: &Expr, expected: Option<&Ty>) -> Ty {
+        let unsized_place = std::mem::take(&mut self.unsized_place);
         match &expr.kind {
             ExprKind::Lit(lit) => self.check_lit(lit, expr.span, expected),
             ExprKind::Unit => Ty::Unit,
@@ -568,7 +577,10 @@ impl<'a> FnCtxt<'a> {
             ExprKind::Array(elems) => self.check_array(elems, expected),
             ExprKind::Repeat(value, count) => self.check_repeat(expr, value, count, expected),
             ExprKind::Path(_) => self.check_path(expr, false),
-            ExprKind::Paren(inner) => self.check_expr(inner, expected),
+            ExprKind::Paren(inner) => {
+                self.unsized_place = unsized_place;
+                self.check_expr(inner, expected)
+            }
             ExprKind::Unary(op, operand) => self.check_unary(*op, operand, expected),
             ExprKind::Binary(op, lhs, rhs) => self.check_binary(*op, lhs, rhs, expected, expr.span),
             ExprKind::Assign(lhs, rhs) => {
@@ -624,6 +636,7 @@ impl<'a> FnCtxt<'a> {
                 // A diverging operand gives `&!`, as in rustc: the borrow is not a
                 // coercion site, so `let q: &Point = &loop {};` is a mismatch, while
                 // `*&return 9` is `!` again. The code after it is unreachable.
+                self.unsized_place = true;
                 let inner_ty = self.check_expr(inner, inner_expected.as_ref());
                 if inner_expected.is_some() && self.sink.error_count() > errors_before {
                     // The operand already failed against the expected referent; a second
@@ -636,7 +649,9 @@ impl<'a> FnCtxt<'a> {
                 let inner_ty = self.check_expr(inner, None);
                 match self.shallow(&inner_ty) {
                     Ty::Ref(_, t) => {
-                        if !collect::check_sized(&t, expr.span, self.sink) {
+                        // A slice place is fine where it is borrowed, indexed or measured.
+                        let place_ok = unsized_place && matches!(self.shallow(&t), Ty::Slice(_));
+                        if !place_ok && !collect::check_sized(&t, expr.span, self.sink) {
                             return Ty::Error;
                         }
                         *t
@@ -851,6 +866,7 @@ impl<'a> FnCtxt<'a> {
     /// `base[index]`: the base looks through references to an array or a slice, and the
     /// index is a `usize`. The result is the element, a place.
     fn check_index(&mut self, expr: &Expr, base: &Expr, index: &Expr) -> Ty {
+        self.unsized_place = true;
         let base_ty = self.check_expr(base, None);
         let index_ty = self.check_expr(index, None);
         let mut ty = self.shallow(&base_ty);
@@ -2122,6 +2138,9 @@ impl<'a> FnCtxt<'a> {
         method: &sabiko_ast::Ident,
         args: &[Expr],
     ) -> Ty {
+        // `(*s).len()` measures a slice place; any other method of a slice is reported by
+        // `check_len_call`.
+        self.unsized_place = true;
         let recv_ty = self.check_expr(receiver, None);
         if let Some(ty) = self.check_len_call(expr, &recv_ty, method, args) {
             return ty;
