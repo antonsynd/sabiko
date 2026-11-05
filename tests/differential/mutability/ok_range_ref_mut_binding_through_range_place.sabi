@@ -1,0 +1,14 @@
+// A `ref mut` binding of an element of a range place borrows the base mutably (rustc's
+// `IndexMut`), in a `match`, a `let` and an `if let`, so the writes are accepted.
+fn Main() {
+    let mut a = [1, 2, 3];
+    match a[1..][0] {
+        ref mut x => *x = 5,
+    }
+    let ref mut y = a[..2][1];
+    *y += 1;
+    if let (ref mut z, 0) = (a[2..][0], 0) {
+        *z = 9;
+    }
+    PrintLine(a[1]);
+}

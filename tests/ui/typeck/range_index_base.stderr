@@ -1,0 +1,23 @@
+[E0313] Error: type annotations needed
+   ╭─[ tests/ui/typeck/range_index_base.sabi:7:14 ]
+   │
+ 7 │     let a = &x[1..]; //~ ERROR E0313 type annotations needed
+   │              ───┬──  
+   │                 ╰──── the type of the indexed value must be known
+───╯
+[E0307] Error: cannot apply unary operator `-` to type `bool`
+   ╭─[ tests/ui/typeck/range_index_base.sabi:8:16 ]
+   │
+ 8 │     let b = &(-true)[1..]; //~ ERROR E0307 cannot apply unary operator `-` to type `bool`
+   │                ──┬─  
+   │                  ╰─── cannot apply unary operator `-`
+───╯
+[E0336] Error: cannot index into a value of type `{integer}`
+   ╭─[ tests/ui/typeck/range_index_base.sabi:9:14 ]
+   │
+ 9 │     let c = &5[1..]; //~ ERROR E0336 cannot index into a value of type `{integer}`
+   │              ───┬──  
+   │                 ╰──── not a string, an array or a slice
+   │ 
+   │ Note: only strings, arrays and slices can be indexed by a range
+───╯

@@ -496,3 +496,84 @@ fn validator_compares_arrays_element_by_element() {
         );
     }
 }
+
+#[test]
+fn validator_rejects_malformed_subslice_mir() {
+    let src = "fn F(s: &str, a: &[i32], i: usize) -> usize {\n\
+               s[i..].len() + a[..=i].len()\n\
+               }";
+    let (bodies, typeck) = lower(src).expect("valid program");
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let f = bodies.iter().position(|b| b.name == "F").expect("F");
+    let subslices: Vec<(usize, usize)> = bodies[f]
+        .blocks
+        .iter()
+        .enumerate()
+        .flat_map(|(bb, data)| {
+            data.statements
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| matches!(s.kind, StatementKind::Assign(_, Rvalue::Subslice(..))))
+                .map(move |(i, _)| (bb, i))
+        })
+        .collect();
+    assert_eq!(subslices.len(), 2, "{:#?}", bodies[f]);
+    let edit = |which: usize, change: &dyn Fn(&mut Body, &mut Rvalue)| {
+        let mut bodies = bodies.clone();
+        let (bb, i) = subslices[which];
+        let mut rvalue = match &bodies[f].blocks[bb].statements[i].kind {
+            StatementKind::Assign(_, rvalue) => rvalue.clone(),
+            _ => unreachable!("found above"),
+        };
+        change(&mut bodies[f], &mut rvalue);
+        if let StatementKind::Assign(_, r) = &mut bodies[f].blocks[bb].statements[i].kind {
+            *r = rvalue;
+        }
+        sabiko_mir::validate::validate_all(&bodies, &typeck)
+    };
+    let has = |errors: &[String], message: &str| errors.iter().any(|e| e.contains(message));
+    // The base retyped to a reference to an array, or to an `i32`.
+    let retype_base = |ty: Ty| {
+        move |body: &mut Body, rvalue: &mut Rvalue| {
+            let Rvalue::Subslice(base, _) = rvalue else {
+                unreachable!()
+            };
+            let local = base.place().expect("a place").local;
+            body.locals[local.index()].ty = ty.clone();
+        }
+    };
+    let errors = edit(
+        0,
+        &retype_base(Ty::shared_ref(Ty::Array(Box::new(Ty::CHAR), 2))),
+    );
+    assert!(has(&errors, "sub-slice of"), "{errors:#?}");
+    let errors = edit(0, &retype_base(Ty::I32));
+    assert!(has(&errors, "sub-slice of"), "{errors:#?}");
+    // A base of error type is no malformed sub-slice.
+    let errors = edit(0, &retype_base(Ty::Error));
+    assert!(!has(&errors, "sub-slice of"), "{errors:#?}");
+    // `..=` without an end, and a bound that is no `usize`.
+    let errors = edit(1, &|_, rvalue| {
+        let Rvalue::Subslice(_, bounds) = rvalue else {
+            unreachable!()
+        };
+        bounds.hi = None;
+    });
+    assert!(
+        has(&errors, "inclusive sub-slice without an end"),
+        "{errors:#?}"
+    );
+    let errors = edit(1, &|body, rvalue| {
+        let Rvalue::Subslice(_, bounds) = rvalue else {
+            unreachable!()
+        };
+        let local = bounds
+            .hi
+            .as_ref()
+            .and_then(Operand::place)
+            .expect("`i`")
+            .local;
+        body.locals[local.index()].ty = Ty::I32;
+    });
+    assert!(has(&errors, "sub-slice bound of type"), "{errors:#?}");
+}

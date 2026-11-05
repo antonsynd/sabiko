@@ -1,0 +1,14 @@
+// Matching or binding an element of a range place without `ref mut` only reads it (rustc's
+// `Index`): the array need not be mutable.
+fn Main() {
+    let a = [1, 2, 3];
+    match a[1..][0] {
+        2 => PrintLine(1),
+        ref x => PrintLine(*x),
+    }
+    let ref y = a[..2][1];
+    PrintLine(*y);
+    if let 3 = a[1..][1] {
+        PrintLine(3);
+    }
+}
