@@ -1,0 +1,20 @@
+// A loan of a variant's field conflicts with a mutable borrow of the same variant's field.
+enum E { A(i32), B(i32) }
+
+fn SameVariant(mut e: E, n: i32) -> i32 {
+    let keep = 0;
+    let mut r: &i32 = &keep;
+    let mut i = 0;
+    while i < n {
+        match e {
+            E::A(ref mut y) => *y += 1,
+            E::B(_) => {}
+        }
+        match e {
+            E::A(ref x) => r = x,
+            E::B(_) => {}
+        }
+        i += 1;
+    }
+    *r
+}

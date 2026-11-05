@@ -41,3 +41,12 @@
     │             ───────┬───────  
     │                    ╰───────── invalid cast
 ────╯
+[E0308] Error: non-primitive cast: `Shape` as `bool`
+    ╭─[ tests/ui/typeck/enum_casts.sabi:22:13 ]
+    │
+ 22 │     let f = Shape::Dot as bool; //~ ERROR E0308 non-primitive cast: `Shape` as `bool`
+    │             ─────────┬────────  
+    │                      ╰────────── invalid cast
+    │ 
+    │ Note: only primitive types can be cast with `as`
+────╯

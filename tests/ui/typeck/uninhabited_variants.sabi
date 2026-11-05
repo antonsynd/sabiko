@@ -1,0 +1,44 @@
+// Sabiko codes for rustc's: E0328 for E0004.
+// A variant with an uninhabited field may be left out of a `match` on a place known to
+// hold a valid value (a local, a field of a local), but not on one reached through a
+// reference: `*r`, `(*w).F`, `w.F` for a reference `w` (the field access dereferences it),
+// or a reference matched with default binding modes (rustc's `min_exhaustive_patterns`).
+enum Never {}
+
+enum E { A, B(Never) }
+
+struct W { In: E }
+
+fn Local(e: E, w: W) -> i32 {
+    let a = match e {
+        E::A => 1,
+    };
+    let b = match w.In {
+        E::A => 2,
+    };
+    a + b
+}
+
+fn Deref(r: &E) -> i32 {
+    match *r { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A => 1,
+    }
+}
+
+fn DerefField(w: &W) -> i32 {
+    match (*w).In { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A => 1,
+    }
+}
+
+fn AutoDerefField(w: &W) -> i32 {
+    match w.In { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A => 1,
+    }
+}
+
+fn Reference(r: &E) -> i32 {
+    match r { //~ ERROR E0328 non-exhaustive patterns: `&E::B(_)` not covered
+        E::A => 1,
+    }
+}

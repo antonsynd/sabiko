@@ -1,0 +1,39 @@
+// Sabiko codes for rustc's: E0201 for E0422, E0201 for E0433, E0202 for E0531, E0202 for E0532, E0203 for E0574, E0212 for E0599.
+// A pattern whose path names nothing it can match is reported once, by the resolver: the
+// match or `let` it is part of is then not also reported as non-exhaustive, refutable or
+// unreachable (rustc reports only the path).
+enum Shape { Dot, Square(i32) }
+
+const Limit: i32 = 5;
+
+fn A(s: Shape) -> i32 {
+    match s {
+        Shape::Circle => 1, //~ ERROR E0212 no variant or associated item named `Circle` found for enum `Shape`
+        Shape::Dot => 2,
+        Shape::Square(_) => 3,
+    }
+}
+
+fn B(s: Shape) -> i32 {
+    match s {
+        Shape::Circle(x) => 1, //~ ERROR E0212 no variant or associated item named `Circle`
+        Shape::Circle { x } => 2, //~ ERROR E0212 no variant or associated item named `Circle`
+        _ => 3,
+    }
+}
+
+fn C(n: i32) -> i32 {
+    match n {
+        Missing(x) => 1, //~ ERROR E0202 cannot find tuple struct or tuple variant `Missing`
+        Missing { x } => 2, //~ ERROR E0201 cannot find struct `Missing`
+        Missing::X => 3, //~ ERROR E0201 cannot find type `Missing`
+        2 => 4,
+        _ => 5,
+    }
+}
+
+fn D(n: i32, s: Shape) {
+    let Limit(x) = n; //~ ERROR E0202 cannot find tuple struct or tuple variant `Limit`
+    let Limit { x } = n; //~ ERROR E0203 expected struct, found constant `Limit`
+    let Shape { x } = s; //~ ERROR E0203 expected struct, found enum `Shape`
+}

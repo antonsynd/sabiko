@@ -5,6 +5,8 @@ struct P {
 
 struct Unit;
 
+enum Light { Red, Green }
+
 fn Compute() -> i32 {
     1
 }
@@ -31,6 +33,7 @@ const O: P = P { X: 1 }; //~ ERROR E0315 struct values cannot be used in constan
 const Q: i32 = O.X; //~ ERROR E0315 field accesses cannot be used in constants yet
 const R: &i32 = &1; //~ ERROR E0315 references cannot be used in constants yet
 const W: Unit = Unit; //~ ERROR E0315 struct values cannot be used in constants yet
+const X: Light = Light::Red; //~ ERROR E0315 enum values cannot be used in constants yet
 const S: i32 = A as i32 + 1; // silent: `A` already failed
 const T: i32 = 2147483647 + 0; // fine: exactly at the limit
 const U: u8 = 255u8 as i8 as u8; // fine: casts wrap

@@ -1,7 +1,7 @@
 [E0327] Error: this pattern has 2 fields, but the corresponding tuple variant has 1 field
     ╭─[ tests/ui/typeck/variant_pattern_shape.sabi:10:9 ]
     │
-  6 │ enum Shape { Dot, Square(i32), Rect { W: i32, H: i32 } }
+  6 │ enum Shape { Dot, Square(i32), Pair(i32, bool), Rect { W: i32, H: i32 } }
     │                   ───┬──  
     │                      ╰──── tuple variant has fields here
     │ 
@@ -45,4 +45,40 @@
  33 │         Shape::Rect(w, h) => w, //~ ERROR E0326 expected tuple struct or tuple variant, found struct variant
     │         ─────┬─────  
     │              ╰─────── not a tuple struct or tuple variant
+────╯
+[E0327] Error: this pattern has 1 field, but the corresponding tuple variant has 2 fields
+    ╭─[ tests/ui/typeck/variant_pattern_shape.sabi:39:9 ]
+    │
+  6 │ enum Shape { Dot, Square(i32), Pair(i32, bool), Rect { W: i32, H: i32 } }
+    │                                ──┬─  
+    │                                  ╰─── tuple variant has fields here
+    │ 
+ 39 │         Shape::Pair(a) => a, //~ ERROR E0327 this pattern has 1 field, but the corresponding tuple variant has 2 fields
+    │         ───────┬──────  
+    │                ╰──────── expected 2 fields, found 1
+────╯
+[E0327] Error: this pattern has 3 fields, but the corresponding tuple variant has 2 fields
+    ╭─[ tests/ui/typeck/variant_pattern_shape.sabi:40:9 ]
+    │
+  6 │ enum Shape { Dot, Square(i32), Pair(i32, bool), Rect { W: i32, H: i32 } }
+    │                                ──┬─  
+    │                                  ╰─── tuple variant has fields here
+    │ 
+ 40 │         Shape::Pair(a, b, c, ..) => a, //~ ERROR E0327 this pattern has 3 fields, but the corresponding tuple variant has 2 fields
+    │         ────────────┬───────────  
+    │                     ╰───────────── expected 2 fields, found 3
+────╯
+[E0326] Error: expected unit struct, unit variant or constant, found struct `P`
+    ╭─[ tests/ui/typeck/variant_pattern_shape.sabi:55:13 ]
+    │
+ 55 │             Self => 1, //~ ERROR E0326 expected unit struct, unit variant or constant, found struct `P`
+    │             ──┬─  
+    │               ╰─── not a unit struct, unit variant or constant
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/variant_pattern_shape.sabi:64:13 ]
+    │
+ 64 │             _ => 2, //~ WARN E0330 unreachable pattern
+    │             ┬  
+    │             ╰── no value can reach this
 ────╯

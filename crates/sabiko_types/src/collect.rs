@@ -122,13 +122,6 @@ pub struct VariantDef {
     pub span: Span,
 }
 
-impl VariantDef {
-    #[must_use]
-    pub fn field_index(&self, name: &str) -> Option<usize> {
-        self.fields.iter().position(|f| f.name == name)
-    }
-}
-
 /// Signatures of every item in the file, plus the compiler builtins.
 #[derive(Clone, Debug, Default)]
 pub struct ItemTypes {
@@ -181,13 +174,6 @@ impl ItemTypes {
             Ty::Adt(def) => self.adts.get(def).filter(|a| a.is_enum()),
             _ => None,
         }
-    }
-
-    /// Whether a value of `ty` cannot exist: `!` (and the types [`Ty::is_uninhabited`]
-    /// covers) or an enum without variants.
-    #[must_use]
-    pub fn is_uninhabited(&self, ty: &Ty) -> bool {
-        ty.is_uninhabited() || self.as_enum(ty).is_some_and(|a| a.variants().is_empty())
     }
 
     pub(crate) fn set_discriminants(&mut self, adt: DefId, discrs: &[i128]) {

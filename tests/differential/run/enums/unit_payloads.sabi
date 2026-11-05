@@ -1,0 +1,30 @@
+// Variants with `()` among their fields: nothing is stored for them, the other fields
+// keep their values, and patterns bind or ignore them.
+enum Wrapped { Empty(()), Value(i32, (), i32), Named { A: (), B: i32 } }
+
+fn Make(x: i32) -> Wrapped {
+    if x > 10 {
+        Wrapped::Named { A: (), B: x }
+    } else if x > 0 {
+        Wrapped::Value(x, (), x * 2)
+    } else {
+        Wrapped::Empty(())
+    }
+}
+
+fn Show(w: Wrapped) -> i32 {
+    match w {
+        Wrapped::Empty(u) => {
+            let () = u;
+            0
+        }
+        Wrapped::Value(a, (), b) => a + b,
+        Wrapped::Named { A: _, B } => B,
+    }
+}
+
+fn Main() {
+    PrintLine(Show(Make(0)));
+    PrintLine(Show(Make(4)));
+    PrintLine(Show(Make(12)));
+}

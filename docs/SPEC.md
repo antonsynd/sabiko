@@ -42,7 +42,8 @@ names which phase owns which section.
   (E0100, rustc's E0449)
 - Patterns (#6, #8): `_`; bindings `x`, `mut x`, `ref x`, `ref mut x`, each optionally
   `@ subpattern`; literals (integer, possibly negated, float, `bool`, `char`) and ranges
-  `a..=b`, `a..b` whose bounds are literals or constants; paths `E::V`; tuple patterns
+  `a..=b`, `a..b` whose bounds are literals or constants (a local is E0315, rustc's
+  E0080); paths `E::V`; tuple patterns
   `(p, ..)`, tuple-variant patterns `E::V(p, ..)` and struct patterns `S { F: p, G, ref H,
   .. }` (struct or struct variant), with at most one `..` among the elements; or-patterns
   `p | q` (a leading `|` is allowed in a `match` arm and an `if let`); `(p)` is `p`. A lone
@@ -533,7 +534,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `0..=0xD7FF` and `0xE000..=0x10FFFF`), so covering only the Basic Multilingual Plane
   leaves `'𐀀'..='\u{10ffff}'` uncovered although a Sabiko `char` cannot hold those values
   (decision 31): Sabiko must not accept invalid Rust; floats are never covered by literals.
-  A scrutinee reached through a dereference (`match *r`) is not assumed valid, so its
+  A scrutinee reached through a dereference (`match *r`, or `match r.F` for a reference
+  `r`, whose field access dereferences it) is not assumed valid, so its
   uninhabited variants must be matched, as in rustc. A `let` or parameter pattern must be
   irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
   single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
@@ -759,8 +761,11 @@ a value whose type implements `Drop` E0418); `ref`/`ref mut` bindings borrow it,
 loan lives as long as the binding is used. Arms are tried in order; a guard runs only when
 its pattern matched, once per matching alternative of an or-pattern, and a false guard
 tries the next candidate. While a guard runs, the scrutinee is fake-borrowed: assigning
-it or borrowing it mutably is E0419 (rustc's E0510); the arm's bindings denote shared
-references to their parts, so a guard cannot move out of the scrutinee, cannot assign a
+it or borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
+leaves its memory as it was; decision 60), although an arm after a failed guard that
+tests the moved scrutinee again is E0406, which rustc, testing once before any guard,
+accepts (a known gap, `tests/pending/enums/known_gap/`); the arm's bindings denote shared
+references to their parts, so a guard cannot move out of them, cannot assign a
 binding (`mut n`) or write through one (`ref mut n`), both E0403 (rustc's E0594), and an
 assignment to the scrutinee also conflicts with a binding's borrow (E0410, E0506). Once
 the guard holds, the by-value bindings move or copy, so an arm that is not taken moves

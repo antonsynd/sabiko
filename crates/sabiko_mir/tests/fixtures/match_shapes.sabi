@@ -1,0 +1,30 @@
+// Where a `match` puts its value. In statement position it has no destination, not even a
+// `()` temporary. Its type when every arm diverges is `!` if the arms were checked against
+// an expectation (the destructured temporary of `Expected` has type `!`, and nothing is
+// bound after it), and the arms' common type without one (`y` in `Unexpected` is a `u8`
+// although both arms return before producing it).
+enum E { A, B(i32) }
+
+fn Statement(e: E) -> i32 {
+    let mut n = 0;
+    match e {
+        E::A => n = 1,
+        E::B(x) => n = x,
+    }
+    n
+}
+
+fn Expected(c: bool) -> i32 {
+    let (a, b): (i32, i32) = match c {
+        true => return 1,
+        false => return 2,
+    };
+    a + b
+}
+
+fn Unexpected(c: bool) {
+    let y = match c {
+        true => (return, 5u8).1,
+        false => (return, 6u8).1,
+    };
+}

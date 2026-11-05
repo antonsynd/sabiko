@@ -178,7 +178,8 @@ pub fn check_match(cx: &dyn PatCx, scrut_ty: &Ty, arms: &[Arm]) -> Report {
 /// [`check_match`], saying whether the scrutinee place is known to hold a valid value.
 ///
 /// rustc treats a scrutinee that is a dereference (`match *r`, also through fields such as
-/// `match (*r).0`) as possibly invalid: there an uninhabited variant must still be matched
+/// `match (*r).0` and `match r.0`, where the field access dereferences `r` implicitly) as
+/// possibly invalid: there an uninhabited variant must still be matched
 /// (`match *r { E::A => .. }` for `enum E { A, B(Never) }` reports `E::B(_)`), whereas a
 /// local, a field of a local, a call result or any other value expression is valid.
 #[must_use]
@@ -523,22 +524,15 @@ impl IntKind {
                     Self::Int(int) => int.bits,
                     Self::Char => 32,
                 };
-                // The unbiased bits must fit the type's size.
-                let raw = n ^ self.bias();
-                if raw <= mask(bits) {
+                // The unbiased bits must fit the type's size; the bias only flips their top
+                // bit, so the biased value fits exactly when they do (rustc unbiases first).
+                if n <= mask(bits) {
                     bdy
                 } else {
                     MaybeInf::PosInf
                 }
             }
             MaybeInf::JustAfterMax | MaybeInf::PosInf => MaybeInf::PosInf,
-        }
-    }
-
-    fn bias(self) -> u128 {
-        match self {
-            Self::Int(int) => int.bias(),
-            Self::Char => 0,
         }
     }
 
@@ -1265,13 +1259,11 @@ impl<'a> Checker<'a> {
     }
 }
 
-/// Whether a witness prints as `_` (and is therefore left out of `S { .. }`).
+/// Whether a witness of a field prints as `_` (and is therefore left out of `S { .. }`).
+/// The whole range of an `isize` or `usize` also prints as `_`, but it is a witness only
+/// at the scrutinee: a field's column that mentions no range is reported as a wildcard.
 fn prints_as_wildcard(wit: &Wit) -> bool {
-    match &wit.ctor {
-        Ctor::Wildcard | Ctor::NonExhaustive | Ctor::Never => true,
-        Ctor::IntRange(r) => r.lo == MaybeInf::NegInf && r.hi == MaybeInf::PosInf,
-        _ => false,
-    }
+    matches!(wit.ctor, Ctor::Wildcard | Ctor::NonExhaustive | Ctor::Never)
 }
 
 fn flatten_or<'p>(alts: &'p [Pat], out: &mut Vec<&'p Pat>) {
@@ -1987,6 +1979,7 @@ mod tests {
 
     #[test]
     fn joined_witness_lists() {
+        assert_eq!(joined_list(&[]), "");
         assert_eq!(joined_witnesses(&strings(&["A"])), "`A` not covered");
         assert_eq!(
             joined_witnesses(&strings(&["A", "B"])),
@@ -2333,6 +2326,43 @@ mod tests {
         );
     }
 
+    /// `match x { 0 => .. }` for every integer type, as rustc 1.99.1 reports it.
+    #[test]
+    fn every_integer_type() {
+        let cases = [
+            (
+                PrimTy::I8,
+                "`i8::MIN..=-1_i8` and `1_i8..=i8::MAX` not covered",
+            ),
+            (
+                PrimTy::I16,
+                "`i16::MIN..=-1_i16` and `1_i16..=i16::MAX` not covered",
+            ),
+            (
+                PrimTy::I32,
+                "`i32::MIN..=-1_i32` and `1_i32..=i32::MAX` not covered",
+            ),
+            (
+                PrimTy::I64,
+                "`i64::MIN..=-1_i64` and `1_i64..=i64::MAX` not covered",
+            ),
+            (
+                PrimTy::I128,
+                "`i128::MIN..=-1_i128` and `1_i128..` not covered",
+            ),
+            (PrimTy::Isize, "`..=-1_isize` and `1_isize..` not covered"),
+            (PrimTy::U8, "`1_u8..=u8::MAX` not covered"),
+            (PrimTy::U16, "`1_u16..=u16::MAX` not covered"),
+            (PrimTy::U32, "`1_u32..=u32::MAX` not covered"),
+            (PrimTy::U64, "`1_u64..=u64::MAX` not covered"),
+            (PrimTy::U128, "`1_u128..` not covered"),
+            (PrimTy::Usize, "`1_usize..` not covered"),
+        ];
+        for (p, expected) in cases {
+            assert_eq!(message(&prim(p), &["0"]), expected, "{p:?}");
+        }
+    }
+
     #[test]
     fn wide_integer_types() {
         let u128_ = prim(PrimTy::U128);
@@ -2488,6 +2518,14 @@ mod tests {
             &[],
         );
         check(&prim(PrimTy::U8), &["_ if", "x", "_"], &[], &["_"]);
+        // A column only guarded wildcards mention is reported as `_` (rustc 1.99.1), not
+        // opened into its fields.
+        check(
+            &tup(&[Ty::BOOL, tup(&[Ty::I32, Ty::I32])]),
+            &["(true, _)", "(false, _) if"],
+            &["(false, _)"],
+            &[],
+        );
         // A guarded arm can itself be unreachable.
         check(&Ty::BOOL, &["_", "true if"], &[], &["true"]);
     }
@@ -2591,6 +2629,7 @@ mod tests {
         );
         // A tuple with an empty element is empty; one with a reference to one is not.
         check(&tup(&[Ty::I32, never]), &[], &[], &[]);
+        check(&tup(&[Ty::I32, Ty::Never]), &[], &[], &[]);
         check(&tup(&[Ty::I32, never_ref]), &[], &["(_, _)"], &[]);
     }
 
@@ -2661,6 +2700,39 @@ mod tests {
         let report = check_match(&cx, &Ty::F64, &[opaque(), opaque()]);
         assert_eq!(report.witnesses, ["_"]);
         assert!(report.unreachable.is_empty());
+        let wild = Arm {
+            pat: Pat {
+                kind: PatKind::Wild,
+                ty: Ty::F64,
+                span: Span::dummy(),
+            },
+            has_guard: false,
+        };
+        assert_eq!(
+            check_match(&cx, &Ty::F64, &[opaque(), wild]),
+            Report::default()
+        );
+        // Of an integer type too: it is not part of the type's ranges.
+        let opaque_int = Arm {
+            pat: Pat {
+                kind: PatKind::Opaque,
+                ty: Ty::I32,
+                span: Span::dummy(),
+            },
+            has_guard: false,
+        };
+        let wild_int = Arm {
+            pat: Pat {
+                kind: PatKind::Wild,
+                ty: Ty::I32,
+                span: Span::dummy(),
+            },
+            has_guard: false,
+        };
+        assert_eq!(
+            check_match(&cx, &Ty::I32, &[opaque_int, wild_int]),
+            Report::default()
+        );
     }
 
     // --- let and parameter patterns -------------------------------------------------------
@@ -2688,6 +2760,10 @@ mod tests {
     fn error_types_report_nothing() {
         let cx = cx();
         assert_eq!(check_match(&cx, &Ty::Error, &[]), Report::default());
+        // An error behind a reference or inside a tuple counts too.
+        let behind_ref = Ty::shared_ref(tup(&[Ty::BOOL, Ty::Error]));
+        assert_eq!(check_match(&cx, &behind_ref, &[]), Report::default());
+        assert_eq!(check_match(&cx, &tup(&[Ty::Error]), &[]), Report::default());
         let arm = Arm {
             pat: Pat {
                 kind: PatKind::Ctor {

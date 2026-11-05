@@ -1,6 +1,7 @@
-// Sabiko codes for rustc's: E0332 for E0030, E0332 for E0579.
+// Sabiko codes for rustc's: E0315 for E0080, E0332 for E0030, E0332 for E0579.
 // Range patterns: the lower bound must not exceed the upper (E0030), and an exclusive
-// range `a..b` (stable since Rust 1.80) must not be empty (E0579).
+// range `a..b` (stable since Rust 1.80) must not be empty (E0579), for every type a range
+// pattern takes; a bound is a literal or a constant, never a local (E0080).
 fn F(n: i32) -> i32 {
     let a = match n {
         5..=1 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
@@ -11,4 +12,27 @@ fn F(n: i32) -> i32 {
         _ => 0,
     };
     a + b
+}
+
+fn G(a: u8, c: char) -> i32 {
+    let x = match a {
+        200..=100 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+        7..=7 => 2,
+        8..9 => 3,
+        _ => 0,
+    };
+    let y = match c {
+        'z'..='a' => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+        'q'..'q' => 2, //~ ERROR E0332 lower bound for range pattern must be less than upper bound
+        _ => 0,
+    };
+    x + y
+}
+
+fn H(n: i32) -> i32 {
+    let low = 3;
+    match n {
+        low..=5 => 1, //~ ERROR E0315 runtime values cannot be referenced in patterns
+        _ => 0,
+    }
 }

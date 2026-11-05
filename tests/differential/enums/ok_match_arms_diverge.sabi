@@ -1,0 +1,14 @@
+// A `match` whose every arm diverges diverges itself, so the block needs no tail.
+fn AllReturn(b: bool) -> i32 {
+    match b {
+        true => return 1,
+        false => Panic("no"),
+    };
+}
+
+fn RangeOnLiteral() -> i32 {
+    match 5 {
+        0..=3 => 1,
+        _ => 2,
+    }
+}

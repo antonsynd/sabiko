@@ -296,6 +296,79 @@ The nightly runs of 2026-10-29 to 2026-10-31 failed all three thresholds: `sabik
   as a tuple of `Other`, which is treated like `Other`; `places_conflict`'s `>` as `>=`
   inspects an empty tail when the projections have the same length.
 
+Enums and `match` (#8) were checked with `cargo mutants --in-diff` on the lines the branch
+changed in `crates/` against its mainline base, with the test packages above
+(`sabiko_mir` with `sabiko_mir`, `sabiko_driver` and `sabikoc`). The suites that run
+`sabikoc` take four minutes per mutant on a loaded four-core machine, far past the
+60-second floor `.cargo/mutants.toml` sets, so those runs used `--timeout 600`: at the floor
+seven of eight codegen "timeouts" were misses (the 41 `sabiko_types` timeouts of the
+first run, under the same load, were all caught at `--timeout 300`). Score = (caught +
+timeout) / viable:
+
+| Crate | Mutants | Before (caught + timeout / viable) | After | Remaining survivors |
+| --- | --- | --- | --- | --- |
+| `sabiko_types` | 498 (494 after) | 323 + 41 / 447 (81.4%) | 430 + 0 / 442 (97.3%) | 12 equivalent |
+| `sabiko_mir` | 127 | 93 + 1 / 106 (88.7%) | 104 + 1 / 106 (99.1%) | 1 equivalent |
+| `sabiko_codegen` | 56 | 47 + 1 / 55 (87.3%) | 52 + 0 / 55 (94.5%) | 3 equivalent |
+| `sabiko_borrowck` | 26 (28 after) | 16 + 0 / 20 (80.0%) | 22 + 0 / 22 (100%) | none |
+
+The survivors found four bugs, each fixed with a regression test: an enum with a repeated
+variant name and explicit discriminants panicked the type checker (`discriminant_errors`);
+a local as a range pattern bound (`x..=5`) was accepted silently and the function's body
+was never built, a `MissingMethodException` at run time (E0315 now, rustc's E0080;
+`range_pattern_errors`); `match w.F` through a reference `w` was taken to hold a valid
+value, so an uninhabited variant could be left out where rustc reports E0004
+(`uninhabited_variants`); and a pattern whose path the resolver had rejected was also
+reported as non-exhaustive, refutable or unreachable (`unresolved_pattern_paths`). A
+fifth difference from rustc, a guard that moves the scrutinee out (E0419 "cannot move out
+of `s` in match guard", no rustc error), is decision 60: the move is accepted
+(`run/enums/move_scrutinee_in_guard`), and a later arm that tests the moved scrutinee
+again stays a known gap (`tests/pending/enums/known_gap/`). Code no input reaches was
+removed rather than listed: two unused helpers (`VariantDef::field_index`,
+`ItemTypes::is_uninhabited`), the bias `usefulness`'s `hoist` took off a boundary (it only
+flips the top bit, so the biased boundary fits the type exactly when the unbiased one
+does) and `prints_as_wildcard`'s whole-range case (a whole `isize`/`usize` range is a
+witness only at the scrutinee, never in a field).
+
+Killing tests: UI fixtures (`calls`, `consts`, `enum_casts`, `error_propagation`,
+`pattern_values`, `range_pattern_errors`, `refutable_pattern_in_let`,
+`variant_pattern_shape`), compile-time verdicts against rustc (`differential/enums/`,
+`loans/{ok,err}_match_borrow_*_variant_while_borrowed`: loans of one variant's field do
+not conflict with another variant's, but do with the same one's), run-time programs
+(`run/enums/{let_or_patterns,unit_payloads}`, `run/enums/if_let/let_else_scope`: a
+`let`-`else` binding is dropped at the end of its own block), unit tests (every integer
+type's witnesses, an opaque pattern on an integer, a column only guarded wildcards
+mention, errors behind references and in tuples, `(i32, !)`, local types of struct and
+variant pattern bindings, the bodies the pattern passes mark erroneous), the MIR fixture
+`match_shapes` (a `match` statement, the type of a `match` whose arms all diverge), MIR
+validator rejections of malformed enum places and variant aggregates, and the IL fixture
+`variants` (in-place and staged variant construction, `()` payload fields).
+
+Equivalent survivors:
+
+- `sabiko_types`: `peel_pat_refs`'s `derefs > 0` as `>=` (the moved `check_pat_in_mode`
+  mutant above); a tuple-struct pattern's non-variant arm deleted and its `DefKind::Variant`
+  guard as `true`, and a struct pattern's `DefKind::Struct` guard as `true` (the resolver
+  resolves a tuple-struct pattern's path only to a variant and a struct pattern's only to
+  a struct or a variant); `rest_positions`'s `i > r` as `i >= r` (the arm before takes
+  `i == r`); `PatValues::value`'s `DefKind::Const` guard as `true` and `compare`'s float
+  arm deleted (a range bound naming anything else, and a float range, are type errors
+  first, and a body with one is skipped); `lower_kind`'s `DefKind::Const` guard on a
+  multi-segment path pattern as `false` (such a path names a variant, or `Self`, never a
+  constant) and `i < fields.len()` as `<=` (positions are in range in a body without
+  errors); `usefulness`'s `IntRange::intersection` `<` as `<=` (an empty intersection
+  adds two boundaries at one point, which `split` steps over), `lower`'s enum guard as
+  `true` (only an enum's patterns name a variant) and its padding loop's `<` as `>`
+  (`patterns.rs` always passes every field).
+- `sabiko_mir`: `forward::mentions`' `+=` for a discriminant read as `*=` (every
+  discriminant read of a temporary follows its `PlaceMention`, which already counted).
+- `sabiko_codegen`: `assign_slots`' `p.is_local()` guard as `true` (a fake borrow's
+  destination is always a whole local), `variant_aggregate`'s `!reads_dest` as `true` (no
+  operand of a variant aggregate reads its destination: pattern bindings are copied into
+  their own locals first), and `stackable_locals`' `&&` as `||` (an aggregate's destination
+  counted as a definition is staged in a scratch local that takes its place: the IL of
+  every fixture is unchanged, and the run-time corpora pass).
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library

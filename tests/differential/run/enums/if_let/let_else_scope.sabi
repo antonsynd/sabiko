@@ -1,0 +1,50 @@
+// The bindings of a `let`-`else` (and of a `let` with an or-pattern) belong to the block
+// the statement is in, so they are dropped when that block ends, here before the next
+// argument of the call the block is an argument of.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+enum Slot { Empty, Full(D), Spare(D) }
+
+fn Make(id: i32) -> Slot {
+    if id > 5 {
+        Slot::Full(D { Id: id })
+    } else if id > 0 {
+        Slot::Spare(D { Id: id })
+    } else {
+        Slot::Empty
+    }
+}
+
+fn Log(s: &str) -> i32 {
+    PrintLine(s);
+    0
+}
+
+fn Sum(a: i32, b: i32, c: i32) -> i32 {
+    a + b + c
+}
+
+fn Main() {
+    let total = Sum(
+        {
+            let Slot::Full(d) = Make(7) else {
+                return;
+            };
+            d.Id
+        },
+        {
+            let (Slot::Full(e) | Slot::Spare(e)) = Make(3) else {
+                return;
+            };
+            e.Id
+        },
+        Log("third argument"),
+    );
+    PrintLine(total);
+}

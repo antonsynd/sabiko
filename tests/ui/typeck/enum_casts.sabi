@@ -19,4 +19,6 @@ fn Main() {
     let c = 1 as Light; //~ ERROR E0308 non-primitive cast: `i32` as `Light`
     let d = Light::Green as bool; //~ ERROR E0308 cannot cast `Light` as `bool`
     let e = Lamp::Off as u8; //~ ERROR E0308 cannot cast enum `Lamp` into integer `u8` because it implements `Drop`
+    let f = Shape::Dot as bool; //~ ERROR E0308 non-primitive cast: `Shape` as `bool`
+    let g = Light::Green as u8; // fine: a fieldless enum casts to any integer type
 }

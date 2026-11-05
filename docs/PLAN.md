@@ -591,6 +591,33 @@ had dropped below their thresholds, mostly through tuples; new tests bring them 
 95.6% and 98.8% (`docs/TESTING.md`), and one survivor listed as equivalent turned out to
 be killable.
 
+Update (2026-11-05), enums and `match` (#8, decisions 57 to 60): `enum` items with unit,
+tuple and struct variants and explicit discriminants, variant constructors and literals,
+`as` casts of fieldless enums, `impl` blocks and `impl Drop` on enums; patterns (literals,
+ranges, bindings with `ref`/`ref mut`/`@`, wildcards and `..`, tuple, tuple-variant and
+struct patterns, or-patterns) in `match` with guards, `if let`, `while let`, `let`-`else`,
+`let` and parameters; exhaustiveness and reachability by a port of rustc's usefulness
+algorithm (decision 58). Enums are value types with a tag and one payload field per variant
+(decision 57, C#-facing names by decision 59, checked from C# by `tests/interop/enum_layout`);
+matches lower to sequential candidates with rustc's guard semantics (fake borrows,
+bindings by reference until the guard holds; a guard may move the scrutinee, decision 60),
+and drop elaboration follows partial moves into variants behind discriminant-set flags.
+Everything staged in `tests/pending/enums/` landed (30 run-time programs in
+`differential/run/enums/`, verdict pairs in `differential/{moves,loans,enums}/`, UI tests
+per stage); the generator covers every construct (paragraph below) and mutation testing on
+the changed lines leaves only equivalent survivors (the paragraph after). Benchmark
+`enums`: Sabiko takes 1.5 to 1.9 times as long as C# in-process and allocates nothing; the
+gap is the candidates re-reading the tag where a decision tree (as in rustc) would switch
+once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p`, half-open
+ranges, primitive associated constants in patterns, `==` on enums (Phase 6), a match
+through `&&T` (`Ref<T>`), string literal patterns (with
+`&str`, #10), float range patterns (rejected with a misleading message), code that patterns
+make unreachable is not borrow-checked (rustc's false edges), and an arm that tests a
+scrutinee a failed guard moved out (E0406; rustc tests once). Moving a non-`Copy` field out
+of a `Drop` enum is reported at the binding (E0418) where rustc reports E0509 at the
+scrutinee. C# still rejects names Sabiko allows side by side in one type (a field and a
+method of one name; an enum method named like a payload field or `Tag`).
+
 Update (2026-11-05), generator for enums and `match` (#8): `sabiko_testgen` declares
 enums (unit, tuple and struct variants over primitives, tuples, structs and earlier enums,
 some `Copy`, some with an `impl Drop` that matches on `self`, fieldless ones with explicit
@@ -621,6 +648,21 @@ are guarded, a cover's arms are disjoint, an `if let` or `let`-`else` pattern su
 refutes; a validity test checks that Sabiko reports no unreachable pattern) and skips no
 check after a `match`'s first arm or in an `else`.
 
+Update (2026-11-05), mutation testing of enums and `match` (#8) on the lines the branch
+changed (`docs/TESTING.md`): before the new tests, 81.4% (`sabiko_types`), 88.7%
+(`sabiko_mir`), 87.3% (`sabiko_codegen`) and 80.0% (`sabiko_borrowck`), after them
+97.3%, 99.1%, 94.5% and 100%, with only equivalent survivors left. The survivors found four
+bugs, now fixed: a repeated variant name with explicit discriminants panicked
+the type checker, a local as a range pattern bound was accepted and its function never
+built (a `MissingMethodException` at run time; E0315 now), `match r.F` through a reference
+`r` could omit an uninhabited variant rustc requires, and a pattern with an unresolved path
+was also reported as non-exhaustive, refutable or unreachable. A guard may now move the
+scrutinee out, as in rustc (decision 60). Gap: an arm after such a guard that tests the
+moved scrutinee again is E0406, which rustc accepts
+(`tests/pending/enums/known_gap/move_scrutinee_in_guard_then_test.sabi`). Also noticed:
+a float range pattern (`0.0..=1.0`, valid Rust) is rejected as "only `char` and numeric
+types are allowed in range patterns", which names `f64` as not numeric.
+
 ### Phase 5: Data types
 
 Work
@@ -642,7 +684,7 @@ against drops rather than retrofitted.
   decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
   as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
-  and `let`-`else`; see the status note below).
+  and `let`-`else`; see the status notes above).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
