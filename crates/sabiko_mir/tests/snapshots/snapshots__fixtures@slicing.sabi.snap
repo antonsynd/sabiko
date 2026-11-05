@@ -129,15 +129,16 @@ fn Main() {
     let mut _23: &str;
     let _24: bool;                       // before
     let mut _25: &str;
-    let mut _26: ();
-    let mut _27: i32;
-    let mut _28: &str;
+    let mut _26: &&str;
+    let mut _27: ();
+    let mut _28: i32;
     let mut _29: &str;
     let mut _30: &str;
-    let mut _31: ();
-    let mut _32: bool;
-    let mut _33: ();
-    let mut _34: bool;
+    let mut _31: &str;
+    let mut _32: ();
+    let mut _33: bool;
+    let mut _34: ();
+    let mut _35: bool;
 
     bb0: {
         StorageLive(_1);
@@ -214,47 +215,51 @@ fn Main() {
         StorageLive(_24);
         StorageLive(_25);
         _25 = copy _17;
-        _24 = Lt(copy _25, const "help");
-        StorageDead(_25);
         StorageLive(_26);
+        _26 = &fake shallow _17;
+        PlaceMention(_26);
+        _24 = Lt(copy _25, const "help");
+        StorageDead(_26);
+        StorageDead(_25);
         StorageLive(_27);
         StorageLive(_28);
         StorageLive(_29);
-        _29 = &(*_17);
         StorageLive(_30);
-        _30 = Subslice(copy _29, ..=const 0_usize);
-        _28 = &(*_30);
-        _27 = Kind(copy _28) -> bb3;
+        _30 = &(*_17);
+        StorageLive(_31);
+        _31 = Subslice(copy _30, ..=const 0_usize);
+        _29 = &(*_31);
+        _28 = Kind(copy _29) -> bb3;
     }
 
     bb3: {
-        _26 = PrintLine(copy _27) -> bb4;
+        _27 = PrintLine(copy _28) -> bb4;
     }
 
     bb4: {
+        StorageDead(_31);
         StorageDead(_30);
         StorageDead(_29);
         StorageDead(_28);
         StorageDead(_27);
-        StorageDead(_26);
-        StorageLive(_31);
         StorageLive(_32);
-        _32 = copy _18;
-        _31 = PrintLine(copy _32) -> bb5;
+        StorageLive(_33);
+        _33 = copy _18;
+        _32 = PrintLine(copy _33) -> bb5;
     }
 
     bb5: {
+        StorageDead(_33);
         StorageDead(_32);
-        StorageDead(_31);
-        StorageLive(_33);
         StorageLive(_34);
-        _34 = copy _24;
-        _33 = PrintLine(copy _34) -> bb6;
+        StorageLive(_35);
+        _35 = copy _24;
+        _34 = PrintLine(copy _35) -> bb6;
     }
 
     bb6: {
+        StorageDead(_35);
         StorageDead(_34);
-        StorageDead(_33);
         _0 = const ();
         StorageDead(_24);
         StorageDead(_18);

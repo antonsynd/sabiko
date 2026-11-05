@@ -405,7 +405,7 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             let StatementKind::Assign(place, rvalue) = &stmt.kind else {
                 continue;
             };
-            if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _) = rvalue {
+            if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _) = rvalue {
                 // Emits nothing.
                 continue;
             }
@@ -508,9 +508,10 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
-        // A guard's fake borrow of the scrutinee emits nothing (it only exists for the
-        // borrow checker), so its temporary needs no slot. Nor does a temporary that nothing
-        // writes: a `&&T` one (no CIL type yet) is left over when simplification removes an
+        // A fake borrow (of a guard's scrutinee or of a compared reference) emits nothing
+        // (it only exists for the borrow checker), so its temporary needs no slot: a
+        // compared `&T` place's is a `&&T`. Nor does a temporary that nothing writes: a
+        // `&&T` one (no CIL type yet) is left over when simplification removes an
         // unreachable guarded arm with its fake borrow, or from a `&&T` call result nobody
         // stores.
         let mut written = vec![false; body.locals.len()];
@@ -518,7 +519,7 @@ impl FnCx<'_, '_> {
         for data in &body.blocks {
             for stmt in &data.statements {
                 if let StatementKind::Assign(place, rvalue) = &stmt.kind {
-                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _)) {
+                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _)) {
                         fake[place.local.index()] |= place.is_local();
                     } else {
                         written[place.local.index()] = true;
@@ -1057,7 +1058,7 @@ impl FnCx<'_, '_> {
             self.variant_aggregate(place, *def, *variant, operands, span);
             return;
         }
-        if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _) = rvalue {
+        if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _) = rvalue {
             // A fake borrow only exists for the borrow checker.
             return;
         }

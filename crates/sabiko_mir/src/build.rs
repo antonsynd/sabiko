@@ -57,8 +57,8 @@ use matches::{has_or, BindMode};
 
 use crate::{
     AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, CleanupData, CleanupDrop,
-    CleanupScope, Constant, Local, LocalDecl, LocalKind, Operand, Place, Rvalue, SliceBounds,
-    Statement, StatementKind, Terminator, TerminatorKind,
+    CleanupScope, Constant, FakeBorrowKind, Local, LocalDecl, LocalKind, Operand, Place, Rvalue,
+    SliceBounds, Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
@@ -1191,8 +1191,14 @@ impl<'a> Builder<'a> {
                 self.lower_ref_comparison(dest, *op, lhs, rhs, span);
             }
             ExprKind::Binary(op, lhs, rhs) => {
-                let lhs = self.as_operand(lhs);
+                let (lhs, fake) = match self.compared_ref_place(*op, lhs) {
+                    Some((lhs, fake)) => (lhs, Some(fake)),
+                    None => (self.as_operand(lhs), None),
+                };
                 let rhs = self.as_operand(rhs);
+                if let Some(fake) = fake {
+                    self.push_stmt(StatementKind::PlaceMention(Place::local(fake)), span);
+                }
                 self.assign(dest.clone(), Rvalue::BinaryOp(*op, lhs, rhs), span);
             }
             ExprKind::Assign(..) | ExprKind::AssignOp(..) => {
@@ -1575,7 +1581,10 @@ impl<'a> Builder<'a> {
     /// reference first and both are dereferenced in the comparison itself, after both
     /// were evaluated: rustc passes `&r` and `&s` to `PartialEq::eq`, so the referents
     /// stay borrowed while the right operand runs (`r == { *r = 3; s }` is a conflict),
-    /// and a `&mut` operand is only borrowed, not moved.
+    /// and a `&mut` operand is only borrowed, not moved. The reference `r` itself stays
+    /// borrowed too (`r == { r = &y; r }` is a conflict): a left place operand also gets a
+    /// shallow fake borrow, mentioned once the right operand ran (decision 63). The right
+    /// operand needs none, as nothing runs between its evaluation and the comparison.
     fn lower_ref_comparison(
         &mut self,
         dest: &Place,
@@ -1585,8 +1594,11 @@ impl<'a> Builder<'a> {
         span: Span,
     ) {
         let derefs = self.comparison_derefs(lhs, rhs);
-        let mut lhs = self.comparison_operand(lhs);
-        let mut rhs = self.comparison_operand(rhs);
+        let (mut lhs, fake) = self.comparison_operand(lhs, true);
+        let (mut rhs, _) = self.comparison_operand(rhs, false);
+        if let Some(fake) = fake {
+            self.push_stmt(StatementKind::PlaceMention(Place::local(fake)), span);
+        }
         for _ in 0..derefs {
             lhs = lhs.deref();
             rhs = rhs.deref();
@@ -1598,27 +1610,67 @@ impl<'a> Builder<'a> {
 
     /// A reference operand of a comparison, as a temporary holding the reference. A place
     /// is reborrowed shared (`&*r`), so a `&mut` place is not moved; anything else is
-    /// evaluated into the temporary.
-    fn comparison_operand(&mut self, expr: &Expr) -> Place {
+    /// evaluated into the temporary. With `fake`, a place also gets a shallow fake borrow
+    /// (`&fake shallow r`, see [`FakeBorrowKind::Shallow`]), whose temporary is returned
+    /// for the caller to mention where the borrow must still be live.
+    fn comparison_operand(&mut self, expr: &Expr, fake: bool) -> (Place, Option<Local>) {
         let is_place = match &strip_parens(expr).kind {
             ExprKind::Path(_) => matches!(self.path_res(expr), Some(Res::Local(_))),
             ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => true,
             _ => false,
         };
         if !is_place {
-            return Place::local(self.as_temp(expr));
+            return (Place::local(self.as_temp(expr)), None);
         }
-        let Ty::Ref(_, referent) = self.ty(expr).clone() else {
+        let ty = self.ty(expr).clone();
+        let Ty::Ref(_, referent) = ty.clone() else {
             unreachable!("comparison operands with derefs are references")
         };
         let place = self.as_place(expr);
         let temp = self.new_temp(Ty::shared_ref(*referent), expr.span);
         self.assign(
             Place::local(temp),
-            Rvalue::Ref(BorrowKind::Shared, place.deref()),
+            Rvalue::Ref(BorrowKind::Shared, place.clone().deref()),
             expr.span,
         );
-        Place::local(temp)
+        let fake = fake.then(|| {
+            let fake = self.new_temp(Ty::shared_ref(ty), expr.span);
+            self.assign(
+                Place::local(fake),
+                Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Shallow), place),
+                expr.span,
+            );
+            fake
+        });
+        (Place::local(temp), fake)
+    }
+
+    /// The left operand of a comparison of references compared as they are (`&str`, #10),
+    /// when it is a place: copied into a temporary as any operand, with a shallow fake
+    /// borrow of the place (`&fake shallow s`, see [`FakeBorrowKind::Shallow`]) whose
+    /// temporary the caller mentions once the right operand ran. rustc passes `&s` to
+    /// `PartialEq::eq`, so `s == { s = "b"; s }` is a conflict (decision 63).
+    fn compared_ref_place(&mut self, op: BinOp, lhs: &Expr) -> Option<(Operand, Local)> {
+        let ty = self.ty(lhs).clone();
+        if !op.is_comparison()
+            || !matches!(ty, Ty::Ref(Mutability::Not, _))
+            || !is_place_expr(self.resolve, lhs)
+            || self.has_pending_coercion(lhs)
+            || self.place_mutability.is_mut()
+        {
+            return None;
+        }
+        let place = self.as_place(lhs);
+        let temp = self.new_temp(ty.clone(), lhs.span);
+        let value = self.place_operand(place.clone());
+        self.assign(Place::local(temp), Rvalue::Use(value), lhs.span);
+        let fake = self.new_temp(Ty::shared_ref(ty), lhs.span);
+        self.assign(
+            Place::local(fake),
+            Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Shallow), place),
+            lhs.span,
+        );
+        Some((self.place_operand(Place::local(temp)), fake))
     }
 
     /// `p = e` and `p op= e`. The right-hand side is evaluated first, then the place, as
