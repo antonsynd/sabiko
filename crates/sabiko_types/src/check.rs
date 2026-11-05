@@ -70,6 +70,18 @@ pub struct BodyTypes {
     /// The values literal, range and constant patterns compare with, keyed by the `Pat`
     /// node; filled in after constant evaluation (`crate::patterns`).
     pub pat_consts: HashMap<NodeId, PatConst>,
+    /// How many references an index expression's base looks through to reach the array
+    /// or slice (`r[1]` for `r: &[T; 2]`), keyed by the `ExprKind::Index` node.
+    pub index_derefs: HashMap<NodeId, usize>,
+    /// `e.len()` on an array or slice, with how many references `e` looks through first,
+    /// keyed by the `ExprKind::MethodCall` node.
+    pub len_calls: HashMap<NodeId, usize>,
+    /// Expressions whose value is coerced to another pointer representation where it is
+    /// used, with the target type: `&[T; N]` or `&mut [T; N]` to `&[T]` / `&mut [T]`
+    /// (unsizing), and `&mut [T]` to `&[T]`.
+    pub coercions: HashMap<NodeId, Ty>,
+    /// The evaluated count of each repeat expression `[v; N]`, keyed by its node.
+    pub repeat_counts: HashMap<NodeId, u64>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
 }
@@ -123,6 +135,7 @@ struct PendingCast {
     to: Ty,
 }
 
+#[allow(clippy::struct_excessive_bools)] // independent flags of the expression being checked
 pub(crate) struct FnCtxt<'a> {
     resolve: &'a ResolveResults,
     items: &'a ItemTypes,
@@ -151,6 +164,12 @@ pub(crate) struct FnCtxt<'a> {
     /// Set while checking a `-` that is itself the operand of a `-`: as in rustc, only the
     /// outer negation counts, so the literal of `-(-128i8)` is `128i8`, out of range.
     double_negation: bool,
+    /// Set while checking an operand that is used as a place where an unsized type is
+    /// fine: the operand of `&`/`&mut`, the base of an index and the receiver of
+    /// `.len()`. There `*s` for `s: &[T]` is a valid place (`&*s`, `(*s)[i]`,
+    /// `(*s).len()`); only its value has no size. Consumed by the next expression checked
+    /// (passed through parentheses).
+    unsized_place: bool,
     int_lits: Vec<IntLit>,
     casts: Vec<PendingCast>,
     /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
@@ -159,6 +178,16 @@ pub(crate) struct FnCtxt<'a> {
     diverging_vars: Vec<Ty>,
     /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
     pending_comparisons: Vec<(BinOp, Ty, Span)>,
+    /// The values of the `const` items, for array lengths; `None` while the constants
+    /// themselves are checked (arrays are not constants yet).
+    consts: Option<&'a HashMap<DefId, crate::ConstValue>>,
+    index_derefs: HashMap<NodeId, usize>,
+    len_calls: HashMap<NodeId, usize>,
+    coercions: HashMap<NodeId, Ty>,
+    repeat_counts: HashMap<NodeId, u64>,
+    /// Repeat expressions with more than one element, whose operand must be `Copy`
+    /// (unless it names a `const` item): judged in `finish`, once the type is known.
+    pending_repeats: Vec<(Span, Ty)>,
     errors_before: usize,
 }
 
@@ -192,13 +221,49 @@ impl<'a> FnCtxt<'a> {
             diverges: false,
             negating: false,
             double_negation: false,
+            unsized_place: false,
             int_lits: Vec::new(),
             casts: Vec::new(),
             pending_negs: Vec::new(),
             diverging_vars: Vec::new(),
             pending_comparisons: Vec::new(),
+            consts: None,
+            index_derefs: HashMap::new(),
+            len_calls: HashMap::new(),
+            coercions: HashMap::new(),
+            repeat_counts: HashMap::new(),
+            pending_repeats: Vec::new(),
             errors_before,
         }
+    }
+
+    /// Gives the checker the evaluated constants, so array lengths can be evaluated.
+    pub(crate) fn with_consts(mut self, consts: &'a HashMap<DefId, crate::ConstValue>) -> Self {
+        self.consts = Some(consts);
+        self
+    }
+
+    /// Checks and evaluates an array length or repeat count, a `usize` constant of its
+    /// own. `None` after an error, which was reported.
+    fn array_len(&mut self, len: &Expr) -> Option<u64> {
+        let Some(consts) = self.consts else {
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::NON_CONSTANT_EXPRESSION,
+                    "arrays cannot be used in constants yet",
+                )
+                .with_label(len.span, "an array length inside a constant")
+                .with_note("constants are scalars for now; see docs/PLAN.md"),
+            );
+            return None;
+        };
+        let body = FnCtxt::new(self.resolve, self.items, self.sink, Ty::Prim(PrimTy::Usize))
+            .with_consts(consts)
+            .check_const(len);
+        if body.has_errors {
+            return None;
+        }
+        crate::consts::eval_len(self.resolve, consts, len, &body, self.sink)
     }
 
     pub(crate) fn check_fn(mut self, f: &FnDecl, def: DefId) -> BodyTypes {
@@ -238,6 +303,8 @@ impl<'a> FnCtxt<'a> {
                 VarKind::General => "_".to_owned(),
             },
             Ty::Ref(m, inner) => format!("&{}{}", m.prefix_str(), self.ty_str(&inner)),
+            Ty::Array(elem, n) => format!("[{}; {n}]", self.ty_str(&elem)),
+            Ty::Slice(elem) => format!("[{}]", self.ty_str(&elem)),
             Ty::Tuple(elems) => {
                 let parts: Vec<String> = elems.iter().map(|e| self.ty_str(e)).collect();
                 if parts.len() == 1 {
@@ -258,6 +325,14 @@ impl<'a> FnCtxt<'a> {
         let (e, f) = (self.ty_str(expected), self.ty_str(found));
         let mut d = Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
             .with_label(span, format!("expected `{e}`, found `{f}`"));
+        if let (Ty::Array(_, ne), Ty::Array(_, nf)) = (self.shallow(expected), self.shallow(found))
+        {
+            if ne != nf {
+                d = d.with_note(format!(
+                    "expected an array with a size of {ne}, found one with a size of {nf}"
+                ));
+            }
+        }
         if let (Ty::Tuple(ee), Ty::Tuple(fe)) = (self.shallow(expected), self.shallow(found)) {
             if ee.len() != fe.len() {
                 d = d.with_note(format!(
@@ -320,6 +395,16 @@ impl<'a> FnCtxt<'a> {
                 return Ok(());
             }
         }
+        // Unsizing: `&[T; N]` to `&[T]`, `&mut [T; N]` to `&mut [T]` or `&[T]`.
+        if let (Ty::Ref(mf, a), Ty::Ref(me, b)) = (&found, &expected) {
+            if mf.is_mut() || !me.is_mut() {
+                if let (Ty::Array(ea, _), Ty::Slice(eb)) = (self.shallow(a), self.shallow(b)) {
+                    if self.infer.unify(&ea, &eb).is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
+        }
         Err(())
     }
 
@@ -343,7 +428,15 @@ impl<'a> FnCtxt<'a> {
                     .collect::<Vec<_>>()
                     .into(),
             ),
-            _ => collect::lower_sig_type(ty, self.resolve),
+            TypeKind::Array(elem, len) => {
+                let elem = self.lower_type_unchecked(elem);
+                match self.array_len(len) {
+                    Some(n) => Ty::Array(Box::new(elem), n),
+                    None => Ty::Error,
+                }
+            }
+            TypeKind::Slice(elem) => Ty::Slice(Box::new(self.lower_type_unchecked(elem))),
+            _ => collect::lower_sig_type(ty, self.resolve, &collect::ArrayLens::new()),
         }
     }
 
@@ -452,19 +545,42 @@ impl<'a> FnCtxt<'a> {
                 ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
             ) {
                 self.coerce(expr.span, &ty, exp);
+                self.note_pointer_coercion(expr.id, &ty, exp);
             }
         }
         self.record(expr, ty)
     }
 
+    /// Records a coercion of `found` to `expected` that changes the pointer's
+    /// representation (see [`BodyTypes::coercions`]).
+    fn note_pointer_coercion(&mut self, id: NodeId, found: &Ty, expected: &Ty) {
+        let (Ty::Ref(mf, a), Ty::Ref(me, b)) = (self.shallow(found), self.shallow(expected)) else {
+            return;
+        };
+        let changes = match (self.shallow(&a), self.shallow(&b)) {
+            (Ty::Array(..), Ty::Slice(_)) => true,
+            (Ty::Slice(_), Ty::Slice(_)) => mf != me,
+            _ => false,
+        };
+        if changes {
+            self.coercions.insert(id, expected.clone());
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn check_expr_kind(&mut self, expr: &Expr, expected: Option<&Ty>) -> Ty {
+        let unsized_place = std::mem::take(&mut self.unsized_place);
         match &expr.kind {
             ExprKind::Lit(lit) => self.check_lit(lit, expr.span, expected),
             ExprKind::Unit => Ty::Unit,
             ExprKind::Tuple(elems) => self.check_tuple(expr.id, elems, expected),
+            ExprKind::Array(elems) => self.check_array(elems, expected),
+            ExprKind::Repeat(value, count) => self.check_repeat(expr, value, count, expected),
             ExprKind::Path(_) => self.check_path(expr, false),
-            ExprKind::Paren(inner) => self.check_expr(inner, expected),
+            ExprKind::Paren(inner) => {
+                self.unsized_place = unsized_place;
+                self.check_expr(inner, expected)
+            }
             ExprKind::Unary(op, operand) => self.check_unary(*op, operand, expected),
             ExprKind::Binary(op, lhs, rhs) => self.check_binary(*op, lhs, rhs, expected, expr.span),
             ExprKind::Assign(lhs, rhs) => {
@@ -497,12 +613,7 @@ impl<'a> FnCtxt<'a> {
                 let base_ty = self.check_expr(base, None);
                 self.check_field(expr, &base_ty, &name.name, name.span)
             }
-            ExprKind::Index(base, index) => {
-                self.check_expr(base, None);
-                self.check_expr(index, None);
-                self.unsupported("indexing", expr.span, "planned for Phase 5");
-                Ty::Error
-            }
+            ExprKind::Index(base, index) => self.check_index(expr, base, index),
             ExprKind::Ref {
                 mutable,
                 expr: inner,
@@ -511,14 +622,21 @@ impl<'a> FnCtxt<'a> {
                 let inner_expected = match expected.map(|e| self.shallow(e)) {
                     // Only a diverging operand fits `&!`; checking against `!` would
                     // report the operand rather than the reference (rustc: "expected
-                    // `&!`, found `&{integer}`").
-                    Some(Ty::Ref(_, t)) if !t.is_never() => Some(*t),
+                    // `&!`, found `&{integer}`"). Where a `&[T]` is expected the operand
+                    // is an array (`&[1, 2]`, `&a`), which the reference then unsizes:
+                    // that coercion unifies the element types.
+                    Some(Ty::Ref(_, t))
+                        if !t.is_never() && !matches!(self.shallow(&t), Ty::Slice(_)) =>
+                    {
+                        Some(*t)
+                    }
                     _ => None,
                 };
                 let errors_before = self.sink.error_count();
                 // A diverging operand gives `&!`, as in rustc: the borrow is not a
                 // coercion site, so `let q: &Point = &loop {};` is a mismatch, while
                 // `*&return 9` is `!` again. The code after it is unreachable.
+                self.unsized_place = true;
                 let inner_ty = self.check_expr(inner, inner_expected.as_ref());
                 if inner_expected.is_some() && self.sink.error_count() > errors_before {
                     // The operand already failed against the expected referent; a second
@@ -531,7 +649,9 @@ impl<'a> FnCtxt<'a> {
                 let inner_ty = self.check_expr(inner, None);
                 match self.shallow(&inner_ty) {
                     Ty::Ref(_, t) => {
-                        if !collect::check_sized(&t, expr.span, self.sink) {
+                        // A slice place is fine where it is borrowed, indexed or measured.
+                        let place_ok = unsized_place && matches!(self.shallow(&t), Ty::Slice(_));
+                        if !place_ok && !collect::check_sized(&t, expr.span, self.sink) {
                             return Ty::Error;
                         }
                         *t
@@ -691,6 +811,153 @@ impl<'a> FnCtxt<'a> {
             tys.push(ty);
         }
         Ty::Tuple(tys.into())
+    }
+
+    /// The element type an array expression is checked against: that of an expected array
+    /// or slice (`&[1, 2]` where `&[i32]` is expected).
+    fn expected_elem(&mut self, expected: Option<&Ty>) -> Option<Ty> {
+        match expected.map(|e| self.shallow(e)) {
+            Some(Ty::Array(t, _) | Ty::Slice(t)) => Some(*t),
+            _ => None,
+        }
+    }
+
+    /// `[a, b, c]`: every element has the element type; the first fixes it when nothing
+    /// is expected, and each later one is checked against it.
+    fn check_array(&mut self, elems: &[Expr], expected: Option<&Ty>) -> Ty {
+        let elem = self
+            .expected_elem(expected)
+            .unwrap_or_else(|| self.infer.new_var(VarKind::General));
+        for e in elems {
+            self.check_expr(e, Some(&elem));
+        }
+        let n = u64::try_from(elems.len()).expect("fewer than 2^64 elements");
+        Ty::Array(Box::new(elem), n)
+    }
+
+    /// `[value; count]`: `count` is a `usize` constant; for a count other than 0 or 1 the
+    /// operand is copied, so it must be `Copy` unless it names a `const` item (judged in
+    /// `finish`, once its type is known).
+    fn check_repeat(
+        &mut self,
+        expr: &Expr,
+        value: &Expr,
+        count: &Expr,
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let expected_elem = self.expected_elem(expected);
+        let found = self.check_expr(value, expected_elem.as_ref());
+        let elem = expected_elem.unwrap_or(found);
+        let Some(n) = self.array_len(count) else {
+            return Ty::Error;
+        };
+        self.repeat_counts.insert(expr.id, n);
+        let names_const = matches!(strip_parens(value).kind, ExprKind::Path(_))
+            && matches!(
+                self.resolve.res(strip_parens(value).id),
+                Res::Def(d) if self.resolve.def(d).kind == DefKind::Const
+            );
+        if n > 1 && !names_const {
+            self.pending_repeats.push((value.span, elem.clone()));
+        }
+        Ty::Array(Box::new(elem), n)
+    }
+
+    /// `base[index]`: the base looks through references to an array or a slice, and the
+    /// index is a `usize`. The result is the element, a place.
+    fn check_index(&mut self, expr: &Expr, base: &Expr, index: &Expr) -> Ty {
+        self.unsized_place = true;
+        let base_ty = self.check_expr(base, None);
+        let index_ty = self.check_expr(index, None);
+        let mut ty = self.shallow(&base_ty);
+        let mut autoderefs = 0;
+        while let Ty::Ref(_, inner) = ty {
+            ty = self.shallow(&inner);
+            autoderefs += 1;
+        }
+        let elem = match ty {
+            Ty::Array(elem, _) | Ty::Slice(elem) => *elem,
+            Ty::Error => return Ty::Error,
+            Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(base.span, "the type of the indexed value must be known"),
+                );
+                self.infer.bind_error(&Ty::Infer(v));
+                return Ty::Error;
+            }
+            _ => {
+                let s = self.ty_str(&base_ty);
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::NOT_INDEXABLE,
+                        format!("cannot index into a value of type `{s}`"),
+                    )
+                    .with_label(expr.span, "not an array or a slice")
+                    .with_note("only arrays and slices can be indexed"),
+                );
+                return Ty::Error;
+            }
+        };
+        let usize_ty = Ty::Prim(PrimTy::Usize);
+        if !self.shallow(&index_ty).is_never() && self.infer.unify(&index_ty, &usize_ty).is_err() {
+            let slice = self.ty_str(&Ty::Slice(Box::new(elem.clone())));
+            let found = self.ty_str(&index_ty);
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::INVALID_INDEX_TYPE,
+                    format!("the type `{slice}` cannot be indexed by `{found}`"),
+                )
+                .with_label(index.span, "slice indices are of type `usize`")
+                .with_note("convert the index with `as usize`"),
+            );
+        }
+        self.index_derefs.insert(expr.id, autoderefs);
+        elem
+    }
+
+    /// `e.len()` where `e` is an array or a slice, through references: a `usize`. `None`
+    /// when `e` is something else; another method of an array is reported here.
+    fn check_len_call(
+        &mut self,
+        expr: &Expr,
+        recv_ty: &Ty,
+        method: &sabiko_ast::Ident,
+        args: &[Expr],
+    ) -> Option<Ty> {
+        let mut ty = self.shallow(recv_ty);
+        let mut autoderefs = 0;
+        while let Ty::Ref(_, inner) = ty {
+            ty = self.shallow(&inner);
+            autoderefs += 1;
+        }
+        if !matches!(ty, Ty::Array(..) | Ty::Slice(_)) {
+            return None;
+        }
+        for a in args {
+            self.check_expr(a, None);
+        }
+        if method.name != "len" {
+            let shown = self.ty_str(recv_ty);
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::UNKNOWN_METHOD,
+                    format!("no method named `{}` found for `{shown}`", method.name),
+                )
+                .with_label(method.span, "method not found")
+                .with_note("arrays and slices have one method for now, `len()`"),
+            );
+            return Some(Ty::Error);
+        }
+        if !args.is_empty() {
+            let d = Self::wrong_arg_count("method", 0, args.len(), expr.span);
+            self.error(d);
+        }
+        self.len_calls.insert(expr.id, autoderefs);
+        Some(Ty::Prim(PrimTy::Usize))
     }
 
     /// Checks a binding pattern against the type of the value it binds, recording the
@@ -1658,6 +1925,22 @@ impl<'a> FnCtxt<'a> {
         while let Ty::Ref(_, inner) = referent {
             referent = self.shallow(&inner);
         }
+        if op.is_comparison() && matches!(referent, Ty::Array(..) | Ty::Slice(_)) {
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::UNSUPPORTED_SYNTAX,
+                    "not yet supported: comparing arrays and slices",
+                )
+                .with_label(
+                    span,
+                    format!("`{}` on arrays and slices is not yet supported", op.as_str()),
+                )
+                .with_note(
+                    "array comparison arrives with the comparison traits in Phase 6; see docs/PLAN.md. Compare the elements one by one instead",
+                ),
+            );
+            return;
+        }
         if op.is_comparison() && matches!(referent, Ty::Tuple(_)) {
             // Valid Rust (tuples of comparable elements are `PartialEq`/`PartialOrd`), but
             // the comparison traits arrive in Phase 6, as for structs.
@@ -1855,7 +2138,13 @@ impl<'a> FnCtxt<'a> {
         method: &sabiko_ast::Ident,
         args: &[Expr],
     ) -> Ty {
+        // `(*s).len()` measures a slice place; any other method of a slice is reported by
+        // `check_len_call`.
+        self.unsized_place = true;
         let recv_ty = self.check_expr(receiver, None);
+        if let Some(ty) = self.check_len_call(expr, &recv_ty, method, args) {
+            return ty;
+        }
         let Some(callee) = self.probe_method(&recv_ty, method) else {
             for a in args {
                 self.check_expr(a, None);
@@ -2099,7 +2388,9 @@ impl<'a> FnCtxt<'a> {
     fn has_no_general_var(&mut self, ty: &Ty) -> bool {
         match ty {
             Ty::Infer(v) => self.infer.kind(*v) != VarKind::General,
-            Ty::Ref(_, inner) => self.has_no_general_var(inner),
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
+                self.has_no_general_var(inner)
+            }
             Ty::Tuple(elems) => elems.iter().all(|e| self.has_no_general_var(e)),
             _ => true,
         }
@@ -2178,6 +2469,18 @@ impl<'a> FnCtxt<'a> {
                 Ty::Error
             }
             Ty::Error => Ty::Error,
+            Ty::Array(..) | Ty::Slice(_) if name == "len" => {
+                let shown = self.ty_str(base_ty);
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::METHOD_AS_FIELD,
+                        format!("attempted to take value of method `len` on type `{shown}`"),
+                    )
+                    .with_label(name_span, "method, not a field")
+                    .with_note("use parentheses to call the method: `len()`"),
+                );
+                Ty::Error
+            }
             // `!` has no fields (rustc's E0609); `loop {}.Y` must not reach MIR building
             // without a recorded field access.
             _ => {
@@ -2500,6 +2803,8 @@ impl<'a> FnCtxt<'a> {
             self.check_cast(cast.span, &from, &to);
         }
 
+        self.check_pending_repeats();
+
         let has_errors = self.sink.error_count() > self.errors_before;
         BodyTypes {
             expr_types,
@@ -2513,7 +2818,45 @@ impl<'a> FnCtxt<'a> {
             pat_variants: self.pat_variants,
             variant_exprs: self.variant_exprs,
             pat_consts: HashMap::new(),
+            index_derefs: self.index_derefs,
+            len_calls: self.len_calls,
+            coercions: Self::resolved_coercions(&mut self.infer, self.coercions),
+            repeat_counts: self.repeat_counts,
             has_errors,
+        }
+    }
+
+    /// The pointer coercions with their targets resolved: the target of `let s: &[_] = &a;`
+    /// is only known once `_` is. Anything still unknown was reported with its local.
+    fn resolved_coercions(
+        infer: &mut InferCtxt,
+        coercions: HashMap<NodeId, Ty>,
+    ) -> HashMap<NodeId, Ty> {
+        coercions
+            .into_iter()
+            .map(|(id, ty)| {
+                let t = infer.resolve_with_defaults(&ty);
+                (id, if t.has_infer() { Ty::Error } else { t })
+            })
+            .collect()
+    }
+
+    /// `[x; N]` with `N` other than 0 or 1 copies `x`: its type must be `Copy`, unless it
+    /// names a `const` item (rustc's E0277, Sabiko's E0334).
+    fn check_pending_repeats(&mut self) {
+        for (span, ty) in std::mem::take(&mut self.pending_repeats) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if !t.has_infer() && !self.items.is_copy(&t) {
+                let s = self.ty_str(&t);
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::REPEAT_NEEDS_COPY,
+                        format!("the trait bound `{s}: Copy` is not satisfied"),
+                    )
+                    .with_label(span, format!("the trait `Copy` is not implemented for `{s}`"))
+                    .with_note("the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)"),
+                );
+            }
         }
     }
 

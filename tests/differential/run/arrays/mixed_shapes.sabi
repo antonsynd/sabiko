@@ -1,0 +1,77 @@
+// Arrays combined with other features: `()` elements (read, written, out of nothing),
+// arrays in enum payloads with drop glue (dropped through the variant, also after a
+// partial move of another field), a method on an element taking `&mut self` while its
+// argument reads another element (two-phase), `match` on an element and on a whole
+// array, an array returned through a struct and indexed at once.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Bag {
+    Empty,
+    Full([D; 2], i32),
+    Named { Items: [D; 1], Tag: D },
+}
+
+struct Counter { N: i32 }
+
+impl Counter {
+    fn Add(&mut self, k: i32) {
+        self.N += k;
+    }
+}
+
+struct Grid { Rows: [[u8; 3]; 2] }
+
+fn MakeGrid(k: u8) -> Grid {
+    Grid { Rows: [[k; 3], [k + 1; 3]] }
+}
+
+fn Describe(b: &Bag) -> i32 {
+    match b {
+        Bag::Empty => 0,
+        Bag::Full(items, n) => items[0].Id + items[1].Id + *n,
+        Bag::Named { Items, Tag } => Items[0].Id * Tag.Id,
+    }
+}
+
+fn Main() {
+    let mut units = [(); 3];
+    units[1] = ();
+    let u = units[2];
+    PrintLine(units.len());
+
+    let mut cs = [Counter { N: 1 }, Counter { N: 10 }];
+    cs[0].Add(cs[1].N);
+    cs[1].Add(cs[0].N);
+    PrintLine(cs[0].N + cs[1].N);
+
+    let small = [1, 2, 3];
+    match small[1] {
+        2 => PrintLine("two"),
+        _ => PrintLine("other"),
+    }
+    let label = match small {
+        x if x[0] == 1 => x[2],
+        _ => 0,
+    };
+    PrintLine(label);
+
+    PrintLine(MakeGrid(4).Rows[1][2]);
+
+    let full = Bag::Full([D { Id: 1 }, D { Id: 2 }], 3);
+    PrintLine(Describe(&full));
+    let named = Bag::Named { Items: [D { Id: 4 }], Tag: D { Id: 5 } };
+    PrintLine(Describe(&named));
+    if let Bag::Named { Tag, .. } = named {
+        PrintLine(Tag.Id);
+    }
+    let empty = Bag::Empty;
+    PrintLine(Describe(&empty));
+    PrintLine("end");
+}

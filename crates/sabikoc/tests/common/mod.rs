@@ -593,15 +593,16 @@ impl std::fmt::Display for Verdict {
 /// rustc error codes that belong to borrow checking.
 pub const RUSTC_BORROW_CODES: &[&str] = &[
     "E0106", "E0204", "E0373", "E0381", "E0382", "E0384", "E0499", "E0502", "E0503", "E0505",
-    "E0506", "E0507", "E0509", "E0515", "E0521", "E0594", "E0596", "E0597", "E0623", "E0716",
+    "E0506", "E0507", "E0508", "E0509", "E0510", "E0515", "E0521", "E0594", "E0596", "E0597",
+    "E0623", "E0716",
 ];
 pub const RUSTC_UNCODED_BORROW_ERRORS: &[&str] = &["lifetime may not live long enough"];
 
-/// Sabiko's borrow-checker codes (E0400..=E0418).
+/// Sabiko's borrow-checker codes (E0400..=E0420).
 pub fn sabiko_code_is_borrow(code: &str) -> bool {
     code.strip_prefix('E')
         .and_then(|n| n.parse::<u16>().ok())
-        .is_some_and(|n| (400..=418).contains(&n))
+        .is_some_and(|n| (400..=420).contains(&n))
 }
 
 pub fn verdict_of(codes: &[String], is_borrow: impl Fn(&str) -> bool) -> Verdict {

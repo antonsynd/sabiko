@@ -39,6 +39,8 @@ pub const VARIANT_NAMES: &[&str] = &[
 pub const CONST_NAMES: &[&str] = &[
     "LIMIT", "SCALE", "STEP", "BASE", "MASK", "OFFSET", "RATIO", "SEED", "WIDTH", "BIAS",
 ];
+/// Names of the `usize` constants that array lengths are written with (`[i32; LEN]`).
+pub const LEN_NAMES: &[&str] = &["LEN", "SIZE", "CAP", "SLOTS", "ROWS", "COLS"];
 
 /// Characters a generated `char` literal or value may hold: printable ASCII without the
 /// quote and backslash, so no escaping is ever needed.
@@ -140,6 +142,17 @@ impl EnumDef {
     }
 }
 
+/// An array type `[T; N]` (`len: Some(N)`), or a slice type `[T]` (`len: None`), which is
+/// unsized and only appears behind a reference.
+#[derive(Debug, Clone)]
+pub struct ArrayDef {
+    pub elem: ValTy,
+    pub len: Option<usize>,
+    /// The length as the type spells it: a literal (`3`, `3usize`), a `usize` constant
+    /// (`LEN`) or an expression over one (`LEN + 1usize`). Empty for a slice.
+    pub len_text: String,
+}
+
 /// A constant's value, known to the generator so initialisers never overflow.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ConstValue {
@@ -227,6 +240,9 @@ pub struct Program {
     /// The tuple types the program uses, by element types; `ValTy::Tuple(i)` is
     /// `tuples[i]`. Never empty tuples, and no tuple contains itself.
     pub tuples: Vec<Vec<ValTy>>,
+    /// The array and slice types (#9); `ValTy::Array(i)` is `arrays[i]`. No two have the
+    /// same element type and length, and no element type is a slice.
+    pub arrays: Vec<ArrayDef>,
     pub consts: Vec<ConstDef>,
     pub fns: Vec<FnSig>,
 }
@@ -238,8 +254,44 @@ impl Program {
             Ty::Val(ValTy::Struct(s)) => self.structs[s].copy,
             Ty::Val(ValTy::Tuple(t)) => self.tuples[t].iter().all(|e| self.is_copy(Ty::Val(*e))),
             Ty::Val(ValTy::Enum(e)) => self.enums[e].copy,
+            // A slice is never a value; an array is `Copy` when its elements are.
+            Ty::Val(ValTy::Array(a)) => {
+                self.arrays[a].len.is_some() && self.is_copy(Ty::Val(self.arrays[a].elem))
+            }
             Ty::Ref { mutable: true, .. } => false,
         }
+    }
+
+    /// Whether values of type `v` have a size: everything but a slice.
+    pub fn is_sized(&self, v: ValTy) -> bool {
+        !matches!(v, ValTy::Array(a) if self.arrays[a].len.is_none())
+    }
+
+    /// The element type and length (`None` for a slice) of an array or slice type.
+    pub fn array_of(&self, v: ValTy) -> Option<(ValTy, Option<usize>)> {
+        match v {
+            ValTy::Array(a) => Some((self.arrays[a].elem, self.arrays[a].len)),
+            _ => None,
+        }
+    }
+
+    /// The slice type `[elem]`, if the program has one.
+    pub fn slice_of(&self, elem: ValTy) -> Option<ValTy> {
+        self.arrays
+            .iter()
+            .position(|a| a.len.is_none() && a.elem == elem)
+            .map(ValTy::Array)
+    }
+
+    /// Whether a reference to a `from` coerces to a reference to a `to` where the expected
+    /// type is known: the same type, or an array and a slice of its element type (`&[T; N]`
+    /// to `&[T]`).
+    pub fn ref_coerces(&self, from: ValTy, to: ValTy) -> bool {
+        from == to
+            || matches!(
+                (self.array_of(from), self.array_of(to)),
+                (Some((a, Some(_))), Some((b, None))) if a == b
+            )
     }
 
     /// Whether a value of type `v` is a struct or enum with `impl Drop`: nothing may be
@@ -248,7 +300,7 @@ impl Program {
         match v {
             ValTy::Struct(s) => self.structs[s].drop.is_some(),
             ValTy::Enum(e) => self.enums[e].drop,
-            ValTy::Prim(_) | ValTy::Tuple(_) => false,
+            ValTy::Prim(_) | ValTy::Tuple(_) | ValTy::Array(_) => false,
         }
     }
 
@@ -257,6 +309,13 @@ impl Program {
             ValTy::Prim(p) => p.name().to_owned(),
             ValTy::Struct(s) => self.structs[s].name.clone(),
             ValTy::Enum(e) => self.enums[e].name.clone(),
+            ValTy::Array(a) => {
+                let def = &self.arrays[a];
+                match def.len {
+                    Some(_) => format!("[{}; {}]", self.val_name(def.elem), def.len_text),
+                    None => format!("[{}]", self.val_name(def.elem)),
+                }
+            }
             ValTy::Tuple(t) => {
                 let elems: Vec<String> = self.tuples[t].iter().map(|e| self.val_name(*e)).collect();
                 if elems.len() == 1 {
@@ -289,8 +348,9 @@ impl Program {
     }
 
     /// All primitive leaves of a value, as `(path suffix, type)`: `("", p)` for a
-    /// primitive, `(".A.X", i32)` for nested struct fields. An enum has none (its payload is
-    /// not a field path).
+    /// primitive, `(".A.X", i32)` for nested struct fields, `("[1].0", u8)` for an array
+    /// element. An enum has none (its payload is not a field path), nor has a slice (its
+    /// length is not known).
     pub fn leaves(&self, v: ValTy) -> Vec<(String, Prim)> {
         let mut out = Vec::new();
         self.collect_leaves(v, String::new(), &mut out);
@@ -311,16 +371,26 @@ impl Program {
                     self.collect_leaves(*e, format!("{prefix}.{i}"), out);
                 }
             }
+            ValTy::Array(a) => {
+                let def = &self.arrays[a];
+                for k in 0..def.len.unwrap_or(0) {
+                    self.collect_leaves(def.elem, format!("{prefix}[{k}]"), out);
+                }
+            }
         }
     }
 
     /// Whether the sub-place `path` (as [`Program::sub_places`] spells it) of a value of
-    /// type `root` lies inside a struct with `impl Drop`, which no value may be moved out
-    /// of (rustc's E0509): `.Inner` of such a struct, `.A.Inner` of a plain struct whose
-    /// `A` is one. The value itself (`""`) is not inside one.
+    /// type `root` cannot be moved out of: it lies inside a struct with `impl Drop` (rustc's
+    /// E0509: `.Inner` of such a struct, `.A.Inner` of a plain struct whose `A` is one), or
+    /// in an array or slice element (E0508: `[1]`, `[1].X`). The value itself (`""`) can.
     pub fn moves_out_of_drop(&self, root: ValTy, path: &str) -> bool {
         let mut ty = root;
-        for seg in path.split('.').skip(1) {
+        for seg in path_segments(path) {
+            if seg.starts_with('[') {
+                return true;
+            }
+            let seg = &seg[1..];
             ty = match ty {
                 ValTy::Struct(s) => {
                     let def = &self.structs[s];
@@ -334,16 +404,45 @@ impl Program {
                         .ty
                 }
                 ValTy::Tuple(t) => self.tuples[t][seg.parse::<usize>().expect("an index")],
-                ValTy::Prim(_) | ValTy::Enum(_) => {
-                    unreachable!("primitives and enums have no sub-places")
+                ValTy::Prim(_) | ValTy::Enum(_) | ValTy::Array(_) => {
+                    unreachable!("primitives, enums and arrays have no fields")
                 }
             };
         }
         false
     }
 
+    /// The lengths of the arrays (`None` for slices) that the index segments of the
+    /// sub-place `path` of a value of type `root` index, in order.
+    pub fn path_lens(&self, root: ValTy, path: &str) -> Vec<Option<usize>> {
+        let mut ty = root;
+        let mut out = Vec::new();
+        for seg in path_segments(path) {
+            ty = match ty {
+                ValTy::Array(a) => {
+                    out.push(self.arrays[a].len);
+                    self.arrays[a].elem
+                }
+                ValTy::Struct(s) => {
+                    self.structs[s]
+                        .fields
+                        .iter()
+                        .find(|f| f.name == seg[1..])
+                        .expect("a field of the struct")
+                        .ty
+                }
+                ValTy::Tuple(t) => self.tuples[t][seg[1..].parse::<usize>().expect("an index")],
+                ValTy::Prim(_) | ValTy::Enum(_) => unreachable!("no sub-places"),
+            };
+        }
+        out
+    }
+
     /// All sub-places of a value of type `v`, including the value itself (`""`), with their
     /// types, up to a nesting depth of three. An enum's payload is reached by patterns only.
+    /// The elements of an array are reached with constant indices (`[0]`, `[1].X`), those
+    /// of a slice through the placeholder `[?]`, which the user of the path replaces with an
+    /// index expression (the length is not known).
     pub fn sub_places(&self, v: ValTy) -> Vec<(String, ValTy)> {
         let mut out = Vec::new();
         self.collect_sub_places(v, "", 0, &mut out);
@@ -370,6 +469,16 @@ impl Program {
             ValTy::Tuple(t) => {
                 for (i, e) in self.tuples[t].iter().enumerate() {
                     self.collect_sub_places(*e, &format!("{prefix}.{i}"), depth + 1, out);
+                }
+            }
+            ValTy::Array(a) => {
+                let def = &self.arrays[a];
+                let indices: Vec<String> = match def.len {
+                    Some(n) => (0..n).map(|k| k.to_string()).collect(),
+                    None => vec!["?".to_owned()],
+                };
+                for k in indices {
+                    self.collect_sub_places(def.elem, &format!("{prefix}[{k}]"), depth + 1, out);
                 }
             }
             ValTy::Prim(_) | ValTy::Enum(_) => {}
@@ -477,6 +586,38 @@ impl Program {
             self.ret_name(f.ret)
         )
     }
+}
+
+/// The segments of a sub-place path: `.A`, `.0`, `[1]` or `[?]` (an index expression in
+/// brackets may hold anything with balanced brackets).
+pub fn path_segments(path: &str) -> Vec<&str> {
+    let bytes = path.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        if bytes[i] == b'[' {
+            let mut level = 0;
+            loop {
+                match bytes[i] {
+                    b'[' => level += 1,
+                    b']' => level -= 1,
+                    _ => {}
+                }
+                i += 1;
+                if level == 0 {
+                    break;
+                }
+            }
+        } else {
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'.' && bytes[i] != b'[' {
+                i += 1;
+            }
+        }
+        out.push(&path[start..i]);
+    }
+    out
 }
 
 /// Picks `name` from `pool` without repeating a name already in `used`, appending a
@@ -601,9 +742,9 @@ pub fn random_literal(rng: &mut Rng, p: Prim) -> (String, ConstValue) {
     }
 }
 
-/// A field or payload type for a new struct or enum: a primitive, an earlier struct or
-/// enum, or a tuple of primitives (`program.tuples` holds those so far); only `Copy` types
-/// when `copy`.
+/// A field or payload type for a new struct or enum: a primitive, an earlier struct, enum
+/// or array, or a tuple of primitives (`program.tuples` holds those so far); only `Copy`
+/// types when `copy`.
 fn member_ty(rng: &mut Rng, program: &Program, copy: bool) -> ValTy {
     let structs: Vec<usize> = (0..program.structs.len())
         .filter(|&i| !copy || program.structs[i].copy)
@@ -611,7 +752,14 @@ fn member_ty(rng: &mut Rng, program: &Program, copy: bool) -> ValTy {
     let enums: Vec<usize> = (0..program.enums.len())
         .filter(|&i| !copy || program.enums[i].copy)
         .collect();
-    if !structs.is_empty() && rng.chance(30) {
+    let arrays: Vec<usize> = (0..program.arrays.len())
+        .filter(|&i| {
+            program.arrays[i].len.is_some() && (!copy || program.is_copy(Ty::Val(ValTy::Array(i))))
+        })
+        .collect();
+    if !arrays.is_empty() && rng.chance(18) {
+        ValTy::Array(*rng.pick(&arrays))
+    } else if !structs.is_empty() && rng.chance(30) {
         ValTy::Struct(*rng.pick(&structs))
     } else if !enums.is_empty() && rng.chance(20) {
         ValTy::Enum(*rng.pick(&enums))
@@ -735,25 +883,138 @@ fn gen_enum(rng: &mut Rng, program: &mut Program, used: &mut Vec<String>) {
     });
 }
 
-/// Generates the structs and enums, interleaved, each referring only to earlier ones.
+/// Generates the structs and enums, interleaved, each referring only to earlier ones; now
+/// and then an array of the new one follows, which later ones may hold.
 fn gen_aggregates(rng: &mut Rng, knobs: &Knobs, program: &mut Program) {
     let mut structs = rng.index(knobs.max_structs + 1);
     let mut enums = rng.index(knobs.max_enums + 1);
     let mut used = Vec::new();
     while structs + enums > 0 {
-        if enums == 0 || (structs > 0 && rng.chance(50)) {
+        let ty = if enums == 0 || (structs > 0 && rng.chance(50)) {
             structs -= 1;
             gen_struct(rng, program, &mut used);
+            ValTy::Struct(program.structs.len() - 1)
         } else {
             enums -= 1;
             gen_enum(rng, program, &mut used);
+            ValTy::Enum(program.enums.len() - 1)
+        };
+        // Arrays of values with an `impl Drop` show the order elements are dropped in.
+        let chance = if program.has_drop_impl(ty) { 55 } else { 30 };
+        if sized_arrays(program) < knobs.max_arrays && rng.chance(chance) {
+            gen_array(rng, program, ty);
         }
     }
 }
 
-/// Generates up to `count` tuple types. With `aggregates`, elements may also be structs and
-/// earlier tuples (nesting); otherwise they are primitives. Now and then a tuple is wider
-/// than seven elements, past `System.ValueTuple`'s direct fields.
+fn sized_arrays(program: &Program) -> usize {
+    program.arrays.iter().filter(|a| a.len.is_some()).count()
+}
+
+/// A length for a new array type (small, now and then 0 or 1) and its spelling: a literal,
+/// a `usize` constant of that value, or one plus a literal.
+fn array_len(rng: &mut Rng, program: &Program) -> (usize, String) {
+    let len = rng.weighted(&[9, 18, 30, 26, 17]);
+    let consts: Vec<(&str, usize)> = program
+        .consts
+        .iter()
+        .filter_map(|c| match (c.ty, c.value) {
+            (Prim::Int(IntTy::Usize), ConstValue::Int(v)) if v <= 8 => {
+                Some((c.name.as_str(), usize::try_from(v).expect("small")))
+            }
+            _ => None,
+        })
+        .collect();
+    let equal: Vec<&str> = consts
+        .iter()
+        .filter(|(_, v)| *v == len)
+        .map(|(n, _)| *n)
+        .collect();
+    let smaller: Vec<(&str, usize)> = consts.iter().copied().filter(|(_, v)| *v < len).collect();
+    let text = if !equal.is_empty() && rng.chance(50) {
+        (*rng.pick(&equal)).to_owned()
+    } else if !smaller.is_empty() && rng.chance(20) {
+        let (name, v) = *rng.pick(&smaller);
+        format!("{name} + {}", len - v)
+    } else if rng.chance(15) {
+        format!("{len}usize")
+    } else {
+        len.to_string()
+    };
+    (len, text)
+}
+
+/// Adds an array type of `elem` with a random length (unless the program has one of that
+/// element type and length already, or its values would print too many leaves), and now
+/// and then the slice type `[elem]`.
+fn gen_array(rng: &mut Rng, program: &mut Program, elem: ValTy) {
+    let (len, len_text) = array_len(rng, program);
+    let leaves = program.leaves(elem).len().max(1);
+    let nested =
+        matches!(program.array_of(elem), Some((inner, _)) if program.array_of(inner).is_some());
+    if leaves * len > 12 || nested || !program.is_sized(elem) {
+        return;
+    }
+    if !program
+        .arrays
+        .iter()
+        .any(|a| a.elem == elem && a.len == Some(len))
+    {
+        program.arrays.push(ArrayDef {
+            elem,
+            len: Some(len),
+            len_text,
+        });
+    }
+    if program.slice_of(elem).is_none() && rng.chance(70) {
+        program.arrays.push(ArrayDef {
+            elem,
+            len: None,
+            len_text: String::new(),
+        });
+    }
+}
+
+/// Generates up to `count` array types (and slice types of some of their element types)
+/// over everything declared so far: primitives (most often), tuples, structs, enums and
+/// arrays (two levels deep at most); only primitives and tuples unless `aggregates`.
+fn gen_arrays(rng: &mut Rng, count: usize, aggregates: bool, program: &mut Program) {
+    for _ in 0..count {
+        let sized: Vec<usize> = (0..program.arrays.len())
+            .filter(|&a| program.arrays[a].len.is_some())
+            .collect();
+        let elem = match rng.weighted(&[
+            55,
+            if program.tuples.is_empty() { 0 } else { 12 },
+            if aggregates && !program.structs.is_empty() {
+                18
+            } else {
+                0
+            },
+            if aggregates && !program.enums.is_empty() {
+                12
+            } else {
+                0
+            },
+            if aggregates && !sized.is_empty() {
+                22
+            } else {
+                0
+            },
+        ]) {
+            0 => ValTy::Prim(random_prim(rng)),
+            1 => ValTy::Tuple(rng.index(program.tuples.len())),
+            2 => ValTy::Struct(rng.index(program.structs.len())),
+            3 => ValTy::Enum(rng.index(program.enums.len())),
+            _ => ValTy::Array(*rng.pick(&sized)),
+        };
+        gen_array(rng, program, elem);
+    }
+}
+
+/// Generates up to `count` tuple types. With `aggregates`, elements may also be structs,
+/// enums, arrays and earlier tuples (nesting); otherwise they are primitives. Now and then
+/// a tuple is wider than seven elements, past `System.ValueTuple`'s direct fields.
 fn gen_tuples(rng: &mut Rng, count: usize, aggregates: bool, program: &mut Program) {
     for _ in 0..count {
         let n = if rng.chance(8) {
@@ -762,7 +1023,14 @@ fn gen_tuples(rng: &mut Rng, count: usize, aggregates: bool, program: &mut Progr
             rng.range(1, 4)
         };
         let mut elems = Vec::new();
+        let arrays: Vec<usize> = (0..program.arrays.len())
+            .filter(|&a| program.arrays[a].len.is_some())
+            .collect();
         for _ in 0..n {
+            if aggregates && !arrays.is_empty() && rng.chance(12) {
+                elems.push(ValTy::Array(*rng.pick(&arrays)));
+                continue;
+            }
             let ty = match rng.weighted(&[
                 70,
                 if aggregates && !program.structs.is_empty() {
@@ -821,16 +1089,52 @@ fn eval_int_binop(op: &str, a: i128, b: i128, ty: IntTy) -> Option<i128> {
 /// because an overflowing or zero-dividing constant is a hard error in both compilers
 /// (not a borrow verdict, and not a run-time panic).
 fn gen_consts(rng: &mut Rng, knobs: &Knobs) -> Vec<ConstDef> {
-    let count = rng.index(knobs.max_consts + 1);
     let mut used = Vec::new();
     let mut consts: Vec<ConstDef> = Vec::new();
+    // Small `usize` constants first, for array lengths (#9): a literal, or an earlier one
+    // plus or times a literal.
+    for _ in 0..rng.index(3) {
+        let name = unique_name(rng, LEN_NAMES, &mut used);
+        let ity = IntTy::Usize;
+        let earlier: Vec<(String, i128)> = consts
+            .iter()
+            .filter_map(|c| match c.value {
+                ConstValue::Int(v) if c.ty == Prim::Int(ity) => Some((c.name.clone(), v)),
+                _ => None,
+            })
+            .collect();
+        let mut value = i128::from(rng.range(0, 4));
+        let mut init = int_literal(ity, value);
+        if !earlier.is_empty() && rng.chance(50) {
+            let (base, v) = rng.pick(&earlier).clone();
+            if rng.chance(70) {
+                let d = i128::from(rng.range(1, 3));
+                value = v + d;
+                init = format!("{base} + {}", int_literal(ity, d));
+            } else {
+                let f = i128::from(rng.range(0, 2));
+                value = v * f;
+                init = format!("{base} * {}", int_literal(ity, f));
+            }
+        }
+        consts.push(ConstDef {
+            name,
+            ty: Prim::Int(ity),
+            value: ConstValue::Int(value),
+            init,
+        });
+    }
+    let count = rng.index(knobs.max_consts + 1);
     for _ in 0..count {
         let name = unique_name(rng, CONST_NAMES, &mut used);
         let ty = random_prim(rng);
         let (mut init, mut value) = random_literal(rng, ty);
         if let Prim::Int(ity) = ty {
             // Sometimes an arithmetic expression over literals and earlier constants.
-            let same_ty: Vec<&ConstDef> = consts.iter().filter(|c| c.ty == ty).collect();
+            let same_ty: Vec<&ConstDef> = consts
+                .iter()
+                .filter(|c| c.ty == ty && matches!(c.value, ConstValue::Int(_)))
+                .collect();
             if rng.chance(50) {
                 let (lhs_text, lhs) = if !same_ty.is_empty() && rng.chance(50) {
                     let c = rng.pick(&same_ty);
@@ -889,6 +1193,9 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
     let has_structs = !program.structs.is_empty();
     let has_tuples = !program.tuples.is_empty();
     let has_enums = !program.enums.is_empty();
+    let sized: Vec<usize> = (0..program.arrays.len())
+        .filter(|&a| program.arrays[a].len.is_some())
+        .collect();
     let choice = rng.weighted(&[
         55,
         if has_structs { 15 } else { 0 },
@@ -896,9 +1203,18 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
         if allow_refs { 15 } else { 0 },
         if allow_refs { 15 } else { 0 },
         if has_enums { 15 } else { 0 },
+        if sized.is_empty() { 0 } else { 10 },
     ]);
+    let slices: Vec<usize> = (0..program.arrays.len())
+        .filter(|&a| program.arrays[a].len.is_none())
+        .collect();
     let inner = |rng: &mut Rng| {
-        if has_tuples && rng.chance(20) {
+        if !slices.is_empty() && rng.chance(22) {
+            // A slice, unsized behind the reference.
+            ValTy::Array(*rng.pick(&slices))
+        } else if !sized.is_empty() && rng.chance(15) {
+            ValTy::Array(*rng.pick(&sized))
+        } else if has_tuples && rng.chance(20) {
             ValTy::Tuple(rng.index(program.tuples.len()))
         } else if has_enums && rng.chance(35) {
             ValTy::Enum(rng.index(program.enums.len()))
@@ -913,6 +1229,7 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
         1 => Ty::Val(ValTy::Struct(rng.index(program.structs.len()))),
         2 => Ty::Val(ValTy::Tuple(rng.index(program.tuples.len()))),
         5 => Ty::Val(ValTy::Enum(rng.index(program.enums.len()))),
+        6 => Ty::Val(ValTy::Array(*rng.pick(&sized))),
         3 => Ty::Ref {
             mutable: false,
             inner: inner(rng),
@@ -1001,6 +1318,9 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
         })
     );
     let constructor = owner.is_some_and(|o| o.receiver.is_none());
+    let sized: Vec<usize> = (0..program.arrays.len())
+        .filter(|&a| program.arrays[a].len.is_some())
+        .collect();
     let ret = match rng.weighted(&[
         25,
         50,
@@ -1013,6 +1333,7 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
         if program.tuples.is_empty() { 0 } else { 12 },
         if constructor { 60 } else { 0 },
         if program.enums.is_empty() { 0 } else { 14 },
+        if sized.is_empty() { 0 } else { 10 },
     ]) {
         0 => RetTy::Unit,
         1 => RetTy::Val(ValTy::Prim(random_prim(rng))),
@@ -1020,15 +1341,24 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
         4 => RetTy::Val(ValTy::Tuple(rng.index(program.tuples.len()))),
         5 => RetTy::Val(owner.expect("a constructor").ty),
         6 => RetTy::Val(ValTy::Enum(rng.index(program.enums.len()))),
+        7 => RetTy::Val(ValTy::Array(*rng.pick(&sized))),
         _ => {
             let Ty::Ref { mutable, inner } = ref_params[0].ty else {
                 unreachable!()
             };
             let targets = program.sub_places(inner);
-            let (_, target) = rng.pick(&targets);
+            let (_, mut target) = *rng.pick(&targets);
+            // An array returned as a slice of its elements (`&[T; N]` to `&[T]`).
+            if let Some((elem, Some(_))) = program.array_of(target) {
+                if let Some(slice) = program.slice_of(elem) {
+                    if rng.chance(45) {
+                        target = slice;
+                    }
+                }
+            }
             RetTy::Ref {
                 mutable: mutable && rng.chance(60),
-                inner: *target,
+                inner: target,
             }
         }
     };
@@ -1040,22 +1370,28 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
     }
 }
 
-/// Generates the whole skeleton: tuples of primitives, structs (which may hold them), more
-/// tuples over everything so far, constants, then the signatures.
+/// Generates the whole skeleton: constants (array lengths may name them), tuples and arrays
+/// of primitives, structs and enums (which may hold them), more tuples and arrays over
+/// everything so far, then the signatures.
 pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
     let mut program = Program {
         structs: Vec::new(),
         enums: Vec::new(),
         tuples: Vec::new(),
+        arrays: Vec::new(),
         consts: Vec::new(),
         fns: Vec::new(),
     };
+    program.consts = gen_consts(rng, knobs);
     let count = rng.index(knobs.max_tuples / 2 + 1);
     gen_tuples(rng, count, false, &mut program);
+    let count = rng.index(knobs.max_arrays / 2 + 1);
+    gen_arrays(rng, count, false, &mut program);
     gen_aggregates(rng, knobs, &mut program);
     let count = rng.index(knobs.max_tuples.saturating_sub(program.tuples.len()) + 1);
     gen_tuples(rng, count, true, &mut program);
-    program.consts = gen_consts(rng, knobs);
+    let count = rng.index(knobs.max_arrays.saturating_sub(sized_arrays(&program)) + 1);
+    gen_arrays(rng, count, true, &mut program);
     let n_fns = rng.range(
         i64::try_from(knobs.min_fns.max(1)).expect("fits"),
         i64::try_from(knobs.max_fns.max(knobs.min_fns).max(1)).expect("fits"),

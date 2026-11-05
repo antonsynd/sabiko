@@ -85,6 +85,8 @@ impl InferCtxt {
     pub fn resolve(&mut self, ty: &Ty) -> Ty {
         match ty {
             Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(self.resolve(inner))),
+            Ty::Array(elem, n) => Ty::Array(Box::new(self.resolve(elem)), *n),
+            Ty::Slice(elem) => Ty::Slice(Box::new(self.resolve(elem))),
             Ty::Tuple(elems) => Ty::Tuple(
                 elems
                     .iter()
@@ -106,6 +108,8 @@ impl InferCtxt {
     pub fn resolve_with_defaults(&mut self, ty: &Ty) -> Ty {
         match ty {
             Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(self.resolve_with_defaults(inner))),
+            Ty::Array(elem, n) => Ty::Array(Box::new(self.resolve_with_defaults(elem)), *n),
+            Ty::Slice(elem) => Ty::Slice(Box::new(self.resolve_with_defaults(elem))),
             Ty::Tuple(elems) => Ty::Tuple(
                 elems
                     .iter()
@@ -135,7 +139,7 @@ impl InferCtxt {
     pub fn bind_error(&mut self, ty: &Ty) {
         match self.shallow_resolve(ty) {
             Ty::Infer(v) => self.bind(v, Ty::Error),
-            Ty::Ref(_, inner) => self.bind_error(&inner),
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => self.bind_error(&inner),
             Ty::Tuple(elems) => {
                 for e in elems.iter() {
                     self.bind_error(e);
@@ -150,7 +154,7 @@ impl InferCtxt {
     fn occurs(&mut self, v: TyVid, ty: &Ty) -> bool {
         match self.shallow_resolve(ty) {
             Ty::Infer(w) => self.root(v) == self.root(w),
-            Ty::Ref(_, inner) => self.occurs(v, &inner),
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => self.occurs(v, &inner),
             Ty::Tuple(elems) => elems.iter().any(|e| self.occurs(v, e)),
             _ => false,
         }
@@ -164,7 +168,9 @@ impl InferCtxt {
             (Ty::Infer(v), other) | (other, Ty::Infer(v)) => {
                 self.kind(v) == VarKind::General && self.occurs(v, &other)
             }
-            (Ty::Ref(_, ia), Ty::Ref(_, ib)) => self.is_cyclic(&ia, &ib),
+            (Ty::Ref(_, ia), Ty::Ref(_, ib))
+            | (Ty::Array(ia, _), Ty::Array(ib, _))
+            | (Ty::Slice(ia), Ty::Slice(ib)) => self.is_cyclic(&ia, &ib),
             (Ty::Tuple(ea), Ty::Tuple(eb)) if ea.len() == eb.len() => {
                 ea.iter().zip(eb.iter()).any(|(a, b)| self.is_cyclic(a, b))
             }
@@ -222,6 +228,15 @@ impl InferCtxt {
                 }
                 self.unify(ia, ib)
             }
+            (Ty::Array(ea, na), Ty::Array(eb, nb)) => {
+                self.unify(ea, eb)?;
+                if na == nb {
+                    Ok(())
+                } else {
+                    Err(UnifyError)
+                }
+            }
+            (Ty::Slice(ea), Ty::Slice(eb)) => self.unify(ea, eb),
             // Element by element; a failure may leave earlier elements unified, which only
             // matters for the diagnostic that follows.
             (Ty::Tuple(ea), Ty::Tuple(eb)) => {
@@ -271,6 +286,23 @@ mod tests {
             .is_err());
         assert!(cx.unify(&Ty::Never, &Ty::BOOL).is_err());
         assert!(cx.unify(&Ty::Error, &Ty::BOOL).is_ok());
+    }
+
+    /// Arrays unify element and length; slices element.
+    #[test]
+    fn arrays_and_slices_unify_structurally() {
+        let mut cx = InferCtxt::new();
+        let v = cx.new_var(VarKind::General);
+        let slice = |t: Ty| Ty::Slice(Box::new(t));
+        cx.unify(&slice(v.clone()), &slice(Ty::BOOL)).unwrap();
+        assert_eq!(cx.resolve(&v), Ty::BOOL);
+        assert!(cx.unify(&slice(Ty::BOOL), &slice(Ty::I32)).is_err());
+        let w = cx.new_var(VarKind::General);
+        let array = |t: Ty, n| Ty::Array(Box::new(t), n);
+        cx.unify(&array(w.clone(), 3), &array(Ty::I32, 3)).unwrap();
+        assert_eq!(cx.resolve(&w), Ty::I32);
+        assert!(cx.unify(&array(Ty::I32, 2), &array(Ty::I32, 3)).is_err());
+        assert!(cx.unify(&array(Ty::I32, 2), &slice(Ty::I32)).is_err());
     }
 
     /// Resolution goes through references and through variables bound to references,

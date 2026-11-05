@@ -1,0 +1,18 @@
+// Comparing `&mut` references held in a tuple field, an array element or behind a
+// reference reborrows them: nothing is moved out, so they stay usable afterwards.
+fn F(r: &mut (&mut i32, &mut i32)) {
+    let mut x = 1;
+    let mut y = 2;
+    let t = (&mut x, &mut y);
+    if t.0 == t.1 {
+        PrintLine(0);
+    }
+    *t.0 = 3;
+    let mut p = 4;
+    let mut q = 5;
+    let a = [&mut p, &mut q];
+    let same = a[0] == a[1];
+    *a[1] = 6;
+    let inner = r.0 == r.1;
+    *r.1 = 7;
+}

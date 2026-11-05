@@ -1,0 +1,6 @@
+// Slice and array patterns (`[a, b]`, `[first, .., last]`) are valid Rust but not
+// Sabiko yet: E0107. Destructure by indexing instead (`let a = arr[0];`).
+fn F(arr: [i32; 3]) -> i32 {
+    let [a, b, c] = arr; //~ ERROR E0107 not yet supported: slice patterns
+    a + b + c
+}

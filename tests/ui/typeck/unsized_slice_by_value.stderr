@@ -1,0 +1,72 @@
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:6:12 ]
+   │
+ 6 │ fn Take(s: [i32]) -> i32 { //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+   │            ──┬──  
+   │              ╰──── doesn't have a size known at compile-time
+   │ 
+   │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+───╯
+[E0208] Error: the size for values of type `[[i32; 2]]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:10:12 ]
+    │
+ 10 │ fn Rows(s: [[i32; 2]]) -> i32 { //~ ERROR E0208 the size for values of type `[[i32; 2]]` cannot be known at compilation time
+    │            ─────┬────  
+    │                 ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[&mut u8]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:14:12 ]
+    │
+ 14 │ fn Refs(s: [&mut u8]) {} //~ ERROR E0208 the size for values of type `[&mut u8]` cannot be known at compilation time
+    │            ────┬────  
+    │                ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[()]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:16:13 ]
+    │
+ 16 │ fn Units(s: [()]) {} //~ ERROR E0208 the size for values of type `[()]` cannot be known at compilation time
+    │             ──┬─  
+    │               ╰─── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:18:13 ]
+    │
+ 18 │ fn Elems(a: [[i32]; 2]) {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │             ─────┬────  
+    │                  ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[u8]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:20:14 ]
+    │
+ 20 │ fn Nested(r: &[[u8]]) {} //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
+    │              ───┬───  
+    │                 ╰───── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:22:12 ]
+    │
+ 22 │ fn Strs(r: &mut [str]) {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │            ─────┬────  
+    │                 ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:27:13 ]
+    │
+ 27 │     let v = *r; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │             ─┬  
+    │              ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯

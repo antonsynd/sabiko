@@ -600,7 +600,29 @@ impl Parser<'_, '_> {
                 Err(self.error_unsupported("closures", start, "not planned"))
             }
             TokenKind::LBracket => {
-                Err(self.error_unsupported("array expressions", start, "planned for Phase 5"))
+                self.bump();
+                // Like parentheses, brackets lift the `if`/`while` condition restriction.
+                let kind = self.in_delimited(TokenKind::RBracket, |p| {
+                    if p.eat(TokenKind::RBracket).is_some() {
+                        return Ok(ExprKind::Array(Vec::new()));
+                    }
+                    let first = p.parse_expr()?;
+                    if p.eat(TokenKind::Semi).is_some() {
+                        let count = p.parse_expr()?;
+                        p.expect(TokenKind::RBracket)?;
+                        return Ok(ExprKind::Repeat(Box::new(first), Box::new(count)));
+                    }
+                    let mut elems = vec![first];
+                    if p.eat(TokenKind::Comma).is_some() {
+                        let (rest, _) =
+                            p.parse_comma_list(TokenKind::RBracket, Self::parse_expr)?;
+                        elems.extend(rest);
+                    } else {
+                        p.expect(TokenKind::RBracket)?;
+                    }
+                    Ok(ExprKind::Array(elems))
+                })?;
+                Ok(self.mk(kind, start))
             }
             TokenKind::Unsafe => Err(self.error_unsupported(
                 "`unsafe` blocks",

@@ -1,0 +1,10 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// Every element of an array literal has the element type: a `bool` among integers, two
+// differently suffixed literals, and an element assignment of another type are E0308.
+fn Main() {
+    let a = [1, true]; //~ ERROR E0300 mismatched types
+    let mut c = [0i32; 2];
+    c[0] = 1.5; //~ ERROR E0300 mismatched types
+    c[1] = 2i64; //~ ERROR E0300 mismatched types
+    let d = [1u8, 2u16]; //~ ERROR E0300 mismatched types
+}

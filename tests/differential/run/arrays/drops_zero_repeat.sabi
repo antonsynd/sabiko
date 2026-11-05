@@ -1,0 +1,41 @@
+// (drops, #12) `[x; 0]` drops `x` at once, before the rest of its statement runs: in call
+// arguments, tuple elements and next to other temporaries, and before a later operand
+// panics (then nothing is dropped twice while unwinding). Sabiko dropped it at the end of
+// the statement, after the operands that follow and in reverse order (found by the
+// program generator, seed 200205).
+struct D {
+    Id: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn G(n: i32) -> i32 {
+    Print("G ");
+    PrintLine(n);
+    n
+}
+
+fn Take(a: [D; 0], n: i32, b: [D; 0]) {
+    PrintLine("take");
+}
+
+fn Boom() -> i32 {
+    Panic("boom")
+}
+
+fn Main() {
+    Take([D { Id: 1i32 }; 0], G(2i32), [D { Id: G(3i32) }; 0]);
+    let t = ([D { Id: 4i32 }; 0], G(5i32), [D { Id: 6i32 }; 0usize]);
+    PrintLine("after t");
+    let x = D { Id: 7i32 };
+    let y = [x; 0];
+    PrintLine("after y");
+    let u = (G(8i32), [D { Id: 9i32 }; 0], D { Id: 10i32 }).1;
+    let keep = D { Id: 11i32 };
+    Take([D { Id: 12i32 }; 0], Boom(), []);
+}

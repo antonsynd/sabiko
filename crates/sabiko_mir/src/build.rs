@@ -135,6 +135,9 @@ struct Builder<'a> {
     /// The span of the outermost parentheses around an expression, for the expressions
     /// that have them (see [`Builder::span_of`]).
     paren_spans: HashMap<NodeId, Span>,
+    /// Expressions whose pointer coercion (`BodyTypes::coercions`) is being applied: inside,
+    /// the expression is lowered as its own type.
+    coercing: std::collections::HashSet<NodeId>,
     /// While a match guard is lowered: the place each of its arm's bindings denotes (a
     /// shared reference to its part of the scrutinee, see `matches`).
     guard_places: HashMap<LocalId, Place>,
@@ -233,6 +236,7 @@ impl<'a> Builder<'a> {
             current: BasicBlock::START,
             failed: false,
             paren_spans: HashMap::new(),
+            coercing: std::collections::HashSet::new(),
             guard_places: HashMap::new(),
         }
     }
@@ -695,7 +699,7 @@ impl<'a> Builder<'a> {
     fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>, call_arg: bool) -> Operand {
         let is_place_expr = matches!(
             strip_parens(expr).kind,
-            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..)
         );
         if is_place_expr {
             if let Ty::Ref(Mutability::Mut, referent) = self.ty(expr) {
@@ -707,9 +711,12 @@ impl<'a> Builder<'a> {
                 let place = self.as_place(expr);
                 if place.local != Local::RETURN || !place.projection.is_empty() {
                     let temp = self.new_temp(Ty::Ref(mutability, Box::new(referent)), expr.span);
+                    // A reborrow that is coerced at once (`&mut [T; N]` to `&mut [T]`) is
+                    // used, so activated, right there: an ordinary borrow.
+                    let coerced = self.types.coercions.contains_key(&expr.id);
                     let kind = match mutability {
                         Mutability::Mut => BorrowKind::Mut {
-                            two_phase: call_arg,
+                            two_phase: call_arg && !coerced,
                         },
                         Mutability::Not => BorrowKind::Shared,
                     };
@@ -718,11 +725,44 @@ impl<'a> Builder<'a> {
                         Rvalue::Ref(kind, place.deref()),
                         expr.span,
                     );
-                    return self.place_operand(Place::local(temp));
+                    let op = self.place_operand(Place::local(temp));
+                    return self.pointer_coercion(expr, op);
                 }
             }
         }
         self.as_operand(expr)
+    }
+
+    /// Applies the pointer coercion the type checker recorded for `expr` (unsizing, or
+    /// `&mut [T]` to `&[T]`) to `op`, `expr`'s value (reborrowed), into a temporary.
+    fn pointer_coercion(&mut self, expr: &Expr, op: Operand) -> Operand {
+        let Some(target) = self.types.coercions.get(&expr.id).cloned() else {
+            return op;
+        };
+        if op.ty(&self.body) == target {
+            return op;
+        }
+        let span = self.span_of(expr);
+        let temp = self.new_temp(target.clone(), span);
+        self.assign(
+            Place::local(temp),
+            Rvalue::PointerCoercion(op, target),
+            span,
+        );
+        self.place_operand(Place::local(temp))
+    }
+
+    /// `expr`'s value as an operand of its own type, before its pointer coercion.
+    fn uncoerced_operand(&mut self, expr: &Expr) -> Operand {
+        self.coercing.insert(expr.id);
+        let op = self.as_operand(expr);
+        self.coercing.remove(&expr.id);
+        op
+    }
+
+    /// Whether `expr` has a pointer coercion still to apply.
+    fn has_pending_coercion(&self, expr: &Expr) -> bool {
+        self.types.coercions.contains_key(&expr.id) && !self.coercing.contains(&expr.id)
     }
 
     fn unit_rvalue(span: Span) -> Rvalue {
@@ -823,7 +863,7 @@ impl<'a> Builder<'a> {
         {
             let is_place = matches!(
                 strip_parens(inner).kind,
-                ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+                ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..)
             );
             if !is_place {
                 return Some((*mutable, inner));
@@ -836,7 +876,7 @@ impl<'a> Builder<'a> {
     fn is_mut_ref_place_expr(&self, expr: &Expr) -> bool {
         matches!(
             strip_parens(expr).kind,
-            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_)
+            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..)
         ) && matches!(self.ty(expr), Ty::Ref(Mutability::Mut, _))
     }
 
@@ -878,6 +918,10 @@ impl<'a> Builder<'a> {
     /// in `*Weigh(&mut n) + n.W` must die once its referent is copied, so the sibling
     /// operand can read `n`.
     fn as_operand(&mut self, expr: &Expr) -> Operand {
+        if self.has_pending_coercion(expr) {
+            let op = self.uncoerced_operand(expr);
+            return self.pointer_coercion(expr, op);
+        }
         match &expr.kind {
             ExprKind::Paren(inner) => {
                 let inner = self.enter_paren(expr, inner);
@@ -931,6 +975,20 @@ impl<'a> Builder<'a> {
                 place.field(access.index, field_ty)
             }
             ExprKind::Deref(inner) => self.as_place(inner).deref(),
+            ExprKind::Index(base, index) => {
+                let derefs = self.types.index_derefs[&expr.id];
+                let mut place = self.as_place(base);
+                for _ in 0..derefs {
+                    place = place.deref();
+                }
+                if place.has_index() {
+                    // `m[i][j]`: `m[i]` is checked before `j` runs, as in rustc. A
+                    // mention of the place checks its indices and reads nothing.
+                    self.push_stmt(StatementKind::PlaceMention(place.clone()), expr.span);
+                }
+                let index = self.as_temp(index);
+                place.index(index)
+            }
             _ => Place::local(self.as_temp(expr)),
         }
     }
@@ -952,6 +1010,12 @@ impl<'a> Builder<'a> {
     #[allow(clippy::too_many_lines)]
     fn expr_into_dest(&mut self, dest: &Place, expr: &Expr) {
         let span = self.span_of(expr);
+        if self.has_pending_coercion(expr) {
+            let op = self.uncoerced_operand(expr);
+            let target = self.types.coercions[&expr.id].clone();
+            self.assign(dest.clone(), Rvalue::PointerCoercion(op, target), span);
+            return;
+        }
         match &expr.kind {
             ExprKind::Paren(inner) => {
                 let inner = self.enter_paren(expr, inner);
@@ -964,10 +1028,47 @@ impl<'a> Builder<'a> {
             ExprKind::Tuple(_) => self.tuple_into(dest, expr, false),
             // A place read straight into the destination (`let x = p.A;`), as rustc does:
             // only operands of a larger expression go through a temporary.
-            ExprKind::Field(..) | ExprKind::Deref(_) => {
+            ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => {
                 let place = self.as_place(expr);
                 let op = self.place_operand(place);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
+            }
+            ExprKind::Array(elems) => {
+                let Ty::Array(elem, _) = self.ty(expr).clone() else {
+                    unreachable!("an array expression has an array type")
+                };
+                // Each element is a coercion site, evaluated left to right.
+                let operands = elems
+                    .iter()
+                    .map(|e| self.coerced_operand(e, Some(&elem), false))
+                    .collect();
+                self.assign(
+                    dest.clone(),
+                    Rvalue::Aggregate(AggregateKind::Array(*elem), operands),
+                    span,
+                );
+            }
+            ExprKind::Repeat(value, _) => {
+                let n = self.types.repeat_counts[&expr.id];
+                let Ty::Array(elem, _) = self.ty(expr).clone() else {
+                    unreachable!("a repeat expression has an array type")
+                };
+                if n == 0 {
+                    // `[x; 0]` evaluates `x` and holds nothing: rustc drops `x` at once,
+                    // before anything else in the statement runs (`F([d; 0], G())` drops
+                    // `d` before `G` runs). The drop at the end of the statement's scope
+                    // finds the temporary uninitialised; drop elaboration removes it.
+                    let temp = self.as_temp(value);
+                    self.drop_local(temp, span);
+                    self.assign(
+                        dest.clone(),
+                        Rvalue::Aggregate(AggregateKind::Array(*elem), Vec::new()),
+                        span,
+                    );
+                } else {
+                    let op = self.coerced_operand(value, Some(&elem), false);
+                    self.assign(dest.clone(), Rvalue::Repeat(op, n), span);
+                }
             }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Local(id) => {
@@ -1075,6 +1176,15 @@ impl<'a> Builder<'a> {
                     self.lower_expr_discard(inner);
                 } else {
                     let place = self.as_place(inner);
+                    if place.has_index() {
+                        // `&mut a[i]`: rustc checks the index at the indexing expression,
+                        // before the borrow; a panic there is located at `a[i]`, not at
+                        // the `&` (a mention checks the indices and reads nothing).
+                        self.push_stmt(
+                            StatementKind::PlaceMention(place.clone()),
+                            self.span_of(inner),
+                        );
+                    }
                     self.assign(
                         dest.clone(),
                         Rvalue::Ref(BorrowKind::new(Mutability::from_bool(*mutable)), place),
@@ -1140,10 +1250,27 @@ impl<'a> Builder<'a> {
                 self.lower_match(Some(dest), scrutinee, arms, span);
             }
             ExprKind::Let(..) => unreachable!("`let` is only lowered as an `if`/`while` condition"),
+            ExprKind::MethodCall { receiver, .. }
+                if self.types.len_calls.contains_key(&expr.id) =>
+            {
+                // `e.len()`: the receiver is borrowed shared (rustc's autoref), and the
+                // length read through the borrow.
+                let mut place = self.as_place(receiver);
+                for _ in 0..self.types.len_calls[&expr.id] {
+                    place = place.deref();
+                }
+                let ty = Ty::shared_ref(place.ty(&self.body));
+                let temp = self.new_temp(ty, receiver.span);
+                self.assign(
+                    Place::local(temp),
+                    Rvalue::Ref(BorrowKind::Shared, place),
+                    receiver.span,
+                );
+                self.assign(dest.clone(), Rvalue::Len(Place::local(temp).deref()), span);
+            }
             ExprKind::MethodCall { receiver, args, .. } => {
                 self.lower_method_call(dest, expr, receiver, args, span);
             }
-            ExprKind::Index(..) => unreachable!("indexing is rejected by the type checker"),
         }
     }
 
@@ -1310,6 +1437,17 @@ impl<'a> Builder<'a> {
             ),
             e.span,
         );
+        if let Some(target) = self.types.coercions.get(&e.id).cloned() {
+            // An unsized borrow (`&[1, 2]` as a `&[i32]` element).
+            let op = self.place_operand(Place::local(temp));
+            let coerced = self.new_temp(target.clone(), e.span);
+            self.assign(
+                Place::local(coerced),
+                Rvalue::PointerCoercion(op, target),
+                e.span,
+            );
+            return Some(coerced);
+        }
         Some(temp)
     }
 
@@ -1386,7 +1524,7 @@ impl<'a> Builder<'a> {
     fn comparison_operand(&mut self, expr: &Expr) -> Place {
         let is_place = match &strip_parens(expr).kind {
             ExprKind::Path(_) => matches!(self.path_res(expr), Some(Res::Local(_))),
-            ExprKind::Field(..) | ExprKind::Deref(_) => true,
+            ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => true,
             _ => false,
         };
         if !is_place {
@@ -1414,6 +1552,14 @@ impl<'a> Builder<'a> {
                 let target = self.ty(lhs).clone();
                 let rhs = self.coerced_operand(rhs, Some(&target), false);
                 let place = self.as_place(lhs);
+                if place.has_index()
+                    && matches!(rhs, Operand::Move(_))
+                    && self.typeck.items.needs_drop(&target)
+                {
+                    // `a[i] = v`: the index is checked before `v` moves (rustc's bounds
+                    // check precedes the store), so a panic there still drops `v`.
+                    self.push_stmt(StatementKind::PlaceMention(place.clone()), span);
+                }
                 self.assign(place, Rvalue::Use(rhs), span);
             }
             ExprKind::AssignOp(op, lhs, rhs) => {
@@ -1648,7 +1794,16 @@ impl<'a> Builder<'a> {
         };
         let extending = is_extending_pattern(pat);
         let place = if is_place_expr(self.resolve, init) {
-            self.as_place(init)
+            let place = self.as_place(init);
+            if place.has_index() {
+                // `let ref x = a[i];`: the index is checked at the initialiser, as in
+                // rustc, not where the pattern binds the first part of it.
+                self.push_stmt(
+                    StatementKind::PlaceMention(place.clone()),
+                    self.span_of(init),
+                );
+            }
+            place
         } else if let Some(temp) = self.extended_ref(init) {
             Place::local(temp)
         } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
@@ -1720,17 +1875,25 @@ impl<'a> Builder<'a> {
                             // Temporary lifetime extension: in `let r = &<rvalue>;` the
                             // temporary lives as long as `r`'s block, as in Rust.
                             let ty = self.ty(inner).clone();
-                            let temp = self.new_temp_in_block_scope(ty, inner.span);
+                            let temp = self.new_temp_in_block_scope(ty.clone(), inner.span);
                             self.expr_into_dest(&Place::local(temp), inner);
                             self.temp_complete(temp);
-                            self.assign(
-                                Place::local(local),
-                                Rvalue::Ref(
-                                    BorrowKind::new(Mutability::from_bool(mutable)),
-                                    Place::local(temp),
-                                ),
-                                init.span,
-                            );
+                            let mutability = Mutability::from_bool(mutable);
+                            let borrow =
+                                Rvalue::Ref(BorrowKind::new(mutability), Place::local(temp));
+                            if let Some(target) = self.types.coercions.get(&init.id).cloned() {
+                                // `let s: &[i32] = &[1, 2];`: the borrow is unsized.
+                                let r = self.new_temp(Ty::Ref(mutability, Box::new(ty)), init.span);
+                                self.assign(Place::local(r), borrow, init.span);
+                                let op = self.place_operand(Place::local(r));
+                                self.assign(
+                                    Place::local(local),
+                                    Rvalue::PointerCoercion(op, target),
+                                    init.span,
+                                );
+                            } else {
+                                self.assign(Place::local(local), borrow, init.span);
+                            }
                         } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
                             // `let p = (&<rvalue>, ..);` extends the rvalue too.
                             self.tuple_into(&Place::local(local), init, true);
@@ -1787,7 +1950,7 @@ fn is_extending_pattern(pat: &Pat) -> bool {
 fn is_place_expr(resolve: &ResolveResults, expr: &Expr) -> bool {
     match &strip_parens(expr).kind {
         ExprKind::Path(_) => matches!(resolve.res(strip_parens(expr).id), Res::Local(_)),
-        ExprKind::Field(..) | ExprKind::Deref(_) => true,
+        ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => true,
         _ => false,
     }
 }

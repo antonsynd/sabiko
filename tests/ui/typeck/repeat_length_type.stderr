@@ -1,0 +1,42 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/repeat_length_type.sabi:8:17 ]
+   │
+ 8 │     let a = [0; 3i32]; //~ ERROR E0300 mismatched types
+   │                 ──┬─  
+   │                   ╰─── expected `usize`, found `i32`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/repeat_length_type.sabi:9:18 ]
+   │
+ 9 │     let b: [i32; 2u8] = [1, 2]; //~ ERROR E0300 mismatched types
+   │                  ─┬─  
+   │                   ╰─── expected `usize`, found `u8`
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/repeat_length_type.sabi:10:17 ]
+    │
+ 10 │     let c = [0; LEN]; //~ ERROR E0300 mismatched types
+    │                 ─┬─  
+    │                  ╰─── expected `usize`, found `i32`
+────╯
+[E0307] Error: cannot apply unary operator `-` to type `usize`
+    ╭─[ tests/ui/typeck/repeat_length_type.sabi:11:18 ]
+    │
+ 11 │     let d = [0; -1]; //~ ERROR E0307 cannot apply unary operator `-` to type `usize`
+    │                  ┬  
+    │                  ╰── cannot apply unary operator `-`
+────╯
+[E0316] Error: attempt to subtract with overflow
+    ╭─[ tests/ui/typeck/repeat_length_type.sabi:12:17 ]
+    │
+ 12 │     let e = [0; 2 - 3]; //~ ERROR E0316 attempt to subtract with overflow
+    │                 ──┬──  
+    │                   ╰──── in this array length
+────╯
+[E0316] Error: attempt to divide by zero
+    ╭─[ tests/ui/typeck/repeat_length_type.sabi:13:17 ]
+    │
+ 13 │     let f: [u8; 1 / 0] = []; //~ ERROR E0316 attempt to divide by zero
+    │                 ──┬──  
+    │                   ╰──── in this array length
+────╯

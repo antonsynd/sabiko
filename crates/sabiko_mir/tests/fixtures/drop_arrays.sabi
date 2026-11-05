@@ -1,0 +1,17 @@
+// Arrays with drop glue: an array of a `Drop` type is dropped whole at its scope end, and
+// so is a tuple holding one; an empty array holds nothing to drop (as in rustc), nor does
+// an array of a type without drop glue.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Main() {
+    let a = [D { Id: 1 }, D { Id: 2 }];
+    let empty: [D; 0] = [];
+    let plain = [3, 4];
+    let t = ([D { Id: 5 }], 6);
+}

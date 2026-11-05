@@ -663,6 +663,68 @@ moved scrutinee again is E0406, which rustc accepts
 a float range pattern (`0.0..=1.0`, valid Rust) is rejected as "only `char` and numeric
 types are allowed in range patterns", which names `f64` as not numeric.
 
+Update (2026-11-05), arrays and slices (#9, decision 61): `[T; N]` types with constant
+lengths (literals, `const` items, constant arithmetic; constants are now evaluated before
+item signatures, so signatures use them, and a local in a length is E0220), array literals
+`[a, b]`/`[]`, repeats `[x; N]` (`Copy` operand for `N >= 2`, E0334), indexing through any
+number of references with a `usize` index (E0335, E0336), `.len()`, `&[T]`/`&mut [T]` with
+unsizing coercions from `&[T; N]`/`&mut [T; N]` at every coercion site and `&mut [T]` to
+`&[T]`. MIR has `Index` projections, `Len`, `Repeat`, array aggregates and pointer
+coercions; the borrow checker never compares indices (`&mut a[0]` and `&mut a[1]`
+conflict, as in rustc), treats an element as part of its array for mutability and
+initialisation, and rejects moves out of elements (E0420, rustc's E0508, now in the
+differential harnesses' borrow family). Arrays are inline-array value types and slices
+spans; every element access checks its index explicitly and panics with rustc's message and
+location, in release builds too, before the span's own check, which the JIT then removes in
+`while i < s.len()` loops (one compare per iteration, `DOTNET_JitDisasm` checked). Arrays
+with drop glue drop their elements first to last, also when one of them panics. Everything
+staged in `tests/pending/arrays/` landed: 50 verdict programs in
+`tests/differential/{loans,moves,mutability}/`, 24 run-time programs in
+`tests/differential/run/arrays/` plus the known gap `arrays_of_enums` (it only needed #8),
+14 UI programs in `tests/ui/{typeck,resolve}/`; slice patterns are now E0107. The `arrays`
+benchmark (a sieve over `&mut [bool]`, insertion sort over `&mut [i32]`, a 64×64 matrix
+product) runs at 0.96x (release) and 0.99x (checked) of C#'s time in process and 1.24x per
+launch, allocating only for printing an `f64`. Known gaps (`tests/pending/arrays/known_gap/`):
+range indexing and slicing (ranges are not expressions yet), slice patterns, `for` loops,
+`==`/`<` on arrays and slices (Phase 6), `const` items of array type (E0315), slice
+methods other than `len()`, arrays and slices of references (E0500: an inline array cannot
+hold a managed pointer; waits for `Ref<T>`), and rustc's deny-by-default
+`unconditional_panic` lint for constant out-of-bounds indices, which Sabiko does not run
+(it has no constant-propagation lints, like `arithmetic_overflow`): such programs compile
+and panic at run time. `.get(i)` moved to Phase 6 with `Option` (decision 47).
+
+Update (2026-11-05), generator for arrays and slices (#9): `sabiko_testgen` declares
+`[T; N]` of primitives, tuples, structs (`Copy` or not, with `impl Drop` or not), enums
+and arrays, with lengths 0 to 4 spelt as literals or `usize` constants, as locals, fields,
+enum payloads, tuple elements, parameters and returns, and `&[T]`/`&mut [T]` parameters,
+returns and annotated `let`s coerced from references to arrays; it generates array
+literals, `[]`, `[x; N]`, element reads, writes, compound assignments, borrows, method
+calls and scrutinees with constant and computed indices (sometimes out of bounds or
+overflowing), `.len()` and `while i < s.len()` loops (docs/TESTING.md). With the fixes
+below, 2000 seeds at each of three bases (7000000, 8000000, 9000000) agree with rustc on
+all five properties. The runs
+found four compiler bugs, all fixed with regression programs: `*s` for a slice reference
+was E0208 even where it is only borrowed, indexed or measured (`&*s`, `(*s)[i]`,
+`(*s).len()`; `run/arrays/slice_places.sabi`); an out-of-bounds index under a borrow
+(`&mut a[i]`) or in the initialiser of a `let` with a `ref` binding panicked at the `&` or
+the pattern instead of at `a[i]` (`run/arrays/index_out_of_bounds_borrow.sabi`,
+`index_out_of_bounds_ref_binding.sabi`); `[x; 0]` dropped `x` at the end of its statement
+instead of at once (`run/arrays/drops_zero_repeat.sabi`); and a failing `let`-`else` with a
+`ref` binding left its initialiser's cleanup scope open, so a value with drop glue made in
+its `else` block crashed MIR building (`run/enums/if_let/let_else_ref_binding_return.sabi`,
+not specific to arrays). The generator leaves out the known gaps (slice patterns, ranges,
+array comparison, arrays of references, `for` loops).
+
+Update (2026-11-05), mutation testing of arrays and slices (#9) on the lines the branch
+changed (`docs/TESTING.md`): before the new tests, 75.7% (`sabiko_types`), 83.3%
+(`sabiko_mir`), 82.0% (`sabiko_codegen`) and 65.2% (`sabiko_borrowck`), after them 100%,
+98.8%, 96.6% and 91.3%, with only equivalent survivors left. The survivors found three
+bugs, now fixed: `let s: &[_] = &a;` panicked the compiler (the coercion's target kept the
+unresolved `_`), and two bounds checks were lost, so an index out of bounds did not panic:
+an element read whose value is discarded (`a[i];`, deleted by copy forwarding) and the
+read of a `()` element. Also noticed, and fixed: E0420's note named an element behind a
+reference `*s[_]` where rustc writes `s[_]`.
+
 ### Phase 5: Data types
 
 Work
@@ -686,6 +748,8 @@ against drops rather than retrofitted.
   as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
   and `let`-`else`; see the status notes above).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
+  Done (#9, decision 61; see the status note above); ranges and slicing, slice patterns,
+  `for` loops, slice methods other than `len()` and arrays of references remain.
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
 - `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
@@ -701,6 +765,8 @@ Verification
   flags, drops during unwinding, compared against rustc. Done (#12):
   `tests/differential/run/drops/` and the generator.
 - Index out of range: run-pass test expects a panic with rustc's message for `a[i]`.
+  Done: `tests/differential/run/arrays/index_out_of_bounds*.sabi` compare the full panic
+  report with rustc's (#9).
 - Differential tests and the program generator extended to every new construct.
 
 ### Phase 6: Traits and generics

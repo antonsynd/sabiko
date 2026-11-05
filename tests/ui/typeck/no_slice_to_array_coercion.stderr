@@ -1,0 +1,35 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/no_slice_to_array_coercion.sabi:12:24 ]
+    │
+ 12 │     let b: &[i32; 3] = s; //~ ERROR E0300 mismatched types
+    │                        ┬  
+    │                        ╰── expected `&[i32; 3]`, found `&[i32]`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/no_slice_to_array_coercion.sabi:13:19 ]
+    │
+ 13 │     let c = Three(s); //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `&[i32; 3]`, found `&[i32]`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/no_slice_to_array_coercion.sabi:14:25 ]
+    │
+ 14 │     let m: &mut [i32] = &a; //~ ERROR E0300 mismatched types
+    │                         ─┬  
+    │                          ╰── expected `&mut [i32]`, found `&[i32; 3]`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/no_slice_to_array_coercion.sabi:15:21 ]
+    │
+ 15 │     let w: &[i64] = &a; //~ ERROR E0300 mismatched types
+    │                     ─┬  
+    │                      ╰── expected `&[i64]`, found `&[i32; 3]`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/no_slice_to_array_coercion.sabi:16:23 ]
+    │
+ 16 │     let x: [i32; 3] = &a; //~ ERROR E0300 mismatched types
+    │                       ─┬  
+    │                        ╰── expected `[i32; 3]`, found `&[i32; 3]`
+────╯

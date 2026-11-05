@@ -47,28 +47,31 @@ impl TypeckResults {
 }
 
 /// Type-checks every item in `file`.
+///
+/// Array lengths in item signatures are constants, so constants come first: the
+/// signatures are collected once with every array type unknown (diagnostics discarded),
+/// which is enough to check and evaluate the `const` items and discriminants (arrays are
+/// not constants yet); then each signature length is checked and evaluated as a `usize`
+/// constant, the signatures are collected again with the lengths, and function bodies are
+/// checked against them, evaluating the lengths they write on the way.
 #[must_use]
 pub fn typeck(
     file: &SourceFile,
     resolve: &ResolveResults,
     sink: &mut DiagnosticSink,
 ) -> TypeckResults {
-    let mut items = collect::collect(file, resolve, sink);
+    let no_lens = collect::ArrayLens::new();
+    let items0 = collect::collect(file, resolve, &no_lens, &mut DiagnosticSink::new());
     let mut bodies = HashMap::new();
     for item in file.all_items() {
-        if let ItemKind::Impl(_) = item.kind {
-            continue;
-        }
-        let def = resolve.def_of_item(item.id);
+        let def = match &item.kind {
+            ItemKind::Const(_) | ItemKind::Enum(_) => resolve.def_of_item(item.id),
+            _ => continue,
+        };
         match &item.kind {
-            ItemKind::Fn(f) => {
-                let ret = items.fn_sig(def).output.clone();
-                let cx = check::FnCtxt::new(resolve, &items, sink, ret);
-                bodies.insert(def, cx.check_fn(f, def));
-            }
             ItemKind::Const(c) => {
-                let ty = items.const_ty(def).clone();
-                let cx = check::FnCtxt::new(resolve, &items, sink, ty);
+                let ty = items0.const_ty(def).clone();
+                let cx = check::FnCtxt::new(resolve, &items0, sink, ty);
                 bodies.insert(def, cx.check_const(&c.value));
             }
             ItemKind::Enum(e) => {
@@ -78,12 +81,13 @@ pub fn typeck(
                         continue;
                     };
                     if let Some(vdef) = variant_def(resolve, def, v) {
-                        let cx = check::FnCtxt::new(resolve, &items, sink, Ty::Prim(PrimTy::Isize));
+                        let cx =
+                            check::FnCtxt::new(resolve, &items0, sink, Ty::Prim(PrimTy::Isize));
                         bodies.insert(vdef, cx.check_const(d));
                     }
                 }
             }
-            ItemKind::Struct(_) | ItemKind::Impl(_) => {}
+            _ => {}
         }
     }
     let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::new();
@@ -107,6 +111,16 @@ pub fn typeck(
         }
     }
     let consts = consts::eval_all(resolve, &const_bodies, sink);
+    let lens = signature_lens(file, resolve, &items0, &consts, sink);
+    let mut items = collect::collect(file, resolve, &lens, sink);
+    for item in file.all_items() {
+        if let ItemKind::Fn(f) = &item.kind {
+            let def = resolve.def_of_item(item.id);
+            let ret = items.fn_sig(def).output.clone();
+            let cx = check::FnCtxt::new(resolve, &items, sink, ret).with_consts(&consts);
+            bodies.insert(def, cx.check_fn(f, def));
+        }
+    }
     patterns::discriminants(file, resolve, &consts, &mut items, sink);
     patterns::pattern_values(file, resolve, &consts, &mut bodies, sink);
     patterns::exhaustiveness(file, resolve, &items, &mut bodies, sink);
@@ -115,6 +129,69 @@ pub fn typeck(
         bodies,
         consts,
     }
+}
+
+/// Checks and evaluates every array length written in an item signature (parameter and
+/// return types, fields, constant types), in source order.
+fn signature_lens(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    items0: &ItemTypes,
+    consts: &HashMap<DefId, ConstValue>,
+    sink: &mut DiagnosticSink,
+) -> collect::ArrayLens {
+    let mut types: Vec<&sabiko_ast::Type> = Vec::new();
+    for item in file.all_items() {
+        match &item.kind {
+            ItemKind::Fn(f) => {
+                types.extend(f.params.iter().map(|p| &p.ty));
+                types.extend(f.ret.iter());
+            }
+            ItemKind::Struct(s) => {
+                if let sabiko_ast::StructKind::Named(fields) = &s.kind {
+                    types.extend(fields.iter().map(|f| &f.ty));
+                }
+            }
+            ItemKind::Enum(e) => {
+                for v in &e.variants {
+                    match &v.data {
+                        sabiko_ast::VariantData::Unit => {}
+                        sabiko_ast::VariantData::Tuple(tys) => types.extend(tys.iter()),
+                        sabiko_ast::VariantData::Named(fields) => {
+                            types.extend(fields.iter().map(|f| &f.ty));
+                        }
+                    }
+                }
+            }
+            ItemKind::Const(c) => types.push(&c.ty),
+            ItemKind::Impl(_) => {}
+        }
+    }
+    let mut lens = collect::ArrayLens::new();
+    let mut stack: Vec<&sabiko_ast::Type> = types.into_iter().rev().collect();
+    while let Some(ty) = stack.pop() {
+        match &ty.kind {
+            sabiko_ast::TypeKind::Array(elem, len) => {
+                let cx = check::FnCtxt::new(resolve, items0, sink, Ty::Prim(PrimTy::Usize))
+                    .with_consts(consts);
+                let body = cx.check_const(len);
+                if !body.has_errors {
+                    if let Some(n) = consts::eval_len(resolve, consts, len, &body, sink) {
+                        lens.insert(len.id, n);
+                    }
+                }
+                stack.push(elem);
+            }
+            sabiko_ast::TypeKind::Slice(inner) | sabiko_ast::TypeKind::Ref { inner, .. } => {
+                stack.push(inner);
+            }
+            sabiko_ast::TypeKind::Tuple(elems) => stack.extend(elems.iter().rev()),
+            sabiko_ast::TypeKind::Path(_)
+            | sabiko_ast::TypeKind::Unit
+            | sabiko_ast::TypeKind::Infer => {}
+        }
+    }
+    lens
 }
 
 /// The definition of a variant of enum `def`; `None` for a variant whose name repeats an
@@ -735,7 +812,7 @@ fn F(s: S) {
                 "E0300 mismatched types [expected `{integer}`, found a tuple with 2 elements]",
                 "E0313 type annotations needed [cannot infer the type of this argument to `Print`]",
                 "E0301 no field `Missing` on type `S` [unknown field]",
-                "E0107 not yet supported: indexing [indexing are not yet supported]",
+                "E0336 cannot index into a value of type `i32` [not an array or a slice]",
             ]
         );
     }

@@ -1,4 +1,5 @@
-// A struct that contains itself by value, directly or through other structs, has infinite size; references break the cycle.
+// A struct that contains itself by value, directly or through other structs, arrays or
+// tuples, has infinite size; references break the cycle.
 struct Node { //~ ERROR E0206 recursive type `Node` has infinite size
     Next: Node,
 }
@@ -21,6 +22,14 @@ struct Inner {
 
 struct Deepest {
     Back: Outer,
+}
+
+struct Grid { //~ ERROR E0206 recursive type `Grid` has infinite size
+    Cells: [Grid; 2],
+}
+
+struct Row { //~ ERROR E0206 recursive type `Row` has infinite size
+    Cells: ([Row; 1], i32),
 }
 
 // Indirection through a reference breaks the cycle for sizing, but reference fields

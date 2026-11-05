@@ -106,6 +106,40 @@ pub(crate) fn eval_all<'a>(
     ev.done
 }
 
+/// Evaluates an array length (or repeat count), type-checked as a `usize` constant into
+/// `body`, once every `const` item has been evaluated (`values`). A constant that failed
+/// was reported with its item and fails this silently. Reports overflow and the like at
+/// the length.
+pub(crate) fn eval_len(
+    resolve: &ResolveResults,
+    values: &HashMap<DefId, ConstValue>,
+    expr: &Expr,
+    body: &BodyTypes,
+    sink: &mut DiagnosticSink,
+) -> Option<u64> {
+    let bodies = HashMap::new();
+    let mut ev = Evaluator {
+        resolve,
+        bodies: &bodies,
+        done: values.clone(),
+        visiting: HashSet::new(),
+        failed: HashSet::new(),
+        sink,
+    };
+    match ev.eval(expr, body) {
+        Ok(ConstValue::Uint(v)) => u64::try_from(v).ok(),
+        Ok(_) => None,
+        Err(e) => {
+            if !e.silent {
+                ev.sink.emit(
+                    Diagnostic::error(e.code, e.message).with_label(e.span, "in this array length"),
+                );
+            }
+            None
+        }
+    }
+}
+
 struct Evaluator<'a, 'b> {
     resolve: &'a ResolveResults,
     bodies: &'a HashMap<DefId, (&'b Expr, &'b BodyTypes)>,
@@ -208,6 +242,19 @@ impl Evaluator<'_, '_> {
             ExprKind::Paren(inner) => self.eval(inner, body),
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Def(d) if self.resolve.def(d).kind == DefKind::Const => {
+                    if let Some(v) = self.done.get(&d) {
+                        return Ok(v.clone());
+                    }
+                    if self.bodies.is_empty() {
+                        // An array length, evaluated after every constant: this one
+                        // failed, and was reported with its item.
+                        return Err(ConstError {
+                            span: expr.span,
+                            code: ErrorCode::CONST_EVAL_FAILED,
+                            message: String::new(),
+                            silent: true,
+                        });
+                    }
                     if !self.bodies.contains_key(&d) {
                         return Err(failed(expr.span, "referenced constant has errors"));
                     }
@@ -281,6 +328,7 @@ impl Evaluator<'_, '_> {
             }
             ExprKind::Struct { .. } => Err(non_const(expr.span, "struct values")),
             ExprKind::Tuple(_) => Err(non_const(expr.span, "tuple values")),
+            ExprKind::Array(_) | ExprKind::Repeat(..) => Err(non_const(expr.span, "array values")),
             ExprKind::Field(..) => Err(non_const(expr.span, "field accesses")),
             ExprKind::Ref { .. } => Err(non_const(expr.span, "references")),
             ExprKind::Deref(_) => Err(non_const(expr.span, "dereferences")),

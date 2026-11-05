@@ -1,0 +1,12 @@
+// An elided return type `[&i32; 2]` borrows from the one reference parameter: the
+// caller's loan of `x` lasts as long as the returned array is used.
+fn Both(r: &i32) -> [&i32; 2] {
+    [r, r]
+}
+
+fn F() {
+    let mut x = 1;
+    let a = Both(&x);
+    x = 2;
+    PrintLine(*a[1]);
+}

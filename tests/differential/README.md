@@ -5,8 +5,8 @@ a syntactic subset of Rust apart from .NET casing). `crates/sabiko_driver/tests/
 compiles every file with both compilers and classifies each verdict:
 
 - `accept`: no errors;
-- `borrow-error`: errors, all of them from the borrow checker (Sabiko E0400–E0418; rustc
-  E0381/E0382/E0384, E0499–E0507, E0509, E0515, E0594–E0597, E0106, E0716, and the uncoded
+- `borrow-error`: errors, all of them from the borrow checker (Sabiko E0400–E0420; rustc
+  E0381/E0382/E0384, E0499–E0510, E0515, E0594–E0597, E0106, E0716, and the uncoded
   "lifetime may not live long enough");
 - `OTHER-ERROR`: anything else. This always fails the test: the corpus must be valid in
   both languages up to borrow checking, so a parse, resolution or type error in either

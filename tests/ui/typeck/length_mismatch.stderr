@@ -1,0 +1,36 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/length_mismatch.sabi:10:5 ]
+    │
+ 10 │     [1, 2, 3] //~ ERROR E0300 mismatched types
+    │     ────┬────  
+    │         ╰────── expected `[i32; 2]`, found `[i32; 3]`
+    │ 
+    │ Note: expected an array with a size of 2, found one with a size of 3
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/length_mismatch.sabi:14:23 ]
+    │
+ 14 │     let a: [i32; 3] = [1, 2]; //~ ERROR E0300 mismatched types
+    │                       ───┬──  
+    │                          ╰──── expected `[i32; 3]`, found `[i32; 2]`
+    │ 
+    │ Note: expected an array with a size of 3, found one with a size of 2
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/length_mismatch.sabi:15:17 ]
+    │
+ 15 │     let b = Sum([4, 5, 6, 7]); //~ ERROR E0300 mismatched types
+    │                 ──────┬─────  
+    │                       ╰─────── expected `[i32; 3]`, found `[i32; 4]`
+    │ 
+    │ Note: expected an array with a size of 3, found one with a size of 4
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/length_mismatch.sabi:17:9 ]
+    │
+ 17 │     c = [1, 2, 3]; //~ ERROR E0300 mismatched types
+    │         ────┬────  
+    │             ╰────── expected `[{integer}; 2]`, found `[{integer}; 3]`
+    │ 
+    │ Note: expected an array with a size of 2, found one with a size of 3
+────╯

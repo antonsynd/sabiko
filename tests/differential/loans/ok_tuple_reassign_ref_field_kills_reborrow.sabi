@@ -1,0 +1,11 @@
+// Overwriting the reference `t.0` kills the reborrow of `*t.0`: the new referent can be
+// written while `r`, the reborrow of the old one, is still used.
+fn F() {
+    let mut x = 1;
+    let mut y = 2;
+    let mut t = (&mut x, 0);
+    let r = &mut *t.0;
+    t.0 = &mut y;
+    *t.0 = 7;
+    *r = 5;
+}

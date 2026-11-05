@@ -130,7 +130,11 @@ impl Checker<'_> {
 
     fn check_rvalue(&mut self, rvalue: &Rvalue, span: Span) {
         match rvalue {
-            Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => {
+            Rvalue::Use(op)
+            | Rvalue::UnaryOp(_, op)
+            | Rvalue::Cast(op, _)
+            | Rvalue::Repeat(op, _)
+            | Rvalue::PointerCoercion(op, _) => {
                 self.check_operand(op, span);
             }
             Rvalue::BinaryOp(_, lhs, rhs) => {
@@ -142,7 +146,7 @@ impl Checker<'_> {
                     self.check_operand(field, span);
                 }
             }
-            Rvalue::Discriminant(place) => self.check_read(place, span),
+            Rvalue::Discriminant(place) | Rvalue::Len(place) => self.check_read(place, span),
             Rvalue::Ref(kind, place) => {
                 self.check_read(place, span);
                 if kind.mutability() == Mutability::Mut {
@@ -349,8 +353,11 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
             // rustc names a variant's field as the enum's: `s.0` for `(s as Full).0`.
             PlaceElem::Downcast(v) => variant = Some(*v),
             PlaceElem::Deref => {
-                let followed_by_field =
-                    matches!(place.projection.get(index + 1), Some(PlaceElem::Field(..)));
+                // rustc names the field or element through the reference: `p.x`, `s[_]`.
+                let followed_by_field = matches!(
+                    place.projection.get(index + 1),
+                    Some(PlaceElem::Field(..) | PlaceElem::Index(_))
+                );
                 if !followed_by_field {
                     out.insert(0, '*');
                 }
@@ -375,6 +382,14 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
                 };
                 let _ = write!(out, ".{name}");
                 ty = field_ty.clone();
+            }
+            // rustc does not name the index: `a[_]`.
+            PlaceElem::Index(_) => {
+                out.push_str("[_]");
+                ty = match ty {
+                    Ty::Array(elem, _) | Ty::Slice(elem) => *elem,
+                    other => other,
+                };
             }
         }
     }

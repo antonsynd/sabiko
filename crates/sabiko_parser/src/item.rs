@@ -701,11 +701,17 @@ impl Parser<'_, '_> {
                 }
             }
             TokenKind::LBracket => {
-                return Err(self.error_unsupported(
-                    "array and slice types",
-                    start,
-                    "planned for Phase 5",
-                ))
+                self.bump();
+                self.nested(|p| {
+                    let elem = p.parse_type()?;
+                    if p.eat(TokenKind::Semi).is_some() {
+                        let len = p.parse_expr()?;
+                        p.expect(TokenKind::RBracket)?;
+                        return Ok(TypeKind::Array(Box::new(elem), Box::new(len)));
+                    }
+                    p.expect(TokenKind::RBracket)?;
+                    Ok(TypeKind::Slice(Box::new(elem)))
+                })?
             }
             TokenKind::Underscore => {
                 self.bump();
@@ -951,6 +957,9 @@ impl Parser<'_, '_> {
                 // "expected identifier, found keyword `fn`"
                 self.parse_ident()?;
                 unreachable!("parse_ident fails on keywords")
+            }
+            TokenKind::LBracket => {
+                return Err(self.error_unsupported("slice patterns", start, "not yet planned"));
             }
             _ => {
                 let d = Diagnostic::error(

@@ -136,7 +136,15 @@ impl DropPaths {
         });
         // (variant, field, type, the variant's discriminant)
         let fields: Vec<(Option<usize>, usize, Ty, i128)> = match ty {
+            // An array is moved and dropped whole: nothing can be moved out of an element
+            // (E0420), so like a struct with its own `drop` it is one leaf. A write to an
+            // element drops the element's old value.
             Ty::Adt(def) if typeck.items.drop_impl(*def).is_some() => {
+                self.nodes[index].leaf = Some(self.leaf_nodes.len());
+                self.leaf_nodes.push(index);
+                return index;
+            }
+            Ty::Array(..) => {
                 self.nodes[index].leaf = Some(self.leaf_nodes.len());
                 self.leaf_nodes.push(index);
                 return index;
@@ -205,7 +213,8 @@ impl DropPaths {
                     variant = Some(*v);
                     continue;
                 }
-                PlaceElem::Deref => return Lookup::Untracked,
+                // An array with drop glue is a leaf, returned above.
+                PlaceElem::Deref | PlaceElem::Index(_) => return Lookup::Untracked,
             };
             let selector = variant.take();
             match self.nodes[node]
@@ -321,10 +330,14 @@ impl State {
 /// The places an rvalue moves out of.
 fn rvalue_moves(rvalue: &Rvalue) -> Vec<&Place> {
     let ops: Vec<&Operand> = match rvalue {
-        Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => vec![op],
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => vec![op],
         Rvalue::BinaryOp(_, l, r) => vec![l, r],
         Rvalue::Aggregate(_, ops) => ops.iter().collect(),
-        Rvalue::Ref(..) | Rvalue::Discriminant(_) => Vec::new(),
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => Vec::new(),
     };
     ops.into_iter()
         .filter_map(|op| match op {
@@ -458,11 +471,18 @@ fn collect_actions(
 }
 
 /// Whether a statement may panic: checked integer arithmetic, division, remainder and
-/// shifts (in any build mode, so the MIR is the same in both).
+/// shifts (in any build mode, so the MIR is the same in both), and the bounds check of any
+/// array or slice element it reads, writes or borrows.
 fn statement_may_panic(body: &Body, stmt: &Statement) -> bool {
-    let StatementKind::Assign(_, rvalue) = &stmt.kind else {
+    if let StatementKind::PlaceMention(place) = &stmt.kind {
+        return place.has_index();
+    }
+    let StatementKind::Assign(dest, rvalue) = &stmt.kind else {
         return false;
     };
+    if dest.has_index() || crate::rvalue_places(rvalue).any(Place::has_index) {
+        return true;
+    }
     match rvalue {
         Rvalue::BinaryOp(
             BinOp::Add

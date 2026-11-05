@@ -1,0 +1,11 @@
+// Sabiko codes for rustc's: E0314 for the deny-by-default `overflowing_literals` lint.
+// An unsuffixed literal element takes the array's element type, so `300` in a `[u8; 2]`
+// and `128` in a `[i8; 1]` are out of range: the deny-by-default `overflowing_literals`
+// lint, an error without a code (Sabiko's E0314); the repeat operand `-128` fits an `i8`.
+// A separate file from element_type_mismatch.sabi because rustc runs its lints only when
+// type checking found no error.
+fn Main() {
+    let b: [u8; 2] = [1, 300]; //~ ERROR E0314 literal out of range for `u8`
+    let c: [i8; 3] = [-128; 3];
+    let d: [i8; 1] = [128]; //~ ERROR E0314 literal out of range for `i8`
+}

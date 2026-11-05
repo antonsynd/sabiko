@@ -61,6 +61,10 @@ impl Cx<'_> {
     fn drop_glue(&mut self, ty: &Ty, name: &str, out: &mut String) {
         let span = Span::dummy();
         let cil = types::cil_type(self, ty, span);
+        if let Ty::Array(elem, n) = ty {
+            self.array_glue(elem, *n, name, &cil, out);
+            return;
+        }
         // The own `drop`, then each field with drop glue, as instruction sequences.
         let mut steps: Vec<Vec<String>> = Vec::new();
         if let Ty::Adt(def) = ty {
@@ -128,6 +132,82 @@ impl Cx<'_> {
             steps.push(step);
         }
         self.glue_method(name, &cil, &[], &steps, own, out);
+    }
+
+    /// The glue of an array `[T; N]` (`N > 0`, `T` with drop glue): its elements, first to
+    /// last, through a span over them. Each element's drop is protected by a `fault`
+    /// handler that drops the elements after it, as rustc's array glue does when one
+    /// element's `drop` panics.
+    fn array_glue(&mut self, elem: &Ty, n: u64, name: &str, cil: &str, out: &mut String) {
+        let span = Span::dummy();
+        let elem_cil = types::cil_type(self, elem, span);
+        let span_ty = types::span_type(self, elem, true, span);
+        let class = types::span_class(self, elem, true, span);
+        let array_name = cil.trim_start_matches("valuetype ");
+        let drop_elem = self.drop_glue_call(elem, span);
+        let _ = writeln!(
+            out,
+            "  .method public hidebysig static void {}({cil}& 'self') cil managed
+  {{
+    .maxstack 2
+    .locals init ([0] {span_ty} 'elements', [1] int32 'i', [2] int32 'j')
+    ldarg.0
+    ldflda {elem_cil} {array_name}::{field}
+    ldc.i4 {n}
+    call valuetype {span_class}<!!0> {marshal}::CreateSpan<{elem_cil}>(!!0&, int32)
+    stloc.0
+    ldc.i4.0
+    stloc.1
+    br COND
+  LOOP:
+    .try
+    {{
+      ldloca.s 0
+      ldloc.1
+      call instance !0& valuetype {class}::get_Item(int32)
+      {drop_elem}
+      leave NEXT
+    }}
+    fault
+    {{
+      call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::BeginCleanup()
+      ldloc.1
+      ldc.i4.1
+      add
+      stloc.2
+      br REST_COND
+    REST:
+      ldloca.s 0
+      ldloc.2
+      call instance !0& valuetype {class}::get_Item(int32)
+      {drop_elem}
+      ldloc.2
+      ldc.i4.1
+      add
+      stloc.2
+    REST_COND:
+      ldloc.2
+      ldc.i4 {n}
+      blt REST
+      endfault
+    }}
+  NEXT:
+    ldloc.1
+    ldc.i4.1
+    add
+    stloc.1
+  COND:
+    ldloc.1
+    ldc.i4 {n}
+    blt LOOP
+    ret
+  }}
+",
+            types::quote(name),
+            field = types::ARRAY_ELEMENT_FIELD,
+            span_class = types::SPAN_CLASS,
+            marshal = types::MEMORY_MARSHAL,
+        );
     }
 
     /// The drop of the fields of variant `variant` of the enum `def` held at the address

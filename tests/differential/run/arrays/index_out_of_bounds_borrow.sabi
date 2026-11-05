@@ -1,0 +1,28 @@
+// An out-of-bounds index under a borrow, `&mut a[i]`, panics at the indexing expression
+// `a[i]`, as in rustc, not at the `&mut` (Sabiko located the check at the borrow; found by
+// the program generator, seed 100041). In-bounds borrows of elements and of nested
+// elements come first.
+struct Cell {
+    N: i32,
+}
+
+fn Bump(c: &mut Cell) {
+    c.N += 1i32;
+}
+
+fn Nth(a: &mut [Cell; 2], i: usize) -> i32 {
+    let r = &mut a[i];
+    r.N
+}
+
+fn Main() {
+    let mut a = [Cell { N: 1i32 }, Cell { N: 2i32 }];
+    let mut m = [[1u8, 2u8], [3u8, 4u8]];
+    Bump(&mut a[1]);
+    let x = &mut m[1][0];
+    *x += 10u8;
+    PrintLine(m[1][0]);
+    PrintLine(Nth(&mut a, 1usize));
+    PrintLine(Nth(&mut a, 2usize));
+    PrintLine("not reached");
+}

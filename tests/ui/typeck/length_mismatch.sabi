@@ -1,0 +1,18 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// The length is part of an array's type: an array of another length is E0308 ("expected
+// an array with a size of 3, found one with a size of 2") at a return value, an annotated
+// `let`, a call argument and an assignment. Nothing converts between lengths.
+fn Sum(a: [i32; 3]) -> i32 {
+    a[0] + a[1] + a[2]
+}
+
+fn Pair() -> [i32; 2] {
+    [1, 2, 3] //~ ERROR E0300 mismatched types
+}
+
+fn Main() {
+    let a: [i32; 3] = [1, 2]; //~ ERROR E0300 mismatched types
+    let b = Sum([4, 5, 6, 7]); //~ ERROR E0300 mismatched types
+    let mut c = [0; 2];
+    c = [1, 2, 3]; //~ ERROR E0300 mismatched types
+}

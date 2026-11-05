@@ -1,0 +1,48 @@
+// Arrays and slices (#9): element places are `Index` projections on a temporary holding
+// the index; `len()` reads the length through a shared reborrow; unsizing is a pointer
+// coercion; `[x; 0]` drops its operand at once, as in rustc; a nested element checks
+// the outer index before the inner one runs; an element assignment of a value with drop
+// glue checks the index before the value moves.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+fn Idx(i: usize) -> usize {
+    i
+}
+
+fn Sum(s: &[i32]) -> i32 {
+    let mut t = 0;
+    let mut i = 0;
+    while i < s.len() {
+        t += s[i];
+        i += 1;
+    }
+    t
+}
+
+fn Literals() -> i32 {
+    let a = [1, 2, 3];
+    let z = [0u8; 4];
+    let e: [i32; 0] = [];
+    let s: &[i32] = &a;
+    Sum(&a) + s.len() as i32 + z[1] as i32 + e.len() as i32
+}
+
+fn Nested(m: &mut [[i32; 2]; 3]) {
+    m[Idx(1)][Idx(0)] = 7;
+    m[2][1] += m[0][0];
+}
+
+fn Drops(a: &mut [D; 2], i: usize) {
+    a[i] = D { Id: 3 };
+    let none = [D { Id: 4 }; 0];
+}
+
+fn Coerce(m: &mut [i32; 3]) -> &[i32] {
+    let s: &mut [i32] = m;
+    s[0] = 1;
+    s
+}

@@ -1,0 +1,45 @@
+[E0336] Error: cannot index into a value of type `i32`
+    ╭─[ tests/ui/typeck/index_non_indexable.sabi:12:13 ]
+    │
+ 12 │     let a = x[0]; //~ ERROR E0336 cannot index into a value of type `i32`
+    │             ──┬─  
+    │               ╰─── not an array or a slice
+    │ 
+    │ Note: only arrays and slices can be indexed
+────╯
+[E0336] Error: cannot index into a value of type `P`
+    ╭─[ tests/ui/typeck/index_non_indexable.sabi:13:13 ]
+    │
+ 13 │     let b = p[0]; //~ ERROR E0336 cannot index into a value of type `P`
+    │             ──┬─  
+    │               ╰─── not an array or a slice
+    │ 
+    │ Note: only arrays and slices can be indexed
+────╯
+[E0336] Error: cannot index into a value of type `({integer}, {integer})`
+    ╭─[ tests/ui/typeck/index_non_indexable.sabi:14:13 ]
+    │
+ 14 │     let c = t[0]; //~ ERROR E0336 cannot index into a value of type `({integer}, {integer})`
+    │             ──┬─  
+    │               ╰─── not an array or a slice
+    │ 
+    │ Note: only arrays and slices can be indexed
+────╯
+[E0336] Error: cannot index into a value of type `&str`
+    ╭─[ tests/ui/typeck/index_non_indexable.sabi:15:13 ]
+    │
+ 15 │     let d = "abc"[0]; //~ ERROR E0336 cannot index into a value of type `&str`
+    │             ────┬───  
+    │                 ╰───── not an array or a slice
+    │ 
+    │ Note: only arrays and slices can be indexed
+────╯
+[E0336] Error: cannot index into a value of type `{integer}`
+    ╭─[ tests/ui/typeck/index_non_indexable.sabi:17:13 ]
+    │
+ 17 │     let f = e[0]; //~ ERROR E0336 cannot index into a value of type `{integer}`
+    │             ──┬─  
+    │               ╰─── not an array or a slice
+    │ 
+    │ Note: only arrays and slices can be indexed
+────╯

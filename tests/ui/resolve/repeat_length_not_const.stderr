@@ -1,0 +1,27 @@
+[E0220] Error: attempt to use a non-constant value in a constant
+   ╭─[ tests/ui/resolve/repeat_length_not_const.sabi:7:17 ]
+   │
+ 7 │     let a = [0; n]; //~ ERROR E0220 attempt to use a non-constant value in a constant
+   │                 ┬  
+   │                 ╰── non-constant value
+   │ 
+   │ Note: an array length is a constant: use a `const` item
+───╯
+[E0220] Error: attempt to use a non-constant value in a constant
+   ╭─[ tests/ui/resolve/repeat_length_not_const.sabi:8:18 ]
+   │
+ 8 │     let b: [i32; n] = [1, 2, 3]; //~ ERROR E0220 attempt to use a non-constant value in a constant
+   │                  ┬  
+   │                  ╰── non-constant value
+   │ 
+   │ Note: an array length is a constant: use a `const` item
+───╯
+[E0220] Error: attempt to use a non-constant value in a constant
+    ╭─[ tests/ui/resolve/repeat_length_not_const.sabi:12:20 ]
+    │
+ 12 │     let c = [true; len]; //~ ERROR E0220 attempt to use a non-constant value in a constant
+    │                    ─┬─  
+    │                     ╰─── non-constant value
+    │ 
+    │ Note: an array length is a constant: use a `const` item
+────╯

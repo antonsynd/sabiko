@@ -3,12 +3,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sabiko_ast::{ItemKind, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
+use sabiko_ast::{ItemKind, NodeId, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::ty::{Mutability, Ty};
+
+/// The evaluated lengths of the array types in item signatures, keyed by the length
+/// expression's node. A length missing here failed to evaluate (and was reported).
+pub(crate) type ArrayLens = HashMap<NodeId, u64>;
 
 /// Whether `Print`/`PrintLine` accept a value of type `ty`: every integer and float
 /// primitive, `bool`, `char` and `&str` (either mutability). The runtime library has one
@@ -203,6 +207,8 @@ impl ItemTypes {
         match ty {
             Ty::Adt(def) => self.needs_drop.contains(def),
             Ty::Tuple(elems) => elems.iter().any(|e| self.needs_drop(e)),
+            // An empty array holds nothing to drop, as in rustc.
+            Ty::Array(elem, n) => *n > 0 && self.needs_drop(elem),
             _ => false,
         }
     }
@@ -214,6 +220,7 @@ impl ItemTypes {
         match ty {
             Ty::Adt(def) => self.adts.get(def).is_some_and(|a| a.is_copy),
             Ty::Tuple(elems) => elems.iter().all(|e| self.is_copy(e)),
+            Ty::Array(elem, _) => self.is_copy(elem),
             _ => ty.is_copy(),
         }
     }
@@ -273,6 +280,7 @@ fn check_no_reference(ty: &Ty, span: Span, sink: &mut DiagnosticSink) {
 fn lower_fields(
     fields: &[sabiko_ast::FieldDef],
     resolve: &ResolveResults,
+    lens: &ArrayLens,
     sink: &mut DiagnosticSink,
 ) -> Vec<FieldDef> {
     let mut out = Vec::new();
@@ -281,7 +289,14 @@ fn lower_fields(
         if !seen.insert(f.name.name.as_str()) {
             continue;
         }
-        out.push(field_def(f.name.name.clone(), &f.ty, f.span, resolve, sink));
+        out.push(field_def(
+            f.name.name.clone(),
+            &f.ty,
+            f.span,
+            resolve,
+            lens,
+            sink,
+        ));
     }
     out
 }
@@ -291,9 +306,10 @@ fn field_def(
     ty: &Type,
     span: Span,
     resolve: &ResolveResults,
+    lens: &ArrayLens,
     sink: &mut DiagnosticSink,
 ) -> FieldDef {
-    let lowered = lower_sig_type(ty, resolve);
+    let lowered = lower_sig_type(ty, resolve, lens);
     check_sized(&lowered, ty.span, sink);
     check_no_reference(&lowered, ty.span, sink);
     FieldDef {
@@ -304,8 +320,9 @@ fn field_def(
 }
 
 /// Lowers a syntactic type to a semantic one. `Infer` becomes `Error` here: this is only
-/// used for signatures, where the resolver already rejected `_`.
-pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults) -> Ty {
+/// used for signatures, where the resolver already rejected `_`. An array length comes
+/// from `lens`; one that failed to evaluate makes the array an error type.
+pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLens) -> Ty {
     match &ty.kind {
         TypeKind::Path(_) => match resolve.res(ty.id) {
             Res::Prim(p) => Ty::Prim(p),
@@ -315,38 +332,77 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults) -> Ty {
         },
         TypeKind::Ref { mutable, inner } => Ty::Ref(
             Mutability::from_bool(*mutable),
-            Box::new(lower_sig_type(inner, resolve)),
+            Box::new(lower_sig_type(inner, resolve, lens)),
         ),
         TypeKind::Unit => Ty::Unit,
         TypeKind::Tuple(elems) => Ty::Tuple(
             elems
                 .iter()
-                .map(|t| lower_sig_type(t, resolve))
+                .map(|t| lower_sig_type(t, resolve, lens))
                 .collect::<Vec<_>>()
                 .into(),
         ),
+        TypeKind::Array(elem, len) => {
+            let elem = lower_sig_type(elem, resolve, lens);
+            match lens.get(&len.id) {
+                Some(&n) if !elem.is_error() => Ty::Array(Box::new(elem), n),
+                _ => Ty::Error,
+            }
+        }
+        TypeKind::Slice(elem) => Ty::Slice(Box::new(lower_sig_type(elem, resolve, lens))),
         TypeKind::Infer => Ty::Error,
     }
 }
 
-/// `str` is only valid behind a reference, not by value nor as a tuple element. Reports
-/// and returns `false` otherwise.
+/// `str` and `[T]` are only valid behind a reference, not by value nor as a tuple or
+/// array element; a slice's element must be sized. Reports and returns `false` otherwise.
 pub(crate) fn check_sized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> bool {
-    if let Ty::Tuple(elems) = ty {
-        return elems.iter().all(|e| check_sized(e, span, sink));
+    match ty {
+        Ty::Tuple(elems) => elems.iter().all(|e| check_sized(e, span, sink)),
+        Ty::Array(elem, _) => check_sized(elem, span, sink),
+        Ty::Ref(_, inner) => match &**inner {
+            Ty::Slice(elem) => check_sized(elem, span, sink),
+            _ => true,
+        },
+        Ty::Prim(PrimTy::Str) => {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNSIZED_TYPE,
+                    "the size for values of type `str` cannot be known at compilation time",
+                )
+                .with_label(span, "doesn't have a size known at compile-time")
+                .with_note("string values are used behind a reference: `&str`"),
+            );
+            false
+        }
+        Ty::Slice(_) => {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNSIZED_TYPE,
+                    format!(
+                        "the size for values of type `{}` cannot be known at compilation time",
+                        slice_display(ty)
+                    ),
+                )
+                .with_label(span, "doesn't have a size known at compile-time")
+                .with_note("slices are used behind a reference: `&[T]` or `&mut [T]`"),
+            );
+            false
+        }
+        _ => true,
     }
-    if *ty == Ty::Prim(PrimTy::Str) {
-        sink.emit(
-            Diagnostic::error(
-                ErrorCode::UNSIZED_TYPE,
-                "the size for values of type `str` cannot be known at compilation time",
-            )
-            .with_label(span, "doesn't have a size known at compile-time")
-            .with_note("string values are used behind a reference: `&str`"),
-        );
-        return false;
+}
+
+/// A slice type for a message, without item names (`[i32]`, `[[u8; 2]]`, `[_]`).
+fn slice_display(ty: &Ty) -> String {
+    match ty {
+        Ty::Prim(p) => p.name().to_owned(),
+        Ty::Slice(e) => format!("[{}]", slice_display(e)),
+        Ty::Array(e, n) => format!("[{}; {n}]", slice_display(e)),
+        Ty::Ref(m, e) => format!("&{}{}", m.prefix_str(), slice_display(e)),
+        Ty::Unit => "()".to_owned(),
+        _ => "_".to_owned(),
     }
-    true
 }
 
 /// The signature of a function; a method's receiver type is its first input.
@@ -354,6 +410,7 @@ fn fn_sig(
     def: DefId,
     f: &sabiko_ast::FnDecl,
     resolve: &ResolveResults,
+    lens: &ArrayLens,
     sink: &mut DiagnosticSink,
 ) -> FnSig {
     let mut inputs = Vec::new();
@@ -369,14 +426,14 @@ fn fn_sig(
         param_spans.push(sp.span);
     }
     for p in &f.params {
-        let ty = lower_sig_type(&p.ty, resolve);
+        let ty = lower_sig_type(&p.ty, resolve, lens);
         check_sized(&ty, p.ty.span, sink);
         inputs.push(ty);
         param_spans.push(p.span);
     }
     let output = match &f.ret {
         Some(t) => {
-            let ty = lower_sig_type(t, resolve);
+            let ty = lower_sig_type(t, resolve, lens);
             check_sized(&ty, t.span, sink);
             ty
         }
@@ -395,6 +452,7 @@ fn fn_sig(
 pub(crate) fn collect(
     file: &SourceFile,
     resolve: &ResolveResults,
+    lens: &ArrayLens,
     sink: &mut DiagnosticSink,
 ) -> ItemTypes {
     let mut items = ItemTypes::default();
@@ -406,11 +464,13 @@ pub(crate) fn collect(
         match &item.kind {
             ItemKind::Impl(_) => unreachable!("skipped above"),
             ItemKind::Fn(f) => {
-                items.fn_sigs.insert(def, fn_sig(def, f, resolve, sink));
+                items
+                    .fn_sigs
+                    .insert(def, fn_sig(def, f, resolve, lens, sink));
             }
             ItemKind::Struct(s) => {
                 let (fields, is_unit) = match &s.kind {
-                    StructKind::Named(fields) => (lower_fields(fields, resolve, sink), false),
+                    StructKind::Named(fields) => (lower_fields(fields, resolve, lens, sink), false),
                     StructKind::Unit => (Vec::new(), true),
                 };
                 let is_copy = derives_copy(item, sink);
@@ -427,8 +487,19 @@ pub(crate) fn collect(
                 );
             }
             ItemKind::Const(c) => {
-                let ty = lower_sig_type(&c.ty, resolve);
+                let mut ty = lower_sig_type(&c.ty, resolve, lens);
                 check_sized(&ty, c.ty.span, sink);
+                if has_array(&ty) {
+                    sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::NON_CONSTANT_EXPRESSION,
+                            "arrays cannot be used in constants yet",
+                        )
+                        .with_label(c.ty.span, "a constant of array type")
+                        .with_note("constants are scalars for now; see docs/PLAN.md"),
+                    );
+                    ty = Ty::Error;
+                }
                 items.const_tys.insert(def, ty);
             }
             ItemKind::Enum(e) => {
@@ -445,12 +516,15 @@ pub(crate) fn collect(
                             VariantKind::Tuple,
                             tys.iter()
                                 .enumerate()
-                                .map(|(i, t)| field_def(i.to_string(), t, t.span, resolve, sink))
+                                .map(|(i, t)| {
+                                    field_def(i.to_string(), t, t.span, resolve, lens, sink)
+                                })
                                 .collect(),
                         ),
-                        VariantData::Named(fields) => {
-                            (VariantKind::Named, lower_fields(fields, resolve, sink))
-                        }
+                        VariantData::Named(fields) => (
+                            VariantKind::Named,
+                            lower_fields(fields, resolve, lens, sink),
+                        ),
                     };
                     variants.push(VariantDef {
                         def: resolve.def_of_item(v.id),
@@ -506,7 +580,7 @@ pub(crate) fn collect(
                 ItemKind::Fn(f) if resolve.def_of_item(item.id) == def => Some(f),
                 _ => None,
             }) {
-                check_drop_signature(resolve, adt, f, sink);
+                check_drop_signature(resolve, adt, f, lens, sink);
             }
         }
     }
@@ -522,6 +596,7 @@ fn check_drop_signature(
     resolve: &ResolveResults,
     adt: DefId,
     f: &sabiko_ast::FnDecl,
+    lens: &ArrayLens,
     sink: &mut DiagnosticSink,
 ) {
     let name = &resolve.def(adt).name;
@@ -552,7 +627,7 @@ fn check_drop_signature(
         ),
     }
     if let Some(ret) = &f.ret {
-        let ty = lower_sig_type(ret, resolve);
+        let ty = lower_sig_type(ret, resolve, lens);
         if !ty.is_unit() {
             sink.emit(incompatible(
                 ret.span,
@@ -702,10 +777,22 @@ fn check_recursive_structs(resolve: &ResolveResults, items: &ItemTypes, sink: &m
     }
 }
 
-/// The structs `ty` holds by value: itself, or the elements of a tuple, recursively.
+/// Whether `ty` holds an array anywhere (by value or behind a reference).
+fn has_array(ty: &Ty) -> bool {
+    match ty {
+        Ty::Array(..) | Ty::Slice(_) => true,
+        Ty::Ref(_, inner) => has_array(inner),
+        Ty::Tuple(elems) => elems.iter().any(has_array),
+        _ => false,
+    }
+}
+
+/// The structs `ty` holds by value: itself, or the elements of a tuple or an array,
+/// recursively.
 fn structs_by_value(ty: &Ty, out: &mut Vec<DefId>) {
     match ty {
         Ty::Adt(def) => out.push(*def),
+        Ty::Array(elem, _) => structs_by_value(elem, out),
         Ty::Tuple(elems) => {
             for e in elems.iter() {
                 structs_by_value(e, out);

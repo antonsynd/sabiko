@@ -1,8 +1,0 @@
-// Arrays and slices are not printable (`Print`/`PrintLine` take a `Display` value):
-// E0277 "`[i32; 3]` doesn't implement `std::fmt::Display`".
-fn Main() {
-    let a: [i32; 3] = [1, 2, 3];
-    PrintLine(a); //~ rustc E0277: `[i32; 3]` doesn't implement `std::fmt::Display`
-    let s: &[i32] = &a;
-    Print(s); //~ rustc E0277: `[i32]` doesn't implement `std::fmt::Display`
-}

@@ -1,0 +1,8 @@
+// An array literal of references keeps the loans of its elements: assigning the referent
+// while the array is used later is E0506.
+fn F() {
+    let mut x = 1;
+    let a = [&x, &x];
+    x = 2;
+    PrintLine(*a[0]);
+}

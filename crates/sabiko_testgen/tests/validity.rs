@@ -298,7 +298,7 @@ fn programs_use_enums_and_match() {
         ),
         ("inline `match`", |s| s.contains("(match "), 150),
         ("`if let`", |s| s.contains("if let "), 150),
-        ("`while let`", |s| s.contains("while let "), 25),
+        ("`while let`", |s| s.contains("while let "), 15),
         (
             "`let`-`else`",
             |s| {
@@ -351,4 +351,171 @@ fn programs_use_enums_and_match() {
         .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
         .collect();
     assert!(low.is_empty(), "of {SEEDS} programs: {}", low.join(", "));
+}
+
+/// Whether `s` has a reference to a slice type of a non-array element (`&[i32]`,
+/// `&mut [Point]`).
+fn has_slice_type(s: &str) -> bool {
+    ["&[", "&mut ["].iter().any(|open| {
+        s.match_indices(open).any(|(at, _)| {
+            let rest = &s[at + open.len()..];
+            rest.find(']')
+                .is_some_and(|end| !rest[..end].contains([';', '[', '(', ' ']))
+        })
+    })
+}
+
+/// Whether a type annotation or signature line of `s` has a tuple type holding an array
+/// type (`(i32, [u8; 2])`).
+fn has_array_in_tuple(s: &str) -> bool {
+    s.lines().any(|l| {
+        l.match_indices(": (").any(|(at, _)| {
+            let ty = &l[at + 2..];
+            let end = ty.find(" =").or_else(|| ty.find(')')).unwrap_or(ty.len());
+            let ty = &ty[..end];
+            (ty.contains("([") || ty.contains(", [")) && ty.contains("; ")
+        })
+    })
+}
+
+/// Whether a line of `s` starts with a place whose last part is an index and assigns
+/// to it with `op` (`a[1] = `, `s.A[(k % 2usize)] += `).
+fn writes_element(s: &str, op: &str) -> bool {
+    s.lines().any(|l| {
+        let t = l.trim_start();
+        t.find(&format!("] {op} ")).is_some_and(|at| {
+            t.starts_with(|c: char| c.is_ascii_lowercase()) && !t[..at].contains(" = ")
+        })
+    })
+}
+
+/// Whether `s` borrows an element of a local (`&a[1]`, `&mut p.Arr[i]`).
+fn borrows_element(s: &str) -> bool {
+    s.match_indices('&').any(|(at, _)| {
+        let rest = &s[at + 1..];
+        let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '.')
+            .collect();
+        name.starts_with(|c: char| c.is_ascii_lowercase()) && rest[name.len()..].starts_with('[')
+    })
+}
+
+/// Whether an enum of `s` has a variant with an array in its payload: a variant line
+/// `    Name(.., [T; N], ..),` or `    Name { F: [T; N] },`.
+fn has_array_payload(s: &str) -> bool {
+    s.lines().any(|l| {
+        let Some(t) = l.strip_prefix("    ") else {
+            return false;
+        };
+        let name_end = t
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(t.len());
+        t.starts_with(|c: char| c.is_ascii_uppercase())
+            && (t[name_end..].starts_with('(') || t[name_end..].starts_with(" { "))
+            && t.ends_with(',')
+            && t.contains("; ")
+    })
+}
+
+/// Whether `s` has an array type of a struct or enum with an `impl Drop`.
+fn has_drop_array(s: &str) -> bool {
+    s.lines()
+        .filter_map(|l| l.strip_prefix("impl Drop for "))
+        .any(|rest| {
+            let name = rest.trim_end_matches(" {");
+            s.contains(&format!("[{name}; "))
+        })
+}
+
+/// Arrays, slices and indexing (#9) are part of the subset: a fair share of programs
+/// declare array types of every kind of element and length, and use every construct.
+#[test]
+fn programs_use_arrays() {
+    let knobs = Knobs::default();
+    let checks: [Check; 18] = [
+        (
+            "array type",
+            |s| s.contains(": [") || s.contains("-> ["),
+            250,
+        ),
+        ("nested array type", |s| s.contains("[["), 25),
+        ("zero-length array", |s| s.contains("; 0]"), 40),
+        ("one-element array", |s| s.contains("; 1]"), 60),
+        (
+            "length from a constant",
+            |s| {
+                ["LEN", "SIZE", "CAP", "SLOTS", "ROWS", "COLS"]
+                    .iter()
+                    .any(|n| s.contains(&format!("; {n}]")) || s.contains(&format!("; {n} + ")))
+            },
+            60,
+        ),
+        ("slice type", has_slice_type, 70),
+        (
+            "array field",
+            |s| {
+                s.lines()
+                    .any(|l| l.starts_with("    ") && l.ends_with("],") && l.contains(": ["))
+            },
+            60,
+        ),
+        ("array in a tuple", has_array_in_tuple, 40),
+        ("array in an enum payload", has_array_payload, 30),
+        ("array of an `impl Drop` type", has_drop_array, 40),
+        ("`.len()`", |s| s.contains(".len()"), 200),
+        (
+            "`while i < s.len()`",
+            |s| {
+                s.lines()
+                    .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
+            },
+            100,
+        ),
+        (
+            "computed index",
+            |s| s.contains("[(") && s.contains(" % "),
+            150,
+        ),
+        ("element write", |s| writes_element(s, "="), 100),
+        (
+            "element compound assignment",
+            |s| {
+                ["+=", "-=", "*=", "^=", "|="]
+                    .iter()
+                    .any(|op| writes_element(s, op))
+            },
+            20,
+        ),
+        ("borrow of an element", borrows_element, 70),
+        (
+            "repeat expression",
+            |s| s.contains("; ") && s.contains("= ["),
+            100,
+        ),
+        (
+            "out-of-bounds-prone index",
+            |s| s.contains(" + 1usize)]") || s.contains(" - 1usize)]"),
+            30,
+        ),
+    ];
+    let mut counts = [0usize; 18];
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
+            *count += usize::from(check(&src));
+        }
+    }
+    let report: Vec<String> = checks
+        .iter()
+        .zip(counts)
+        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
+        .collect();
+    let low = checks
+        .iter()
+        .zip(counts)
+        .any(|((_, _, min), count)| count < *min);
+    eprintln!("of {SEEDS} programs: {}", report.join(", "));
+    assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
 }

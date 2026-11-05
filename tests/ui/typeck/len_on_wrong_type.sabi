@@ -1,0 +1,18 @@
+// Sabiko codes for rustc's: E0319 for E0599, E0304 for E0061, E0320 for E0615, E0301 for
+// E0609.
+// `.len()` is a method of arrays and slices only: on an `i32` or a struct it is E0599. It
+// keeps Rust's lowercase name, so `a.Len()` is E0599 too; it takes no argument (E0061)
+// and is not a field (E0615). Arrays and slices have no fields at all (E0609).
+struct P { X: i32 }
+
+fn Main() {
+    let x: i32 = 5;
+    let p = P { X: 1 };
+    let a = [1, 2];
+    let n = x.len(); //~ ERROR E0319 no method named `len` found for type `i32`
+    let m = p.len(); //~ ERROR E0319 no method named `len` found for struct `P`
+    let k = a.Len(); //~ ERROR E0319 no method named `Len` found for `[{integer}; 2]`
+    let j = a.len(1); //~ ERROR E0304 this method takes 0 arguments but 1 argument was supplied
+    let l = a.len; //~ ERROR E0320 attempted to take value of method `len` on type `[{integer}; 2]`
+    let c = a.Count; //~ ERROR E0301 no field `Count` on type `[{integer}; 2]`
+}

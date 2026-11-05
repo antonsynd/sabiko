@@ -5,7 +5,9 @@
 //! - [`MovePaths`] is a forest of *move paths*: every local and every field projection
 //!   below it that occurs in the body (`x`, `x.F`, `x.F.G`), with parent/children links.
 //!   Projections through a `Deref` do not form move paths: a move out of `*r` is an error
-//!   on its own, and nothing below a reference is ever tracked.
+//!   on its own, and nothing below a reference is ever tracked. Neither do projections
+//!   through an `Index`: a move out of an array element is an error (`E0420`), so an
+//!   array is moved and re-initialised whole, and writing an element initialises nothing.
 //! - [`MaybeMovedAnalysis`] is a forward "maybe moved" dataflow (union at joins) over the
 //!   paths. `Operand::Move(place)` marks the path and all its descendants moved; writing a
 //!   place (an assignment or a call destination) re-initialises its path and descendants;
@@ -108,7 +110,11 @@ impl MovePaths {
     /// behind a reference is a move path) or was never seen.
     #[must_use]
     pub fn exact(&self, place: &Place) -> Option<MovePathIndex> {
-        if place.projection.contains(&PlaceElem::Deref) {
+        if place
+            .projection
+            .iter()
+            .any(|e| matches!(e, PlaceElem::Deref | PlaceElem::Index(_)))
+        {
             return None;
         }
         self.lookup.get(place).copied()
@@ -147,12 +153,12 @@ impl MovePaths {
     }
 }
 
-/// `place` cut before its first `Deref`.
+/// `place` cut before its first `Deref` or `Index`.
 fn deref_free_prefix(place: &Place) -> Place {
     let len = place
         .projection
         .iter()
-        .position(|elem| *elem == PlaceElem::Deref)
+        .position(|elem| matches!(elem, PlaceElem::Deref | PlaceElem::Index(_)))
         .unwrap_or(place.projection.len());
     Place {
         local: place.local,
@@ -167,7 +173,7 @@ fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
             match &statement.kind {
                 StatementKind::Assign(dest, rvalue) => {
                     f(dest);
-                    if let Rvalue::Ref(_, place) = rvalue {
+                    if let Rvalue::Ref(_, place) | Rvalue::Len(place) = rvalue {
                         f(place);
                     }
                     for_each_rvalue_operand(rvalue, |op| {
@@ -197,13 +203,17 @@ fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
 
 fn for_each_rvalue_operand<'a>(rvalue: &'a Rvalue, mut f: impl FnMut(&'a Operand)) {
     match rvalue {
-        Rvalue::Use(op) | Rvalue::UnaryOp(_, op) | Rvalue::Cast(op, _) => f(op),
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => f(op),
         Rvalue::BinaryOp(_, lhs, rhs) => {
             f(lhs);
             f(rhs);
         }
         Rvalue::Aggregate(_, fields) => fields.iter().for_each(f),
-        Rvalue::Ref(..) | Rvalue::Discriminant(_) => {}
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => {}
     }
 }
 
@@ -431,7 +441,7 @@ impl MoveChecker<'_> {
             StatementKind::Assign(dest, rvalue) => {
                 if let Rvalue::Ref(_, place) = rvalue {
                     self.check_use(place, UseKind::Borrow, location, statement.span);
-                } else if let Rvalue::Discriminant(place) = rvalue {
+                } else if let Rvalue::Discriminant(place) | Rvalue::Len(place) = rvalue {
                     // Matching reads the discriminant: a use of the whole value.
                     self.check_use(place, UseKind::Use, location, statement.span);
                 } else {
@@ -467,7 +477,9 @@ impl MoveChecker<'_> {
             Operand::Copy(place) => self.check_use(place, UseKind::Use, location, span),
             Operand::Move(place) => {
                 self.check_use(place, UseKind::Use, location, span);
-                if !self.check_move_out_of_borrow(place, span) {
+                if !self.check_move_out_of_index(place, span)
+                    && !self.check_move_out_of_borrow(place, span)
+                {
                     self.check_move_out_of_drop_type(place, span);
                 }
             }
@@ -512,7 +524,8 @@ impl MoveChecker<'_> {
             };
             let kind = match place.projection[cut] {
                 PlaceElem::Field(..) | PlaceElem::Downcast(_) => UseKind::PartialAssign,
-                PlaceElem::Deref => UseKind::Use,
+                // Writing an element uses the array (rustc: "use of moved value").
+                PlaceElem::Deref | PlaceElem::Index(_) => UseKind::Use,
             };
             if let Some(index) = self.paths.closest(&base) {
                 if self.cursor.get().contains(index.0) {
@@ -538,7 +551,7 @@ impl MoveChecker<'_> {
                 PlaceElem::Field(_, field_ty) => field_ty,
                 // `(e as V)` is still `e`: its fields are checked at the next `Field`.
                 PlaceElem::Downcast(_) => continue,
-                PlaceElem::Deref => return,
+                PlaceElem::Deref | PlaceElem::Index(_) => return,
             };
             if let Ty::Adt(adt) = ty {
                 if self.typeck.items.drop_impl(adt).is_some() {
@@ -579,6 +592,45 @@ impl MoveChecker<'_> {
                 self.describe(base)
             )),
         );
+    }
+
+    /// `E0420` (rustc's E0508): a move out of an array or slice element, at any depth
+    /// (`a[i]`, `a[i].Inner`, `s[0]` through a reference). Returns whether it reported.
+    fn check_move_out_of_index(&mut self, place: &Place, span: Span) -> bool {
+        let Some(index) = place
+            .projection
+            .iter()
+            .position(|elem| matches!(elem, PlaceElem::Index(_)))
+        else {
+            return false;
+        };
+        let base = Place {
+            local: place.local,
+            projection: place.projection[..index].to_vec(),
+        };
+        let base_ty = base.ty(self.body);
+        let what = match base_ty {
+            Ty::Slice(_) => "a non-copy slice".to_owned(),
+            _ => "a non-copy array".to_owned(),
+        };
+        let desc = self.describe(place);
+        let ty = place.ty(self.body);
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::MOVE_OUT_OF_INDEX,
+                format!(
+                    "cannot move out of type `{}`, {what}",
+                    base_ty.display(self.resolve)
+                ),
+            )
+            .with_label(span, "cannot move out of here")
+            .with_note(format!(
+                "move occurs because `{desc}` has type `{}`, which does not implement the `Copy` trait",
+                ty.display(self.resolve)
+            ))
+            .with_note("borrow the element instead (`&a[i]`), or replace it"),
+        );
+        true
     }
 
     /// `E0407`: a move whose place reads through a reference. Returns whether it reported.

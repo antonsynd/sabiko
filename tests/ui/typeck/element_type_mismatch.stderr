@@ -1,0 +1,28 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/element_type_mismatch.sabi:5:17 ]
+   │
+ 5 │     let a = [1, true]; //~ ERROR E0300 mismatched types
+   │                 ──┬─  
+   │                   ╰─── expected `{integer}`, found `bool`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/element_type_mismatch.sabi:7:12 ]
+   │
+ 7 │     c[0] = 1.5; //~ ERROR E0300 mismatched types
+   │            ─┬─  
+   │             ╰─── expected `i32`, found `{float}`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/element_type_mismatch.sabi:8:12 ]
+   │
+ 8 │     c[1] = 2i64; //~ ERROR E0300 mismatched types
+   │            ──┬─  
+   │              ╰─── expected `i32`, found `i64`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/element_type_mismatch.sabi:9:19 ]
+   │
+ 9 │     let d = [1u8, 2u16]; //~ ERROR E0300 mismatched types
+   │                   ──┬─  
+   │                     ╰─── expected `u8`, found `u16`
+───╯
