@@ -24,10 +24,12 @@ same output. The workloads are sized to take roughly 50–250 ms per process lau
 | `tuples` | Pairs passed and returned by value, a quotient-and-remainder pair, destructuring and a three-element accumulator rebuilt per iteration; the C# uses `System.ValueTuple`, which Sabiko's tuples lower to (decision 52) |
 | `methods` | Structs with methods in a hot loop: a generator stepped through `&mut self`, a Copy vector type with by-value, `&self` and `&mut self` methods and a constructor, particles and a world calling methods on their fields (one call a two-phase borrow); Sabiko's methods are static methods of the struct (decision 53), the C# uses instance methods on structs |
 | `drops` | Values with drop glue in a hot loop (#12): a struct of two `Drop` values built per iteration, one sometimes moved into a function (a drop flag), the rest dropped through the struct's glue at the end of the body, a long-lived value replaced every fifth iteration; Sabiko's protected regions (decision 55) against the C#'s explicit `Drop()` calls in `try`/`finally` |
+| `arrays` | Arrays and slices in hot loops (#9): a sieve of Eratosthenes over a `[bool; 200000]` passed as `&mut [bool]`, an insertion sort over a `&mut [i32]`, and a 64×64 `[[f64; 64]; 64]` matrix product; Sabiko's arrays are inline arrays on the stack and its slices spans (decision 61), every index checked with rustc's message; the C# uses heap arrays allocated once, `Span<T>` parameters and a `double[,]` |
 | `enums` | Enums and `match` in a hot loop (#8): a stack machine whose instructions are an enum with unit, tuple and struct variants, interpreted by a `match` with a guard, and a state machine stepped by `state = match (state, input)` with or-patterns; the C# uses tagged structs with a `Kind` field and `switch` |
 
 They stay inside today's subset (integers, floats, `bool`, structs, tuples, references,
-functions, methods, `impl Drop`, enums and `match`, `if`/`while`/`loop`): no arrays or generics. Two consequences:
+functions, methods, `impl Drop`, enums and `match`, arrays and slices, `if`/`while`/`loop`):
+no generics, and no `for` loops or ranges. Two consequences (from before arrays):
 the n-body bodies are spelled out as struct fields with the ten pairs written out, and its
 square root is a Newton iteration (there is no `f64::sqrt`: methods on primitives come
 with traits). The C#
@@ -37,9 +39,9 @@ would write (`for` loops, `const`, `ref`/`in` parameters, `Console.WriteLine`).
 Arithmetic never overflows in any benchmark, so the checked configuration computes the
 same results; there are no `wrapping_*` methods yet.
 
-To add when the rest of Phase 5 (arrays, slices) lands: a sieve of Eratosthenes, spectral
-norm, sorting (quicksort and insertion sort over an array), matrix multiply, and n-body
-over an array of bodies with `f64::sqrt`; with Phase 7's `Box`, `String` and `Vec`,
+Still to add: spectral norm, quicksort (it needs slicing, `&a[lo..hi]`, which waits for
+ranges), and n-body over an array of bodies once `f64::sqrt` exists; with Phase 7's `Box`,
+`String` and `Vec`,
 binary trees (allocation) and string building. Each of those is where Sabiko's bounds
 checks, value-type layout and allocation strategy will differ from C#'s, which the current
 set cannot show.

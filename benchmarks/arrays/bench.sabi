@@ -1,0 +1,126 @@
+// Arrays and slices in hot loops (#9): a sieve of Eratosthenes over a `[bool; N]` passed
+// as `&mut [bool]`, an insertion sort over a `&mut [i32]` filled by a linear congruential
+// generator, and a matrix product of `[[f64; 64]; 64]` values. Sabiko's arrays are inline
+// arrays on the stack and its slices spans (decision 61); every index is bounds-checked
+// with rustc's message. The C# program uses heap arrays allocated once, indexed through
+// `Span<T>` parameters, which is what C# code would write. Nothing overflows in a checked
+// build.
+
+const SieveSize: usize = 200_000;
+const SieveRounds: u32 = 40;
+const SortSize: usize = 2_000;
+const SortRounds: u32 = 12;
+const Dim: usize = 64;
+const MatrixRounds: u32 = 40;
+
+fn Sieve(composite: &mut [bool]) -> u32 {
+    let n = composite.len();
+    let mut i = 0;
+    while i < n {
+        composite[i] = false;
+        i += 1;
+    }
+    let mut count = 0;
+    let mut p = 2;
+    while p < n {
+        if !composite[p] {
+            count += 1;
+            let mut m = p * p;
+            while m < n {
+                composite[m] = true;
+                m += p;
+            }
+        }
+        p += 1;
+    }
+    count
+}
+
+fn Fill(values: &mut [i32], seed: u64) -> u64 {
+    let mut state = seed;
+    let mut i = 0;
+    while i < values.len() {
+        state = state * 48271 % 2147483647;
+        values[i] = (state % 100_000) as i32;
+        i += 1;
+    }
+    state
+}
+
+fn InsertionSort(values: &mut [i32]) {
+    let mut i = 1;
+    while i < values.len() {
+        let key = values[i];
+        let mut j = i;
+        while j > 0 && values[j - 1] > key {
+            values[j] = values[j - 1];
+            j -= 1;
+        }
+        values[j] = key;
+        i += 1;
+    }
+}
+
+fn Multiply(a: &[[f64; Dim]; Dim], b: &[[f64; Dim]; Dim], c: &mut [[f64; Dim]; Dim]) {
+    let mut i = 0;
+    while i < Dim {
+        let mut j = 0;
+        while j < Dim {
+            let mut sum = 0.0;
+            let mut k = 0;
+            while k < Dim {
+                sum += a[i][k] * b[k][j];
+                k += 1;
+            }
+            c[i][j] = sum;
+            j += 1;
+        }
+        i += 1;
+    }
+}
+
+fn Main() {
+    let mut composite = [false; SieveSize];
+    let mut primes = 0;
+    let mut round = 0;
+    while round < SieveRounds {
+        primes += Sieve(&mut composite);
+        round += 1;
+    }
+    PrintLine(primes);
+
+    let mut values = [0; SortSize];
+    let mut seed: u64 = 12345;
+    let mut checksum: i64 = 0;
+    round = 0;
+    while round < SortRounds {
+        seed = Fill(&mut values, seed);
+        InsertionSort(&mut values);
+        checksum += values[0] as i64 + values[SortSize / 2] as i64 + values[SortSize - 1] as i64;
+        round += 1;
+    }
+    PrintLine(checksum);
+
+    let mut a = [[0.0; Dim]; Dim];
+    let mut b = [[0.0; Dim]; Dim];
+    let mut c = [[0.0; Dim]; Dim];
+    let mut i = 0;
+    while i < Dim {
+        let mut j = 0;
+        while j < Dim {
+            a[i][j] = (i + j) as f64 / Dim as f64;
+            b[i][j] = (i as f64 - j as f64) / Dim as f64;
+            j += 1;
+        }
+        i += 1;
+    }
+    let mut trace = 0.0;
+    round = 0;
+    while round < MatrixRounds {
+        Multiply(&a, &b, &mut c);
+        a[round as usize % Dim][0] += 1.0;
+        trace += c[round as usize % Dim][round as usize % Dim];
+        round += 1;
+    }
+    PrintLine(trace);
+}

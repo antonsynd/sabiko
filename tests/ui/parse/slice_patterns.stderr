@@ -1,0 +1,9 @@
+[E0107] Error: not yet supported: slice patterns
+   ╭─[ tests/ui/parse/slice_patterns.sabi:4:9 ]
+   │
+ 4 │     let [a, b, c] = arr; //~ ERROR E0107 not yet supported: slice patterns
+   │         ┬  
+   │         ╰── not supported in this version of Sabiko
+   │ 
+   │ Note: not yet planned; see docs/PLAN.md
+───╯

@@ -958,6 +958,9 @@ impl Parser<'_, '_> {
                 self.parse_ident()?;
                 unreachable!("parse_ident fails on keywords")
             }
+            TokenKind::LBracket => {
+                return Err(self.error_unsupported("slice patterns", start, "not yet planned"));
+            }
             _ => {
                 let d = Diagnostic::error(
                     ErrorCode::EXPECTED_PATTERN,
