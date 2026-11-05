@@ -1,0 +1,13 @@
+Sum(int[]): 14
+Sum(slice of int[]): 6
+Sum(empty): 0
+Scale(stackalloc): 6,21
+Scale(int[]): -3,-1,-4,-1,-5
+Largest(int[]): -1
+Largest is a reference into the array: -100
+Make(10): 10,11,12,13
+Reverse(ref): 13,12,11,10
+Sum(AsSlice(in)): 46
+Total(in Samples): 18
+Samples is a value type: 5
+At(7) panics: index out of bounds: the len is 3 but the index is 7

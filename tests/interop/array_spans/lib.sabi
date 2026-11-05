@@ -1,0 +1,73 @@
+// The Sabiko half of the `array_spans` interop test (#9, decision 61): `&[T]` is
+// `ReadOnlySpan<T>` and `&mut [T]` is `Span<T>`, so C# passes its own arrays and spans;
+// `[T; N]` is an inline-array value type C# indexes as it indexes its own inline arrays,
+// passed by value, `in` (`&[T; N]`) and `ref` (`&mut [T; N]`) and held in a struct
+// field; an out-of-bounds index is a `Sabiko.Runtime.PanicException` C# can catch.
+
+#[derive(Copy, Clone)]
+struct Samples {
+    Values: [i32; 4],
+    Count: i32,
+}
+
+fn Sum(s: &[i32]) -> i64 {
+    let mut total: i64 = 0;
+    let mut i = 0;
+    while i < s.len() {
+        total += s[i] as i64;
+        i += 1;
+    }
+    total
+}
+
+fn Scale(s: &mut [i32], k: i32) {
+    let mut i = 0;
+    while i < s.len() {
+        s[i] *= k;
+        i += 1;
+    }
+}
+
+fn Reverse(a: &mut [i32; 4]) {
+    let mut i = 0;
+    while i < 2 {
+        let t = a[i];
+        a[i] = a[3 - i];
+        a[3 - i] = t;
+        i += 1;
+    }
+}
+
+fn Make(seed: i32) -> [i32; 4] {
+    [seed, seed + 1, seed + 2, seed + 3]
+}
+
+fn Total(s: &Samples) -> i32 {
+    let mut t = 0;
+    let mut i = 0;
+    while i < s.Count as usize {
+        t += s.Values[i];
+        i += 1;
+    }
+    t
+}
+
+fn Largest(s: &[i32]) -> &i32 {
+    let mut best = 0;
+    let mut i = 1;
+    while i < s.len() {
+        if s[i] > s[best] {
+            best = i;
+        }
+        i += 1;
+    }
+    &s[best]
+}
+
+fn AsSlice(a: &[i32; 4]) -> &[i32] {
+    a
+}
+
+fn At(s: &[i32], i: usize) -> i32 {
+    s[i]
+}

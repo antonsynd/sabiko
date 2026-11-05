@@ -389,7 +389,12 @@ the tags with Sabiko's `match`, passes a struct the same three ways, and catches
 `PanicException` of a `match` on a tag no variant has. Its first run found two interop
 bugs (decision 59): C# could not read payloads (a nested type and a field of one name are
 ambiguous in C#) nor call any function with an `&T` parameter (`modreq(InAttribute)` on a
-static method's parameter is CS0570).
+static method's parameter is CS0570). `array_spans` (#9, decision 61) passes C# arrays,
+array slices and a `stackalloc` span to `&[i32]` (`ReadOnlySpan<int>`) and `&mut [i32]`
+(`Span<int>`) parameters, holds a `ref readonly int` that a Sabiko function returns into
+the C# array, indexes the inline arrays Sabiko returns (C# 12 inline-array indexing) and
+one in a struct field, passes an array by `ref` and `in`, and catches the panic of an
+out-of-bounds index; it passed on its first run.
 
 ## Dependencies
 
