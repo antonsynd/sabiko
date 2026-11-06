@@ -1,0 +1,8 @@
+// A `&()` is a loan like any other: assigning the `()` element it points to while it is
+// still used conflicts, though `()` holds no data.
+fn F() {
+    let mut t = ((), 1);
+    let r = &t.0;
+    t.0 = ();
+    let u: () = *r;
+}

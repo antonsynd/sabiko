@@ -1,0 +1,28 @@
+// A reference local borrowed by `&r` may be reassigned once that borrow is dead; the
+// new borrow `&r` sees the new target, and the old target is left alone.
+fn Read(rr: &&i32) -> i32 { **rr }
+
+fn Main() {
+    let a = 10;
+    let b = 20;
+    let c = 30;
+    let mut r = &a;
+    let rr = &r;
+    PrintLine(**rr);
+    r = &b;
+    PrintLine(*r);
+    let rr = &r;
+    PrintLine(Read(rr));
+    r = &c;
+    PrintLine(Read(&r));
+    let mut i = 0;
+    let mut total = 0;
+    while i < 3 {
+        if i % 2 == 0 { r = &a; } else { r = &b; }
+        let rr = &r;
+        total += **rr;
+        i += 1;
+    }
+    PrintLine(total);
+    PrintLine(a + b + c);
+}

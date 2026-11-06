@@ -1,0 +1,16 @@
+// KNOWN GAP (constant promotion, borrow checking): rustc promotes `&7` (a borrow of a
+// constant expression) to a `&'static i32`, so a function may store it behind
+// `m: &mut &i32` whatever `*m`'s lifetime, and a `let` may keep it. Sabiko treats `&7` as a
+// borrow of a temporary that dies at the end of the statement (E0413). A string literal,
+// which is `&'static str` in both, works (`differential/run/refs/double_ref_mut_ref_to_ref`).
+fn SetSeven(m: &mut &i32) { *m = &7; }
+
+fn Main() {
+    let x = 1;
+    let mut r = &x;
+    SetSeven(&mut r);
+    PrintLine(*r);
+    let m = &mut r;
+    *m = &(2 + 3);
+    PrintLine(**m);
+}

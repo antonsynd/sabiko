@@ -1,0 +1,39 @@
+// A `&T` obtained through a `&&T` outlives the reference to a reference: functions taking
+// `&T` called with `*rr`, `&**rr` and `&rr.Field`, a `&self` method called on `&&S`, and
+// `if`/block expressions whose value is a `&&T`.
+struct Point { X: i32, Y: i32 }
+
+impl Point {
+    fn YRef(&self) -> &i32 { &self.Y }
+}
+
+fn XOf(p: &Point) -> &i32 { &p.X }
+
+fn Larger(p: &Point) -> &i32 { if p.X > p.Y { &p.X } else { &p.Y } }
+
+fn Main() {
+    let p = Point { X: 3, Y: 8 };
+    let x: &i32;
+    let y: &i32;
+    let l: &i32;
+    {
+        let r = &p;
+        let rr = &r;
+        x = XOf(*rr);
+        y = rr.YRef();
+        l = Larger(&**rr);
+    }
+    PrintLine(*x + *y + *l);
+    let q = Point { X: 10, Y: 1 };
+    let rp = &p;
+    let rq = &q;
+    let which = if *XOf(rq) > 5 { &rq } else { &rp };
+    PrintLine(*Larger(*which));
+    let from_block = {
+        let inner = &rp;
+        *inner
+    };
+    PrintLine(from_block.X);
+    let fx = &rq.X;
+    PrintLine(*fx);
+}

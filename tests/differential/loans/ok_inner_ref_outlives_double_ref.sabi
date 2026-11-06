@@ -1,0 +1,12 @@
+// The `&i32` copied out of a `&&i32` borrows `x`, not the reference it was read through:
+// it outlives `rr` and the block that held it.
+fn F() {
+    let x = 1;
+    let s: &i32;
+    {
+        let r = &x;
+        let rr = &r;
+        s = *rr;
+    }
+    PrintLine(*s);
+}

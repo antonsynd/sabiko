@@ -1,0 +1,14 @@
+// Retargeting `r` through `m: &mut &i32` does not end the loan of `x` that `r` held: the
+// loan is part of `r`'s type, which is live while `r` is, so writing `x` is an error
+// (rustc's NLL; overwriting `r` directly, `ok_assign_ref_after_double_ref_dead`, kills it).
+fn F() {
+    let mut x = 1;
+    let y = 2;
+    let mut r = &x;
+    {
+        let m = &mut r;
+        *m = &y;
+    }
+    x = 5;
+    PrintLine(*r);
+}

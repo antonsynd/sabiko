@@ -1,8 +1,9 @@
 //! The type universe of the generated subset: the primitive types, user structs and enums,
-//! tuples and arrays of value types, slices and `str` (behind references only), and
-//! references to any of them (never to references; tuples, arrays, struct fields and enum
-//! payloads never hold references, so no `&str` either: TODO(#43) for `&str` in structs,
-//! enums and arrays, TODO(#11) for `&&str`).
+//! tuples and arrays of value types, slices and `str` (behind references only), references
+//! to any of them, and references to those references (#11: `&&T`, `&&mut T`, `&mut &T`,
+//! `&mut &mut T`, `&&str`, `&&[T]`; locals and parameters only, never three levels).
+//! Tuples, arrays, struct fields and enum payloads never hold references, so no `&str`
+//! either: TODO(#43) for `&str` (and `&&T`) in structs, enums, arrays and tuples.
 
 /// The twelve integer types of the shared subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -168,13 +169,21 @@ pub enum ValTy {
     Str,
 }
 
-/// A type a local or parameter can have. References point at values only (`&&T` is not
-/// in the subset).
+/// A type a local or parameter can have: a value, a reference to one, or a reference to a
+/// reference to one (#11). Nothing is returned as `&&T` (with one input lifetime, rustc
+/// would not let a function return a reference to its parameter's reference anyway).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Ty {
     Val(ValTy),
     /// `&T` (`mutable == false`) or `&mut T`.
     Ref {
+        mutable: bool,
+        inner: ValTy,
+    },
+    /// `&R` (`outer == false`) or `&mut R`, where `R` is `&T` (`mutable == false`) or
+    /// `&mut T`: `&&T`, `&&mut T`, `&mut &T`, `&mut &mut T`.
+    RefRef {
+        outer: bool,
         mutable: bool,
         inner: ValTy,
     },
@@ -194,11 +203,21 @@ impl Ty {
     pub fn as_val(self) -> Option<ValTy> {
         match self {
             Ty::Val(v) => Some(v),
-            Ty::Ref { .. } => None,
+            Ty::Ref { .. } | Ty::RefRef { .. } => None,
         }
     }
 
+    /// A reference of either depth.
     pub fn is_ref(self) -> bool {
-        matches!(self, Ty::Ref { .. })
+        matches!(self, Ty::Ref { .. } | Ty::RefRef { .. })
+    }
+
+    /// The number of lifetimes an elided reference type introduces: 0, 1 or 2.
+    pub fn lifetimes(self) -> usize {
+        match self {
+            Ty::Val(_) => 0,
+            Ty::Ref { .. } => 1,
+            Ty::RefRef { .. } => 2,
+        }
     }
 }

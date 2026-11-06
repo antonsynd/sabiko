@@ -1,0 +1,45 @@
+// Loops and conditionals choose which local a `&mut &i32` points the original reference
+// at: `*m = &..` in an `if`, a `match` and a `while`, keeping the largest value seen.
+fn Main() {
+    let a = 3;
+    let b = 9;
+    let c = 5;
+    let mut best = &a;
+    {
+        let m = &mut best;
+        if b > **m { *m = &b; }
+        if c > **m { *m = &c; }
+    }
+    PrintLine(*best);
+    let mut cur = &a;
+    let mut i = 0;
+    let mut total = 0;
+    while i < 6 {
+        let m = &mut cur;
+        match i % 3 {
+            0 => *m = &a,
+            1 => *m = &b,
+            _ => *m = &c,
+        }
+        total += **m;
+        i += 1;
+    }
+    PrintLine(total);
+    PrintLine(*cur);
+    let flag = total > 30;
+    let r1 = &a;
+    let r2 = &b;
+    let pick = if flag { &r1 } else { &r2 };
+    PrintLine(**pick);
+    let mut j = 0;
+    let mut slot = &c;
+    let ms = &mut slot;
+    loop {
+        j += 1;
+        if j == 3 {
+            *ms = &b;
+            break;
+        }
+    }
+    PrintLine(**ms + j);
+}

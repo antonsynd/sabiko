@@ -1,0 +1,36 @@
+// Field and tuple-element access auto-dereferences through several references: `rr.1.1`
+// on `&&(i32, (i32, i32))`, `rrr.Inner.Y` on `&&&Outer`, and writes `mm.X = 5` through
+// `&mut &mut S`.
+struct Point { X: i32, Y: i32 }
+
+struct Outer { Inner: Point, N: i32 }
+
+fn Sum(rr: &&Outer) -> i32 { rr.Inner.X + rr.Inner.Y + rr.N }
+
+fn Main() {
+    let t = (1, (2, 3));
+    let r = &t;
+    let rr = &r;
+    PrintLine(rr.1.1);
+    PrintLine(rr.0 + rr.1.0);
+    let mut o = Outer { Inner: Point { X: 1, Y: 2 }, N: 3 };
+    {
+        let ro = &o;
+        let rro = &ro;
+        let rrr = &rro;
+        PrintLine(rrr.Inner.Y);
+        PrintLine(Sum(rro));
+        PrintLine(Sum(*rrr));
+    }
+    {
+        let mut m = &mut o;
+        let mm = &mut m;
+        mm.N = 5;
+        mm.Inner.X += 40;
+        let p = &mut mm.Inner;
+        p.Y = 7;
+        PrintLine(mm.Inner.X + mm.Inner.Y + mm.N);
+    }
+    PrintLine(o.Inner.X);
+    PrintLine(Sum(&&o));
+}

@@ -1,0 +1,28 @@
+// `let (a, b) = &t;` where `t` holds references binds `a: &&i32` by the default binding
+// mode; `let (a, b) = &mut t;` binds `a: &mut &i32`, and writing through it retargets `t.0`.
+fn Total(t: &(&i32, &i32)) -> i32 {
+    let (a, b) = t;
+    **a + **b
+}
+
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let z = 30;
+    let t = (&x, &y);
+    let (a, b) = &t;
+    PrintLine(**a);
+    PrintLine(**b);
+    PrintLine(Total(&t));
+    let mut u = (&x, &y);
+    {
+        let (a, b) = &mut u;
+        *a = &z;
+        PrintLine(**a + **b);
+    }
+    PrintLine(*u.0);
+    PrintLine(Total(&u));
+    let n = ((&x, 5), &y);
+    let ((p, q), s) = &n;
+    PrintLine(**p + *q + **s);
+}

@@ -781,10 +781,7 @@ impl BodyGen<'_> {
 }
 
 /// The receiver of `.len()` (or the base of a range index) for a place: `*s` is written
-/// `s` (auto-deref).
+/// `s` and `**ss` `ss` (auto-deref).
 pub(super) fn len_receiver(text: &str) -> String {
-    match text.strip_prefix('*') {
-        Some(name) => name.to_owned(),
-        None => text.to_owned(),
-    }
+    text.trim_start_matches('*').to_owned()
 }

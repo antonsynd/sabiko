@@ -488,7 +488,7 @@ pub enum FakeBorrowKind {
     /// `*m` does not reach the shallow writes of `m` (`m = &z`), which would make later
     /// candidates test another value. Like [`Self::Shallow`] it covers only the place and
     /// its prefixes, not what is reached through it, and its creation is no access; like
-    /// [`Self::Guard`] it ignores moves and a conflict is E0419 (decision 64). Printed
+    /// [`Self::Guard`] it ignores moves and a conflict is E0419 (decision 65). Printed
     /// `&fake shallow m`, as rustc prints it.
     GuardShallow,
     /// Of a reference place compared by `==`, `<`, ...: rustc passes `&r` to

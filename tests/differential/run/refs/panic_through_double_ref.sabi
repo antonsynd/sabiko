@@ -1,0 +1,17 @@
+// `Panic` called with a value read through `&&i32`: the output before it is kept and the
+// program exits with 101, the panic located at the `Panic(...)` call.
+fn Checked(rr: &&i32) -> i32 {
+    if **rr < 0 { Panic("negative through a reference to a reference") }
+    **rr * 2
+}
+
+fn Main() {
+    let a = 4;
+    let b = -1;
+    let ra = &a;
+    let rb = &b;
+    PrintLine(Checked(&ra));
+    PrintLine(Checked(&&a));
+    PrintLine(Checked(&rb));
+    PrintLine("not reached");
+}

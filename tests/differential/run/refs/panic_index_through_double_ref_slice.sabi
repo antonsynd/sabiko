@@ -1,0 +1,14 @@
+// An out-of-bounds index written through `&mut &mut [i32]` panics before the store; the
+// element before it was written.
+fn Set(mm: &mut &mut [i32], i: usize, v: i32) {
+    mm[i] = v;
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    let mut s: &mut [i32] = &mut a;
+    Set(&mut s, 1, 20);
+    PrintLine(s[1]);
+    Set(&mut s, 5, 50);
+    PrintLine("not reached");
+}

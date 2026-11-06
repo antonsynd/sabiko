@@ -1,0 +1,16 @@
+// Matching a `&&Cell` binds through both references (`n: &i32`, the default binding mode
+// stays `ref`).
+enum Cell { Empty, Value(i32) }
+
+fn Get(rr: &&Cell) -> i32 {
+    match rr {
+        Cell::Value(n) => *n,
+        Cell::Empty => -1,
+    }
+}
+
+fn Main() {
+    let c = Cell::Value(4);
+    let r = &c;
+    PrintLine(Get(&r));
+}

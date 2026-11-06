@@ -1,0 +1,47 @@
+// References to `()`: `&()` and `&&()` locals, `&mut ()` and writing `()` through it,
+// `&()` parameters and return values, `&()` in tuples and borrowing a `()` element.
+// `()` carries nothing, so the output comes from the prints around each use.
+fn Unit(r: &()) -> &() { r }
+
+fn Take(r: &(), n: i32) -> i32 { let u: () = *r; n + 1 }
+
+fn Reset(m: &mut ()) { *m = (); }
+
+fn Pair(r: &()) -> (&(), i32) { (r, 7) }
+
+fn Main() {
+    let u = ();
+    let r = &u;
+    let rr = &r;
+    let back: () = **rr;
+    PrintLine(1);
+    let same = Unit(r);
+    let again = Unit(*rr);
+    PrintLine(Take(same, 1));
+    PrintLine(Take(again, Take(&(), 2)));
+    let mut v = ();
+    {
+        let m = &mut v;
+        *m = ();
+        Reset(m);
+        let mm = &mut &mut v;
+        **mm = ();
+    }
+    Reset(&mut v);
+    PrintLine(4);
+    let t = ((), 1);
+    let e = &t.0;
+    PrintLine(Take(e, t.1));
+    let p = Pair(&u);
+    PrintLine(Take(p.0, p.1));
+    let q = (&u, &r, 9);
+    let w: () = **q.1;
+    PrintLine(q.2);
+    let mut s = ((), 3);
+    let em = &mut s.0;
+    *em = ();
+    PrintLine(s.1);
+    if *Unit(&()) == () {
+        PrintLine("units compare equal");
+    }
+}

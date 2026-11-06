@@ -524,7 +524,7 @@ impl Builder<'_> {
     ) {
         let span = guard.span;
         // Shallow fake borrows of the prefixes before each dereference (`m` for `*m`),
-        // then the fake borrow of the place itself (decision 64).
+        // then the fake borrow of the place itself (decision 65).
         let mut fakes = Vec::new();
         for (index, elem) in place.projection.iter().enumerate() {
             if *elem != PlaceElem::Deref {

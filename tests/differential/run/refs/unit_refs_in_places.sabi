@@ -1,0 +1,47 @@
+// `&()` and `&mut ()` that point into other values: a struct field of type `()`, an enum
+// payload bound by reference through `&E` and `&&E`, and default binding modes on
+// `&((), i32)`; the prints around them show each step ran.
+struct Holder { U: (), N: i32 }
+
+enum Slot { Unit(()), Num(i32) }
+
+fn Describe(s: &Slot) -> i32 {
+    match s {
+        Slot::Unit(u) => { let v: &() = u; 0 }
+        Slot::Num(n) => *n,
+    }
+}
+
+fn Main() {
+    let mut h = Holder { U: (), N: 5 };
+    {
+        let r = &h.U;
+        let rr = &r;
+        let v: () = **rr;
+        PrintLine(h.N);
+    }
+    {
+        let m = &mut h.U;
+        *m = ();
+        let mm = &mut &mut h.N;
+        **mm += 1;
+    }
+    PrintLine(h.N);
+    let a = Slot::Unit(());
+    let b = Slot::Num(8);
+    PrintLine(Describe(&a) + Describe(&b));
+    let ra = &a;
+    match &ra {
+        Slot::Unit(u) => { let w: &() = u; PrintLine("unit through two references"); }
+        Slot::Num(_) => PrintLine("num"),
+    }
+    let t = ((), 9);
+    let (u, n) = &t;
+    let x: &() = u;
+    PrintLine(*n);
+    let mut w = ((), 1);
+    let (um, nm) = &mut w;
+    *um = ();
+    *nm += 1;
+    PrintLine(w.1);
+}

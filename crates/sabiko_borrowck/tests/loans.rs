@@ -849,7 +849,7 @@ fn conflict_with_reborrow_and_shallow_borrow_is_reported_once() {
 }
 
 // ----------------------------------------------------------------------------------------
-// Shallow guard fake borrows of the prefixes of a scrutinee before a deref (decision 64)
+// Shallow guard fake borrows of the prefixes of a scrutinee before a deref (decision 65)
 // ----------------------------------------------------------------------------------------
 
 #[test]

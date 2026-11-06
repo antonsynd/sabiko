@@ -1,0 +1,10 @@
+// `**rr = 1` through `&&i32`, and `*rr = r` (retargeting the inner reference) through the
+// outer shared reference: both places are immutable.
+fn Inner(rr: &&i32) {
+    **rr = 1;
+}
+
+fn Outer(rr: &&i32) {
+    let r: &i32 = *rr;
+    *rr = r;
+}

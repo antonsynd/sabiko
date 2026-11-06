@@ -1,0 +1,15 @@
+// The Sabiko half of the `ref_wrappers` interop test (decision 64): a reference to a
+// reference is a pointer to the module's `Ref<T>` / `RefMut<T>`, a `readonly ref struct`
+// whose `Value` is a `ref readonly T` / `ref T`. Test.cs builds wrappers over its own
+// locals (nested for `&&&i64`) and passes them.
+fn Deref2(rr: &&i32) -> i32 {
+    **rr
+}
+
+fn Deref3(rrr: &&&i64) -> i64 {
+    ***rrr
+}
+
+fn Bump(mm: &mut &mut i32) {
+    **mm += 10;
+}

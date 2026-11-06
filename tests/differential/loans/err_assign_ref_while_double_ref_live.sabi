@@ -1,0 +1,10 @@
+// Reassigning a reference local while a `&r` of it is still used: the borrow of `r` itself
+// (not of its referent) is live, so the assignment conflicts.
+fn F() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let rr = &r;
+    r = &y;
+    PrintLine(**rr);
+}

@@ -1,0 +1,34 @@
+// `&&str`: `*ss` is the `&str`, `.len()` and slicing auto-dereference, comparisons look
+// at the text, a `&&str` parameter reads through both levels, and `&mut &str` retargets.
+fn Len(ss: &&str) -> usize { ss.len() }
+
+fn Main() {
+    let s: &str = "ab";
+    let ss = &s;
+    PrintLine(*ss);
+    PrintLine(ss.len());
+    PrintLine(*ss == "ab");
+    let t: &str = "abc";
+    let tt = &t;
+    PrintLine(ss == tt);
+    PrintLine(ss < tt);
+    PrintLine(ss != tt);
+    PrintLine(Len(tt));
+    PrintLine(Len(&"hello"));
+    let sub = &tt[1..];
+    PrintLine(sub);
+    let sss = &ss;
+    PrintLine(**sss);
+    PrintLine(sss.len() + 10);
+    let mut cur: &str = "x";
+    {
+        let m = &mut cur;
+        PrintLine(m.len());
+        *m = "longer";
+    }
+    PrintLine(cur);
+    match *ss {
+        "ab" => PrintLine(1),
+        _ => PrintLine(0),
+    }
+}
