@@ -17,8 +17,10 @@ test_package = [
     "sabikoc",
 ]
 
-# The whole workspace suite runs in ~20s; the run-time differential tests spawn dotnet, so
-# leave headroom before a slow mutant counts as a timeout.
+# A bare `cargo mutants` derives the test timeout from its baseline test run, which only
+# tests the mutated package (`-p`), not the `--test-package` suites: far too short for the
+# sabikoc and sabiko_driver suites, so `scripts/mutants.sh` passes an explicit `--timeout`
+# (its `test_timeout`) instead and these two settings only apply to bare runs.
 timeout_multiplier = 3.0
 minimum_test_timeout = 60
 build_timeout_multiplier = 3.0
@@ -39,4 +41,10 @@ exclude_re = [
     "Mutability::prefix_str -> ",
     "UseKind::(noun|verb) -> ",
     "::make_mutable_help -> String",
+    # `next += 1` as `next *= 1` in a worklist loop (`while next < list.len()`) keeps
+    # `next` at 0: the backend emits the first entry forever and its output grows until
+    # the machine runs out of memory, which took down a nightly runner (run 19) once the
+    # test timeout was long enough to let it. Any test that emits a drop glue, an inline
+    # array or a by-ref tuple struct would hang, so these are killed, not survivors.
+    "replace \\+= with \\*= in Cx<'_>::(drop_glues|inline_array_structs|byref_tuple_structs)$",
 ]

@@ -274,7 +274,7 @@ command.
 
 ## Mutation testing
 
-`scripts/mutants.sh [crate...]` runs `cargo mutants` (configuration in
+`scripts/mutants.sh [--shard k/n] [crate...]` runs `cargo mutants` (configuration in
 `.cargo/mutants.toml`) on `sabiko_borrowck`, `sabiko_codegen` and `sabiko_types`, testing
 each mutant with the suites that exercise the crate, and fails when a crate's score drops
 below its threshold. Scores and the list of known equivalent mutants are recorded below;
@@ -286,6 +286,29 @@ the `sabiko_codegen` score). The script runs on macOS's stock bash 3.2 and, when
 installed, puts the pinned toolchain's `bin/` first on `PATH`, so a Homebrew `cargo` does
 not replace the pinned toolchain for the builds and tests cargo-mutants runs. It mutates sources in place for hours: do not
 edit or build in `crates/` while it runs, and run fuzzing from a separate `git worktree`.
+
+Each mutant's tests get an explicit `--timeout` (300 seconds, `test_timeout` in the script;
+`MUTANTS_TEST_TIMEOUT` overrides it). cargo-mutants' own limit scales its baseline test run,
+and that run tests only the mutated package, not the `--test-package` suites. Before
+nightly run 18 (2026-11-06) the nightly runs used that limit: the `sabiko_codegen`
+baseline took 9 seconds, so the limit was the 60-second floor of `.cargo/mutants.toml`,
+while a mutant's full suite takes over a minute (`differential_run` alone takes 30
+seconds). The 44 codegen "timeouts" of run 18 were mutants that the fast tests did not
+kill: 37 were cut off in `generated`, before `interop` and `run_pass` ran, and 7 hung in
+`layout`. A timeout counts as caught, so a real survivor among them would have been
+counted as killed. Applied by hand, the one checked (`||` as `&&` in `payload_type_name`)
+is killed by `interop`. The nightly workflow runs each crate as four round-robin shards
+(`scripts/mutants.sh --shard k/4 <crate>`, one runner each, no verdict per shard). A
+`mutants-score` job then judges each crate on the counts of all four `mutants.out`
+directories (`scripts/mutants.sh --score <crate> --shards 4 <dir>...`) and fails when a
+shard's results are missing. The longer timeout let three codegen mutants exhaust a
+runner's memory (run 19): `next += 1` as `next *= 1` in the worklist loops of
+`drop_glues`, `inline_array_structs` and `byref_tuple_structs` never advances, so the
+backend emits the first entry forever. `.cargo/mutants.toml` excludes those three; they
+hang every test that reaches them, so they are killed, not survivors. Unsharded, run 18 took 137 minutes for `sabiko_codegen`
+(685 mutants), and `sabiko_types` tested all of its 827 mutants (634 on 2026-11-05, at 12.6
+rather than 7.5 seconds each) but hit the job's 180-minute limit before it could report a
+score.
 
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
 2026-10-21, `sabiko_borrowck` on 2026-10-22), score = (caught + timeout) / viable:
