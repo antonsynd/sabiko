@@ -1,0 +1,9 @@
+// Reading `r` while `m = &mut r` is still used to write it conflicts.
+fn F() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let m = &mut r;
+    PrintLine(*r);
+    *m = &y;
+}

@@ -1,0 +1,20 @@
+// Borrowing an element of an array of `()` as a `&()` still checks the index, though
+// nothing is stored: in a loop with every index in bounds, then through a function
+// returning `&a[i]` with an index one past the end, which panics with rustc's message
+// located at the indexing expression. The index comes from a loop, so rustc's
+// `unconditional_panic` lint does not reject the program.
+fn At(a: &[(); 3], i: usize) -> &() { &a[i] }
+
+fn Main() {
+    let a = [(), (), ()];
+    let mut i = 0usize;
+    while i < 3 {
+        let r: &() = &a[i];
+        let s = At(&a, i);
+        PrintLine(i);
+        i += 1;
+    }
+    let k = i + 1;
+    At(&a, k);
+    PrintLine(9);
+}

@@ -102,7 +102,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   bounds and later indices are evaluated (no two-phase borrow), so these never read the
   base, and a `&mut self` call on an element of one is not treated as two-phase. The
   left-hand side of an assignment gets its indices after the right-hand side, which Rust
-  evaluates first. The constructs avoided carry TODOs: `&&str` (#11), `&str` in structs,
+  evaluates first. The constructs avoided carry TODOs: `&str` in structs,
   enums, arrays and the generator's tuple types (#43), comparisons of `str` places,
   non-ASCII text (decision 62), and the compiler bugs below. `reorder` treats a range
   index like a computed index (it may panic; `&a[i..]` takes `a`'s address; an
@@ -119,6 +119,28 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   unannotated `let v = [[], []];`, an assignment's index reading what its right-hand side
   moved, and a call's reference argument reading (in a range bound) what an earlier value
   argument moved.
+- References to references (#11, `body/refs.rs`): `Ty::RefRef` covers `&&T`, `&&mut T`,
+  `&mut &T` and `&mut &mut T` locals and parameters, `&&str` and `&&[T]` included, made by
+  borrowing reference locals and parameters (`let rr = &r;`, `let m = &mut r;`), a borrowed
+  place (`let rr = &&x;`) or by copying and reborrowing one. They are read as `**rr`, by
+  auto-deref (`rr.X`, `rr[0]`, `rr.len()`), with explicit derefs (`(*rr).X`) and as `*rr`
+  used as a `&T`; they are method receivers (`m.Bump(m.X)`, two-phase), `match`
+  scrutinees by value (`match **rr`) and through both references (`match rr`, a
+  top-level binding being the double reference), written through (`**m = v`), retargeted
+  (`*m = &y;`, `*m = "lit";`) and then read, compared, and passed as arguments. A
+  retarget adds the new target's loan to the retargeted local's borrows and kills the
+  `&mut` doing it. Elision counts lifetimes (`Ty::lifetimes`), so only a `&self` method
+  with a `&&T` parameter returns a reference (rustc's E0106 otherwise); nothing borrows a
+  literal directly (no `'static` promotion, #26). About 45% of borrow-clean programs hold
+  a double reference (906 of 2000 at base 5000000: 383 retarget, 70 write through `&mut
+  &mut T`); `programs_use_references_to_references` pins minimum counts for 11 of these
+  constructs. Avoided with TODOs: three levels, `&mut &T` parameters, a retarget in a
+  loop of a reference declared outside it, string patterns on a `&&str` scrutinee (#58),
+  double references in aggregates (#43), and a borrow-check divergence the runs found
+  (staged in `tests/pending/refs/known_gap/`): `&mut m` while a reborrow through `m`'s
+  shared deref lives (seed 5001324, #56). The other, a guard fake-borrowing a scrutinee no
+  pattern reads (seed 5001979, #57), is fixed (decision 65) and no longer avoided. 2000 seeds at each of the bases 4000000,
+  5000000 and 6000000 pass all five properties.
 - ILVerify runs on every assembly the tests produce. The only ignored error is
   `ReturnPtrToStack` (decision 30).
 - The MIR validator runs after every pass in the pipeline (debug builds panic on a
@@ -513,6 +535,30 @@ Equivalent survivors:
   so leaving it out of the other uses only makes it stackable where it was in order
   already: the corpora pass and the IL of the `slicing` fixture is unchanged).
 
+References to references (#11) were checked the same way on the `sabiko_codegen` lines the
+branch changed (`--build-timeout 900`, the same three test packages; the run was resumed
+with `--iterate` after the disk filled). 100 mutants: 2 unviable, 91 caught, 7 missed
+(91 / 98 viable, 92.9%); after the new tests, 94 / 98 (95.9%), the 4 survivors
+equivalent. Killing tests: the run-time program `run/refs/unit_ref_index_panic` (an
+element of a `[(); 3]` borrowed as `&()` is still bounds-checked, both in a `let` and in a
+returned `&a[i]`; kills two mutants of `assign`'s index check for a `Ref` of an indexed
+place), and a write of a tuple's reference element (`t.0 = &b;`) in the `ref_wrappers` IL
+fixture (`store` replaces the wrapper field with `stfld`; without that arm it falls back
+to `ldflda` and `stobj`, which behaves the same, so only the IL shows it). None found a
+bug.
+
+Equivalent survivors:
+
+- `assign_slots`' `fake[i] && !written[i]` as `||`: it also elides a local the MIR never
+  assigns, which init checking guarantees is never read, so it needs no slot.
+- `assign`'s `src.has_index()` guard for copying a `()` place as `true`: loading a `()`
+  place without an index emits nothing.
+- `binary`'s `is_unit_like(&lty) && is_unit_like(&rty)` as `||`: both operands of a
+  comparison have the same type.
+- `cil_type`'s `&!` guard as `false`: `&!` cannot be written as a type (E0107), and an
+  inferred `&!` value (`&Panic("x")`) only occurs in code `simplify` removes, so no `&!`
+  is ever stored; the guard is defensive.
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library
@@ -538,7 +584,11 @@ array slices and a `stackalloc` span to `&[i32]` (`ReadOnlySpan<int>`) and `&mut
 (`Span<int>`) parameters, holds a `ref readonly int` that a Sabiko function returns into
 the C# array, indexes the inline arrays Sabiko returns (C# 12 inline-array indexing) and
 one in a struct field, passes an array by `ref` and `in`, and catches the panic of an
-out-of-bounds index; it passed on its first run.
+out-of-bounds index; it passed on its first run. `ref_wrappers` (#11, decision 64) builds
+the module's `Ref<int>`, `Ref<Ref<long>>` and `RefMut<int>` over C# locals and passes them
+to `&&i32`, `&&&i64` and `&mut &mut i32` parameters (`in` and `ref`). Its first run found
+that C# cannot read a wrapper's `Value` (CS0570: a `ref` field whose type parameter allows
+`ref struct`s), which the decision records.
 
 ## Dependencies
 

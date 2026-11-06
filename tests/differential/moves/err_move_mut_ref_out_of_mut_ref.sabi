@@ -1,0 +1,9 @@
+// `*mm` for `mm: &mut &mut i32` cannot move the inner `&mut` out by value (a `let` with no
+// coercion site to reborrow it).
+fn F() {
+    let mut x = 1;
+    let mut m = &mut x;
+    let mm = &mut m;
+    let inner = *mm;
+    *inner = 2;
+}

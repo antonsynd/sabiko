@@ -37,7 +37,6 @@ The staged programs were checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the v
 | file | gap | rustc |
 | --- | --- | --- |
 | `equality.sabi` | tuple `==`, `!=`, `<`, ... (also of `()` against `()` inside tuples): E0107 until the comparison traits of Phase 6 | runs, exit 0 |
-| `refs_through_double_ref.sabi` | `rr.1.1` for `rr: &&(i32, (i32, i32))`: code generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5) (#11) | runs, prints 3 |
 
 ## `methods/`: issues #7 (inherent `impl` blocks and methods) and #15 (two-phase borrows) (landed)
 
@@ -63,7 +62,6 @@ Each converted UI program names the rustc codes it was checked against in a comm
 
 | file | gap | rustc |
 | --- | --- | --- |
-| `double_ref_receivers.sabi` | run-time `&&P` and `&mut &mut P` receivers and a `&&P` parameter: borrow checking accepts them (`tests/differential/loans/ok_autoderef_receivers.sabi`), code generation rejects `&&T` (E0500) until `Ref<T>` (Phase 5) (#11) | exit 0 (`.expected`) |
 | `associated_consts.sabi` | `const` items in an impl block, `Grid::Cells`, `Self::Cells`: E0107 (associated constants are a later step) (#48) | exit 0 (`.expected`) |
 
 ### Two-phase borrows: the rules rustc applies
@@ -309,7 +307,6 @@ All but one run under rustc (`.expected` notes); none is required by #8.
 | `reference_patterns.sabi` | `&p` patterns (`&Cell::Value(n)`, `let &(a, b) = &t;`), not listed in #8 (E0107 today, SPEC §2) (#49) | exit 0 |
 | `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional (#49) | exit 0 |
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
-| `match_through_double_ref.sabi` | `match rr` for `rr: &&Cell`: code generation rejects `&&T` (E0500) until `Ref<T>` (#11) | exit 0 |
 | `unreachable_arms_borrowck.sabi` | rustc borrow-checks code that patterns make unreachable (false edges between match candidates; the `else` of an irrefutable `if let`/`let`-`else`), Sabiko does not: assignments to immutable bindings and uses after move there are E0384/E0382 in rustc and accepted by Sabiko; found by the generator, which makes no pattern unreachable (#47) | rejected (E0384, E0382) |
 | `move_scrutinee_in_guard_then_test.sabi` | a guard moves the scrutinee out and fails, and a later arm tests it again: rustc tests once, before the guards, Sabiko's candidates test again (decision 57), a use of a moved value (E0406). Moving it out in a guard is otherwise accepted (`run/enums/move_scrutinee_in_guard`) (#47) | exit 0 |
 
@@ -553,3 +550,52 @@ integer index's is; for `x..=y` the end message shows `y` and the order message 
 constant out-of-range bounds are not linted (`a[1..9]` compiles and panics); the borrow
 of the base is not two-phase (`&mut a[a.len() - 2..]` is E0502), so it is taken before
 the bounds are evaluated; writes through a range place of something shared are E0596.
+
+## `refs/`: issue #11, references to references (`&&T`, `&mut &T`, `&mut &mut T`, ...) and references to `()` (landed)
+
+Type and borrow checking accepted these; code generation rejected every one of them
+(E0500, "a reference to a reference" / "a reference to `()`"), also as tuple elements,
+until `Ref<T>` (decision 64). The staged programs were checked with rustc 1.99.1
+(58cf8f9c3 2026-10-13), the version `rust-toolchain.toml` pins, as the harnesses prepare
+them, and moved into their harnesses by #11 unchanged: the 27 run-time programs to
+`tests/differential/run/refs/` (the `.expected` notes deleted), the 23 verdict programs to
+`tests/differential/{loans,moves,mutability}/`. The three `&&T` known gaps of `tuples/`,
+`methods/` and `enums/` moved too: `tests/differential/run/tuples/refs_through_double_ref`,
+`run/methods/double_ref_receivers`, `run/enums/match_through_double_ref`.
+
+| now in `tests/differential/` | topic |
+| --- | --- |
+| `run/refs/double_ref_locals`, `double_ref_params`, `deep_mut_refs` | `&&i32` ... `&&&&&i32` locals and parameters, `&&x`, `&r` and `&rr` as arguments, `&mut &mut &mut i32` |
+| `run/refs/double_ref_mut_ref_to_ref`, `double_ref_mut_mut`, `reborrow_mut_ref_to_ref`, `retarget_in_loop`, `reassign_ref_after_borrow` | `*m = &y` retargets the original reference (also `&mut &str` to a literal from a function, chosen in `if`/`match`/`while`/`loop`), `**mm = 5` and `**mm += 1`, `&&mut i32` reads, implicit and explicit reborrows, reassigning `r` after `&r` is dead |
+| `run/refs/tuples_of_double_refs`, `borrow_ref_tuple_element`, `destructure_ref_to_tuple_of_refs` | `(&r, 1)`, `(&&x, &y)`, `**t.0`, `&p.0` and `&mut p.0` of a reference element, `let (a, b) = &t;` / `&mut t` over references (`&&i32`, `&mut &i32` bindings) |
+| `run/refs/autoderef_fields`, `method_receivers`, `match_on_double_ref`, `returned_ref_through_double_ref` | auto-deref through several references: `rr.1.1`, `mm.X = 5`, `&self`/`&mut self` methods on `&&S`, `&&&S`, `&&mut S`, `&mut &mut S`, `match`/`if let` on `&&E` and `&mut &mut E`, a `&T` obtained through `&&T` outliving it |
+| `run/refs/compare_double_refs`, `double_ref_str`, `double_ref_arrays_slices` | `==`/`<`/... on `&&i32`, `&&bool`, `&&char`, `&&f64` (NaN), `&&&i32`; `&&str` (`*ss`, `.len()`, slicing, comparisons); `&&[i32; 3]`, `&&[i32]`, `&mut &mut [i32]` (`.len()`, indexing, writes) |
+| `run/refs/unit_refs`, `unit_refs_in_places` | `&()`, `&&()`, `&mut ()`, `&()` parameters, returns and tuple elements, `&t.0` of `((), 1)`, a `()` field and enum payload borrowed |
+| `run/refs/copy_out_of_double_ref`, `double_ref_to_drop_value` | `**rr` copies (structs, tuples, arrays); `&&D` for a `Drop` type drops it once |
+| `run/refs/panic_*`, `release_wrap_through_mut_mut` | exit 101: `Panic` with a value read through `&&i32`, out-of-bounds index through `&&[i32; 3]` and `&mut &mut [i32]`, overflow in `**mm += 1`; `//@ release` wrapping through `&mut &mut u8` |
+| `loans/*.sabi` (16 programs) | loans through `&&T`/`&mut &T`/`&mut &mut T`/`&()`: assigning `r` while `&r` is live (also in a tuple), writing the referent while read through `rr`, `&mut **mm` reborrows, a `&i32` copied out of a `&&i32` keeping the loan of `x` but outliving `rr` |
+| `{moves,mutability}/*.sabi` (3 + 4 programs) | moving `&mut` out of `&&mut`/`&mut &mut` (E0507), copying `&T` out of `&&T`; writes and `&mut` through `&&i32`/`&&mut i32` (E0594, E0596) |
+
+What the staging found about rustc: retargeting `r` through `m: &mut &i32` does not end
+the loan `r` held, so writing the old referent afterwards is E0506, while overwriting `r`
+directly does end it (`err_assign_old_target_after_retarget_through_mut_ref`,
+`ok_assign_ref_after_double_ref_dead`; Sabiko agrees). No elided signature can return a
+`&&T`, or a `&T` read through a `&&T` parameter: `fn F(rr: &&i32) -> &i32` is E0106 (two
+input lifetimes), E0416 in Sabiko, so those wait for lifetimes and the run-time programs
+use `&self` methods and `&T` parameters given `*rr` instead.
+
+### Known gaps (`refs/known_gap/`)
+
+None is in code generation; each is a front-end gap a `&&T` program meets (the last one
+was found by the generator, which avoids it with a TODO naming the seed), still staged. A
+sixth, a guard fake-borrowing a scrutinee no pattern reads (seed 5001979, #57), is fixed
+(decision 65): it is `tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`.
+All run under rustc (`.expected`).
+
+| file | gap | Sabiko today |
+| --- | --- | --- |
+| `nested_borrow_extension.sabi` | `let d = &&&x;`: rustc extends every nested temporary, Sabiko only the one the outermost `&` borrows (`&&x` is fine) | E0413 |
+| `deref_coercion.sabi` | `&&i32` to `&i32`, `&mut &mut i32` to `&mut i32`, `&&str` to `&str` at arguments and annotated `let`s | E0300 |
+| `static_promotion_through_mut_ref.sabi` | `*m = &7;` in `fn F(m: &mut &i32)`: rustc promotes `&7` to `&'static i32` | E0413 |
+| `explicit_lifetimes_double_ref.sabi` | `fn Inner<'a>(rr: &'a &'a i32) -> &'a i32`, `&'a &'b i32`, returning `&&T` (Phase 9) | E0107 |
+| `mut_borrow_of_ref_while_reborrow_lives.sabi` | `let d = &*m; let a = &mut m; *a = &y;` with `d` live: a loan behind a shared deref does not conflict with borrowing `m` itself in rustc (generator seed 5001324, #56) | E0408 |

@@ -1,0 +1,38 @@
+// References to references to a value with drop glue: reading through them neither copies
+// nor drops it, and the value is dropped once, at the end of its scope.
+struct Noisy { Id: i32 }
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Peek(rr: &&Noisy) -> i32 { rr.Id }
+
+fn Bump(mm: &mut &mut Noisy) { mm.Id += 10; }
+
+fn Main() {
+    let mut n = Noisy { Id: 1 };
+    {
+        let r = &n;
+        let rr = &r;
+        PrintLine(Peek(rr));
+        PrintLine(Peek(&&n));
+    }
+    PrintLine("after borrows");
+    {
+        let mut m = &mut n;
+        Bump(&mut m);
+    }
+    PrintLine(n.Id);
+    let other = Noisy { Id: 2 };
+    let mut cur = &n;
+    {
+        let mc = &mut cur;
+        *mc = &other;
+    }
+    PrintLine(Peek(&cur));
+    PrintLine("end");
+}

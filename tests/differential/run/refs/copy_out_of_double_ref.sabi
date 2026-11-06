@@ -1,0 +1,29 @@
+// Copy values behind `&&T` are copied out by `**rr`: changing the copy leaves the original
+// alone, and a `#[derive(Copy)]` struct read through two references is copied whole.
+#[derive(Copy, Clone)]
+struct Point { X: i32, Y: i32 }
+
+fn Copied(rr: &&Point) -> Point { **rr }
+
+fn Main() {
+    let p = Point { X: 1, Y: 2 };
+    let r = &p;
+    let rr = &r;
+    let mut q = **rr;
+    q.X = 100;
+    PrintLine(p.X);
+    PrintLine(q.X);
+    let mut w = Copied(&&p);
+    w.Y += 5;
+    PrintLine(w.Y + rr.Y);
+    let t = (3, 4);
+    let rt = &&t;
+    let mut u = **rt;
+    u.0 = 30;
+    PrintLine(t.0 + u.0);
+    let a = [1, 2, 3];
+    let ra = &&a;
+    let mut b = **ra;
+    b[0] = 10;
+    PrintLine(a[0] + b[0]);
+}

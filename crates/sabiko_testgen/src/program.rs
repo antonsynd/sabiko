@@ -305,7 +305,9 @@ pub struct Program {
 impl Program {
     pub fn is_copy(&self, ty: Ty) -> bool {
         match ty {
-            Ty::Val(ValTy::Prim(_)) | Ty::Ref { mutable: false, .. } => true,
+            Ty::Val(ValTy::Prim(_))
+            | Ty::Ref { mutable: false, .. }
+            | Ty::RefRef { outer: false, .. } => true,
             Ty::Val(ValTy::Struct(s)) => self.structs[s].copy,
             Ty::Val(ValTy::Tuple(t)) => self.tuples[t].iter().all(|e| self.is_copy(Ty::Val(*e))),
             Ty::Val(ValTy::Enum(e)) => self.enums[e].copy,
@@ -314,7 +316,9 @@ impl Program {
                 self.arrays[a].len.is_some() && self.is_copy(Ty::Val(self.arrays[a].elem))
             }
             // Nor is a `str`.
-            Ty::Val(ValTy::Str) | Ty::Ref { mutable: true, .. } => false,
+            Ty::Val(ValTy::Str)
+            | Ty::Ref { mutable: true, .. }
+            | Ty::RefRef { outer: true, .. } => false,
         }
     }
 
@@ -415,6 +419,16 @@ impl Program {
                     self.val_name(inner)
                 )
             }
+            Ty::RefRef {
+                outer,
+                mutable,
+                inner,
+            } => format!(
+                "&{}&{}{}",
+                if outer { "mut " } else { "" },
+                if mutable { "mut " } else { "" },
+                self.val_name(inner)
+            ),
         }
     }
 
@@ -1282,6 +1296,7 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
         if allow_refs { 15 } else { 0 },
         if has_enums { 15 } else { 0 },
         if sized.is_empty() { 0 } else { 10 },
+        if allow_refs { 7 } else { 0 },
     ]);
     let slices: Vec<usize> = (0..program.arrays.len())
         .filter(|&a| program.arrays[a].len.is_none())
@@ -1315,6 +1330,22 @@ fn random_ty(rng: &mut Rng, program: &Program, allow_refs: bool) -> Ty {
             mutable: false,
             inner: inner(rng),
         },
+        7 => {
+            // A reference to a reference (#11): `&&T` most often, `&&mut T` and `&mut &mut
+            // T` (written through); `&&str`, never a `&mut str`.
+            let inner = inner(rng);
+            let (outer, mutable) = match rng.weighted(&[50, 25, 25]) {
+                _ if inner == ValTy::Str => (false, false),
+                0 => (false, false),
+                1 => (false, true),
+                _ => (true, true),
+            };
+            Ty::RefRef {
+                outer,
+                mutable,
+                inner,
+            }
+        }
         _ => {
             let inner = inner(rng);
             Ty::Ref {
@@ -1393,7 +1424,9 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
     }
     let ref_params: Vec<&Param> = params.iter().filter(|p| p.ty.is_ref()).collect();
     // Elision: a `&self`/`&mut self` method returns a reference into `self` whatever its
-    // other parameters; otherwise the one reference parameter must be the only one.
+    // other parameters; otherwise the one reference parameter must be the only one, and a
+    // single reference (`&&T` has two elided lifetimes: rustc's E0106).
+    let lifetimes: usize = params.iter().map(|p| p.ty.lifetimes()).sum();
     let ref_self = matches!(
         owner,
         Some(Owner {
@@ -1409,11 +1442,7 @@ fn gen_sig(rng: &mut Rng, program: &Program, name: String, is_main: bool, method
         25,
         50,
         if program.structs.is_empty() { 0 } else { 12 },
-        if ref_params.len() == 1 || ref_self {
-            25
-        } else {
-            0
-        },
+        if lifetimes == 1 || ref_self { 25 } else { 0 },
         if program.tuples.is_empty() { 0 } else { 12 },
         if constructor { 60 } else { 0 },
         if program.enums.is_empty() { 0 } else { 14 },

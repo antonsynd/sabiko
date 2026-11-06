@@ -1,0 +1,53 @@
+// `match` on `&&Enum` and `&&(i32, i32)` binds through both references (`n: &i32`),
+// `if let` likewise, and a `&mut &mut Enum` scrutinee binds `n: &mut i32` that writes
+// into the original.
+enum Cell { Empty, Value(i32), Pair { A: i32, B: i32 } }
+
+fn Get(rr: &&Cell) -> i32 {
+    match rr {
+        Cell::Value(n) => *n,
+        Cell::Pair { A, B } => *A * 10 + *B,
+        Cell::Empty => -1,
+    }
+}
+
+fn Bump(mm: &mut &mut Cell) {
+    match mm {
+        Cell::Value(n) => *n += 100,
+        Cell::Pair { A, .. } => *A += 1,
+        Cell::Empty => {}
+    }
+}
+
+fn Main() {
+    let a = Cell::Value(4);
+    let b = Cell::Pair { A: 1, B: 2 };
+    let e = Cell::Empty;
+    let ra = &a;
+    PrintLine(Get(&ra));
+    PrintLine(Get(&&b));
+    PrintLine(Get(&&e));
+    let rb = &b;
+    let rrb = &rb;
+    if let Cell::Pair { B, .. } = rrb {
+        PrintLine(*B);
+    }
+    let t = (3, 4);
+    let rt = &t;
+    let rrt = &rt;
+    match rrt {
+        (3, y) => PrintLine(*y),
+        _ => PrintLine(0),
+    }
+    let mut c = Cell::Value(1);
+    {
+        let mut m = &mut c;
+        Bump(&mut m);
+        Bump(&mut m);
+    }
+    PrintLine(Get(&&c));
+    let mut d = Cell::Pair { A: 5, B: 6 };
+    let mut md = &mut d;
+    Bump(&mut md);
+    PrintLine(Get(&&d));
+}

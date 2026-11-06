@@ -1,0 +1,9 @@
+// A reborrow `&mut **mm` of the innermost place is live while `**mm` is written again.
+fn F() {
+    let mut x = 1;
+    let mut m = &mut x;
+    let mm = &mut m;
+    let a = &mut **mm;
+    **mm = 2;
+    *a = 3;
+}

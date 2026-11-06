@@ -1,0 +1,12 @@
+// The `&i32` copied out of a `&&i32` still holds the loan of `x`: writing `x` while it is
+// used conflicts, even though `rr` is dead.
+fn F() {
+    let mut x = 1;
+    let r = &x;
+    let s = {
+        let rr = &r;
+        *rr
+    };
+    x = 2;
+    PrintLine(*s);
+}

@@ -1,0 +1,15 @@
+// `let (a, _) = &mut t;` binds `a: &mut &i32`; once it is dead, `t` is usable again and
+// reads the new target.
+fn F() {
+    let x = 1;
+    let y = 2;
+    let z = 3;
+    let mut t = (&x, &y);
+    {
+        let (a, _) = &mut t;
+        *a = &z;
+    }
+    PrintLine(*t.0 + *t.1);
+    t.1 = &x;
+    PrintLine(*t.1);
+}

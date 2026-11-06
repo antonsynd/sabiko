@@ -1,0 +1,11 @@
+// Storing a reference to an inner-block local behind `&mut &i32`: `r` outlives `z`.
+fn F() {
+    let x = 1;
+    let mut r = &x;
+    {
+        let z = 3;
+        let m = &mut r;
+        *m = &z;
+    }
+    PrintLine(*r);
+}
