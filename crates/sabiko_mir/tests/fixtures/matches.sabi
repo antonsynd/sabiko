@@ -1,7 +1,6 @@
 // Match lowering (#8): discriminant switches, literal and range tests, or-pattern
-// candidates, guards (fake borrow, bindings by reference until the guard holds, shallow
-// fake borrows of the references a scrutinee is reached through), moves out of the
-// scrutinee, `if let`, `while let`, `let`-`else`, and drop flags conditioned
+// candidates, guards (fake borrow, bindings by reference until the guard holds), moves
+// out of the scrutinee, `if let`, `while let`, `let`-`else`, and drop flags conditioned
 // on the variant for a partially moved enum.
 struct D { Id: i32 }
 
@@ -21,13 +20,6 @@ fn Area(s: &Shape) -> i32 {
         Shape::Square(w) if *w > 10 => 100,
         Shape::Square(w) => *w * *w,
         Shape::Rect { W, H } => *W * *H,
-    }
-}
-
-fn Side(s: &&Shape) -> i32 {
-    match **s {
-        Shape::Square(w) if w > 10 => w,
-        _ => 0,
     }
 }
 

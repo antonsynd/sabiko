@@ -12,14 +12,19 @@
 //! temporary unless it is a place, and mentioned (`PlaceMention`, as rustc does): a match
 //! reads only what its tests read (a lone `_` arm reads nothing).
 //!
-//! Guards (rustc's scheme): before the guard runs, the scrutinee is *fake*-borrowed (a
-//! shallow borrow the borrow checker treats as a shared one, so assigning or mutably
-//! borrowing the scrutinee in the guard is an error, rustc's E0510) and each binding is
-//! bound by shared reference: inside the guard a name denotes `*g` for a reference `g` to
-//! its place (or `g` itself for a binding that is a reference), so a guard can neither move
-//! out of the scrutinee nor write through a binding (`mut n`, `ref mut n`: E0594 in
+//! Guards (rustc's scheme): before the guard runs, the places the match inspects are
+//! *fake*-borrowed (shallow borrows the borrow checker treats as shared ones, so assigning
+//! or mutably borrowing them in the guard is an error, rustc's E0510) and each binding is
+//! bound by shared reference. The fake-borrowed places are rustc's: across every
+//! candidate of the match, each place a test reads (an enum's discriminant, a compared
+//! value) and each prefix of it that ends just before a `Deref`, and the prefixes before a
+//! `Deref` of each binding's place; a match whose patterns test nothing and bind nothing
+//! behind a reference takes none (`match p { _ if g => .. }` reads nothing of `p`, so a
+//! live `&mut p` is no conflict). Inside the guard a name denotes `*g` for a reference `g`
+//! to its place (or `g` itself for a binding that is a reference), so a guard can neither
+//! move out of the scrutinee nor write through a binding (`mut n`, `ref mut n`: E0594 in
 //! rustc). A guard that fails tries the next candidate; one that holds keeps the fake
-//! borrow alive to its end and then binds by value, so a binding moves its part of the
+//! borrows alive to its end and then binds by value, so a binding moves its part of the
 //! scrutinee only once its arm is taken.
 
 use std::collections::HashMap;
@@ -241,10 +246,10 @@ impl Builder<'_> {
         fail: BasicBlock,
         span: Span,
     ) {
-        let def = self.typeck.items.adt(adt);
-        if def.variants().len() <= 1 {
+        if !self.tests_discriminant(adt) {
             return;
         }
+        let def = self.typeck.items.adt(adt);
         #[allow(clippy::cast_sign_loss)]
         let discr = def.variant(index).discr as u128;
         let temp = self.new_temp(Ty::Prim(sabiko_resolve::PrimTy::Isize), span);
@@ -268,7 +273,8 @@ impl Builder<'_> {
     fn test_value(&mut self, pat: &Pat, place: &Place, fail: BasicBlock) {
         let span = pat.span;
         let ty = place.ty(&self.body);
-        match self.types.pat_consts.get(&pat.id).cloned() {
+        let pat_const = self.types.pat_consts.get(&pat.id).cloned();
+        match pat_const.clone() {
             Some(PatConst::Value(ConstValue::Bool(b))) => {
                 let ok = self.new_block();
                 self.switch_int(
@@ -281,6 +287,9 @@ impl Builder<'_> {
             }
             Some(PatConst::Value(v)) => {
                 self.compare(BinOp::Eq, place, &ty, v, fail, span);
+            }
+            Some(PatConst::Range { .. }) if is_full_range(pat_const.as_ref(), &ty) => {
+                // `i32::MIN..=i32::MAX` matches every value: nothing is read, as in rustc.
             }
             Some(PatConst::Range { lo, hi, inclusive }) => {
                 self.compare(BinOp::Ge, place, &ty, lo, fail, span);
@@ -320,6 +329,87 @@ impl Builder<'_> {
         let ok = self.new_block();
         self.switch_int(Operand::Copy(Place::local(temp)), vec![(0, fail)], ok, span);
         self.enter(ok);
+    }
+
+    // ----- fake borrows -----
+
+    /// The places a guard of the match with these arms fake-borrows (see the module
+    /// docs), each once, in the order the candidates reach them; none when no arm has a
+    /// guard.
+    fn guard_fake_places(&self, arms: &[Arm], place: &Place) -> Vec<Place> {
+        let mut out = Vec::new();
+        if arms.iter().any(|arm| arm.guard.is_some()) {
+            for arm in arms {
+                for choice in choices(&arm.pat) {
+                    self.collect_fake_places(&arm.pat, place, &choice, &mut out);
+                }
+            }
+        }
+        out
+    }
+
+    /// Adds to `out` what the candidate of `pat` (under `choice`) against `place` makes a
+    /// guard fake-borrow: the places [`Self::test_pat`] reads, and the places before a
+    /// `Deref` in those and in the places [`Self::bind_pat`] binds.
+    fn collect_fake_places(&self, pat: &Pat, place: &Place, choice: &Choice, out: &mut Vec<Place>) {
+        let reads_value = |pat: &Pat, ty: &Ty| match self.types.pat_consts.get(&pat.id) {
+            Some(c) => !is_full_range(Some(c), ty),
+            None => false,
+        };
+        if self.ident_is_path(pat) {
+            let place = self.pat_place(pat, place.clone());
+            let reads = reads_value(pat, &place.ty(&self.body));
+            if reads {
+                push_fake_place(out, &place, true);
+            }
+            return;
+        }
+        match &pat.kind {
+            PatKind::Ident { sub, .. } => {
+                push_fake_place(out, place, false);
+                if let Some(sub) = sub {
+                    self.collect_fake_places(sub, place, choice, out);
+                }
+            }
+            PatKind::Wild | PatKind::Rest => {}
+            PatKind::Or(alts) => {
+                let alt = &alts[choice[&pat.id]];
+                self.collect_fake_places(alt, place, choice, out);
+            }
+            PatKind::Path(_) => {
+                let place = self.pat_place(pat, place.clone());
+                let reads = match self.types.pat_variants.get(&pat.id) {
+                    Some(&(adt, _)) => self.tests_discriminant(adt),
+                    None => reads_value(pat, &place.ty(&self.body)),
+                };
+                if reads {
+                    push_fake_place(out, &place, true);
+                }
+            }
+            PatKind::Tuple(_) | PatKind::TupleStruct(..) | PatKind::Struct { .. } => {
+                let place = self.pat_place(pat, place.clone());
+                let (variant, subs) = self.subpatterns(pat, &place);
+                let reads = variant.is_some_and(|(adt, _)| self.tests_discriminant(adt));
+                if reads {
+                    push_fake_place(out, &place, true);
+                }
+                for (p, sub_place) in subs {
+                    self.collect_fake_places(p, &sub_place, choice, out);
+                }
+            }
+            PatKind::Lit(_) | PatKind::Range(..) => {
+                let place = self.pat_place(pat, place.clone());
+                let reads = reads_value(pat, &place.ty(&self.body));
+                if reads {
+                    push_fake_place(out, &place, true);
+                }
+            }
+        }
+    }
+
+    /// Whether a variant pattern of `adt` reads the discriminant ([`Self::test_variant`]).
+    fn tests_discriminant(&self, adt: sabiko_resolve::DefId) -> bool {
+        self.typeck.items.adt(adt).variants().len() > 1
     }
 
     // ----- bindings -----
@@ -490,20 +580,21 @@ impl Builder<'_> {
         place
     }
 
-    /// Lowers the candidates of `pat` (with an optional guard): each that matches binds
-    /// and jumps to `success`; the builder continues where the last one failed.
+    /// Lowers the candidates of `pat` (with an optional guard, which fake-borrows `fakes`):
+    /// each that matches binds and jumps to `success`; the builder continues where the
+    /// last one failed.
     fn lower_candidates(
         &mut self,
         pat: &Pat,
-        guard: Option<&Expr>,
+        guard: Option<(&Expr, &[Place])>,
         place: &Place,
         success: BasicBlock,
     ) {
         for choice in choices(pat) {
             let fail = self.new_block();
             self.test_pat(pat, place, &choice, fail);
-            if let Some(guard) = guard {
-                self.lower_guard(guard, pat, place, &choice, fail);
+            if let Some((guard, fakes)) = guard {
+                self.lower_guard(guard, fakes, pat, place, &choice, fail);
             }
             self.bind_pat(pat, place.clone(), &choice, BindMode::Prepared);
             let span = pat.span;
@@ -512,57 +603,44 @@ impl Builder<'_> {
         }
     }
 
-    /// The guard of a candidate whose tests passed: jumps to `fail` when it is false and
-    /// continues when it holds (see the module docs).
+    /// The guard of a candidate whose tests passed, fake-borrowing `fakes` while it runs:
+    /// jumps to `fail` when it is false and continues when it holds (see the module docs).
     fn lower_guard(
         &mut self,
         guard: &Expr,
+        fakes: &[Place],
         pat: &Pat,
         place: &Place,
         choice: &Choice,
         fail: BasicBlock,
     ) {
         let span = guard.span;
-        // Shallow fake borrows of the prefixes before each dereference (`m` for `*m`),
-        // then the fake borrow of the place itself (decision 65).
-        let mut fakes = Vec::new();
-        for (index, elem) in place.projection.iter().enumerate() {
-            if *elem != PlaceElem::Deref {
-                continue;
-            }
-            let prefix = Place {
-                local: place.local,
-                projection: place.projection[..index].to_vec(),
-            };
-            let fake = self.new_temp(Ty::shared_ref(prefix.ty(&self.body)), span);
-            self.assign(
-                Place::local(fake),
-                Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::GuardShallow), prefix),
-                span,
-            );
-            fakes.push(fake);
-        }
-        let fake = self.new_temp(Ty::shared_ref(place.ty(&self.body)), span);
-        self.assign(
-            Place::local(fake),
-            Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Guard), place.clone()),
-            span,
-        );
-        fakes.push(fake);
+        let temps: Vec<Local> = fakes
+            .iter()
+            .map(|fake| {
+                let temp = self.new_temp(Ty::shared_ref(fake.ty(&self.body)), span);
+                self.assign(
+                    Place::local(temp),
+                    Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Guard), fake.clone()),
+                    span,
+                );
+                temp
+            })
+            .collect();
         let saved = std::mem::take(&mut self.guard_places);
         self.bind_for_guard(pat, place.clone(), choice);
-        let (discr, temps) = self.condition(guard, span);
+        let (discr, cond_temps) = self.condition(guard, span);
         self.guard_places = saved;
         let holds = self.new_block();
         let fails = self.new_block();
         self.switch_int(discr, vec![(0, fails)], holds, span);
         self.enter(fails);
-        self.storage_dead(&temps, span);
+        self.storage_dead(&cond_temps, span);
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
-        self.storage_dead(&temps, span);
-        for fake in fakes {
-            self.push_stmt(StatementKind::PlaceMention(Place::local(fake)), span);
+        self.storage_dead(&cond_temps, span);
+        for temp in temps {
+            self.push_stmt(StatementKind::PlaceMention(Place::local(temp)), span);
         }
     }
 
@@ -597,11 +675,13 @@ impl Builder<'_> {
         }
         let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
         let place = self.scrutinee_place(scrutinee, &pats);
+        let fakes = self.guard_fake_places(arms, &place);
         let mut entries = Vec::new();
         for arm in arms {
             let locals = self.prepare_locals(&arm.pat);
             let body = self.new_block();
-            self.lower_candidates(&arm.pat, arm.guard.as_ref(), &place, body);
+            let guard = arm.guard.as_ref().map(|g| (g, &fakes[..]));
+            self.lower_candidates(&arm.pat, guard, &place, body);
             entries.push((body, locals));
         }
         // Exhaustiveness was checked: no value gets here.
@@ -808,4 +888,57 @@ pub(super) fn binds_ref_mut(pat: &Pat) -> bool {
         }
     });
     found
+}
+
+/// Adds to `out` the places before each `Deref` in `place`, innermost first, after `place`
+/// itself when `itself` (a test reads it), skipping places already there (rustc's
+/// `FakeBorrowCollector`).
+fn push_fake_place(out: &mut Vec<Place>, place: &Place, itself: bool) {
+    let mut push = |p: Place| {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    if itself {
+        push(place.clone());
+    }
+    for (index, elem) in place.projection.iter().enumerate().rev() {
+        if *elem == PlaceElem::Deref {
+            push(Place {
+                local: place.local,
+                projection: place.projection[..index].to_vec(),
+            });
+        }
+    }
+}
+
+/// Whether `c` is a range pattern matching every value of the integer type `ty`
+/// (`i32::MIN..=i32::MAX`, `0u8..=255`): rustc tests nothing for it.
+fn is_full_range(c: Option<&PatConst>, ty: &Ty) -> bool {
+    let (
+        Some(PatConst::Range {
+            lo,
+            hi,
+            inclusive: true,
+        }),
+        Some(prim),
+    ) = (c, ty.as_prim())
+    else {
+        return false;
+    };
+    if !prim.is_integer() {
+        return false;
+    }
+    let (min, max) = sabiko_types::consts::int_bounds(prim);
+    let lo_is_min = match *lo {
+        ConstValue::Int(v) => v == min,
+        ConstValue::Uint(v) => i128::try_from(v).is_ok_and(|v| v == min),
+        _ => false,
+    };
+    let hi_is_max = match *hi {
+        ConstValue::Int(v) => u128::try_from(v).is_ok_and(|v| v == max),
+        ConstValue::Uint(v) => v == max,
+        _ => false,
+    };
+    lo_is_min && hi_is_max
 }

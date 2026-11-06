@@ -362,10 +362,6 @@ fn fake_guard(place: Place) -> Rvalue {
     Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Guard), place)
 }
 
-fn fake_guard_shallow(place: Place) -> Rvalue {
-    Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::GuardShallow), place)
-}
-
 fn mention(l: Local) -> StatementKind {
     StatementKind::PlaceMention(local(l))
 }
@@ -849,29 +845,29 @@ fn conflict_with_reborrow_and_shallow_borrow_is_reported_once() {
 }
 
 // ----------------------------------------------------------------------------------------
-// Shallow guard fake borrows of the prefixes of a scrutinee before a deref (decision 65)
+// Guard fake borrows of a scrutinee reached through a reference (decision 65)
 // ----------------------------------------------------------------------------------------
 
 #[test]
-fn guard_shallow_borrow_conflicts_with_assigning_the_reference() {
+fn guard_borrow_of_the_reference_conflicts_with_assigning_it() {
     // (`match *r { _ if { r = &y; true } => .. }`)
-    // s = &fake shallow r; g = &fake *r; r = &y; PlaceMention(s); PlaceMention(g);
+    // g = &fake *r; s = &fake r; r = &y; PlaceMention(g); PlaceMention(s);
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx);
     let x = mir.user("x", Ty::I32, Mutability::Not);
     let y = mir.user("y", Ty::I32, Mutability::Not);
     let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
-    let shallow = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
-    let guard = mir.temp(Ty::shared_ref(Ty::I32));
+    let of_ref = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
+    let of_referent = mir.temp(Ty::shared_ref(Ty::I32));
     let bb0 = mir.block();
     mir.assign(bb0, local(x), use_int(1));
     mir.assign(bb0, local(y), use_int(2));
     mir.assign(bb0, local(r), shared(local(x)));
-    let borrow = mir.assign(bb0, local(shallow), fake_guard_shallow(local(r)));
-    mir.assign(bb0, local(guard), fake_guard(deref(r)));
+    mir.assign(bb0, local(of_referent), fake_guard(deref(r)));
+    let borrow = mir.assign(bb0, local(of_ref), fake_guard(local(r)));
     let assign = mir.assign(bb0, local(r), shared(local(y)));
-    mir.stmt(bb0, mention(shallow));
-    mir.stmt(bb0, mention(guard));
+    mir.stmt(bb0, mention(of_referent));
+    mir.stmt(bb0, mention(of_ref));
     mir.finish_unit(bb0);
     let body = mir.finish();
 
@@ -890,25 +886,26 @@ fn guard_shallow_borrow_conflicts_with_assigning_the_reference() {
 }
 
 #[test]
-fn guard_shallow_borrow_allows_moves_and_accesses_through_the_reference() {
-    // s = &fake shallow m; t = copy *m; let m2 = move m; *m2 = 2; PlaceMention(s);
-    // A move is the move checks' to judge (decision 60); `*m` is the deep borrow's.
+fn guard_borrow_of_the_reference_allows_moves_and_accesses_through_it() {
+    // s = &fake m; t = copy *m; *m = 3; let m2 = move m; *m2 = 2; PlaceMention(s);
+    // A move is the move checks' to judge (decision 60); a guard's fake borrow is shallow,
+    // so `*m` is not frozen by the borrow of `m` (only by one of `*m`, if the match tests it).
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx);
     let x = mir.user("x", Ty::I32, Mutability::Mut);
     let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Not);
     let m2 = mir.user("m2", Ty::mut_ref(Ty::I32), Mutability::Not);
     let value = mir.temp(Ty::I32);
-    let shallow = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
+    let of_ref = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
     let bb0 = mir.block();
     mir.assign(bb0, local(x), use_int(1));
     mir.assign(bb0, local(m), mutable(local(x)));
-    mir.assign(bb0, local(shallow), fake_guard_shallow(local(m)));
+    mir.assign(bb0, local(of_ref), fake_guard(local(m)));
     mir.assign(bb0, local(value), use_copy(deref(m)));
     mir.assign(bb0, deref(m), use_int(3));
     mir.assign(bb0, local(m2), Rvalue::Use(mv(local(m))));
     mir.assign(bb0, deref(m2), use_int(2));
-    mir.stmt(bb0, mention(shallow));
+    mir.stmt(bb0, mention(of_ref));
     mir.finish_unit(bb0);
     let body = mir.finish();
 
@@ -916,24 +913,24 @@ fn guard_shallow_borrow_allows_moves_and_accesses_through_the_reference() {
 }
 
 #[test]
-fn guard_conflict_with_deep_and_shallow_borrow_is_reported_once() {
-    // s = &fake shallow r; g = &fake *r; n = &mut r; PlaceMention(s); PlaceMention(g);
-    // `&mut r` conflicts with both; the deep borrow's E0419 is the one reported.
+fn guard_conflict_with_two_fake_borrows_is_reported_once() {
+    // g = &fake *r; s = &fake r; n = &mut r; PlaceMention(g); PlaceMention(s);
+    // `&mut r` conflicts with both; one E0419 is reported, as in rustc, the first's.
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx);
     let x = mir.user("x", Ty::I32, Mutability::Not);
     let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
     let n = mir.user("n", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
-    let shallow = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
-    let guard = mir.temp(Ty::shared_ref(Ty::I32));
+    let of_ref = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
+    let of_referent = mir.temp(Ty::shared_ref(Ty::I32));
     let bb0 = mir.block();
     mir.assign(bb0, local(x), use_int(1));
     mir.assign(bb0, local(r), shared(local(x)));
-    mir.assign(bb0, local(shallow), fake_guard_shallow(local(r)));
-    let deep = mir.assign(bb0, local(guard), fake_guard(deref(r)));
+    let first = mir.assign(bb0, local(of_referent), fake_guard(deref(r)));
+    mir.assign(bb0, local(of_ref), fake_guard(local(r)));
     mir.assign(bb0, local(n), mutable(local(r)));
-    mir.stmt(bb0, mention(shallow));
-    mir.stmt(bb0, mention(guard));
+    mir.stmt(bb0, mention(of_referent));
+    mir.stmt(bb0, mention(of_ref));
     mir.finish_unit(bb0);
     let body = mir.finish();
 
@@ -942,7 +939,7 @@ fn guard_conflict_with_deep_and_shallow_borrow_is_reported_once() {
         diags.iter().map(render).collect::<Vec<_>>(),
         ["E0419 cannot mutably borrow `r` in match guard"]
     );
-    assert!(labels(&diags[0]).contains(&(deep, "value is immutable in match guard: `*r`")));
+    assert!(labels(&diags[0]).contains(&(first, "value is immutable in match guard: `*r`")));
 }
 
 // ----------------------------------------------------------------------------------------

@@ -1,0 +1,33 @@
+// Guard fake borrows (rustc's set): every guard of a match fake-borrows each place a test
+// of any arm reads and the places before a `Deref` in those and in the bindings' places;
+// none when the patterns read nothing and bind nothing behind a reference.
+struct P { A: i32, B: i32 }
+
+fn Unread(p: P, g: bool) -> i32 {
+    match p {
+        _ if g => 1,
+        _ => 2,
+    }
+}
+
+fn Field(p: P, g: bool) -> i32 {
+    match p {
+        P { A: 1, .. } if g => 1,
+        P { B, .. } if B > 0 => B,
+        _ => 0,
+    }
+}
+
+fn Behind(v: &P, g: bool) -> i32 {
+    match *v {
+        P { A, .. } if g => A,
+        _ => 0,
+    }
+}
+
+fn FullRange(n: u8, g: bool) -> i32 {
+    match n {
+        0..=255 if g => 1,
+        _ => 2,
+    }
+}

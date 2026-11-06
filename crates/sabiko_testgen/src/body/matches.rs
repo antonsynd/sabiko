@@ -1030,17 +1030,7 @@ impl BodyGen<'_> {
     /// Patterns after the first are generated without violations.
     fn arms(&mut self, s: &Scrut) -> Vec<Arm> {
         let mut arms: Vec<Arm> = Vec::new();
-        // TODO(#57: a guard fake-borrows a scrutinee no pattern reads; seed 5001979):
-        // `let r = &mut p; let x = match p { _ if g => 1, _ => 2 }; r.A += x;` is accepted
-        // by rustc (no pattern inspects `p`, so there is no fake borrow) and is E0408 in
-        // Sabiko. A scrutinee taken against the scope model (a violation: mutably borrowed
-        // or moved) gets no guarded arm, whose pattern may be `_`.
-        let conflicted = s
-            .guard_lock
-            .iter()
-            .any(|&(v, _)| self.vars[v].mut_locks > 0 || self.vars[v].moved);
-        let early = if conflicted { 0 } else { self.rng.range(0, 2) };
-        for _ in 0..early {
+        for _ in 0..self.rng.range(0, 2) {
             let first = arms.is_empty();
             let mut cx = Self::arm_cx(s, first);
             self.no_violations += u32::from(!first);

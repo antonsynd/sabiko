@@ -1,0 +1,8 @@
+// A test of `(*v).0` fake-borrows `v` too: retargeting `v` in the guard is E0510.
+fn Main() {
+    let a = (1, 2);
+    let b = (3, 4);
+    let mut v = &a;
+    let x = match v { (1, _) if { v = &b; false } => 1, _ => 2 };
+    PrintLine(v.0 + x);
+}

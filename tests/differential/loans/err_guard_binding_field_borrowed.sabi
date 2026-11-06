@@ -1,0 +1,8 @@
+// A binding is a shared borrow of its field while the guard runs: a live `&mut p.B` conflicts.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let r = &mut p.B;
+    let x = match p { P { B, .. } if B > 0 => B, _ => 0 };
+    *r += x;
+}

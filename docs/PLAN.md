@@ -603,8 +603,7 @@ algorithm (decision 58). Enums are value types with a tag and one payload field 
 (decision 57, C#-facing names by decision 59, checked from C# by `tests/interop/enum_layout`);
 matches lower to sequential candidates with rustc's guard semantics (fake borrows,
 bindings by reference until the guard holds; a guard may move the scrutinee, decision 60),
-and drop elaboration follows partial moves into variants behind discriminant-set flags;
-a guard also freezes the references the scrutinee is reached through (decision 65).
+and drop elaboration follows partial moves into variants behind discriminant-set flags.
 Everything staged in `tests/pending/enums/` landed (30 run-time programs in
 `differential/run/enums/`, verdict pairs in `differential/{moves,loans,enums}/`, UI tests
 per stage); the generator covers every construct (paragraph below) and mutation testing on
@@ -817,23 +816,39 @@ two borrow-check divergences, avoided with TODOs and staged in
 shared deref lives (`let d = &*m; let a = &mut m;`, accepted by rustc because a loan
 behind a shared reference does not conflict with `m` itself), and a guard fake-borrows a
 scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mutably
-borrowed; older than #11), filed as #56 and #57. Known gaps (#58 unless noted): deref
+borrowed; older than #11), filed as #56 and #57 (#57 is fixed, decision 65). Known gaps (#58 unless noted): deref
 coercion (`&&i32` to `&i32`, E0300), temporary lifetime extension below the second level
 (`let d = &&&x;`, E0413), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
 references (Phase 9), and arrays and slices of references (#43). Mutation testing of the
 changed codegen lines (docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
 the 4 survivors are equivalent, and the killing tests found no bug.
 
-Update (2026-11-06), guards over a scrutinee reached through a reference (decision 65):
-`match *m { E::A(n) if { m = &z; true } => n, _ => 0 }` is E0510 in rustc and was
-accepted here, printing `0` (the candidate re-tested `*m`, now another variant). The
-guard's fake borrow of `*m` does not reach a shallow write of `m`, so MIR building now also
-takes a shallow guard fake borrow (`&fake shallow m`) of each prefix of the scrutinee that
-ends just before a dereference, as rustc does; assigning such a prefix (`m = ..`,
-`*mm = ..` for `**mm`, `t = ..` for `*t.0`) in the guard is E0419. Moves stay allowed
-(decision 60) and an assignment in an arm body or after the match is unaffected
-(`differential/loans/*match_guard*deref*`, `*nested_scrutinee*`, `*tuple_holding*`,
-`ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi`).
+Update (2026-11-06), guard fake borrows follow rustc's set (decision 65, #57): a guard used to
+fake-borrow the whole scrutinee, so `let r = &mut p; match p { _ if g => 1, _ => 2 };
+r.A += 1;` was E0408 where rustc, whose patterns there inspect nothing of `p`, accepts it
+(found by generator seed 5001979 while #11 was written, though older than it). MIR building now
+collects rustc's set across every candidate of the match: each place a test reads, the
+places before a `Deref` in it, and the places before a `Deref` in each binding's place;
+every guard of the match takes all of them, and a match whose patterns test nothing takes
+none. The loans are shallow, as rustc's are: they do not cover the places below their own
+(a guard may write the payload of an enum whose variant it tested), and taking one reads
+only its place (testing `v.A` fake-borrows `v` beside a live `&mut v.B`). A range covering
+its whole integer type (`0u8..=255`) now tests and reads nothing, as in rustc. Besides the
+false errors, the old borrow missed one rustc error: the guard of `match *v { y if { v =
+&b; .. } => .. }` may not retarget `v` (E0510), which Sabiko accepted. Twenty-two programs in
+`tests/differential/loans/*guard*` agree with rustc 1.99.1; the MIR fixture
+`guard_fake_borrows.sabi` pins the sets. The staged
+`tests/pending/refs/known_gap/guard_fake_borrow_of_unread_scrutinee.sabi` is now
+`tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`, and the
+generator no longer withholds guarded arms from a mutably borrowed or moved scrutinee.
+
+Update (2026-11-06), guards over a scrutinee reached through a reference (#61, after
+decision 65): `match *m { E::A(n) if { m = &z; true } => n, _ => 0 }` printed `0` before
+decision 65 and is E0419 since; #61 adds rustc-checked programs for the variant test, a
+nested `**mm` (`*mm = ..`) and a tuple field `*t.0` (`t = ..`), a UI test and hand-built
+MIR tests (`differential/loans/*match_guard*`, `ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi`).
+An access that conflicts with several of one guard's fake borrows (`&mut m` with those of
+`*m` and `m`) is now reported once, as rustc does, not once per fake borrow.
 
 ### Phase 5: Data types
 

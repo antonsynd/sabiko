@@ -1,0 +1,8 @@
+// A literal pattern reads the field it tests: a live `&mut p.A` conflicts with the test.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let r = &mut p.A;
+    let x = match p { P { A: 1, .. } if false => 1, _ => 2 };
+    *r += x;
+}

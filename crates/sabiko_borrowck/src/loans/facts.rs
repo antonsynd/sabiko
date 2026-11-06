@@ -122,9 +122,8 @@ pub struct LoanData {
     /// For a two-phase borrow, the location of the use that activates it (a call). `None`
     /// for an ordinary borrow, which is active from its creation.
     pub activation: Option<Location>,
-    /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a match scrutinee, or
-    /// a prefix of it before a dereference (a shallow borrow), while a guard runs, or a
-    /// compared reference (a shallow borrow).
+    /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a place a match
+    /// inspects, while a guard runs, or a compared reference. Both are shallow.
     pub fake: Option<FakeBorrowKind>,
 }
 
@@ -609,14 +608,17 @@ impl Generator<'_> {
         } else {
             AccessKind::SharedBorrow
         };
-        // A shallow fake borrow is no access of its own: the operand's reborrow (`&*r`)
-        // or copy just before a compared reference's, and the guard's fake borrow of the
-        // scrutinee just after a guard's of a prefix of it, read the place deeply.
-        if !self.loans[loan.index()]
-            .fake
-            .is_some_and(FakeBorrowKind::is_shallow)
-        {
-            self.access(place, kind, location);
+        match self.loans[loan.index()].fake {
+            // A compared reference's shallow borrow is no access of its own: the operand's
+            // reborrow (`&*r`) or copy, just before it, already reads the place deeply.
+            Some(FakeBorrowKind::Shallow) => {}
+            // A guard's fake borrow reads the place itself, not the places below it
+            // (rustc's `Shallow(Some(FakeBorrow))` access): `&fake v` is no conflict with
+            // a live `&mut (*v).B`.
+            Some(FakeBorrowKind::Guard) => {
+                self.access_filtered(place, kind, location, None, true);
+            }
+            None => self.access(place, kind, location),
         }
         let origin = self.loans[loan.index()].origin;
         let mid = self.table.mid(location);
@@ -722,22 +724,38 @@ impl Generator<'_> {
         location: Location,
         except: Option<Loan>,
     ) {
+        self.access_filtered(place, kind, location, except, false);
+    }
+
+    /// [`Self::access_except`]; with `shallow`, the access does not reach loans of places
+    /// strictly below `place` (the creation of a guard's fake borrow).
+    fn access_filtered(
+        &mut self,
+        place: &Place,
+        kind: AccessKind,
+        location: Location,
+        except: Option<Loan>,
+        shallow: bool,
+    ) {
         let start = self.table.start(location);
         for (index, loan) in self.loans.iter().enumerate() {
             if except == Some(Loan(index)) {
                 continue;
             }
-            // A move leaves the scrutinee's memory as it was, so a guard may move it out
-            // (rustc leaves this to the move checks, which reject any later use).
-            if loan.fake.is_some_and(FakeBorrowKind::is_guard) && kind == AccessKind::Move {
+            if shallow && loan.place.projection.len() > place.projection.len() {
                 continue;
             }
-            // A shallow borrow of a reference does not cover its referent: an access
-            // through it (`*r = 3`, `&mut *r`) is the reborrow's (or the guard's deep
-            // fake borrow's) to check, if any.
-            if loan.fake.is_some_and(FakeBorrowKind::is_shallow)
-                && place.projection.len() > loan.place.projection.len()
-            {
+            // A move leaves the scrutinee's memory as it was, so a guard may move it out
+            // (rustc leaves this to the move checks, which reject any later use).
+            if loan.fake == Some(FakeBorrowKind::Guard) && kind == AccessKind::Move {
+                continue;
+            }
+            // A fake borrow is shallow (rustc's `FakeBorrowKind::Shallow`): it does not
+            // cover the places below its own. A compared reference's does not cover its
+            // referent (`*r = 3`, `&mut *r` are the reborrow's to check, if any); a guard's
+            // freezes what the match tested, not the rest of the value (a write to an
+            // enum's payload in a guard that tested only its discriminant).
+            if loan.fake.is_some() && place.projection.len() > loan.place.projection.len() {
                 continue;
             }
             let reading = matches!(kind, AccessKind::Read | AccessKind::SharedBorrow);

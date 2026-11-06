@@ -1,0 +1,6 @@
+// Every guard fake-borrows what any arm tests: assigning `p.A`, which a later arm tests, is E0510.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let x = match p { _ if { p.A = 5; false } => 1, P { A: 1, .. } => 2, _ => 3 };
+}

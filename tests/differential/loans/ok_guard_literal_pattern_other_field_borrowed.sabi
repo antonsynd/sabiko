@@ -1,0 +1,8 @@
+// A literal pattern fake-borrows the field it tests, not the struct: `&mut p.B` may live on.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let r = &mut p.B;
+    let x = match p { P { A: 1, .. } if false => 1, _ => 2 };
+    *r += x;
+}

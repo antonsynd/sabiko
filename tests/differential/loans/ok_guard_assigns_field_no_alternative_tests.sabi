@@ -1,0 +1,6 @@
+// No alternative tests `p.C`: the guard may assign it.
+struct P { A: i32, B: i32, C: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2, C: 3 };
+    let x = match p { P { A: 1, .. } | P { B: 2, .. } if { p.C = 0; false } => 1, _ => 2 };
+}

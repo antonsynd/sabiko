@@ -126,14 +126,21 @@ impl Reporter<'_> {
         errors.sort_unstable();
         errors.dedup();
         let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
-        // Points where a loan other than a shallow fake borrow conflicts.
+        // Points where a loan other than a compared reference's shallow borrow conflicts.
         let real: HashSet<Point> = errors
             .iter()
             .filter(|&&(_, _, l)| !self.is_shallow(l))
             .map(|&(_, p, _)| p)
             .collect();
+        // Points where a guard's fake borrow was reported.
+        let mut guarded: HashSet<Point> = HashSet::new();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {
+                continue;
+            }
+            // `&mut m` in a guard over `*m` conflicts with the fake borrows of `*m` and of
+            // `m`: one report is enough, as in rustc, the first fake borrow's.
+            if self.is_guard(loan) && !guarded.insert(point) {
                 continue;
             }
             // `r == { let t = r; t }` conflicts with both the reborrow `&*r` and the
@@ -147,13 +154,20 @@ impl Reporter<'_> {
         }
     }
 
-    /// Whether the loan is a shallow fake borrow (of a compared reference, or of a prefix
-    /// of a guarded scrutinee before a dereference).
+    /// Whether the loan is a match guard's fake borrow.
+    fn is_guard(&self, loan: Loan) -> bool {
+        self.facts
+            .loans
+            .get(loan.index())
+            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Guard))
+    }
+
+    /// Whether the loan is a compared reference's shallow fake borrow.
     fn is_shallow(&self, loan: Loan) -> bool {
         self.facts
             .loans
             .get(loan.index())
-            .is_some_and(|data| data.fake.is_some_and(FakeBorrowKind::is_shallow))
+            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Shallow))
     }
 
     /// Whether the error is the activation of a two-phase borrow conflicting with a loan
@@ -183,9 +197,9 @@ impl Reporter<'_> {
         let span = self.span_at(location);
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
-        if data.fake.is_some_and(FakeBorrowKind::is_guard) {
-            // The scrutinee is frozen while a match guard runs (rustc's E0510); moving it
-            // out does not conflict with the fake borrow.
+        if data.fake == Some(FakeBorrowKind::Guard) {
+            // What the match inspects is frozen while a guard runs (rustc's E0510); moving
+            // it out does not conflict with the fake borrow.
             let (message, label) = match invalidation.kind {
                 AccessKind::Write => (
                     format!("cannot assign `{accessed}` in match guard"),
