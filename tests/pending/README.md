@@ -555,7 +555,7 @@ the bounds are evaluated; writes through a range place of something shared are E
 
 Type and borrow checking accepted these; code generation rejected every one of them
 (E0500, "a reference to a reference" / "a reference to `()`"), also as tuple elements,
-until `Ref<T>` (decision 63). The staged programs were checked with rustc 1.99.1
+until `Ref<T>` (decision 64). The staged programs were checked with rustc 1.99.1
 (58cf8f9c3 2026-10-13), the version `rust-toolchain.toml` pins, as the harnesses prepare
 them, and moved into their harnesses by #11 unchanged: the 27 run-time programs to
 `tests/differential/run/refs/` (the `.expected` notes deleted), the 23 verdict programs to

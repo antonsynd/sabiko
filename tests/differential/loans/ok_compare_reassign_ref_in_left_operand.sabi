@@ -1,0 +1,14 @@
+// The left operand runs before `r` is borrowed for the comparison: reassigning `r` there
+// is fine, and so is reassigning it after the comparison.
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let same = {
+        r = &y;
+        r
+    } == r;
+    r = &x;
+    PrintLine(same);
+    PrintLine(*r);
+}

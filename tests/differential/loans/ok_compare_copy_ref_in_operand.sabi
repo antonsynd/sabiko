@@ -1,0 +1,10 @@
+// A shared reference is `Copy`: the right operand may copy (read) the compared one.
+fn Main() {
+    let x = 1;
+    let r = &x;
+    let same = r == {
+        let t = r;
+        t
+    };
+    PrintLine(same);
+}

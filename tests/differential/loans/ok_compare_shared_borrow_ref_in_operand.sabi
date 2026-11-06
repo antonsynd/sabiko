@@ -1,0 +1,11 @@
+// Borrowing the compared reference shared again in the right operand is fine.
+fn Main() {
+    let x = 1;
+    let r = &x;
+    let same = r == {
+        let q = &*r;
+        let rr = &r;
+        if **rr == *q { q } else { r }
+    };
+    PrintLine(same);
+}

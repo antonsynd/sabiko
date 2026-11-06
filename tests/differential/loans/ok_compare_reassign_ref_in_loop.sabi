@@ -1,0 +1,14 @@
+// The borrow of the compared reference ends with the comparison (NLL): the loop body may
+// reassign it before the next iteration compares it again.
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let s = &y;
+    let mut n = 0;
+    while r != s {
+        r = s;
+        n += 1;
+    }
+    PrintLine(n);
+}

@@ -1,0 +1,12 @@
+// A compared element `a[0]` is borrowed; assigning `a[1]` conflicts, as rustc does not
+// tell indices apart (rustc E0506).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut a = [&x, &y];
+    let same = a[0] == {
+        a[1] = &x;
+        &y
+    };
+    PrintLine(same);
+}

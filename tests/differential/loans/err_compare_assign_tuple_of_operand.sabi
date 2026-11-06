@@ -1,0 +1,12 @@
+// The borrow of a compared tuple field `t.0` conflicts with assigning the whole tuple
+// (rustc E0506).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut t = (&x, 0);
+    let same = t.0 == {
+        t = (&y, 1);
+        &y
+    };
+    PrintLine(same);
+}

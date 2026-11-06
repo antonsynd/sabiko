@@ -36,7 +36,7 @@ pub(crate) const UINT128: &str = "valuetype [System.Runtime]System.UInt128";
 pub(crate) const UNIT: &str = "valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit";
 
 /// The wrappers that hold a shared and a mutable reference where the CLR cannot hold a
-/// managed pointer: behind another reference and in a tuple (decision 63). Generated
+/// managed pointer: behind another reference and in a tuple (decision 64). Generated
 /// into the module ([`Cx::ref_wrapper`]); C# names them `Ref<T>` and `RefMut<T>`.
 pub(crate) const REF_CLASS: &str = "'Ref`1'";
 pub(crate) const REF_MUT_CLASS: &str = "'RefMut`1'";
@@ -173,14 +173,14 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             }
             span_type(cx, elem, m.is_mut(), span)
         }
-        // A reference to `()` is as stateless as `()` (decision 63).
+        // A reference to `()` is as stateless as `()` (decision 64).
         Ty::Ref(..) if is_unit_like(ty) => UNIT.to_owned(),
         Ty::Ref(_, inner) if inner.is_uninhabited() => {
             cx.unsupported("a value of type `&!` here", span);
             "int32".to_owned()
         }
         // A managed pointer to the place's storage: a reference held by the place is a
-        // `Ref<T>`, since no managed pointer points to another (decision 63).
+        // `Ref<T>`, since no managed pointer points to another (decision 64).
         Ty::Ref(_, inner) => format!("{}&", stored_type(cx, inner, span)),
         Ty::Unit => UNIT.to_owned(),
         Ty::Tuple(elems) => tuple_type(cx, ty, elems, span),
@@ -220,7 +220,7 @@ pub(crate) fn has_no_value(ty: &Ty) -> bool {
 /// The CIL type of a place of type `ty` that a reference points to, or that is a tuple
 /// element: the type itself, but for a reference lowered to a managed pointer, which is
 /// held in a `Ref<T>` (shared) or `RefMut<T>` (mutable) wrapper, a `ref struct` with one
-/// `ref` field, generated into the module (decision 63). The CLR has no pointer to a
+/// `ref` field, generated into the module (decision 64). The CLR has no pointer to a
 /// managed pointer and no managed pointer as a generic argument or in a field of anything
 /// but a `ref struct`: the wrapper is all three.
 pub(crate) fn stored_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {

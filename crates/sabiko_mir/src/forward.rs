@@ -14,8 +14,8 @@
 //!   once more, as a whole-local operand (`copy t`/`move t`) later in the same block,
 //!   in a statement or the block's terminator; it is never borrowed or projected;
 //! - the local of the source `p` is never borrowed anywhere in the body (no `&p`,
-//!   `&p.F`, ...; a reborrow through a reference, `&(*p).F`, does not count), so no
-//!   reference can reach its storage;
+//!   `&p.F`, ...; a reborrow through a reference, `&(*p).F`, does not count, nor does a
+//!   fake borrow, which creates no reference), so no reference can reach its storage;
 //! - no statement strictly between the copy and the use assigns to a place based on
 //!   `p`'s local or ends or restarts its storage; and when `p` reads through a reference
 //!   (`(*r).F`), none assigns through a reference or to a borrowed local either, which
@@ -114,10 +114,13 @@ fn mentions(body: &Body) -> Vec<Mentions> {
                 | Rvalue::Aggregate(..)
                 | Rvalue::Subslice(..) => {}
                 Rvalue::Discriminant(p) | Rvalue::Len(p) => m[p.local.index()].other += 1,
-                Rvalue::Ref(_, p) => {
+                Rvalue::Ref(kind, p) => {
                     let entry = &mut m[p.local.index()];
                     entry.other += 1;
-                    if !p.projection.contains(&PlaceElem::Deref) {
+                    // A fake borrow creates no reference (code generation emits nothing
+                    // for it), so the place stays unborrowed: a compared reference `r`
+                    // is forwarded as if the comparison had not borrowed it.
+                    if kind.fake().is_none() && !p.projection.contains(&PlaceElem::Deref) {
                         entry.borrowed = true;
                     }
                 }

@@ -204,7 +204,8 @@ impl Printer<'_> {
             Rvalue::Ref(kind, place) => {
                 let two_phase = match kind {
                     k if k.is_two_phase() => "two_phase ",
-                    crate::BorrowKind::Fake => "fake ",
+                    crate::BorrowKind::Fake(crate::FakeBorrowKind::Guard) => "fake ",
+                    crate::BorrowKind::Fake(crate::FakeBorrowKind::Shallow) => "fake shallow ",
                     _ => "",
                 };
                 format!(

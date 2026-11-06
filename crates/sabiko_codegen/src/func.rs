@@ -308,7 +308,7 @@ struct FnCx<'a, 'b> {
     /// stay on the stack.
     stackable: Vec<bool>,
     /// MIR locals holding a reference that something borrows: their IL local is the
-    /// reference's `Ref<T>` wrapper, so the borrow is a pointer to it (decision 63).
+    /// reference's `Ref<T>` wrapper, so the borrow is a pointer to it (decision 64).
     wrapped: Vec<bool>,
     /// Every definition kept on the stack, and what became of it.
     defs: Vec<Def>,
@@ -410,7 +410,7 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             let StatementKind::Assign(place, rvalue) = &stmt.kind else {
                 continue;
             };
-            if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _) = rvalue {
+            if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _) = rvalue {
                 // Emits nothing.
                 continue;
             }
@@ -502,14 +502,14 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
 
 /// MIR locals holding a reference lowered to a managed pointer (`&T`, not `&str` or
 /// `&[T]`) that some borrow takes the address of (`&r`), a fake borrow aside: such a local
-/// is stored in the reference's `Ref<T>` wrapper (decision 63). Other reference locals
+/// is stored in the reference's `Ref<T>` wrapper (decision 64). Other reference locals
 /// stay plain managed pointers.
 fn wrapped_locals(body: &Body) -> Vec<bool> {
     let mut wrapped = vec![false; body.locals.len()];
     for data in &body.blocks {
         for stmt in &data.statements {
             if let StatementKind::Assign(_, Rvalue::Ref(kind, place)) = &stmt.kind {
-                if *kind != sabiko_mir::BorrowKind::Fake
+                if !matches!(kind, sabiko_mir::BorrowKind::Fake(_))
                     && place.is_local()
                     && Cx::is_byref(&body.local_decl(place.local).ty)
                 {
@@ -534,14 +534,15 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
-        // A guard's fake borrow of the scrutinee emits nothing (it only exists for the
-        // borrow checker), so its temporary needs no slot.
+        // A fake borrow (of a guard's scrutinee, or the shallow one of a compared reference,
+        // whose temporary is a `&&T`) emits nothing: it only exists for the borrow checker,
+        // so its temporary needs no slot.
         let mut written = vec![false; body.locals.len()];
         let mut fake = vec![false; body.locals.len()];
         for data in &body.blocks {
             for stmt in &data.statements {
                 if let StatementKind::Assign(place, rvalue) = &stmt.kind {
-                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _)) {
+                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _)) {
                         fake[place.local.index()] |= place.is_local();
                     } else {
                         written[place.local.index()] = true;
@@ -555,7 +556,7 @@ impl FnCx<'_, '_> {
             }
         }
         for (i, decl) in body.locals.iter().enumerate() {
-            // `()`, `&()`, `!` and `&!` (decisions 32, 44 and 63) have no values to store.
+            // `()`, `&()`, `!` and `&!` (decisions 32, 44 and 64) have no values to store.
             let elided = types::has_no_value(&decl.ty) || (fake[i] && !written[i]);
             let name = || match &decl.name {
                 Some(n) if name_counts[n] == 1 => n.clone(),
@@ -591,7 +592,7 @@ impl FnCx<'_, '_> {
     }
 
     /// On entry, wraps each borrowed reference parameter into the local that stands for
-    /// it (decision 63): `ldarg; newobj Ref<T>::.ctor(!0&); stloc`.
+    /// it (decision 64): `ldarg; newobj Ref<T>::.ctor(!0&); stloc`.
     fn wrap_arguments(&mut self) {
         let body = self.body;
         for (i, local) in body.args().enumerate() {
@@ -1089,7 +1090,7 @@ impl FnCx<'_, '_> {
                     self.load(src, span);
                 }
                 Rvalue::Ref(kind, src)
-                    if src.has_index() && *kind != sabiko_mir::BorrowKind::Fake =>
+                    if src.has_index() && !matches!(kind, sabiko_mir::BorrowKind::Fake(_)) =>
                 {
                     self.addr(src, span);
                     self.op("pop", 1, 0);
@@ -1110,7 +1111,7 @@ impl FnCx<'_, '_> {
             self.variant_aggregate(place, *def, *variant, operands, span);
             return;
         }
-        if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake, _) = rvalue {
+        if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _) = rvalue {
             // A fake borrow only exists for the borrow checker.
             return;
         }
@@ -1365,7 +1366,7 @@ impl FnCx<'_, '_> {
         }
     }
 
-    /// Whether `place` holds a reference in its `Ref<T>` wrapper (decision 63) rather
+    /// Whether `place` holds a reference in its `Ref<T>` wrapper (decision 64) rather
     /// than as a managed pointer: a borrowed local, a tuple element, or the referent of a
     /// reference to a reference.
     fn is_wrapped(&self, place: &Place) -> bool {
@@ -1709,7 +1710,7 @@ impl FnCx<'_, '_> {
             Rvalue::Ref(kind, place) => {
                 let pointee = place.ty(self.body);
                 if types::has_no_value(&pointee) {
-                    // `assign` stores no reference to `()` or `!` (decision 63).
+                    // `assign` stores no reference to `()` or `!` (decision 64).
                     self.cx.unsupported("a reference to `()`", span);
                     self.ldc_i4(0);
                 } else {

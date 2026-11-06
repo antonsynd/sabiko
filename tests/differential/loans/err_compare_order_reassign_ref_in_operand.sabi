@@ -1,0 +1,11 @@
+// `PartialOrd::lt(&r, ..)` borrows `r` as `PartialEq::eq` does (rustc E0506).
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let less = r < {
+        r = &y;
+        &y
+    };
+    PrintLine(less);
+}

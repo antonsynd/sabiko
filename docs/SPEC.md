@@ -267,11 +267,11 @@ reference to `!` (`&!`, `&&!`, ...) or a tuple with such an element have no stor
 (decisions 32, 44 and 52), and assignments to them are dropped. No `()` value is ever
 loaded or stored; a call or tuple-constructor argument of type `()` loads a zero-initialised
 `Unit` local instead. A reference to `()` (`&()`, `&mut ()`, `&&()`, ...) is lowered
-exactly as `()` is (decision 63): it has one observable value, so it has no storage in a
+exactly as `()` is (decision 64): it has one observable value, so it has no storage in a
 local, is a `Unit` as a parameter or tuple element and `void` as a return type, and a read
 through it reads nothing.
 
-References to references (#11, decision 63). The CLR has no pointer to a managed pointer,
+References to references (#11, decision 64). The CLR has no pointer to a managed pointer,
 and a managed pointer can be neither a generic argument nor a field of anything but a
 `ref struct`. A reference that something else points at, or that a tuple holds, is
 therefore kept in a wrapper generated into the module: `Ref<T>` (`'Ref`1'`) for a shared
@@ -426,11 +426,15 @@ references is the comparison of the referents: MIR building evaluates each opera
 shared reference temporary (a place operand is reborrowed, `&*r`, so a `&mut` is not
 moved), and the comparison reads `*l` and `*r` (`ldind.*`) after both operands ran, as
 rustc's `PartialEq::eq(&l, &r)` does. The referents therefore stay borrowed while the right
-operand runs (`r == { *r = 3; s }` is E0410, rustc E0506). One divergence remains: rustc
-also borrows a reference *variable* used as an operand, so `r == { r = &y; r }` is E0506
-there and accepted by Sabiko (comparing the old referent with the new one). Expressing that
-loan needs a `&&T` temporary, which code generation lowers since decision 63, but at the
-cost of storing every compared reference local in a `Ref<T>` wrapper; it is not done yet. Casts: integer
+operand runs (`r == { *r = 3; s }` is E0410, rustc E0506). rustc also borrows the left
+operand's reference *itself* (`&r`), so a left place operand gets a shallow fake borrow
+(`&fake shallow r`, decision 63) kept live until the comparison: assigning, moving or
+mutably borrowing `r` (or a prefix of it: `t = ..` for `t.0`, `a[j] = ..` for `a[i]`) in
+the right operand is a conflict, as in rustc (`r == { r = &y; r }` is E0410, rustc E0506),
+and so is reassigning a compared `&str` place (`s == { s = "b"; s }`), which is copied
+rather than reborrowed. A conflict both borrows see is reported once, as the reborrow's.
+The fake borrow emits no code and does not count as borrowing `r` for copy forwarding, so a
+comparison compiles to the same IL as without it. Casts: integer
 to integer `conv.*` chosen by the target, with sign extension decided by the source
 (`conv.i8` from signed, `conv.u8` from unsigned sources); integer to float `conv.r4`/`conv.r8`
 preceded by `conv.r.un` for unsigned sources; float to `i32`/`i64`/`isize` and their

@@ -412,9 +412,9 @@ Update (2026-10-29), type-checker gaps left by Phases 2–4 (#16, #21, #17): com
 between references (all six operators, with rustc's `&`/`&mut` mixing rules) type-check and
 compare the referents; MIR reborrows each operand as a shared temporary and dereferences it
 after both operands ran, as rustc's `PartialEq::eq(&l, &r)` does, and the generator produces
-such comparisons. One verdict gap remains: rustc's borrow of a reference *variable* used as
-an operand (`r == { r = &y; r }`), which needs `&&T` codegen (lowered since #11, but not
-used for this yet, decision 63). Non-BMP `char` literals are
+such comparisons. One verdict gap remained: rustc's borrow of a reference *variable* used
+as an operand (`r == { r = &y; r }`), since closed by a shallow fake borrow (decision 63).
+Non-BMP `char` literals are
 the type checker's E0318 instead of a codegen E0500. The borrow of a diverging expression is
 typed `&!` as in rustc, `&!` locals get no storage (decision 44), and a block with a tail is
 typed by its tail even after a diverging statement; together these close the four known
@@ -778,7 +778,18 @@ branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`)
 equivalent. Among the killing tests: slicing is a point that may panic for drop
 elaboration (`run/strings/drops_unwind_slice`).
 
-Update (2026-11-05), references to references and to `()` (#11, decision 63): `&&T`,
+Update (2026-11-05), the last comparison verdict gap (decision 63): rustc's
+`PartialEq::eq(&r, ..)` borrows the left operand's reference *itself*, so
+`r == { r = &y; r }` is E0506 there and was accepted here. MIR building now adds a shallow
+fake borrow of a left place operand (`&fake shallow r`), mentioned once the right operand
+ran; it conflicts with writes, moves and mutable borrows of the place and its prefixes, not
+with accesses through it (the reborrow `&*r` checks those), and emits no code, so the IL of
+every run-pass, run-time differential and benchmark program is unchanged but for local
+names. `&str` operands, which are copied rather than reborrowed, get it too
+(`s == { s = "b"; s }`). Twenty `tests/differential/loans/*compare*` programs agree with
+rustc 1.99.1. No known comparison verdict gap remains.
+
+Update (2026-11-05), references to references and to `()` (#11, decision 64): `&&T`,
 `&mut &T`, `&mut &mut T` and deeper chains are lowered with two wrappers generated into
 the module, ``'Ref`1'<byreflike T>`` and ``'RefMut`1'<byreflike T>``, `readonly ref
 struct`s holding one `initonly !T&` field `Value`. A reference local that a borrow takes
@@ -790,7 +801,8 @@ managed pointers, so programs without `&&T` compile to the same IL as before; `&
 `&&[T]` point at the span value and need no wrapper. A `&()` (or `&&()`) is lowered as
 `()` is: no storage, `Unit` as a parameter or tuple element, `void` as a return. MIR
 already dereferenced comparison operands, so `&&T` and `&&str` comparisons needed no new
-lowering; the three known gaps staged by #6, #7 and #8 (`&&` receivers, a match through
+lowering (the shallow fake borrow of a compared reference, decision 63, is a `&&T`
+temporary too, but emits nothing and gets no slot); the three known gaps staged by #6, #7 and #8 (`&&` receivers, a match through
 `&&Enum`, auto-deref through `&&(..)`) now run. Everything staged in `tests/pending/refs/`
 outside `known_gap/` landed and agrees with rustc: 27 run-time programs in
 `tests/differential/run/refs/` and 23 verdict programs in
@@ -805,12 +817,10 @@ shared deref lives (`let d = &*m; let a = &mut m;`, accepted by rustc because a 
 behind a shared reference does not conflict with `m` itself), and a guard fake-borrows a
 scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mutably
 borrowed; older than #11), filed as #56 and #57. Known gaps (#58 unless noted): deref
-coercion (`&&i32` to `&i32`, E0300),
-temporary lifetime extension below the second level (`let d = &&&x;`, E0413), `'static`
-promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
-references (Phase 9), rustc's borrow of a compared reference variable (`r == { r = &y; r
-}`), and arrays and slices of references (#43). Mutation testing of the changed codegen lines
-(docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
+coercion (`&&i32` to `&i32`, E0300), temporary lifetime extension below the second level
+(`let d = &&&x;`, E0413), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
+references (Phase 9), and arrays and slices of references (#43). Mutation testing of the
+changed codegen lines (docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
 the 4 survivors are equivalent, and the killing tests found no bug.
 
 ### Phase 5: Data types
@@ -847,7 +857,7 @@ against drops rather than retrofitted.
   range values wait for generics (Phase 6).
 - `&T` in generic position lowers to a `ref struct` `Ref<T>` with a `ref T` field;
   generic types that may hold it are emitted with `allows ref struct`. This also lowers
-  `&&T`. Done for `&&T`, `&()` and references in tuples (#11, decision 63; see the status
+  `&&T`. Done for `&&T`, `&()` and references in tuples (#11, decision 64; see the status
   note above): `Ref<T>`/`RefMut<T>` are generated per module with a `byreflike`
   parameter, ready to be a generic argument once Phase 6 has generic types; arrays and
   slices of references remain (#43).

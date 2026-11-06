@@ -180,7 +180,7 @@ pub(crate) struct Cx<'a> {
     /// method's name (decision 55).
     drop_glues: Vec<(Ty, String)>,
     /// Whether the module uses the ``Ref`1`` (index 0) and ``RefMut`1`` (index 1) wrappers
-    /// (decision 63).
+    /// (decision 64).
     ref_wrappers: [bool; 2],
 }
 
@@ -334,7 +334,7 @@ impl Cx<'_> {
     /// constructor taking the elements in order, like `System.ValueTuple`'s, so a tuple is
     /// built the same way whichever type lowers it. An element that is a reference is
     /// held in its `Ref<T>` wrapper, so a borrow of it points to a wrapper as any `&&T`
-    /// does (decision 63); the constructor takes the managed pointer and wraps it. An
+    /// does (decision 64); the constructor takes the managed pointer and wraps it. An
     /// element type may register another such tuple, which is emitted in turn.
     fn byref_tuple_structs(&mut self, out: &mut String) {
         if self.had_error {
@@ -473,7 +473,7 @@ impl Cx<'_> {
     }
 
     /// Whether `ty` is lowered to a CIL managed pointer (`T&`). `&str` and `&[T]` are
-    /// spans, not pointers; a reference to `()` is stateless, like `()` (decision 63), and
+    /// spans, not pointers; a reference to `()` is stateless, like `()` (decision 64), and
     /// `&!` has no values.
     pub(crate) fn is_byref(ty: &Ty) -> bool {
         match ty {
@@ -485,7 +485,7 @@ impl Cx<'_> {
     }
 
     /// The generated wrapper that holds a reference where the CLR cannot hold a managed
-    /// pointer (decision 63): ``Ref`1`` for a shared reference, ``RefMut`1`` for a mutable
+    /// pointer (decision 64): ``Ref`1`` for a shared reference, ``RefMut`1`` for a mutable
     /// one, generic over the referent's storage type. Registers it for
     /// [`Cx::ref_wrapper_structs`].
     pub(crate) fn ref_wrapper(&mut self, mutable: bool) -> &'static str {

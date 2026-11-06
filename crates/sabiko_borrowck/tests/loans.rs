@@ -8,9 +8,9 @@
 use sabiko_borrowck::loans::{check_loans, check_signatures};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
-    AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, ConstValue, Constant, Local,
-    LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
-    TerminatorKind, Ty,
+    AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, ConstValue, Constant,
+    FakeBorrowKind, Local, LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue, Statement,
+    StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, ResolveResults};
 use sabiko_span::{FileId, Span};
@@ -354,6 +354,14 @@ fn two_phase(place: Place) -> Rvalue {
     Rvalue::Ref(BorrowKind::Mut { two_phase: true }, place)
 }
 
+fn fake_shallow(place: Place) -> Rvalue {
+    Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Shallow), place)
+}
+
+fn mention(l: Local) -> StatementKind {
+    StatementKind::PlaceMention(local(l))
+}
+
 fn point_aggregate(fx: &Fixture) -> Rvalue {
     Rvalue::Aggregate(AggregateKind::Adt(fx.point), vec![int(1), int(2)])
 }
@@ -667,6 +675,169 @@ fn moving_a_reference_whose_referent_is_reborrowed() {
         fx.messages(&body),
         ["E0412 cannot move out of `m` because it is borrowed"]
     );
+}
+
+// ----------------------------------------------------------------------------------------
+// Shallow fake borrows of compared references (decision 63)
+// ----------------------------------------------------------------------------------------
+
+#[test]
+fn shallow_borrow_conflicts_with_assigning_the_reference() {
+    // f = &fake shallow r; r = &y; PlaceMention(f);
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let f = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(y), use_int(2));
+    mir.assign(bb0, local(r), shared(local(x)));
+    let borrow = mir.assign(bb0, local(f), fake_shallow(local(r)));
+    let assign = mir.assign(bb0, local(r), shared(local(y)));
+    let later = mir.stmt(bb0, mention(f));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0410 cannot assign to `r` because it is borrowed"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (assign, "assignment to borrowed `r` occurs here"),
+            (borrow, "`r` is borrowed here"),
+            (later, "borrow later used here"),
+        ]
+    );
+}
+
+#[test]
+fn shallow_borrow_conflicts_with_moving_and_mutably_borrowing_the_reference() {
+    // f = &fake shallow m; let n = &mut m; let m2 = move m; PlaceMention(f);
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Mut);
+    let n = mir.user("n", Ty::mut_ref(Ty::mut_ref(Ty::I32)), Mutability::Not);
+    let m2 = mir.user("m2", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let f = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), mutable(local(x)));
+    mir.assign(bb0, local(f), fake_shallow(local(m)));
+    mir.assign(bb0, local(n), mutable(local(m)));
+    mir.assign(bb0, local(m2), Rvalue::Use(mv(local(m))));
+    mir.stmt(bb0, mention(f));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    assert_eq!(
+        fx.messages(&body),
+        [
+            "E0408 cannot borrow `m` as mutable because it is also borrowed as immutable",
+            "E0412 cannot move out of `m` because it is borrowed",
+        ]
+    );
+}
+
+#[test]
+fn shallow_borrow_does_not_cover_the_referent() {
+    // f = &fake shallow m; *m = 2; let n = &mut *m; *n = 3; PlaceMention(f);
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let n = mir.user("n", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let f = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), mutable(local(x)));
+    mir.assign(bb0, local(f), fake_shallow(local(m)));
+    mir.assign(bb0, deref(m), use_int(2));
+    mir.assign(bb0, local(n), mutable(deref(m)));
+    mir.assign(bb0, deref(n), use_int(3));
+    mir.stmt(bb0, mention(f));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn shallow_borrow_of_a_field_conflicts_with_assigning_the_struct_only() {
+    // f = &fake shallow p.X; p.Y = 3; p = Point { .. }; PlaceMention(f);
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", Ty::Adt(fx.point), Mutability::Mut);
+    let f = mir.temp(Ty::shared_ref(Ty::I32));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(f), fake_shallow(local(p).field(0, Ty::I32)));
+    mir.assign(bb0, local(p).field(1, Ty::I32), use_int(3));
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.stmt(bb0, mention(f));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    assert_eq!(
+        fx.messages(&body),
+        ["E0410 cannot assign to `p` because it is borrowed"]
+    );
+}
+
+#[test]
+fn shallow_borrow_is_no_access_of_its_own() {
+    // let m = &mut x; f = &fake shallow x; *m = 2;
+    // The operand's own reborrow or copy reads the place; the fake borrow does not.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let f = mir.temp(Ty::shared_ref(Ty::I32));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), mutable(local(x)));
+    mir.assign(bb0, local(f), fake_shallow(local(x)));
+    mir.assign(bb0, deref(m), use_int(2));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn conflict_with_reborrow_and_shallow_borrow_is_reported_once() {
+    // t = &*m; f = &fake shallow m; let m2 = move m; PlaceMention(f); copy *t
+    // (`m == { let m2 = m; .. }`): the reborrow's error is the one reported.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let m2 = mir.user("m2", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let reborrowed = mir.temp(Ty::shared_ref(Ty::I32));
+    let fake = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
+    let value = mir.temp(Ty::I32);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), mutable(local(x)));
+    let reborrow = mir.assign(bb0, local(reborrowed), shared(deref(m)));
+    mir.assign(bb0, local(fake), fake_shallow(local(m)));
+    mir.assign(bb0, local(m2), Rvalue::Use(mv(local(m))));
+    mir.stmt(bb0, mention(fake));
+    mir.assign(bb0, local(value), use_copy(deref(reborrowed)));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0412 cannot move out of `m` because it is borrowed"]
+    );
+    assert!(labels(&diags[0]).contains(&(reborrow, "borrow of `*m` occurs here")));
 }
 
 // ----------------------------------------------------------------------------------------
