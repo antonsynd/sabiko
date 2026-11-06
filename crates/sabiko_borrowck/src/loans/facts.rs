@@ -608,17 +608,15 @@ impl Generator<'_> {
         } else {
             AccessKind::SharedBorrow
         };
-        match self.loans[loan.index()].fake {
-            // A compared reference's shallow borrow is no access of its own: the operand's
-            // reborrow (`&*r`) or copy, just before it, already reads the place deeply.
-            Some(FakeBorrowKind::Shallow) => {}
-            // A guard's fake borrow reads the place itself, not the places below it
-            // (rustc's `Shallow(Some(FakeBorrow))` access): `&fake v` is no conflict with
-            // a live `&mut (*v).B`.
-            Some(FakeBorrowKind::Guard) => {
-                self.access_filtered(place, kind, location, None, true);
-            }
-            None => self.access(place, kind, location),
+        // Taking a fake borrow is no access of its own. A compared reference's: the
+        // operand's reborrow (`&*r`) or copy, just before it, already reads the place
+        // deeply. A guard's: in rustc it reads the place shallowly, which conflicts with no
+        // loan (not with shared ones, and a shallow fake borrow coexists with mutable ones),
+        // so `match p.A { _ if { r.A += 1; false } => .., 1 => .., _ => .. }` may write
+        // through a `r = &mut p` taken before the match; a test, a binding or a write in a
+        // guard is what conflicts.
+        if self.loans[loan.index()].fake.is_none() {
+            self.access(place, kind, location);
         }
         let origin = self.loans[loan.index()].origin;
         let mid = self.table.mid(location);
@@ -724,25 +722,9 @@ impl Generator<'_> {
         location: Location,
         except: Option<Loan>,
     ) {
-        self.access_filtered(place, kind, location, except, false);
-    }
-
-    /// [`Self::access_except`]; with `shallow`, the access does not reach loans of places
-    /// strictly below `place` (the creation of a guard's fake borrow).
-    fn access_filtered(
-        &mut self,
-        place: &Place,
-        kind: AccessKind,
-        location: Location,
-        except: Option<Loan>,
-        shallow: bool,
-    ) {
         let start = self.table.start(location);
         for (index, loan) in self.loans.iter().enumerate() {
             if except == Some(Loan(index)) {
-                continue;
-            }
-            if shallow && loan.place.projection.len() > place.projection.len() {
                 continue;
             }
             // A move leaves the scrutinee's memory as it was, so a guard may move it out
