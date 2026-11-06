@@ -41,4 +41,10 @@ exclude_re = [
     "Mutability::prefix_str -> ",
     "UseKind::(noun|verb) -> ",
     "::make_mutable_help -> String",
+    # `next += 1` as `next *= 1` in a worklist loop (`while next < list.len()`) keeps
+    # `next` at 0: the backend emits the first entry forever and its output grows until
+    # the machine runs out of memory, which took down a nightly runner (run 19) once the
+    # test timeout was long enough to let it. Any test that emits a drop glue, an inline
+    # array or a by-ref tuple struct would hang, so these are killed, not survivors.
+    "replace \\+= with \\*= in Cx<'_>::(drop_glues|inline_array_structs|byref_tuple_structs)$",
 ]

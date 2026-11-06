@@ -301,7 +301,11 @@ is killed by `interop`. The nightly workflow runs each crate as four round-robin
 (`scripts/mutants.sh --shard k/4 <crate>`, one runner each, no verdict per shard). A
 `mutants-score` job then judges each crate on the counts of all four `mutants.out`
 directories (`scripts/mutants.sh --score <crate> --shards 4 <dir>...`) and fails when a
-shard's results are missing. Unsharded, run 18 took 137 minutes for `sabiko_codegen`
+shard's results are missing. The longer timeout let three codegen mutants exhaust a
+runner's memory (run 19): `next += 1` as `next *= 1` in the worklist loops of
+`drop_glues`, `inline_array_structs` and `byref_tuple_structs` never advances, so the
+backend emits the first entry forever. `.cargo/mutants.toml` excludes those three; they
+hang every test that reaches them, so they are killed, not survivors. Unsharded, run 18 took 137 minutes for `sabiko_codegen`
 (685 mutants), and `sabiko_types` tested all of its 827 mutants (634 on 2026-11-05, at 12.6
 rather than 7.5 seconds each) but hit the job's 180-minute limit before it could report a
 score.
