@@ -1089,6 +1089,10 @@ impl<'a> Builder<'a> {
             self.assign(dest.clone(), Rvalue::PointerCoercion(op, target), span);
             return;
         }
+        if let Some(rvalue) = self.aggregate_rvalue(expr) {
+            self.assign(dest.clone(), rvalue, span);
+            return;
+        }
         match &expr.kind {
             ExprKind::Paren(inner) => {
                 let inner = self.enter_paren(expr, inner);
@@ -1098,7 +1102,6 @@ impl<'a> Builder<'a> {
                 let op = self.as_operand(expr);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
             }
-            ExprKind::Tuple(_) => self.tuple_into(dest, expr, false),
             // A place read straight into the destination (`let x = p.A;`), as rustc does:
             // only operands of a larger expression go through a temporary.
             ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => {
@@ -1106,42 +1109,25 @@ impl<'a> Builder<'a> {
                 let op = self.place_operand(place);
                 self.assign(dest.clone(), Rvalue::Use(op), span);
             }
-            ExprKind::Array(elems) => {
-                let Ty::Array(elem, _) = self.ty(expr).clone() else {
-                    unreachable!("an array expression has an array type")
-                };
-                // Each element is a coercion site, evaluated left to right.
-                let operands = elems
-                    .iter()
-                    .map(|e| self.coerced_operand(e, Some(&elem), false))
-                    .collect();
-                self.assign(
-                    dest.clone(),
-                    Rvalue::Aggregate(AggregateKind::Array(*elem), operands),
-                    span,
-                );
-            }
             ExprKind::Repeat(value, _) => {
-                let n = self.types.repeat_counts[&expr.id];
+                // `[x; 0]` (any other repeat is an aggregate): it evaluates `x` and holds
+                // nothing, so rustc drops `x` at once, before anything else in the
+                // statement runs (`F([d; 0], G())` drops `d` before `G` runs). The drop at
+                // the end of the statement's scope finds the temporary uninitialised; drop
+                // elaboration removes it.
                 let Ty::Array(elem, _) = self.ty(expr).clone() else {
                     unreachable!("a repeat expression has an array type")
                 };
-                if n == 0 {
-                    // `[x; 0]` evaluates `x` and holds nothing: rustc drops `x` at once,
-                    // before anything else in the statement runs (`F([d; 0], G())` drops
-                    // `d` before `G` runs). The drop at the end of the statement's scope
-                    // finds the temporary uninitialised; drop elaboration removes it.
-                    let temp = self.as_temp(value);
-                    self.drop_local(temp, span);
-                    self.assign(
-                        dest.clone(),
-                        Rvalue::Aggregate(AggregateKind::Array(*elem), Vec::new()),
-                        span,
-                    );
-                } else {
-                    let op = self.coerced_operand(value, Some(&elem), false);
-                    self.assign(dest.clone(), Rvalue::Repeat(op, n), span);
-                }
+                let temp = self.as_temp(value);
+                self.drop_local(temp, span);
+                self.assign(
+                    dest.clone(),
+                    Rvalue::Aggregate(AggregateKind::Array(*elem), Vec::new()),
+                    span,
+                );
+            }
+            ExprKind::Array(_) | ExprKind::Tuple(_) | ExprKind::Struct { .. } => {
+                unreachable!("an aggregate is lowered by `aggregate_rvalue`")
             }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Local(id) => {
@@ -1153,20 +1139,8 @@ impl<'a> Builder<'a> {
                         let op = self.as_operand(expr);
                         self.assign(dest.clone(), Rvalue::Use(op), span);
                     }
-                    DefKind::Struct => {
-                        self.assign(
-                            dest.clone(),
-                            Rvalue::Aggregate(AggregateKind::Adt(def), Vec::new()),
-                            span,
-                        );
-                    }
-                    DefKind::Variant => {
-                        let (adt, index) = self.types.variant_exprs[&expr.id];
-                        self.assign(
-                            dest.clone(),
-                            Rvalue::Aggregate(AggregateKind::Variant(adt, index), Vec::new()),
-                            span,
-                        );
+                    DefKind::Struct | DefKind::Variant => {
+                        unreachable!("a unit struct or variant is lowered by `aggregate_rvalue`")
                     }
                     DefKind::Fn | DefKind::Enum => {
                         unreachable!("functions and enums as values are rejected")
@@ -1204,29 +1178,6 @@ impl<'a> Builder<'a> {
             ExprKind::Assign(..) | ExprKind::AssignOp(..) => {
                 self.lower_assign(expr);
                 self.assign(dest.clone(), Self::unit_rvalue(span), span);
-            }
-            ExprKind::Call { args, .. } if self.types.variant_exprs.contains_key(&expr.id) => {
-                // `E::V(a, b)`: the variant's fields, in order.
-                let (adt, index) = self.types.variant_exprs[&expr.id];
-                let tys: Vec<Ty> = self
-                    .typeck
-                    .items
-                    .adt(adt)
-                    .variant(index)
-                    .fields
-                    .iter()
-                    .map(|f| f.ty.clone())
-                    .collect();
-                let operands = args
-                    .iter()
-                    .zip(&tys)
-                    .map(|(a, ty)| self.coerced_operand(a, Some(ty), false))
-                    .collect();
-                self.assign(
-                    dest.clone(),
-                    Rvalue::Aggregate(AggregateKind::Variant(adt, index), operands),
-                    span,
-                );
             }
             ExprKind::Call { callee, args } => {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
@@ -1288,43 +1239,6 @@ impl<'a> Builder<'a> {
             ExprKind::Break(value) => self.lower_break(value.as_deref(), span),
             ExprKind::Continue => self.lower_continue(span),
             ExprKind::Return(value) => self.lower_return(value.as_deref(), span),
-            ExprKind::Struct { fields, .. } => {
-                let Res::Def(def) = self.resolve.res(expr.id) else {
-                    unreachable!("unresolved struct literal in a checked body")
-                };
-                let variant = self.types.variant_exprs.get(&expr.id).copied();
-                let (kind, field_defs) = match variant {
-                    Some((adt, index)) => (
-                        AggregateKind::Variant(adt, index),
-                        self.typeck.items.adt(adt).variant(index).fields.clone(),
-                    ),
-                    None => (
-                        AggregateKind::Adt(def),
-                        self.typeck.items.adt(def).fields.clone(),
-                    ),
-                };
-                // Initialisers run in source order; the aggregate lists declaration order.
-                let mut operands: Vec<Option<Operand>> = vec![None; field_defs.len()];
-                let indices: Vec<usize> = fields
-                    .iter()
-                    .map(|f| {
-                        field_defs
-                            .iter()
-                            .position(|d| d.name == f.name.name)
-                            .expect("struct literal fields exist in a checked body")
-                    })
-                    .collect();
-                for (field, index) in fields.iter().zip(indices) {
-                    let field_ty = field_defs[index].ty.clone();
-                    operands[index] =
-                        Some(self.coerced_operand(&field.value, Some(&field_ty), false));
-                }
-                let operands = operands
-                    .into_iter()
-                    .map(|op| op.expect("every field is initialised in a checked body"))
-                    .collect();
-                self.assign(dest.clone(), Rvalue::Aggregate(kind, operands), span);
-            }
             ExprKind::Match { scrutinee, arms } => {
                 self.lower_match(Some(dest), scrutinee, arms, span);
             }
@@ -1439,13 +1353,132 @@ impl<'a> Builder<'a> {
         self.call_into(dest, expr, callee.def, operands, span);
     }
 
-    /// `(a, b, ...)` into `dest`. Elements run left to right; at a coercion site each is
-    /// coerced to its element type (a `&mut` place is reborrowed), elsewhere a `&mut` place
-    /// element is moved, as in rustc. In a `let` initialiser (`extending`), the operand of
-    /// an element `&<rvalue>` lives as long as the binding, and so on into nested tuples
-    /// (rustc's temporary lifetime extension: `let p = (&f(), 1);` keeps `f()`'s value).
+    /// An aggregate expression's operands, evaluated left to right, and the aggregate
+    /// built from them, not yet stored anywhere (rustc's `as_rvalue`): an array, a repeat
+    /// of at least one element, a tuple, a struct or variant literal, a variant
+    /// constructor call or a unit struct or variant. `None` for any other expression, and
+    /// for an aggregate with a pointer coercion still to apply; nothing is lowered then.
+    /// `place = [..]` uses it to evaluate the place between the operands and the store
+    /// (`lower_assign`).
+    fn aggregate_rvalue(&mut self, expr: &Expr) -> Option<Rvalue> {
+        if self.has_pending_coercion(expr) {
+            return None;
+        }
+        let rvalue = match &expr.kind {
+            ExprKind::Array(elems) => {
+                let Ty::Array(elem, _) = self.ty(expr).clone() else {
+                    unreachable!("an array expression has an array type")
+                };
+                // Each element is a coercion site, evaluated left to right.
+                let operands = elems
+                    .iter()
+                    .map(|e| self.coerced_operand(e, Some(&elem), false))
+                    .collect();
+                Rvalue::Aggregate(AggregateKind::Array(*elem), operands)
+            }
+            ExprKind::Repeat(value, _) => {
+                let n = self.types.repeat_counts[&expr.id];
+                if n == 0 {
+                    // Lowered by `expr_into_dest`, which drops `value` at once.
+                    return None;
+                }
+                let Ty::Array(elem, _) = self.ty(expr).clone() else {
+                    unreachable!("a repeat expression has an array type")
+                };
+                let op = self.coerced_operand(value, Some(&elem), false);
+                Rvalue::Repeat(op, n)
+            }
+            ExprKind::Tuple(_) => {
+                Rvalue::Aggregate(AggregateKind::Tuple, self.tuple_operands(expr, false))
+            }
+            ExprKind::Path(_) => match self.resolve.res(expr.id) {
+                Res::Def(def) if self.def_kind(def) == DefKind::Struct => {
+                    Rvalue::Aggregate(AggregateKind::Adt(def), Vec::new())
+                }
+                Res::Def(def) if self.def_kind(def) == DefKind::Variant => {
+                    let (adt, index) = self.types.variant_exprs[&expr.id];
+                    Rvalue::Aggregate(AggregateKind::Variant(adt, index), Vec::new())
+                }
+                _ => return None,
+            },
+            ExprKind::Call { args, .. } if self.types.variant_exprs.contains_key(&expr.id) => {
+                // `E::V(a, b)`: the variant's fields, in order.
+                let (adt, index) = self.types.variant_exprs[&expr.id];
+                let tys: Vec<Ty> = self
+                    .typeck
+                    .items
+                    .adt(adt)
+                    .variant(index)
+                    .fields
+                    .iter()
+                    .map(|f| f.ty.clone())
+                    .collect();
+                let operands = args
+                    .iter()
+                    .zip(&tys)
+                    .map(|(a, ty)| self.coerced_operand(a, Some(ty), false))
+                    .collect();
+                Rvalue::Aggregate(AggregateKind::Variant(adt, index), operands)
+            }
+            ExprKind::Struct { fields, .. } => {
+                let Res::Def(def) = self.resolve.res(expr.id) else {
+                    unreachable!("unresolved struct literal in a checked body")
+                };
+                let variant = self.types.variant_exprs.get(&expr.id).copied();
+                let (kind, field_defs) = match variant {
+                    Some((adt, index)) => (
+                        AggregateKind::Variant(adt, index),
+                        self.typeck.items.adt(adt).variant(index).fields.clone(),
+                    ),
+                    None => (
+                        AggregateKind::Adt(def),
+                        self.typeck.items.adt(def).fields.clone(),
+                    ),
+                };
+                // Initialisers run in source order; the aggregate lists declaration order.
+                let mut operands: Vec<Option<Operand>> = vec![None; field_defs.len()];
+                let indices: Vec<usize> = fields
+                    .iter()
+                    .map(|f| {
+                        field_defs
+                            .iter()
+                            .position(|d| d.name == f.name.name)
+                            .expect("struct literal fields exist in a checked body")
+                    })
+                    .collect();
+                for (field, index) in fields.iter().zip(indices) {
+                    let field_ty = field_defs[index].ty.clone();
+                    operands[index] =
+                        Some(self.coerced_operand(&field.value, Some(&field_ty), false));
+                }
+                let operands = operands
+                    .into_iter()
+                    .map(|op| op.expect("every field is initialised in a checked body"))
+                    .collect();
+                Rvalue::Aggregate(kind, operands)
+            }
+            _ => return None,
+        };
+        Some(rvalue)
+    }
+
+    /// `(a, b, ...)` into `dest`. See [`Self::tuple_operands`].
     fn tuple_into(&mut self, dest: &Place, expr: &Expr, extending: bool) {
         let span = self.span_of(expr);
+        let operands = self.tuple_operands(expr, extending);
+        self.assign(
+            dest.clone(),
+            Rvalue::Aggregate(AggregateKind::Tuple, operands),
+            span,
+        );
+    }
+
+    /// The elements of `(a, b, ...)`, left to right; at a coercion site each is coerced to
+    /// its element type (a `&mut` place is reborrowed), elsewhere a `&mut` place element
+    /// is moved, as in rustc. In a `let` initialiser (`extending`), the operand of an
+    /// element `&<rvalue>` lives as long as the binding, and so on into nested tuples
+    /// (rustc's temporary lifetime extension: `let p = (&f(), 1);` keeps `f()`'s value).
+    fn tuple_operands(&mut self, expr: &Expr, extending: bool) -> Vec<Operand> {
         let ExprKind::Tuple(elems) = &strip_parens(expr).kind else {
             unreachable!("not a tuple expression")
         };
@@ -1453,7 +1486,7 @@ impl<'a> Builder<'a> {
             unreachable!("a tuple expression has a tuple type in a checked body")
         };
         let coerced = self.types.coerced_tuples.contains(&strip_parens(expr).id);
-        let operands = elems
+        elems
             .iter()
             .zip(elem_tys.iter())
             .map(|(e, ty)| {
@@ -1468,12 +1501,7 @@ impl<'a> Builder<'a> {
                     self.as_operand(e)
                 }
             })
-            .collect();
-        self.assign(
-            dest.clone(),
-            Rvalue::Aggregate(AggregateKind::Tuple, operands),
-            span,
-        );
+            .collect()
     }
 
     /// An operand of a `let` initialiser whose temporary rustc extends to the binding's
@@ -1680,17 +1708,28 @@ impl<'a> Builder<'a> {
         match &expr.kind {
             ExprKind::Assign(lhs, rhs) => {
                 let target = self.ty(lhs).clone();
-                let rhs = self.coerced_operand(rhs, Some(&target), false);
+                // An array, repeat or tuple is built in the place after the place is
+                // evaluated, from operands evaluated before it, as rustc does: a panic in
+                // the place drops the operands, each a temporary of its own, in reverse
+                // order. rustc builds a struct or variant literal into a temporary first.
+                let stripped = strip_parens(rhs);
+                let rvalue = match stripped.kind {
+                    ExprKind::Array(_) | ExprKind::Repeat(..) | ExprKind::Tuple(_) => {
+                        self.aggregate_rvalue(stripped)
+                    }
+                    _ => None,
+                };
+                let rhs = rvalue.unwrap_or_else(|| {
+                    Rvalue::Use(self.coerced_operand(rhs, Some(&target), false))
+                });
                 let place = self.as_place_mut(lhs, Mutability::Mut);
-                if place.has_index()
-                    && matches!(rhs, Operand::Move(_))
-                    && self.typeck.items.needs_drop(&target)
+                if place.has_index() && rvalue_moves(&rhs) && self.typeck.items.needs_drop(&target)
                 {
                     // `a[i] = v`: the index is checked before `v` moves (rustc's bounds
                     // check precedes the store), so a panic there still drops `v`.
                     self.push_stmt(StatementKind::PlaceMention(place.clone()), span);
                 }
-                self.assign(place, Rvalue::Use(rhs), span);
+                self.assign(place, rhs, span);
             }
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let rhs = self.as_operand(rhs);
@@ -2113,4 +2152,13 @@ fn strip_parens(mut e: &Expr) -> &Expr {
         e = inner;
     }
     e
+}
+
+/// Whether `rvalue` moves any of its operands.
+fn rvalue_moves(rvalue: &Rvalue) -> bool {
+    match rvalue {
+        Rvalue::Use(op) | Rvalue::Repeat(op, _) => matches!(op, Operand::Move(_)),
+        Rvalue::Aggregate(_, ops) => ops.iter().any(|op| matches!(op, Operand::Move(_))),
+        _ => false,
+    }
 }
