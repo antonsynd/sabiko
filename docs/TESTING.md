@@ -610,6 +610,10 @@ the unmutated backend's. Seven change the IL; they get killing tests:
   is known to pass (`a[0..n]`, `a[0..]`, `a[1..3]`, `a[2..=2]`), so only the IL differs.
   The IL fixture `edge_shapes` (`Spans`) kills all three.
 
+`MUTANTS_ARGS="--re func.rs:(1093:24|1093:43|1181:62|1182:38|2102:13|2103:46):"
+scripts/mutants.sh sabiko_codegen` confirms it: 8 of 8 caught, the seven plus the
+`1093:24` guard as `true`, which was already caught.
+
 That makes 647 of 672 (96.3%). The other 25 are equivalent; none changes the IL of a corpus
 program, and only `assign_slots`' changes that of a generated one:
 
