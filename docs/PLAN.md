@@ -409,13 +409,16 @@ past it. The same run's slow units (`&&&…&&1`) came from the type checker reso
 time roughly quartic in their depth (11 s for 255 `&` in debug); resolution is linear now.
 
 Update (2026-11-06), after nightly run 18 (decision 67, #64): `sabiko_types`'s mutation
-job tested all 827 of its mutants (634 the night before) but hit its 180-minute limit
-before it reported a score, and `sabiko_codegen` took 137 minutes. The run also showed
+job had tested 827 of its 1209 mutants (634 the night before) when it hit its 180-minute
+limit, and `sabiko_codegen` took 137 minutes. The run also showed
 that cargo-mutants' baseline tests only the mutated package, so each mutant's test
 timeout was the 60-second floor, shorter than the suites it runs: every codegen mutant
 that the fast tests missed was cut off in `generated` and counted as caught. The nightly
 now passes an explicit 300-second test timeout and runs each crate as four shards; a score
-job judges each crate on the four shards' combined counts (`docs/TESTING.md`).
+job judges each crate on the four shards' combined counts (`docs/TESTING.md`). The first
+sharded run (run 20) took at most 69 minutes per shard and measured `sabiko_borrowck` at
+94.8%, `sabiko_codegen` at 95.2% (32 survivors that the 60-second limit had counted as
+timeouts) and `sabiko_types` at 98.4%.
 
 Update (2026-10-29), type-checker gaps left by Phases 2–4 (#16, #21, #17): comparisons
 between references (all six operators, with rustc's `&`/`&mut` mixing rules) type-check and
