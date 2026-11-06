@@ -919,7 +919,8 @@ bind (`v` for a test or binding of `*v`). Nothing else is: `match p { _ if g => 
 fake-borrows nothing, so a live `&mut p` is no conflict and the guard may assign `p`, and
 `P { A: 1, .. }` fake-borrows `p.A` only. A fake borrow is shallow: it does not cover the
 places below its own (a guard that tested only `o`'s variant may write its payload), and
-taking it reads only its place. Assigning a fake-borrowed place (or a prefix of one) or
+taking it is no access, so it is no conflict with a live `&mut` taken before the match (a
+guard may write a tested place through one). Assigning a fake-borrowed place (or a prefix of one) or
 borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
 leaves its memory as it was; decision 60), although an arm after a failed guard that
 tests the moved scrutinee again is E0406, which rustc, testing once before any guard,

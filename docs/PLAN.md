@@ -831,16 +831,19 @@ collects rustc's set across every candidate of the match: each place a test read
 places before a `Deref` in it, and the places before a `Deref` in each binding's place;
 every guard of the match takes all of them, and a match whose patterns test nothing takes
 none. The loans are shallow, as rustc's are: they do not cover the places below their own
-(a guard may write the payload of an enum whose variant it tested), and taking one reads
-only its place (testing `v.A` fake-borrows `v` beside a live `&mut v.B`). A range covering
+(a guard may write the payload of an enum whose variant it tested), and taking one is no
+access: in rustc it conflicts with no loan, so a guard may write a tested place through a
+`&mut` taken before the match (fixed after generator seed 12800375 found that Sabiko made it
+a read). A range covering
 its whole integer type (`0u8..=255`) now tests and reads nothing, as in rustc. Besides the
 false errors, the old borrow missed one rustc error: the guard of `match *v { y if { v =
-&b; .. } => .. }` may not retarget `v` (E0510), which Sabiko accepted. Twenty-two programs in
+&b; .. } => .. }` may not retarget `v` (E0510), which Sabiko accepted. Twenty-four programs in
 `tests/differential/loans/*guard*` agree with rustc 1.99.1; the MIR fixture
 `guard_fake_borrows.sabi` pins the sets. The staged
 `tests/pending/refs/known_gap/guard_fake_borrow_of_unread_scrutinee.sabi` is now
 `tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`, and the
-generator no longer withholds guarded arms from a mutably borrowed or moved scrutinee.
+generator no longer withholds guarded arms from a mutably borrowed or moved scrutinee;
+2000 seeds at each of the bases 10600000, 11700000 and 12800000 pass all five properties.
 
 Update (2026-11-06), guards over a scrutinee reached through a reference (#61, after
 decision 65): `match *m { E::A(n) if { m = &z; true } => n, _ => 0 }` printed `0` before

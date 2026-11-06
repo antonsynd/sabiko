@@ -1,0 +1,8 @@
+// As ok_guard_writes_tested_place_through_earlier_mut_ref, through `r = &mut p` (a prefix).
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let r = &mut p;
+    let x = match p.A { _ if { r.A += 1; false } => 1, 1 => 2, _ => 3 };
+    PrintLine(x);
+}

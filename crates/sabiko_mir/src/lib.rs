@@ -483,8 +483,8 @@ pub enum FakeBorrowKind {
     /// or a place before a `Deref` in it or in a binding's place; rustc's set, see
     /// `build::matches`): it conflicts with assignments to and mutable borrows of the
     /// place or of a prefix of it (rustc's E0510), not with those of places below it (it is
-    /// shallow, as rustc's is), nor with reads or moves (decision 60). Its creation reads
-    /// the place itself, not the places below it.
+    /// shallow, as rustc's is), nor with reads or moves (decision 60). Taking it is no
+    /// access: in rustc it conflicts with no loan, a live `&mut` of the place included.
     Guard,
     /// Of a reference place compared by `==`, `<`, ...: rustc passes `&r` to
     /// `PartialEq::eq`, borrowing the reference itself until the comparison, while MIR

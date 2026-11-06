@@ -1,0 +1,9 @@
+// Taking a guard fake borrow is no access: the guard may write the tested `p.A` through a `&mut`
+// taken before the match (rustc accepts; generator seed 12800375).
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let r = &mut p.A;
+    let x = match p.A { _ if { *r += 1; false } => 1, 1 => 2, _ => 3 };
+    PrintLine(x);
+}
