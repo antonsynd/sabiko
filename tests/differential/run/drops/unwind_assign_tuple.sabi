@@ -1,0 +1,23 @@
+// `s[i] = (..)` builds the tuple in the place after the index check, like an array: when
+// the check panics, the elements drop as separate temporaries in reverse order. An element
+// that is itself an array (or a tuple) was built into a temporary of its own, so it drops
+// whole, its elements in order (`drop 2`, `drop 3`), before `drop 1`.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Index(n: usize) -> usize {
+    n
+}
+
+fn Main() {
+    let mut v = [(D { Id: 10 }, [D { Id: 11 }, D { Id: 12 }])];
+    let s: &mut [(D, [D; 2])] = &mut v[0..0];
+    s[Index(7) % s.len()] = (D { Id: 1 }, [D { Id: 2 }, D { Id: 3 }]);
+    PrintLine("unreachable");
+}

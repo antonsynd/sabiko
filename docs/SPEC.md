@@ -179,7 +179,11 @@ dropped as rustc drops them (edition 2021):
 Unwinding: a panic drops every value that holds one, frame by frame: the callee's locals
 and parameters, then the caller's temporaries and locals, by the rules above. Operands
 already evaluated for an unfinished struct literal, tuple or call are dropped, the last
-first; the unfinished struct's own `drop` does not run. A `drop` that panics at a normal
+first; the unfinished struct's own `drop` does not run. An assignment of an array, repeat
+or tuple (`s[i] = [a, b]`) evaluates the place after the elements and builds the aggregate
+in it last, so a panic in the place (an index check) drops the evaluated elements the same
+way, the last first. A struct or variant literal is built before the place, so it is
+dropped whole (decision 66). A `drop` that panics at a normal
 scope end is an ordinary panic: that value's fields are still dropped, then everything
 else live, as rustc's drop glue does. A panic while unwinding (a `drop` called during
 cleanup that panics) aborts the process, as Rust does (decision 56): standard output is

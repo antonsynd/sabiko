@@ -853,6 +853,17 @@ MIR tests (`differential/loans/*match_guard*`, `ui/borrowck/guard_assigns_deref_
 An access that conflicts with several of one guard's fake borrows (`&mut m` with those of
 `*m` and `m`) is now reported once, as rustc does, not once per fake borrow.
 
+Update (2026-11-06), after nightly run 18 (decision 66, #63): generator seed 960 failed the
+run and reorder-run properties on an assignment of an array through an empty slice,
+`d[7 % d.len()] = [..]`. MIR building used to evaluate the whole array into a temporary
+before the place, so the panic in `%` dropped the array's elements in element order. rustc
+evaluates the elements, then the place, and only then builds the array in it, so it drops
+the elements as separate temporaries, in reverse. An array, repeat or tuple on the
+right-hand side of an assignment is now built in the place after the place is evaluated, as
+in rustc. A struct or variant literal is still built first, which is also rustc's order.
+`run/drops/unwind_assign_{array,tuple,struct}.sabi` pin the three shapes. The MIR of
+`p = (p.1, p.0 + p.1)` loses one temporary.
+
 ### Phase 5: Data types
 
 Work

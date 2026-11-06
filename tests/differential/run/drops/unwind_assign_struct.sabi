@@ -1,0 +1,30 @@
+// Unlike an array or a tuple, rustc builds a struct literal into a temporary before it
+// evaluates the place of `s[i] = S { .. }`. When the index check panics, that temporary
+// drops whole: `S`'s own `drop` first, then its fields in declaration order (`drop 1`,
+// `drop 2`), whatever order the literal lists them in.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct S { A: D, B: D }
+
+impl Drop for S {
+    fn drop(&mut self) {
+        PrintLine("drop S");
+    }
+}
+
+fn Index(n: usize) -> usize {
+    n
+}
+
+fn Main() {
+    let mut v = [S { A: D { Id: 10 }, B: D { Id: 11 } }];
+    v[Index(3)] = S { B: D { Id: 2 }, A: D { Id: 1 } };
+    PrintLine("unreachable");
+}
