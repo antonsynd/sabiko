@@ -17,8 +17,10 @@ test_package = [
     "sabikoc",
 ]
 
-# The whole workspace suite runs in ~20s; the run-time differential tests spawn dotnet, so
-# leave headroom before a slow mutant counts as a timeout.
+# A bare `cargo mutants` derives the test timeout from its baseline test run, which only
+# tests the mutated package (`-p`), not the `--test-package` suites: far too short for the
+# sabikoc and sabiko_driver suites, so `scripts/mutants.sh` passes an explicit `--timeout`
+# (its `test_timeout`) instead and these two settings only apply to bare runs.
 timeout_multiplier = 3.0
 minimum_test_timeout = 60
 build_timeout_multiplier = 3.0

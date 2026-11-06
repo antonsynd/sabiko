@@ -134,14 +134,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  # Each crate's mutants run as four round-robin shards on separate runners (one in-place
+  # cargo-mutants run per runner tests one mutant at a time); `mutants-score` then judges
+  # each crate on its shards' combined counts. Run 18 (2026-11-06) took 137 minutes for
+  # sabiko_codegen unsharded and ran sabiko_types into the 180-minute limit.
   mutants:
-    name: mutation testing (${{ matrix.crate }})
+    name: mutation testing (${{ matrix.crate }}, shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         crate: [sabiko_borrowck, sabiko_codegen, sabiko_types]
+        shard: [0, 1, 2, 3]
     env:
       CARGO_TERM_COLOR: always
       # The run-pass and run-time differential tests must run, not skip, so a missing
@@ -152,6 +157,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.99.1
       - uses: Swatinem/rust-cache@v2
+        with:
+          # One cache per crate, shared by its four shards, which build the same tree.
+          key: mutants-${{ matrix.crate }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -159,12 +167,31 @@ jobs:
         run: scripts/setup-dotnet.sh
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked
-      - name: Mutation testing (scripts/mutants.sh enforces the per-crate minimum score)
-        run: scripts/mutants.sh ${{ matrix.crate }}
+      - name: Mutation testing (one shard; mutants-score judges the crate)
+        run: scripts/mutants.sh --shard ${{ matrix.shard }}/4 ${{ matrix.crate }}
       - name: Upload mutants.out
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mutants-${{ matrix.crate }}
+          name: mutants-${{ matrix.crate }}-${{ matrix.shard }}
           path: target/mutants/${{ matrix.crate }}/mutants.out
           if-no-files-found: warn
+
+  mutants-score:
+    name: mutation score (${{ matrix.crate }})
+    needs: mutants
+    # Judge whatever the shards uploaded; a shard that failed to upload fails the score.
+    if: always()
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [sabiko_borrowck, sabiko_codegen, sabiko_types]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutants-${{ matrix.crate }}-*
+          path: shards
+      - name: Score (scripts/mutants.sh enforces the per-crate minimum score)
+        run: scripts/mutants.sh --score ${{ matrix.crate }} --shards 4 shards/mutants-${{ matrix.crate }}-*
