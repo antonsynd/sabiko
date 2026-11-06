@@ -422,13 +422,12 @@ timeouts) and `sabiko_types` at 98.4%.
 
 Update (2026-11-06), after nightly run 20, the first with that timeout: `sabiko_codegen`
 measured 95.2% (640 of 672 viable), just above its threshold of 95. Of the 32 survivors,
-seven changed the IL of corpus or generated programs and now have killing tests. Two
-were a miscompile that no test reached: a two-way branch whose targets both come before it
-in the layout (`if c { continue; }` ending a loop body) fell through into the next block
-(`run/control/branch_targets`). The other five change only the IL (the IL fixture
-`edge_shapes`). The remaining
-25 are equivalent (`docs/TESTING.md`). That is 647 of 672, 96.3%, and the threshold
-stays at 95, which leaves room for eight new survivors.
+seven changed the IL of corpus or generated programs and now have killing tests. Two of
+them miscompiled a shape no test reached: a two-way branch whose targets both come
+before it in the layout (`if c { continue; }` ending a loop body) fell through into the
+next block (`run/control/branch_targets`). The other five change only the IL (the IL
+fixture `edge_shapes`). The remaining 25 are equivalent (`docs/TESTING.md`). That is 647
+of 672, 96.3%, and the threshold stays at 95, which leaves room for eight new survivors.
 
 Update (2026-10-29), type-checker gaps left by Phases 2–4 (#16, #21, #17): comparisons
 between references (all six operators, with rustc's `&`/`&mut` mixing rules) type-check and

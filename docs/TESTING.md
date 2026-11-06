@@ -320,9 +320,8 @@ shard. Score = (caught + timeout) / viable:
 | `sabiko_types` | 1209 | 1082 + 1 / 1100 | 98.4% | 98 |
 
 `sabiko_codegen`'s 32 survivors were hidden before as 60-second timeouts (run 18 reported
-100% with 44 timeouts). Some are on the equivalent list above (the `stackable_locals`
-counts, `negation_fits`' guard, the return-only block in `block`); the rest need triage
-into tests or that list, since the score is 0.2 points above the threshold.
+100% with 44 timeouts). They are triaged under References to references below: seven
+get killing tests (one shape was a miscompile) and 25 are equivalent, 96.3%.
 `sabiko_types` has 17 survivors, 7 of them the equivalent ones listed above; the others
 are in pattern checking and exhaustiveness (`check_pat_in_mode`, `rest_positions`,
 `patterns.rs`, `usefulness.rs`).
