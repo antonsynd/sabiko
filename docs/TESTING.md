@@ -140,7 +140,9 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   (staged in `tests/pending/refs/known_gap/`): a guard fake-borrowing a scrutinee no
   pattern reads (seed 5001979, not specific to #11). A second one, `&mut s` while a
   reborrow through `s`'s shared deref lives (seed 5001324), is fixed, and a `&str` local
-  derived from another is now borrowed `&mut` too. 2000 seeds at each of the bases
+  derived from another is now borrowed `&mut` too. Also avoided, with a TODO: an index
+  check inside a parenthesised method receiver, which Sabiko locates at the `(` (seed
+  9001101); receivers are parenthesised only when they are not postfix expressions. 2000 seeds at each of the bases
   4000000, 5000000 and 6000000 pass all five properties, and since that fix at 7000000,
   8000000 and 9000000.
 - ILVerify runs on every assembly the tests produce. The only ignored error is

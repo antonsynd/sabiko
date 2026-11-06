@@ -833,10 +833,17 @@ the scrutinee's prefixes. `ok_mut_borrow_of_ref_while_reborrow_lives` left
 `tests/pending/refs/known_gap/` for `tests/differential/loans/`, with three more verdict
 programs (`&**mr`, a compared `*rr`, the `&mut` counterparts) and a run-time one in
 `tests/differential/run/refs/`; hand-built MIR tests in `sabiko_borrowck/tests/loans.rs`
-cover each access kind. The generator now borrows any mutable `&str` local `&mut`, not
-only a fresh one; 2000 seeds at each of the bases 7000000, 8000000 and 9000000 pass all
-five properties. Still open, found while checking this: a guard over `match *m` that
-assigns `m` is accepted (rustc E0510).
+cover each access kind, and all 12 mutants on the changed lines are caught. The generator
+now borrows any mutable `&str` local `&mut`, not only a fresh one. That shifted its random
+stream onto two older generator bugs, both fixed: a shared reference local bound from a
+call returning `&mut` was left unannotated, so it was a `&mut` the model took for a `&T`
+(seed 10001664, E0308 in rustc), and a method receiver with a tuple index was
+parenthesised (`(a[i].2).Mix(..)`), where Sabiko locates the index check at the `(` and
+rustc at the index (seed 9001101; a Sabiko span bug, avoided with a TODO: receivers are
+now parenthesised only when they are not postfix). With them, 2000 seeds at each of the
+bases 7000000, 8000000 and 9000000 pass all five properties. Still open, found while
+checking this: a guard over `match *m` that assigns `m` is accepted (rustc E0510), and
+the index-check location inside a parenthesised place.
 
 ### Phase 5: Data types
 
