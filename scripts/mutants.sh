@@ -54,7 +54,10 @@ test_packages() {
 # in docs/TESTING.md). The 100% recorded for types on 2026-10-19 did not reproduce: the
 # first nightly run measured 66.9%, see docs/PLAN.md. Re-measured 2026-10-31 after the
 # tuple survivors got tests: borrowck 94.9% (298 of 314), codegen 95.6% (494 of 517),
-# types 98.8% (570 of 577); see docs/TESTING.md.
+# types 98.8% (570 of 577); see docs/TESTING.md. Codegen, nightly run 20 (2026-11-06, the
+# first with an explicit test timeout): 95.2% (640 of 672), 96.3% (647) once the seven
+# survivors that change the IL got tests; the other 25 are equivalent, and 95 keeps room
+# for eight new survivors.
 minimum_score() {
     case "$1" in
         sabiko_borrowck) echo 93 ;;

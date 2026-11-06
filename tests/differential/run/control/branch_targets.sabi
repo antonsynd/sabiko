@@ -1,0 +1,39 @@
+// Two-way branches whose targets are both laid out before them, so neither follows the
+// branch: `if c { continue; }` ending a loop body goes to the loop header either way, and
+// `if c { continue; } else { break; }` after an earlier `break` goes to the header or to
+// the exit, both placed already. Neither may fall through into the block after it.
+fn Trailing(n: i32) -> i32 {
+    let mut k = 0;
+    let mut odd = 0;
+    while k < n {
+        k += 1;
+        odd += k % 2;
+        if k % 3 == 0 {
+            continue;
+        }
+    }
+    k * 100 + odd
+}
+
+fn Both(n: i32) -> i32 {
+    let mut k = 0;
+    loop {
+        k += 1;
+        if k > n {
+            break;
+        }
+        if k % 4 != 0 {
+            continue;
+        } else {
+            break;
+        }
+    }
+    k
+}
+
+fn Main() {
+    PrintLine(Trailing(7));
+    PrintLine(Trailing(0));
+    PrintLine(Both(10));
+    PrintLine(Both(2));
+}
