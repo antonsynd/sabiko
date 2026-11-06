@@ -306,9 +306,26 @@ runner's memory (run 19): `next += 1` as `next *= 1` in the worklist loops of
 `drop_glues`, `inline_array_structs` and `byref_tuple_structs` never advances, so the
 backend emits the first entry forever. `.cargo/mutants.toml` excludes those three; they
 hang every test that reaches them, so they are killed, not survivors. Unsharded, run 18 took 137 minutes for `sabiko_codegen`
-(685 mutants), and `sabiko_types` tested all of its 827 mutants (634 on 2026-11-05, at 12.6
-rather than 7.5 seconds each) but hit the job's 180-minute limit before it could report a
-score.
+(685 mutants), and `sabiko_types` had tested 827 of its 1209 mutants (634 on 2026-11-05) when
+it hit the job's 180-minute limit, at 12.6 rather than 7.5 seconds each.
+
+The first sharded run (run 20, 2026-11-06, on `1ede489`) took 7 to 17 minutes per
+`sabiko_borrowck` shard, 28 to 39 per `sabiko_codegen` shard and 41 to 69 per `sabiko_types`
+shard. Score = (caught + timeout) / viable:
+
+| Crate | Mutants | Caught + timeout / viable | Score | Threshold |
+| --- | --- | --- | --- | --- |
+| `sabiko_borrowck` | 407 | 327 + 4 / 349 | 94.8% | 93 |
+| `sabiko_codegen` | 682 | 636 + 4 / 672 | 95.2% | 95 |
+| `sabiko_types` | 1209 | 1082 + 1 / 1100 | 98.4% | 98 |
+
+`sabiko_codegen`'s 32 survivors were hidden before as 60-second timeouts (run 18 reported
+100% with 44 timeouts). Some are on the equivalent list above (the `stackable_locals`
+counts, `negation_fits`' guard, the return-only block in `block`); the rest need triage
+into tests or that list, since the score is 0.2 points above the threshold.
+`sabiko_types` has 17 survivors, 7 of them the equivalent ones listed above; the others
+are in pattern checking and exhaustiveness (`check_pat_in_mode`, `rest_positions`,
+`patterns.rs`, `usefulness.rs`).
 
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
 2026-10-21, `sabiko_borrowck` on 2026-10-22), score = (caught + timeout) / viable:
