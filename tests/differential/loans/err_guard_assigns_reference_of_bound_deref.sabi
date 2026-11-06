@@ -1,0 +1,7 @@
+// A binding of `*v` fake-borrows `v`, the place before the `Deref`: assigning `v` is E0510.
+fn Main() {
+    let a = 1;
+    let b = 2;
+    let mut v = &a;
+    let y = match *v { y if { v = &b; y > 0 } => y, _ => 0 };
+}

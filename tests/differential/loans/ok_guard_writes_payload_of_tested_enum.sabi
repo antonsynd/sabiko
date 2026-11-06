@@ -1,0 +1,10 @@
+// A guard's fake borrow is shallow: testing the discriminant freezes `o`, not its payload.
+enum Slot { Empty, Full(i32) }
+fn Main() {
+    let mut o = Slot::Full(1);
+    let y = match o {
+        Slot::Full(_) if { if let Slot::Full(ref mut z) = o { *z = 5; } true } => 1,
+        _ => 0,
+    };
+    if let Slot::Full(z) = o { PrintLine(z + y); }
+}

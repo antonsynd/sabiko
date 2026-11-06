@@ -1,0 +1,7 @@
+// A range covering the whole type tests nothing, so it reads nothing and fake-borrows nothing.
+fn Main() {
+    let mut x = 1u8;
+    let r = &mut x;
+    let y = match x { 0..=255 if false => 1, _ => 2 };
+    *r = y;
+}

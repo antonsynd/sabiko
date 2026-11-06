@@ -816,12 +816,31 @@ two borrow-check divergences, avoided with TODOs and staged in
 shared deref lives (`let d = &*m; let a = &mut m;`, accepted by rustc because a loan
 behind a shared reference does not conflict with `m` itself), and a guard fake-borrows a
 scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mutably
-borrowed; older than #11), filed as #56 and #57. Known gaps (#58 unless noted): deref
+borrowed; older than #11), filed as #56 and #57 (#57 is fixed, decision 65). Known gaps (#58 unless noted): deref
 coercion (`&&i32` to `&i32`, E0300), temporary lifetime extension below the second level
 (`let d = &&&x;`, E0413), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
 references (Phase 9), and arrays and slices of references (#43). Mutation testing of the
 changed codegen lines (docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
 the 4 survivors are equivalent, and the killing tests found no bug.
+
+Update (2026-11-06), guard fake borrows follow rustc's set (decision 65, #57): a guard used to
+fake-borrow the whole scrutinee, so `let r = &mut p; match p { _ if g => 1, _ => 2 };
+r.A += 1;` was E0408 where rustc, whose patterns there inspect nothing of `p`, accepts it
+(found by generator seed 5001979 while #11 was written, though older than it). MIR building now
+collects rustc's set across every candidate of the match: each place a test reads, the
+places before a `Deref` in it, and the places before a `Deref` in each binding's place;
+every guard of the match takes all of them, and a match whose patterns test nothing takes
+none. The loans are shallow, as rustc's are: they do not cover the places below their own
+(a guard may write the payload of an enum whose variant it tested), and taking one reads
+only its place (testing `v.A` fake-borrows `v` beside a live `&mut v.B`). A range covering
+its whole integer type (`0u8..=255`) now tests and reads nothing, as in rustc. Besides the
+false errors, the old borrow missed one rustc error: the guard of `match *v { y if { v =
+&b; .. } => .. }` may not retarget `v` (E0510), which Sabiko accepted. Twenty-two programs in
+`tests/differential/loans/*guard*` agree with rustc 1.99.1; the MIR fixture
+`guard_fake_borrows.sabi` pins the sets. The staged
+`tests/pending/refs/known_gap/guard_fake_borrow_of_unread_scrutinee.sabi` is now
+`tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`, and the
+generator no longer withholds guarded arms from a mutably borrowed or moved scrutinee.
 
 ### Phase 5: Data types
 

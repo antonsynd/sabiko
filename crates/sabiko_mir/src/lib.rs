@@ -479,9 +479,12 @@ pub enum BorrowKind {
 /// What a [`BorrowKind::Fake`] borrow stands for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FakeBorrowKind {
-    /// Made while a match guard runs, of a place the match tested: it conflicts with
-    /// assignments to and mutable borrows of the place (rustc's E0510) but not with reads
-    /// or moves (decision 60).
+    /// Made while a match guard runs, of a place the match inspects (a place a test reads,
+    /// or a place before a `Deref` in it or in a binding's place; rustc's set, see
+    /// `build::matches`): it conflicts with assignments to and mutable borrows of the
+    /// place or of a prefix of it (rustc's E0510), not with those of places below it (it is
+    /// shallow, as rustc's is), nor with reads or moves (decision 60). Its creation reads
+    /// the place itself, not the places below it.
     Guard,
     /// Of a reference place compared by `==`, `<`, ...: rustc passes `&r` to
     /// `PartialEq::eq`, borrowing the reference itself until the comparison, while MIR

@@ -1,0 +1,8 @@
+// A later arm tests the discriminant of `o` while `&mut o` lives: the test reads it.
+enum Slot { Empty, Full(i32) }
+fn Main() {
+    let mut o = Slot::Full(1);
+    let r = &mut o;
+    let y = match o { _ if false => 1, Slot::Empty => 2, _ => 0 };
+    *r = Slot::Empty;
+}

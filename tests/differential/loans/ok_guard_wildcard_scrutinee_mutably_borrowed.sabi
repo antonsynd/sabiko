@@ -1,0 +1,10 @@
+// A guard fake-borrows only places a pattern reads: `_` arms read nothing of `p`, so the live
+// `&mut p` is no conflict (rustc prints 3; generator seed 5001979).
+struct P { A: i32 }
+fn Main() {
+    let mut p = P { A: 1i32 };
+    let r = &mut p;
+    let x = match p { _ if false => 1i32, _ => 2i32 };
+    r.A += x;
+    PrintLine(p.A);
+}

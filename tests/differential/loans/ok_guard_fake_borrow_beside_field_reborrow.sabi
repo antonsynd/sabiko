@@ -1,0 +1,10 @@
+// Testing `v.A` fake-borrows `(*v).A` and `v`; taking them reads no place below `v`, so
+// a live `&mut v.B` is no conflict.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let v = &mut p;
+    let r = &mut v.B;
+    let x = match v.A { 1 if false => 1, _ => 2 };
+    *r += x;
+}

@@ -183,8 +183,8 @@ impl Reporter<'_> {
         let borrowed = self.describe(&data.place);
         let accessed = self.describe(&invalidation.place);
         if data.fake == Some(FakeBorrowKind::Guard) {
-            // The scrutinee is frozen while a match guard runs (rustc's E0510); moving it
-            // out does not conflict with the fake borrow.
+            // What the match inspects is frozen while a guard runs (rustc's E0510); moving
+            // it out does not conflict with the fake borrow.
             let (message, label) = match invalidation.kind {
                 AccessKind::Write => (
                     format!("cannot assign `{accessed}` in match guard"),

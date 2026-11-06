@@ -1,0 +1,6 @@
+// A guard may assign a field no arm tests, though a later arm tests another field.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let x = match p { _ if { p.B = 5; false } => 1, P { A: 1, .. } => 2, _ => 3 };
+}

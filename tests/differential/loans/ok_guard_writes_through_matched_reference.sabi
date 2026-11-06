@@ -1,0 +1,7 @@
+// Matching `v: &mut P` tests only `(*v).A`: the guard may write `v.B` through it.
+struct P { A: i32, B: i32 }
+fn Main() {
+    let mut p = P { A: 1, B: 2 };
+    let v = &mut p;
+    let x = match v { P { A: 1, .. } if { v.B = 7; false } => 1, _ => 2 };
+}
