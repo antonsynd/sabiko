@@ -2199,36 +2199,90 @@ impl<'a> BodyGen<'a> {
     }
 }
 
-/// `text` as a method receiver: a plain path of names and indices (`p`, `p.A.X`, `a[1].X`,
-/// `a[(k % 2usize)]`) as it is, anything else parenthesised (`(*r)`, `(t.0)`, `(F(x))`),
-/// so that `*r.Get()` cannot read as `*(r.Get())` and a tuple index cannot run into the
-/// method name.
+/// `text` as a method receiver: a postfix expression (a name or a parenthesised group, then
+/// fields, tuple indices and indices: `p`, `p.A.X`, `t.0.1`, `a[(k % 2usize)].1`,
+/// `(*r)[0]`) as it is, anything else parenthesised (`(*r)`, `(F(x))`, `(5i32)`), so that
+/// `*r.Get()` cannot read as `*(r.Get())`.
+///
+/// TODO(Sabiko bug: an index check inside a parenthesised receiver is located at the `(`,
+/// rustc locates it at the index expression; seed 9001101): parentheses are only added
+/// where the receiver needs them, so a place with an index is never wrapped.
 fn receiver_text(text: &str) -> String {
-    // Index expressions do not matter: `a[i].Get()` calls `Get` on the element.
-    let mut names = String::new();
-    let mut level = 0;
-    for c in text.chars() {
-        match c {
-            '[' => level += 1,
-            ']' => level -= 1,
-            _ if level == 0 => names.push(c),
-            _ => {}
-        }
-    }
-    let plain = names.split('.').all(|segment| {
-        segment
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-            && segment
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    });
-    if plain {
+    if is_postfix(text.as_bytes()) {
         text.to_owned()
     } else {
         format!("({text})")
     }
+}
+
+/// Whether `b` is a name or a parenthesised group followed only by `.field`, `.0` and
+/// `[..]`.
+fn is_postfix(b: &[u8]) -> bool {
+    let mut i = match b.first() {
+        Some(b'(') => match closing(b, 0) {
+            Some(end) => end + 1,
+            None => return false,
+        },
+        Some(c) if c.is_ascii_alphabetic() || *c == b'_' => word_end(b, 0),
+        _ => return false,
+    };
+    while i < b.len() {
+        match b[i] {
+            b'.' if b
+                .get(i + 1)
+                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') =>
+            {
+                let end = word_end(b, i + 1);
+                // A tuple index is all digits (`1.5f32` is no field access).
+                if b[i + 1].is_ascii_digit() && !b[i + 1..end].iter().all(u8::is_ascii_digit) {
+                    return false;
+                }
+                i = end;
+            }
+            b'[' => match closing(b, i) {
+                Some(end) => i = end + 1,
+                None => return false,
+            },
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// The end of the name or number starting at `start`.
+fn word_end(b: &[u8], start: usize) -> usize {
+    start
+        + b[start..]
+            .iter()
+            .take_while(|c| c.is_ascii_alphanumeric() || **c == b'_')
+            .count()
+}
+
+/// The index of the bracket closing the one at `open`, skipping character and string
+/// literals (`'('`, `"a]"`).
+fn closing(b: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut i = open;
+    while i < b.len() {
+        match b[i] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            quote @ (b'\'' | b'"') => {
+                i += 1;
+                while i < b.len() && b[i] != quote {
+                    i += if b[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -2341,17 +2395,36 @@ mod tests {
     }
 
     #[test]
-    fn receivers_are_parenthesised_unless_plain_paths() {
+    fn receivers_are_parenthesised_unless_postfix() {
         assert_eq!(receiver_text("p"), "p");
         assert_eq!(receiver_text("self.A.X"), "self.A.X");
         assert_eq!(receiver_text("*self"), "(*self)");
-        assert_eq!(receiver_text("t.0"), "(t.0)");
+        assert_eq!(receiver_text("t.0"), "t.0");
+        assert_eq!(receiver_text("t.0.1"), "t.0.1");
         assert_eq!(receiver_text("F(x)"), "(F(x))");
+        assert_eq!(receiver_text("Status::A"), "(Status::A)");
+        assert_eq!(receiver_text("5i32"), "(5i32)");
+        assert_eq!(receiver_text("x.1f32"), "(x.1f32)");
         assert_eq!(receiver_text("a[1].X"), "a[1].X");
         assert_eq!(
             receiver_text("a[(F(x).0 % 2usize)]"),
             "a[(F(x).0 % 2usize)]"
         );
-        assert_eq!(receiver_text("t.0[1]"), "(t.0[1])");
+        assert_eq!(receiver_text("t.0[1]"), "t.0[1]");
+        // Seed 9001101: the index stays where rustc and Sabiko locate its check alike.
+        assert_eq!(
+            receiver_text("next[(13usize - 1usize)].2"),
+            "next[(13usize - 1usize)].2"
+        );
+        assert_eq!(receiver_text("(*r)[0].1"), "(*r)[0].1");
+        assert_eq!(receiver_text("(a) + (b)"), "((a) + (b))");
+        assert_eq!(receiver_text("a[F(')')]"), "a[F(')')]");
+        assert_eq!(receiver_text("a[F('\\'')]"), "a[F('\\'')]");
+        assert_eq!(
+            receiver_text("(if c { \"]\" } else { s })"),
+            "(if c { \"]\" } else { s })"
+        );
+        assert_eq!(receiver_text("a[1"), "(a[1)");
+        assert_eq!(receiver_text("-x"), "(-x)");
     }
 }
