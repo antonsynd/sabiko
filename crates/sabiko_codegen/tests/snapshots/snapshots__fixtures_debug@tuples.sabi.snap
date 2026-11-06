@@ -271,7 +271,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
     .locals init (
       [0] valuetype [System.Runtime]System.ValueTuple`2<uint64, uint64> 'pair',
       [1] int32 'i',
-      [2] uint64 '_9',
+      [2] uint64 '_8',
       [3] uint64 '$tmp0'
     )
   BB0:

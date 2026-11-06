@@ -206,11 +206,10 @@ fn Fib(_1: i32) -> u64 {
     let mut _4: bool;
     let mut _5: i32;
     let mut _6: i32;
-    let mut _7: (u64, u64);
+    let mut _7: u64;
     let mut _8: u64;
     let mut _9: u64;
     let mut _10: u64;
-    let mut _11: u64;
 
     bb0: {
         StorageLive(_2);
@@ -228,13 +227,10 @@ fn Fib(_1: i32) -> u64 {
 
     bb2: {
         StorageDead(_4);
-        StorageLive(_7);
-        StorageLive(_9);
-        _9 = Add(copy _2.0, copy _2.1);
-        _7 = (copy _2.1, copy _9);
-        _2 = copy _7;
-        StorageDead(_9);
-        StorageDead(_7);
+        StorageLive(_8);
+        _8 = Add(copy _2.0, copy _2.1);
+        _2 = (copy _2.1, copy _8);
+        StorageDead(_8);
         _3 = Add(copy _3, const 1_i32);
         goto -> bb1;
     }
