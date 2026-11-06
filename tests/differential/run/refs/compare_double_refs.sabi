@@ -1,0 +1,39 @@
+// Comparison operators on `&&T` operands compare the values behind both references:
+// integers, `bool`, `char`, floats (NaN included) and `&&&i32`.
+fn Less(a: &&i32, b: &&i32) -> bool { a < b }
+
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let rx = &x;
+    let ry = &y;
+    let rr = &rx;
+    let ss = &ry;
+    PrintLine(rr == ss);
+    PrintLine(rr != ss);
+    PrintLine(rr < ss);
+    PrintLine(rr <= ss);
+    PrintLine(rr > ss);
+    PrintLine(rr >= ss);
+    PrintLine(rr == &rx);
+    PrintLine(Less(ss, rr));
+    PrintLine(Less(&&1, &&2));
+    let rrr = &rr;
+    let sss = &ss;
+    PrintLine(rrr < sss);
+    PrintLine(**rr == *ry - 1);
+    let t = true;
+    let f = false;
+    PrintLine(&&t > &&f);
+    let a = 'a';
+    let b = 'b';
+    PrintLine(&&a < &&b);
+    let n = 0.0 / 0.0;
+    let one = 1.0;
+    let rn = &n;
+    let ro = &one;
+    PrintLine(&rn == &rn);
+    PrintLine(&rn != &rn);
+    PrintLine(&ro < &rn);
+    PrintLine(&ro >= &ro);
+}

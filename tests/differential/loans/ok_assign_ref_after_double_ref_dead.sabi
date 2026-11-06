@@ -1,0 +1,12 @@
+// Reassigning a reference local once the `&r` of it is dead is fine, and so is writing the
+// old referent once nothing reads it through the reassigned reference.
+fn F() {
+    let mut x = 1;
+    let y = 2;
+    let mut r = &x;
+    let rr = &r;
+    PrintLine(**rr);
+    r = &y;
+    x = 5;
+    PrintLine(*r + x);
+}

@@ -1,0 +1,19 @@
+// KNOWN GAP (temporary lifetime extension, not code generation): in `let d = &&&x;` rustc
+// extends every temporary the nested borrows create to the end of the block (each `&e` of
+// an extending `&` is extending too), so `***d` is fine afterwards. Sabiko extends only
+// the temporary the outermost `&` borrows, so from three levels on an inner temporary dies
+// at the end of the statement: E0413 ("temporary value dropped while borrowed") today.
+// `let d = &&x;` and `&&&x` as a call argument are accepted. Belongs in
+// `differential/run/refs/` once extension recurses.
+fn Read(rrr: &&&i32) -> i32 { ***rrr }
+
+fn Main() {
+    let x = 4;
+    let d3 = &&&x;
+    PrintLine(***d3);
+    let d5 = &&&&&x;
+    PrintLine(*****d5 + Read(&&&x));
+    let m = &mut &mut &mut 0;
+    ***m += 7;
+    PrintLine(***m);
+}

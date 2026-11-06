@@ -1,0 +1,9 @@
+// `*rm` for `rm: &&mut i32` would move the `&mut i32` out from behind a shared reference;
+// a `&mut` is not Copy.
+fn F() {
+    let mut x = 1;
+    let m = &mut x;
+    let rm = &m;
+    let m2 = *rm;
+    *m2 = 2;
+}

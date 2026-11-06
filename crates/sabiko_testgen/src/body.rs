@@ -10,10 +10,12 @@
 //! `borrow_clean()` the checks are never skipped.
 //!
 //! Enums and pattern matching live in the `matches` module, arrays, slices, indexing and
-//! range indexing in the `arrays` module, strings in the `strings` module.
+//! range indexing in the `arrays` module, strings in the `strings` module, references to
+//! references in the `refs` module.
 
 mod arrays;
 mod matches;
+mod refs;
 mod strings;
 
 use arrays::{has_range, Ranges};
@@ -452,6 +454,36 @@ impl<'a> BodyGen<'a> {
                         });
                     }
                 }
+                Ty::RefRef {
+                    outer,
+                    mutable,
+                    inner,
+                } => {
+                    // Writable only through `&mut &mut`. A part is reached by auto-deref
+                    // (`rr.X`, `rr[0]`) or through one or two explicit dereferences
+                    // (`(*rr).X`, `(**rr).X`), chosen by the place so that the text is
+                    // stable between calls.
+                    for (k, (path, ty)) in self.prog.sub_places(inner).into_iter().enumerate() {
+                        let text = if path.is_empty() {
+                            format!("**{}", var.name)
+                        } else {
+                            match (i + k) % 4 {
+                                0 => format!("(*{}){path}", var.name),
+                                1 => format!("(**{}){path}", var.name),
+                                _ => format!("{}{path}", var.name),
+                            }
+                        };
+                        out.push(Place {
+                            text,
+                            ty,
+                            root: i,
+                            via_ref: Some(outer && mutable),
+                            whole: path.is_empty(),
+                            no_move: self.prog.moves_out_of_drop(inner, &path),
+                            lens: self.prog.path_lens(inner, &path),
+                        });
+                    }
+                }
             }
         }
         out
@@ -637,27 +669,24 @@ impl<'a> BodyGen<'a> {
         let mut result_roots = Vec::new();
         let mut ok = true;
         for (i, p) in sig.params.iter().enumerate() {
-            let Ty::Ref { mutable, inner } = p.ty else {
-                continue;
-            };
-            let found = if i == 0 && method_syntax {
-                // TODO(#54, operand vs temporary drop order; seed 12000126): a
-                // temporary receiver with drop glue lives to the end of the statement, and
-                // when a later operand panics rustc drops the operands evaluated before it
-                // (`F(D { .. }, (T { .. }).Get(..))`) first, Sabiko the temporary first.
-                let temporary = !returns_ref && !forced && !prog.needs_drop(inner);
-                self.receiver_ref(mutable, inner, depth.saturating_sub(1), temporary)
-            } else {
-                self.ref_expr(mutable, inner, depth.saturating_sub(1))
-                    .map(|e| {
-                        // A bare `&mut` local of the parameter's type is reborrowed
-                        // implicitly, two-phase; one coerced from `&mut [T; N]` to
-                        // `&mut [T]` is not (rustc's E0503 for `F(m, m[0])`).
-                        let bare = matches!(e.roots[..], [(root, true)]
-                            if e.text == self.vars[root].name
-                                && self.vars[root].ty == Ty::Ref { mutable: true, inner });
-                        (e, mutable && bare)
-                    })
+            let found = match p.ty {
+                Ty::Val(_) => continue,
+                // Never a method's receiver; its loans are ordinary ones.
+                Ty::RefRef {
+                    outer,
+                    mutable,
+                    inner,
+                } => self.ref_ref_expr(outer, mutable, inner).map(|e| (e, false)),
+                Ty::Ref { mutable, inner } if i == 0 && method_syntax => {
+                    // TODO(#54, operand vs temporary drop order; seed 12000126): a
+                    // temporary receiver with drop glue lives to the end of the statement,
+                    // and when a later operand panics rustc drops the operands evaluated
+                    // before it (`F(D { .. }, (T { .. }).Get(..))`) first, Sabiko the
+                    // temporary first.
+                    let temporary = !returns_ref && !forced && !prog.needs_drop(inner);
+                    self.receiver_ref(mutable, inner, depth.saturating_sub(1), temporary)
+                }
+                Ty::Ref { mutable, inner } => self.ref_arg(mutable, inner, depth),
             };
             let Some((e, is_two_phase)) = found else {
                 ok = false;
@@ -736,6 +765,18 @@ impl<'a> BodyGen<'a> {
         Some(Expr { text, roots })
     }
 
+    /// A reference argument for a `&inner` / `&mut inner` parameter, with whether its
+    /// borrow is two-phase: a bare `&mut` local of the parameter's type is reborrowed
+    /// implicitly, two-phase; one coerced from `&mut [T; N]` to `&mut [T]` is not (rustc's
+    /// E0503 for `F(m, m[0])`).
+    fn ref_arg(&mut self, mutable: bool, inner: ValTy, depth: u32) -> Option<(Expr, bool)> {
+        let e = self.ref_expr(mutable, inner, depth.saturating_sub(1))?;
+        let bare = matches!(e.roots[..], [(root, true)]
+            if e.text == self.vars[root].name
+                && self.vars[root].ty == Ty::Ref { mutable: true, inner });
+        Some((e, mutable && bare))
+    }
+
     /// The receiver of a `&self` (or, `mutable`, `&mut self`) method call on a value of
     /// type `inner`, as written before `.Name(..)`, with whether its borrow is two-phase:
     /// a place, autoref'd (`p.X`, `(*r)`); a reference local, reborrowed (`r`); a call
@@ -774,7 +815,17 @@ impl<'a> BodyGen<'a> {
                     let two_phase = mutable && !has_range(&place.text);
                     (e, two_phase)
                 }),
-                1 => self.ref_var(mutable, inner).map(|e| (e, mutable)),
+                1 => {
+                    // A double reference local (`rr.Get()`, `m.Bump(..)`) now and then.
+                    let double = if self.rng.chance(35) {
+                        self.ref_ref_receiver(mutable, inner)
+                    } else {
+                        None
+                    };
+                    double
+                        .or_else(|| self.ref_var(mutable, inner))
+                        .map(|e| (e, mutable))
+                }
                 2 if !fns.is_empty() && depth > 0 => {
                     let callee = *self.rng.pick(&fns);
                     // The call's own loans are ordinary ones (`a.BMut().Add(a.N)`).
@@ -993,6 +1044,12 @@ impl<'a> BodyGen<'a> {
         }
         if self.rng.chance(20) {
             if let Some(e) = self.ref_compare(p, op, d) {
+                return e;
+            }
+        }
+        if self.rng.chance(6) {
+            // Between `&&p` operands (#11): `(rr < &r)`, `(&&x == rr)`.
+            if let Some(e) = self.ref_ref_compare(ValTy::Prim(p), op) {
                 return e;
             }
         }
@@ -1226,6 +1283,12 @@ impl<'a> BodyGen<'a> {
                 bad.push(i);
             }
         }
+        if !mutable && self.rng.chance(if ok.is_empty() { 60 } else { 15 }) {
+            // `(*rr)`, a `&T` copied out of a `&&T` or `&mut &T`.
+            if let Some(e) = self.deref_ref_ref(inner) {
+                return Some(e);
+            }
+        }
         let pool = self.choose_pool(ok, bad)?;
         let v = *self.rng.pick(&pool);
         Some(Expr {
@@ -1398,6 +1461,7 @@ impl<'a> BodyGen<'a> {
             if self.remaining() > 4 { 4 } else { 0 }, // 26 `&str` if let / let-else
             if nesting_ok { 5 } else { 0 }, // 27 loop over a `&str`
             if has_arrays { 7 } else { 0 }, // 28 let m = &mut a[i..j]
+            8,                           // 29 let rr = &r; let m = &mut r;
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1440,6 +1504,7 @@ impl<'a> BodyGen<'a> {
             }
             27 => self.stmt_str_loop(depth),
             28 => self.stmt_range_ref(depth),
+            29 => self.stmt_let_ref_ref(depth),
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));
@@ -1759,7 +1824,9 @@ impl<'a> BodyGen<'a> {
     /// struct of enums), or a slice's length.
     fn show_line(&self, base: &str, ty: ValTy) -> String {
         if ty == ValTy::Str {
-            return format!("PrintLine({});", arrays::len_receiver(base));
+            // The `&str` itself: `s` for `*s`, `*ss` for `**ss` (only a `&str` prints).
+            let text = base.strip_prefix('*').unwrap_or(base);
+            return format!("PrintLine({text});");
         }
         if !self.prog.is_sized(ty) {
             return format!("PrintLine({}.len());", arrays::len_receiver(base));
@@ -1773,8 +1840,9 @@ impl<'a> BodyGen<'a> {
         for (i, (path, _)) in leaves.iter().enumerate() {
             let text = if path.is_empty() {
                 base.to_owned()
-            } else if let Some(stripped) = base.strip_prefix('*') {
-                format!("{stripped}{path}")
+            } else if base.starts_with('*') {
+                // `r.X` for `*r`, `rr.X` for `**rr`: auto-deref.
+                format!("{}{path}", base.trim_start_matches('*'))
             } else {
                 format!("{base}{path}")
             };
@@ -2095,16 +2163,17 @@ impl<'a> BodyGen<'a> {
     /// Prints a few of the live locals so that the computation is observable.
     fn final_prints(&mut self) {
         let mut printed = 0;
-        let candidates: Vec<(String, ValTy, bool)> = self
+        let candidates: Vec<(String, ValTy, &str)> = self
             .vars
             .iter()
             .filter(|v| !v.hidden && !v.dead && !v.moved && v.mut_locks == 0)
             .map(|v| match v.ty {
-                Ty::Val(t) => (v.name.clone(), t, false),
-                Ty::Ref { inner, .. } => (v.name.clone(), inner, true),
+                Ty::Val(t) => (v.name.clone(), t, ""),
+                Ty::Ref { inner, .. } => (v.name.clone(), inner, "*"),
+                Ty::RefRef { inner, .. } => (v.name.clone(), inner, "**"),
             })
             .collect();
-        for (name, ty, is_ref) in candidates {
+        for (name, ty, derefs) in candidates {
             if printed >= 3 || self.remaining() == 0 {
                 break;
             }
@@ -2112,14 +2181,9 @@ impl<'a> BodyGen<'a> {
                 continue;
             }
             if let ValTy::Enum(e) = ty {
-                let reference = if is_ref {
-                    format!("&*{name}")
-                } else {
-                    format!("&{name}")
-                };
-                self.show_enum(&reference, e);
+                self.show_enum(&format!("&{derefs}{name}"), e);
             } else {
-                let base = if is_ref { format!("*{name}") } else { name };
+                let base = format!("{derefs}{name}");
                 let line = self.show_line(&base, ty);
                 self.line(&line);
             }

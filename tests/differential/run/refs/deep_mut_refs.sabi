@@ -1,0 +1,26 @@
+// Three levels of `&mut`: `***mmm = 3` and `***mmm += ..` reach the original; a
+// `&&&mut i32` reads it; a `&mut &mut &i32` retargets the innermost shared reference.
+fn Main() {
+    let mut x = 0;
+    {
+        let mut m = &mut x;
+        let mut mm = &mut m;
+        let mmm = &mut mm;
+        ***mmm = 3;
+        ***mmm += 4;
+        PrintLine(***mmm);
+        let rrm = &&mmm;
+        PrintLine(*****rrm);
+    }
+    PrintLine(x);
+    let a = 1;
+    let b = 2;
+    let mut r = &a;
+    {
+        let mut m = &mut r;
+        let mm = &mut m;
+        **mm = &b;
+        PrintLine(***mm);
+    }
+    PrintLine(*r);
+}

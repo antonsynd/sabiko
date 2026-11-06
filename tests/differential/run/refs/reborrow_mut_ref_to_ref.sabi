@@ -1,0 +1,29 @@
+// Implicit and explicit reborrows of `&mut &i32` and `&mut &mut i32`: passing the same
+// `mm` to several calls, `&mut *mm`, `*mm` and `&mut **mm`, and a shared reborrow `&**mm`.
+fn Set(mm: &mut &mut i32, v: i32) { **mm = v; }
+
+fn Add(m: &mut i32, v: i32) { *m += v; }
+
+fn Retarget(m: &mut &str) { *m = "two"; }
+
+fn Main() {
+    let mut x = 0;
+    let mut m = &mut x;
+    let mm = &mut m;
+    Set(mm, 1);
+    Set(mm, 2);
+    Set(&mut *mm, 3);
+    Add(*mm, 4);
+    Add(&mut **mm, 5);
+    let shared: &i32 = &**mm;
+    PrintLine(*shared);
+    Add(*mm, 1);
+    PrintLine(**mm);
+    let mut s: &str = "one";
+    let ms = &mut s;
+    PrintLine(*ms);
+    Retarget(ms);
+    Retarget(&mut *ms);
+    PrintLine(*ms);
+    PrintLine(s);
+}

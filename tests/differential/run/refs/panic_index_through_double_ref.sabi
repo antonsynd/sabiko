@@ -1,0 +1,15 @@
+// An out-of-bounds index read through `&&[i32; 3]` panics with rustc's message, located at
+// the start of the indexing expression. The index comes from a parameter so that rustc's
+// `unconditional_panic` lint does not reject the program.
+fn Get(rr: &&[i32; 3], i: usize) -> i32 {
+    rr[i]
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let r = &a;
+    PrintLine(Get(&r, 0));
+    PrintLine(Get(&r, 2));
+    PrintLine(Get(&&a, 3));
+    PrintLine("not reached");
+}

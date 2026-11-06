@@ -344,13 +344,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
     newobj instance void '(&i32, &mut i32)'::.ctor(int32&, int32&)
     stloc.0
     ldloca.s 0
-    ldfld int32& '(&i32, &mut i32)'::'Item2'
+    ldflda valuetype 'RefMut`1'<int32> '(&i32, &mut i32)'::'Item2'
+    ldfld !0& valuetype 'RefMut`1'<int32>::'Value'
     ldloca.s 0
-    ldfld int32& '(&i32, &mut i32)'::'Item2'
+    ldflda valuetype 'RefMut`1'<int32> '(&i32, &mut i32)'::'Item2'
+    ldfld !0& valuetype 'RefMut`1'<int32>::'Value'
     ldind.i4
     conv.i8
     ldloca.s 0
-    ldfld int32& '(&i32, &mut i32)'::'Item1'
+    ldflda valuetype 'Ref`1'<int32> '(&i32, &mut i32)'::'Item1'
+    ldfld !0& valuetype 'Ref`1'<int32>::'Value'
     ldind.i4
     conv.i8
     add
@@ -367,7 +370,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
     conv.i4
     stind.i4
     ldloca.s 0
-    ldfld int32& '(&i32, &mut i32)'::'Item2'
+    ldflda valuetype 'RefMut`1'<int32> '(&i32, &mut i32)'::'Item2'
+    ldfld !0& valuetype 'RefMut`1'<int32>::'Value'
     ldind.i4
     ret
   }
@@ -377,17 +381,50 @@ input_file: crates/sabiko_codegen/tests/fixtures/tuples.sabi
 .class public sequential ansi sealed beforefieldinit '(&i32, &mut i32)' extends [System.Runtime]System.ValueType
 {
   .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor() = ( 01 00 00 00 )
-  .field public int32& 'Item1'
-  .field public int32& 'Item2'
+  .field public valuetype 'Ref`1'<int32> 'Item1'
+  .field public valuetype 'RefMut`1'<int32> 'Item2'
   .method public hidebysig specialname rtspecialname instance void .ctor(int32& 'item1', int32& 'item2') cil managed
   {
     .maxstack 2
     ldarg.0
     ldarg 1
-    stfld int32& '(&i32, &mut i32)'::'Item1'
+    newobj instance void valuetype 'Ref`1'<int32>::.ctor(!0&)
+    stfld valuetype 'Ref`1'<int32> '(&i32, &mut i32)'::'Item1'
     ldarg.0
     ldarg 2
-    stfld int32& '(&i32, &mut i32)'::'Item2'
+    newobj instance void valuetype 'RefMut`1'<int32>::.ctor(!0&)
+    stfld valuetype 'RefMut`1'<int32> '(&i32, &mut i32)'::'Item2'
+    ret
+  }
+}
+
+.class public sequential ansi sealed beforefieldinit 'Ref`1'<byreflike T> extends [System.Runtime]System.ValueType
+{
+  .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor() = ( 01 00 00 00 )
+  .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
+  .field public initonly !T& 'Value'
+  .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
+  .method public hidebysig specialname rtspecialname instance void .ctor(!T& 'value') cil managed
+  {
+    .maxstack 2
+    ldarg.0
+    ldarg.1
+    stfld !0& valuetype 'Ref`1'<!T>::'Value'
+    ret
+  }
+}
+
+.class public sequential ansi sealed beforefieldinit 'RefMut`1'<byreflike T> extends [System.Runtime]System.ValueType
+{
+  .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor() = ( 01 00 00 00 )
+  .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
+  .field public initonly !T& 'Value'
+  .method public hidebysig specialname rtspecialname instance void .ctor(!T& 'value') cil managed
+  {
+    .maxstack 2
+    ldarg.0
+    ldarg.1
+    stfld !0& valuetype 'RefMut`1'<!T>::'Value'
     ret
   }
 }

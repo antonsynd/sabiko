@@ -1,0 +1,31 @@
+// Writes through `&mut &i32` retarget the original reference variable: after `*m = &y`,
+// `r` reads `y`, and `x` is unchanged. A `&mut &str` parameter can be retargeted to a
+// literal, whose lifetime outlives any other.
+fn SetName(m: &mut &str) { *m = "grace"; }
+
+fn Peek(m: &mut &i32) -> i32 { **m }
+
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    PrintLine(*r);
+    {
+        let m = &mut r;
+        PrintLine(**m);
+        *m = &y;
+        PrintLine(**m);
+    }
+    PrintLine(*r);
+    PrintLine(x);
+    PrintLine(Peek(&mut r));
+    let m = &mut r;
+    *m = &x;
+    PrintLine(Peek(m));
+    PrintLine(*r);
+    let mut name: &str = "ada";
+    PrintLine(name);
+    SetName(&mut name);
+    PrintLine(name);
+    PrintLine(name.len());
+}

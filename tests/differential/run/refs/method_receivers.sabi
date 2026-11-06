@@ -1,0 +1,38 @@
+// Method calls auto-dereference `&&S`, `&&&S`, `&&mut S` and `&mut &mut S` receivers for
+// `&self` and `&mut self` methods, and a `&self` method returning `&i32` gives a
+// reference that survives the reference to a reference it was called through.
+struct Counter { N: i32 }
+
+impl Counter {
+    fn Get(&self) -> i32 { self.N }
+    fn NRef(&self) -> &i32 { &self.N }
+    fn Add(&mut self, k: i32) { self.N += k; }
+    fn Me(&self) -> &Counter { self }
+}
+
+fn Twice(rr: &&Counter) -> i32 { rr.Get() * 2 }
+
+fn Main() {
+    let mut c = Counter { N: 1 };
+    {
+        let mut m = &mut c;
+        let mm = &mut m;
+        mm.Add(2);
+        mm.Add(mm.Get());
+        PrintLine(mm.Get());
+        let rm = &m;
+        PrintLine(rm.Get());
+    }
+    let r = &c;
+    let rr = &r;
+    let rrr = &rr;
+    PrintLine(rr.Get());
+    PrintLine(rrr.Get() + 1);
+    PrintLine(Twice(rr));
+    PrintLine(Twice(&&c));
+    let n: &i32 = rr.NRef();
+    PrintLine(*n);
+    let me = rrr.Me();
+    PrintLine(me.Me().Get());
+    PrintLine(*rr.Me().NRef() + Counter::Get(*rr));
+}

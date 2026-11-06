@@ -1,0 +1,34 @@
+// Writes through `&mut &mut i32` (`**mm = 5`, `**mm += 1`) reach the original value,
+// also from a function; `&&mut i32` and `&mut &mut i32` reads see the latest write.
+fn Set(mm: &mut &mut i32, v: i32) { **mm = v; }
+
+fn Bump(mm: &mut &mut i32) { **mm += 1; }
+
+fn Peek(rm: &&mut i32) -> i32 { **rm }
+
+fn Main() {
+    let mut x = 0;
+    {
+        let mut m = &mut x;
+        let mm = &mut m;
+        **mm = 5;
+        PrintLine(**mm);
+        **mm += 1;
+        Set(mm, 10);
+        Bump(mm);
+        Bump(mm);
+        PrintLine(**mm);
+        *m *= 2;
+        let rm = &m;
+        PrintLine(**rm);
+        PrintLine(Peek(rm));
+        PrintLine(Peek(&m));
+    }
+    PrintLine(x);
+    let mut y: u8 = 200;
+    let mut my = &mut y;
+    Set8(&mut my);
+    PrintLine(y);
+}
+
+fn Set8(mm: &mut &mut u8) { **mm -= 50; }

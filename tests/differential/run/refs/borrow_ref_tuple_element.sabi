@@ -1,0 +1,28 @@
+// Borrowing a tuple element that is itself a reference gives `&&T` (`&p.0`) or
+// `&mut &T` (`&mut p.0`); writing through the latter retargets the element only.
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let p = (&x, 2);
+    let q = &p.0;
+    PrintLine(**q);
+    PrintLine(**q + p.1);
+    let mut t = (&x, &y, 7);
+    {
+        let e = &mut t.0;
+        PrintLine(**e);
+        *e = &y;
+        PrintLine(**e);
+    }
+    PrintLine(*t.0 + *t.1 + t.2);
+    let both = (&t.0, &t.1);
+    PrintLine(**both.0 * **both.1);
+    let mut z = 3;
+    let mut u = (&mut z, 4);
+    {
+        let e = &mut u.0;
+        **e += 10;
+    }
+    *u.0 += u.1;
+    PrintLine(z);
+}

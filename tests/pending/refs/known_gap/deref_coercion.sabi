@@ -1,0 +1,28 @@
+// KNOWN GAP (deref coercion, type checking): rustc coerces `&&T` to `&T`, `&mut &mut T`
+// to `&mut T` and `&&str` to `&str` at coercion sites (arguments, annotated `let`s,
+// returns) by inserting `*`s; Sabiko does not, and reports E0300 ("expected `&i32`, found
+// `&&i32`"). Explicit `*rr` works and is what `differential/run/refs/` uses. Belongs there
+// once deref coercion is implemented (probably with Phase 6's `Deref`).
+fn Id(r: &i32) -> &i32 { r }
+
+fn Add(m: &mut i32, k: i32) { *m += k; }
+
+fn Len(s: &str) -> usize { s.len() }
+
+fn Main() {
+    let x = 5;
+    let r = &x;
+    let rr = &r;
+    PrintLine(*Id(rr));
+    let back: &i32 = rr;
+    PrintLine(*back);
+    let mut y = 1;
+    let mut m = &mut y;
+    let mm = &mut m;
+    Add(mm, 2);
+    PrintLine(**mm);
+    let s: &str = "abc";
+    let ss = &s;
+    PrintLine(Len(ss));
+    PrintLine(Len(&ss));
+}

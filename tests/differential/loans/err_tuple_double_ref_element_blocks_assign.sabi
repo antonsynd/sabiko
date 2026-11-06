@@ -1,0 +1,9 @@
+// A `&r` stored in a tuple keeps `r` borrowed while the tuple's element is used.
+fn F() {
+    let x = 1;
+    let y = 2;
+    let mut r = &x;
+    let t = (&r, 0);
+    r = &y;
+    PrintLine(**t.0);
+}

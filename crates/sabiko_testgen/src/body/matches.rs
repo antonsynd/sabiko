@@ -10,8 +10,9 @@
 //! catch-all).
 //!
 //! Patterns are generated against the scope model. A scrutinee is a place matched by value
-//! (`match p.A`, `match *r`), a reference (`match &x`, `match r`, `match F(&mut x)`: default
-//! binding modes, every binding a reference) or a temporary (`match F()`, a variant
+//! (`match p.A`, `match *r`, `match **rr`), a reference (`match &x`, `match r`, `match
+//! F(&mut x)`, and through two of them `match rr` (#11): default binding modes, every
+//! binding a reference, a top-level one the scrutinee itself) or a temporary (`match F()`, a variant
 //! literal). By value, a binding of a non-`Copy` part moves it, which the model allows only
 //! where a move of the place is allowed and never out of a type with `impl Drop` (E0509);
 //! `ref` and `ref mut` borrow the place and are reference locals with a region, like the
@@ -42,7 +43,7 @@ use crate::ty::{IntTy, Prim, Ty, ValTy};
 /// The default binding mode at the top of a pattern: by value, or (matching a reference
 /// with a non-reference pattern) by `&` or `&mut` reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode {
+pub(super) enum Mode {
     Move,
     Ref(bool),
 }
@@ -76,28 +77,33 @@ struct PatCx {
     /// enums), which must not be an unguarded early arm, an `if let` with an `else` or a
     /// `let`-`else`, since code it makes unreachable is checked differently (module docs).
     refuted: bool,
+    /// [`Scrut::top`].
+    top: Option<Ty>,
 }
 
 /// The scrutinee of a `match`, `if let`, `while let` or `let`.
 #[derive(Debug, Clone)]
-struct Scrut {
-    text: String,
-    ty: ValTy,
-    mode: Mode,
+pub(super) struct Scrut {
+    pub(super) text: String,
+    pub(super) ty: ValTy,
+    pub(super) mode: Mode,
     /// The root of a place matched by value, which a by-value move out of it moves.
-    place_root: Option<usize>,
+    pub(super) place_root: Option<usize>,
     /// What a reference binding borrows: the place's root (by value), the scrutinee
     /// reference's loans (default binding mode); nothing for a temporary.
-    roots: Vec<usize>,
+    pub(super) roots: Vec<usize>,
     /// Held while a guard is generated: the fake borrow of a place matched by value, or the
     /// scrutinee reference's loans.
-    guard_lock: Vec<(usize, bool)>,
-    can_move: bool,
-    can_ref: bool,
-    can_ref_mut: bool,
+    pub(super) guard_lock: Vec<(usize, bool)>,
+    pub(super) can_move: bool,
+    pub(super) can_ref: bool,
+    pub(super) can_ref_mut: bool,
     /// `can_move` and `can_ref_mut` without violations, for patterns that may be
     /// unreachable; `None` when they hold none.
-    strict: Option<(bool, bool)>,
+    pub(super) strict: Option<(bool, bool)>,
+    /// The scrutinee's type when it is a double reference (`match rr`, #11), which a
+    /// top-level binding then has; `None` for a value or a single reference.
+    pub(super) top: Option<Ty>,
 }
 
 /// Part of a cover: a set of patterns of a type that together match every value.
@@ -355,10 +361,17 @@ impl BodyGen<'_> {
             can_ref,
             can_ref_mut,
             strict: Some((strict_move, strict_ref_mut)),
+            top: None,
         })
     }
 
     fn ref_scrut(&mut self, ty: ValTy, depth: u32) -> Option<Scrut> {
+        if self.rng.chance(25) {
+            // `match rr` through both references (#11).
+            if let Some(s) = self.ref_ref_scrut(ty) {
+                return Some(s);
+            }
+        }
         let mutable = self.rng.chance(45);
         let mut e = self.ref_expr(mutable, ty, depth)?;
         // A bare reference local stays a place (`match r`) half of the time, which a
@@ -390,6 +403,7 @@ impl BodyGen<'_> {
             can_ref: false,
             can_ref_mut: false,
             strict: None,
+            top: None,
         })
     }
 
@@ -407,6 +421,7 @@ impl BodyGen<'_> {
             can_ref: aggregate,
             can_ref_mut: aggregate,
             strict: None,
+            top: None,
         }
     }
 
@@ -421,6 +436,7 @@ impl BodyGen<'_> {
             moved: false,
             nested: false,
             refuted: false,
+            top: s.top,
         }
     }
 
@@ -442,18 +458,20 @@ impl BodyGen<'_> {
         let copy = self.prog.is_copy(Ty::Val(ty));
         let (prefix, bty, mutable) = match cx.mode {
             Mode::Ref(m) => {
+                let single = Ty::Ref {
+                    mutable: m,
+                    inner: ty,
+                };
+                let bty = match cx.top {
+                    // The double reference itself (`match rr { x => .. }`).
+                    Some(top) if !cx.nested => top,
+                    _ => single,
+                };
                 if !cx.nested {
                     // The scrutinee reference itself, by value: a `&mut` one is moved.
-                    cx.moved |= m;
+                    cx.moved |= !self.prog.is_copy(bty);
                 }
-                (
-                    "",
-                    Ty::Ref {
-                        mutable: m,
-                        inner: ty,
-                    },
-                    false,
-                )
+                ("", bty, false)
             }
             Mode::Move => {
                 let by_value = copy || (cx.can_move && (!in_drop || self.violate()));
@@ -1012,7 +1030,17 @@ impl BodyGen<'_> {
     /// Patterns after the first are generated without violations.
     fn arms(&mut self, s: &Scrut) -> Vec<Arm> {
         let mut arms: Vec<Arm> = Vec::new();
-        for _ in 0..self.rng.range(0, 2) {
+        // TODO(#57: a guard fake-borrows a scrutinee no pattern reads; seed 5001979):
+        // `let r = &mut p; let x = match p { _ if g => 1, _ => 2 }; r.A += x;` is accepted
+        // by rustc (no pattern inspects `p`, so there is no fake borrow) and is E0408 in
+        // Sabiko. A scrutinee taken against the scope model (a violation: mutably borrowed
+        // or moved) gets no guarded arm, whose pattern may be `_`.
+        let conflicted = s
+            .guard_lock
+            .iter()
+            .any(|&(v, _)| self.vars[v].mut_locks > 0 || self.vars[v].moved);
+        let early = if conflicted { 0 } else { self.rng.range(0, 2) };
+        for _ in 0..early {
             let first = arms.is_empty();
             let mut cx = Self::arm_cx(s, first);
             self.no_violations += u32::from(!first);
@@ -1087,7 +1115,7 @@ impl BodyGen<'_> {
         let mut out = Vec::new();
         for b in &cx.binds {
             let v = match b.ty {
-                Ty::Ref { mutable, .. } => {
+                Ty::Ref { mutable, .. } | Ty::RefRef { outer: mutable, .. } => {
                     let roots = s.roots.iter().map(|&r| (r, mutable)).collect();
                     let e = Expr {
                         text: String::new(),
@@ -1174,6 +1202,7 @@ impl BodyGen<'_> {
         let (base, inner) = match var.ty {
             Ty::Val(t) => (var.name.clone(), t),
             Ty::Ref { inner, .. } => (format!("*{}", var.name), inner),
+            Ty::RefRef { inner, .. } => (format!("**{}", var.name), inner),
         };
         match inner {
             ValTy::Enum(_) => None,
@@ -1554,6 +1583,7 @@ impl BodyGen<'_> {
                 can_ref: true,
                 can_ref_mut: true,
                 strict: None,
+                top: None,
             },
             kind => {
                 let mutable = kind == 2;
@@ -1568,6 +1598,7 @@ impl BodyGen<'_> {
                     can_ref: false,
                     can_ref_mut: false,
                     strict: None,
+                    top: None,
                 }
             }
         };

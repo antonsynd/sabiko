@@ -35,6 +35,12 @@ pub(crate) const UINT128: &str = "valuetype [System.Runtime]System.UInt128";
 /// `()` still get no storage (decision 32).
 pub(crate) const UNIT: &str = "valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit";
 
+/// The wrappers that hold a shared and a mutable reference where the CLR cannot hold a
+/// managed pointer: behind another reference and in a tuple (decision 64). Generated
+/// into the module ([`Cx::ref_wrapper`]); C# names them `Ref<T>` and `RefMut<T>`.
+pub(crate) const REF_CLASS: &str = "'Ref`1'";
+pub(crate) const REF_MUT_CLASS: &str = "'RefMut`1'";
+
 /// `System.ValueTuple`, the lowering of a tuple without references (decision 52).
 const VALUE_TUPLE: &str = "[System.Runtime]System.ValueTuple";
 
@@ -167,17 +173,15 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             }
             span_type(cx, elem, m.is_mut(), span)
         }
-        Ty::Ref(_, inner) => match &**inner {
-            Ty::Ref(..) => {
-                cx.unsupported("a reference to a reference", span);
-                "int32&".to_owned()
-            }
-            Ty::Unit | Ty::Never => {
-                cx.unsupported("a reference to `()`", span);
-                "int32&".to_owned()
-            }
-            _ => format!("{}&", cil_type(cx, inner, span)),
-        },
+        // A reference to `()` is as stateless as `()` (decision 64).
+        Ty::Ref(..) if is_unit_like(ty) => UNIT.to_owned(),
+        Ty::Ref(_, inner) if inner.is_uninhabited() => {
+            cx.unsupported("a value of type `&!` here", span);
+            "int32".to_owned()
+        }
+        // A managed pointer to the place's storage: a reference held by the place is a
+        // `Ref<T>`, since no managed pointer points to another (decision 64).
+        Ty::Ref(_, inner) => format!("{}&", stored_type(cx, inner, span)),
         Ty::Unit => UNIT.to_owned(),
         Ty::Tuple(elems) => tuple_type(cx, ty, elems, span),
         Ty::Array(..) => match cx.inline_array(ty, span) {
@@ -193,6 +197,52 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             "int32".to_owned()
         }
     }
+}
+
+/// `()`, or a reference to a type like it (`&()`, `&mut &()`): types with one value,
+/// which code generation stores nowhere and loads never, as it does `()` (decisions 52 and
+/// 63). Where the IL needs a value (a parameter, a tuple element) it is a
+/// `Sabiko.Runtime.Unit`; as a return type, `void`.
+pub(crate) fn is_unit_like(ty: &Ty) -> bool {
+    match ty {
+        Ty::Unit => true,
+        Ty::Ref(_, inner) => is_unit_like(inner),
+        _ => false,
+    }
+}
+
+/// Whether a value of `ty` is never loaded or stored: [`is_unit_like`] types, and
+/// uninhabited ones (`!`, `&!`, decision 44), of which no value exists.
+pub(crate) fn has_no_value(ty: &Ty) -> bool {
+    is_unit_like(ty) || ty.is_uninhabited()
+}
+
+/// The CIL type of a place of type `ty` that a reference points to, or that is a tuple
+/// element: the type itself, but for a reference lowered to a managed pointer, which is
+/// held in a `Ref<T>` (shared) or `RefMut<T>` (mutable) wrapper, a `ref struct` with one
+/// `ref` field, generated into the module (decision 64). The CLR has no pointer to a
+/// managed pointer and no managed pointer as a generic argument or in a field of anything
+/// but a `ref struct`: the wrapper is all three.
+pub(crate) fn stored_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
+    match ty {
+        Ty::Ref(m, inner) if Cx::is_byref(ty) => {
+            let inner = stored_type(cx, inner, span);
+            format!("valuetype {}<{inner}>", cx.ref_wrapper(m.is_mut()))
+        }
+        _ => cil_type(cx, ty, span),
+    }
+}
+
+/// The `Value` field of the wrapper [`stored_type`] gives a reference type `ty`, for
+/// `ldfld`.
+pub(crate) fn wrapper_value_field(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
+    format!("!0& {}::'Value'", stored_type(cx, ty, span))
+}
+
+/// The constructor of the wrapper [`stored_type`] gives a reference type `ty`, for
+/// `newobj`: it takes the managed pointer.
+pub(crate) fn wrapper_ctor(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
+    format!("instance void {}::.ctor(!0&)", stored_type(cx, ty, span))
 }
 
 /// The CIL type of a tuple: `System.ValueTuple` (nesting the elements past the seventh
@@ -246,8 +296,8 @@ pub(crate) fn param_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
 /// method).
 pub(crate) fn ret_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
     match ty {
-        Ty::Unit | Ty::Never => "void".to_owned(),
-        Ty::Ref(m, inner) if !m.is_mut() && !is_str(inner) && !is_slice(inner) => {
+        _ if has_no_value(ty) => "void".to_owned(),
+        Ty::Ref(m, _) if !m.is_mut() && Cx::is_byref(ty) => {
             format!("{} {IN_MODREQ}", cil_type(cx, ty, span))
         }
         _ => cil_type(cx, ty, span),

@@ -56,12 +56,21 @@
 //! six comparisons of `&str` operands, `match` (literals, or-patterns, guarded bindings, a
 //! catch-all), `if let` and `let`-`else` on strings, and loops walking a string or range
 //! place by index or shrinking a `mut` `&str` (see [`body`]'s `strings` and `arrays`
-//! modules). Not generated: slice patterns, ranges as values, array comparison, arrays
-//! of references, generics, closures, `&&str` (#11), `&mut str`, comparisons of `str`
-//! places, non-ASCII text, references (`&str` included, #43) in struct fields, tuples,
-//! arrays or enum payloads, `()` values, comparisons of tuples or enums, `&` patterns,
-//! half-open range patterns, float patterns, recursion, shadowing, unbounded loops, and
-//! reads of uninitialised locals.
+//! modules). References to references (#11): `&&T`, `&&mut T`, `&mut &T` and `&mut &mut
+//! T` locals borrowing reference locals and parameters (`let rr = &r;`, `let m = &mut
+//! r;`), `&&str` and `&&[T]` among them; reads through them (`**rr`, auto-deref field
+//! access, indexing, `.len()` and method calls, `(*rr)` as a `&T`), writes through `&mut
+//! &mut T` (`**m = v`), retargets through `&mut &T` and `&mut &mut T` (`*m = &y;`, `*m =
+//! "lit";`) followed by reads of the retargeted local, `match` through both references,
+//! comparisons of `&&str` and `&&p` operands, and `&&T`, `&&mut T`, `&mut &mut T` and
+//! `&&str` parameters passed `&r`, `&mut r`, a double reference local or `&&x` (see
+//! [`body`]'s `refs` module). Not generated: slice patterns, ranges as values, array
+//! comparison, arrays of references, generics, closures, returned double references and
+//! three levels of references, `&mut str`, comparisons of `str` places, non-ASCII text,
+//! references (`&str` and `&&T` included, #43) in struct fields, tuples, arrays or enum
+//! payloads, `()` values, comparisons of tuples or enums, `&` patterns, half-open range
+//! patterns, float patterns, recursion, shadowing, unbounded loops, and reads of
+//! uninitialised locals.
 //!
 //! With [`Knobs::default`] a small fraction of the scope-model checks are skipped on
 //! purpose, so some programs contain a use after move, a conflicting borrow, a write to an

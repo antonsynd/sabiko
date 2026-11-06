@@ -1,0 +1,8 @@
+// While `mm = &mut m` is live, using `m` directly is a second mutable access.
+fn F() {
+    let mut x = 1;
+    let mut m = &mut x;
+    let mm = &mut m;
+    *m = 5;
+    **mm = 6;
+}

@@ -1,0 +1,4 @@
+Deref2: 5
+the wrapper follows x: 6
+Deref3: 1099511627776
+Bump through RefMut<int>: 11
