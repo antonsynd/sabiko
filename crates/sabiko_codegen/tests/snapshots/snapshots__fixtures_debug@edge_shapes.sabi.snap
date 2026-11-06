@@ -100,7 +100,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/edge_shapes.sabi
     ldc.i4.s 10
     div.un
     stloc.1
-    ldstr "edge_shapes.sabi:20:35"
+    ldstr "edge_shapes.sabi:24:35"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::RemainderByZero(string)
     ldnull
     throw
@@ -151,7 +151,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/edge_shapes.sabi
     conv.i4
     conv.i8
     beq L1
-    ldstr "edge_shapes.sabi:24:55"
+    ldstr "edge_shapes.sabi:28:55"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
@@ -176,7 +176,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/edge_shapes.sabi
     conv.i4
     conv.i8
     beq L2
-    ldstr "edge_shapes.sabi:25:6"
+    ldstr "edge_shapes.sabi:29:6"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
@@ -211,4 +211,271 @@ input_file: crates/sabiko_codegen/tests/fixtures/edge_shapes.sabi
     ret
   }
 
+  .method public hidebysig static void 'UnitAt'([in] valuetype '[(); 3]'& 'a', native uint 'i') cil managed
+  {
+    .param [1]
+    .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsReadOnlyAttribute::.ctor() = ( 01 00 00 00 )
+    .maxstack 3
+    .locals init (
+      [0] native uint '_3',
+      [1] valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit> '$tmp0'
+    )
+  BB0:
+    ldarg.1
+    stloc.0
+    ldarg.0
+    ldflda valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit '[(); 3]'::'Element'
+    ldc.i4.3
+    call valuetype [System.Runtime]System.Span`1<!!0> [System.Runtime]System.Runtime.InteropServices.MemoryMarshal::CreateSpan<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>(!!0&, int32)
+    stloc.1
+    ldloc.0
+    ldc.i4.3
+    conv.i
+    blt.un L1
+    ldc.i4.3
+    conv.u
+    ldloc.0
+    ldstr "edge_shapes.sabi:33:6"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)
+    ldnull
+    throw
+  L1:
+    ldloca.s 1
+    ldloc.0
+    conv.i4
+    call instance !0& valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>::get_Item(int32)
+    pop
+    ldarg.0
+    ldflda valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit '[(); 3]'::'Element'
+    ldc.i4.3
+    call valuetype [System.Runtime]System.Span`1<!!0> [System.Runtime]System.Runtime.InteropServices.MemoryMarshal::CreateSpan<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>(!!0&, int32)
+    stloc.1
+    ldloc.0
+    ldc.i4.3
+    conv.i
+    blt.un L2
+    ldc.i4.3
+    conv.u
+    ldloc.0
+    ldstr "edge_shapes.sabi:33:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)
+    ldnull
+    throw
+  L2:
+    ldloca.s 1
+    ldloc.0
+    conv.i4
+    call instance !0& valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>::get_Item(int32)
+    pop
+    ret
+  }
+
+  .method public hidebysig static native uint 'Spans'(valuetype [System.Runtime]System.ReadOnlySpan`1<int32> 'a', native uint 'n') cil managed
+  {
+    .maxstack 6
+    .locals init (
+      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_8',
+      [1] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_9',
+      [2] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_12',
+      [3] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_13',
+      [4] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_16',
+      [5] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_17',
+      [6] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_20',
+      [7] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '_21',
+      [8] valuetype [System.Runtime]System.ReadOnlySpan`1<int32> '$tmp0',
+      [9] native uint '$tmp1'
+    )
+  BB0:
+    ldarg.0
+    stloc.s 8
+    ldarg.1
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    bgt.un L1
+    br L2
+  L1:
+    ldc.i4.0
+    conv.u
+    ldarg.1
+    ldc.i4.0
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldstr "edge_shapes.sabi:37:6"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::SliceFail(native uint, native uint, bool, native uint, string)
+    ldnull
+    throw
+  L2:
+    ldloca.s 8
+    ldc.i4.0
+    conv.u
+    conv.i4
+    ldarg.1
+    ldc.i4.0
+    conv.u
+    sub
+    conv.i4
+    call instance valuetype [System.Runtime]System.ReadOnlySpan`1<!0> valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::Slice(int32, int32)
+    stloc.0
+    ldloc.0
+    stloc.1
+    ldloca.s 1
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldarg.0
+    stloc.s 8
+    br L4
+  L3:
+    ldc.i4.0
+    conv.u
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldc.i4.0
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldstr "edge_shapes.sabi:37:22"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::SliceFail(native uint, native uint, bool, native uint, string)
+    ldnull
+    throw
+  L4:
+    ldloca.s 8
+    ldc.i4.0
+    conv.u
+    conv.i4
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldc.i4.0
+    conv.u
+    sub
+    conv.i4
+    call instance valuetype [System.Runtime]System.ReadOnlySpan`1<!0> valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::Slice(int32, int32)
+    stloc.2
+    ldloc.2
+    stloc.3
+    ldloca.s 3
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldloca.s 9
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(native uint, native uint, native uint&)
+    brfalse L5
+    ldstr "edge_shapes.sabi:37:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L5:
+    ldloc.s 9
+    ldarg.0
+    stloc.s 8
+    ldc.i4.3
+    conv.u
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    bgt.un L6
+    br L7
+  L6:
+    ldc.i4.1
+    conv.u
+    ldc.i4.3
+    conv.u
+    ldc.i4.0
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldstr "edge_shapes.sabi:37:37"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::SliceFail(native uint, native uint, bool, native uint, string)
+    ldnull
+    throw
+  L7:
+    ldloca.s 8
+    ldc.i4.1
+    conv.u
+    conv.i4
+    ldc.i4.3
+    conv.u
+    ldc.i4.1
+    conv.u
+    sub
+    conv.i4
+    call instance valuetype [System.Runtime]System.ReadOnlySpan`1<!0> valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::Slice(int32, int32)
+    stloc.s 4
+    ldloc.s 4
+    stloc.s 5
+    ldloca.s 5
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldloca.s 9
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(native uint, native uint, native uint&)
+    brfalse L8
+    ldstr "edge_shapes.sabi:37:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L8:
+    ldloc.s 9
+    ldarg.0
+    stloc.s 8
+    ldc.i4.2
+    conv.u
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    bge.un L9
+    br L10
+  L9:
+    ldc.i4.2
+    conv.u
+    ldc.i4.2
+    conv.u
+    ldc.i4.1
+    ldloca.s 8
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldstr "edge_shapes.sabi:37:53"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::SliceFail(native uint, native uint, bool, native uint, string)
+    ldnull
+    throw
+  L10:
+    ldloca.s 8
+    ldc.i4.2
+    conv.u
+    conv.i4
+    ldc.i4.2
+    conv.u
+    ldc.i4.1
+    conv.u
+    add
+    ldc.i4.2
+    conv.u
+    sub
+    conv.i4
+    call instance valuetype [System.Runtime]System.ReadOnlySpan`1<!0> valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::Slice(int32, int32)
+    stloc.s 6
+    ldloc.s 6
+    stloc.s 7
+    ldloca.s 7
+    call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
+    conv.u
+    ldloca.s 9
+    call bool [Sabiko.Runtime]Sabiko.Runtime.Arithmetic::AddOverflows(native uint, native uint, native uint&)
+    brfalse L11
+    ldstr "edge_shapes.sabi:37:5"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L11:
+    ldloc.s 9
+    ret
+  }
+
+}
+
+.class public sequential ansi sealed beforefieldinit '[(); 3]' extends [System.Runtime]System.ValueType
+{
+  .custom instance void [System.Runtime]System.Runtime.CompilerServices.InlineArrayAttribute::.ctor(int32) = ( 01 00 03 00 00 00 00 00 )
+  .field public valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit 'Element'
 }

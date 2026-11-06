@@ -2,7 +2,11 @@
 // that only returns but is a branch target keeps its own `ret` (`Pick`); a value computed
 // before a division known to panic still goes to its own local (`Weigh`); and an
 // assignment to the return place followed by a drop flag write is stored, not left on the
-// stack, since the flag write comes before the return (`Make`).
+// stack, since the flag write comes before the return (`Make`). Found by the first nightly
+// run with a correct timeout: borrowing an element of `()` checks the index for the
+// mention and again for the borrow itself (`UnitAt`), and a sub-slice's order check is
+// left out when the start is 0 or both bounds are constants in order, exclusive or
+// inclusive (`Spans`).
 struct Guard {
     A: i32,
 }
@@ -23,4 +27,12 @@ fn Weigh(c: bool, x: u8) {
 fn Make(c: bool, x: i32) -> (i32, Guard) {
     let g = if c { Guard { A: x } } else { Guard { A: x + x } };
     (x + 1, g)
+}
+
+fn UnitAt(a: &[(); 3], i: usize) -> &() {
+    &a[i]
+}
+
+fn Spans(a: &[i32], n: usize) -> usize {
+    a[0..n].len() + a[0..].len() + a[1..3].len() + a[2..=2].len()
 }

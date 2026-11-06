@@ -582,6 +582,77 @@ Equivalent survivors:
   inferred `&!` value (`&Panic("x")`) only occurs in code `simplify` removes, so no `&!`
   is ever stored; the guard is defensive.
 
+Nightly run 20 (2026-11-06, Actions run 42226282546) was the first with the explicit
+300-second timeout and four shards (decision 67), and the first to measure `sabiko_codegen`
+correctly: 682 mutants, 636 caught, 32 missed, 4 timeouts, 10 unviable, 640 of 672
+(95.2%). Each survivor was applied by hand and the IL of the corpus (every `.sabi` under
+`tests/`, `examples/`, `benchmarks/` and the MIR and IL fixtures, debug and release) and of
+6000 generated programs (seeds 0 to 2999, default and borrow-clean knobs) compared with
+the unmutated backend's. Seven change the IL; they get killing tests:
+
+- `terminator`'s fall-through test, `is_next(zero) && !exits(zero)` as `||` and
+  `falls_through && !is_next(otherwise)` as `||`, is a miscompile: a two-way branch whose
+  targets are both laid out before it (`if c { continue; }` ending a loop body, whose two
+  targets are the loop header) became `brtrue` and fell through into the next block, so
+  the loop left early or control ran off the end of the method. 131 and 150 of the
+  generated programs change. The run-time program
+  `tests/differential/run/control/branch_targets.sabi` (704 under rustc, 101 under the
+  mutant) kills both. The default `generated` run of 60 seeds misses this shape.
+- `assign`'s check of an element borrowed as `&()`, guard as `false` and its `!` deleted:
+  MIR building mentions an indexed place before borrowing it (`PlaceMention`, so the panic
+  is located at `a[i]`), and the mention checks the same index first, so the program
+  behaves the same and only the IL shows the borrow's own check. This kill is IL-only:
+  the IL fixture `edge_shapes` (`UnitAt`). The run-time program
+  `run/refs/unit_ref_index_panic`, which killed them before the mention existed, still
+  passes under them.
+- `subslice`'s static order check, `(Some(0), _)` deleted and `hi + inclusive` as
+  `hi - inclusive` or `hi * inclusive`: each makes the check emitted at run time where it
+  is known to pass (`a[0..n]`, `a[0..]`, `a[1..3]`, `a[2..=2]`), so only the IL differs.
+  The IL fixture `edge_shapes` (`Spans`) kills all three.
+
+That makes 647 of 672 (96.3%). The other 25 are equivalent; none changes the IL of a corpus
+program, and only `assign_slots`' changes that of a generated one:
+
+- Already listed above, re-confirmed against the current MIR: `stackable_locals`' `&&` as
+  `||` and its `+=` as `*=` for sub-slice bounds, dropped places, index locals, cleanup
+  places and drop flags; `assign_slots`' `fake[i] && !written[i]` as `||`; `block`'s
+  `Return` arm deleted; `assign`'s `src.has_index()` guard as `true`; `load`'s `&&` as
+  `||`; `variant_aggregate`'s `!reads_dest` as `true`; `binary`'s `is_unit_like` `&&` as
+  `||`; `negation_fits`' `is_signed_int` guard as `true`; and `cil_type`'s `&!` guard as
+  `false`. Under the `assign_slots` mutant, one generated program (seed 467, default
+  knobs) declares a `&&i16` local only in code after a diverging `match`. Simplification
+  removes that code, so the local is never written and loses its IL slot, and the
+  module's unused `Ref`1` declaration goes with it.
+- `stackable_locals`' `+=` for a call's destination that is not a whole local, as `-=`
+  or `*=`: no such call exists. MIR building writes every call into a whole local (a
+  temporary, a binding or the return place: an assignment's right-hand side is evaluated
+  into an operand first), and copy forwarding rewrites only operands, never destinations.
+- `terminator`'s `stack_width(p) == Wide` guard as `false` and `p.is_integer()` guard as
+  `true`: a `switchInt` with a target value other than 0 tests an enum's discriminant
+  (`isize`) or a `bool` pattern (value 1). Nothing 128-bit reaches it, and for a `bool`
+  `int_const` pushes the same `ldc.i4.1` as the fallback.
+- `ldloc`'s `at + 1 == pending.len()` as `at * 1`: the test never holds, so taking the top
+  pending value leaves `matching` at `(start, len)` instead of truncating at once. The
+  next `settle` truncates to `start` all the same, and in between no load can take
+  another value: none is above `len`, and one below fails the order test.
+- `typed_int_const`'s `p.is_integer()` guard as `true` and its `Char | Bool` arm deleted:
+  the MIR validator admits `Int` and `Uint` constants of integer types only
+  (`constant_matches`), so the arm is unreachable. With the guard as `true` it would push
+  the same `ldc.i4` anyway.
+- `aggregate`'s `!reads_dest` as `true`: a struct literal is built into a fresh temporary
+  or a new binding's local. `place = S { .. }` still goes through a temporary (decision
+  66), so no operand reads the destination.
+- `unary`'s `ConstValue::Uint` arm deleted: the type checker allows `-` only on signed
+  integers and floats, so no unsigned constant is negated.
+- `binary`'s `is_str_ref(&lty) && is_str_ref(&rty)` as `||`: both operands of a comparison
+  are `&str` (or `&mut str`) when either is.
+- `print_overload`'s `is_str(inner)` guard as `true`: the type checker's `is_printable`
+  admits primitives and `&str` only, besides uninhabited types such as the `&!` of
+  `&loop {}`, and a call with such an argument is in code that simplification removes.
+
+The threshold stays at 95. At 672 viable mutants, 647 caught leaves room for eight new
+survivors before the score drops below 95%, and a threshold of 96 would leave room for one.
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library
