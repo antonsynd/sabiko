@@ -1,0 +1,41 @@
+// Sabiko codes for rustc's: E0419 for E0510.
+// A guard over a scrutinee reached through a reference may not reassign that reference
+// (or a place holding it): the places before each dereference are fake-borrowed while the
+// guard runs, since the fake borrow of `*m` does not cover a write of `m`. `&mut m`
+// conflicts with both fake borrows and is reported once, as in rustc.
+enum E { A(i32), B(i64) }
+
+fn Touch(r: &mut &E) {}
+
+fn F(x: &E, z: &E) -> i32 {
+    let mut m = x;
+    match *m {
+        E::A(n) if { m = z; true } => n, //~ ERROR E0419 cannot assign `m` in match guard
+        _ => 0,
+    }
+}
+
+fn G(x: &E, z: &E) -> i32 {
+    let mut r = x;
+    let mm = &mut r;
+    match **mm {
+        E::A(n) if { *mm = z; true } => n, //~ ERROR E0419 cannot assign `*mm` in match guard
+        _ => 0,
+    }
+}
+
+fn H(x: &E, z: &E) -> i32 {
+    let mut t = (x, 1);
+    match *t.0 {
+        E::A(n) if { t.1 = 2; t = (z, 3); true } => n, //~ ERROR E0419 cannot assign `t` in match guard
+        _ => 0,
+    }
+}
+
+fn K(x: &E) -> i32 {
+    let mut m = x;
+    match *m {
+        E::A(n) if { Touch(&mut m); true } => n, //~ ERROR E0419 cannot mutably borrow `m` in match guard
+        _ => 0,
+    }
+}

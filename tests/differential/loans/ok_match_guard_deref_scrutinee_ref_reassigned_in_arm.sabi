@@ -1,0 +1,20 @@
+// The reference a guarded scrutinee is reached through may be reassigned in an arm body
+// and after the match, and a guard may copy it or assign a disjoint field next to it.
+enum E { A(i32), B(i64) }
+
+fn Main() {
+    let x = E::A(7);
+    let z = E::B(1);
+    let mut m: &E = &x;
+    let v = match *m {
+        E::A(n) if { let k = m; n > 0 } => { m = &z; n }
+        _ => 0,
+    };
+    m = &x;
+    let mut t: (&E, i32) = (&x, 1);
+    let w = match *t.0 {
+        E::A(n) if { t.1 = 2; n > 0 } => { t = (&z, 3); n }
+        _ => 0,
+    };
+    PrintLine(v + w);
+}

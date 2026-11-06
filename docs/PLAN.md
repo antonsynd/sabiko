@@ -842,6 +842,14 @@ false errors, the old borrow missed one rustc error: the guard of `match *v { y 
 `tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`, and the
 generator no longer withholds guarded arms from a mutably borrowed or moved scrutinee.
 
+Update (2026-11-06), guards over a scrutinee reached through a reference (#61, after
+decision 65): `match *m { E::A(n) if { m = &z; true } => n, _ => 0 }` printed `0` before
+decision 65 and is E0419 since; #61 adds rustc-checked programs for the variant test, a
+nested `**mm` (`*mm = ..`) and a tuple field `*t.0` (`t = ..`), a UI test and hand-built
+MIR tests (`differential/loans/*match_guard*`, `ui/borrowck/guard_assigns_deref_scrutinee_ref.sabi`).
+An access that conflicts with several of one guard's fake borrows (`&mut m` with those of
+`*m` and `m`) is now reported once, as rustc does, not once per fake borrow.
+
 ### Phase 5: Data types
 
 Work

@@ -132,8 +132,15 @@ impl Reporter<'_> {
             .filter(|&&(_, _, l)| !self.is_shallow(l))
             .map(|&(_, p, _)| p)
             .collect();
+        // Points where a guard's fake borrow was reported.
+        let mut guarded: HashSet<Point> = HashSet::new();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {
+                continue;
+            }
+            // `&mut m` in a guard over `*m` conflicts with the fake borrows of `*m` and of
+            // `m`: one report is enough, as in rustc, the first fake borrow's.
+            if self.is_guard(loan) && !guarded.insert(point) {
                 continue;
             }
             // `r == { let t = r; t }` conflicts with both the reborrow `&*r` and the
@@ -145,6 +152,14 @@ impl Reporter<'_> {
                 sink.emit(diag);
             }
         }
+    }
+
+    /// Whether the loan is a match guard's fake borrow.
+    fn is_guard(&self, loan: Loan) -> bool {
+        self.facts
+            .loans
+            .get(loan.index())
+            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Guard))
     }
 
     /// Whether the loan is a compared reference's shallow fake borrow.

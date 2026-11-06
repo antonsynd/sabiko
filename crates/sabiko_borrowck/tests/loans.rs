@@ -358,6 +358,10 @@ fn fake_shallow(place: Place) -> Rvalue {
     Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Shallow), place)
 }
 
+fn fake_guard(place: Place) -> Rvalue {
+    Rvalue::Ref(BorrowKind::Fake(FakeBorrowKind::Guard), place)
+}
+
 fn mention(l: Local) -> StatementKind {
     StatementKind::PlaceMention(local(l))
 }
@@ -838,6 +842,104 @@ fn conflict_with_reborrow_and_shallow_borrow_is_reported_once() {
         ["E0412 cannot move out of `m` because it is borrowed"]
     );
     assert!(labels(&diags[0]).contains(&(reborrow, "borrow of `*m` occurs here")));
+}
+
+// ----------------------------------------------------------------------------------------
+// Guard fake borrows of a scrutinee reached through a reference (decision 65)
+// ----------------------------------------------------------------------------------------
+
+#[test]
+fn guard_borrow_of_the_reference_conflicts_with_assigning_it() {
+    // (`match *r { _ if { r = &y; true } => .. }`)
+    // g = &fake *r; s = &fake r; r = &y; PlaceMention(g); PlaceMention(s);
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let of_ref = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
+    let of_referent = mir.temp(Ty::shared_ref(Ty::I32));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(y), use_int(2));
+    mir.assign(bb0, local(r), shared(local(x)));
+    mir.assign(bb0, local(of_referent), fake_guard(deref(r)));
+    let borrow = mir.assign(bb0, local(of_ref), fake_guard(local(r)));
+    let assign = mir.assign(bb0, local(r), shared(local(y)));
+    mir.stmt(bb0, mention(of_referent));
+    mir.stmt(bb0, mention(of_ref));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0419 cannot assign `r` in match guard"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (assign, "cannot assign"),
+            (borrow, "value is immutable in match guard: `r`"),
+        ]
+    );
+}
+
+#[test]
+fn guard_borrow_of_the_reference_allows_moves_and_accesses_through_it() {
+    // s = &fake m; t = copy *m; *m = 3; let m2 = move m; *m2 = 2; PlaceMention(s);
+    // A move is the move checks' to judge (decision 60); a guard's fake borrow is shallow,
+    // so `*m` is not frozen by the borrow of `m` (only by one of `*m`, if the match tests it).
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let m2 = mir.user("m2", Ty::mut_ref(Ty::I32), Mutability::Not);
+    let value = mir.temp(Ty::I32);
+    let of_ref = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), mutable(local(x)));
+    mir.assign(bb0, local(of_ref), fake_guard(local(m)));
+    mir.assign(bb0, local(value), use_copy(deref(m)));
+    mir.assign(bb0, deref(m), use_int(3));
+    mir.assign(bb0, local(m2), Rvalue::Use(mv(local(m))));
+    mir.assign(bb0, deref(m2), use_int(2));
+    mir.stmt(bb0, mention(of_ref));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn guard_conflict_with_two_fake_borrows_is_reported_once() {
+    // g = &fake *r; s = &fake r; n = &mut r; PlaceMention(g); PlaceMention(s);
+    // `&mut r` conflicts with both; one E0419 is reported, as in rustc, the first's.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let n = mir.user("n", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let of_ref = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
+    let of_referent = mir.temp(Ty::shared_ref(Ty::I32));
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(r), shared(local(x)));
+    let first = mir.assign(bb0, local(of_referent), fake_guard(deref(r)));
+    mir.assign(bb0, local(of_ref), fake_guard(local(r)));
+    mir.assign(bb0, local(n), mutable(local(r)));
+    mir.stmt(bb0, mention(of_referent));
+    mir.stmt(bb0, mention(of_ref));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0419 cannot mutably borrow `r` in match guard"]
+    );
+    assert!(labels(&diags[0]).contains(&(first, "value is immutable in match guard: `*r`")));
 }
 
 // ----------------------------------------------------------------------------------------

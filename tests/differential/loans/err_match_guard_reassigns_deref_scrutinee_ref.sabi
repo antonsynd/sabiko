@@ -1,0 +1,15 @@
+// A guard over `*m` may not reassign `m` (rustc's E0510): later candidates would test the
+// new referent. The guard's borrow of `*m` misses this shallow write of `m`, so `m` itself
+// is shallow-fake-borrowed while the guard runs.
+enum E { A(i32), B(i64) }
+
+fn Main() {
+    let x = E::A(7);
+    let z = E::B(123456789012);
+    let mut m: &E = &x;
+    let v = match *m {
+        E::A(n) if { m = &z; true } => n,
+        _ => 0,
+    };
+    PrintLine(v);
+}
