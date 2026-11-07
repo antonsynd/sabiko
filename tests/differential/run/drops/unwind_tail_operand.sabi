@@ -1,0 +1,60 @@
+// While unwinding, an operand with drop glue that a block's tail already evaluated is
+// dropped before the block's locals (#54): it lives in the scope of the aggregate or call
+// that consumes it, not with the tail's temporaries, which edition 2021 drops after the
+// locals. The panic in `Divide` unwinds through each shape in turn.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct G { A: D, B: i32 }
+
+fn Divide(k: i32) -> i32 {
+    10 / k
+}
+
+fn Take(d: D, n: i32) -> i32 {
+    n
+}
+
+// A struct literal in a function's tail.
+fn Struct(k: i32) -> G {
+    let a = D { Id: 1 };
+    G { A: D { Id: 2 }, B: Divide(k) }
+}
+
+// An array in the tail of a `match` arm's block.
+fn Array(k: i32) -> [D; 3] {
+    match k {
+        0 => {
+            let b = D { Id: 3 };
+            [D { Id: 4 }, D { Id: 5 }, D { Id: Struct(k).B }]
+        }
+        _ => [D { Id: 0 }, D { Id: 0 }, D { Id: 0 }],
+    }
+}
+
+// A call in the tail of a block expression.
+fn Call(k: i32) -> i32 {
+    let n = {
+        let c = D { Id: 6 };
+        Take(D { Id: 7 }, Array(k)[0].Id)
+    };
+    n
+}
+
+// A tuple in the tail of an `if` body.
+fn Main() {
+    let d = D { Id: 8 };
+    let t = if true {
+        let e = D { Id: 9 };
+        (D { Id: 10 }, Call(0))
+    } else {
+        (D { Id: 0 }, 0)
+    };
+    PrintLine("unreachable");
+}

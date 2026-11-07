@@ -1,0 +1,27 @@
+// A panic in the first place of a destructuring assignment (#54, found by the generator,
+// seed 12001627): as in rustc, the part for that place is moved into a temporary of its
+// assignment before the place is evaluated, so the panic drops it first, then the parts
+// not yet assigned, the last first, then the locals.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Main() {
+    let mut v = [D { Id: 1 }];
+    let mut p = D { Id: 2 };
+    let mut q = D { Id: 3 };
+    PrintLine("assign");
+    (v[Idx(5)], p, q) = (D { Id: 4 }, D { Id: 5 }, D { Id: 6 });
+    PrintLine("unreachable");
+}

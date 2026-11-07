@@ -178,8 +178,11 @@ dropped as rustc drops them (edition 2021):
 
 Unwinding: a panic drops every value that holds one, frame by frame: the callee's locals
 and parameters, then the caller's temporaries and locals, by the rules above. Operands
-already evaluated for an unfinished struct literal, tuple or call are dropped, the last
-first; the unfinished struct's own `drop` does not run. An assignment of an array, repeat
+already evaluated for an unfinished struct literal, tuple, array or call are dropped, the
+last first; the unfinished struct's own `drop` does not run. They belong to the expression
+that consumes them, as in rustc (decision 71): they are dropped before the temporaries the
+statement made after them (`Use(D { .. }, Get(&D { .. }, 0))` drops the first `D` before the
+borrowed one) and, in a block's tail, before the block's locals. An assignment of an array, repeat
 or tuple (`s[i] = [a, b]`) evaluates the place after the elements and builds the aggregate
 in it last, so a panic in the place (an index check) drops the evaluated elements the same
 way, the last first. A struct or variant literal is built before the place, so it is
@@ -761,7 +764,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   must be irrefutable (E0329); each value is coerced to its place's type. Every part is
   moved (or copied) out of the right side before any place is assigned, so `(t.1, t.0) =
   t` swaps; the places are then evaluated and assigned left to right, each dropping its
-  old value, and `_` and `..` leave their parts where they are. An array on the left
+  old value, and `_` and `..` leave their parts where they are. A part with drop glue is
+  moved into a temporary of its assignment before its place is evaluated, so a panic in
+  the place drops it first, then the parts not yet assigned (decision 71). An array on the left
   (`[a, b] = ..`) needs slice patterns (E0107). Elsewhere `_` is E0111, a lone `..` element
   E0107 (a range outside an index) and a struct literal's trailing `..` E0112 (rustc's
   E0797); a second `..` in a tuple or tuple-variant pattern, also in `let` and `match`,

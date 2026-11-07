@@ -259,7 +259,6 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
         _4 = copy _2;
         PlaceMention((*_1)[_4]);
         (*_1)[_4] = move _3;
-        StorageDead(_4);
         goto -> bb2;
     }
 
@@ -269,6 +268,7 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
 
     bb3: {
         StorageDead(_3);
+        StorageDead(_4);
         StorageLive(_5);
         StorageLive(_6);
         _6 = D { Id: const 4_i32 };

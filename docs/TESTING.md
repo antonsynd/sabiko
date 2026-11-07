@@ -115,7 +115,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   of drop glue go through a `let`), and an evaluated call or aggregate operand with drop
   glue is dropped after a later operand's statement temporary instead of before it
   (`Use(D { .. }, Get(&D { .. }, 0))`; no temporary method receiver or inline-`match`
-  scrutinee has drop glue). They also found three generator bugs, fixed: an
+  scrutinee has drop glue). Both are fixed (decision 71) and the TODOs removed. They
+  also found three generator bugs, fixed: an
   unannotated `let v = [[], []];`, an assignment's index reading what its right-hand side
   moved, and a call's reference argument reading (in a range bound) what an earlier value
   argument moved.

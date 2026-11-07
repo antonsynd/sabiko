@@ -212,7 +212,7 @@ impl<'a> BodyGen<'a> {
             RetTy::Unit => {}
             RetTy::Val(v) => {
                 let e = self.val_expr(v, self.knobs.max_expr_depth);
-                self.tail(v, &e.text);
+                self.line(&e.text);
             }
             RetTy::Ref { mutable, inner } => {
                 let text = self
@@ -225,34 +225,6 @@ impl<'a> BodyGen<'a> {
     }
 
     // ----- output ------------------------------------------------------------------
-
-    /// Writes the tail expression `text` (of type `ty`) of the current block, through a
-    /// `let` when the block declared a local with drop glue.
-    ///
-    /// TODO(#54, tail operand drop order; seed 22000089): when a block's tail
-    /// evaluates an operand with drop glue (an aggregate field or call argument, `G { A:
-    /// D { .. }, B: 10 / k }`, `Use(D { .. }, 10 / k)`) and a later operand panics, rustc
-    /// drops that operand before the block's locals while unwinding, Sabiko after them
-    /// (as it drops edition-2021 tail temporaries). A `let` statement's temporaries agree,
-    /// so such a tail is bound first: `let v: T = e; v`.
-    fn tail(&mut self, ty: ValTy, text: &str) {
-        let block = self.cur_block();
-        let first = if block == 0 {
-            self.sig.params.len()
-        } else {
-            self.blocks[block].first_var
-        };
-        let drop_locals = self.vars[first.min(self.vars.len())..]
-            .iter()
-            .any(|v| matches!(v.ty, Ty::Val(t) if self.prog.needs_drop(t)));
-        if drop_locals {
-            let name = self.fresh_name();
-            self.line(&format!("let {name}: {} = {text};", self.prog.val_name(ty)));
-            self.line(&name);
-        } else {
-            self.line(text);
-        }
-    }
 
     fn line(&mut self, text: &str) {
         let mut l = INDENT.repeat(self.indent);
@@ -678,12 +650,7 @@ impl<'a> BodyGen<'a> {
                     inner,
                 } => self.ref_ref_expr(outer, mutable, inner).map(|e| (e, false)),
                 Ty::Ref { mutable, inner } if i == 0 && method_syntax => {
-                    // TODO(#54, operand vs temporary drop order; seed 12000126): a
-                    // temporary receiver with drop glue lives to the end of the statement,
-                    // and when a later operand panics rustc drops the operands evaluated
-                    // before it (`F(D { .. }, (T { .. }).Get(..))`) first, Sabiko the
-                    // temporary first.
-                    let temporary = !returns_ref && !forced && !prog.needs_drop(inner);
+                    let temporary = !returns_ref && !forced;
                     self.receiver_ref(mutable, inner, depth.saturating_sub(1), temporary)
                 }
                 Ty::Ref { mutable, inner } => self.ref_arg(mutable, inner, depth),

@@ -261,16 +261,17 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
         _7 = const false;
         _8 = move (*_1)[_4];
         (*_1)[_4] = move _3;
-        goto -> bb7;
+        goto -> bb6;
     }
 
     bb2: {
         StorageDead(_3);
         _7 = const false;
+        StorageDead(_4);
         StorageLive(_5);
         StorageLive(_6);
         _6 = D { Id: const 4_i32 };
-        goto -> bb8;
+        goto -> bb7;
     }
 
     bb3: {
@@ -290,15 +291,10 @@ fn Drops(_1: &mut [D; 2], _2: usize) {
     }
 
     bb6 (cleanup c0): {
-        StorageDead(_4);
-        goto -> bb2;
+        drop(_8) -> bb2;
     }
 
-    bb7 (cleanup c0): {
-        drop(_8) -> bb6;
-    }
-
-    bb8: {
+    bb7: {
         drop(_6) -> bb3;
     }
 }
