@@ -1853,28 +1853,44 @@ impl<'a> Builder<'a> {
                 continue; // A unit struct or variant: it compared.
             };
             let saved = self.push_temp_scope();
-            let local = self.mir_local(id);
-            let mut value = self.place_operand(Place::local(local));
-            if let Some(ty) = self.types.coercions.get(&p.id).cloned() {
-                let temp = self.new_temp(ty.clone(), target.span);
-                self.assign(
-                    Place::local(temp),
-                    Rvalue::PointerCoercion(value, ty),
-                    target.span,
-                );
-                value = self.place_operand(Place::local(temp));
-            }
-            let target_ty = self.ty(target).clone();
-            let place = self.as_place_mut(target, Mutability::Mut);
-            if place.has_index() && self.typeck.items.needs_drop(&target_ty) {
-                // `(a[i], ..) = ..`: the index is checked before the value moves, as for
-                // `a[i] = v`.
-                self.push_stmt(StatementKind::PlaceMention(place.clone()), target.span);
-            }
-            self.assign(place, Rvalue::Use(value), target.span);
+            self.in_operand_scope(target.span, |this| {
+                this.assign_part(p.id, id, target);
+            });
             self.close_temp_scope(saved, target.span);
         }
         self.pop_scope(span);
+    }
+
+    /// `target = part`, one assignment of a destructuring assignment, where `part` is the
+    /// local of the assignee pattern `assignee`. As in rustc, a part with drop glue is moved into
+    /// an operand temporary of the assignment before the place is evaluated, so a panic in
+    /// the place (`(a[9], b) = ..`) drops it first, then the parts not yet assigned.
+    fn assign_part(&mut self, assignee: NodeId, part: LocalId, target: &Expr) {
+        let local = self.mir_local(part);
+        let mut value = self.place_operand(Place::local(local));
+        let ty = self.body.local_decl(local).ty.clone();
+        if self.typeck.items.needs_drop(&ty) {
+            let temp = self.new_operand_temp(ty, target.span);
+            self.assign(Place::local(temp), Rvalue::Use(value), target.span);
+            value = self.place_operand(Place::local(temp));
+        }
+        if let Some(ty) = self.types.coercions.get(&assignee).cloned() {
+            let temp = self.new_temp(ty.clone(), target.span);
+            self.assign(
+                Place::local(temp),
+                Rvalue::PointerCoercion(value, ty),
+                target.span,
+            );
+            value = self.place_operand(Place::local(temp));
+        }
+        let target_ty = self.ty(target).clone();
+        let place = self.as_place_mut(target, Mutability::Mut);
+        if place.has_index() && self.typeck.items.needs_drop(&target_ty) {
+            // `(a[i], ..) = ..`: the index is checked before the value moves, as for
+            // `a[i] = v`.
+            self.push_stmt(StatementKind::PlaceMention(place.clone()), target.span);
+        }
+        self.assign(place, Rvalue::Use(value), target.span);
     }
 
     /// `a && b` / `a || b`: the right operand only runs when the left one does not decide

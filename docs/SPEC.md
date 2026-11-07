@@ -764,7 +764,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   must be irrefutable (E0329); each value is coerced to its place's type. Every part is
   moved (or copied) out of the right side before any place is assigned, so `(t.1, t.0) =
   t` swaps; the places are then evaluated and assigned left to right, each dropping its
-  old value, and `_` and `..` leave their parts where they are. An array on the left
+  old value, and `_` and `..` leave their parts where they are. A part with drop glue is
+  moved into a temporary of its assignment before its place is evaluated, so a panic in
+  the place drops it first, then the parts not yet assigned (decision 71). An array on the left
   (`[a, b] = ..`) needs slice patterns (E0107). Elsewhere `_` is E0111, a lone `..` element
   E0107 (a range outside an index) and a struct literal's trailing `..` E0112 (rustc's
   E0797); a second `..` in a tuple or tuple-variant pattern, also in `let` and `match`,
