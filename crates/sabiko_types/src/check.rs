@@ -156,6 +156,9 @@ pub(crate) struct FnCtxt<'a> {
     /// Bindings already typed by an earlier alternative of an or-pattern: a later
     /// alternative's binding of the same local must have the same type.
     or_bindings: HashSet<LocalId>,
+    /// Set while checking the pattern of a destructuring assignment, which has no default
+    /// binding modes (rustc: `(a, b) = &t` is a mismatch, not a look through `&`).
+    in_assignee: bool,
     ret_ty: Ty,
     loops: Vec<LoopCtxt>,
     diverges: bool,
@@ -216,6 +219,7 @@ impl<'a> FnCtxt<'a> {
             pat_variants: HashMap::new(),
             variant_exprs: HashMap::new(),
             or_bindings: HashSet::new(),
+            in_assignee: false,
             ret_ty,
             loops: Vec::new(),
             diverges: false,
@@ -577,6 +581,11 @@ impl<'a> FnCtxt<'a> {
                 self.check_expr(rhs, Some(&lhs_ty));
                 Ty::Unit
             }
+            ExprKind::DestructuringAssign(pat, rhs) => {
+                self.check_destructuring_assign(pat, rhs);
+                Ty::Unit
+            }
+            ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let lhs_ty = self.check_place(lhs);
                 let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) {
@@ -1036,8 +1045,9 @@ impl<'a> FnCtxt<'a> {
     ) {
         self.pat_types.insert(pat.id, ty.clone());
         if let Some(res) = self.resolve.pat_res(pat.id) {
-            if let PatKind::Ident { .. } = pat.kind {
-                // A constant or a unit struct named by a lone identifier: it compares.
+            if let PatKind::Ident { .. } | PatKind::Assignee(_) = pat.kind {
+                // A constant or a unit struct named by a lone identifier, or a unit struct
+                // or variant on the left of a destructuring assignment: it compares.
                 let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
                 self.check_path_pat(pat, res, &ty, init_span);
                 return;
@@ -1087,6 +1097,13 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             PatKind::Wild | PatKind::Rest => {}
+            PatKind::Assignee(_) => {
+                // A fresh local of the value's type, assigned to the place afterwards.
+                if let Some(local) = self.resolve.local_of_pat(pat.id) {
+                    self.local_types.insert(local, ty.clone());
+                    self.local_spans.insert(local, pat.span);
+                }
+            }
             PatKind::Or(alts) => {
                 let mut bound = Vec::new();
                 for (i, alt) in alts.iter().enumerate() {
@@ -1369,6 +1386,9 @@ impl<'a> FnCtxt<'a> {
         by_ref: Option<Mutability>,
     ) -> (Ty, Option<Mutability>) {
         let mut ty = self.shallow(ty);
+        if self.in_assignee {
+            return (ty, by_ref);
+        }
         let mut by_ref = by_ref;
         let mut derefs = 0;
         while let Ty::Ref(m, inner) = ty {
@@ -2024,26 +2044,38 @@ impl<'a> FnCtxt<'a> {
         );
     }
 
+    /// `(a, b) = rhs`, checked as what rustc desugars it to, `{ let (x, y) = rhs; a = x;
+    /// b = y; }`: the right side, then the pattern against its type (without default
+    /// binding modes), then each assignment of a fresh local to its place, in order. A
+    /// pointer coercion of such an assignment is recorded under the assignee's pattern.
+    fn check_destructuring_assign(&mut self, pat: &Pat, rhs: &Expr) {
+        let mut ty = self.check_expr(rhs, None);
+        if self.shallow(&ty).is_never() {
+            // `(a, b) = return;`: as for `let (x, y) = return;`, the pattern gets a fresh
+            // variable, not `!`.
+            let v = self.infer.new_var(VarKind::General);
+            self.diverging_vars.push(v.clone());
+            ty = v;
+        }
+        let saved = std::mem::replace(&mut self.in_assignee, true);
+        self.check_pat(pat, &ty, Some(rhs.span));
+        self.in_assignee = saved;
+        let mut assignees = Vec::new();
+        pat.walk_assignees(&mut |p, place| assignees.push((p, place)));
+        for (p, place) in assignees {
+            let Some(local) = self.resolve.local_of_pat(p.id) else {
+                continue; // A unit struct or variant: it compared.
+            };
+            let value_ty = self.local_types[&local].clone();
+            let place_ty = self.check_place(place);
+            self.coerce(place.span, &value_ty, &place_ty);
+            self.note_pointer_coercion(p.id, &value_ty, &place_ty);
+        }
+    }
+
     /// Checks an assignment target and returns its type.
     fn check_place(&mut self, expr: &Expr) -> Ty {
         let target = strip_parens(expr);
-        if let ExprKind::Tuple(elems) = &target.kind {
-            // `(a, b) = (b, a)` is valid Rust (destructuring assignment) but not Sabiko yet.
-            for e in elems {
-                self.check_expr(e, None);
-            }
-            self.error(
-                Diagnostic::error(
-                    ErrorCode::UNSUPPORTED_SYNTAX,
-                    "not yet supported: destructuring assignment",
-                )
-                .with_label(expr.span, "a tuple on the left of `=` is not yet supported")
-                .with_note(
-                    "assign each element (`t.0 = ...`), or bind new names with `let (a, b) = ...;`",
-                ),
-            );
-            return self.record(expr, Ty::Error);
-        }
         let is_place = match &target.kind {
             ExprKind::Path(_) => matches!(self.resolve.res(target.id), Res::Local(_) | Res::Err),
             ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..) => true,

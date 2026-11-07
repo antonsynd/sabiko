@@ -1462,6 +1462,7 @@ impl<'a> BodyGen<'a> {
             if nesting_ok { 5 } else { 0 }, // 27 loop over a `&str`
             if has_arrays { 7 } else { 0 }, // 28 let m = &mut a[i..j]
             8,                           // 29 let rr = &r; let m = &mut r;
+            6,                           // 30 destructuring assignment
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1505,6 +1506,7 @@ impl<'a> BodyGen<'a> {
             27 => self.stmt_str_loop(depth),
             28 => self.stmt_range_ref(depth),
             29 => self.stmt_let_ref_ref(depth),
+            30 => self.stmt_assign_destructure(depth),
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));
@@ -1719,6 +1721,47 @@ impl<'a> BodyGen<'a> {
             self.line(&format!("let {name}: {ty} = {};", e.text));
             self.declare(name, Ty::Val(place.ty), false, false);
         }
+        true
+    }
+
+    /// `(p, q) = (e, f);`, a destructuring assignment (#50): both values are evaluated
+    /// before either place, then each place is evaluated and assigned in turn (rustc's
+    /// `{ let (x, y) = (e, f); p = x; q = y; }`). A place the rules forbid by its turn is
+    /// `_` instead, which drops its value.
+    fn stmt_assign_destructure(&mut self, depth: u32) -> bool {
+        let Some((mut first, first_violation)) = self.pick_place(Access::Write, |_| true) else {
+            return false;
+        };
+        // A different second place when there is one (`(a, a) = ..` is valid but dull).
+        let mut second = None;
+        for _ in 0..4 {
+            second = self.pick_place(Access::Write, |_| true);
+            if second.as_ref().is_some_and(|(p, _)| p.text != first.text) {
+                break;
+            }
+        }
+        let Some((mut second, second_violation)) = second else {
+            return false;
+        };
+        let e = self.typed_expr(first.ty, depth);
+        let f = self.typed_expr(second.ty, depth);
+        let mut targets = Vec::new();
+        for (place, violation) in [
+            (&mut first, first_violation),
+            (&mut second, second_violation),
+        ] {
+            self.finish_place(place, Ranges::Mut);
+            if violation || self.permitted(place, Access::Write) {
+                self.apply(place, Access::Write);
+                targets.push(place.text.clone());
+            } else {
+                targets.push("_".to_owned());
+            }
+        }
+        self.line(&format!(
+            "({}, {}) = ({}, {});",
+            targets[0], targets[1], e.text, f.text
+        ));
         true
     }
 
@@ -2293,13 +2336,23 @@ mod tests {
                     })
             };
             // A re-initialisation in a nested `if`/`else` may make a branch without one at
-            // its top level definite too (seed 1743): the text does not tell either, so
-            // such a block is skipped.
+            // its top level definite too (seed 1743), and so may a destructuring assignment
+            // `(x, moved) = (..);` at any level (seed 775): the text does not tell either,
+            // so such a block is skipped.
+            let mentions = |text: &str| {
+                text.match_indices(name.as_str()).any(|(at, _)| {
+                    !text[..at].ends_with(is_name_char)
+                        && !text[at + name.len()..].starts_with(is_name_char)
+                })
+            };
             let unknown_branch = |lines: &[String]| {
-                !reinit_at(lines, &body_reinit)
+                lines.iter().any(|l| {
+                    let l = l.trim_start();
+                    l.starts_with('(') && l.split(") = (").next().is_some_and(mentions)
+                }) || (!reinit_at(lines, &body_reinit)
                     && lines
                         .iter()
-                        .any(|l| l.trim_start().starts_with(&format!("{name} = ")))
+                        .any(|l| l.trim_start().starts_with(&format!("{name} = "))))
             };
             if block == 3
                 && else_line.is_some_and(|e| {

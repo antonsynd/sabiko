@@ -1,0 +1,8 @@
+// A place of a destructuring assignment behind a shared reference is not assignable.
+struct P { X: i32 }
+
+fn Write(r: &P) -> i32 {
+    let mut b = 0;
+    (r.X, b) = (1, 2);
+    b
+}

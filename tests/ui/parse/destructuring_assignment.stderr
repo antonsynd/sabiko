@@ -1,0 +1,66 @@
+[E0111] Error: in expressions, `_` can only be used on the left-hand side of an assignment
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:10:13 ]
+    │
+ 10 │     let x = _; //~ ERROR E0111 in expressions, `_` can only be used on the left-hand side of an assignment
+    │             ┬  
+    │             ╰── `_` not allowed here
+────╯
+[E0107] Error: not yet supported: range expressions outside an index
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:11:17 ]
+    │
+ 11 │     let t = (1, ..); //~ ERROR E0107 not yet supported: range expressions outside an index
+    │                 ─┬  
+    │                  ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: only an index `e[a..b]` is supported until range values (generic types, Phase 6); see docs/PLAN.md
+────╯
+[E0112] Error: base expression required after `..`
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:12:25 ]
+    │
+ 12 │     let p = P { X: 1, .. }; //~ ERROR E0112 base expression required after `..`
+    │                         │ 
+    │                         ╰─ add a base expression here
+    │ 
+    │ Note: a struct literal may end in `..` only on the left of an assignment; struct update syntax (`..base`) is not yet supported
+────╯
+[E0111] Error: in expressions, `_` can only be used on the left-hand side of an assignment
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:13:10 ]
+    │
+ 13 │     Use((_, 1)); //~ ERROR E0111 in expressions, `_` can only be used on the left-hand side of an assignment
+    │          ┬  
+    │          ╰── `_` not allowed here
+────╯
+[E0111] Error: in expressions, `_` can only be used on the left-hand side of an assignment
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:15:9 ]
+    │
+ 15 │     a = _; //~ ERROR E0111 in expressions, `_` can only be used on the left-hand side of an assignment
+    │         ┬  
+    │         ╰── `_` not allowed here
+────╯
+[E0113] Error: `..` can only be used once per tuple pattern
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:16:13 ]
+    │
+ 16 │     (a, .., ..) = (1, 2, 3); //~ ERROR E0113 `..` can only be used once per tuple pattern
+    │         ─┬  ─┬  
+    │          │   ╰── can only be used once per tuple pattern
+    │          │      
+    │          ╰────── previously used here
+────╯
+[E0113] Error: `..` can only be used once per tuple pattern
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:17:20 ]
+    │
+ 17 │     let (b, .., c, ..) = (1, 2, 3); //~ ERROR E0113 `..` can only be used once per tuple pattern
+    │             ─┬     ─┬  
+    │              │      ╰── can only be used once per tuple pattern
+    │              │         
+    │              ╰───────── previously used here
+────╯
+[E0107] Error: not yet supported: destructuring assignment of an array
+    ╭─[ tests/ui/parse/destructuring_assignment.sabi:18:5 ]
+    │
+ 18 │     [a, _] = [1, 2]; //~ ERROR E0107 not yet supported: destructuring assignment of an array
+    │     ───┬──  
+    │        ╰──── not supported in this version of Sabiko
+    │ 
+    │ Note: slice patterns are not planned yet; see docs/PLAN.md. Assign each element (`a[0] = ...`) instead
+────╯

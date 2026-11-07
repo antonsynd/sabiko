@@ -501,9 +501,9 @@ reads and writes, destructuring by value and by reference, parameters, returns, 
 and 2000 seeds at each of the bases 1200000, 4400000 and 8800000 agree with rustc
 (verdicts, output, panics, determinism, reorderings). A `tuples` benchmark (pairs by value,
 `System.ValueTuple` in the C#) runs at 0.99–1.00x C# in process and 1.03–1.05x per launch,
-allocating nothing; the other benchmarks did not move beyond noise. Gaps: comparing tuples (`==`, `<`, ...) and
-destructuring assignment (`(a, b) = (b, a)`) are E0107 (the comparison traits are Phase 6;
-`tests/pending/tuples/known_gap/equality.sabi`); `&&T` and `&()`, also as tuple elements,
+allocating nothing; the other benchmarks did not move beyond noise. Gaps: comparing tuples (`==`, `<`, ...) is
+E0107 (the comparison traits are Phase 6; `tests/pending/tuples/known_gap/equality.sabi`);
+destructuring assignment (`(a, b) = (b, a)`) was E0107 too (since #50, decision 70); `&&T` and `&()`, also as tuple elements,
 stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`; since lowered, #11); the two-phase
 reborrow `Use(m, m.0)` waits for #15; a tuple holding a reference cannot be a struct field
 (lifetimes, Phase 9); constants cannot be tuples (E0315; since #50 they can); literal and other refutable
@@ -913,7 +913,19 @@ against drops rather than retrofitted.
   Arrays in constants wait for #45. With it, `let r = &A;` for a constant `A` extends the
   temporary holding `A`'s value (it was E0413: the path was taken for a place); rustc
   promotes it to `'static` instead, which only differs once the reference outlives its
-  block (#26). Destructuring assignment remains (#50).
+  block (#26). Destructuring assignment (#50, decision 70): the parser reads a
+  destructuring left side of `=` as a pattern whose places are `PatKind::Assignee`s, the
+  resolver gives each a fresh local (or, for a unit struct or variant path, a path
+  pattern), and type checking and MIR building treat it as rustc's desugaring `{ let
+  (x, y) = e; a = x; b = y; }`, so every later pass sees an ordinary `let` and ordinary
+  assignments. New codes: E0111 (`_` outside an assignee), E0112 (a struct literal's `..`
+  without a base, rustc's E0797), E0113 (a second `..` in a tuple pattern, which `let`
+  and `match` patterns had accepted). Not done: slice patterns on the left (`[a, b] =
+  ..`, E0107 with slice patterns); E0418 on a destructuring `let` or assignment still
+  points at the binding and names the right side's temporary (`_1.X`), where rustc points
+  at the right side as it does for `match` (#71 did only `match`). The generator
+  produces `(p, q) = (e, f);` over any two writable places (a place the rules forbid by
+  its turn becomes `_`).
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
   `&mut` reborrows in argument position. Done (#7, #15, decisions 53 and 54; see the

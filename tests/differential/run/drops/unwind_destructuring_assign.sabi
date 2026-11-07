@@ -1,0 +1,25 @@
+// A panic in a later place of a destructuring assignment (#50): the parts the `_` left are
+// dropped with the `let` temporary first, the first place already holds its new value, and
+// the unwinding drops the values not yet assigned (`lhs` locals) before the outer locals.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Idx(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Main() {
+    let mut p = D { Id: 1 };
+    let mut v = [D { Id: 2 }, D { Id: 3 }];
+    PrintLine("assign");
+    (p, v[Idx(5)], _) = (D { Id: 4 }, D { Id: 5 }, D { Id: 6 });
+    PrintLine("unreachable");
+}

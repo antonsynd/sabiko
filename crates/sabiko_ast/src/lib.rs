@@ -334,6 +334,11 @@ pub enum PatKind {
     Range(Box<Expr>, Box<Expr>, RangeEnd),
     /// `p | q | ..`, at least two alternatives.
     Or(Vec<Pat>),
+    /// A place on the left of a destructuring assignment (`a`, `s.F`, `*r`, `v[i]` in
+    /// `(a, s.F) = e`; only in [`ExprKind::DestructuringAssign`]): it binds a fresh local,
+    /// which is then assigned to the place. A path that names a unit struct or a unit
+    /// variant is a path pattern instead, which the resolver decides, as in rustc.
+    Assignee(Box<Expr>),
 }
 
 /// `Name: pat` or the shorthand `Name` (also `ref Name`, `mut Name`) in a struct pattern.
@@ -366,7 +371,8 @@ impl RangeEnd {
 
 impl Pat {
     /// Calls `f` for every identifier pattern in `self` that may introduce a binding, in
-    /// source order (the first alternative of an or-pattern only).
+    /// source order (the first alternative of an or-pattern only), and for every
+    /// [`PatKind::Assignee`], which binds a fresh local unless it names a unit struct.
     pub fn walk_idents<'a>(&'a self, f: &mut impl FnMut(&'a Pat)) {
         match &self.kind {
             PatKind::Ident { sub, .. } => {
@@ -375,6 +381,7 @@ impl Pat {
                     sub.walk_idents(f);
                 }
             }
+            PatKind::Assignee(_) => f(self),
             PatKind::Tuple(elems) | PatKind::TupleStruct(_, elems) => {
                 for p in elems {
                     p.walk_idents(f);
@@ -391,6 +398,31 @@ impl Pat {
                 }
             }
             PatKind::Wild
+            | PatKind::Rest
+            | PatKind::Path(_)
+            | PatKind::Lit(_)
+            | PatKind::Range(..) => {}
+        }
+    }
+
+    /// Calls `f` for every [`PatKind::Assignee`] in `self`, in source order: the places a
+    /// destructuring assignment assigns, in the order it assigns them.
+    pub fn walk_assignees<'a>(&'a self, f: &mut impl FnMut(&'a Pat, &'a Expr)) {
+        match &self.kind {
+            PatKind::Assignee(e) => f(self, e),
+            PatKind::Tuple(elems) | PatKind::TupleStruct(_, elems) => {
+                for p in elems {
+                    p.walk_assignees(f);
+                }
+            }
+            PatKind::Struct { fields, .. } => {
+                for fp in fields {
+                    fp.pat.walk_assignees(f);
+                }
+            }
+            PatKind::Ident { .. }
+            | PatKind::Or(_)
+            | PatKind::Wild
             | PatKind::Rest
             | PatKind::Path(_)
             | PatKind::Lit(_)
@@ -473,6 +505,14 @@ pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// `lhs = rhs`
     Assign(Box<Expr>, Box<Expr>),
+    /// `(a, b) = rhs`, `S { X: a, .. } = rhs`, `E::V(a, _) = rhs`, `_ = rhs`: an
+    /// assignment whose left side destructures (rustc's destructuring assignment). The
+    /// parser reads the left side as a pattern whose places are [`PatKind::Assignee`]s; it
+    /// means what rustc desugars it to, `{ let (x, y) = rhs; a = x; b = y; }`.
+    DestructuringAssign(Box<Pat>, Box<Expr>),
+    /// `_`: only on the left of a destructuring assignment, where the parser turns it into
+    /// a pattern; anywhere else it is a syntax error, so no later pass sees one.
+    Underscore,
     /// `lhs op= rhs`
     AssignOp(BinOp, Box<Expr>, Box<Expr>),
     Call {
@@ -490,7 +530,9 @@ pub enum ExprKind {
     Index(Box<Expr>, Box<Expr>),
     /// `a..b`, `a..`, `..b`, `..`, `a..=b`, `..=b` (an inclusive range always has an end).
     /// Only the whole index of an [`ExprKind::Index`] is parsed as a range (#10); its span
-    /// starts at the index's `[`, where rustc locates a panic of the slicing.
+    /// starts at the index's `[`, where rustc locates a panic of the slicing. A lone `..`
+    /// element of a tuple or of call arguments is parsed too, for the rest pattern of a
+    /// destructuring assignment (`(a, ..) = t`); anywhere else it is a syntax error.
     Range(Option<Box<Expr>>, Option<Box<Expr>>, RangeEnd),
     /// `&e` or `&mut e`
     Ref {
@@ -519,6 +561,10 @@ pub enum ExprKind {
     Struct {
         path: Path,
         fields: Vec<FieldInit>,
+        /// The span of a trailing `..` with no base expression: only on the left of a
+        /// destructuring assignment (`S { X: a, .. } = s`); anywhere else it is a syntax
+        /// error.
+        rest: Option<Span>,
     },
     /// `match scrutinee { arms }`
     Match {

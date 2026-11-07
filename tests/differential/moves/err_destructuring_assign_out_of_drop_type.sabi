@@ -1,0 +1,14 @@
+// A destructuring assignment cannot move a non-Copy field out of a type with `Drop`.
+struct S { V: i32 }
+struct D { X: S, Y: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+fn Use(d: D) -> i32 {
+    let mut a = S { V: 0 };
+    let mut y = 0;
+    D { X: a, Y: y } = d;
+    a.V + y
+}

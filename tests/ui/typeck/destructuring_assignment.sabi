@@ -1,0 +1,54 @@
+// Destructuring assignment (`(a, b) = e`) is checked as rustc's `{ let (x, y) = e; a = x;
+// b = y; }`: the pattern against the right side's type (with no default binding modes, so
+// `&t` does not match a tuple pattern), each value against its place, and a place must be
+// assignable (a constant or literal is not, E0310 as for `=`). Each body has one error,
+// as a refutable pattern is only reported in a body without type errors.
+struct P {
+    X: i32,
+    Y: i32,
+}
+
+enum E {
+    A(i32),
+    B,
+}
+
+const K: i32 = 1;
+
+fn Mismatch(mut a: i32, mut b: i32) {
+    (a, b) = (1, true); //~ ERROR E0300 mismatched types
+}
+
+fn Arity(mut a: i32, mut b: i32) {
+    (a, b) = (1, 2, 3); //~ ERROR E0300 mismatched types
+}
+
+fn ThroughRef(mut a: i32, mut b: i32, t: (i32, i32)) {
+    (a, b) = &t; //~ ERROR E0300 mismatched types
+}
+
+fn ConstantPlace(mut a: i32) {
+    (a, K) = (1, 1); //~ ERROR E0310 invalid left-hand side of assignment
+}
+
+fn LiteralPlace(mut a: i32) {
+    P { X: a, Y: 2 } = P { X: 1, Y: 2 }; //~ ERROR E0310 invalid left-hand side of assignment
+}
+
+fn MissingField(mut a: i32) {
+    P { X: a } = P { X: 1, Y: 2 }; //~ ERROR E0302 pattern does not mention field `Y`
+}
+
+fn UnknownField(mut a: i32) {
+    P { Z: a, .. } = P { X: 1, Y: 2 }; //~ ERROR E0301 struct `P` does not have a field named `Z`
+}
+
+fn Refutable(mut a: i32) {
+    E::A(a) = E::A(1); //~ ERROR E0329 refutable pattern in local binding
+}
+
+fn RefutableUnitVariant(mut a: i32) {
+    (a, E::B) = (1, E::A(2)); //~ ERROR E0329 refutable pattern in local binding
+}
+
+fn Main() {}

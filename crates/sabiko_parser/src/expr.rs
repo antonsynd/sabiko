@@ -8,7 +8,7 @@ use sabiko_lexer::literal::{self, LiteralError};
 use sabiko_lexer::TokenKind;
 use sabiko_span::Span;
 
-use crate::{PResult, Parser};
+use crate::{AssigneeOnly, PResult, Parser};
 
 impl Parser<'_, '_> {
     /// Full expression including assignment (lowest precedence, right associative).
@@ -25,10 +25,29 @@ impl Parser<'_, '_> {
     /// An assignment, or the operand of one. `range` (the span of the `[`) allows a range
     /// expression (`a..b`, `a..`): only the whole index of `e[...]` may be one (#10), so
     /// elsewhere the `..` after an operand is reported as not yet supported.
+    ///
+    /// The outermost one also settles the forms only a destructuring assignment's left
+    /// side may contain (`_`, `..`): those its left side did not turn into a pattern are
+    /// misplaced, since no enclosing expression can still be such a left side.
     fn parse_assign(&mut self, range: Option<Span>) -> PResult<Expr> {
+        let mark = self.assignee_only.len();
+        let r = self.parse_assign_inner(range);
+        if r.is_err() {
+            // Already reported; whatever the broken expression held is moot.
+            self.assignee_only.truncate(mark);
+        } else if self.lhs_depth == 0 {
+            self.report_assignee_only(mark);
+        }
+        r
+    }
+
+    fn parse_assign_inner(&mut self, range: Option<Span>) -> PResult<Expr> {
         let start = self.peek().span;
         let stmt_start = self.stmt_start;
-        let lhs = self.parse_binary(0)?;
+        self.lhs_depth += 1;
+        let lhs = self.parse_binary(0);
+        self.lhs_depth -= 1;
+        let lhs = lhs?;
         if stmt_start && lhs.is_block_like() {
             return Ok(lhs);
         }
@@ -58,6 +77,16 @@ impl Parser<'_, '_> {
             _ => return Ok(lhs),
         };
         self.bump();
+        if op.is_none() && Self::is_destructuring(&lhs) {
+            // The left side is read as a pattern before the right side is parsed, so a
+            // syntax error there does not leave its `_` and `..` behind as misplaced.
+            let pat = self.assignee_pat(lhs);
+            let rhs = self.parse_expr()?;
+            return Ok(self.mk(
+                ExprKind::DestructuringAssign(Box::new(pat), Box::new(rhs)),
+                start,
+            ));
+        }
         let rhs = self.parse_expr()?;
         let kind = match op {
             None => ExprKind::Assign(Box::new(lhs), Box::new(rhs)),
@@ -493,7 +522,7 @@ impl Parser<'_, '_> {
         self.in_delimited(TokenKind::RParen, |p| {
             let mut args = Vec::new();
             while !p.at(TokenKind::RParen) && !p.at_eof() {
-                args.push(p.parse_expr_inner()?);
+                args.push(p.parse_list_elem(Self::parse_expr_inner)?);
                 if p.eat(TokenKind::Comma).is_none() {
                     break;
                 }
@@ -501,6 +530,20 @@ impl Parser<'_, '_> {
             p.expect(TokenKind::RParen)?;
             Ok(args)
         })
+    }
+
+    /// An element of a tuple or an argument list: an expression, or a lone `..`, which
+    /// only the left side of a destructuring assignment may contain (`(a, ..) = t`).
+    fn parse_list_elem(&mut self, elem: impl FnOnce(&mut Self) -> PResult<Expr>) -> PResult<Expr> {
+        if self.at(TokenKind::DotDot)
+            && matches!(self.nth_kind(1), TokenKind::Comma | TokenKind::RParen)
+        {
+            let start = self.bump().span;
+            let e = self.mk(ExprKind::Range(None, None, RangeEnd::Excluded), start);
+            self.assignee_only.push((e.id, AssigneeOnly::Rest(start)));
+            return Ok(e);
+        }
+        elem(self)
     }
 
     /// Runs `f` for the inside of a bracketed construct whose closing token is `close`.
@@ -544,7 +587,7 @@ impl Parser<'_, '_> {
                     return Ok(self.mk(ExprKind::Unit, start));
                 }
                 let (mut elems, trailing_comma) = self.in_delimited(TokenKind::RParen, |p| {
-                    p.parse_comma_list(TokenKind::RParen, Self::parse_expr)
+                    p.parse_comma_list(TokenKind::RParen, |p| p.parse_list_elem(Self::parse_expr))
                 })?;
                 if elems.len() == 1 && !trailing_comma {
                     let inner = elems.pop().expect("one element");
@@ -686,6 +729,13 @@ impl Parser<'_, '_> {
                 start,
                 "only an index `e[a..b]` is supported until range values (generic types, Phase 6)",
             )),
+            TokenKind::Underscore => {
+                self.bump();
+                let e = self.mk(ExprKind::Underscore, start);
+                self.assignee_only
+                    .push((e.id, AssigneeOnly::Underscore(start)));
+                Ok(e)
+            }
             TokenKind::Eof => Err(self.error_expected("an expression")),
             _ => {
                 let d = Diagnostic::error(
@@ -814,9 +864,15 @@ impl Parser<'_, '_> {
 
     fn parse_struct_literal(&mut self, path: sabiko_ast::Path, start: Span) -> PResult<Expr> {
         self.expect(TokenKind::LBrace)?;
+        let mut rest = None;
         let fields = self.in_delimited(TokenKind::RBrace, |p| {
             let mut fields = Vec::new();
             while !p.at(TokenKind::RBrace) && !p.at_eof() {
+                if p.at(TokenKind::DotDot) && p.nth_kind(1) == TokenKind::RBrace {
+                    // `S { X: a, .. }`: only on the left of a destructuring assignment.
+                    rest = Some(p.bump().span);
+                    break;
+                }
                 if p.at(TokenKind::DotDot) {
                     let span = p.peek().span;
                     return Err(p.error_unsupported(
@@ -849,7 +905,12 @@ impl Parser<'_, '_> {
             p.expect(TokenKind::RBrace)?;
             Ok(fields)
         })?;
-        Ok(self.mk(ExprKind::Struct { path, fields }, start))
+        let e = self.mk(ExprKind::Struct { path, fields, rest }, start);
+        if let Some(span) = rest {
+            self.assignee_only
+                .push((e.id, AssigneeOnly::StructRest(span)));
+        }
+        Ok(e)
     }
 
     /// Whether the current token begins an operand for `break`/`return`. In a condition

@@ -1,0 +1,8 @@
+// `_` and `..` in a destructuring assignment leave their parts in place, still usable.
+struct S { V: i32 }
+
+fn Use(t: (S, S, S)) -> i32 {
+    let mut a = S { V: 0 };
+    (a, _, ..) = t;
+    a.V + t.1.V + t.2.V
+}

@@ -1,0 +1,8 @@
+// The right side of a destructuring assignment reads a local that a live `&mut` borrows.
+fn Assign() -> i32 {
+    let mut a = 1;
+    let mut b = 2;
+    let r = &mut a;
+    (b, *r) = (a, 4);
+    b
+}

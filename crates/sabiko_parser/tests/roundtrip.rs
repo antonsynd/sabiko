@@ -244,6 +244,77 @@ fn pat() -> BoxedStrategy<Pat> {
     .boxed()
 }
 
+/// Whether the parser reads `e`, on the left of `=`, as a destructuring pattern (see
+/// `Parser::is_destructuring`): such an `Assign` is a `DestructuringAssign` once parsed.
+fn destructures(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Paren(inner) => destructures(inner),
+        ExprKind::Tuple(_) | ExprKind::Unit | ExprKind::Struct { .. } | ExprKind::Array(_) => true,
+        ExprKind::Call { callee, .. } => {
+            matches!(&callee.kind, ExprKind::Path(p) if p.segments.len() > 1)
+        }
+        _ => false,
+    }
+}
+
+/// The left side of a destructuring assignment: tuples, tuple-variant and struct patterns
+/// of places (any expression that does not itself destructure), `_` and `..`; the top is
+/// never a lone place, which would be a plain assignment.
+fn assignee_pat(place: impl Strategy<Value = Expr> + Clone + 'static) -> BoxedStrategy<Pat> {
+    let leaf = prop_oneof![
+        1 => Just(PatKind::Wild),
+        3 => place
+            .prop_filter("a place, not a pattern", |e| !destructures(e))
+            .prop_map(|e| PatKind::Assignee(Box::new(e))),
+    ]
+    .prop_map(mk_pat);
+    let structural = leaf.prop_recursive(2, 8, 3, |inner| {
+        let elems = (
+            prop::collection::vec(inner.clone(), 0..3),
+            prop::option::of(0usize..3),
+        )
+            .prop_map(|(mut elems, rest)| {
+                if let Some(i) = rest {
+                    elems.insert(i.min(elems.len()), mk_pat(PatKind::Rest));
+                }
+                elems
+            });
+        let field = (name(), inner).prop_map(|(n, pat)| FieldPat {
+            name: ident(&n),
+            pat,
+            shorthand: false,
+            span: SP,
+        });
+        prop_oneof![
+            elems.clone().prop_map(PatKind::Tuple),
+            ((name(), name()), elems).prop_map(|((a, b), elems)| PatKind::TupleStruct(
+                Path {
+                    segments: vec![ident(&a), ident(&b)],
+                    span: SP,
+                },
+                elems
+            )),
+            (
+                path_upto(2),
+                prop::collection::vec(field, 0..3),
+                any::<bool>()
+            )
+                .prop_map(|(path, fields, rest)| PatKind::Struct {
+                    path,
+                    fields,
+                    rest: rest.then_some(SP),
+                }),
+        ]
+        .prop_map(mk_pat)
+    });
+    structural
+        .prop_map(|p| match p.kind {
+            PatKind::Assignee(_) => mk_pat(PatKind::Tuple(vec![p])),
+            _ => p,
+        })
+        .boxed()
+}
+
 /// A field name: an identifier, or a tuple index.
 fn field_name() -> impl Strategy<Value = String> {
     prop_oneof![
@@ -359,7 +430,10 @@ fn expr() -> impl Strategy<Value = Expr> {
                 Box::new(r)
             ))),
             (inner.clone(), inner.clone())
+                .prop_filter("a plain assignment", |(l, _)| !destructures(l))
                 .prop_map(|(l, r)| mk(ExprKind::Assign(Box::new(l), Box::new(r)))),
+            (assignee_pat(inner.clone()), inner.clone())
+                .prop_map(|(p, r)| mk(ExprKind::DestructuringAssign(Box::new(p), Box::new(r)))),
             (arith_op(), inner.clone(), inner.clone())
                 .prop_map(|(op, l, r)| mk(ExprKind::AssignOp(op, Box::new(l), Box::new(r)))),
             (inner.clone(), prop::collection::vec(inner.clone(), 0..3)).prop_map(
@@ -419,6 +493,7 @@ fn expr() -> impl Strategy<Value = Expr> {
                             span: SP
                         })
                         .collect(),
+                    rest: None,
                 }
             )),
         ]
@@ -712,7 +787,11 @@ fn strip_parens_expr(e: &mut Expr) {
         return;
     }
     match &mut e.kind {
-        ExprKind::Lit(_) | ExprKind::Path(_) | ExprKind::Unit | ExprKind::Continue => {}
+        ExprKind::Lit(_)
+        | ExprKind::Path(_)
+        | ExprKind::Unit
+        | ExprKind::Continue
+        | ExprKind::Underscore => {}
         ExprKind::Paren(_) => unreachable!(),
         ExprKind::Unary(_, x)
         | ExprKind::Deref(x)
@@ -779,6 +858,25 @@ fn strip_parens_expr(e: &mut Expr) {
             }
         }
         ExprKind::Let(_, e) => strip_parens_expr(e),
+        ExprKind::DestructuringAssign(p, r) => {
+            strip_parens_assignees(p);
+            strip_parens_expr(r);
+        }
+    }
+}
+
+fn strip_parens_assignees(p: &mut Pat) {
+    match &mut p.kind {
+        PatKind::Assignee(e) => strip_parens_expr(e),
+        PatKind::Tuple(elems) | PatKind::TupleStruct(_, elems) => {
+            elems.iter_mut().for_each(strip_parens_assignees);
+        }
+        PatKind::Struct { fields, .. } => {
+            for f in fields {
+                strip_parens_assignees(&mut f.pat);
+            }
+        }
+        _ => {}
     }
 }
 

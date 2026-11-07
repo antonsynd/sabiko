@@ -20,7 +20,8 @@
 //! arithmetic, bitwise, shift, comparison and logical operators (comparisons also between
 //! references to primitives, which compare the referents), unary `-`/`!`, `as` casts
 //! between every integer type (`i128`/`u128` included), `f32`/`f64`, `bool` and ASCII
-//! `char`, suffixed literals and compound assignment. Methods (#7): functions of inherent
+//! `char`, suffixed literals, compound assignment and destructuring assignment `(p, q) =
+//! (e, f)` of two places (#50; a place the rules forbid by its turn is `_`). Methods (#7): functions of inherent
 //! `impl` blocks (one block per function, so a struct's methods are spread over several)
 //! taking `self`, `mut self`, `&self` or `&mut self`, or nothing (associated functions,
 //! often constructors); called as `Type::Name(..)` or with method syntax on places,

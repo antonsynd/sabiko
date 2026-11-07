@@ -326,7 +326,7 @@ impl Printer {
                     " }"
                 });
             }
-            PatKind::Lit(e) => self.expr(e, 0),
+            PatKind::Lit(e) | PatKind::Assignee(e) => self.expr(e, 0),
             PatKind::Range(lo, hi, end) => {
                 self.expr(lo, 0);
                 self.out.push_str(end.as_str());
@@ -501,6 +501,12 @@ impl Printer {
                 self.out.push_str(" = ");
                 self.expr(r, 0);
             }
+            ExprKind::DestructuringAssign(p, r) => {
+                self.top_pat(p);
+                self.out.push_str(" = ");
+                self.expr(r, 0);
+            }
+            ExprKind::Underscore => self.out.push('_'),
             ExprKind::AssignOp(op, l, r) => {
                 self.expr(l, 1);
                 let _ = write!(self.out, " {}= ", op.as_str());
@@ -603,7 +609,7 @@ impl Printer {
                     self.expr(e, 0);
                 }
             }
-            ExprKind::Struct { path, fields } => {
+            ExprKind::Struct { path, fields, rest } => {
                 self.out.push_str(&path_str(path));
                 self.out.push_str(" {");
                 for (i, f) in fields.iter().enumerate() {
@@ -611,8 +617,15 @@ impl Printer {
                     let _ = write!(self.out, "{}: ", f.name.name);
                     self.expr(&f.value, 0);
                 }
-                self.out
-                    .push_str(if fields.is_empty() { "}" } else { " }" });
+                if rest.is_some() {
+                    self.out
+                        .push_str(if fields.is_empty() { " .." } else { ", .." });
+                }
+                self.out.push_str(if fields.is_empty() && rest.is_none() {
+                    "}"
+                } else {
+                    " }"
+                });
             }
             ExprKind::Match { scrutinee, arms } => {
                 self.out.push_str("match ");
@@ -690,6 +703,10 @@ fn needs_cond_parens(e: &Expr) -> bool {
         ExprKind::Binary(_, l, r) | ExprKind::Assign(l, r) | ExprKind::AssignOp(_, l, r) => {
             needs_cond_parens(l) || needs_cond_parens(r)
         }
+        // `S { X: a } = s` starts with a struct literal; inside a tuple it is bracketed.
+        ExprKind::DestructuringAssign(p, r) => {
+            matches!(p.kind, PatKind::Struct { .. }) || needs_cond_parens(r)
+        }
         ExprKind::Break(Some(x)) | ExprKind::Return(Some(x)) => {
             leftmost_is_block(x) || needs_cond_parens(x)
         }
@@ -713,7 +730,9 @@ fn rightmost_is_cast_at(e: &Expr, min_prec: u8) -> bool {
     match &e.kind {
         ExprKind::Cast(..) => true,
         ExprKind::Binary(op, _, r) => rightmost_is_cast_at(r, op.precedence() + 1),
-        ExprKind::Assign(_, r) | ExprKind::AssignOp(_, _, r) => rightmost_is_cast_at(r, 0),
+        ExprKind::Assign(_, r)
+        | ExprKind::DestructuringAssign(_, r)
+        | ExprKind::AssignOp(_, _, r) => rightmost_is_cast_at(r, 0),
         ExprKind::Unary(_, x) | ExprKind::Ref { expr: x, .. } | ExprKind::Deref(x) => {
             rightmost_is_cast_at(x, UNARY_PRECEDENCE)
         }
@@ -755,6 +774,7 @@ fn rightmost_is_brace(e: &Expr) -> bool {
         | ExprKind::Struct { .. } => true,
         ExprKind::Binary(_, _, r)
         | ExprKind::Assign(_, r)
+        | ExprKind::DestructuringAssign(_, r)
         | ExprKind::AssignOp(_, _, r)
         | ExprKind::Unary(_, r)
         | ExprKind::Ref { expr: r, .. }
@@ -803,6 +823,7 @@ fn precedence(e: &Expr) -> u8 {
         | ExprKind::While { .. }
         | ExprKind::Loop { .. }
         | ExprKind::Match { .. }
+        | ExprKind::Underscore
         | ExprKind::Struct { .. } => ATOM_PRECEDENCE,
         ExprKind::Call { .. }
         | ExprKind::MethodCall { .. }
@@ -813,6 +834,7 @@ fn precedence(e: &Expr) -> u8 {
         ExprKind::Binary(op, ..) => op.precedence(),
         // `break`/`return`/assignment bind loosest; they swallow everything to their right.
         ExprKind::Assign(..)
+        | ExprKind::DestructuringAssign(..)
         | ExprKind::AssignOp(..)
         | ExprKind::Break(_)
         | ExprKind::Return(_)

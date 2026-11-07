@@ -282,6 +282,10 @@ impl Dumper {
                     }
                 });
             }
+            PatKind::Assignee(e) => {
+                self.line("AssigneePat");
+                self.nested(|d| d.expr(e));
+            }
         }
     }
 
@@ -388,6 +392,14 @@ impl Dumper {
                     d.expr(r);
                 });
             }
+            ExprKind::DestructuringAssign(p, r) => {
+                self.line("DestructuringAssign");
+                self.nested(|d| {
+                    d.pat(p);
+                    d.expr(r);
+                });
+            }
+            ExprKind::Underscore => self.line("Underscore"),
             ExprKind::AssignOp(op, l, r) => {
                 self.line(&format!("AssignOp {}=", op.as_str()));
                 self.nested(|d| {
@@ -483,12 +495,15 @@ impl Dumper {
                     self.nested(|d| d.expr(e));
                 }
             }
-            ExprKind::Struct { path, fields } => {
+            ExprKind::Struct { path, fields, rest } => {
                 self.line(&format!("Struct {}", path_str(path)));
                 self.nested(|d| {
                     for f in fields {
                         d.line(&format!("FieldInit {}", f.name.name));
                         d.nested(|d| d.expr(&f.value));
+                    }
+                    if rest.is_some() {
+                        d.line("Rest");
                     }
                 });
             }

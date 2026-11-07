@@ -1,0 +1,141 @@
+// Destructuring assignment (#50): `(a, b) = e` means rustc's `{ let (x, y) = e; a = x;
+// b = y; }`. Every part is moved out before any place is assigned (so `(t.1, t.0) = t`
+// swaps), the places are evaluated and assigned left to right, each dropping its old
+// value, and `_` and `..` leave their parts where they are. Tuples, struct literals,
+// variant calls, unit structs and `_` nest; any other expression is a place. Each
+// assignment coerces as `a = x` would (`&mut T` to `&T`, `&[T; N]` to `&[T]`), and a
+// diverging right side is fine.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct P { X: i32, Y: i32, Z: i32 }
+
+struct Unit;
+
+enum One { Only(i32, i32) }
+
+enum Single { It }
+
+fn Pair() -> (i32, i32) {
+    PrintLine("pair");
+    (3, 4)
+}
+
+fn Index(i: usize) -> usize {
+    Print("index ");
+    PrintLine(i);
+    i
+}
+
+fn Swaps() {
+    let mut a = 1;
+    let mut b = 2;
+    (a, b) = (b, a);
+    PrintLine(a * 10 + b);
+    let mut t = (5, 6);
+    (t.1, t.0) = t;
+    PrintLine(t.0 * 10 + t.1);
+    let x;
+    let y;
+    (x, y) = Pair();
+    PrintLine(x + y);
+}
+
+fn Nested() {
+    let mut a = 0;
+    let mut b = 0;
+    let mut c = 0;
+    ((a, b), c) = ((1, 2), 3);
+    PrintLine(a * 100 + b * 10 + c);
+    (a, ..) = (7, 8, 9);
+    (.., b) = (7, 8, 9);
+    (a, .., c) = (4, 5, 6, 7);
+    PrintLine(a * 100 + b * 10 + c);
+    (_, a, _) = (1, 2, 3);
+    PrintLine(a);
+    (..) = (1, 2);
+    () = ();
+    _ = Pair();
+}
+
+fn Structs() {
+    let mut a = 0;
+    let mut b = 0;
+    let mut p = P { X: 1, Y: 2, Z: 3 };
+    P { X: a, Y: b, .. } = p;
+    PrintLine(a * 10 + b);
+    P { Z: p.X, X: p.Z, Y: _ } = P { X: 7, Y: 8, Z: 9 };
+    PrintLine(p.X * 100 + p.Y * 10 + p.Z);
+    One::Only(a, b) = One::Only(b, a);
+    PrintLine(a * 10 + b);
+    (a, Unit, b) = (1, Unit, 2);
+    PrintLine(a * 10 + b);
+}
+
+fn Places() {
+    let mut v = [0, 0, 0];
+    let mut i = 0;
+    (v[i], i) = (10, 2);
+    PrintLine(v[0] + v[2] + i as i32);
+    (v[Index(1)], v[Index(2)]) = (Pair().1, 5);
+    PrintLine(v[1] * 10 + v[2]);
+    let mut n = 0;
+    let r = &mut n;
+    (*r, i) = (42, 1);
+    PrintLine(n + i as i32);
+}
+
+fn Drops() {
+    let mut p = D { Id: 1 };
+    let mut q = D { Id: 2 };
+    PrintLine("swap");
+    (p, q) = (q, p);
+    PrintLine(p.Id * 10 + q.Id);
+    PrintLine("replace");
+    (p, _) = (D { Id: 3 }, D { Id: 4 });
+    PrintLine("partial");
+    let t = (D { Id: 5 }, D { Id: 6 });
+    (q, _) = t;
+    PrintLine(t.1.Id);
+    PrintLine("end");
+}
+
+fn Coercions() {
+    let mut x = 5;
+    let y = 6;
+    let mut r = &y;
+    let mut n = 0;
+    (r, n) = (&mut x, 1);
+    PrintLine(*r + n);
+    let arr = [1, 2, 3];
+    let other = [4];
+    let mut s: &[i32] = &other;
+    (s, Single::It) = (&arr, Single::It);
+    PrintLine(s.len());
+}
+
+fn Diverges(early: bool) -> i32 {
+    let mut a = 0;
+    let mut b = 0;
+    if early {
+        (a, b) = return 7;
+    }
+    (a, b) = (8, 9);
+    a + b
+}
+
+fn Main() {
+    Swaps();
+    Nested();
+    Structs();
+    Places();
+    Drops();
+    Coercions();
+    PrintLine(Diverges(true) + Diverges(false));
+}

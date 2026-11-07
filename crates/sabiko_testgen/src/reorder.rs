@@ -520,6 +520,13 @@ impl FnCx<'_, '_> {
                 self.expr(lhs, Mode::Write, s);
                 self.expr(rhs, Mode::Read, s);
             }
+            ExprKind::DestructuringAssign(pat, rhs) => {
+                // Conservatively an effect: it may drop the old values and panic indexing.
+                s.effect = true;
+                self.expr(rhs, Mode::Read, s);
+                pat.walk_assignees(&mut |_, place| self.expr(place, Mode::Write, s));
+            }
+            ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
             ExprKind::Call { callee, args } => {
                 s.effect = true;
                 self.expr(callee, Mode::Read, s);
@@ -727,6 +734,11 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
             }
         }
         ExprKind::Let(_, scrutinee) => f(Child::Expr(scrutinee)),
+        ExprKind::DestructuringAssign(pat, rhs) => {
+            f(Child::Expr(rhs));
+            pat.walk_assignees(&mut |_, place| f(Child::Expr(place)));
+        }
+        ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
     }
 }
 

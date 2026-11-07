@@ -1,0 +1,13 @@
+// Copying fields out of a type with `Drop` in a destructuring assignment is fine.
+struct D { X: i32, Y: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+fn Use(d: D) -> i32 {
+    let mut x = 0;
+    let mut y = 0;
+    D { X: x, Y: y } = d;
+    x + y
+}

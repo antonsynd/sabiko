@@ -226,7 +226,8 @@ impl PatValues<'_, '_> {
                     self.pat(sub);
                 }
             }
-            PatKind::Wild | PatKind::Rest | PatKind::Path(_) => {}
+            // An assignee's place was visited as an expression (see `for_each_child`).
+            PatKind::Wild | PatKind::Rest | PatKind::Path(_) | PatKind::Assignee(_) => {}
             PatKind::Tuple(ps) | PatKind::TupleStruct(_, ps) | PatKind::Or(ps) => {
                 for p in ps {
                     self.pat(p);
@@ -363,7 +364,8 @@ pub(crate) enum Child<'a> {
 }
 
 /// Calls `f` for every direct subexpression and block of `e`, the guards and bodies of a
-/// `match` included, but no pattern.
+/// `match` included, but no pattern; the places of a destructuring assignment, which its
+/// pattern holds, are subexpressions too (after the right side, in assignment order).
 pub(crate) fn for_each_child<'a>(e: &'a Expr, f: &mut impl FnMut(Child<'a>)) {
     let mut expr = |x: &'a Expr| f(Child::Expr(x));
     match &e.kind {
@@ -411,6 +413,11 @@ pub(crate) fn for_each_child<'a>(e: &'a Expr, f: &mut impl FnMut(Child<'a>)) {
             }
         }
         ExprKind::Struct { fields, .. } => fields.iter().for_each(|fi| expr(&fi.value)),
+        ExprKind::DestructuringAssign(pat, rhs) => {
+            expr(rhs);
+            pat.walk_assignees(&mut |_, place| expr(place));
+        }
+        ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
         ExprKind::Match { scrutinee, arms } => {
             expr(scrutinee);
             for arm in arms {
@@ -555,6 +562,14 @@ impl Exhaustive<'_, '_> {
                     self.expr(&arm.body);
                 }
                 self.check_match(scrutinee, arms);
+            }
+            ExprKind::DestructuringAssign(pat, _) => {
+                // rustc's `{ let pat = rhs; .. }`: the pattern must be irrefutable.
+                for_each_child(e, &mut |c| match c {
+                    Child::Expr(c) => self.expr(c),
+                    Child::Block(b) => self.block(b),
+                });
+                self.refutable(pat, "local binding");
             }
             ExprKind::If { cond, then, els } => {
                 if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
@@ -829,7 +844,9 @@ impl Exhaustive<'_, '_> {
             PatKind::Ident { .. } | PatKind::Wild | PatKind::Rest => K::Wild,
             PatKind::Or(alts) => K::Or(alts.iter().map(|a| self.lower(a)).collect()),
             PatKind::Lit(_) | PatKind::Range(..) => self.value(pat),
-            PatKind::Path(_) => match self.body.pat_variants.get(&pat.id) {
+            PatKind::Assignee(_) if self.resolve.pat_res(pat.id).is_none() => K::Wild,
+            // An assignee naming a unit struct or a unit variant compares like a path.
+            PatKind::Path(_) | PatKind::Assignee(_) => match self.body.pat_variants.get(&pat.id) {
                 Some(&(_, index)) => K::Ctor {
                     variant: Some(index),
                     fields: Vec::new(),
@@ -1003,8 +1020,12 @@ fn walk_all_idents<'p>(pat: &'p Pat, f: &mut impl FnMut(&'p Pat)) {
                 walk_all_idents(&fp.pat, f);
             }
         }
-        PatKind::Wild | PatKind::Rest | PatKind::Path(_) | PatKind::Lit(_) | PatKind::Range(..) => {
-        }
+        PatKind::Wild
+        | PatKind::Rest
+        | PatKind::Path(_)
+        | PatKind::Lit(_)
+        | PatKind::Range(..)
+        | PatKind::Assignee(_) => {}
     }
 }
 
