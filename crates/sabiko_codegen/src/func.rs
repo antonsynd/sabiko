@@ -1663,6 +1663,24 @@ impl FnCx<'_, '_> {
                     1,
                 );
             }
+            // A tuple constant (#50) is built like a tuple aggregate of its elements.
+            ConstValue::Tuple(values) => {
+                let Ty::Tuple(tys) = &c.ty else {
+                    panic!("tuple constant of non-tuple type {:?}", c.ty);
+                };
+                let operands: Vec<Operand> = values
+                    .iter()
+                    .zip(tys.iter())
+                    .map(|(value, ty)| {
+                        Operand::Constant(Constant {
+                            ty: ty.clone(),
+                            value: value.clone(),
+                            span: c.span,
+                        })
+                    })
+                    .collect();
+                self.tuple(&c.ty, &operands, c.span);
+            }
         }
     }
 

@@ -70,6 +70,16 @@ fn constant_matches(c: &Constant) -> bool {
         | (ConstValue::Char(_), Ty::Prim(PrimTy::Char))
         | (ConstValue::Unit, Ty::Unit) => true,
         (ConstValue::Str(_), Ty::Ref(Mutability::Not, inner)) => **inner == Ty::Prim(PrimTy::Str),
+        (ConstValue::Tuple(values), Ty::Tuple(tys)) => {
+            values.len() == tys.len()
+                && values.iter().zip(tys.iter()).all(|(value, ty)| {
+                    constant_matches(&Constant {
+                        ty: ty.clone(),
+                        value: value.clone(),
+                        span: c.span,
+                    })
+                })
+        }
         _ => false,
     }
 }

@@ -1,0 +1,13 @@
+// `let r = &A;` borrows a temporary holding the constant's value (in rustc a promoted
+// `'static`), which lives as long as `r`: a path naming a constant is a value, not a
+// place, so the temporary is extended like `&7`'s. Tuple constants too (#50).
+const A: i32 = 5;
+const P: (i32, bool) = (1, true);
+
+fn Main() {
+    let r = &A;
+    let s = &P;
+    let t = &mut P;
+    t.0 += 1;
+    PrintLine(*r + s.0 + t.0);
+}

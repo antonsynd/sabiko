@@ -40,7 +40,7 @@ const AR: [i32; 2] = [1, 2]; //~ ERROR E0315 arrays cannot be used in constants 
 const AS: &[i32] = &[1]; //~ ERROR E0315 arrays cannot be used in constants yet
 //~^ ERROR E0315 references cannot be used in constants yet
 const AT: (i32, [u8; 1]) = (1, [2]); //~ ERROR E0315 arrays cannot be used in constants yet
-//~^ ERROR E0315 tuple values cannot be used in constants yet
+//~^ ERROR E0315 array values cannot be used in constants yet
 const S: i32 = A as i32 + 1; // silent: `A` already failed
 const T: i32 = 2147483647 + 0; // fine: exactly at the limit
 const U: u8 = 255u8 as i8 as u8; // fine: casts wrap

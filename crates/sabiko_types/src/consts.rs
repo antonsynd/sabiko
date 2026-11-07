@@ -33,6 +33,8 @@ pub enum ConstValue {
     Char(char),
     Str(String),
     Unit,
+    /// A tuple of constants (#50), lowered to a tuple aggregate where it is used.
+    Tuple(Vec<ConstValue>),
 }
 
 impl ConstValue {
@@ -53,6 +55,22 @@ impl ConstValue {
             ConstValue::Char(c) => format!("{c:?}"),
             ConstValue::Str(s) => format!("{s:?}"),
             ConstValue::Unit => "()".to_owned(),
+            ConstValue::Tuple(elems) => {
+                let tys: &[Ty] = match ty {
+                    Ty::Tuple(tys) => tys,
+                    _ => &[],
+                };
+                let parts: Vec<String> = elems
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| e.render(tys.get(i).unwrap_or(&Ty::Error), resolve))
+                    .collect();
+                if parts.len() == 1 {
+                    format!("({},)", parts[0])
+                } else {
+                    format!("({})", parts.join(", "))
+                }
+            }
         }
     }
 }
@@ -327,8 +345,25 @@ impl Evaluator<'_, '_> {
                 Err(non_const(expr.span, "function calls"))
             }
             ExprKind::Struct { .. } => Err(non_const(expr.span, "struct values")),
-            ExprKind::Tuple(_) => Err(non_const(expr.span, "tuple values")),
+            ExprKind::Tuple(elems) => Ok(ConstValue::Tuple(
+                elems
+                    .iter()
+                    .map(|e| self.eval(e, body))
+                    .collect::<Result<_, _>>()?,
+            )),
             ExprKind::Array(_) | ExprKind::Repeat(..) => Err(non_const(expr.span, "array values")),
+            // `P.1` of a tuple constant; a field of a struct value cannot be reached (struct
+            // values are not constants yet).
+            ExprKind::Field(base, _) if matches!(body.expr_ty(base.id), Ty::Tuple(_)) => {
+                match (self.eval(base, body)?, body.field_accesses.get(&expr.id)) {
+                    (ConstValue::Tuple(mut elems), Some(access))
+                        if access.autoderefs == 0 && access.index < elems.len() =>
+                    {
+                        Ok(elems.swap_remove(access.index))
+                    }
+                    _ => Err(non_const(expr.span, "field accesses")),
+                }
+            }
             ExprKind::Field(..) => Err(non_const(expr.span, "field accesses")),
             ExprKind::Ref { .. } => Err(non_const(expr.span, "references")),
             ExprKind::Deref(_) => Err(non_const(expr.span, "dereferences")),
@@ -605,7 +640,7 @@ fn cast(v: &ConstValue, from: Option<PrimTy>, to: PrimTy) -> Option<ConstValue> 
         ConstValue::Bool(b) => Src::Bits(u128::from(*b)),
         ConstValue::Char(c) => Src::Bits(u128::from(u32::from(*c))),
         ConstValue::Float(f) => Src::Float(*f),
-        ConstValue::Str(_) | ConstValue::Unit => return None,
+        ConstValue::Str(_) | ConstValue::Unit | ConstValue::Tuple(_) => return None,
     };
     Some(match (src, to) {
         (Src::Bits(b), p) if p.is_integer() => {

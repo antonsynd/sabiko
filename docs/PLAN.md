@@ -506,7 +506,7 @@ destructuring assignment (`(a, b) = (b, a)`) are E0107 (the comparison traits ar
 `tests/pending/tuples/known_gap/equality.sabi`); `&&T` and `&()`, also as tuple elements,
 stay E0500 until `Ref<T>` (`known_gap/refs_through_double_ref.sabi`; since lowered, #11); the two-phase
 reborrow `Use(m, m.0)` waits for #15; a tuple holding a reference cannot be a struct field
-(lifetimes, Phase 9); constants cannot be tuples (E0315); literal and other refutable
+(lifetimes, Phase 9); constants cannot be tuples (E0315; since #50 they can); literal and other refutable
 patterns are E0107 until `match`. Pre-existing then: `let _ = place;` read the place where
 rustc only mentions it, so Sabiko rejected `let _ = p; Take(p);`; #37 fixed it: the
 statement is a MIR `PlaceMention`, a liveness use of the local and nothing else, as in
@@ -905,7 +905,15 @@ Order (decision 46): tuples and `()` values, then `impl` blocks and methods (wit
 borrows), then drop elaboration, then enums and `match`, so that match lowering is written
 against drops rather than retrofitted.
 - Tuples; `()` as a value with real storage where it is a parameter or field type. Done
-  (#6, decision 52; see the status note above).
+  (#6, decision 52; see the status note above). Tuple constants (#50): `const` items may be
+  tuples of constants, with `.N` fields in constant expressions (also array lengths); a
+  use is a `ConstValue::Tuple` operand that codegen builds like a tuple aggregate, and a
+  pattern tests it element by element and counts as its tuple pattern for exhaustiveness,
+  as rustc expands constants into patterns (guards fake-borrow the tested elements).
+  Arrays in constants wait for #45. With it, `let r = &A;` for a constant `A` extends the
+  temporary holding `A`'s value (it was E0413: the path was taken for a place); rustc
+  promotes it to `'static` instead, which only differs once the reference outlives its
+  block (#26). Destructuring assignment remains (#50).
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
   `&mut` reborrows in argument position. Done (#7, #15, decisions 53 and 54; see the

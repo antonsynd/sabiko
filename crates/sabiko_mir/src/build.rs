@@ -869,19 +869,16 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// What a path expression names, through parentheses.
-    /// `&e` / `&mut e` where `e` is not a place: the borrow of a temporary.
-    fn ref_of_temporary(expr: &Expr) -> Option<(bool, &Expr)> {
+    /// `&e` / `&mut e` where `e` is not a place: the borrow of a temporary. A path naming
+    /// a constant (or a unit struct or variant) is a value, not a place: `let r = &A;`
+    /// borrows a temporary, extended like `&7`'s.
+    fn ref_of_temporary<'e>(&self, expr: &'e Expr) -> Option<(bool, &'e Expr)> {
         if let ExprKind::Ref {
             mutable,
             expr: inner,
         } = &strip_parens(expr).kind
         {
-            let is_place = matches!(
-                strip_parens(inner).kind,
-                ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..)
-            );
-            if !is_place {
+            if !is_place_expr(self.resolve, inner) {
                 return Some((*mutable, inner));
             }
         }
@@ -1536,8 +1533,9 @@ impl<'a> Builder<'a> {
     /// reference to it. `None` when `e` is not such a borrow (or borrows a diverging
     /// expression, which has nothing to keep).
     fn extended_ref(&mut self, e: &Expr) -> Option<Local> {
-        let (mutable, inner) =
-            Self::ref_of_temporary(e).filter(|(_, inner)| !self.ty(inner).is_never())?;
+        let (mutable, inner) = self
+            .ref_of_temporary(e)
+            .filter(|(_, inner)| !self.ty(inner).is_never())?;
         let ty = self.ty(inner).clone();
         let referent = self.new_temp_in_block_scope(ty, inner.span);
         if !writes_once(inner) {
@@ -2048,7 +2046,8 @@ impl<'a> Builder<'a> {
                             let target = Place::local(local).ty(&self.body);
                             let op = self.coerced_operand(init, Some(&target), false);
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
-                        } else if let Some((mutable, inner)) = Self::ref_of_temporary(init)
+                        } else if let Some((mutable, inner)) = self
+                            .ref_of_temporary(init)
                             .filter(|(_, inner)| !self.ty(inner).is_never())
                         {
                             // Temporary lifetime extension: in `let r = &<rvalue>;` the

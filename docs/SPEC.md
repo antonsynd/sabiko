@@ -628,7 +628,7 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   have no arithmetic and do not cast (E0300, E0306/E0307, E0308). Comparing tuples
   (`==`, `<`, ... also through references) is valid Rust but not yet supported (E0107):
   the comparison traits arrive in Phase 6, as for structs. `()` compares. Destructuring
-  assignment (`(a, b) = (b, a)`) is E0107 too. A `const` cannot be a tuple yet (E0315).
+  assignment (`(a, b) = (b, a)`) is E0107 too. A `const` may be a tuple (#50).
 - Patterns. A tuple pattern matches a tuple of its arity (E0300 otherwise: "expected
   `(i32, i32, i32)`, found a tuple with 2 elements"), `()` matches `()`, `_` matches
   anything and binds nothing, and an identifier binds the whole value. A tuple pattern
@@ -756,7 +756,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `#[derive(Copy)]` on a struct with `impl Drop` is E0324 (E0184); on a struct with a
   field that has drop glue it is E0417, as for any non-`Copy` field.
 - A `const` initialiser is evaluated at compile time. Allowed: literals, arithmetic,
-  comparisons, logical operators, casts and references to other constants. Overflow,
+  comparisons, logical operators, casts, references to other constants, tuples of these
+  and tuple fields of constants (`const Q: (i32, bool) = (P.1 * 2, true);`, #50). A tuple
+  constant is built where it is used; in a pattern it matches like the tuple pattern of its
+  elements (`P => ..` tests `p.0 == 1`, then `p.1 == 2`, and counts as `(1, 2)` for
+  exhaustiveness), as in rustc. Overflow,
   division or remainder by zero, over-wide shifts and cycles between constants are errors
   (E0316); blocks, calls, struct values, references and control flow are not constant
   expressions yet (E0315). Values follow Rust exactly: integer casts wrap, float to

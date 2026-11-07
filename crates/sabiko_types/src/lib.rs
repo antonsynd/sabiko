@@ -465,18 +465,53 @@ const M: i32 = { 1 };
                     .defs_of_kind(DefKind::Const)
                     .find(|d| resolve.def(*d).name == format!("C{i}"))
                     .unwrap();
-                r.const_value(def).map(|v| match v {
-                    ConstValue::Int(v) => v.to_string(),
-                    ConstValue::Uint(v) => v.to_string(),
-                    ConstValue::Float(v) => format!("{v:?}"),
-                    ConstValue::Bool(v) => v.to_string(),
-                    ConstValue::Char(v) => format!("{v:?}"),
-                    ConstValue::Str(v) => format!("{v:?}"),
-                    ConstValue::Unit => "()".to_owned(),
-                })
+                r.const_value(def).map(plain)
             })
             .collect();
         (values, msgs)
+    }
+
+    fn plain(v: &ConstValue) -> String {
+        match v {
+            ConstValue::Int(v) => v.to_string(),
+            ConstValue::Uint(v) => v.to_string(),
+            ConstValue::Float(v) => format!("{v:?}"),
+            ConstValue::Bool(v) => v.to_string(),
+            ConstValue::Char(v) => format!("{v:?}"),
+            ConstValue::Str(v) => format!("{v:?}"),
+            ConstValue::Unit => "()".to_owned(),
+            ConstValue::Tuple(vs) => {
+                let parts: Vec<String> = vs.iter().map(plain).collect();
+                format!("({})", parts.join(", "))
+            }
+        }
+    }
+
+    /// Tuple constants and their fields (#50): elements evaluate as constants of their
+    /// types, `.N` reads one, a failing element fails the constant.
+    #[test]
+    fn tuple_constants_evaluate_elementwise() {
+        let cases = [
+            ("(i32, (bool, u8))", "(1 + 2, (true, 255))".to_owned()),
+            ("u8", "C0.1 .1 - 5".to_owned()),
+            ("(i32, i32)", "(C0.0 * 2, C1 as i32)".to_owned()),
+            ("(i8,)", "(127 + 1,)".to_owned()),
+        ];
+        let (values, msgs) = eval_consts(&cases);
+        assert_eq!(
+            values,
+            [
+                Some("(3, (true, 255))".to_owned()),
+                Some("250".to_owned()),
+                Some("(6, 250)".to_owned()),
+                None,
+            ]
+        );
+        assert_eq!(msgs.len(), 1, "{msgs:?}");
+        assert!(
+            msgs[0].starts_with("E0316 attempt to add with overflow"),
+            "{msgs:?}"
+        );
     }
 
     /// `2^127` is a valid `i128` literal only under a negation, which gives `i128::MIN`
