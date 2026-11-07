@@ -32,6 +32,7 @@
 pub mod build;
 pub mod elaborate;
 pub mod forward;
+pub mod lint;
 pub mod pretty;
 pub mod simplify;
 pub mod validate;

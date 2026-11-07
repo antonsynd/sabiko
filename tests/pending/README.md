@@ -435,7 +435,7 @@ The staged programs were checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the v
 ### Known gaps (`arrays/known_gap/`)
 
 All eight run (or, for `unconditional_panic`, are rejected) under rustc; none was required
-by #9.
+by #9. `unconditional_panic.sabi` has since landed (#44, decision 73).
 
 | file | gap | rustc |
 | --- | --- | --- |
@@ -446,7 +446,7 @@ by #9.
 | `for_loops.sabi` | `for x in a`, `in &a`, `in s`, `in 0..a.len()`: no `for` until iterators (E0107) (#45) | exit 0 |
 | `arrays_of_references.sabi` | `[&x, &y]`, `["ada", "grace"]`, `[&mut p, &mut q]`: E0500 (decision 61), an inline array cannot hold a managed pointer or a `ReadOnlySpan<char>`; waits for `Ref<T>` (#43) | exit 0 |
 | `slice_methods.sabi` | `.is_empty()`, `.swap`, `.reverse`, `.contains`, `.split_at_mut`, `.fill`: only `.len()` (E0319) (#45) | exit 0 |
-| `unconditional_panic.sabi` | constant out-of-bounds indices are rustc's deny-by-default `unconditional_panic` lint (uncoded errors, only with code generation); Sabiko has no constant-propagation lints (nor `arithmetic_overflow`), so it compiles them and they panic at run time. The generated-program prelude allows the lint in rustc (#44) | 6 errors |
+| `unconditional_panic.sabi` | landed with #44 (decision 73): `tests/ui/lints/unconditional_panic.sabi`, E0601 | rejected |
 
 ### Rules rustc applies (each confirmed by the program named)
 
@@ -529,7 +529,8 @@ by #9.
     `unconditional_panic` lint, an uncoded error "this operation will panic at runtime"
     labelled "index out of bounds: the length is 3 but the index is 5" ("length", where
     the run-time message says "len"). Slices are never linted. The lint runs only with
-    code generation: `--emit=metadata` does not report it (`unconditional_panic`).
+    code generation: `--emit=metadata` does not report it (`unconditional_panic`). Sabiko
+    reports it as E0601 since #44 (decision 73), also only when generating code.
 
 ## `strings/`: issue #10, `&str` slicing, `.len()`, comparisons and literal patterns, and range slicing of arrays and slices (landed)
 

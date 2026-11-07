@@ -1,0 +1,40 @@
+// Control flow (decision 73): constant conditions, `&&`, `||`, `!` and matches on
+// constants decide which branches are linted; enum casts, shifts and float casts.
+enum K { X = 5, Y = 9 }
+fn Get() -> usize { 7 }
+fn D1() -> i32 { let a = [1, 2, 3]; let k = K::Y; a[k as usize] }
+fn D2() -> i32 { let a = [1, 2, 3]; a[K::X as usize] }
+fn D3() -> i32 { let a = [1, 2, 3]; if 1 > 2 { a[5] } else { 0 } }
+fn D4() -> i32 { let a = [1, 2, 3]; while false { let x = a[5]; } 0 }
+fn D5() -> i32 { let a = [1, 2, 3]; match 5 { 5 => a[5], _ => 0 } }
+fn D6() -> i32 { let a = [1, 2, 3]; match 4 { 5 => a[5], _ => 0 } }
+fn D7() -> i32 { let a = [1, 2, 3]; a[Get()] }
+fn D8() -> i32 { let a = [1, 2, 3]; let i = { let j = 5; j }; a[i] }
+fn D9() -> i32 { let a = [1, 2, 3]; let i = if true { 5 } else { 1 }; a[i] }
+fn D10() -> i32 { let a = [1, 2, 3]; let b = true && false; if b { a[5] } else { 0 } }
+fn D11() -> i32 { let a = [1, 2, 3]; if true || false { a[7] } else { 0 } }
+fn D12() -> i128 { let x = 170141183460469231731687303715884105727i128; x + 1 }
+fn D13() -> u128 { let x = 0u128; x - 1 }
+fn D14() -> i32 { let mut x = 1; x <<= 40; x }
+fn D15() -> u8 { let x = !0u8; x + 1 }
+fn D16() -> i8 { let x = -128i8; x - 1 }
+fn D17() -> i64 { let x = 1i64; x << 63 }
+fn D18() -> u8 { let x = 1u8; x << 8u32 }
+fn D19() -> i32 { let x = 7; let y = 0; x % y }
+fn D20(k: i32) -> i32 { k / 0 }
+fn D21(k: i32) -> i32 { k / -1 }
+fn D22() -> i32 { let a = [1, 2, 3]; let mut i = 0; i = 3; let x = 2 * 2; a[i] }
+fn D23() -> i32 { let a = [1, 2, 3]; let mut i = 0; i = 3; let x = 8 / 2; a[i] }
+fn D24() -> i32 { let a = [1, 2, 3]; let mut i = 0; i = 3; let f = 2.0 * 3.0; a[i] }
+fn D25() -> i32 { let a = [1, 2, 3]; let mut i = 0; i = 3; let x = -i; a[0] }
+fn D26() -> i32 { let a = [1, 2, 3]; let mut i = 0; i = 3; let b = i == 3; a[i] }
+fn D27() -> i32 { let a = [1, 2, 3]; let mut i = 0usize; i = 3; let s = "ab"; let t = s == "ab"; a[i] }
+fn D28() -> i32 { let mut x = 3; x = 2147483647; x + 1 }
+fn D29() -> i32 { let mut x = 3; x = 2147483647; let a = [1, 2]; let y = a[0]; x + 1 }
+fn D30() -> u8 { let c = 'é'; let n = c as u8; n + 250 }
+fn D31() -> u32 { let c = 'a'; c as u32 - 98 }
+fn D32() -> i32 { let a = [1, 2, 3]; let i = 3; let r = &a[i]; *r }
+fn D33() -> i32 { let mut a = [1, 2, 3]; let i = 3; let r = &mut a[i]; *r = 1; 0 }
+fn D34() -> i32 { let a = [1, 2, 3]; let i = 3; let _ = a[i]; 0 }
+fn D35() -> f32 { let x = 3.0f32; let y = x as i32; let z = y - 2147483647; 0.0 }
+fn D36() -> i32 { let x = -5; let y = x as u32; let z = y + 4294967295; 0 }

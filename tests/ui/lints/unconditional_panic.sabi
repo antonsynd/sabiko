@@ -1,0 +1,42 @@
+// A constant index that rustc's MIR lint can prove out of bounds is its deny-by-default
+// `unconditional_panic` lint, E0601 here (decision 73): "this operation will panic at
+// runtime", labelled "index out of bounds: the length is 3 but the index is 5" (the lint
+// says "length", the run-time panic says "len"). It sees through `const` items, locals
+// holding constants (`let i = 4;`) and `&[i32; 3]` parameters, for reads and writes; a
+// slice's length is unknown, so `G` compiles and panics at run time. Like rustc's, the
+// lint runs only when code is generated.
+const N: usize = 3;
+
+fn A() -> i32 {
+    let a = [1, 2, 3];
+    a[5] //~ ERROR E0601 this operation will panic at runtime
+}
+
+fn B() -> i32 {
+    let a = [1, 2, 3];
+    a[N] //~ ERROR E0601 this operation will panic at runtime
+}
+
+fn C() {
+    let mut a = [0; 2];
+    a[2] = 1; //~ ERROR E0601 this operation will panic at runtime
+}
+
+fn D() -> i32 {
+    let a: [i32; 0] = [];
+    a[0] //~ ERROR E0601 this operation will panic at runtime
+}
+
+fn E() -> i32 {
+    let a = [1, 2, 3];
+    let i = 4;
+    a[i] //~ ERROR E0601 this operation will panic at runtime
+}
+
+fn F(r: &[i32; 3]) -> i32 {
+    r[3] //~ ERROR E0601 this operation will panic at runtime
+}
+
+fn G(s: &[i32]) -> i32 {
+    s[5]
+}

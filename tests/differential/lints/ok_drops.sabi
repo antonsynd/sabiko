@@ -1,0 +1,22 @@
+// Drops (decision 73): a local dropped after drop elaboration (wholly or a field) is
+// not propagated; a tuple temporary fully moved out by a destructuring `let` is.
+struct D { V: i32 }
+impl Drop for D { fn drop(&mut self) {} }
+struct W { X: usize }
+impl Drop for W { fn drop(&mut self) {} }
+struct V { E: D, X: usize }
+fn F1() -> i32 { let a = [1, 2, 3]; let w = W { X: 7 }; a[w.X] }
+fn F2() -> i32 { let a = [1, 2, 3]; let v = V { E: D { V: 1 }, X: 8 }; a[v.X] }
+fn F3() -> i32 { let a = [1, 2, 3]; let t = (D { V: 1 }, 5usize); a[t.1] }
+fn F4() -> i32 { let a = [1, 2, 3]; let (_, i) = (D { V: 1 }, 6usize); a[i] }
+fn F5() -> i32 { let a = [1, 2, 3]; let (d, i) = (D { V: 1 }, 9usize); a[i] }
+fn F6() -> i32 { let a = [1, 2, 3]; let t = (D { V: 1 }, 10usize); let i = t.1; a[i] }
+fn F7() -> i32 { let a = [1, 2, 3]; let w = W { X: 11 }; let i = w.X; a[i] }
+fn TA() {
+    let (flag, mut next, k) = (D { V: 1 }, ((20isize - 8447269814086591117isize) + 7isize), -1.5f64);
+    next += (!(6isize + (next + next)));
+}
+fn TB() {
+    let (mut next, k) = (((20isize - 8447269814086591117isize) + 7isize), -1.5f64);
+    next += (!(6isize + (next + next)));
+}

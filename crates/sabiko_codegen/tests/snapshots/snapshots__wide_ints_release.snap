@@ -200,83 +200,49 @@ expression: il
   .method public hidebysig static bool 'Compare'(valuetype [System.Runtime]System.Int128 'a', valuetype [System.Runtime]System.UInt128 'b') cil managed
   {
     .maxstack 3
-    .locals init (
-      [0] bool '_3',
-      [1] bool '_4',
-      [2] bool '_5',
-      [3] bool '_6'
-    )
   BB0:
     ldarg.0
     ldc.i8 0
     ldc.i8 0
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_LessThan(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    brfalse BB2
+    brfalse BB6
   BB1:
     ldarg.0
     ldc.i8 0
     ldc.i8 1
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_LessThanOrEqual(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.3
-    br BB3
+    brfalse BB6
   BB2:
-    ldc.i4.0
-    stloc.3
-  BB3:
-    ldloc.3
-    brfalse BB5
-  BB4:
     ldarg.0
     ldc.i8 -1
     ldc.i8 -2
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_GreaterThan(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.2
-    br BB6
-  BB5:
-    ldc.i4.0
-    stloc.2
-  BB6:
-    ldloc.2
-    brfalse BB8
-  BB7:
+    brfalse BB6
+  BB3:
     ldarg.0
     ldc.i8 -1
     ldc.i8 -3
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_GreaterThanOrEqual(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.1
-    br BB9
-  BB8:
-    ldc.i4.0
-    stloc.1
-  BB9:
-    ldloc.1
-    brfalse BB11
-  BB10:
+    brfalse BB6
+  BB4:
     ldarg.0
     ldc.i8 0
     ldc.i8 4
     newobj instance void [System.Runtime]System.Int128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.Int128::op_Inequality(valuetype [System.Runtime]System.Int128, valuetype [System.Runtime]System.Int128)
-    stloc.0
-    br BB12
-  BB11:
-    ldc.i4.0
-    stloc.0
-  BB12:
-    ldloc.0
-    brfalse BB14
-  BB13:
+    brfalse BB6
+  BB5:
     ldarg.1
     ldc.i8 0
     ldc.i8 5
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call bool [System.Runtime]System.UInt128::op_Equality(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
     ret
-  BB14:
+  BB6:
     ldc.i4.0
     ret
   }

@@ -123,6 +123,10 @@ pub struct VariantDef {
     /// The discriminant value, filled in after constant evaluation (decision 15): explicit,
     /// or one more than the previous variant's (0 for the first).
     pub discr: i128,
+    /// Whether the discriminant derives from an explicit one (this variant's or an earlier
+    /// variant's `= value`): rustc then computes a cast's value with a checked addition,
+    /// which its constant-propagation lints see (decision 73).
+    pub explicit_base: bool,
     pub span: Span,
 }
 
@@ -505,7 +509,9 @@ pub(crate) fn collect(
             ItemKind::Enum(e) => {
                 let mut variants = Vec::new();
                 let mut seen = HashSet::new();
+                let mut explicit_base = false;
                 for v in &e.variants {
+                    explicit_base |= v.discriminant.is_some();
                     // The resolver reported duplicates and defined the first only.
                     if !seen.insert(v.name.name.as_str()) {
                         continue;
@@ -532,6 +538,7 @@ pub(crate) fn collect(
                         kind,
                         fields,
                         discr: 0,
+                        explicit_base,
                         span: v.name.span,
                     });
                 }

@@ -12,7 +12,12 @@
 //!    Sabiko's verdict nor its error codes; rustc must agree with Sabiko on the reordered
 //!    program, and a reordered borrow-clean program must run exactly like the original
 //!    under rustc and like rustc under Sabiko, so a wrong independence analysis fails the
-//!    test instead of being trusted.
+//!    test instead of being trusted;
+//! 5. Sabiko's E0600/E0601 (decision 73) fire only on lines where rustc's
+//!    constant-propagation lints (`arithmetic_overflow`, `unconditional_panic`) fire,
+//!    with the same labels (it may miss one of rustc's, never report one rustc does not).
+//!    The other properties allow both lints on both sides, so a program whose constants
+//!    overflow still compiles, and panics when it runs.
 //!
 //! `SABIKO_GENERATED_SEEDS` sets how many seeds each property runs (defaults keep the whole
 //! file under about two minutes; the nightly workflow uses thousands) and
@@ -26,7 +31,7 @@ use std::path::{Path, PathBuf};
 
 use common::Verdict;
 use sabiko_diagnostics::{Format, Severity};
-use sabiko_driver::{compile_str, Emit, Options};
+use sabiko_driver::{compile_str, AllowedLints, Emit, Options};
 use sabiko_testgen::reorder::{reorder, Reordering};
 use sabiko_testgen::{generate, insert_noops, Knobs};
 
@@ -132,7 +137,7 @@ fn generated_programs_run_identically() {
         std::fs::write(&path, &src).unwrap();
         let result = (|| {
             let rust = common::run_rust(&rustc, common::RUSTC_GENERATED_PRELUDE, &src, &dir)?;
-            let sabi = common::run_sabiko(&tc, &path, &dir)?;
+            let sabi = common::run_sabiko_generated(&tc, &path, &dir)?;
             common::compare_runs(&rust, &sabi)
         })();
         match result {
@@ -151,10 +156,66 @@ fn compile_emit(seed: u64, src: &str, emit: Emit) -> (String, String) {
         src,
         Options {
             emit,
+            allowed_lints: ALLOW_CONST_LINTS,
             ..Options::default()
         },
     );
     (c.render_diagnostics(Format::HumanPlain), c.output)
+}
+
+/// What [`common::RUSTC_GENERATED_PRELUDE`] allows rustc.
+const ALLOW_CONST_LINTS: AllowedLints = AllowedLints {
+    arithmetic_overflow: true,
+    unconditional_panic: true,
+};
+
+#[test]
+fn generated_constant_lints_agree_with_rustc() {
+    let Some(rustc) = common::rustc_or_skip("generated-lints") else {
+        return;
+    };
+    let seeds = common::generated_seeds(60);
+    let knobs = Knobs::borrow_clean();
+    let (lints, items) = common::prelude_parts(common::RUSTC_GENERATED_PRELUDE);
+    let kept: Vec<String> = lints
+        .into_iter()
+        .filter(|l| !common::CONST_LINTS.contains(&l.as_str()))
+        .collect();
+    let prelude = format!("#![allow({})]\n{items}", kept.join(", "));
+    check_all("generated-lints", &seeds, |seed| {
+        let src = generate(seed, &knobs);
+        let dir = scratch("lints", seed);
+        let result = (|| {
+            let Some(rust) = common::rustc_const_lints(&rustc, &prelude, &src, &dir)? else {
+                return Ok("rustc rejects the program for another reason".to_owned());
+            };
+            let sabi = common::sabiko_const_lints(&format!("generated-{seed}.sabi"), &src)?;
+            // Sabiko may miss a lint rustc reports (decision 73), never add one.
+            if sabi.is_subset(&rust) {
+                let missed = rust.len() - sabi.len();
+                return Ok(format!("{} lints, {missed} of rustc's missed", sabi.len()));
+            }
+            let show = |set: &common::LintSet| {
+                let mut out = String::new();
+                for (line, m, l) in set {
+                    let _ = writeln!(out, "  line {line}: {m}: {l}");
+                }
+                out
+            };
+            Err(format!(
+                "Sabiko reports a lint rustc does not\n--- rustc\n{}--- Sabiko\n{}",
+                show(&rust),
+                show(&sabi)
+            ))
+        })();
+        match result {
+            Ok(summary) => {
+                let _ = std::fs::remove_dir_all(&dir);
+                Ok(summary)
+            }
+            Err(e) => Err(format!("{e}\n--- program ({})\n{src}", dir.display())),
+        }
+    });
 }
 
 #[test]
@@ -331,7 +392,7 @@ fn generated_reorderings_run_identically() {
             let before = common::run_rust(&rustc, prelude, &src, &before_dir)?;
             let after = common::run_rust(&rustc, prelude, swapped, &dir)?;
             same_behaviour(&before, &after)?;
-            let sabi = common::run_sabiko(&tc, &path, &dir)?;
+            let sabi = common::run_sabiko_generated(&tc, &path, &dir)?;
             common::compare_runs(&after, &sabi)
         })();
         match result {

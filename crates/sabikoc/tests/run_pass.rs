@@ -4,7 +4,9 @@
 //!
 //! Directives in `//@` comments at the top of a program:
 //! - `//@ exit-code: N` — the expected exit code (default 0; panics exit with 101);
-//! - `//@ release` — compile with `--release` (wrapping arithmetic).
+//! - `//@ release` — compile with `--release` (wrapping arithmetic);
+//! - `//@ allow: LINT` — compile with `-A LINT`, for a program whose constants overflow or
+//!   panic on purpose (`arithmetic_overflow`, `unconditional_panic`; decision 73).
 //!
 //! Expected stdout lives in `<name>.stdout` next to the program; `BLESS=1` writes it. A
 //! program that panics also has `<name>.stderr`, its exact panic report with the source
@@ -21,12 +23,14 @@ use common::{text, Toolchain};
 struct Directives {
     exit_code: i32,
     release: bool,
+    allow: Vec<String>,
 }
 
 fn directives(src: &str) -> Directives {
     let mut d = Directives {
         exit_code: 0,
         release: false,
+        allow: Vec::new(),
     };
     for line in src.lines() {
         let Some(rest) = line.trim().strip_prefix("//@") else {
@@ -37,6 +41,8 @@ fn directives(src: &str) -> Directives {
             d.exit_code = code.trim().parse().expect("exit code");
         } else if rest == "release" {
             d.release = true;
+        } else if let Some(lint) = rest.strip_prefix("allow:") {
+            d.allow.push(lint.trim().to_owned());
         } else {
             panic!("unknown directive `{line}`");
         }
@@ -54,7 +60,8 @@ fn run_one(tc: &Toolchain, root: &Path, path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(&out_dir).unwrap();
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let dll = out_dir.join(format!("{stem}.dll"));
-    common::compile_exe(tc, path, &dll, d.release)?;
+    let allow: Vec<&str> = d.allow.iter().map(String::as_str).collect();
+    common::compile_exe_allowing(tc, path, &dll, d.release, &allow)?;
     common::ilverify(tc, &dll)?;
     let out = common::run_dll(tc, &dll)?;
     let stdout = text(&out.stdout);

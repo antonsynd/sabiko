@@ -162,27 +162,22 @@ fn Unary(_1: bool, _2: u32) -> u32 {
     let _5: u32;                         // shifted
     let mut _6: u32;
     let mut _7: bool;
-    let mut _8: bool;
 
     bb0: {
         StorageLive(_3);
         _3 = Not(copy _2);
         StorageLive(_5);
         _5 = Shr(copy _3, const 3_u8);
-        StorageLive(_7);
-        _7 = Not(copy _1);
-        switchInt(copy _7) -> [0: bb2, otherwise: bb1];
+        switchInt(copy _1) -> [0: bb2, otherwise: bb1];
     }
 
     bb1: {
-        StorageDead(_7);
-        _0 = copy _5;
+        _0 = const 0_u32;
         goto -> bb3;
     }
 
     bb2: {
-        StorageDead(_7);
-        _0 = const 0_u32;
+        _0 = copy _5;
         goto -> bb3;
     }
 

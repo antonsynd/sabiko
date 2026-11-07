@@ -89,7 +89,13 @@ fn main() { Main() }
 ```
 
 appended, with `-A nonstandard_style -A unused -A dead_code` (and, for generated programs,
-`-A arithmetic_overflow -A unconditional_panic`).
+`-A arithmetic_overflow -A unconditional_panic`, which `sabikoc` then gets too).
+
+`lints/` holds programs for rustc's constant-propagation lints (decision 73): every one is
+an `ok_` program for the verdict test (the lints run only with code generation), and
+`crates/sabikoc/tests/const_lints.rs` builds each, and each in `tests/ui/lints/`, to MIR
+with rustc with the lints denied: rustc's `arithmetic_overflow`/`unconditional_panic` and
+Sabiko's E0600/E0601 must fire on the same lines with the same labels.
 
 The test is skipped with a notice when `rustc` or the .NET toolchain is missing
 (`SABIKO_REQUIRE_RUSTC=1` / `SABIKO_REQUIRE_DOTNET=1` turn the skip into a failure). The
@@ -120,8 +126,8 @@ at `SABIKO_GENERATED_BASE_SEED` (default 1):
 2. borrow-clean programs run identically (stdout, exit code, panic message; 40 seeds by
    default), built with `rustc --crate-type bin` and `sabikoc --emit=exe` plus ILVerify.
    rustc gets the prelude above with `arithmetic_overflow` and `unconditional_panic` added
-   to the `allow` attribute, so a constant-visible overflow or division by zero compiles and
-   panics at run time on both sides;
+   to the `allow` attribute, and `sabikoc` the same `-A` flags, so a constant-visible
+   overflow or division by zero compiles and panics at run time on both sides;
 3. the Sabiko pipeline is deterministic (compiling twice gives identical diagnostics, MIR
    and IL) and idempotent under no-op insertion: `insert_noops` adds `let _ = ();`, `{}`
    and `();` at random statement boundaries and the error codes and verdict must not

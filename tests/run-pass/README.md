@@ -7,8 +7,10 @@ ILVerify, run with `dotnet`, and compared with its expectations
 - `<name>.stdout` next to the program holds the expected standard output. `BLESS=1` creates
   or rewrites it from the actual output (only when the exit code matched).
 - Directives are `//@` comments at the top of the file: `//@ exit-code: 101` (default 0;
-  panics, including overflow in debug builds, exit with 101) and `//@ release` (compile
-  with `--release`, so arithmetic wraps).
+  panics, including overflow in debug builds, exit with 101), `//@ release` (compile
+  with `--release`, so arithmetic wraps) and `//@ allow: <lint>` (compile with `-A <lint>`,
+  for a program whose constants overflow or panic on purpose, which rustc's
+  `arithmetic_overflow` and `unconditional_panic` lints, E0600/E0601 here, would reject).
 - A program that panics has `<name>.stderr` with its exact panic report, `thread 'main'
   panicked at tests/run-pass/<dir>/<name>.sabi:L:C:` and the message (the harness writes
   the source path relative to the repository); `BLESS=1` creates it for a program that

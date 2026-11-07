@@ -633,8 +633,10 @@ enum Src {
     Float(f64),
 }
 
-/// `v as to`, with Rust's semantics: integer casts wrap, float to int saturates.
-fn cast(v: &ConstValue, from: Option<PrimTy>, to: PrimTy) -> Option<ConstValue> {
+/// `v as to`, with Rust's semantics: integer casts wrap, float to int saturates. `from` is
+/// the source's primitive type, which decides how an integer becomes a float.
+#[must_use]
+pub fn cast(v: &ConstValue, from: Option<PrimTy>, to: PrimTy) -> Option<ConstValue> {
     let src = match v {
         ConstValue::Int(i) => Src::Bits(*i as u128),
         ConstValue::Uint(u) => Src::Bits(*u),

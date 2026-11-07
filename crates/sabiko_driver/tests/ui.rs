@@ -85,13 +85,15 @@ fn run_one(root: &Path, path: &Path, bless: bool) -> Option<String> {
     // The directory names the stage under test; the pipeline stops after it so tests of
     // early stages are not disturbed by later ones (a parser test may call undefined
     // functions, for instance).
-    // `codegen/` also runs the IL backend (`--emit=il`), which the pipeline otherwise
-    // skips, so its `E05xx` diagnostics can be tested; `codegen/exe/` asks for an
+    // `codegen/` and `lints/` also run the IL backend (`--emit=il`), which the pipeline
+    // otherwise skips, so their `E05xx` and `E06xx` diagnostics can be tested; `codegen/exe/` asks for an
     // executable, which is what checks the `Main` signature.
     let (stop_after, emit, output_kind) = match rel.split('/').next().unwrap_or("") {
         "parse" => (Stage::Parse, Emit::None, OutputKind::Library),
         "resolve" => (Stage::Resolve, Emit::None, OutputKind::Library),
         "typeck" => (Stage::Typeck, Emit::None, OutputKind::Library),
+        // rustc's constant-propagation lints run only when code is generated.
+        "lints" => (Stage::Full, Emit::Il, OutputKind::Library),
         "codegen" => {
             let kind = if rel.starts_with("codegen/exe/") {
                 OutputKind::Executable

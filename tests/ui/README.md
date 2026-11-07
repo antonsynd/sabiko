@@ -16,5 +16,7 @@ an intentional change, then review the diff.
 
 Directories mirror the pipeline stage under test, and the harness stops the compiler
 after that stage: `parse/` (parser only), `resolve/` (through name resolution), `typeck/`
-(through type checking), `borrowck/` and anything else (the whole pipeline). Files whose
+(through type checking), `borrowck/` and anything else (the whole pipeline). `codegen/`
+and `lints/` also generate IL, which is when rustc's constant-propagation lints run
+(E0600/E0601, decision 73). Files whose
 name starts with `ok_` must compile without diagnostics.

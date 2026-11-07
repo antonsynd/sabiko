@@ -106,6 +106,22 @@ Rust's messages: "attempt to add with overflow" (`subtract`, `multiply`, `negate
 "attempt to divide by zero", "attempt to divide with overflow", "attempt to calculate the
 remainder with a divisor of zero", "attempt to calculate the remainder with overflow",
 "attempt to shift left with overflow" (`right`). Every check is explicit (decision 43).
+When the compiler can see the operands, as rustc's MIR lints do, such an operation is an
+error rather than a run-time panic (decision 73), reported only when code is generated, as
+rustc does: an overflowing `+`, `-`, `*`, a shift by an amount outside `0..bits` or
+`-MIN` is E0600 ("this arithmetic operation will overflow", rustc's deny-by-default
+`arithmetic_overflow`), and a division or remainder by zero, `MIN / -1`, `MIN % -1` or an
+array index out of bounds is E0601 ("this operation will panic at runtime",
+`unconditional_panic`), each labelled with rustc's text (`attempt to compute `u8::MAX +
+1_u8`, which would overflow`, `index out of bounds: the length is 3 but the index is 5`).
+The compiler sees what rustc's `KnownPanicsLint` sees: literals and constants, locals
+written once from them (through arithmetic, casts and comparisons, tuples, structs and
+arrays built in place), a local written more than once only up to the next operation
+rustc checks or calls, never a value behind a reference, from a call, or of a borrowed or
+dropped local; code that constant conditions or patterns rule out is not linted; slices
+have no known length. Where Sabiko's MIR and rustc's part ways it may miss one of rustc's
+lints, never report one rustc does not. `sabikoc -A arithmetic_overflow` and
+`-A unconditional_panic` turn them off, as rustc's `-A` does.
 Each panic carries its source location, as Rust's do: the start of the expression whose
 operator panicked (`a + b` in `(a + b) * c` is located at the `(`: parentheses widen the
 span, as in rustc), or of the `Panic(...)` call. The file is named as it was given to

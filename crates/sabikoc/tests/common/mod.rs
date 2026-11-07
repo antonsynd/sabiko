@@ -121,12 +121,23 @@ pub fn compile_exe(
     out_dll: &Path,
     release: bool,
 ) -> Result<(), String> {
-    compile(tc, source, out_dll, "exe", release)
+    compile(tc, source, out_dll, "exe", release, &[])
+}
+
+/// [`compile_exe`] with `-A` for each of `allow`.
+pub fn compile_exe_allowing(
+    tc: &Toolchain,
+    source: &Path,
+    out_dll: &Path,
+    release: bool,
+    allow: &[&str],
+) -> Result<(), String> {
+    compile(tc, source, out_dll, "exe", release, allow)
 }
 
 /// Compiles `source` to a library at `out_dll` (with `Sabiko.Runtime.dll` next to it).
 pub fn compile_dll(tc: &Toolchain, source: &Path, out_dll: &Path) -> Result<(), String> {
-    compile(tc, source, out_dll, "dll", false)
+    compile(tc, source, out_dll, "dll", false, &[])
 }
 
 /// Runs the `sabikoc` binary under test with `--emit=<emit>` (`exe` or `dll`).
@@ -136,8 +147,12 @@ fn compile(
     out_dll: &Path,
     emit: &str,
     release: bool,
+    allow: &[&str],
 ) -> Result<(), String> {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_sabikoc"));
+    for lint in allow {
+        cmd.arg("-A").arg(lint);
+    }
     cmd.arg(source)
         .arg(format!("--emit={emit}"))
         .arg("-o")
@@ -252,6 +267,10 @@ pub fn rustc_or_skip(test: &str) -> Option<PathBuf> {
     }
     found
 }
+
+/// rustc's deny-by-default constant-propagation lints, which Sabiko reports as E0600 and
+/// E0601 when it generates code (decision 73) and allows with `-A`, as rustc does.
+pub const CONST_LINTS: [&str; 2] = ["arithmetic_overflow", "unconditional_panic"];
 
 /// The rustc prelude for generated programs: Sabiko's builtins, an entry point calling
 /// `Main`, and the lints that would otherwise turn a constant-visible overflow or division
@@ -420,8 +439,24 @@ pub fn run_sabiko_with(
     dir: &Path,
     release: bool,
 ) -> Result<Run, String> {
+    run_sabiko_allowing(tc, path, dir, release, &[])
+}
+
+/// [`run_sabiko`] for a generated program: [`CONST_LINTS`] are allowed, as
+/// [`RUSTC_GENERATED_PRELUDE`] allows them for rustc.
+pub fn run_sabiko_generated(tc: &Toolchain, path: &Path, dir: &Path) -> Result<Run, String> {
+    run_sabiko_allowing(tc, path, dir, false, &CONST_LINTS)
+}
+
+fn run_sabiko_allowing(
+    tc: &Toolchain,
+    path: &Path,
+    dir: &Path,
+    release: bool,
+    allow: &[&str],
+) -> Result<Run, String> {
     let dll = dir.join("prog.dll");
-    compile_exe(tc, path, &dll, release)?;
+    compile(tc, path, &dll, "exe", release, allow)?;
     ilverify(tc, &dll)?;
     let out = run_dll(tc, &dll)?;
     Ok(Run {
@@ -680,6 +715,104 @@ pub fn rustc_verdict(
         RUSTC_BORROW_CODES.contains(&c) || RUSTC_UNCODED_BORROW_ERRORS.contains(&c)
     });
     (verdict, codes, stderr)
+}
+
+/// The constant-propagation lints rustc reports for `src` with `prelude`, whose `allow`
+/// list must leave [`CONST_LINTS`] out: `(line, message, label)` of each, from a build to
+/// MIR (`--emit=metadata` does not run them). `None` when rustc reports another error,
+/// which the verdict tests are there to compare.
+pub fn rustc_const_lints(
+    rustc: &Path,
+    prelude: &str,
+    src: &str,
+    dir: &Path,
+) -> Result<Option<LintSet>, String> {
+    let rs = dir.join("prog.rs");
+    let (lint_flags, full) = rustc_source(prelude, src);
+    std::fs::write(&rs, full).unwrap();
+    let out = Command::new(rustc)
+        .args([
+            "--edition",
+            "2021",
+            "--crate-type",
+            "bin",
+            "--emit=mir",
+            "--error-format=json",
+            "-A",
+            "warnings",
+        ])
+        .args(&lint_flags)
+        .arg("-o")
+        .arg(dir.join("prog.mir"))
+        .arg(&rs)
+        .output()
+        .map_err(|e| format!("cannot run rustc: {e}"))?;
+    let mut found = LintSet::new();
+    for line in text(&out.stderr).lines() {
+        let Ok(d) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if d["level"] != "error" {
+            continue;
+        }
+        let message = d["message"].as_str().unwrap_or_default().to_owned();
+        if message.starts_with("aborting due to") {
+            continue;
+        }
+        if message != "this operation will panic at runtime"
+            && message != "this arithmetic operation will overflow"
+        {
+            return Ok(None);
+        }
+        let span = d["spans"]
+            .as_array()
+            .and_then(|spans| spans.iter().find(|s| s["is_primary"] == true))
+            .ok_or_else(|| format!("a lint without a primary span: {line}"))?;
+        found.insert((
+            span["line_start"].as_u64().unwrap_or_default(),
+            message,
+            span["label"].as_str().unwrap_or_default().to_owned(),
+        ));
+    }
+    Ok(Some(found))
+}
+
+/// Constant-propagation lints as `(line, message, label)`.
+pub type LintSet = std::collections::BTreeSet<(u64, String, String)>;
+
+/// Sabiko's E0600 and E0601 for `src` when it generates code (decision 73). Any other
+/// error is an `Err`.
+pub fn sabiko_const_lints(name: &str, src: &str) -> Result<LintSet, String> {
+    use sabiko_diagnostics::Format;
+    let c = sabiko_driver::compile_str(
+        name,
+        src,
+        sabiko_driver::Options {
+            emit: sabiko_driver::Emit::Il,
+            ..sabiko_driver::Options::default()
+        },
+    );
+    let mut found = LintSet::new();
+    for line in c.render_diagnostics(Format::Json).lines() {
+        let d: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("bad diagnostic JSON {line}: {e}"))?;
+        if d["severity"] != "error" {
+            continue;
+        }
+        if d["code"] != "E0600" && d["code"] != "E0601" {
+            return Err(format!(
+                "Sabiko rejected the program:\n{}",
+                c.render_diagnostics(Format::HumanPlain)
+            ));
+        }
+        let label = &d["labels"][0];
+        found.insert((
+            label["line"].as_u64().unwrap_or_default(),
+            d["message"].as_str().unwrap_or_default().to_owned(),
+            label["message"].as_str().unwrap_or_default().to_owned(),
+        ));
+    }
+    Ok(found)
 }
 
 /// Seeds for the generated-program tests: `SABIKO_GENERATED_SEEDS` of them (default

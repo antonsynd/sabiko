@@ -1,0 +1,42 @@
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/unconditional_panic.sabi:12:5 ]
+    │
+ 12 │     a[5] //~ ERROR E0601 this operation will panic at runtime
+    │     ──┬─  
+    │       ╰─── index out of bounds: the length is 3 but the index is 5
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/unconditional_panic.sabi:17:5 ]
+    │
+ 17 │     a[N] //~ ERROR E0601 this operation will panic at runtime
+    │     ──┬─  
+    │       ╰─── index out of bounds: the length is 3 but the index is 3
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/unconditional_panic.sabi:22:5 ]
+    │
+ 22 │     a[2] = 1; //~ ERROR E0601 this operation will panic at runtime
+    │     ────┬───  
+    │         ╰───── index out of bounds: the length is 2 but the index is 2
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/unconditional_panic.sabi:27:5 ]
+    │
+ 27 │     a[0] //~ ERROR E0601 this operation will panic at runtime
+    │     ──┬─  
+    │       ╰─── index out of bounds: the length is 0 but the index is 0
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/unconditional_panic.sabi:33:5 ]
+    │
+ 33 │     a[i] //~ ERROR E0601 this operation will panic at runtime
+    │     ──┬─  
+    │       ╰─── index out of bounds: the length is 3 but the index is 4
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/unconditional_panic.sabi:37:5 ]
+    │
+ 37 │     r[3] //~ ERROR E0601 this operation will panic at runtime
+    │     ──┬─  
+    │       ╰─── index out of bounds: the length is 3 but the index is 3
+────╯

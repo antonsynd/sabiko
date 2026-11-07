@@ -1,0 +1,16 @@
+// Aggregates (decision 73): rustc propagates scalars only; a copied tuple, struct or
+// array, a tuple constant and a repeat are unknown, a field of an aggregate built in
+// place is known.
+const T: (usize, usize) = (1, 5);
+const U: usize = T.1;
+struct P { X: usize, Y: usize }
+fn C1() -> i32 { let a = [1, 2, 3]; let b = [5usize, 6]; a[b[0]] }
+fn C2() -> i32 { let a = [1, 2, 3]; let b = [5usize; 2]; let j = 1; a[b[j]] }
+fn C3() -> i32 { let a = [1, 2, 3]; let t = T; a[t.1] }
+fn C4() -> i32 { let a = [1, 2, 3]; a[U] }
+fn C5() -> i32 { let a = [1, 2, 3]; let t = (1usize, (2usize, 9usize)); a[t.1.1] }
+fn C6() -> i32 { let a = [1, 2, 3]; let p = P { X: 1, Y: 8 }; let q = p; a[q.Y] }
+fn C7() -> i32 { let a = [1, 2, 3]; let b = [[5usize; 2]; 2]; a[b[0][0]] }
+fn C8() -> i32 { let a = [1, 2, 3]; let b = [7usize]; a[b[0]] }
+fn C9() -> i32 { let a = [1, 2, 3]; let t = (1usize, 7usize); let u = t; a[u.1] }
+fn C10() -> i32 { let x = 2147483647; let t = (x, 1); t.0 + t.1 }

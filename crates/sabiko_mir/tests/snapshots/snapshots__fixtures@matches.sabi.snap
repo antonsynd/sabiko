@@ -187,7 +187,7 @@ fn Classify(_1: i32) -> i32 {
         _2 = copy _1;
         StorageLive(_3);
         _3 = Eq(copy _2, const 0_i32);
-        switchInt(copy _3) -> [0: bb2, otherwise: bb3];
+        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
     }
 
     bb1: {
@@ -198,7 +198,7 @@ fn Classify(_1: i32) -> i32 {
     bb2: {
         StorageLive(_4);
         _4 = Eq(copy _2, const 1_i32);
-        switchInt(copy _4) -> [0: bb5, otherwise: bb6];
+        switchInt(copy _4) -> [1: bb6, otherwise: bb5];
     }
 
     bb3: {
@@ -213,7 +213,7 @@ fn Classify(_1: i32) -> i32 {
     bb5: {
         StorageLive(_5);
         _5 = Eq(copy _2, const 2_i32);
-        switchInt(copy _5) -> [0: bb7, otherwise: bb8];
+        switchInt(copy _5) -> [1: bb8, otherwise: bb7];
     }
 
     bb6: {
