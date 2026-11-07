@@ -178,8 +178,11 @@ dropped as rustc drops them (edition 2021):
 
 Unwinding: a panic drops every value that holds one, frame by frame: the callee's locals
 and parameters, then the caller's temporaries and locals, by the rules above. Operands
-already evaluated for an unfinished struct literal, tuple or call are dropped, the last
-first; the unfinished struct's own `drop` does not run. An assignment of an array, repeat
+already evaluated for an unfinished struct literal, tuple, array or call are dropped, the
+last first; the unfinished struct's own `drop` does not run. They belong to the expression
+that consumes them, as in rustc (decision 71): they are dropped before the temporaries the
+statement made after them (`Use(D { .. }, Get(&D { .. }, 0))` drops the first `D` before the
+borrowed one) and, in a block's tail, before the block's locals. An assignment of an array, repeat
 or tuple (`s[i] = [a, b]`) evaluates the place after the elements and builds the aggregate
 in it last, so a panic in the place (an index check) drops the evaluated elements the same
 way, the last first. A struct or variant literal is built before the place, so it is

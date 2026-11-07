@@ -42,10 +42,8 @@ fn Main() {
     cleanup c2: _1 => drop(_1);
     cleanup c3 in c2: _2 => drop(_2);
     cleanup c4 in c2: _8 => drop(_8);
-    cleanup c5 in c2: _8 => drop(_8);
-    cleanup c6 in c5: _7 => drop(_7);
-    cleanup c7 in c2: _6 => drop(_6);
-    cleanup c8 in c7: _8 => drop(_8);
+    cleanup c5 in c2: _7 => drop(_7);
+    cleanup c6 in c2: _6 => drop(_6);
 
     bb0: {
         StorageLive(_1);
@@ -92,22 +90,22 @@ fn Main() {
         goto -> bb7;
     }
 
-    bb7 (cleanup c6): {
-        _6 = (move _7, const 6_i32);
-        goto -> bb8;
+    bb7 (cleanup c5): {
+        drop(_8) -> bb8;
     }
 
-    bb8 (cleanup c8): {
-        drop(_7) -> bb9;
-    }
-
-    bb9 (cleanup c7): {
-        StorageDead(_7);
-        drop(_8) -> bb10;
-    }
-
-    bb10 (cleanup c7): {
+    bb8 (cleanup c5): {
         StorageDead(_8);
+        _6 = (move _7, const 6_i32);
+        goto -> bb9;
+    }
+
+    bb9 (cleanup c6): {
+        drop(_7) -> bb10;
+    }
+
+    bb10 (cleanup c6): {
+        StorageDead(_7);
         _0 = const ();
         goto -> bb11;
     }

@@ -795,7 +795,11 @@ glue of a block's tail is dropped after the block's locals instead of before the
 = D { .. }; G { A: D { .. }, B: 10 / k }`), and an evaluated call or aggregate operand with
 drop glue is dropped after a later operand's statement temporary instead of before it
 (`Use(D { .. }, Get(&D { .. }, 0))`). Both look like an operand dropped in an enclosing
-temporary scope rather than its own. They also found three generator bugs, fixed.
+temporary scope rather than its own. They also found three generator bugs, fixed. Both
+compiler bugs are fixed (decision 71): an operand with drop glue goes into a scope of the
+call, aggregate or assignment that consumes it, as in rustc, and the generator's TODOs are
+gone (`tests/differential/run/drops/unwind_tail_operand.sabi`,
+`unwind_operand_temporary.sabi`).
 
 Update (2026-11-05), mutation testing of strings and range slicing (#10) on the lines the
 branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`), 90.7%

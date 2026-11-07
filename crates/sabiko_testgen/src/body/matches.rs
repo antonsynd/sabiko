@@ -1343,7 +1343,7 @@ impl BodyGen<'_> {
                     self.expire_refs();
                     self.end_block_regions();
                     let v = self.arm_value(value_ty, &binds, depth);
-                    self.tail(value_ty, &v);
+                    self.line(&v);
                     self.close_block();
                     self.line("}");
                 }
@@ -1431,13 +1431,6 @@ impl BodyGen<'_> {
     pub(super) fn inline_match(&mut self, ty: ValTy, depth: u32) -> Expr {
         let sty = self.matchable_ty();
         let s = self.scrutinee(sty, depth.saturating_sub(2));
-        if s.mode == Mode::Move && s.place_root.is_none() && self.prog.needs_drop(sty) {
-            // TODO(#54, operand vs temporary drop order; seed 12000126): a
-            // temporary scrutinee with drop glue lives to the end of the statement, and
-            // when a later operand panics rustc drops the operands evaluated before this
-            // expression first, Sabiko the temporary first (see `BodyGen::call`).
-            return self.val_expr(ty, depth.saturating_sub(1));
-        }
         let before = self.snapshot_moved();
         let mut after = vec![false; before.len()];
         let mut parts = Vec::new();

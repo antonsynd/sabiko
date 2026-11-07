@@ -20,7 +20,8 @@
 //! Temporaries go to rustc's temporary scope (edition 2021): the innermost statement, `if`
 //! or `while` condition, operand of `&&`/`||`, body of an `if`, `else`, `while` or `loop`,
 //! or the function body. A block is not one, so the temporaries of a block's tail
-//! expression outlive the block's locals.
+//! expression outlive the block's locals. The exception is an operand with drop glue: it
+//! belongs to the call, aggregate or assignment that consumes it (decision 71).
 //!
 //! Drops (decision 55): a local whose type has drop glue gets a `Drop` terminator right
 //! before its `StorageDead`, on every path out of its scope, whether or not it still holds
@@ -116,6 +117,9 @@ struct Builder<'a> {
     scopes: Vec<Vec<Local>>,
     /// Index into `scopes` of the scope temporaries go to (see the module docs).
     temp_scope: usize,
+    /// Index into `scopes` of the scope of the call, aggregate or assignment whose operands
+    /// are being lowered ([`Self::in_operand_scope`]), while it is the innermost one.
+    operand_scope: Option<usize>,
     /// Locals with drop glue declared but not written yet, whose cleanup scope opens after
     /// their first write.
     pending: HashSet<Local>,
@@ -239,6 +243,7 @@ impl<'a> Builder<'a> {
             local_map,
             scopes: Vec::new(),
             temp_scope: 0,
+            operand_scope: None,
             pending: HashSet::new(),
             chain: Vec::new(),
             extend_at: None,
@@ -583,7 +588,9 @@ impl<'a> Builder<'a> {
             self.scopes[block_scope].insert(at, local);
             self.extend_at = Some((block_scope, at + 1));
         } else {
-            let block_scope = self.scopes.len() - 2;
+            // The statement's scope is the temporary scope (an operand scope may be open
+            // inside it: `let (a, b) = (&F(), 1);`).
+            let block_scope = self.temp_scope - 1;
             self.scopes[block_scope].push(local);
         }
         self.push_stmt(StatementKind::StorageLive(local), span);
@@ -593,6 +600,23 @@ impl<'a> Builder<'a> {
 
     /// Declares a temporary in the temporary scope and marks it live.
     fn new_temp(&mut self, ty: Ty, span: Span) -> Local {
+        self.new_temp_in(self.temp_scope, ty, span)
+    }
+
+    /// Declares the temporary holding an operand's value and marks it live: in the scope of
+    /// the call, aggregate or assignment that consumes it when its type has drop glue (see
+    /// [`Self::in_operand_scope`]), in the temporary scope otherwise.
+    fn new_operand_temp(&mut self, ty: Ty, span: Span) -> Local {
+        let scope = match self.operand_scope {
+            Some(scope) if scope + 1 == self.scopes.len() && self.typeck.items.needs_drop(&ty) => {
+                scope
+            }
+            _ => self.temp_scope,
+        };
+        self.new_temp_in(scope, ty, span)
+    }
+
+    fn new_temp_in(&mut self, scope: usize, ty: Ty, span: Span) -> Local {
         let local = self.new_local(LocalDecl {
             ty,
             mutability: Mutability::Mut,
@@ -602,7 +626,7 @@ impl<'a> Builder<'a> {
             source: None,
             match_span: None,
         });
-        self.scopes[self.temp_scope].push(local);
+        self.scopes[scope].push(local);
         self.push_stmt(StatementKind::StorageLive(local), span);
         self.track_drop(local);
         local
@@ -654,6 +678,22 @@ impl<'a> Builder<'a> {
     fn close_temp_scope(&mut self, saved: usize, span: Span) {
         self.temp_scope = saved;
         self.pop_scope(span);
+    }
+
+    /// Lowers `f`, which evaluates the operands of a call, an aggregate or an assignment
+    /// and consumes them, in a scope of its own: rustc's scope of the consuming expression,
+    /// where `as_operand` puts the temporaries of its operands. An operand with drop glue
+    /// evaluated into a temporary goes there, so a panic in a later operand drops it before
+    /// the statement's temporaries made since (`F(D { .. }, G(&D { .. }))`) and before the
+    /// locals of a block whose tail it is part of (#54). The consumer moves it, so its drop
+    /// when the scope ends finds it uninitialised; drop elaboration removes that.
+    fn in_operand_scope<T>(&mut self, span: Span, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.push_scope();
+        let saved = self.operand_scope.replace(self.scopes.len() - 1);
+        let out = f(self);
+        self.operand_scope = saved;
+        self.pop_scope(span);
+        out
     }
 
     /// Lowers `f` in a temporary scope of its own: an `if`, `else`, `while` or `loop` body,
@@ -967,7 +1007,7 @@ impl<'a> Builder<'a> {
                 Operand::Constant(self.negated_literal(expr).expect("checked above"))
             }
             _ => {
-                let temp = self.as_temp(expr);
+                let temp = self.as_temp_in(expr, true);
                 self.place_operand(Place::local(temp))
             }
         }
@@ -1069,14 +1109,24 @@ impl<'a> Builder<'a> {
 
     /// Evaluates `expr` into a fresh temporary.
     fn as_temp(&mut self, expr: &Expr) -> Local {
+        self.as_temp_in(expr, false)
+    }
+
+    /// [`Self::as_temp`]; the temporary of an `operand` goes where
+    /// [`Self::new_operand_temp`] puts it.
+    fn as_temp_in(&mut self, expr: &Expr, operand: bool) -> Local {
         if self.place_mutability.is_mut() {
             let saved = std::mem::replace(&mut self.place_mutability, Mutability::Not);
-            let temp = self.as_temp(expr);
+            let temp = self.as_temp_in(expr, operand);
             self.place_mutability = saved;
             return temp;
         }
         let ty = self.ty(expr).clone();
-        let temp = self.new_temp(ty, expr.span);
+        let temp = if operand {
+            self.new_operand_temp(ty, expr.span)
+        } else {
+            self.new_temp(ty, expr.span)
+        };
         if !writes_once(expr) {
             self.open_pending(temp);
         }
@@ -1096,8 +1146,16 @@ impl<'a> Builder<'a> {
             self.assign(dest.clone(), Rvalue::PointerCoercion(op, target), span);
             return;
         }
-        if let Some(rvalue) = self.aggregate_rvalue(expr) {
-            self.assign(dest.clone(), rvalue, span);
+        // An aggregate's operands are in its scope; for any other expression the scope is
+        // empty and leaves nothing behind.
+        let done = self.in_operand_scope(span, |this| {
+            let Some(rvalue) = this.aggregate_rvalue(expr) else {
+                return false;
+            };
+            this.assign(dest.clone(), rvalue, span);
+            true
+        });
+        if done {
             return;
         }
         match &expr.kind {
@@ -1200,12 +1258,14 @@ impl<'a> Builder<'a> {
                     Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
                     _ => self.typeck.items.fn_sig(func).inputs.clone(),
                 };
-                let args: Vec<Operand> = args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, a)| self.coerced_operand(a, inputs.get(i), true))
-                    .collect();
-                self.call_into(dest, expr, func, args, span);
+                self.in_operand_scope(span, |this| {
+                    let args: Vec<Operand> = args
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| this.coerced_operand(a, inputs.get(i), true))
+                        .collect();
+                    this.call_into(dest, expr, func, args, span);
+                });
             }
             ExprKind::Ref {
                 mutable,
@@ -1275,7 +1335,9 @@ impl<'a> Builder<'a> {
                 self.assign(dest.clone(), Rvalue::Len(Place::local(temp).deref()), span);
             }
             ExprKind::MethodCall { receiver, args, .. } => {
-                self.lower_method_call(dest, expr, receiver, args, span);
+                self.in_operand_scope(span, |this| {
+                    this.lower_method_call(dest, expr, receiver, args, span);
+                });
             }
         }
     }
@@ -1477,12 +1539,14 @@ impl<'a> Builder<'a> {
     /// `(a, b, ...)` into `dest`. See [`Self::tuple_operands`].
     fn tuple_into(&mut self, dest: &Place, expr: &Expr, extending: bool) {
         let span = self.span_of(expr);
-        let operands = self.tuple_operands(expr, extending);
-        self.assign(
-            dest.clone(),
-            Rvalue::Aggregate(AggregateKind::Tuple, operands),
-            span,
-        );
+        self.in_operand_scope(span, |this| {
+            let operands = this.tuple_operands(expr, extending);
+            this.assign(
+                dest.clone(),
+                Rvalue::Aggregate(AggregateKind::Tuple, operands),
+                span,
+            );
+        });
     }
 
     /// The elements of `(a, b, ...)`, left to right; at a coercion site each is coerced to
@@ -1525,7 +1589,7 @@ impl<'a> Builder<'a> {
         }
         if let ExprKind::Tuple(_) = strip_parens(e).kind {
             let ty = self.ty(e).clone();
-            let temp = self.new_temp(ty, e.span);
+            let temp = self.new_operand_temp(ty, e.span);
             self.tuple_into(&Place::local(temp), e, true);
             self.temp_complete(temp);
             return Some(self.place_operand(Place::local(temp)));
@@ -1722,31 +1786,11 @@ impl<'a> Builder<'a> {
     fn lower_assign(&mut self, expr: &Expr) {
         let span = self.span_of(expr);
         match &expr.kind {
-            ExprKind::Assign(lhs, rhs) => {
-                let target = self.ty(lhs).clone();
-                // An array, repeat or tuple is built in the place after the place is
-                // evaluated, from operands evaluated before it, as rustc does: a panic in
-                // the place drops the operands, each a temporary of its own, in reverse
-                // order. rustc builds a struct or variant literal into a temporary first.
-                let stripped = strip_parens(rhs);
-                let rvalue = match stripped.kind {
-                    ExprKind::Array(_) | ExprKind::Repeat(..) | ExprKind::Tuple(_) => {
-                        self.aggregate_rvalue(stripped)
-                    }
-                    _ => None,
-                };
-                let rhs = rvalue.unwrap_or_else(|| {
-                    Rvalue::Use(self.coerced_operand(rhs, Some(&target), false))
-                });
-                let place = self.as_place_mut(lhs, Mutability::Mut);
-                if place.has_index() && rvalue_moves(&rhs) && self.typeck.items.needs_drop(&target)
-                {
-                    // `a[i] = v`: the index is checked before `v` moves (rustc's bounds
-                    // check precedes the store), so a panic there still drops `v`.
-                    self.push_stmt(StatementKind::PlaceMention(place.clone()), span);
-                }
-                self.assign(place, rhs, span);
-            }
+            // The operands are in the assignment's scope, as in rustc: a panic in the place
+            // drops them before the statement's temporaries.
+            ExprKind::Assign(lhs, rhs) => self.in_operand_scope(span, |this| {
+                this.lower_plain_assign(lhs, rhs, span);
+            }),
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let rhs = self.as_operand(rhs);
                 let place = self.as_place_mut(lhs, Mutability::Mut);
@@ -1755,6 +1799,31 @@ impl<'a> Builder<'a> {
             }
             _ => unreachable!("not an assignment"),
         }
+    }
+
+    /// `lhs = rhs`.
+    fn lower_plain_assign(&mut self, lhs: &Expr, rhs: &Expr, span: Span) {
+        let target = self.ty(lhs).clone();
+        // An array, repeat or tuple is built in the place after the place is evaluated,
+        // from operands evaluated before it, as rustc does: a panic in the place drops the
+        // operands, each a temporary of its own, in reverse order. rustc builds a struct or
+        // variant literal into a temporary first.
+        let stripped = strip_parens(rhs);
+        let rvalue = match stripped.kind {
+            ExprKind::Array(_) | ExprKind::Repeat(..) | ExprKind::Tuple(_) => {
+                self.aggregate_rvalue(stripped)
+            }
+            _ => None,
+        };
+        let rhs =
+            rvalue.unwrap_or_else(|| Rvalue::Use(self.coerced_operand(rhs, Some(&target), false)));
+        let place = self.as_place_mut(lhs, Mutability::Mut);
+        if place.has_index() && rvalue_moves(&rhs) && self.typeck.items.needs_drop(&target) {
+            // `a[i] = v`: the index is checked before `v` moves (rustc's bounds check
+            // precedes the store), so a panic there still drops `v`.
+            self.push_stmt(StatementKind::PlaceMention(place.clone()), span);
+        }
+        self.assign(place, rhs, span);
     }
 
     /// `(a, b) = rhs`, lowered as what rustc desugars it to, `{ let (x, y) = rhs; a = x;

@@ -1,0 +1,72 @@
+// While unwinding, an operand with drop glue that a call, aggregate or assignment already
+// evaluated is dropped before the statement's temporaries made after it (#54): it lives in
+// the scope of the expression that consumes it. The panic in `Divide` unwinds through each
+// shape in turn.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+impl D {
+    fn Get(&self, k: i32) -> i32 {
+        Divide(k)
+    }
+
+    fn Into(self, k: i32) -> i32 {
+        k
+    }
+}
+
+struct S { A: D, B: i32 }
+
+enum E { V(D, i32), W }
+
+fn Divide(k: i32) -> i32 {
+    10 / k
+}
+
+fn Peek(d: &D, k: i32) -> i32 {
+    d.Get(k)
+}
+
+fn Use(a: D, b: i32) -> i32 {
+    b
+}
+
+// A temporary method receiver after a call argument.
+fn Receiver(k: i32) -> i32 {
+    Use(D { Id: 1 }, (D { Id: 2 }).Get(k))
+}
+
+// A borrowed temporary after a variant's field.
+fn Variant(k: i32) -> E {
+    let e = E::V(D { Id: 3 }, Peek(&D { Id: 4 }, Receiver(k)));
+    e
+}
+
+// A by-value receiver, then a temporary `match` scrutinee in an argument.
+fn ByValue(k: i32) -> i32 {
+    (D { Id: 5 }).Into(match (D { Id: 6 }) {
+        D { Id: _ } => match Variant(k) {
+            E::V(_, n) => n,
+            E::W => 0,
+        },
+    })
+}
+
+// An assignment of a struct literal: its field before a borrowed temporary.
+fn Assign(k: i32) -> i32 {
+    let mut s = S { A: D { Id: 7 }, B: 0 };
+    s = S { A: D { Id: 8 }, B: Peek(&D { Id: 9 }, ByValue(k)) };
+    s.B
+}
+
+// A tuple in a `let`, after an extended borrow of a temporary.
+fn Main() {
+    let t = (&D { Id: 10 }, D { Id: 11 }, Peek(&D { Id: 12 }, Assign(0)));
+    PrintLine("unreachable");
+}
