@@ -1,0 +1,11 @@
+// The `()` elements of a tuple constant read nothing, so a guard may assign them; the
+// tested `i32` element stays fake-borrowed (#50).
+const P: ((), i32) = ((), 2);
+
+fn Main() {
+    let mut q = ((), 2);
+    let r = match q {
+        P if { q.0 = (); false } => 0,
+        _ => q.1,
+    };
+}

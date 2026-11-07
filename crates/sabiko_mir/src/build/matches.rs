@@ -275,19 +275,7 @@ impl Builder<'_> {
         let ty = place.ty(&self.body);
         let pat_const = self.types.pat_consts.get(&pat.id).cloned();
         match pat_const.clone() {
-            Some(PatConst::Value(ConstValue::Bool(b))) => {
-                let ok = self.new_block();
-                self.switch_int(
-                    Operand::Copy(place.clone()),
-                    vec![(u128::from(!b), fail)],
-                    ok,
-                    span,
-                );
-                self.enter(ok);
-            }
-            Some(PatConst::Value(v)) => {
-                self.compare(BinOp::Eq, place, &ty, v, fail, span);
-            }
+            Some(PatConst::Value(v)) => self.test_const(place, &ty, v, fail, span),
             Some(PatConst::Range { .. }) if is_full_range(pat_const.as_ref(), &ty) => {
                 // `i32::MIN..=i32::MAX` matches every value: nothing is read, as in rustc.
             }
@@ -302,6 +290,42 @@ impl Builder<'_> {
                     debug_assert_eq!(self.resolve.def(def).kind, DefKind::Struct);
                 }
             }
+        }
+    }
+
+    /// The test of a constant `value` in a pattern against `place`, jumping to `fail` when
+    /// they differ. A tuple constant is tested element by element, left to right, as
+    /// rustc expands it into a tuple pattern of constants (#50).
+    fn test_const(
+        &mut self,
+        place: &Place,
+        ty: &Ty,
+        value: ConstValue,
+        fail: BasicBlock,
+        span: Span,
+    ) {
+        match value {
+            ConstValue::Bool(b) => {
+                let ok = self.new_block();
+                self.switch_int(
+                    Operand::Copy(place.clone()),
+                    vec![(u128::from(!b), fail)],
+                    ok,
+                    span,
+                );
+                self.enter(ok);
+            }
+            ConstValue::Unit => {}
+            ConstValue::Tuple(values) => {
+                let Ty::Tuple(tys) = ty else {
+                    unreachable!("a tuple constant has a tuple type")
+                };
+                for (index, (value, ty)) in values.into_iter().zip(tys.iter()).enumerate() {
+                    let field = place.clone().field(index, ty.clone());
+                    self.test_const(&field, ty, value, fail, span);
+                }
+            }
+            value => self.compare(BinOp::Eq, place, ty, value, fail, span),
         }
     }
 
@@ -356,6 +380,14 @@ impl Builder<'_> {
             Some(c) => !is_full_range(Some(c), ty),
             None => false,
         };
+        if let Some(PatConst::Value(value @ (ConstValue::Tuple(_) | ConstValue::Unit))) =
+            self.types.pat_consts.get(&pat.id)
+        {
+            // A tuple constant reads what its expansion's element constants read.
+            let place = self.pat_place(pat, place.clone());
+            push_const_fake_places(out, &place, &place.ty(&self.body), value);
+            return;
+        }
         if self.ident_is_path(pat) {
             let place = self.pat_place(pat, place.clone());
             let reads = reads_value(pat, &place.ty(&self.body));
@@ -888,6 +920,21 @@ pub(super) fn binds_ref_mut(pat: &Pat) -> bool {
         }
     });
     found
+}
+
+/// The places a guard fake-borrows for a constant pattern `value` at `place` (of type
+/// `ty`): each element of a tuple constant, recursively, but the `()`s, which read nothing.
+fn push_const_fake_places(out: &mut Vec<Place>, place: &Place, ty: &Ty, value: &ConstValue) {
+    match (value, ty) {
+        (ConstValue::Unit, _) => {}
+        (ConstValue::Tuple(values), Ty::Tuple(tys)) => {
+            for (index, (value, ty)) in values.iter().zip(tys.iter()).enumerate() {
+                let field = place.clone().field(index, ty.clone());
+                push_const_fake_places(out, &field, ty, value);
+            }
+        }
+        _ => push_fake_place(out, place, true),
+    }
 }
 
 /// Adds to `out` the places before each `Deref` in `place`, innermost first, after `place`

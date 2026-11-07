@@ -13,6 +13,7 @@ use sabiko_ast::{
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, PrimTy, Res, ResolveResults};
+use sabiko_span::Span;
 
 use crate::check::{BodyTypes, PatConst};
 use crate::collect::{ItemTypes, VariantKind};
@@ -906,25 +907,17 @@ impl Exhaustive<'_, '_> {
     /// A literal, constant or range pattern.
     fn value(&self, pat: &Pat) -> usefulness::PatKind {
         use usefulness::PatKind as K;
-        let int = |v: &ConstValue| -> Option<i128> {
-            match v {
-                ConstValue::Int(i) => Some(*i),
-                ConstValue::Uint(u) => Some(*u as i128),
-                ConstValue::Char(c) => Some(i128::from(u32::from(*c))),
-                _ => None,
-            }
-        };
         match self.body.pat_consts.get(&pat.id) {
-            Some(PatConst::Value(v)) => match v {
-                ConstValue::Bool(b) => K::Bool(*b),
-                ConstValue::Float(f) => K::Float(*f),
-                ConstValue::Str(s) => K::Str(s.clone()),
-                other => match int(other) {
-                    Some(i) => K::Range { lo: i, hi: i },
-                    None => K::Opaque,
-                },
-            },
-            Some(PatConst::Range { lo, hi, inclusive }) => match (int(lo), int(hi)) {
+            Some(PatConst::Value(v)) => {
+                let ty = self
+                    .body
+                    .pat_types
+                    .get(&pat.id)
+                    .cloned()
+                    .unwrap_or(Ty::Error);
+                const_pat_kind(v, &ty, pat.span)
+            }
+            Some(PatConst::Range { lo, hi, inclusive }) => match (const_int(lo), const_int(hi)) {
                 (Some(l), Some(h)) => K::Range {
                     lo: l,
                     hi: if *inclusive { h } else { h - 1 },
@@ -933,6 +926,54 @@ impl Exhaustive<'_, '_> {
             },
             None => K::Opaque,
         }
+    }
+}
+
+/// The integer value of an integer or `char` constant, as [`usefulness::PatKind::Range`]
+/// encodes it.
+fn const_int(v: &ConstValue) -> Option<i128> {
+    match v {
+        ConstValue::Int(i) => Some(*i),
+        #[allow(clippy::cast_possible_wrap)]
+        ConstValue::Uint(u) => Some(*u as i128),
+        ConstValue::Char(c) => Some(i128::from(u32::from(*c))),
+        _ => None,
+    }
+}
+
+/// A constant in a pattern, as the usefulness check sees it: a tuple constant is a tuple
+/// pattern of its elements' constants (#50), as rustc expands a constant into a pattern.
+fn const_pat_kind(v: &ConstValue, ty: &Ty, span: Span) -> usefulness::PatKind {
+    use usefulness::PatKind as K;
+    match v {
+        ConstValue::Bool(b) => K::Bool(*b),
+        ConstValue::Float(f) => K::Float(*f),
+        ConstValue::Str(s) => K::Str(s.clone()),
+        ConstValue::Tuple(values) => {
+            let tys: &[Ty] = match ty {
+                Ty::Tuple(tys) => tys,
+                _ => &[],
+            };
+            K::Ctor {
+                variant: None,
+                fields: values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, value)| {
+                        let ty = tys.get(i).cloned().unwrap_or(Ty::Error);
+                        usefulness::Pat {
+                            kind: const_pat_kind(value, &ty, span),
+                            ty,
+                            span,
+                        }
+                    })
+                    .collect(),
+            }
+        }
+        other => match const_int(other) {
+            Some(i) => K::Range { lo: i, hi: i },
+            None => K::Opaque,
+        },
     }
 }
 

@@ -184,10 +184,10 @@
     │ 
     │ Note: constants are scalars for now; see docs/PLAN.md
 ────╯
-[E0315] Error: tuple values cannot be used in constants yet
-    ╭─[ tests/ui/typeck/consts.sabi:42:28 ]
+[E0315] Error: array values cannot be used in constants yet
+    ╭─[ tests/ui/typeck/consts.sabi:42:32 ]
     │
  42 │ const AT: (i32, [u8; 1]) = (1, [2]); //~ ERROR E0315 arrays cannot be used in constants yet
-    │                            ────┬───  
-    │                                ╰───── in this constant
+    │                                ─┬─  
+    │                                 ╰─── in this constant
 ────╯
