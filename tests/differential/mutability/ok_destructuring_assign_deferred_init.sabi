@@ -1,0 +1,7 @@
+// A destructuring assignment may initialise immutable locals declared without a value.
+fn Init() -> i32 {
+    let a;
+    let b: i32;
+    (a, b) = (3, 4);
+    a + b
+}

@@ -1,0 +1,9 @@
+// Destructuring a place moves each non-Copy part it assigns out of it.
+struct S { V: i32 }
+
+fn Use(t: (S, S)) -> i32 {
+    let mut a = S { V: 0 };
+    let mut b = S { V: 0 };
+    (a, b) = t;
+    t.0.V
+}

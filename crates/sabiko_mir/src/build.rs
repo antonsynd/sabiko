@@ -1186,6 +1186,11 @@ impl<'a> Builder<'a> {
                 self.lower_assign(expr);
                 self.assign(dest.clone(), Self::unit_rvalue(span), span);
             }
+            ExprKind::DestructuringAssign(pat, rhs) => {
+                self.lower_destructuring_assign(pat, rhs, span);
+                self.assign(dest.clone(), Self::unit_rvalue(span), span);
+            }
+            ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
             ExprKind::Call { callee, args } => {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
                     unreachable!("callees are function paths in a checked body")
@@ -1578,6 +1583,9 @@ impl<'a> Builder<'a> {
                 self.lower_expr_discard(inner);
             }
             ExprKind::Assign(..) | ExprKind::AssignOp(..) => self.lower_assign(expr),
+            ExprKind::DestructuringAssign(pat, rhs) => {
+                self.lower_destructuring_assign(pat, rhs, span);
+            }
             ExprKind::Block(block) => self.lower_block_discard(block),
             ExprKind::If { cond, then, els } => {
                 self.lower_if(None, cond, then, els.as_deref(), span);
@@ -1747,6 +1755,57 @@ impl<'a> Builder<'a> {
             }
             _ => unreachable!("not an assignment"),
         }
+    }
+
+    /// `(a, b) = rhs`, lowered as what rustc desugars it to, `{ let (x, y) = rhs; a = x;
+    /// b = y; }`: every part of the value is moved (or copied) into a fresh local before
+    /// any place is assigned, so `(t.1, t.0) = t` swaps; then each place is evaluated and
+    /// assigned in turn, dropping its old value. The `let` is a statement of its own: its
+    /// temporaries (what `_` left of an rvalue) die before the first assignment.
+    fn lower_destructuring_assign(&mut self, pat: &Pat, rhs: &Expr, span: Span) {
+        self.push_scope();
+        let saved = self.push_temp_scope();
+        if let PatKind::Wild = pat.kind {
+            // `_ = e;` is `let _ = e;`: a place is only mentioned.
+            if is_place_expr(self.resolve, rhs) {
+                let place = self.as_place(rhs);
+                self.push_stmt(StatementKind::PlaceMention(place), rhs.span);
+            } else {
+                self.as_temp(rhs);
+            }
+        } else {
+            self.lower_let_tuple(pat, Some(rhs));
+        }
+        self.close_temp_scope(saved, span);
+        let mut assignees = Vec::new();
+        pat.walk_assignees(&mut |p, place| assignees.push((p, place)));
+        for (p, target) in assignees {
+            let Some(id) = self.resolve.local_of_pat(p.id) else {
+                continue; // A unit struct or variant: it compared.
+            };
+            let saved = self.push_temp_scope();
+            let local = self.mir_local(id);
+            let mut value = self.place_operand(Place::local(local));
+            if let Some(ty) = self.types.coercions.get(&p.id).cloned() {
+                let temp = self.new_temp(ty.clone(), target.span);
+                self.assign(
+                    Place::local(temp),
+                    Rvalue::PointerCoercion(value, ty),
+                    target.span,
+                );
+                value = self.place_operand(Place::local(temp));
+            }
+            let target_ty = self.ty(target).clone();
+            let place = self.as_place_mut(target, Mutability::Mut);
+            if place.has_index() && self.typeck.items.needs_drop(&target_ty) {
+                // `(a[i], ..) = ..`: the index is checked before the value moves, as for
+                // `a[i] = v`.
+                self.push_stmt(StatementKind::PlaceMention(place.clone()), target.span);
+            }
+            self.assign(place, Rvalue::Use(value), target.span);
+            self.close_temp_scope(saved, target.span);
+        }
+        self.pop_scope(span);
     }
 
     /// `a && b` / `a || b`: the right operand only runs when the left one does not decide
@@ -2117,9 +2176,12 @@ fn is_extending_pattern(pat: &Pat) -> bool {
             elems.iter().any(is_extending_pattern)
         }
         PatKind::Struct { fields, .. } => fields.iter().any(|f| is_extending_pattern(&f.pat)),
-        PatKind::Wild | PatKind::Rest | PatKind::Path(_) | PatKind::Lit(_) | PatKind::Range(..) => {
-            false
-        }
+        PatKind::Wild
+        | PatKind::Rest
+        | PatKind::Path(_)
+        | PatKind::Lit(_)
+        | PatKind::Range(..)
+        | PatKind::Assignee(_) => false,
     }
 }
 

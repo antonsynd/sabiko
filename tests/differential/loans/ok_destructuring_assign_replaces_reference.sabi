@@ -1,0 +1,12 @@
+// Assigning a new reference to a reference local in a destructuring assignment ends the
+// old loan, so the first referent is usable again.
+fn Assign() -> i32 {
+    let mut x = 1;
+    let mut y = 2;
+    let mut r = &mut x;
+    let mut n = 0;
+    (r, n) = (&mut y, 1);
+    x += n;
+    *r += 1;
+    x + y
+}

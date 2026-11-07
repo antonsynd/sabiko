@@ -1,0 +1,75 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:19:9 ]
+    │
+ 19 │     (a, b) = (1, true); //~ ERROR E0300 mismatched types
+    │         ┬  
+    │         ╰── expected `i32`, found `bool`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:23:5 ]
+    │
+ 23 │     (a, b) = (1, 2, 3); //~ ERROR E0300 mismatched types
+    │     ───┬──   ────┬────  
+    │        ╰──────────────── expected `({integer}, {integer}, {integer})`, found a tuple with 2 elements
+    │                  │      
+    │                  ╰────── this expression has type `({integer}, {integer}, {integer})`
+    │ 
+    │ Note: expected a tuple with 3 elements, found one with 2 elements
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:27:5 ]
+    │
+ 27 │     (a, b) = &t; //~ ERROR E0300 mismatched types
+    │     ───┬──   ─┬  
+    │        ╰───────── expected `&(i32, i32)`, found a tuple with 2 elements
+    │               │  
+    │               ╰── this expression has type `&(i32, i32)`
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:31:9 ]
+    │
+ 31 │     (a, K) = (1, 1); //~ ERROR E0310 invalid left-hand side of assignment
+    │         ┬  
+    │         ╰── cannot assign to this expression
+────╯
+[E0310] Error: invalid left-hand side of assignment
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:35:18 ]
+    │
+ 35 │     P { X: a, Y: 2 } = P { X: 1, Y: 2 }; //~ ERROR E0310 invalid left-hand side of assignment
+    │                  ┬  
+    │                  ╰── cannot assign to this expression
+────╯
+[E0302] Error: pattern does not mention field `Y`
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:39:5 ]
+    │
+ 39 │     P { X: a } = P { X: 1, Y: 2 }; //~ ERROR E0302 pattern does not mention field `Y`
+    │     ─────┬────  
+    │          ╰────── missing field `Y`
+    │ 
+    │ Note: ignore the other fields with `..`
+────╯
+[E0301] Error: struct `P` does not have a field named `Z`
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:43:9 ]
+    │
+ 43 │     P { Z: a, .. } = P { X: 1, Y: 2 }; //~ ERROR E0301 struct `P` does not have a field named `Z`
+    │         ┬  
+    │         ╰── struct `P` does not have this field
+────╯
+[E0329] Error: refutable pattern in local binding
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:47:5 ]
+    │
+ 47 │     E::A(a) = E::A(1); //~ ERROR E0329 refutable pattern in local binding
+    │     ───┬───  
+    │        ╰───── pattern `E::B` not covered
+    │ 
+    │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+────╯
+[E0329] Error: refutable pattern in local binding
+    ╭─[ tests/ui/typeck/destructuring_assignment.sabi:51:5 ]
+    │
+ 51 │     (a, E::B) = (1, E::A(2)); //~ ERROR E0329 refutable pattern in local binding
+    │     ────┬────  
+    │         ╰────── pattern `(_, E::A(_))` not covered
+    │ 
+    │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+────╯

@@ -627,8 +627,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   non-tuple is E0301 ("no field `2` on type `(i32, bool)`"). Tuples are not printable,
   have no arithmetic and do not cast (E0300, E0306/E0307, E0308). Comparing tuples
   (`==`, `<`, ... also through references) is valid Rust but not yet supported (E0107):
-  the comparison traits arrive in Phase 6, as for structs. `()` compares. Destructuring
-  assignment (`(a, b) = (b, a)`) is E0107 too. A `const` may be a tuple (#50).
+  the comparison traits arrive in Phase 6, as for structs. `()` compares. A `const` may
+  be a tuple (#50).
 - Patterns. A tuple pattern matches a tuple of its arity (E0300 otherwise: "expected
   `(i32, i32, i32)`, found a tuple with 2 elements"), `()` matches `()`, `_` matches
   anything and binds nothing, and an identifier binds the whole value. A tuple pattern
@@ -750,6 +750,22 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - Assignment `p = e` and compound assignment `p op= e` require `p` to be a place: a local
   (not a constant), a field of a place, or a dereference (E0310). Their value is `()`.
   Compound assignment follows the operator rules above.
+- Destructuring assignment (#50, decision 70): when the left side of `=` is a tuple, `()`,
+  a struct literal, a variant call `E::V(..)` or `_` (through parentheses), it is read as
+  a pattern and the assignment means what rustc desugars it to, `{ let (x, y) = e; a = x;
+  b = y; }`. Tuples, struct literals (with a trailing `..` and no base, `S { X: a, .. }`),
+  variant calls (one `..` among the elements, `(a, ..)`, `(.., b)`), `_` and paths naming
+  a unit struct or a variant nest; any other expression is a place, assigned as by `=`
+  (E0310 if it is not one, a constant included). The pattern is checked against the right
+  side's type without default binding modes (`(a, b) = &t` is E0300, as in rustc) and
+  must be irrefutable (E0329); each value is coerced to its place's type. Every part is
+  moved (or copied) out of the right side before any place is assigned, so `(t.1, t.0) =
+  t` swaps; the places are then evaluated and assigned left to right, each dropping its
+  old value, and `_` and `..` leave their parts where they are. An array on the left
+  (`[a, b] = ..`) needs slice patterns (E0107). Elsewhere `_` is E0111, a lone `..` element
+  E0107 (a range outside an index) and a struct literal's trailing `..` E0112 (rustc's
+  E0797); a second `..` in a tuple or tuple-variant pattern, also in `let` and `match`,
+  is E0113.
 - The `drop` of an `impl Drop` must be exactly `fn drop(&mut self)`: another receiver, a
   missing receiver or a return type is E0321 (rustc's E0053/E0186), another parameter
   count E0322 (E0050). Calling it, `d.drop()` or `D::drop(&mut d)`, is E0323 (E0040).

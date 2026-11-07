@@ -39,6 +39,14 @@ impl ErrorCode {
     pub const NESTING_TOO_DEEP: Self = Self(109);
     /// A `self` parameter outside an `impl` block, or not first in the parameter list.
     pub const MISPLACED_SELF_PARAM: Self = Self(110);
+    /// `_` as an expression anywhere but the left of an assignment (rustc reports it
+    /// without a code).
+    pub const MISPLACED_UNDERSCORE: Self = Self(111);
+    /// A struct literal ending in `..` with no base expression, other than on the left
+    /// of an assignment (rustc's E0797).
+    pub const MISSING_STRUCT_BASE: Self = Self(112);
+    /// A second `..` in a tuple or tuple-variant pattern (rustc reports it without a code).
+    pub const MULTIPLE_REST_PATTERNS: Self = Self(113);
 
     // Name resolution (E02xx)
     pub const DUPLICATE_DEFINITION: Self = Self(200);

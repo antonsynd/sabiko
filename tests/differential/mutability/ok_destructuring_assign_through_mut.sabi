@@ -1,0 +1,12 @@
+// Places behind a mutable reference, and fields of `self`, can be destructuring targets.
+struct P { X: i32, Y: i32 }
+
+impl P {
+    fn Flip(&mut self) {
+        (self.X, self.Y) = (self.Y, self.X);
+    }
+}
+
+fn Write(r: &mut P, n: &mut i32) {
+    (r.X, *n) = (1, 2);
+}

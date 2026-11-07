@@ -1,0 +1,9 @@
+// A destructuring assignment cannot move non-Copy parts out from behind a reference.
+struct S { V: i32 }
+
+fn Use(r: &(S, S)) -> i32 {
+    let mut a = S { V: 0 };
+    let mut b = S { V: 0 };
+    (a, b) = *r;
+    a.V
+}

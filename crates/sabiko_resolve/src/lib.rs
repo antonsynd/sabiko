@@ -1078,6 +1078,7 @@ impl Resolver<'_> {
                 self.resolve_expr(lo);
                 self.resolve_expr(hi);
             }
+            PatKind::Assignee(e) => self.walk_assignee(pat, e),
             PatKind::Or(alts) => {
                 let mut first = Vec::new();
                 self.walk_pat(&alts[0], is_param, reuse, &mut first);
@@ -1099,6 +1100,41 @@ impl Resolver<'_> {
                 out.extend(first);
             }
         }
+    }
+
+    /// A place on the left of a destructuring assignment: it binds a fresh local, which no
+    /// name reaches (rustc's `lhs`), unless it is a path naming a unit struct or a variant,
+    /// which is a path pattern instead, as in rustc (a constant stays a place, E0070).
+    fn walk_assignee(&mut self, pat: &Pat, e: &Expr) {
+        let mut target = e;
+        while let ExprKind::Paren(inner) = &target.kind {
+            target = inner;
+        }
+        if let ExprKind::Path(path) = &target.kind {
+            let res = self.resolve_value_path(path);
+            self.results.res.insert(target.id, res);
+            if let Res::Def(def) = res {
+                let kind = self.results.def(def).kind;
+                if kind == DefKind::Variant
+                    || (kind == DefKind::Struct && self.unit_structs.contains(&def))
+                {
+                    self.results.pat_res.insert(pat.id, res);
+                    return;
+                }
+            }
+        } else {
+            self.resolve_expr(e);
+        }
+        let id = LocalId(u32::try_from(self.results.locals.len()).expect("too many locals"));
+        self.results.locals.push(LocalInfo {
+            name: "lhs".to_owned(),
+            mutable: false,
+            span: e.span,
+            pat: pat.id,
+            owner: self.current_fn.expect("bindings only occur inside items"),
+            is_param: false,
+        });
+        self.results.pat_locals.insert(pat.id, id);
     }
 
     /// E0218 (rustc's E0408): `name`, bound at `bound`, is missing from the alternative at
@@ -1611,6 +1647,7 @@ impl Resolver<'_> {
         self.const_floor = saved;
     }
 
+    #[allow(clippy::too_many_lines)]
     fn resolve_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Lit(_) | ExprKind::Unit | ExprKind::Continue => {}
@@ -1703,7 +1740,13 @@ impl Resolver<'_> {
                     self.resolve_expr(e);
                 }
             }
-            ExprKind::Struct { path, fields } => {
+            ExprKind::DestructuringAssign(pat, rhs) => {
+                // rustc's `{ let pat = rhs; a = lhs; .. }`: the fresh locals no name reaches.
+                self.resolve_expr(rhs);
+                self.bind_let_pat(pat);
+            }
+            ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
+            ExprKind::Struct { path, fields, .. } => {
                 let res = self.resolve_struct_path(path);
                 self.results.res.insert(expr.id, res);
                 for f in fields {

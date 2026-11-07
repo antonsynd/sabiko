@@ -1,0 +1,16 @@
+// Destructuring assignment (#50), lowered as rustc's `{ let (x, y) = e; a = x; b = y; }`:
+// a place right side is destructured where it is, each part moved into a fresh `lhs`
+// local before any place is assigned; an rvalue goes into a temporary that dies before the
+// assignments; `_` leaves its part alone and `_ = place` only mentions the place.
+struct S { V: i32 }
+
+fn Swap(mut t: (i32, i32)) -> (i32, i32) {
+    (t.1, t.0) = t;
+    t
+}
+
+fn Replace(mut a: S, mut b: i32) -> i32 {
+    (a, _, b) = (S { V: 1 }, S { V: 2 }, 3);
+    _ = a;
+    a.V + b
+}

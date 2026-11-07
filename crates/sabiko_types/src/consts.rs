@@ -368,9 +368,10 @@ impl Evaluator<'_, '_> {
             ExprKind::Ref { .. } => Err(non_const(expr.span, "references")),
             ExprKind::Deref(_) => Err(non_const(expr.span, "dereferences")),
             ExprKind::Index(..) | ExprKind::Range(..) => Err(non_const(expr.span, "indexing")),
-            ExprKind::Assign(..) | ExprKind::AssignOp(..) => {
+            ExprKind::Assign(..) | ExprKind::AssignOp(..) | ExprKind::DestructuringAssign(..) => {
                 Err(non_const(expr.span, "assignments"))
             }
+            ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
             ExprKind::While { .. } | ExprKind::Loop { .. } => Err(non_const(expr.span, "loops")),
             ExprKind::Break(_) | ExprKind::Continue | ExprKind::Return(_) => {
                 Err(non_const(expr.span, "control flow"))

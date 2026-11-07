@@ -34,11 +34,11 @@
     │         ╰────── cannot assign to this expression
 ────╯
 [E0310] Error: invalid left-hand side of assignment
-    ╭─[ tests/ui/typeck/assignment.sabi:18:5 ]
+    ╭─[ tests/ui/typeck/assignment.sabi:18:12 ]
     │
  18 │     P { X: 1 } = p; //~ ERROR E0310 invalid left-hand side of assignment
-    │     ─────┬────  
-    │          ╰────── cannot assign to this expression
+    │            ┬  
+    │            ╰── cannot assign to this expression
 ────╯
 [E0310] Error: invalid left-hand side of assignment
     ╭─[ tests/ui/typeck/assignment.sabi:19:5 ]

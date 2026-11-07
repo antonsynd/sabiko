@@ -90,6 +90,7 @@ pub(super) fn choices(pat: &Pat) -> Vec<Choice> {
             })
             .collect(),
         PatKind::Ident { sub: None, .. }
+        | PatKind::Assignee(_)
         | PatKind::Wild
         | PatKind::Rest
         | PatKind::Path(_)
@@ -185,9 +186,10 @@ impl Builder<'_> {
     }
 
     /// Whether an identifier pattern compares (a constant or a unit struct) instead of
-    /// binding.
+    /// binding, or an assignee does (a unit struct or variant).
     fn ident_is_path(&self, pat: &Pat) -> bool {
-        matches!(pat.kind, PatKind::Ident { .. }) && self.resolve.pat_res(pat.id).is_some()
+        matches!(pat.kind, PatKind::Ident { .. } | PatKind::Assignee(_))
+            && self.resolve.pat_res(pat.id).is_some()
     }
 
     // ----- tests -----
@@ -206,7 +208,7 @@ impl Builder<'_> {
                     self.test_pat(sub, place, choice, fail);
                 }
             }
-            PatKind::Wild | PatKind::Rest => {}
+            PatKind::Wild | PatKind::Rest | PatKind::Assignee(_) => {}
             PatKind::Or(alts) => {
                 let alt = &alts[choice[&pat.id]];
                 self.test_pat(alt, place, choice, fail);
@@ -403,7 +405,8 @@ impl Builder<'_> {
                     self.collect_fake_places(sub, place, choice, out);
                 }
             }
-            PatKind::Wild | PatKind::Rest => {}
+            // Only in a destructuring assignment, which has no guard.
+            PatKind::Wild | PatKind::Rest | PatKind::Assignee(_) => {}
             PatKind::Or(alts) => {
                 let alt = &alts[choice[&pat.id]];
                 self.collect_fake_places(alt, place, choice, out);
@@ -482,36 +485,12 @@ impl Builder<'_> {
         }
         match &pat.kind {
             PatKind::Ident { sub, .. } => {
-                let id = self
-                    .resolve
-                    .local_of_pat(pat.id)
-                    .expect("identifier patterns introduce locals");
-                let by_value = !self.types.ref_bindings.contains_key(&pat.id);
-                let rvalue = match self.types.ref_bindings.get(&pat.id) {
-                    Some(&m) => Rvalue::Ref(BorrowKind::new(m), place.clone()),
-                    None => Rvalue::Use(self.place_operand(place.clone())),
-                };
-                match mode {
-                    BindMode::Declare => {
-                        let local = self.declare_user_local(id, pat.span);
-                        self.assign(Place::local(local), rvalue, pat.span);
-                    }
-                    BindMode::Prepared => {
-                        let local = self.mir_local(id);
-                        if by_value {
-                            self.body.locals[local.index()].match_span = self.binding_scrutinee;
-                        }
-                        self.push_stmt(StatementKind::StorageLive(local), pat.span);
-                        self.push_stmt(
-                            StatementKind::Assign(Place::local(local), rvalue),
-                            pat.span,
-                        );
-                    }
-                }
+                self.bind_local(pat, &place, mode);
                 if let Some(sub) = sub {
                     self.bind_pat(sub, place, choice, mode);
                 }
             }
+            PatKind::Assignee(_) => self.bind_local(pat, &place, mode),
             PatKind::Wild
             | PatKind::Rest
             | PatKind::Path(_)
@@ -527,6 +506,33 @@ impl Builder<'_> {
                 for (p, sub_place) in subs {
                     self.bind_pat(p, sub_place, choice, mode);
                 }
+            }
+        }
+    }
+
+    /// Binds the local of the identifier pattern or assignee `pat` to `place`.
+    fn bind_local(&mut self, pat: &Pat, place: &Place, mode: BindMode) {
+        let id = self
+            .resolve
+            .local_of_pat(pat.id)
+            .expect("identifier patterns introduce locals");
+        let by_value = !self.types.ref_bindings.contains_key(&pat.id);
+        let rvalue = match self.types.ref_bindings.get(&pat.id) {
+            Some(&m) => Rvalue::Ref(BorrowKind::new(m), place.clone()),
+            None => Rvalue::Use(self.place_operand(place.clone())),
+        };
+        match mode {
+            BindMode::Declare => {
+                let local = self.declare_user_local(id, pat.span);
+                self.assign(Place::local(local), rvalue, pat.span);
+            }
+            BindMode::Prepared => {
+                let local = self.mir_local(id);
+                if by_value {
+                    self.body.locals[local.index()].match_span = self.binding_scrutinee;
+                }
+                self.push_stmt(StatementKind::StorageLive(local), pat.span);
+                self.push_stmt(StatementKind::Assign(Place::local(local), rvalue), pat.span);
             }
         }
     }
@@ -570,6 +576,7 @@ impl Builder<'_> {
             }
             PatKind::Wild
             | PatKind::Rest
+            | PatKind::Assignee(_)
             | PatKind::Path(_)
             | PatKind::Lit(_)
             | PatKind::Range(..) => {}

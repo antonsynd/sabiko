@@ -38,6 +38,9 @@ impl Parser<'_, '_> {
                 Err(_) => self.recover_to_item_start(),
             }
         }
+        // Every expression is inside some outermost assignment's operand, which settles
+        // these; none can be left.
+        debug_assert!(self.assignee_only.is_empty(), "unsettled `_` or `..`");
         // The file's span covers the whole source text (also when it is empty), matching
         // the fatal-lexer-error path in `parse_file`.
         let end = u32::try_from(self.src.len()).expect("source file larger than 4 GiB");
@@ -895,6 +898,7 @@ impl Parser<'_, '_> {
                         let (elems, _) = self.nested(|p| {
                             p.parse_comma_list(TokenKind::RParen, Self::parse_pat_or)
                         })?;
+                        self.check_single_rest(&elems, "tuple struct");
                         PatKind::TupleStruct(path, elems)
                     }
                     TokenKind::LBrace => self.parse_struct_pat(path)?,
@@ -937,6 +941,7 @@ impl Parser<'_, '_> {
                     }
                     return Ok(inner);
                 }
+                self.check_single_rest(&elems, "tuple");
                 PatKind::Tuple(elems)
             }
             TokenKind::Int
@@ -1280,6 +1285,7 @@ fn ends_with_brace(e: &Expr) -> bool {
         | ExprKind::Struct { .. } => true,
         ExprKind::Binary(_, _, r)
         | ExprKind::Assign(_, r)
+        | ExprKind::DestructuringAssign(_, r)
         | ExprKind::AssignOp(_, _, r)
         | ExprKind::Unary(_, r)
         | ExprKind::Ref { expr: r, .. }

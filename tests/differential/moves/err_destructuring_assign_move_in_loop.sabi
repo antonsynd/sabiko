@@ -1,0 +1,12 @@
+// A destructuring assignment in a loop moves the same part again on the next iteration.
+struct S { V: i32 }
+
+fn Use(t: (S, i32)) -> i32 {
+    let mut a = S { V: 0 };
+    let mut i = 0;
+    while i < 2 {
+        (a, _) = t;
+        i += 1;
+    }
+    a.V
+}

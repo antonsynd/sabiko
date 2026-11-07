@@ -10,6 +10,7 @@
 //! Nesting is limited to [`MAX_NESTING`] levels. Every later stage recurses over the
 //! tree, so the limit is what keeps the whole pipeline within its stack.
 
+mod assignee;
 mod expr;
 mod item;
 mod recovery;
@@ -87,6 +88,21 @@ pub(crate) struct Parser<'s, 'd> {
     last_error_pos: Option<usize>,
     /// Current nesting level, checked against [`MAX_NESTING`].
     depth: u32,
+    /// Expressions that only the left side of a destructuring assignment may contain
+    /// (`_`, a lone `..` element, a struct literal's trailing `..`), parsed but not yet
+    /// turned into a pattern: when no enclosing expression can still be such a left side,
+    /// whatever remains is misplaced (see `parse_assign`).
+    assignee_only: Vec<(NodeId, AssigneeOnly)>,
+    /// How many assignment left sides are being parsed around the current position.
+    lhs_depth: u32,
+}
+
+/// A form [`Parser::assignee_only`] tracks, with the span to report it at.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum AssigneeOnly {
+    Underscore(Span),
+    Rest(Span),
+    StructRest(Span),
 }
 
 impl<'s, 'd> Parser<'s, 'd> {
@@ -103,6 +119,8 @@ impl<'s, 'd> Parser<'s, 'd> {
             stmt_start: false,
             last_error_pos: None,
             depth: 0,
+            assignee_only: Vec::new(),
+            lhs_depth: 0,
         }
     }
 
