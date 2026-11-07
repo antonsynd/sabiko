@@ -859,16 +859,52 @@ impl Parser<'_, '_> {
         if self.no_struct_literal && self.at(TokenKind::LBrace) {
             return false;
         }
-        !matches!(
+        // rustc's `Token::can_begin_expr`: anything else ends the operand-less `return` or
+        // `break`, which a postfix or binary operator may then follow (`return.Foo()` is a
+        // method call on `!`, `return as i32` a cast).
+        matches!(
             self.peek_kind(),
-            TokenKind::Semi
-                | TokenKind::RBrace
-                | TokenKind::RParen
-                | TokenKind::RBracket
-                | TokenKind::Comma
-                | TokenKind::Eof
-                | TokenKind::Else
-                | TokenKind::FatArrow
+            TokenKind::Int
+                | TokenKind::Float
+                | TokenKind::Str
+                | TokenKind::UnterminatedStr
+                | TokenKind::Char
+                | TokenKind::Lifetime
+                | TokenKind::Ident
+                | TokenKind::Break
+                | TokenKind::Const
+                | TokenKind::Continue
+                | TokenKind::Crate
+                | TokenKind::False
+                | TokenKind::For
+                | TokenKind::If
+                | TokenKind::Let
+                | TokenKind::Loop
+                | TokenKind::Match
+                | TokenKind::Return
+                | TokenKind::SelfValue
+                | TokenKind::SelfType
+                | TokenKind::Static
+                | TokenKind::Super
+                | TokenKind::True
+                | TokenKind::Unsafe
+                | TokenKind::While
+                | TokenKind::LParen
+                | TokenKind::LBracket
+                | TokenKind::LBrace
+                | TokenKind::Bang
+                | TokenKind::Minus
+                | TokenKind::Star
+                | TokenKind::Amp
+                | TokenKind::AndAnd
+                | TokenKind::Pipe
+                | TokenKind::OrOr
+                | TokenKind::DotDot
+                | TokenKind::DotDotEq
+                | TokenKind::Lt
+                | TokenKind::Shl
+                | TokenKind::PathSep
+                | TokenKind::Hash
         )
     }
 

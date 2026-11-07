@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{
-    BasicBlock, Body, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue, Statement,
+    BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue, Statement,
     StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::ResolveResults;
@@ -371,6 +371,8 @@ pub fn check_moves(
         predecessors,
         dominators,
         reported: HashSet::new(),
+        binding: None,
+        drop_moves: Vec::new(),
     };
     for bb in body.block_ids() {
         let data = body.block(bb);
@@ -385,6 +387,7 @@ pub fn check_moves(
             checker.check_terminator(terminator, location);
         }
     }
+    checker.report_pattern_drop_moves();
 }
 
 /// How a place is being used; selects the wording of `E0406`.
@@ -437,6 +440,24 @@ struct MoveChecker<'a> {
     dominators: Dominators,
     /// The sets of move sites already reported, as sorted `(location, path)` pairs.
     reported: HashSet<Vec<(Location, MovePathIndex)>>,
+    /// While the operand of a by-value pattern binding is checked: the binding.
+    binding: Option<Local>,
+    /// Pattern bindings that move out of a type implementing `Drop`, grouped by the
+    /// scrutinee they are bound out of: E0418 is reported once per scrutinee, as rustc
+    /// reports E0509, after the walk.
+    drop_moves: Vec<PatternMoves>,
+}
+
+/// The bindings of one scrutinee that move out of one place whose type implements `Drop`
+/// (rustc's `GroupedMoveError::MovesFromValue`: `(h as One)` and `(h as Two)` are two
+/// places, so two arms moving out of one enum are two errors).
+struct PatternMoves {
+    scrutinee: Span,
+    base: Place,
+    /// The type implementing `Drop`, named in the message.
+    adt: sabiko_resolve::DefId,
+    /// Each binding once: its span, name and type.
+    bindings: Vec<(Span, String, Ty)>,
 }
 
 impl MoveChecker<'_> {
@@ -449,11 +470,17 @@ impl MoveChecker<'_> {
                     // Matching reads the discriminant: a use of the whole value.
                     self.check_use(place, UseKind::Use, location, statement.span);
                 } else {
+                    if let Rvalue::Use(Operand::Move(_)) = rvalue {
+                        self.binding = Some(dest.local).filter(|&local| {
+                            dest.is_local() && self.body.local_decl(local).match_span.is_some()
+                        });
+                    }
                     let mut operands = Vec::new();
                     for_each_rvalue_operand(rvalue, |op| operands.push(op));
                     for operand in operands {
                         self.check_operand(operand, location, statement.span);
                     }
+                    self.binding = None;
                 }
                 self.check_write(dest, location, statement.span);
             }
@@ -563,7 +590,10 @@ impl MoveChecker<'_> {
                         local: place.local,
                         projection: place.projection[..index].to_vec(),
                     };
-                    self.report_move_out_of_drop_type(place, &base, adt, span);
+                    match self.binding {
+                        Some(binding) => self.record_pattern_drop_move(binding, base, adt, span),
+                        None => self.report_move_out_of_drop_type(place, &base, adt, span),
+                    }
                     return;
                 }
             }
@@ -596,6 +626,78 @@ impl MoveChecker<'_> {
                 self.describe(base)
             )),
         );
+    }
+
+    /// Remembers a by-value pattern binding `binding` (at `span`) that moves out of `base`,
+    /// of type `adt`, which implements `Drop`, for [`Self::report_pattern_drop_moves`].
+    fn record_pattern_drop_move(
+        &mut self,
+        binding: Local,
+        base: Place,
+        adt: sabiko_resolve::DefId,
+        span: Span,
+    ) {
+        let decl = self.body.local_decl(binding);
+        let scrutinee = decl.match_span.expect("a pattern binding");
+        let entry = (span, decl.name.clone().unwrap_or_default(), decl.ty.clone());
+        match self
+            .drop_moves
+            .iter_mut()
+            .find(|g| g.scrutinee == scrutinee && g.base == base)
+        {
+            Some(group) => {
+                if !group.bindings.iter().any(|(s, ..)| *s == span) {
+                    group.bindings.push(entry);
+                }
+            }
+            None => self.drop_moves.push(PatternMoves {
+                scrutinee,
+                base,
+                adt,
+                bindings: vec![entry],
+            }),
+        }
+    }
+
+    /// `E0418` (rustc's E0509) for pattern bindings, once per scrutinee and moved-from
+    /// place, at the scrutinee, with a
+    /// label at each binding that moves (rustc's "data moved here", "...and here").
+    fn report_pattern_drop_moves(&mut self) {
+        for group in std::mem::take(&mut self.drop_moves) {
+            let name = self.typeck.items.adt(group.adt).name.clone();
+            let mut diag = Diagnostic::error(
+                ErrorCode::MOVE_OUT_OF_DROP,
+                format!("cannot move out of type `{name}`, which implements the `Drop` trait"),
+            )
+            .with_label(group.scrutinee, "cannot move out of here");
+            let mut bindings = group.bindings;
+            bindings.sort_by_key(|(span, ..)| span.start);
+            for (index, (span, ..)) in bindings.iter().enumerate() {
+                let text = if index == 0 {
+                    "data moved here"
+                } else {
+                    "...and here"
+                };
+                diag = diag.with_label(*span, text);
+            }
+            diag = match &bindings[..] {
+                [(_, binding, ty)] => diag.with_note(format!(
+                    "move occurs because `{binding}` has type `{}`, which does not implement the `Copy` trait",
+                    ty.display(self.resolve)
+                )),
+                _ => diag.with_note(
+                    "move occurs because these variables have types that don't implement the `Copy` trait",
+                ),
+            };
+            let names: Vec<String> = bindings
+                .iter()
+                .map(|(_, b, _)| format!("`ref {b}`"))
+                .collect();
+            self.sink.emit(diag.with_note(format!(
+                "consider borrowing the pattern binding instead: {}",
+                names.join(", ")
+            )));
+        }
     }
 
     /// `E0420` (rustc's E0508): a move out of an array or slice element, at any depth

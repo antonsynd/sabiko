@@ -435,6 +435,7 @@ impl Builder<'_> {
                     name: Some(info.name.clone()),
                     span: info.span,
                     source: Some(id),
+                    match_span: None,
                 });
                 self.local_map.insert(id, local);
                 local
@@ -453,6 +454,7 @@ impl Builder<'_> {
                     .resolve
                     .local_of_pat(pat.id)
                     .expect("identifier patterns introduce locals");
+                let by_value = !self.types.ref_bindings.contains_key(&pat.id);
                 let rvalue = match self.types.ref_bindings.get(&pat.id) {
                     Some(&m) => Rvalue::Ref(BorrowKind::new(m), place.clone()),
                     None => Rvalue::Use(self.place_operand(place.clone())),
@@ -464,6 +466,9 @@ impl Builder<'_> {
                     }
                     BindMode::Prepared => {
                         let local = self.mir_local(id);
+                        if by_value {
+                            self.body.locals[local.index()].match_span = self.binding_scrutinee;
+                        }
                         self.push_stmt(StatementKind::StorageLive(local), pat.span);
                         self.push_stmt(
                             StatementKind::Assign(Place::local(local), rvalue),
@@ -588,6 +593,7 @@ impl Builder<'_> {
         pat: &Pat,
         guard: Option<(&Expr, &[Place])>,
         place: &Place,
+        scrutinee: Span,
         success: BasicBlock,
     ) {
         for choice in choices(pat) {
@@ -596,7 +602,9 @@ impl Builder<'_> {
             if let Some((guard, fakes)) = guard {
                 self.lower_guard(guard, fakes, pat, place, &choice, fail);
             }
+            let saved = self.binding_scrutinee.replace(scrutinee);
             self.bind_pat(pat, place.clone(), &choice, BindMode::Prepared);
+            self.binding_scrutinee = saved;
             let span = pat.span;
             self.terminate(TerminatorKind::Goto { target: success }, span);
             self.enter(fail);
@@ -681,7 +689,7 @@ impl Builder<'_> {
             let locals = self.prepare_locals(&arm.pat);
             let body = self.new_block();
             let guard = arm.guard.as_ref().map(|g| (g, &fakes[..]));
-            self.lower_candidates(&arm.pat, guard, &place, body);
+            self.lower_candidates(&arm.pat, guard, &place, scrutinee.span, body);
             entries.push((body, locals));
         }
         // Exhaustiveness was checked: no value gets here.
@@ -719,7 +727,7 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let then_block = self.new_block();
-        self.lower_candidates(pat, None, &place, then_block);
+        self.lower_candidates(pat, None, &place, scrutinee.span, then_block);
         let else_start = self.current;
         let join = self.new_block();
         self.enter(then_block);
@@ -766,7 +774,7 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let body_block = self.new_block();
-        self.lower_candidates(pat, None, &place, body_block);
+        self.lower_candidates(pat, None, &place, scrutinee.span, body_block);
         // No match: leave the loop, dropping the scrutinee's temporaries.
         self.lower_break(None, span);
         self.terminate(TerminatorKind::Unreachable, span);
@@ -815,7 +823,7 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
-        self.lower_candidates(pat, None, &place, ok);
+        self.lower_candidates(pat, None, &place, span, ok);
         if let Some(els) = els {
             // The failure path ends the initialiser's temporaries (its own value first, then
             // those made while computing it) before `else`; they stay in their scopes for

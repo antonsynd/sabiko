@@ -146,6 +146,9 @@ struct Builder<'a> {
     /// borrows its base the same way, as rustc picks `IndexMut` over `Index`. Values
     /// evaluated on the way (an index, a bound) are lowered as `Not` again.
     place_mutability: Mutability,
+    /// While a candidate's bindings are made: the span of the scrutinee (or initialiser)
+    /// they are bound out of, recorded as [`LocalDecl::match_span`].
+    binding_scrutinee: Option<Span>,
 }
 
 impl<'a> Builder<'a> {
@@ -165,6 +168,7 @@ impl<'a> Builder<'a> {
             name: None,
             span: f.ret.as_ref().map_or(f.name.span, |t| t.span),
             source: None,
+            match_span: None,
         }];
         let mut local_map = HashMap::new();
         let mut inputs = sig.inputs.iter();
@@ -186,6 +190,7 @@ impl<'a> Builder<'a> {
                 name: Some("self".to_owned()),
                 span: sp.span,
                 source,
+                match_span: None,
             });
         }
         for (param, ty) in f.params.iter().zip(inputs) {
@@ -214,6 +219,7 @@ impl<'a> Builder<'a> {
                 name,
                 span: param.span,
                 source,
+                match_span: None,
             });
         }
         let body = Body {
@@ -244,6 +250,7 @@ impl<'a> Builder<'a> {
             coercing: std::collections::HashSet::new(),
             guard_places: HashMap::new(),
             place_mutability: Mutability::Not,
+            binding_scrutinee: None,
         }
     }
 
@@ -570,6 +577,7 @@ impl<'a> Builder<'a> {
             name: None,
             span,
             source: None,
+            match_span: None,
         });
         if let Some((block_scope, at)) = self.extend_at {
             self.scopes[block_scope].insert(at, local);
@@ -592,6 +600,7 @@ impl<'a> Builder<'a> {
             name: None,
             span,
             source: None,
+            match_span: None,
         });
         self.scopes[self.temp_scope].push(local);
         self.push_stmt(StatementKind::StorageLive(local), span);
@@ -610,6 +619,7 @@ impl<'a> Builder<'a> {
             name: Some(info.name.clone()),
             span: info.span,
             source: Some(id),
+            match_span: None,
         });
         self.local_map.insert(id, local);
         let block_scope = self.scopes.len() - 2;

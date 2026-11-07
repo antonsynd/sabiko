@@ -919,7 +919,8 @@ matching a partially moved enum is E0406 (rustc's E0382), matching a mutably bor
 E0411 (E0503), an uninitialised one E0405 (E0381), while `match c { _ => .. }` touches
 nothing. A by-value binding copies or moves its part of the scrutinee (`Slot::Full(t)`
 moves `t` out of `s`, leaving `s` partially moved; out of a reference it is E0407, out of
-a value whose type implements `Drop` E0418); `ref`/`ref mut` bindings borrow it, and the
+a value whose type implements `Drop` E0418, reported at the scrutinee once per arm's
+moved-from place, as rustc's E0509); `ref`/`ref mut` bindings borrow it, and the
 loan lives as long as the binding is used. Arms are tried in order; a guard runs only when
 its pattern matched, once per matching alternative of an or-pattern, and a false guard
 tries the next candidate. While a guard runs, the places the match inspects are

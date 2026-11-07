@@ -1,11 +1,58 @@
 [E0418] Error: cannot move out of type `Holder`, which implements the `Drop` trait
-    ╭─[ tests/ui/borrowck/move_out_of_drop_enum.sabi:18:21 ]
+    ╭─[ tests/ui/borrowck/move_out_of_drop_enum.sabi:18:11 ]
     │
- 18 │         Holder::One(t) => { //~ ERROR E0418 cannot move out of type `Holder`, which implements the `Drop` trait
+ 18 │     match h { //~ ERROR E0418 cannot move out of type `Holder`, which implements the `Drop` trait
+    │           ┬  
+    │           ╰── cannot move out of here
+    │ 
+ 20 │         Holder::One(t) => {
     │                     ┬  
-    │                     ╰── cannot move out of here
+    │                     ╰── data moved here
     │ 
-    │ Note 1: move occurs because `h.0` has type `Token`, which does not implement the `Copy` trait
+    │ Note 1: move occurs because `t` has type `Token`, which does not implement the `Copy` trait
     │ 
-    │ Note 2: `h` is dropped as a whole by its `drop`; borrow the field instead
+    │ Note 2: consider borrowing the pattern binding instead: `ref t`
+────╯
+[E0418] Error: cannot move out of type `Holder`, which implements the `Drop` trait
+    ╭─[ tests/ui/borrowck/move_out_of_drop_enum.sabi:18:11 ]
+    │
+ 18 │     match h { //~ ERROR E0418 cannot move out of type `Holder`, which implements the `Drop` trait
+    │           ┬  
+    │           ╰── cannot move out of here
+    │ 
+ 25 │         Holder::Two(a, b) => a.Id + b.Id,
+    │                     ┬  ┬  
+    │                     ╰───── data moved here
+    │                        │  
+    │                        ╰── ...and here
+    │ 
+    │ Note 1: move occurs because these variables have types that don't implement the `Copy` trait
+    │ 
+    │ Note 2: consider borrowing the pattern binding instead: `ref a`, `ref b`
+────╯
+[E0418] Error: cannot move out of type `Holder`, which implements the `Drop` trait
+    ╭─[ tests/ui/borrowck/move_out_of_drop_enum.sabi:40:29 ]
+    │
+ 40 │     if let Holder::One(t) = h { //~ ERROR E0418 cannot move out of type `Holder`, which implements the `Drop` trait
+    │                        ┬    ┬  
+    │                        │    ╰── cannot move out of here
+    │                        │       
+    │                        ╰─────── data moved here
+    │ 
+    │ Note 1: move occurs because `t` has type `Token`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider borrowing the pattern binding instead: `ref t`
+────╯
+[E0418] Error: cannot move out of type `Holder`, which implements the `Drop` trait
+    ╭─[ tests/ui/borrowck/move_out_of_drop_enum.sabi:46:29 ]
+    │
+ 46 │     let Holder::Two(a, _) = h else { return; }; //~ ERROR E0418 cannot move out of type `Holder`, which implements the `Drop` trait
+    │                     ┬       ┬  
+    │                     │       ╰── cannot move out of here
+    │                     │          
+    │                     ╰────────── data moved here
+    │ 
+    │ Note 1: move occurs because `a` has type `Token`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider borrowing the pattern binding instead: `ref a`
 ────╯

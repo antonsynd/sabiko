@@ -364,6 +364,7 @@ mod tests {
             name: None,
             span: Span::dummy(),
             source: None,
+            match_span: None,
         }
     }
 

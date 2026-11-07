@@ -550,8 +550,10 @@ lowered, #11),
 trait impls (Phase 6, with `impl Drop` first, decision 46), generic impls, `self: Type`
 receivers, methods on primitives, tuples and references (E0211), methods returning `!`
 (`!` cannot be written in a signature yet), and C#-facing instance methods (Phase 8 export
-shape). Pre-existing and unchanged: `return.Foo()` does not parse (rustc reads a method
-call on `return`); `(return).Foo()` is E0319 as in rustc.
+shape). `return.Foo()` parses as a method call on an operand-less `return` (E0319, rustc's
+E0599, as `(return).Foo()` already was): `return` and `break` take an operand only when
+the next token can begin an expression, rustc's `can_begin_expr` (#50; it did not parse
+before).
 
 Update (2026-10-29), drops (#12, #37, decision 55): `impl Drop for S { fn drop(&mut self) }`
 is accepted for the structs of the file, the only trait impl so far, with rustc's checks
@@ -637,9 +639,12 @@ through `&&T` (`Ref<T>`; since lowered, #11), string literal patterns (with
 `&str`, #10), float range patterns (rejected with a misleading message), code that patterns
 make unreachable is not borrow-checked (rustc's false edges), and an arm that tests a
 scrutinee a failed guard moved out (E0406; rustc tests once). Moving a non-`Copy` field out
-of a `Drop` enum is reported at the binding (E0418) where rustc reports E0509 at the
-scrutinee. C# still rejects names Sabiko allows side by side in one type (a field and a
-method of one name; an enum method named like a payload field or `Tag`).
+of a `Drop` enum was reported at the binding (E0418) where rustc reports E0509 at the
+scrutinee; since #50 it is reported as rustc does, at the scrutinee, once per moved-from
+place (each arm's variant is its own place), with a label at each binding that moves (each
+by-value binding records the scrutinee's span, `LocalDecl::match_span`, rustc's
+`opt_match_place`). C# still rejects names Sabiko allows side by side in one type (a field
+and a method of one name; an enum method named like a payload field or `Tag`).
 
 Update (2026-11-05), generator for enums and `match` (#8): `sabiko_testgen` declares
 enums (unit, tuple and struct variants over primitives, tuples, structs and earlier enums,

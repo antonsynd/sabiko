@@ -1,0 +1,27 @@
+// By-value bindings moving non-Copy payloads out of an enum that implements `Drop`: rustc
+// reports E0509 at the scrutinee, once per arm (Sabiko E0418, #50); `ref` bindings and Copy
+// payloads are fine.
+struct Token { Id: i32 }
+
+enum Holder { Nothing, One(Token), Two(Token, Token), Count(i32) }
+
+impl Drop for Holder {
+    fn drop(&mut self) {}
+}
+
+fn F(h: Holder) -> i32 {
+    match h {
+        Holder::One(t) => t.Id,
+        Holder::Two(a, b) => a.Id + b.Id,
+        Holder::Count(n) => n,
+        Holder::Nothing => 0,
+    }
+}
+
+fn G(h: Holder) -> i32 {
+    match h {
+        Holder::Two(ref a, ref b) => a.Id + b.Id,
+        Holder::Count(n) => n,
+        _ => 0,
+    }
+}
