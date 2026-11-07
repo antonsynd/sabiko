@@ -95,8 +95,9 @@ jobs:
 
   # Runtime and memory of Sabiko-compiled programs against the same programs in C# (and
   # rustc for reference); see benchmarks/README.md. The report goes to the job summary and,
-  # with the raw samples, to an artifact; nothing is committed. Only allocations are gated:
-  # they are exact, while timings on a shared runner are too noisy to fail a build on.
+  # with the raw samples, to an artifact; nothing is committed (the weekly
+  # benchmark-trend.yml records history, decision 68). Only allocations are gated: they are
+  # exact, while timings on a shared runner are too noisy to fail a build on.
   benchmarks:
     name: benchmarks (Sabiko vs C#, runtime and memory)
     runs-on: ubuntu-latest
