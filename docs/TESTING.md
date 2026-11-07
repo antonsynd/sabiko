@@ -738,7 +738,8 @@ allocates more than 10% over `benchmarks/allocation-baseline.json`, which change
 through `allocation_gate.py update` and a reviewed diff. CI runs the harness's unit tests
 (`python3 -m unittest discover -s benchmarks -p 'test_*.py'`) and a `--smoke` run of one
 benchmark on Linux. `benchmarks/results/latest.md` is an example report from a local run,
-labelled with its machine.
+labelled with its machine. On Mondays the nightly job also commits its p50s to `benchmarks/results/history.json` and a chart of the Sabiko/C# ratios
+over time to `benchmarks/results/trend.svg` (`benchmarks/trend.py`, decision 68).
 
 ## Adding a test
 

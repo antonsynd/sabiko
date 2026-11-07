@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 120" width="860" height="120" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t">
+<style>
+.surface { fill: #fcfcfb; }
+.title { fill: #0b0b0b; font-size: 15px; font-weight: 600; }
+.subtitle { fill: #52514e; font-size: 11px; }
+.panel-title { fill: #0b0b0b; font-size: 12px; font-weight: 600; }
+.tick { fill: #898781; font-size: 10px; }
+.legend { fill: #52514e; font-size: 11px; }
+.grid { stroke: #e1e0d9; stroke-width: 1; }
+.axis { stroke: #c3c2b7; stroke-width: 1; }
+.parity { stroke: #898781; stroke-width: 1; stroke-dasharray: 4 3; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.dot { stroke: #fcfcfb; stroke-width: 1.5; }
+.s0 { stroke: #2a78d6; } .d0 { fill: #2a78d6; }
+.s1 { stroke: #eb6834; } .d1 { fill: #eb6834; }
+.s2 { stroke: #1baf7a; } .d2 { fill: #1baf7a; }
+.s3 { stroke: #eda100; } .d3 { fill: #eda100; }
+@media (prefers-color-scheme: dark) {
+  .surface { fill: #1a1a19; }
+  .title, .panel-title { fill: #f0efec; }
+  .subtitle, .legend { fill: #c3c2b7; }
+  .grid { stroke: #2c2c2a; }
+  .axis { stroke: #383835; }
+  .dot { stroke: #1a1a19; }
+  .s0 { stroke: #3987e5; } .d0 { fill: #3987e5; }
+  .s1 { stroke: #d95926; } .d1 { fill: #d95926; }
+  .s2 { stroke: #199e70; } .d2 { fill: #199e70; }
+  .s3 { stroke: #c98500; } .d3 { fill: #c98500; }
+}
+</style>
+<rect class="surface" width="860" height="120" rx="6"/>
+<text id="t" class="title" x="20" y="34">Sabiko vs C#: time ratio over time (p50, Sabiko / C#)</text>
+<text class="subtitle" x="20" y="58">No history yet: the nightly benchmarks job adds a point every Monday (or run Nightly by hand with record-trend).</text>
+</svg>

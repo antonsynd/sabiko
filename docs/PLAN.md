@@ -885,6 +885,15 @@ in rustc. A struct or variant literal is still built first, which is also rustc'
 `run/drops/unwind_assign_{array,tuple,struct}.sabi` pin the three shapes. The MIR of
 `p = (p.1, p.0 + p.1)` loses one temporary.
 
+Update (2026-11-07), benchmark trend (decision 68): the nightly benchmark reports used to
+live only in job summaries and 90-day artifacts. On Mondays the nightly benchmarks job now
+also appends each benchmark's p50s to `benchmarks/results/history.json` with
+`benchmarks/trend.py` and commits it with `benchmarks/results/trend.svg`: Sabiko/C# ratios
+over time, steady state and end to end, in both configurations, as a geometric mean and per
+benchmark. The other nights commit nothing. Gaps: no alert on a time regression (time is
+still never gated), and the history starts with the first weekly run, so the earlier
+hand-measured reports (`results/latest.md` and the paragraphs above) are not in it.
+
 ### Phase 5: Data types
 
 Work
@@ -1079,7 +1088,8 @@ Verification
 CI gates (every PR): fmt, clippy, unit tests, UI/codegen/run-pass suites on Linux,
 Windows and macOS, `ilverify` clean, differential suite, a small generated-program seed
 range. Nightly (`.github/workflows/nightly.yml`): fuzzing budget, thousands of generated
-seeds, mutation testing; benchmarks with trend tracking from Phase 8. `docs/TESTING.md`
+seeds, mutation testing, benchmarks; Monday's nightly records the benchmarks' trend
+(`benchmarks/results/trend.svg`, decision 68). `docs/TESTING.md`
 describes every layer and how to update its expectations.
 
 ---
