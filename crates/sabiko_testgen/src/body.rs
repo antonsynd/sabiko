@@ -1308,7 +1308,17 @@ impl<'a> BodyGen<'a> {
                         None
                     } else {
                         let callee = *self.rng.pick(&fns);
-                        self.call(callee, depth)
+                        let returns_mut =
+                            matches!(prog.fns[callee].ret, RetTy::Ref { mutable: true, .. });
+                        // A `&mut` result wanted as `&` is reborrowed explicitly: an
+                        // unannotated `let` (or a match on it) would keep the `&mut` type
+                        // (#77, seed 45000063 then wrote `let m: &&Phase = &delta;`).
+                        self.call(callee, depth).map(|mut e| {
+                            if returns_mut && !mutable {
+                                e.text = format!("&*{}", e.text);
+                            }
+                            e
+                        })
                     }
                 }
             };
