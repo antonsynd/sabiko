@@ -39,3 +39,34 @@ fn IndexUnknown() {
     let v;
     let w: i32 = v[0]; //~ ERROR E0313 type annotations needed
 }
+
+// A value no local holds needs its type too (#78): the innermost unknown expression is
+// reported, once per body, as rustc does.
+fn WildcardTuple() {
+    let x = 1i32;
+    (_, _) = (x, []); //~ ERROR E0313 type annotations needed
+}
+
+fn WildcardLet() {
+    let _ = ([], []); //~ ERROR E0313 type annotations needed
+}
+
+fn WildcardSlice() {
+    let _ = &[][..]; //~ ERROR E0313 type annotations needed
+}
+
+fn EmptyArrayStatement() {
+    []; //~ ERROR E0313 type annotations needed
+}
+
+fn EmptyArrayLen() -> usize {
+    [].len() //~ ERROR E0313 type annotations needed
+}
+
+fn EmptyArrayConstrained() -> usize {
+    let _: [i32; 0] = [];
+    let a = [];
+    let _ = (1u8, &a);
+    let _: [i64; 0] = a;
+    [0u8; 0].len()
+}

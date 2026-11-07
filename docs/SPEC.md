@@ -593,7 +593,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   (`-129` as `i8`) and when the type comes from a cast (`300 as u8`). Of two nested
   negations only the outer counts, as in rustc: the literal of `-(-128i8)` is `128i8`.
 - A `let` whose type nothing constrains is an error (E0313). Deferred initialisation
-  (`let x; x = 1;`) is allowed; the type comes from the assignment.
+  (`let x; x = 1;`) is allowed; the type comes from the assignment. So is a value no
+  local holds whose type nothing constrains (`let _ = [];`, `(_, _) = (x, [])`, rustc's
+  E0282): the innermost such expression is reported, once per body (#78).
 - Arrays and slices (#9). `[T; N]` has a length `N` that is a `usize` constant
   expression: literals, `const` items and constant arithmetic (another type is E0300,
   `-1` E0307, a local E0220); the constants are evaluated first, so a signature may use

@@ -1720,12 +1720,12 @@ impl<'a> BodyGen<'a> {
         let Some((mut second, second_violation)) = second else {
             return false;
         };
-        let e = self.typed_expr(first.ty, depth);
-        let f = self.typed_expr(second.ty, depth);
+        let mut e = self.typed_expr(first.ty, depth);
+        let mut f = self.typed_expr(second.ty, depth);
         let mut targets = Vec::new();
-        for (place, violation) in [
-            (&mut first, first_violation),
-            (&mut second, second_violation),
+        for (place, violation, value) in [
+            (&mut first, first_violation, &mut e),
+            (&mut second, second_violation, &mut f),
         ] {
             self.finish_place(place, Ranges::Mut);
             if violation || self.permitted(place, Access::Write) {
@@ -1733,6 +1733,11 @@ impl<'a> BodyGen<'a> {
                 targets.push(place.text.clone());
             } else {
                 targets.push("_".to_owned());
+                // `[]` took its type from the place; `_` gives it none (rustc's E0282,
+                // seed 1002197, #78). Any empty array does: it is dropped at once.
+                if value.text == "[]" {
+                    "[0u8; 0]".clone_into(&mut value.text);
+                }
             }
         }
         self.line(&format!(

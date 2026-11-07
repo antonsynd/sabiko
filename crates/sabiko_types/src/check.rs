@@ -142,6 +142,8 @@ pub(crate) struct FnCtxt<'a> {
     sink: &'a mut DiagnosticSink,
     infer: InferCtxt,
     expr_types: HashMap<NodeId, Ty>,
+    /// Expression spans, for "type annotations needed" on an expression no local holds.
+    expr_spans: HashMap<NodeId, Span>,
     local_types: HashMap<LocalId, Ty>,
     /// Pattern spans of locals, for "type annotations needed".
     local_spans: HashMap<LocalId, Span>,
@@ -208,6 +210,7 @@ impl<'a> FnCtxt<'a> {
             sink,
             infer: InferCtxt::new(),
             expr_types: HashMap::new(),
+            expr_spans: HashMap::new(),
             local_types: HashMap::new(),
             local_spans: HashMap::new(),
             field_accesses: HashMap::new(),
@@ -435,6 +438,7 @@ impl<'a> FnCtxt<'a> {
 
     fn record(&mut self, expr: &Expr, ty: Ty) -> Ty {
         self.expr_types.insert(expr.id, ty.clone());
+        self.expr_spans.insert(expr.id, expr.span);
         ty
     }
 
@@ -2798,6 +2802,54 @@ impl<'a> FnCtxt<'a> {
 
     // ----- finalisation -----
 
+    /// rustc's E0282 for a value no local holds (`let _ = [];`, `(_, _) = (x, [])`, #78):
+    /// the innermost expression whose type is still unknown is reported, and every unknown
+    /// variable becomes an error, as the expressions around it are the same problem. Only
+    /// in a body without other errors, whose unknown types may be their consequence.
+    fn report_unknown_exprs(&mut self) {
+        if self.sink.error_count() > self.errors_before {
+            return;
+        }
+        let mut unknown: Vec<(Span, Ty)> = Vec::new();
+        for (id, ty) in &self.expr_types {
+            if self.infer.resolve_with_defaults(ty).has_infer() {
+                unknown.push((self.expr_spans[id], ty.clone()));
+            }
+        }
+        // Innermost first: a sub-expression's span is no longer than its parent's.
+        unknown.sort_by_key(|(span, _)| (span.end - span.start, span.start));
+        // Like rustc, one report per body: the others are made errors silently.
+        let mut reported = false;
+        for (span, ty) in unknown {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if t.has_infer() && !std::mem::replace(&mut reported, true) {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(span, "cannot infer the type of this expression"),
+                );
+            }
+            self.infer.bind_error(&t);
+        }
+    }
+
+    /// The expressions' final types, after reporting those still unknown.
+    fn resolve_expr_types(&mut self) -> HashMap<NodeId, Ty> {
+        self.report_unknown_exprs();
+        let mut expr_types = HashMap::new();
+        for (id, ty) in std::mem::take(&mut self.expr_types) {
+            let mut t = self.infer.resolve_with_defaults(&ty);
+            // Anything still unknown was reported (with a local, or above).
+            if t.has_infer() {
+                t = Ty::Error;
+            }
+            expr_types.insert(id, t);
+        }
+        expr_types
+    }
+
     fn finish(mut self) -> BodyTypes {
         // Never-type fallback: `let x = return;` leaves `x` unconstrained; it becomes `()`.
         for v in std::mem::take(&mut self.diverging_vars) {
@@ -2836,15 +2888,7 @@ impl<'a> FnCtxt<'a> {
             }
             pat_types.insert(id, t);
         }
-        let mut expr_types = HashMap::new();
-        for (id, ty) in std::mem::take(&mut self.expr_types) {
-            let mut t = self.infer.resolve_with_defaults(&ty);
-            // Anything still unknown involves an unknown local (reported above).
-            if t.has_infer() {
-                t = Ty::Error;
-            }
-            expr_types.insert(id, t);
-        }
+        let expr_types = self.resolve_expr_types();
         for (span, ty) in std::mem::take(&mut self.pending_negs) {
             let t = self.infer.resolve_with_defaults(&ty);
             if let Ty::Prim(p) = t {
