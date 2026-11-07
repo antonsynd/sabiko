@@ -15,9 +15,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   {
     .maxstack 3
     .locals init (
-      [0] int32 'x',
-      [1] bool '_8',
-      [2] bool '_9'
+      [0] int32 'x'
     )
   BB0:
     ldarg.0
@@ -44,27 +42,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     ldarg.1
     ldc.i4.0
     cgt
-    stloc.2
-    br BB9
+    brtrue BB10
   BB8:
-    ldc.i4.0
-    stloc.2
-  BB9:
-    ldloc.2
-    brfalse BB10
-  BB11:
-    ldc.i4.1
-    stloc.1
-    br BB12
-  BB10:
     ldarg.2
     ldc.i4.0
     clt
-    stloc.1
-  BB12:
-    ldloc.1
-    brfalse BB14
-  BB13:
+    brfalse BB9
+  BB10:
     ldloc.0
     conv.i8
     ldc.i4.1
@@ -82,7 +66,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
   L1:
     conv.i4
     ret
-  BB14:
+  BB9:
     ldloc.0
     conv.i8
     ldc.i4.1
@@ -118,29 +102,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     stloc.0
   BB2:
     ldarg.0
-    ldc.i4.0
-    ceq
     brfalse BB4
   BB3:
-    ldloc.0
-    conv.i8
-    ldc.i4.2
-    conv.i8
-    add
-    dup
-    dup
-    conv.i4
-    conv.i8
-    beq L1
-    ldstr "control_flow.sabi:17:9"
-    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
-    ldnull
-    throw
-  L1:
-    conv.i4
-    stloc.0
-    br BB7
-  BB4:
     ldloc.0
     ldc.i4.1
     ceq
@@ -155,12 +118,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     dup
     conv.i4
     conv.i8
-    beq L2
+    beq L1
     ldstr "control_flow.sabi:19:9"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
-  L2:
+  L1:
     conv.i4
     stloc.0
     br BB7
@@ -174,8 +137,27 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     dup
     conv.i4
     conv.i8
-    beq L3
+    beq L2
     ldstr "control_flow.sabi:21:9"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
+    ldnull
+    throw
+  L2:
+    conv.i4
+    stloc.0
+    br BB7
+  BB4:
+    ldloc.0
+    conv.i8
+    ldc.i4.2
+    conv.i8
+    add
+    dup
+    dup
+    conv.i4
+    conv.i8
+    beq L3
+    ldstr "control_flow.sabi:17:9"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::AddOverflow(string)
     ldnull
     throw
@@ -427,7 +409,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
 
   .method public hidebysig static bool 'Logical'(bool 'a', bool 'b', bool 'c') cil managed
   {
-    .maxstack 2
+    .maxstack 1
     .locals init (
       [0] bool 'both',
       [1] bool 'either',
@@ -445,31 +427,29 @@ input_file: crates/sabiko_codegen/tests/fixtures/control_flow.sabi
     stloc.0
   BB3:
     ldarg.0
-    brfalse BB4
-  BB5:
+    brfalse BB5
+  BB4:
     ldc.i4.1
     stloc.1
     br BB6
-  BB4:
+  BB5:
     ldarg.1
     stloc.1
   BB6:
     ldloc.0
-    brfalse BB7
-  BB8:
+    brfalse BB8
+  BB7:
     ldc.i4.1
     ret
-  BB7:
+  BB8:
     ldloc.1
-    ldc.i4.0
-    ceq
     brfalse BB10
   BB9:
-    ldarg.2
+    ldc.i4.0
     stloc.2
     br BB11
   BB10:
-    ldc.i4.0
+    ldarg.2
     stloc.2
   BB11:
     ldloc.2

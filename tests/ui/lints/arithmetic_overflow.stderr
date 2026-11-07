@@ -1,0 +1,77 @@
+[E0600] Error: this arithmetic operation will overflow
+   ╭─[ tests/ui/lints/arithmetic_overflow.sabi:8:5 ]
+   │
+ 8 │     x + 1 //~ ERROR E0600 this arithmetic operation will overflow
+   │     ──┬──  
+   │       ╰──── attempt to compute `u8::MAX + 1_u8`, which would overflow
+───╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:12:5 ]
+    │
+ 12 │     BIG * 2 //~ ERROR E0600
+    │     ───┬───  
+    │        ╰───── attempt to compute `i32::MAX * 2_i32`, which would overflow
+────╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:17:5 ]
+    │
+ 17 │     -x //~ ERROR E0600
+    │     ─┬  
+    │      ╰── attempt to negate `i8::MIN`, which would overflow
+────╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:21:5 ]
+    │
+ 21 │     1 << 40 //~ ERROR E0600
+    │     ───┬───  
+    │        ╰───── attempt to shift left by `40_i32`, which would overflow
+────╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:25:5 ]
+    │
+ 25 │     x >> 64 //~ ERROR E0600
+    │     ───┬───  
+    │        ╰───── attempt to shift right by `64_i32`, which would overflow
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:29:5 ]
+    │
+ 29 │     k / 0 //~ ERROR E0601
+    │     ──┬──  
+    │       ╰──── attempt to divide `_` by zero
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:34:5 ]
+    │
+ 34 │     7 % d //~ ERROR E0601
+    │     ──┬──  
+    │       ╰──── attempt to calculate the remainder of `7_u32` with a divisor of zero
+────╯
+[E0601] Error: this operation will panic at runtime
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:39:5 ]
+    │
+ 39 │     x / -1 //~ ERROR E0601
+    │     ───┬──  
+    │        ╰──── attempt to compute `i32::MIN / -1_i32`, which would overflow
+────╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:44:5 ]
+    │
+ 44 │     x += 1; //~ ERROR E0600
+    │     ───┬──  
+    │        ╰──── attempt to compute `i32::MAX + 1_i32`, which would overflow
+────╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:50:5 ]
+    │
+ 50 │     x + 250 //~ ERROR E0600
+    │     ───┬───  
+    │        ╰───── attempt to compute `44_u8 + 250_u8`, which would overflow
+────╯
+[E0600] Error: this arithmetic operation will overflow
+    ╭─[ tests/ui/lints/arithmetic_overflow.sabi:55:9 ]
+    │
+ 55 │         2u8 - 3 //~ ERROR E0600
+    │         ───┬───  
+    │            ╰───── attempt to compute `2_u8 - 3_u8`, which would overflow
+────╯

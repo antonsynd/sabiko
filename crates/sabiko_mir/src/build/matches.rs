@@ -319,6 +319,14 @@ impl Builder<'_> {
             Some(PatConst::Range { .. }) if is_full_range(pat_const.as_ref(), &ty) => {
                 // `i32::MIN..=i32::MAX` matches every value: nothing is read, as in rustc.
             }
+            Some(PatConst::Range {
+                lo,
+                hi,
+                inclusive: true,
+            }) if lo == hi => {
+                // `4..=4` is the constant 4, one comparison, as rustc lowers it.
+                self.test_const(place, &ty, lo, fail, span);
+            }
             Some(PatConst::Range { lo, hi, inclusive }) => {
                 self.compare(BinOp::Ge, place, &ty, lo, fail, span);
                 let op = if inclusive { BinOp::Le } else { BinOp::Lt };
@@ -349,7 +357,14 @@ impl Builder<'_> {
                 let value = self.tested_value(place, span);
                 let ok = self.new_block();
                 self.note_fail();
-                self.switch_int(value, vec![(u128::from(!b), fail)], ok, span);
+                // rustc switches on the value with `0` first: for `false` the failure is
+                // its `otherwise` (the order matters to the constant-propagation lints).
+                let (targets, otherwise) = if b {
+                    (vec![(0, fail)], ok)
+                } else {
+                    (vec![(0, ok)], fail)
+                };
+                self.switch_int(value, targets, otherwise, span);
                 self.enter(ok);
             }
             ConstValue::Unit => {}
@@ -390,7 +405,16 @@ impl Builder<'_> {
         );
         let ok = self.new_block();
         self.note_fail();
-        self.switch_int(Operand::Copy(Place::local(temp)), vec![(0, fail)], ok, span);
+        // rustc switches on an integer or `char` itself, the failure its `otherwise`, and
+        // branches on the comparison otherwise (a range, a float, a string), the failure
+        // first; the order matters to the constant-propagation lints (decision 73).
+        let on_value = op == BinOp::Eq && (ty.is_integer() || *ty == Ty::CHAR);
+        let (targets, otherwise) = if on_value {
+            (vec![(1, ok)], fail)
+        } else {
+            (vec![(0, fail)], ok)
+        };
+        self.switch_int(Operand::Copy(Place::local(temp)), targets, otherwise, span);
         self.enter(ok);
     }
 
@@ -838,17 +862,12 @@ impl Builder<'_> {
             .collect();
         let saved = std::mem::take(&mut self.guard_places);
         self.bind_for_guard(pat, place.clone(), choice);
-        let (discr, cond_temps) = self.condition(guard, span);
+        let (holds, fails) = self.branch_on(guard, span);
         self.guard_places = saved;
-        let holds = self.new_block();
-        let fails = self.new_block();
-        self.switch_int(discr, vec![(0, fails)], holds, span);
         self.enter(fails);
-        self.storage_dead(&cond_temps, span);
         self.note_fail();
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
-        self.storage_dead(&cond_temps, span);
         for temp in temps {
             self.push_stmt(StatementKind::PlaceMention(Place::local(temp)), span);
         }

@@ -7,6 +7,7 @@ use std::path::Path;
 
 pub use sabiko_codegen::OutputKind;
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode, Format, Severity, SourceMap};
+pub use sabiko_mir::lint::{AllowedLints, Lint};
 
 /// What the driver should print after running the pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -50,6 +51,9 @@ pub struct Options {
     pub output_kind: OutputKind,
     /// Checked integer arithmetic (debug) or wrapping (release).
     pub overflow_checks: bool,
+    /// rustc's constant-propagation lints to leave unreported (`sabikoc -A <lint>`); they
+    /// run only when code is generated, as in rustc (decision 73).
+    pub allowed_lints: AllowedLints,
 }
 
 impl Default for Options {
@@ -59,6 +63,7 @@ impl Default for Options {
             stop_after: Stage::Full,
             output_kind: OutputKind::Library,
             overflow_checks: true,
+            allowed_lints: AllowedLints::default(),
         }
     }
 }
@@ -183,6 +188,16 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                     check_mir(&bodies, &typeck, &mut sink);
                                     output = sabiko_mir::pretty::print_bodies(
                                         &bodies, &resolve, &typeck,
+                                    );
+                                }
+                                if options.emit == Emit::Il && !sink.has_errors() {
+                                    // rustc runs these lints only when it generates code.
+                                    let lints = sabiko_mir::lint::LintOptions {
+                                        overflow_checks: options.overflow_checks,
+                                        allowed: options.allowed_lints,
+                                    };
+                                    sabiko_mir::lint::check_all(
+                                        &bodies, &typeck, &lints, &mut sink,
                                     );
                                 }
                                 if options.emit == Emit::Il && !sink.has_errors() {

@@ -12,7 +12,7 @@ use std::process::{Command, ExitCode};
 
 use clap::{Parser, ValueEnum};
 use sabiko_diagnostics::Format;
-use sabiko_driver::{Compilation, Emit, Options, OutputKind, Stage};
+use sabiko_driver::{AllowedLints, Compilation, Emit, Lint, Options, OutputKind, Stage};
 
 #[derive(Parser, Debug)]
 #[command(name = "sabikoc", version, about = "The Sabiko compiler", long_about = None)]
@@ -31,6 +31,11 @@ struct Cli {
     /// Wrap on integer overflow instead of panicking.
     #[arg(long)]
     release: bool,
+
+    /// Do not report a lint: `arithmetic_overflow` or `unconditional_panic` (rustc's
+    /// constant-propagation lints, errors otherwise). Repeatable.
+    #[arg(short = 'A', long = "allow", value_name = "LINT", value_parser = parse_lint)]
+    allow: Vec<Lint>,
 
     /// Directory containing `Sabiko.Runtime.dll` (default: `SABIKO_RUNTIME_DIR`, then the
     /// checkout's `tools/runtime`).
@@ -94,6 +99,12 @@ enum Color {
     Never,
 }
 
+fn parse_lint(name: &str) -> Result<Lint, String> {
+    Lint::from_name(name).ok_or_else(|| {
+        format!("unknown lint `{name}` (expected `arithmetic_overflow` or `unconditional_panic`)")
+    })
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let emit = match cli.emit {
@@ -120,6 +131,13 @@ fn main() -> ExitCode {
             OutputKind::Library
         },
         overflow_checks: !cli.release,
+        allowed_lints: cli
+            .allow
+            .iter()
+            .fold(AllowedLints::default(), |mut set, &lint| {
+                set.insert(lint);
+                set
+            }),
     };
     // Resolve the toolchain before compiling so a missing tool is reported first.
     let tools = if matches!(cli.emit, EmitArg::Dll | EmitArg::Exe) {

@@ -244,7 +244,7 @@ fn compile(src: &str) -> Compilation {
     let front_end = |c: &Compilation| -> Vec<String> {
         c.diagnostics
             .iter()
-            .filter(|d| !(500..600).contains(&d.code.0))
+            .filter(|d| !(500..700).contains(&d.code.0))
             .map(|d| format!("{d:?}"))
             .collect()
     };

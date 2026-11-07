@@ -1,0 +1,114 @@
+// What rustc's constant-propagation lints do not flag, and neither does Sabiko (decision
+// 73): a slice's length is unknown; a value from a call, a parameter or behind a reference
+// is unknown; a local written on two paths is unknown after they join; a local written
+// twice loses its value at the next rustc block; a branch, arm or `else` the constants
+// rule out is not visited; a borrowed or dropped local is not propagated; an aggregate
+// copied whole is unknown; overflow in floats is no error.
+struct D {
+    V: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+enum E {
+    A,
+    B(usize),
+}
+
+fn Get() -> usize {
+    7
+}
+
+fn Slice(s: &[i32]) -> i32 {
+    s[5]
+}
+
+fn Call() -> i32 {
+    let a = [1, 2, 3];
+    a[Get()]
+}
+
+fn Param(i: usize) -> i32 {
+    let a = [1, 2, 3];
+    a[i * 0 + 3 - 3]
+}
+
+fn Joined(b: bool) -> i32 {
+    let a = [1, 2, 3];
+    let i = if b { 5 } else { 1 };
+    a[i]
+}
+
+fn Reassigned() -> i32 {
+    let mut x = 1;
+    x = 2147483647;
+    let y = x - 1;
+    x + 1
+}
+
+fn Dead() -> i32 {
+    let a = [1, 2, 3];
+    if false {
+        a[5]
+    } else {
+        a[0]
+    }
+}
+
+fn DeadArm() -> u16 {
+    match 0i32 {
+        5 => 1u16 - 2u16,
+        d if true => 0u16,
+        _ => 1u16 - 3u16,
+    }
+}
+
+fn DeadElse() -> u8 {
+    let n = 17usize;
+    let 17usize..=17usize = n else {
+        return 0;
+    };
+    2u8 - 1u8
+}
+
+fn Borrowed() -> i32 {
+    let a = [1, 2, 3];
+    let mut i = 1;
+    let r = &mut i;
+    *r = 5;
+    a[i]
+}
+
+fn Dropped() -> i32 {
+    let a = [1, 2, 3];
+    let t = (D { V: 1 }, 5usize);
+    a[t.1]
+}
+
+fn CopiedAggregate() -> i32 {
+    let a = [1, 2, 3];
+    let t = (1usize, 7usize);
+    let u = t;
+    a[u.1]
+}
+
+fn Length() -> i32 {
+    let a = [1, 2, 3];
+    let i = a.len();
+    a[i]
+}
+
+fn Payload() -> i32 {
+    let a = [1, 2, 3];
+    let e = E::B(7);
+    match e {
+        E::A => 0,
+        E::B(k) => a[k],
+    }
+}
+
+fn Float() -> f64 {
+    1.0e308 * 10.0
+}

@@ -186,6 +186,15 @@ impl ErrorCode {
     /// `Main` has parameters or a non-`()` return type, or an executable has no `Main`.
     pub const INVALID_MAIN: Self = Self(501);
 
+    // Lints on MIR (E06xx): rustc's deny-by-default constant-propagation lints, errors here
+    // since Sabiko has no `#[allow]` (decision 73); `sabikoc -A <lint>` turns them off.
+    /// An arithmetic operation on values known at compile time overflows (rustc's
+    /// `arithmetic_overflow` lint).
+    pub const ARITHMETIC_OVERFLOW: Self = Self(600);
+    /// An operation on values known at compile time panics: an index out of bounds, a
+    /// division or remainder by zero, `MIN / -1` (rustc's `unconditional_panic` lint).
+    pub const UNCONDITIONAL_PANIC: Self = Self(601);
+
     // Internal errors (E09xx)
     pub const INTERNAL_ERROR: Self = Self(900);
 }

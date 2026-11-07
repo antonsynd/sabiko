@@ -11,13 +11,11 @@ fn IfExpr(_1: bool, _2: i32, _3: i32) -> i32 {
     let mut _7: i32;
     let mut _8: bool;
     let mut _9: bool;
-    let mut _10: bool;
+    let mut _10: i32;
     let mut _11: bool;
     let mut _12: i32;
-    let mut _13: bool;
+    let mut _13: i32;
     let mut _14: i32;
-    let mut _15: i32;
-    let mut _16: i32;
 
     bb0: {
         StorageLive(_4);
@@ -57,56 +55,48 @@ fn IfExpr(_1: bool, _2: i32, _3: i32) -> i32 {
     }
 
     bb7: {
-        StorageLive(_8);
-        StorageLive(_9);
         switchInt(copy _1) -> [0: bb9, otherwise: bb8];
     }
 
     bb8: {
-        StorageLive(_11);
-        _11 = Gt(copy _2, const 0_i32);
-        _9 = copy _11;
-        StorageDead(_11);
-        goto -> bb10;
+        StorageLive(_9);
+        _9 = Gt(copy _2, const 0_i32);
+        switchInt(copy _9) -> [0: bb11, otherwise: bb10];
     }
 
     bb9: {
-        _9 = const false;
-        goto -> bb10;
+        goto -> bb12;
     }
 
     bb10: {
-        switchInt(copy _9) -> [0: bb11, otherwise: bb12];
+        StorageDead(_9);
+        goto -> bb15;
     }
 
     bb11: {
         StorageDead(_9);
-        StorageLive(_13);
-        _13 = Lt(copy _3, const 0_i32);
-        _8 = copy _13;
-        StorageDead(_13);
-        goto -> bb13;
+        goto -> bb12;
     }
 
     bb12: {
-        StorageDead(_9);
-        _8 = const true;
-        goto -> bb13;
+        StorageLive(_11);
+        _11 = Lt(copy _3, const 0_i32);
+        switchInt(copy _11) -> [0: bb14, otherwise: bb13];
     }
 
     bb13: {
-        switchInt(copy _8) -> [0: bb15, otherwise: bb14];
+        StorageDead(_11);
+        goto -> bb15;
     }
 
     bb14: {
-        StorageDead(_8);
-        _0 = Add(copy _4, const 1_i32);
+        StorageDead(_11);
+        _0 = Sub(copy _4, const 1_i32);
         goto -> bb16;
     }
 
     bb15: {
-        StorageDead(_8);
-        _0 = Sub(copy _4, const 1_i32);
+        _0 = Add(copy _4, const 1_i32);
         goto -> bb16;
     }
 
@@ -122,8 +112,7 @@ fn IfStmt(_1: bool) -> i32 {
     let mut _3: bool;
     let mut _4: bool;
     let mut _5: bool;
-    let mut _6: bool;
-    let mut _7: i32;
+    let mut _6: i32;
 
     bb0: {
         StorageLive(_2);
@@ -141,32 +130,28 @@ fn IfStmt(_1: bool) -> i32 {
     }
 
     bb3: {
-        StorageLive(_4);
-        _4 = Not(copy _1);
-        switchInt(copy _4) -> [0: bb5, otherwise: bb4];
+        switchInt(copy _1) -> [0: bb5, otherwise: bb4];
     }
 
     bb4: {
-        StorageDead(_4);
+        StorageLive(_5);
+        _5 = Eq(copy _2, const 1_i32);
+        switchInt(copy _5) -> [0: bb7, otherwise: bb6];
+    }
+
+    bb5: {
         _2 = Add(copy _2, const 2_i32);
         goto -> bb8;
     }
 
-    bb5: {
-        StorageDead(_4);
-        StorageLive(_6);
-        _6 = Eq(copy _2, const 1_i32);
-        switchInt(copy _6) -> [0: bb7, otherwise: bb6];
-    }
-
     bb6: {
-        StorageDead(_6);
+        StorageDead(_5);
         _2 = Add(copy _2, const 3_i32);
         goto -> bb8;
     }
 
     bb7: {
-        StorageDead(_6);
+        StorageDead(_5);
         _2 = Add(copy _2, const 4_i32);
         goto -> bb8;
     }
@@ -464,7 +449,6 @@ fn Logical(_1: bool, _2: bool, _3: bool) -> bool {
     let mut _11: bool;
     let mut _12: bool;
     let mut _13: bool;
-    let mut _14: bool;
 
     bb0: {
         StorageLive(_4);
@@ -483,44 +467,40 @@ fn Logical(_1: bool, _2: bool, _3: bool) -> bool {
 
     bb3: {
         StorageLive(_7);
-        switchInt(copy _1) -> [0: bb4, otherwise: bb5];
+        switchInt(copy _1) -> [0: bb5, otherwise: bb4];
     }
 
     bb4: {
-        _7 = copy _2;
-        goto -> bb6;
-    }
-
-    bb5: {
         _7 = const true;
         goto -> bb6;
     }
 
+    bb5: {
+        _7 = copy _2;
+        goto -> bb6;
+    }
+
     bb6: {
-        switchInt(copy _4) -> [0: bb7, otherwise: bb8];
+        switchInt(copy _4) -> [0: bb8, otherwise: bb7];
     }
 
     bb7: {
-        StorageLive(_11);
-        StorageLive(_12);
-        _12 = Not(copy _7);
-        switchInt(copy _12) -> [0: bb10, otherwise: bb9];
-    }
-
-    bb8: {
         _0 = const true;
         goto -> bb12;
     }
 
+    bb8: {
+        StorageLive(_11);
+        switchInt(copy _7) -> [0: bb10, otherwise: bb9];
+    }
+
     bb9: {
-        StorageDead(_12);
-        _11 = copy _3;
+        _11 = const false;
         goto -> bb11;
     }
 
     bb10: {
-        StorageDead(_12);
-        _11 = const false;
+        _11 = copy _3;
         goto -> bb11;
     }
 

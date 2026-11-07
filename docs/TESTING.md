@@ -37,6 +37,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   statuses to 134), and the first panic's report must match then too. The
   rustc prelude is appended to the program, its lints passed as `-A` flags, so that line
   numbers agree; `Panic` is `#[track_caller]` there, so it reports its call site.
+- Constant-propagation lints (`crates/sabikoc/tests/const_lints.rs`, decision 73): every
+  program under `tests/differential/lints/` and `tests/ui/lints/` is built to MIR by rustc
+  with `arithmetic_overflow` and `unconditional_panic` denied and compiled to IL by Sabiko;
+  both must report the same lints on the same lines with the same labels. On generated
+  programs (property 5 of `generated.rs`) Sabiko's lints must be a subset of rustc's.
 - Generated programs (`crates/sabiko_testgen`, `crates/sabikoc/tests/generated.rs`): a
   seeded generator produces random programs in the Phase 4 subset (every integer type,
   `i128`/`u128` included) plus tuples (#6: tuple types of primitives, structs and tuples,
@@ -186,6 +191,16 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   and as rustc does under Sabiko. Weakening the analysis on purpose is caught: without the
   aliasing rule 5 of 2000 seeds change Sabiko's verdict, without the one-effect rule 11 of
   60 borrow-clean seeds change rustc's output.
+- Constant-propagation lints on generated programs (decision 73): rustc builds each
+  borrow-clean program to MIR with `arithmetic_overflow` and `unconditional_panic` denied;
+  every E0600/E0601 Sabiko reports must be one of rustc's, on the same line with the same
+  label. The comparison drove the lint's design: over 10000 seeds at four bases it found
+  the cases where Sabiko's MIR walks differently from rustc's (`if` conditions lowered as a
+  `bool` temporary, repeated match tests, the order of a literal test's edges, a `let`
+  ranges `4..=4` tested twice, promoted borrows, enum casts with explicit discriminants,
+  drops elaborated away); after them Sabiko reports no lint rustc does not and misses at
+  least one of rustc's in 34 of the 10000 programs. The other generated properties allow
+  both lints on both sides (`-A`), so overflowing constants still compile and panic.
 
 What the pass found, for calibration: fuzzing found three crashes in MIR building on
 `!`-typed expressions (`*never`, `never.Field`, `if loop {} {}`); the generator found a

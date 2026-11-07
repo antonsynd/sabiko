@@ -81,7 +81,7 @@ fn Expected(_1: bool) -> i32 {
     }
 
     bb2: {
-        switchInt(copy _3) -> [1: bb4, otherwise: bb3];
+        switchInt(copy _3) -> [0: bb3, otherwise: bb4];
     }
 
     bb3: {
@@ -129,7 +129,7 @@ fn Unexpected(_1: bool) {
     }
 
     bb2: {
-        switchInt(copy _3) -> [1: bb4, otherwise: bb3];
+        switchInt(copy _3) -> [0: bb3, otherwise: bb4];
     }
 
     bb3: {

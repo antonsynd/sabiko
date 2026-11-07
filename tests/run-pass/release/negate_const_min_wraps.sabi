@@ -1,4 +1,5 @@
 //@ release
+//@ allow: arithmetic_overflow
 // Release builds wrap the negation of a constant holding the type's minimum, at every
 // width (see `panics/negate_const_min.sabi` for the checked build).
 const SCALE: i32 = -2147483648i32;

@@ -1,4 +1,5 @@
 //@ release
+//@ allow: arithmetic_overflow
 // Release builds wrap on overflow, as Rust does.
 fn Main() {
     let mut x: i32 = 2147483600;

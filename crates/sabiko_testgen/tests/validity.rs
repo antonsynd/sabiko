@@ -61,6 +61,11 @@ fn borrow_clean_programs_pass_the_whole_pipeline() {
         let options = sabiko_driver::Options {
             emit: sabiko_driver::Emit::Il,
             output_kind: sabiko_driver::OutputKind::Executable,
+            // As rustc's prelude for generated programs allows them (decision 73).
+            allowed_lints: sabiko_driver::AllowedLints {
+                arithmetic_overflow: true,
+                unconditional_panic: true,
+            },
             ..sabiko_driver::Options::default()
         };
         let c = sabiko_driver::compile_str(&format!("clean-{seed}.sabi"), &src, options);

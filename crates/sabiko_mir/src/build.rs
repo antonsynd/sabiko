@@ -1896,29 +1896,79 @@ impl<'a> Builder<'a> {
         self.assign(place, Rvalue::Use(value), target.span);
     }
 
+    /// Branches on the condition of an `if` or `while` or on a match guard as rustc's
+    /// `then_else_break` does (decision 73): `&&`, `||` and `!` become control flow
+    /// rather than a `bool` temporary, each other operand is evaluated in a temporary scope
+    /// of its own and switched on. Returns the blocks reached when the condition holds and
+    /// when it does not, both left open, with the storage of the last operand's
+    /// temporaries ended at their start.
+    fn branch_on(&mut self, cond: &Expr, span: Span) -> (BasicBlock, BasicBlock) {
+        match &strip_parens(cond).kind {
+            ExprKind::Binary(op @ (BinOp::And | BinOp::Or), lhs, rhs) => {
+                let (lhs_true, lhs_false) = self.branch_on(lhs, span);
+                let (decided, rest) = if *op == BinOp::And {
+                    (lhs_false, lhs_true)
+                } else {
+                    (lhs_true, lhs_false)
+                };
+                self.enter(rest);
+                let (rhs_true, rhs_false) = self.branch_on(rhs, span);
+                let join = self.new_block();
+                let other = if *op == BinOp::And {
+                    rhs_false
+                } else {
+                    rhs_true
+                };
+                // Entered (again) before they end: an inner join was never entered, and every
+                // block takes the cleanup scopes open where it is entered.
+                for bb in [decided, other] {
+                    self.enter(bb);
+                    self.terminate(TerminatorKind::Goto { target: join }, span);
+                }
+                if *op == BinOp::And {
+                    (rhs_true, join)
+                } else {
+                    (join, rhs_false)
+                }
+            }
+            ExprKind::Unary(UnOp::Not, inner) if self.ty(inner).is_bool() => {
+                let (holds, fails) = self.branch_on(inner, span);
+                (fails, holds)
+            }
+            _ => {
+                let (discr, temps) = self.condition(cond, span);
+                let holds = self.new_block();
+                let fails = self.new_block();
+                self.switch_int(discr, vec![(0, fails)], holds, span);
+                self.enter(holds);
+                self.storage_dead(&temps, span);
+                self.enter(fails);
+                self.storage_dead(&temps, span);
+                (holds, fails)
+            }
+        }
+    }
+
     /// `a && b` / `a || b`: the right operand only runs when the left one does not decide
     /// the result.
     fn lower_logical(&mut self, dest: &Place, op: BinOp, lhs: &Expr, rhs: &Expr, span: Span) {
-        // Each operand is a temporary scope of its own.
-        let (lhs, lhs_temps) = self.condition(lhs, span);
-        let rhs_block = self.new_block();
-        let short_block = self.new_block();
-        let (targets, otherwise, short_value) = match op {
+        // Each operand is a temporary scope of its own. The left one is branched on as a
+        // condition (rustc's `then_else_break`), so `a && b || c` does not first collect
+        // `a && b` in a temporary.
+        let (lhs_true, lhs_false) = self.branch_on(lhs, span);
+        let (rhs_block, short_block, short_value) = match op {
             // `false && _` is false; `true || _` is true.
-            BinOp::And => (vec![(0, short_block)], rhs_block, false),
-            BinOp::Or => (vec![(0, rhs_block)], short_block, true),
+            BinOp::And => (lhs_true, lhs_false, false),
+            BinOp::Or => (lhs_false, lhs_true, true),
             _ => unreachable!("not a logical operator"),
         };
-        self.switch_int(lhs, targets, otherwise, span);
         self.enter(rhs_block);
-        self.storage_dead(&lhs_temps, span);
         let saved = self.push_temp_scope();
         let rhs = self.as_operand(rhs);
         self.assign(dest.clone(), Rvalue::Use(rhs), span);
         self.close_temp_scope(saved, span);
         let rhs_end = self.current;
         self.enter(short_block);
-        self.storage_dead(&lhs_temps, span);
         self.assign(
             dest.clone(),
             Rvalue::Use(Self::bool_constant(short_value, span)),
@@ -1947,19 +1997,14 @@ impl<'a> Builder<'a> {
         }
         // The condition and each branch are temporary scopes of their own: a
         // condition's temporaries are dropped before the branch runs.
-        let (discr, cond_temps) = self.condition(cond, span);
-        let then_block = self.new_block();
-        let else_block = self.new_block();
-        self.switch_int(discr, vec![(0, else_block)], then_block, span);
+        let (then_block, else_block) = self.branch_on(cond, span);
         self.enter(then_block);
-        self.storage_dead(&cond_temps, span);
         self.in_temp_scope(then.span, |this| match dest {
             Some(dest) => this.lower_block_into(dest, then),
             None => this.lower_block_discard(then),
         });
         let then_end = self.current;
         self.enter(else_block);
-        self.storage_dead(&cond_temps, span);
         match (els, dest) {
             (Some(els), Some(dest)) => {
                 self.in_temp_scope(els.span, |this| this.expr_into_dest(dest, els));
@@ -1985,10 +2030,7 @@ impl<'a> Builder<'a> {
         let header = self.new_block();
         self.terminate(TerminatorKind::Goto { target: header }, span);
         self.enter(header);
-        let (discr, cond_temps) = self.condition(cond, span);
-        let body_block = self.new_block();
-        let false_block = self.new_block();
-        self.switch_int(discr, vec![(0, false_block)], body_block, span);
+        let (body_block, false_block) = self.branch_on(cond, span);
         self.loops.push(LoopScope {
             header,
             exit: None,
@@ -1996,12 +2038,10 @@ impl<'a> Builder<'a> {
             scope_depth: self.scopes.len(),
         });
         self.enter(body_block);
-        self.storage_dead(&cond_temps, span);
         self.in_temp_scope(body.span, |this| this.lower_block_discard(body));
         self.terminate(TerminatorKind::Goto { target: header }, span);
         let scope = self.loops.pop().expect("loop scope pushed above");
         self.enter(false_block);
-        self.storage_dead(&cond_temps, span);
         let exit = scope.exit.unwrap_or_else(|| self.new_block());
         self.terminate(TerminatorKind::Goto { target: exit }, span);
         self.enter(exit);

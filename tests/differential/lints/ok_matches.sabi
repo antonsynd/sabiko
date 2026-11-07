@@ -1,0 +1,44 @@
+// Matches (decision 73): rustc's decision tree tests each place once, so an arm only a
+// failed guard reaches is dead when the guard is a constant `true`; promoted borrows of
+// a constant scrutinee leave it known.
+fn A(t: f32) -> u16 { match 0i32 { 5i32 if t > 1.0 => 1u16 - 2u16, mut d if true => 0u16, 0i32..=10i32 => 1u16 - 3u16, _ => 1u16 - 4u16 } }
+fn B() -> u16 { match 0i32 { mut d if true => 0u16, _ => 1u16 - 5u16 } }
+fn C() -> u16 { match 0i32 { mut d => 0u16, _ => 1u16 - 6u16 } }
+fn D() -> u16 { match 0i32 { 5i32 => 1u16 - 7u16, _ => 0u16 } }
+fn E() -> u16 { match 0i32 { d if true => 0u16, _ => 1u16 - 8u16 } }
+fn F() -> u16 { let x = 0i32; match x { d if d == 0 => 0u16, _ => 1u16 - 9u16 } }
+fn G() -> u16 { if true { 0u16 } else { 1u16 - 10u16 } }
+fn R1(t: f32) -> u16 { match 0i32 { 5i32 if t > 1.0 => 1u16 - 2u16, 0i32..=10i32 => 1u16 - 3u16, _ => 0u16 } }
+fn R2(t: f32) -> u16 { match 0i32 { 5i32 => 1u16 - 2u16, 0i32..=10i32 => 1u16 - 3u16, _ => 0u16 } }
+fn R3(t: f32) -> u16 { match 0i32 { 5i32 => 1u16 - 2u16, 6i32 => 1u16 - 3u16, _ => 0u16 } }
+enum Mode2 { Done { Outer: u128 }, None }
+impl Drop for Mode2 { fn drop(&mut self) {} }
+fn MA() -> u8 { match Mode2::None { Mode2::Done { Outer: 0u128 } => 1u8, Mode2::None if true => 7u8 - 254u8, Mode2::None => 255u8 * 182u8, Mode2::Done { Outer } => 8u8 } }
+fn MB(x: i32) -> u8 { match x { 5 if true => 1u8, 5 => 255u8 * 183u8, _ => 0u8 } }
+fn MC(x: i32) -> u8 { match x { 5 if x > 2 => 1u8, 5 => 255u8 * 184u8, _ => 0u8 } }
+fn MD(m: Mode2) -> u8 { match m { Mode2::None if true => 1u8, Mode2::None => 255u8 * 185u8, Mode2::Done { .. } => 0u8 } }
+fn SA(left: char, w: bool) -> u8 {
+    match (7i64 as i8) {
+        4i8..=8i8 if ((left <= 'b') && w) => 1u8,
+        72i8..=73i8 if (w == true) => ((2u8 ^ 6u8) - (5u8 - 8u8)),
+        -128i8..3i8 => 2u8,
+        _ => 3u8,
+    }
+}
+fn SB(val: u8) -> usize { let r = match "9" { "~" => 9usize, "b" => (val as usize), _ => (18usize << 25i64) }; r }
+enum Event3 { Named(u8, [f64; 4]), Busy, Some }
+fn GA(s: i32) -> i16 {
+    let (mut m, _, prev) = (((5u64 + 16u64), 0.1f64), Event3::Busy, ((3.75f64 / 2.0f64) - (-33.25f64 - 10.0f64)));
+    match s {
+        5 if (prev == 100.0f64) => 1i16,
+        mut b if (prev < 1.5f64) => (5i16 % (5i16 / 7i16)),
+        _ => 2i16,
+    }
+}
+fn GB(s: i32) -> i16 {
+    let prev = ((3.75f64 / 2.0f64) - (-33.25f64 - 10.0f64));
+    match s {
+        mut b if (prev < 1.5f64) => (6i16 % (5i16 / 7i16)),
+        _ => 2i16,
+    }
+}

@@ -58,7 +58,7 @@ fn Field(_1: P, _2: bool) -> i32 {
         PlaceMention(_1);
         StorageLive(_3);
         _3 = Eq(copy _1.A, const 1_i32);
-        switchInt(copy _3) -> [0: bb2, otherwise: bb3];
+        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
     }
 
     bb1: {

@@ -70,7 +70,9 @@ simplify, pretty) → `sabiko_borrowck` (mutability, init, moves, Polonius loans
 `sabiko_codegen` (textual IL) → `sabiko_driver` (pipeline, `Options`) → `sabikoc` (CLI,
 drives `ilasm`). Diagnostics and error codes are in `sabiko_diagnostics`: E00xx lexer,
 E01xx parser (E0107 = not yet supported syntax), E02xx resolve, E03xx typeck, E04xx
-borrowck, E05xx codegen (E0500 = not yet supported by codegen), E0900 internal.
+borrowck, E05xx codegen (E0500 = not yet supported by codegen), E06xx rustc's
+constant-propagation lints on MIR (E0600 `arithmetic_overflow`, E0601 `unconditional_panic`,
+only with `--emit=il|dll|exe`, `sabikoc -A <lint>` allows), E0900 internal.
 
 ## Conventions
 

@@ -1,0 +1,74 @@
+// Indices, arithmetic, casts, reassignment and calls (decision 73): each line where
+// rustc's constant-propagation lints fire and no other; checked against rustc.
+const N: usize = 3;
+struct D { V: i32 }
+impl Drop for D { fn drop(&mut self) {} }
+enum E { A, B(usize) }
+struct P { X: usize }
+const T: (usize, usize) = (1, 5);
+fn A1() -> i32 { let a = [1, 2, 3]; a[5] }
+fn A2() -> i32 { let a = [1, 2, 3]; if false { a[5] } else { 0 } }
+fn A3(b: bool) -> i32 { let a = [1, 2, 3]; if b { a[5] } else { 0 } }
+fn A4() -> i32 { let a = [1, 2, 3]; let mut i = 4; i = 1; a[i] }
+fn A5() -> i32 { let a = [1, 2, 3]; let mut i = 1; i = 4; a[i] }
+fn A6() -> i32 { let a = [1, 2, 3]; let mut i = 4; let x = a[0] + 1; a[i] }
+fn A7() -> i32 { let a = [1, 2, 3]; let mut i = 4; i += 1; let x = 1; a[i] }
+fn A8() -> i32 { let a = [1, 2, 3]; let i = 4; let r = &i; a[i] }
+fn A9() -> i32 { let a = [1, 2, 3]; let i = 2 + 2; a[i] }
+fn A10() -> i32 { let a = [1, 2, 3]; let t = (1usize, 7usize); a[t.1] }
+fn A11() -> i32 { let mut a = [1, 2, 3]; a[0] = 9; a[3] }
+fn A12(x: usize) -> i32 { let a = [1, 2, 3]; a[x * 0 + 3] }
+fn A13() -> i32 { let a = [[1, 2], [3, 4]]; a[1][2] }
+fn A14() -> i32 { let a = [1, 2, 3]; loop { return a[3]; } }
+fn A15() -> i32 { let a = [1, 2, 3]; let mut i = 0; while i < 10 { i += 1; } a[i] }
+fn A16() -> i32 { let a = [1, 2, 3]; let i = 3 as u8; a[i as usize] }
+fn A17() -> i32 { let a = [1, 2, 3]; let i: usize = 2; a[i + 1] }
+fn O1() -> u8 { let x: u8 = 255; x + 1 }
+fn O2() -> i32 { 2147483647 + 1 }
+fn O3() -> i32 { let x = 5; x / 0 }
+fn O4() -> i32 { let x = 5; x % 0 }
+fn O5() -> i32 { let x = -2147483648; x / -1 }
+fn O6() -> i32 { let x = -2147483648; -x }
+fn O7() -> i32 { 1 << 40 }
+fn O8() -> i32 { let x = 200u8 as i32; x * 20000000 }
+fn O9() -> u32 { let x = 0u32; x - 1 }
+fn O10() -> i32 { let mut x = 2147483647; x += 1; x }
+fn O11() -> i32 { let x = 2147483647; let y = x - 1; let z = x + 1; z }
+fn O12() -> i32 { let mut x = 1; x = 2147483647; let y = x - 1; let z = x + 1; z }
+fn O13(b: bool) -> i32 { let x = if b { 2147483647 } else { 0 }; x + 1 }
+fn O14() -> u8 { let x = 255u8; let y = x as u16 + 1; 0 }
+fn O15() -> i64 { let x = 1i64 >> 64; x }
+fn O16() -> f64 { 1.0 / 0.0 }
+fn O17() -> i32 { let x = 10; x / (5 - 5) }
+fn O18() -> i32 { let x = 1; x << -1 }
+fn B1() -> i32 { let a = [1, 2, 3]; let t = (D { V: 1 }, 5usize); a[t.1] }
+fn B2() -> i32 { let a = [1, 2, 3]; let i = 5usize; match i { 5 if true => a[i], _ => 0 } }
+fn B3() -> i32 { let a = [1, 2, 3]; let o = E::B(7); match o { E::A => 0, E::B(k) => a[k] } }
+fn B4() -> i32 { let a = [1, 2, 3]; let mut i = 0; loop { let x = a[i]; i += 5; if i > 3 { break; } } 0 }
+fn B5() -> i32 { let a = [1, 2, 3]; let mut t = (1usize, 2usize); t.1 = 7; a[t.1] }
+fn B6() -> i32 { if false { 1 / 0 } else { 0 } }
+fn B7() -> i32 { let x = -2147483648; x % -1 }
+fn B8() -> i32 { let a = [1, 2, 3]; let i = a.len(); a[i] }
+fn B9() -> i32 { let a = [1, 2, 3]; let p = P { X: 5 }; a[p.X] }
+fn B10() -> i32 { let a = [1, 2, 3]; a[T.1] }
+fn B11() -> i32 { let a = [1, 2, 3]; let b = [5usize; 2]; a[b[0]] }
+fn B12(mut i: usize) -> i32 { let a = [1, 2, 3]; i = 7; a[i] }
+fn B13() -> i32 { let a = [1, 2, 3]; let c = 'a'; a[c as usize] }
+fn B14() -> i32 { let a = [1, 2, 3]; let b = true; a[b as usize + 2] }
+fn B15() -> i32 { let a = [1, 2, 3]; let c = 1 < 2; if c { a[5] } else { 0 } }
+fn B16() -> i32 { let a = [1, 2, 3]; let f = 1e10; let i = f as i32; i + 1 }
+fn B17() -> u8 { let x = 300i32 as u8; x + 250 }
+fn B18() -> i32 { let a = [1, 2, 3]; let mut i = 1; let r = &mut i; *r = 5; a[i] }
+fn B19() -> i32 { let a = [1, 2, 3]; let o = E::A; match o { E::A => 0, E::B(k) => a[5] } }
+fn B20(n: usize) -> i32 { let a = [1, 2, 3]; let mut i = 5; if n > 0 { i = 1; } a[i] }
+fn B21() -> i32 { let a = [1, 2, 3]; let i = 5; let j = i; PrintLine(1); a[j] }
+fn B22() -> i32 { let a = [1, 2, 3]; let mut i = 5; PrintLine(1); a[i] }
+fn B23() -> i32 { let a = [1, 2, 3]; let mut i = 0; i = 5; PrintLine(1); a[i] }
+fn B25() -> i32 { let a = [1, 2, 3]; let s: &[i32] = &a; s[5] }
+fn B26() -> u32 { let x = 5u32; x - 6 }
+fn B27() -> i32 { let a = [1, 2, 3]; let i = 2; a[i + 1 - 1] + a[i + 1] }
+fn B28(b: bool) -> i32 { let a = [1, 2, 3]; let i = if b { 5 } else { 6 }; a[i] }
+fn B29() -> i32 { let a = [[1, 2, 3]; 2]; let i = 3; a[0][i] }
+fn B30() -> i32 { let mut a = [1, 2, 3]; let i = 9; a[i] += 1; 0 }
+fn F(r: &[i32; 3]) -> i32 { r[3] }
+fn G(s: &[i32]) -> i32 { s[5] }

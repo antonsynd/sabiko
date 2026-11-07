@@ -1,0 +1,59 @@
+// rustc's deny-by-default `arithmetic_overflow` lint is E0600 here, and the division
+// cases of its `unconditional_panic` lint E0601 (decision 73): an operation whose operands
+// the compiler knows overflows or panics. Each label is rustc's.
+const BIG: i32 = 2147483647;
+
+fn Add() -> u8 {
+    let x: u8 = 255;
+    x + 1 //~ ERROR E0600 this arithmetic operation will overflow
+}
+
+fn ThroughConst() -> i32 {
+    BIG * 2 //~ ERROR E0600
+}
+
+fn Negate() -> i8 {
+    let x = -128i8;
+    -x //~ ERROR E0600
+}
+
+fn Shift() -> i32 {
+    1 << 40 //~ ERROR E0600
+}
+
+fn ShiftUnknown(x: i64) -> i64 {
+    x >> 64 //~ ERROR E0600
+}
+
+fn DivideByZero(k: i32) -> i32 {
+    k / 0 //~ ERROR E0601
+}
+
+fn RemainderByZero() -> u32 {
+    let d = 0u32;
+    7 % d //~ ERROR E0601
+}
+
+fn MinOverMinusOne() -> i32 {
+    let x = -2147483648i32;
+    x / -1 //~ ERROR E0601
+}
+
+fn Compound() -> i32 {
+    let mut x = BIG;
+    x += 1; //~ ERROR E0600
+    x
+}
+
+fn Cast() -> u8 {
+    let x = 300i32 as u8;
+    x + 250 //~ ERROR E0600
+}
+
+fn Taken() -> u8 {
+    if 1 < 2 {
+        2u8 - 3 //~ ERROR E0600
+    } else {
+        0
+    }
+}

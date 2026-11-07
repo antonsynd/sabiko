@@ -719,9 +719,10 @@ range indexing and slicing (ranges are not expressions yet), slice patterns, `fo
 `==`/`<` on arrays and slices (Phase 6), `const` items of array type (E0315), slice
 methods other than `len()`, arrays and slices of references (E0500: an inline array cannot
 hold a managed pointer, nor the `Ref<T>` wrapper #11 added, which is a `ref struct`; #43), and rustc's deny-by-default
-`unconditional_panic` lint for constant out-of-bounds indices, which Sabiko does not run
-(it has no constant-propagation lints, like `arithmetic_overflow`): such programs compile
-and panic at run time. `.get(i)` moved to Phase 6 with `Option` (decision 47).
+`unconditional_panic` lint for constant out-of-bounds indices, which Sabiko did not run
+(it had no constant-propagation lints, like `arithmetic_overflow`; both since #44, decision
+73): such programs compiled
+and panicked at run time. `.get(i)` moved to Phase 6 with `Option` (decision 47).
 
 Update (2026-11-05), generator for arrays and slices (#9): `sabiko_testgen` declares
 `[T; N]` of primitives, tuples, structs (`Copy` or not, with `impl Drop` or not), enums
@@ -929,6 +930,24 @@ of them `ok_`), and `move_scrutinee_in_guard_then_test.sabi` a run-time program 
 later arm is unreachable), possibly irrefutable `if let` and `let`-`else` patterns, repeated
 string literals and unguarded string bindings before the last arm; 1500 seeds at each of
 the bases 47000000, 48000000 and 49000000 pass all five properties.
+
+Update (2026-11-07), constant-propagation lints (#44, decision 73): rustc's deny-by-default
+`arithmetic_overflow` and `unconditional_panic` are now E0600 and E0601, reported when code
+is generated, as rustc does, and allowed with `sabikoc -A <lint>` (run-pass programs that
+overflow on purpose say `//@ allow: arithmetic_overflow`). `sabiko_mir::lint` ports rustc's
+`KnownPanicsLint` onto Sabiko's MIR; where the two MIRs differ, MIR building moved closer to
+rustc's (conditions, guards and the left operand of `&&`/`||` are control flow rather than
+a `bool` temporary; `4..=4` is one test; literal tests order their edges as rustc's switch)
+and the walk carries facts from switch edges so that a test a candidate repeats is decided
+as rustc's decision tree decides it. A new generated-program property builds each program
+with rustc with both lints denied: over 10000 seeds at four bases (1, 1000000, 12000000,
+47000000) Sabiko reports no lint rustc does not, and misses at least one of rustc's in 34
+programs; the hand-written corpus (`tests/differential/lints/`, `tests/ui/lints/`, checked
+by `crates/sabikoc/tests/const_lints.rs`) agrees exactly. Gap: those misses, all where
+Sabiko's MIR walks in another order than rustc's or keeps a value rustc's drops a block
+earlier (documented in decision 73). Found on the way, not fixed: Sabiko accepts `(_, _) =
+(x, [])`, which rustc rejects (E0282, the type of `[]` is not inferred; generator seed
+1002197).
 
 ### Phase 5: Data types
 

@@ -1,0 +1,8 @@
+// `let`-`else` and references (decision 73): rustc visits a literal test's failure
+// edge first, and a `StorageDead` on it wipes values the success edge then misses.
+fn S1() -> u16 { let (a, n) = (65519u16, 1018isize); a + a }
+fn S2() -> u16 { let (a, n) = (65519u16, 1018isize); let -9223372036854775808isize = n else { return 0u16; }; a + a }
+fn S3() -> u16 { let (a, n) = (65519u16, 1018isize); let -9223372036854775808isize = &n else { return 0u16; }; a + a }
+fn S4() -> u16 { let a = 65519u16; let n = 1018isize; let -9223372036854775808isize = &n else { return 0u16; }; a + a }
+fn S5(n: isize) -> u16 { let a = 65519u16; let -9223372036854775808isize = &n else { return 0u16; }; a + a }
+fn S6() -> u16 { let a = 65519u16; let n = 1018isize; let r = &n; if *r == 5 { a + a } else { 0u16 } }
