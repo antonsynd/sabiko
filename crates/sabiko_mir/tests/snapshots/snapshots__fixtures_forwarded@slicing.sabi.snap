@@ -52,15 +52,18 @@ fn Fill(_1: &mut [i32]) {
 
 fn Kind(_1: &str) -> i32 {
     let mut _0: i32;
-    let mut _2: bool;
+    let mut _2: &str;
     let mut _3: bool;
     let mut _4: bool;
+    let mut _5: bool;
 
     bb0: {
         PlaceMention(_1);
         StorageLive(_2);
-        _2 = Eq(copy _1, const "a");
-        switchInt(copy _2) -> [0: bb2, otherwise: bb1];
+        _2 = copy _1;
+        StorageLive(_3);
+        _3 = Eq(copy _2, const "a");
+        switchInt(copy _3) -> [0: bb2, otherwise: bb1];
     }
 
     bb1: {
@@ -69,9 +72,9 @@ fn Kind(_1: &str) -> i32 {
     }
 
     bb2: {
-        StorageLive(_3);
-        _3 = Eq(copy _1, const "b");
-        switchInt(copy _3) -> [0: bb4, otherwise: bb3];
+        StorageLive(_4);
+        _4 = Eq(copy _2, const "b");
+        switchInt(copy _4) -> [0: bb4, otherwise: bb3];
     }
 
     bb3: {
@@ -80,9 +83,9 @@ fn Kind(_1: &str) -> i32 {
     }
 
     bb4: {
-        StorageLive(_4);
-        _4 = Eq(copy _1, const "c");
-        switchInt(copy _4) -> [0: bb5, otherwise: bb3];
+        StorageLive(_5);
+        _5 = Eq(copy _2, const "c");
+        switchInt(copy _5) -> [0: bb5, otherwise: bb3];
     }
 
     bb5: {
@@ -91,6 +94,7 @@ fn Kind(_1: &str) -> i32 {
     }
 
     bb6: {
+        StorageDead(_5);
         StorageDead(_4);
         StorageDead(_3);
         StorageDead(_2);

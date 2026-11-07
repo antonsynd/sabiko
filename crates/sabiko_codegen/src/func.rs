@@ -469,7 +469,7 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             }
             // A dropped place is borrowed by the drop glue call.
             TerminatorKind::Drop { place, .. } => other[place.local.index()] += 1,
-            TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+            _ => {}
         }
     }
     // An element's index is read twice (the bounds check, then the element): never kept
@@ -1166,6 +1166,9 @@ impl FnCx<'_, '_> {
     fn terminator(&mut self, term: &Terminator, bb: BasicBlock) {
         match &term.kind {
             TerminatorKind::Goto { target } => self.jump(*target, bb),
+            TerminatorKind::FalseEdge { .. } => {
+                unreachable!("false edges are removed after borrow checking")
+            }
             TerminatorKind::SwitchInt {
                 discr,
                 targets,

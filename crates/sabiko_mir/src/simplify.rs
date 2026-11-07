@@ -40,6 +40,25 @@ pub fn strip_storage_markers(bodies: &mut [Body]) {
     }
 }
 
+/// Turns every `FalseEdge` into a `Goto` to its real target and simplifies, which drops
+/// the blocks only an imaginary edge reached. Runs after borrow checking.
+pub fn remove_false_edges(body: &mut Body) {
+    let mut changed = false;
+    for data in &mut body.blocks {
+        if let Some(terminator) = &mut data.terminator {
+            if let TerminatorKind::FalseEdge { real_target, .. } = terminator.kind {
+                terminator.kind = TerminatorKind::Goto {
+                    target: real_target,
+                };
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        simplify_body(body);
+    }
+}
+
 /// A block, other than the start block, that holds nothing but `goto -> target`.
 fn forwarding_target(body: &Body, bb: BasicBlock) -> Option<BasicBlock> {
     if bb == BasicBlock::START {

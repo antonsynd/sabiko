@@ -196,8 +196,10 @@ fn programs_use_methods() {
         calls += usize::from(called);
         reads_receiver += usize::from(read);
     }
+    // `reads_receiver` sat at 20 before #47 shifted the generator's random stream; 12 still
+    // fails if the shape stops being generated.
     assert!(
-        impls >= 150 && calls >= 100 && reads_receiver >= 20,
+        impls >= 150 && calls >= 100 && reads_receiver >= 12,
         "impl blocks in {impls}, method calls in {calls}, arguments reading the receiver in {reads_receiver} of {SEEDS} programs"
     );
 }
@@ -219,12 +221,12 @@ fn programs_use_drop() {
     );
 }
 
-/// No generated pattern is unreachable (E0330): Sabiko does not borrow-check code that
-/// patterns make unreachable and rustc does (a known gap, see `body::matches`), so a
-/// violation or a move there would make the verdicts differ.
+/// Some generated patterns are unreachable (E0330) or irrefutable where a refutable one is
+/// expected (E0331): the code they make unreachable is borrow-checked by both compilers
+/// (#47), and a construct that silently stopped making it fails here.
 #[test]
-fn programs_have_no_unreachable_patterns() {
-    let mut found = Vec::new();
+fn programs_have_unreachable_patterns() {
+    let mut found = 0;
     for knobs in [Knobs::default(), Knobs::borrow_clean()] {
         for seed in 1..=SEEDS {
             let src = generate(seed, &knobs);
@@ -233,16 +235,16 @@ fn programs_have_no_unreachable_patterns() {
             let ast = sabiko_parser::parse_file(file, &src, &mut sink);
             let resolve = sabiko_resolve::resolve(&ast, &mut sink);
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
-            if sink
+            let codes: Vec<String> = sink
                 .diagnostics()
                 .iter()
-                .any(|d| d.code.to_string() == "E0330")
-            {
-                found.push(seed);
-            }
+                .map(|d| d.code.to_string())
+                .collect();
+            found += usize::from(codes.iter().any(|c| c == "E0330" || c == "E0331"));
         }
     }
-    assert!(found.is_empty(), "unreachable patterns in seeds {found:?}");
+    eprintln!("unreachable patterns in {found} programs");
+    assert!(found >= 100, "unreachable patterns in {found} programs");
 }
 
 /// A named property of a program's text and the least number of programs that have it.
@@ -728,6 +730,7 @@ fn programs_use_strings_and_ranges() {
             },
             100,
         ),
+        // One string binding arm in ten is unguarded since #47 (it was 26 before).
         (
             "guarded binding of a string",
             |s| {
@@ -740,7 +743,7 @@ fn programs_use_strings_and_ranges() {
                             || t.contains(&format!(" if {name} ")))
                 })
             },
-            25,
+            18,
         ),
         ("`if let` on a string", |s| s.contains("if let \""), 40),
         (

@@ -50,7 +50,8 @@ input_file: crates/sabiko_codegen/tests/fixtures/variants.sabi
       [0] valuetype 'Counter' 'd',
       [1] int32 'a',
       [2] int32 'b',
-      [3] valuetype 'Counter' '_7'
+      [3] native int '_5',
+      [4] valuetype 'Counter' '_6'
     )
   BB0:
     ldarg.0
@@ -58,13 +59,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/variants.sabi
     ldloca.s 0
     ldfld int32 'Counter'::'Tag'
     conv.i
+    stloc.3
+    ldloc.3
     ldc.i4.1
     conv.i
     beq BB3
   BB2:
-    ldloca.s 0
-    ldfld int32 'Counter'::'Tag'
-    conv.i
+    ldloc.3
     brfalse BB5
   BB4:
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
@@ -80,20 +81,20 @@ input_file: crates/sabiko_codegen/tests/fixtures/variants.sabi
     ldfld int32 'Counter'/'AtPayload'::'Item2'
     stloc.2
   BB1:
-    ldloca.s 3
+    ldloca.s 4
     initobj valuetype 'Counter'
-    ldloca.s 3
+    ldloca.s 4
     ldc.i4.1
     stfld int32 'Counter'::'Tag'
-    ldloca.s 3
+    ldloca.s 4
     ldflda valuetype 'Counter'/'AtPayload' 'Counter'::'At'
     ldloc.2
     stfld int32 'Counter'/'AtPayload'::'Item1'
-    ldloca.s 3
+    ldloca.s 4
     ldflda valuetype 'Counter'/'AtPayload' 'Counter'::'At'
     ldloc.1
     stfld int32 'Counter'/'AtPayload'::'Item2'
-    ldloc.3
+    ldloc.s 4
     stloc.0
   BB5:
     ldloc.0

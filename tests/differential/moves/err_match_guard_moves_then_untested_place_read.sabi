@@ -1,0 +1,17 @@
+// A later arm that tests a place some path to it has not read yet reads the scrutinee
+// again, so after a guard that moved it that read is a use of a moved value, in rustc
+// (E0382) as in Sabiko (decision 72, #47): here the failure of `D { Id: 7 }` skips the
+// first arm's test of `t.1`.
+struct D { Id: i32 }
+
+fn Consume(t: (D, i32)) -> bool {
+    false
+}
+
+fn Run(t: (D, i32)) -> i32 {
+    match t {
+        (D { Id: 7 }, 1) if Consume(t) => 1,
+        (_, 1) => 2,
+        _ => 4,
+    }
+}

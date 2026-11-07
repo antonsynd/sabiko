@@ -1,0 +1,11 @@
+// A `while let` whose pattern is irrefutable still exits through a false edge in rustc
+// (#47), so a local initialised in the body before `break` is possibly uninitialised after
+// the loop (E0381).
+fn F() {
+    let x: i32;
+    while let _ = 1 {
+        x = 1;
+        break;
+    }
+    PrintLine(x);
+}

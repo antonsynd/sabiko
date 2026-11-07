@@ -1,0 +1,13 @@
+// An arm after an irrefutable one is unreachable, but rustc's false edges still
+// borrow-check it (#47): assigning its immutable binding is E0384. Generator seed 2001893.
+enum W { Only(i32, i32) }
+
+fn F() {
+    match W::Only(1, 2) {
+        W::Only(_, b) => PrintLine(b),
+        W::Only(a, _) => {
+            a = 3;
+            PrintLine(a);
+        }
+    }
+}

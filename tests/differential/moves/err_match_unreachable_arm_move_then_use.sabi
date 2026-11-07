@@ -1,0 +1,14 @@
+// A move in an arm that a catch-all before it makes unreachable still makes a later use
+// an error in rustc, whose false edge reaches the arm (#47, E0382). Generator seed 3000551.
+struct S { V: i32 }
+
+fn F(n: i32) {
+    let s = S { V: 1 };
+    match n {
+        _ => {}
+        1 => {
+            let t = s;
+        }
+    }
+    PrintLine(s.V);
+}

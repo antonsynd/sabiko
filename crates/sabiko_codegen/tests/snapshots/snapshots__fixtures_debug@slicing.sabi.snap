@@ -136,8 +136,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/slicing.sabi
   .method public hidebysig static int32 'Kind'(valuetype [System.Runtime]System.ReadOnlySpan`1<char> 's') cil managed
   {
     .maxstack 2
+    .locals init (
+      [0] valuetype [System.Runtime]System.ReadOnlySpan`1<char> '_2'
+    )
   BB0:
     ldarg.0
+    stloc.0
+    ldloc.0
     ldstr "a"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     call bool [Sabiko.Runtime]Sabiko.Runtime.Str::Equal(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, valuetype [System.Runtime]System.ReadOnlySpan`1<char>)
@@ -146,13 +151,13 @@ input_file: crates/sabiko_codegen/tests/fixtures/slicing.sabi
     ldc.i4.1
     ret
   BB2:
-    ldarg.0
+    ldloc.0
     ldstr "b"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     call bool [Sabiko.Runtime]Sabiko.Runtime.Str::Equal(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, valuetype [System.Runtime]System.ReadOnlySpan`1<char>)
     brtrue BB3
   BB4:
-    ldarg.0
+    ldloc.0
     ldstr "c"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
     call bool [Sabiko.Runtime]Sabiko.Runtime.Str::Equal(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, valuetype [System.Runtime]System.ReadOnlySpan`1<char>)

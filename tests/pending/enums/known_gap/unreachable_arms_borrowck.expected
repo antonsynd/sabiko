@@ -1,7 +1,0 @@
-// Observed with rustc 1.99.1 (58cf8f9c3 2026-10-13) (a note, not a golden: the harness runs rustc live); rejected
-// --- errors
-error[E0384]: cannot assign twice to immutable variable `a` (line 15)
-error[E0382]: use of moved value: `s` (line 27)
-error[E0384]: cannot assign twice to immutable variable `c` (line 37)
-error[E0384]: cannot assign twice to immutable variable `d` (line 44)
-// Sabiko accepts the program; it prints 2, 1, 1.

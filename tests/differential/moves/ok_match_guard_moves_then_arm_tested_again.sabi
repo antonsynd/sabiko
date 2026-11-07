@@ -1,0 +1,31 @@
+// A guard may move the scrutinee out and fail; the later arms do not read it again where
+// an earlier test already read the same place on every path (rustc tests each place once,
+// before any guard; decision 72, #47).
+struct D { Id: i32 }
+
+enum Slot { Empty, Full(D) }
+
+fn Consume(s: Slot) -> bool {
+    false
+}
+
+fn Run(s: Slot) -> i32 {
+    match s {
+        Slot::Full(_) if Consume(s) => 1,
+        Slot::Empty => 0,
+        Slot::Full(_) => 2,
+    }
+}
+
+fn ConsumePair(t: (D, i32)) -> bool {
+    false
+}
+
+fn RunPair(t: (D, i32)) -> i32 {
+    match t {
+        (_, 1) if ConsumePair(t) => 1,
+        (_, 1) => 2,
+        (_, 2) => 3,
+        _ => 4,
+    }
+}

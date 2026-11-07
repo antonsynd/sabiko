@@ -520,7 +520,9 @@ impl Generator<'_> {
             TerminatorKind::Drop { place, .. } => {
                 self.access(place, AccessKind::Drop, location);
             }
-            TerminatorKind::Goto { .. } | TerminatorKind::Unreachable => {}
+            TerminatorKind::Goto { .. }
+            | TerminatorKind::FalseEdge { .. }
+            | TerminatorKind::Unreachable => {}
         }
     }
 

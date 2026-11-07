@@ -1,7 +1,7 @@
 // A guard that moves the scrutinee out and fails, followed by arms that test it again.
 // rustc tests the discriminant once, before any guard, so the later arms do not read the
-// moved value; Sabiko's candidates test it again (decision 57), which the move checks
-// report as a use of a moved value (E0406).
+// moved value; Sabiko's later candidates reuse the discriminant the first one read
+// (decision 72, #47), and `RunPair` reuses a compared value the same way.
 struct D { Id: i32 }
 
 impl Drop for D {
@@ -24,6 +24,20 @@ fn Run(s: Slot) -> i32 {
     }
 }
 
+fn ConsumePair(t: (D, i32)) -> bool {
+    false
+}
+
+fn RunPair(t: (D, i32)) -> i32 {
+    match t {
+        (_, 1) if ConsumePair(t) => 1,
+        (_, 1) => 2,
+        (_, 2) => 3,
+        _ => 4,
+    }
+}
+
 fn Main() {
     PrintLine(Run(Slot::Full(D { Id: 7 })));
+    PrintLine(RunPair((D { Id: 5 }, 1)));
 }

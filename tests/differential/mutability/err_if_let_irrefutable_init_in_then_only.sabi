@@ -1,0 +1,9 @@
+// A local initialised only in the `then` of an irrefutable `if let` is possibly
+// uninitialised after it: rustc's false edge reaches the (absent) `else` (#47, E0381).
+fn F() {
+    let x: i32;
+    if let _ = 1 {
+        x = 1;
+    }
+    PrintLine(x);
+}

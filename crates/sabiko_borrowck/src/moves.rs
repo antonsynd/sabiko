@@ -228,6 +228,7 @@ fn for_each_terminator_operand<'a>(terminator: &'a Terminator, mut f: impl FnMut
         // A drop is not a use: dropping a moved-out value is drop elaboration's business.
         TerminatorKind::Drop { .. }
         | TerminatorKind::Goto { .. }
+        | TerminatorKind::FalseEdge { .. }
         | TerminatorKind::Return
         | TerminatorKind::Unreachable => {}
     }

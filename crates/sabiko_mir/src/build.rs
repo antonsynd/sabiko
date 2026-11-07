@@ -153,6 +153,8 @@ struct Builder<'a> {
     /// While a candidate's bindings are made: the span of the scrutinee (or initialiser)
     /// they are bound out of, recorded as [`LocalDecl::match_span`].
     binding_scrutinee: Option<Span>,
+    /// What the candidates of the match being lowered have tested (see `matches`).
+    tests: matches::TestCache,
 }
 
 impl<'a> Builder<'a> {
@@ -256,6 +258,7 @@ impl<'a> Builder<'a> {
             guard_places: HashMap::new(),
             place_mutability: Mutability::Not,
             binding_scrutinee: None,
+            tests: matches::TestCache::default(),
         }
     }
 
