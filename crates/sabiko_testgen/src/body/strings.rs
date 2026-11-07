@@ -19,9 +19,9 @@
 //! as rustc lets it (a slice of `*s` borrows the string, not `s`, so it may outlive `s`
 //! and `s` may be reassigned meanwhile).
 //!
-//! Every `match` on a string is exhaustive by its last arm (`_` or a binding), every other
-//! arm's literals are distinct from all others and a binding before the last arm is
-//! guarded, so no arm is unreachable (see the `matches` module on TODO(#47)).
+//! Every `match` on a string is exhaustive by its last arm (`_` or a binding). Now and
+//! then an arm repeats an earlier arm's literal or a binding before the last arm is not
+//! guarded, which makes later arms unreachable (borrow-checked all the same, #47).
 //!
 //! Not generated: string patterns on a `&&str` scrutinee (`match ss { "a" => .. }`), a
 //! `&str` in a reference parameter's referent other than `&&str`. TODO(#43)
@@ -264,9 +264,9 @@ impl BodyGen<'_> {
 
     // ----- matching ----------------------------------------------------------------------
 
-    /// `k` distinct literals for a pattern, none of them in `used` (which gets them): an
-    /// arm's literals never repeat an earlier arm's, so no arm is unreachable. With
-    /// `nonempty`, never `""`.
+    /// `k` distinct literals for a pattern, mostly none of them in `used` (which gets
+    /// them): an arm repeating an earlier arm's literal is unreachable. With `nonempty`,
+    /// never `""`.
     fn pattern_literals(
         &mut self,
         k: usize,
@@ -274,6 +274,7 @@ impl BodyGen<'_> {
         nonempty: bool,
     ) -> Vec<String> {
         let mut out = Vec::new();
+        let repeat = self.rng.chance(5);
         for _ in 0..k * 4 {
             if out.len() == k {
                 break;
@@ -284,7 +285,8 @@ impl BodyGen<'_> {
                 STR_LITERALS
             };
             let src = *self.rng.pick(pool);
-            if used.contains(&src) || (nonempty && src.is_empty()) {
+            let taken = out.contains(&format!("\"{src}\""));
+            if (used.contains(&src) && !repeat) || taken || (nonempty && src.is_empty()) {
                 continue;
             }
             used.push(src);
@@ -308,10 +310,12 @@ impl BodyGen<'_> {
             let kind = self.rng.weighted(&[50, 30, if bindings { 20 } else { 0 }]);
             if kind == 2 {
                 let name = self.fresh_name();
+                // Unguarded now and then: the arms after it are unreachable.
+                let guard = !self.rng.chance(10);
                 arms.push(StrArm {
                     pat: name.clone(),
                     binding: Some(name),
-                    guard: true,
+                    guard,
                 });
             } else {
                 let k = if kind == 0 {

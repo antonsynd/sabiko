@@ -26,8 +26,24 @@
 //! rustc). A guard that fails tries the next candidate; one that holds keeps the fake
 //! borrows alive to its end and then binds by value, so a binding moves its part of the
 //! scrutinee only once its arm is taken.
+//!
+//! Tests are made once per place, as rustc's decision tree makes them (decision 72): a
+//! discriminant read, or the value of a place more than one candidate compares, goes into
+//! a temporary, and a later candidate reached only along paths that made the read reuses
+//! the temporary instead of reading the place again. A guard that moved the scrutinee out
+//! and failed therefore leaves the next candidates nothing of it to read where they reuse
+//! a read, and one that wrote a tested place through a `&mut` taken before the match does
+//! not change what those tests see.
+//!
+//! False edges (rustc's): after each candidate's tests, a `FalseEdge` goes on to the
+//! candidate's guard and bindings, and imaginarily to the next candidate, or for the last
+//! candidate of an `if let`, `while let` or `let`-`else` to the code that runs when the
+//! pattern does not match. The borrow checker follows both, so an arm, an alternative or
+//! an `else` that the patterns before it make unreachable is checked as in rustc (#47);
+//! drop elaboration, after borrow checking, turns them into `goto`s and simplifies, which
+//! removes that code.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{Arm, Block, Expr, NodeId, Pat, PatKind};
 use sabiko_resolve::{DefKind, LocalId, Res};
@@ -45,6 +61,20 @@ type Variant = (sabiko_resolve::DefId, usize);
 
 /// Which alternative each or-pattern (by node) takes in one candidate.
 pub(super) type Choice = HashMap<NodeId, usize>;
+
+/// What the candidates of one match have tested so far (see the module docs).
+#[derive(Debug, Default)]
+pub(super) struct TestCache {
+    /// Places whose value more than one candidate compares: the first comparison copies
+    /// the value into a temporary the later ones reuse.
+    shared: HashSet<Place>,
+    /// The temporary holding the discriminant (`true`) or the value (`false`) of each
+    /// tested place, assigned on every path to the point being lowered.
+    known: HashMap<(Place, bool), Local>,
+    /// What is known on every jump to the current candidate's failure block lowered so
+    /// far; `None` before the first.
+    at_fail: Option<HashMap<(Place, bool), Local>>,
+}
 
 /// How a candidate's bindings are made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,13 +284,21 @@ impl Builder<'_> {
         let def = self.typeck.items.adt(adt);
         #[allow(clippy::cast_sign_loss)]
         let discr = def.variant(index).discr as u128;
-        let temp = self.new_temp(Ty::Prim(sabiko_resolve::PrimTy::Isize), span);
-        self.assign(
-            Place::local(temp),
-            Rvalue::Discriminant(place.clone()),
-            span,
-        );
+        let key = (place.clone(), true);
+        let temp = if let Some(&temp) = self.tests.known.get(&key) {
+            temp
+        } else {
+            let temp = self.new_temp(Ty::Prim(sabiko_resolve::PrimTy::Isize), span);
+            self.assign(
+                Place::local(temp),
+                Rvalue::Discriminant(place.clone()),
+                span,
+            );
+            self.tests.known.insert(key, temp);
+            temp
+        };
         let ok = self.new_block();
+        self.note_fail();
         self.switch_int(
             Operand::Copy(Place::local(temp)),
             vec![(discr, ok)],
@@ -308,13 +346,10 @@ impl Builder<'_> {
     ) {
         match value {
             ConstValue::Bool(b) => {
+                let value = self.tested_value(place, span);
                 let ok = self.new_block();
-                self.switch_int(
-                    Operand::Copy(place.clone()),
-                    vec![(u128::from(!b), fail)],
-                    ok,
-                    span,
-                );
+                self.note_fail();
+                self.switch_int(value, vec![(u128::from(!b), fail)], ok, span);
                 self.enter(ok);
             }
             ConstValue::Unit => {}
@@ -341,6 +376,7 @@ impl Builder<'_> {
         fail: BasicBlock,
         span: Span,
     ) {
+        let lhs = self.tested_value(place, span);
         let temp = self.new_temp(Ty::BOOL, span);
         let constant = Operand::Constant(Constant {
             ty: ty.clone(),
@@ -349,12 +385,120 @@ impl Builder<'_> {
         });
         self.assign(
             Place::local(temp),
-            Rvalue::BinaryOp(op, Operand::Copy(place.clone()), constant),
+            Rvalue::BinaryOp(op, lhs, constant),
             span,
         );
         let ok = self.new_block();
+        self.note_fail();
         self.switch_int(Operand::Copy(Place::local(temp)), vec![(0, fail)], ok, span);
         self.enter(ok);
+    }
+
+    /// The operand a test reads the value at `place` through: the temporary an earlier
+    /// test copied it into, a new such copy when another candidate compares it too
+    /// (`TestCache::shared`), else the place itself.
+    fn tested_value(&mut self, place: &Place, span: Span) -> Operand {
+        let key = (place.clone(), false);
+        if let Some(&temp) = self.tests.known.get(&key) {
+            return Operand::Copy(Place::local(temp));
+        }
+        if !self.tests.shared.contains(place) {
+            return Operand::Copy(place.clone());
+        }
+        let temp = self.new_temp(place.ty(&self.body), span);
+        self.assign(
+            Place::local(temp),
+            Rvalue::Use(Operand::Copy(place.clone())),
+            span,
+        );
+        self.tests.known.insert(key, temp);
+        Operand::Copy(Place::local(temp))
+    }
+
+    /// Records a jump from the point being lowered to the current candidate's failure
+    /// block: the next candidate knows only what every such jump knows.
+    fn note_fail(&mut self) {
+        let known = &self.tests.known;
+        let at_fail = match self.tests.at_fail.take() {
+            None => known.clone(),
+            Some(mut at) => {
+                at.retain(|key, temp| known.get(key) == Some(temp));
+                at
+            }
+        };
+        self.tests.at_fail = Some(at_fail);
+    }
+
+    /// A fresh [`TestCache`] for a match with these patterns against `place`, replacing
+    /// the current one (a match in a guard is lowered between two candidates of its own);
+    /// returns the one to restore.
+    fn start_tests(&mut self, pats: &[&Pat], place: &Place) -> TestCache {
+        let mut counts: HashMap<Place, usize> = HashMap::new();
+        for pat in pats {
+            for choice in choices(pat) {
+                let mut places = Vec::new();
+                self.value_test_places(pat, place, &choice, &mut places);
+                let places: HashSet<Place> = places.into_iter().collect();
+                for p in places {
+                    *counts.entry(p).or_default() += 1;
+                }
+            }
+        }
+        let shared = counts
+            .into_iter()
+            .filter(|&(_, n)| n > 1)
+            .map(|(p, _)| p)
+            .collect();
+        std::mem::replace(
+            &mut self.tests,
+            TestCache {
+                shared,
+                ..TestCache::default()
+            },
+        )
+    }
+
+    /// Adds to `out` each place whose value [`Self::test_pat`] compares for `pat` (under
+    /// `choice`) against `place`.
+    fn value_test_places(&self, pat: &Pat, place: &Place, choice: &Choice, out: &mut Vec<Place>) {
+        let value = |pat: &Pat, place: Place, out: &mut Vec<Place>| {
+            let ty = place.ty(&self.body);
+            match self.types.pat_consts.get(&pat.id) {
+                Some(PatConst::Value(value)) => push_const_places(out, &place, &ty, value),
+                Some(c @ PatConst::Range { .. }) if !is_full_range(Some(c), &ty) => out.push(place),
+                _ => {}
+            }
+        };
+        if self.ident_is_path(pat) {
+            value(pat, self.pat_place(pat, place.clone()), out);
+            return;
+        }
+        match &pat.kind {
+            PatKind::Ident { sub, .. } => {
+                if let Some(sub) = sub {
+                    self.value_test_places(sub, place, choice, out);
+                }
+            }
+            PatKind::Wild | PatKind::Rest | PatKind::Assignee(_) => {}
+            PatKind::Or(alts) => {
+                self.value_test_places(&alts[choice[&pat.id]], place, choice, out);
+            }
+            PatKind::Path(_) => {
+                if !self.types.pat_variants.contains_key(&pat.id) {
+                    value(pat, self.pat_place(pat, place.clone()), out);
+                }
+            }
+            PatKind::Tuple(_) | PatKind::TupleStruct(..) | PatKind::Struct { .. } => {
+                let place = self.pat_place(pat, place.clone());
+                let (_, subs) = self.subpatterns(pat, &place);
+                for (p, sub_place) in subs {
+                    self.value_test_places(p, &sub_place, choice, out);
+                }
+            }
+            PatKind::Lit(_) | PatKind::Range(..) => {
+                value(pat, self.pat_place(pat, place.clone()), out);
+            }
+        }
     }
 
     // ----- fake borrows -----
@@ -626,7 +770,8 @@ impl Builder<'_> {
 
     /// Lowers the candidates of `pat` (with an optional guard, which fake-borrows `fakes`):
     /// each that matches binds and jumps to `success`; the builder continues where the
-    /// last one failed.
+    /// last one failed. Each candidate's tests end in a false edge to the next candidate,
+    /// and the last one's to where the builder continues when `edge_after_last`.
     fn lower_candidates(
         &mut self,
         pat: &Pat,
@@ -634,10 +779,26 @@ impl Builder<'_> {
         place: &Place,
         scrutinee: Span,
         success: BasicBlock,
+        edge_after_last: bool,
     ) {
-        for choice in choices(pat) {
+        let choices = choices(pat);
+        let last = choices.len() - 1;
+        for (index, choice) in choices.into_iter().enumerate() {
             let fail = self.new_block();
+            self.tests.at_fail = None;
             self.test_pat(pat, place, &choice, fail);
+            if index < last || edge_after_last {
+                let next = self.new_block();
+                self.note_fail();
+                self.terminate(
+                    TerminatorKind::FalseEdge {
+                        real_target: next,
+                        imaginary_target: fail,
+                    },
+                    pat.span,
+                );
+                self.enter(next);
+            }
             if let Some((guard, fakes)) = guard {
                 self.lower_guard(guard, fakes, pat, place, &choice, fail);
             }
@@ -647,6 +808,7 @@ impl Builder<'_> {
             let span = pat.span;
             self.terminate(TerminatorKind::Goto { target: success }, span);
             self.enter(fail);
+            self.tests.known = self.tests.at_fail.take().unwrap_or_default();
         }
     }
 
@@ -683,6 +845,7 @@ impl Builder<'_> {
         self.switch_int(discr, vec![(0, fails)], holds, span);
         self.enter(fails);
         self.storage_dead(&cond_temps, span);
+        self.note_fail();
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
         self.storage_dead(&cond_temps, span);
@@ -723,14 +886,17 @@ impl Builder<'_> {
         let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
         let place = self.scrutinee_place(scrutinee, &pats);
         let fakes = self.guard_fake_places(arms, &place);
+        let saved = self.start_tests(&pats, &place);
         let mut entries = Vec::new();
-        for arm in arms {
+        for (index, arm) in arms.iter().enumerate() {
             let locals = self.prepare_locals(&arm.pat);
             let body = self.new_block();
             let guard = arm.guard.as_ref().map(|g| (g, &fakes[..]));
-            self.lower_candidates(&arm.pat, guard, &place, scrutinee.span, body);
+            let is_last = index + 1 == arms.len();
+            self.lower_candidates(&arm.pat, guard, &place, scrutinee.span, body, !is_last);
             entries.push((body, locals));
         }
+        self.tests = saved;
         // Exhaustiveness was checked: no value gets here.
         self.terminate(TerminatorKind::Unreachable, span);
         let join = self.new_block();
@@ -766,7 +932,9 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let then_block = self.new_block();
-        self.lower_candidates(pat, None, &place, scrutinee.span, then_block);
+        let saved = self.start_tests(&[pat], &place);
+        self.lower_candidates(pat, None, &place, scrutinee.span, then_block, true);
+        self.tests = saved;
         let else_start = self.current;
         let join = self.new_block();
         self.enter(then_block);
@@ -813,7 +981,9 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let body_block = self.new_block();
-        self.lower_candidates(pat, None, &place, scrutinee.span, body_block);
+        let saved_tests = self.start_tests(&[pat], &place);
+        self.lower_candidates(pat, None, &place, scrutinee.span, body_block, true);
+        self.tests = saved_tests;
         // No match: leave the loop, dropping the scrutinee's temporaries.
         self.lower_break(None, span);
         self.terminate(TerminatorKind::Unreachable, span);
@@ -862,7 +1032,9 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
-        self.lower_candidates(pat, None, &place, span, ok);
+        let saved = self.start_tests(&[pat], &place);
+        self.lower_candidates(pat, None, &place, span, ok, els.is_some());
+        self.tests = saved;
         if let Some(els) = els {
             // The failure path ends the initialiser's temporaries (its own value first, then
             // those made while computing it) before `else`; they stay in their scopes for
@@ -935,6 +1107,21 @@ pub(super) fn binds_ref_mut(pat: &Pat) -> bool {
         }
     });
     found
+}
+
+/// The places a constant pattern `value` at `place` (of type `ty`) compares: the place, or
+/// each element of a tuple constant, recursively, but the `()`s.
+fn push_const_places(out: &mut Vec<Place>, place: &Place, ty: &Ty, value: &ConstValue) {
+    match (value, ty) {
+        (ConstValue::Unit, _) => {}
+        (ConstValue::Tuple(values), Ty::Tuple(tys)) => {
+            for (index, (value, ty)) in values.iter().zip(tys.iter()).enumerate() {
+                let field = place.clone().field(index, ty.clone());
+                push_const_places(out, &field, ty, value);
+            }
+        }
+        _ => out.push(place.clone()),
+    }
 }
 
 /// The places a guard fake-borrows for a constant pattern `value` at `place` (of type

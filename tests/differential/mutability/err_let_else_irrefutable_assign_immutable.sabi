@@ -1,0 +1,13 @@
+// The `else` of an irrefutable `let`-`else` never runs, but rustc borrow-checks it through a
+// false edge (#47): assigning an immutable local there is E0384.
+enum W { Only(i32, i32) }
+
+fn F() {
+    let d = 1;
+    let W::Only(y, _) = W::Only(1, 2) else {
+        d = 2;
+        return;
+    };
+    PrintLine(y);
+    PrintLine(d);
+}

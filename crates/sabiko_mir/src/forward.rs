@@ -138,7 +138,10 @@ fn mentions(body: &Body) -> Vec<Mentions> {
             }
             // A dropped local is never forwarded (nor is anything with drop glue below).
             TerminatorKind::Drop { place, .. } => m[place.local.index()].other += 1,
-            TerminatorKind::Goto { .. } | TerminatorKind::Return | TerminatorKind::Unreachable => {}
+            TerminatorKind::Goto { .. }
+            | TerminatorKind::FalseEdge { .. }
+            | TerminatorKind::Return
+            | TerminatorKind::Unreachable => {}
         }
     }
     // A value with drop glue is dropped where its cleanup scopes and drops say: forwarding
@@ -268,6 +271,7 @@ fn find_use(
         TerminatorKind::SwitchInt { discr, .. } => is_temp(discr, temp),
         TerminatorKind::Call { args, .. } => args.iter().any(|a| is_temp(a, temp)),
         TerminatorKind::Goto { .. }
+        | TerminatorKind::FalseEdge { .. }
         | TerminatorKind::Drop { .. }
         | TerminatorKind::Return
         | TerminatorKind::Unreachable => false,

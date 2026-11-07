@@ -258,6 +258,7 @@ impl Body {
                     }
                     TerminatorKind::Drop { place, .. } => f(place),
                     TerminatorKind::Goto { .. }
+                    | TerminatorKind::FalseEdge { .. }
                     | TerminatorKind::Return
                     | TerminatorKind::Unreachable => {}
                 }
@@ -725,6 +726,16 @@ pub enum TerminatorKind {
     },
     Return,
     Unreachable,
+    /// rustc's `FalseEdge`: control goes to `real_target`, but the borrow checker also
+    /// follows `imaginary_target`. Match lowering puts one after each candidate's tests,
+    /// to the next candidate (or to the `else` of an `if let`, `while let` or
+    /// `let`-`else`), so code that patterns make unreachable is borrow-checked as in rustc
+    /// (#47). [`simplify::remove_false_edges`] turns each into a `Goto` after borrow
+    /// checking, before drop elaboration.
+    FalseEdge {
+        real_target: BasicBlock,
+        imaginary_target: BasicBlock,
+    },
 }
 
 impl TerminatorKind {
@@ -741,6 +752,10 @@ impl TerminatorKind {
                 out
             }
             TerminatorKind::Call { target, .. } => target.iter().copied().collect(),
+            TerminatorKind::FalseEdge {
+                real_target,
+                imaginary_target,
+            } => vec![*real_target, *imaginary_target],
             TerminatorKind::Return | TerminatorKind::Unreachable => Vec::new(),
         }
     }
@@ -756,6 +771,10 @@ impl TerminatorKind {
                 out
             }
             TerminatorKind::Call { target, .. } => target.iter_mut().collect(),
+            TerminatorKind::FalseEdge {
+                real_target,
+                imaginary_target,
+            } => vec![real_target, imaginary_target],
             TerminatorKind::Return | TerminatorKind::Unreachable => Vec::new(),
         }
     }

@@ -123,6 +123,7 @@ impl Checker<'_> {
             // `mut` binding, although `drop` takes `&mut self`.
             TerminatorKind::Drop { .. }
             | TerminatorKind::Goto { .. }
+            | TerminatorKind::FalseEdge { .. }
             | TerminatorKind::Return
             | TerminatorKind::Unreachable => {}
         }

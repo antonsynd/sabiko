@@ -56,6 +56,9 @@ pub fn elaborate_all(bodies: &mut [Body], typeck: &TypeckResults) {
 
 /// Elaborates the drops of one body (see the module docs).
 pub fn elaborate_body(body: &mut Body, typeck: &TypeckResults) {
+    // The borrow checker was the last to need the false edges; the blocks only they reach
+    // never run, so they are not elaborated (rustc's `CleanupPostBorrowck` comes first too).
+    crate::simplify::remove_false_edges(body);
     let paths = DropPaths::new(body, typeck);
     if paths.nodes.is_empty() {
         return;

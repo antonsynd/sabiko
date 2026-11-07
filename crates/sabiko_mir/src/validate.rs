@@ -280,6 +280,7 @@ impl Validator<'_> {
                 }
                 TerminatorKind::Drop { place, .. } => count(place, &mut uses),
                 TerminatorKind::Goto { .. }
+                | TerminatorKind::FalseEdge { .. }
                 | TerminatorKind::Return
                 | TerminatorKind::Unreachable => {}
             }
@@ -679,6 +680,13 @@ impl Validator<'_> {
     fn terminator(&mut self, bb: BasicBlock, term: &Terminator) {
         match &term.kind {
             TerminatorKind::Goto { target } => self.check_target(bb, *target),
+            TerminatorKind::FalseEdge {
+                real_target,
+                imaginary_target,
+            } => {
+                self.check_target(bb, *real_target);
+                self.check_target(bb, *imaginary_target);
+            }
             TerminatorKind::SwitchInt {
                 discr,
                 targets,

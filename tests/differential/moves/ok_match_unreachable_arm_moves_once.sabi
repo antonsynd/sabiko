@@ -1,0 +1,30 @@
+// False edges (#47) go from the end of a candidate's tests to the next candidate, never
+// from one arm's body into another's: a value moved once in each arm, unreachable ones
+// included, is moved once on every path.
+struct S { V: i32 }
+
+fn F(n: i32) {
+    let s = S { V: 1 };
+    match n {
+        _ => {
+            let t = s;
+        }
+        x => {
+            let u = s;
+        }
+        1 => {
+            let w = s;
+        }
+    }
+}
+
+fn G() {
+    let s = S { V: 2 };
+    let t: S;
+    if let _ = 1 {
+        t = s;
+    } else {
+        t = S { V: 3 };
+    }
+    PrintLine(t.V);
+}

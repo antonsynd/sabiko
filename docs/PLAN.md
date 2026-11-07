@@ -637,8 +637,9 @@ once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p`, ha
 ranges, primitive associated constants in patterns, `==` on enums (Phase 6), a match
 through `&&T` (`Ref<T>`; since lowered, #11), string literal patterns (with
 `&str`, #10), float range patterns (rejected with a misleading message), code that patterns
-make unreachable is not borrow-checked (rustc's false edges), and an arm that tests a
-scrutinee a failed guard moved out (E0406; rustc tests once). Moving a non-`Copy` field out
+make unreachable was not borrow-checked (rustc's false edges), and an arm that tests a
+scrutinee a failed guard moved out was E0406 (rustc tests once); both fixed by #47
+(decision 72, update below). Moving a non-`Copy` field out
 of a `Drop` enum was reported at the binding (E0418) where rustc reports E0509 at the
 scrutinee; since #50 it is reported as rustc does, at the scrutinee, once per moved-from
 place (each arm's variant is its own place), with a label at each binding that moves (each
@@ -674,7 +675,8 @@ where a move in an unreachable arm made a later use an error in rustc only); MIR
 needs false edges. The generator makes no pattern unreachable (the arms before a cover
 are guarded, a cover's arms are disjoint, an `if let` or `let`-`else` pattern surely
 refutes; a validity test checks that Sabiko reports no unreachable pattern) and skips no
-check after a `match`'s first arm or in an `else`.
+check after a `match`'s first arm or in an `else`. Since #47 (decision 72) MIR building has
+the false edges and the generator makes unreachable arms and `else`s again.
 
 Update (2026-11-05), mutation testing of enums and `match` (#8) on the lines the branch
 changed (`docs/TESTING.md`): before the new tests, 81.4% (`sabiko_types`), 88.7%
@@ -686,8 +688,8 @@ built (a `MissingMethodException` at run time; E0315 now), `match r.F` through a
 `r` could omit an uninhabited variant rustc requires, and a pattern with an unresolved path
 was also reported as non-exhaustive, refutable or unreachable. A guard may now move the
 scrutinee out, as in rustc (decision 60). Gap: an arm after such a guard that tests the
-moved scrutinee again is E0406, which rustc accepts
-(`tests/pending/enums/known_gap/move_scrutinee_in_guard_then_test.sabi`). Also noticed:
+moved scrutinee again is E0406, which rustc accepts (fixed by #47, decision 72: the
+program is now `run/enums/move_scrutinee_in_guard_then_test.sabi`). Also noticed:
 a float range pattern (`0.0..=1.0`, valid Rust) is rejected as "only `char` and numeric
 types are allowed in range patterns", which names `f64` as not numeric.
 
@@ -905,6 +907,29 @@ benchmark. The other nights commit nothing. Gaps: no alert on a time regression 
 still never gated), and the history starts with the first weekly run, so the earlier
 hand-measured reports (`results/latest.md` and the paragraphs above) are not in it.
 
+Update (2026-11-07), match borrow checking as rustc's (#47, decision 72): MIR has rustc's
+`FalseEdge` terminator. After each candidate's tests a false edge leads on to its guard and
+bindings and, for the borrow checker only, to the next candidate (for the last candidate of
+an `if let`, `while let` or `let`-`else`, to the no-match path), so an arm or alternative
+after an irrefutable one, and the `else` of an irrefutable `if let` or `let`-`else`, are
+borrow-checked as in rustc: assigning an immutable binding there is E0384, a double move
+E0382, a move there makes a later use E0382, and a local initialised only in the body of an
+irrefutable `if let` or `while let` is possibly uninitialised after it (E0381). Drop
+elaboration first turns false edges into `goto`s and simplifies, so that code never reaches
+code generation. Within a match each place is now tested once along a path: a discriminant
+read, and the value of a place several candidates compare, goes into a temporary that a
+later candidate reuses when every path to it made the read. An arm after a guard that moved
+the scrutinee out and failed therefore no longer reads it (it was E0406; rustc accepts),
+while one testing a place some path has not read yet still reads it, as rustc does (E0382
+on both sides). A `match` on an enum loads its tag once instead of once per arm (#51). The
+staged `unreachable_arms_borrowck.sabi` became twelve verdict programs in
+`differential/{moves,mutability}/*unreachable*`, `*irrefutable*` and `*guard_moves*` (two
+of them `ok_`), and `move_scrutinee_in_guard_then_test.sabi` a run-time program in
+`run/enums/`. The generator now makes early unguarded arms (sometimes irrefutable, so every
+later arm is unreachable), possibly irrefutable `if let` and `let`-`else` patterns, repeated
+string literals and unguarded string bindings before the last arm; 1500 seeds at each of
+the bases 47000000, 48000000 and 49000000 pass all five properties.
+
 ### Phase 5: Data types
 
 Work
@@ -946,8 +971,8 @@ against drops rather than retrofitted.
   decision 47); `match` with patterns (literals, bindings, wildcards, tuple/struct/enum
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
   as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
-  and `let`-`else`; see the status notes above); follow-ups: match borrow checking (#47),
-  `&p` and open-range patterns (#49).
+  and `let`-`else`; see the status notes above); match borrow checking as rustc's (#47,
+  decision 72) done; follow-up: `&p` and open-range patterns (#49).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
   Done (#9, decision 61; see the status note above), and range slicing with #10; slice
   patterns, `for` loops, slice methods other than `len()` (#45) and arrays of references

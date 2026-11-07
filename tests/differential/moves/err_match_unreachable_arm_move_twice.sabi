@@ -1,0 +1,14 @@
+// An arm after a catch-all is unreachable, but rustc borrow-checks it through a false edge
+// (#47): moving a value twice there is E0382.
+enum W { Only(i32, i32) }
+
+fn F() {
+    let s = W::Only(4, 5);
+    match 3 {
+        _ => {}
+        x => {
+            let t = s;
+            let u = s;
+        }
+    }
+}

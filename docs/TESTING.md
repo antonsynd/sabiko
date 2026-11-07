@@ -94,8 +94,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `&mut a[i..]` and writes through it), indexed (`a[1..][k] = v`, `p.A[..2][0].X += v`),
   measured (`x[a..=b].len()`), sliced again (`&s[1..][..2]`, `&"abc"[k..]`) and walked
   (`while i < a[1..].len()`); `.len()` of strings; the six comparisons of `&str`
-  operands; `match` on a string (literal and or-patterns, guarded bindings, a `_` or
-  binding catch-all, no arm unreachable) as a statement and inline, `if let` and
+  operands; `match` on a string (literal and or-patterns, mostly guarded bindings, a `_`
+  or binding catch-all, now and then an unreachable arm) as a statement and inline, `if let` and
   `let`-`else` with literal patterns; loops walking a string by index (`&s[i..=i]`) or
   shrinking a `mut` `&str` (`t = &t[1..]`, `while let "a" | "b" = t`). A range place
   written or borrowed mutably is an `IndexMut` call that borrows its base before the
@@ -246,10 +246,13 @@ temporaries (`run/enums/if_let/let_else_temporaries.sabi`), and an accepted cast
 fieldless enum with `impl Drop` (`ui/typeck/enum_casts.sabi`); and, older than #8, an
 accepted `-(-128i8)`, whose literal rustc reads as `128i8` since only the outer of two
 negations counts (`ui/typeck/literal_ranges.sabi`). A guard reading a binding
-of a whole `&mut` scrutinee stays E0500 (`&&mut T`, a known gap the generator avoids), as
-does borrow checking of code that patterns make unreachable (rustc checks a later arm and
-the `else` of an irrefutable `if let`, Sabiko does not; seed 2001893, a known gap the
-generator avoids by making no pattern unreachable), and
+of a whole `&mut` scrutinee stays E0500 (`&&mut T`, a known gap the generator avoids).
+Borrow checking of code that patterns make unreachable (rustc checks a later arm and the
+`else` of an irrefutable `if let`, Sabiko did not; seeds 2001893 and 3000551) was a gap
+the generator avoided by making no pattern unreachable until #47 added false edges
+(decision 72); it now makes unreachable arms and irrefutable `if let`/`let`-`else`
+patterns, and `programs_have_unreachable_patterns` (`sabiko_testgen/tests/validity.rs`)
+checks that a fair share of programs have one. Also,
 the reorder analysis learnt that a `ref` binding takes its scrutinee's address (seed
 1000244).
 

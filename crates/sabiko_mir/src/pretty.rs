@@ -309,6 +309,13 @@ impl Printer<'_> {
     fn terminator(&self, kind: &TerminatorKind) -> String {
         match kind {
             TerminatorKind::Goto { target } => format!("goto -> bb{}", target.0),
+            TerminatorKind::FalseEdge {
+                real_target,
+                imaginary_target,
+            } => format!(
+                "falseEdge -> [real: bb{}, imaginary: bb{}]",
+                real_target.0, imaginary_target.0
+            ),
             TerminatorKind::SwitchInt {
                 discr,
                 targets,

@@ -1,0 +1,12 @@
+// The second alternative of an or-pattern after an irrefutable first one is unreachable,
+// but rustc's false edge from the first alternative reaches it (#47): its binding moves
+// `t.1`, so the use after the match is E0382.
+struct S { V: i32 }
+
+fn F() {
+    let t = (S { V: 1 }, S { V: 2 });
+    match t {
+        (x, _) | (_, x) => {}
+    }
+    PrintLine(t.1.V);
+}

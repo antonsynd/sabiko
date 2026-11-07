@@ -1,0 +1,12 @@
+// The arm after a catch-all is unreachable, but rustc's false edge reaches it (#47): a local
+// only the first arm initialises is possibly uninitialised after the match (E0381).
+fn F(n: i32) {
+    let x: i32;
+    match n {
+        _ => {
+            x = 1;
+        }
+        y => {}
+    }
+    PrintLine(x);
+}

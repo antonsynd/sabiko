@@ -23,18 +23,12 @@
 //! mut` rules now and then, which gives E0505/E0507/E0509/E0596-style errors, but only
 //! in code that is surely reachable (see `Arm::first`).
 //!
-//! TODO(#47): Sabiko does not borrow-check code that the patterns make
-//! unreachable, where rustc does (its match lowering adds false edges from each candidate
-//! to the next, and an irrefutable `if let`/`let`-`else` keeps its `else`): an assignment
-//! to an immutable binding or a use after move in an unreachable arm (`match W::Only(1, 2)
-//! { W::Only(_, b) => .., W::Only(a, _) => { a = 3; } }`) or in the `else` of an
-//! irrefutable `if let` or `let`-`else` is E0384/E0382 in rustc and accepted by Sabiko,
-//! and a move there makes a later use an error in rustc only
-//! (`tests/pending/enums/known_gap/unreachable_arms_borrowck.sabi`; seeds 2001893 and
-//! 3000551). So the generator makes no arm unreachable: the arms before a cover are always
-//! guarded, the cover's arms are disjoint, and an `if let` or `let`-`else` pattern surely
-//! refutes (`PatCx::refuted`). As a second line, checks are only skipped in the first
-//! arm of a `match` and never in an `else`.
+//! Code that the patterns make unreachable is borrow-checked like any other, by rustc and
+//! by Sabiko (false edges, #47): an unguarded early arm may make later arms unreachable,
+//! and an `if let` or `let`-`else` pattern may be irrefutable, which makes its `else`
+//! unreachable. The model joins the moves of every arm, reachable or not, as both
+//! compilers do. Checks are still only skipped in the first arm of a `match` and never in
+//! an `else`.
 
 use super::{Access, BodyGen, Expr, LoopKind, Place, Ranges};
 use crate::program::{int_literal, random_int, VariantKind, CHARS};
@@ -72,11 +66,6 @@ struct PatCx {
     /// Inside a struct, tuple or variant pattern: a binding there under a default binding
     /// mode borrows through the reference; at the top it binds the reference itself.
     nested: bool,
-    /// The pattern surely rejects some value (a literal, a range, a variant of an enum with
-    /// several): `refutable` may produce an irrefutable pattern (floats, single-variant
-    /// enums), which must not be an unguarded early arm, an `if let` with an `else` or a
-    /// `let`-`else`, since code it makes unreachable is checked differently (module docs).
-    refuted: bool,
     /// [`Scrut::top`].
     top: Option<Ty>,
 }
@@ -435,7 +424,6 @@ impl BodyGen<'_> {
             binds: Vec::new(),
             moved: false,
             nested: false,
-            refuted: false,
             top: s.top,
         }
     }
@@ -743,7 +731,6 @@ impl BodyGen<'_> {
         match ty {
             ValTy::Prim(Prim::Int(i)) => self.int_refutable(i, cx),
             ValTy::Prim(Prim::Bool) => {
-                cx.refuted = true;
                 (if self.rng.chance(50) { "true" } else { "false" }).to_owned()
             }
             ValTy::Prim(Prim::Char) => self.char_refutable(cx),
@@ -776,8 +763,6 @@ impl BodyGen<'_> {
             if def.variants.len() >= 2 { 15 } else { 0 },
             if cx.bindings_ok { 12 } else { 0 },
         ]);
-        // One variant of several leaves the others out; two of exactly two do not.
-        cx.refuted |= def.variants.len() > if choice == 1 { 2 } else { 1 };
         match choice {
             0 => {
                 let v = self.rng.index(def.variants.len());
@@ -830,8 +815,6 @@ impl BodyGen<'_> {
     }
 
     fn int_refutable(&mut self, i: IntTy, cx: &mut PatCx) -> String {
-        // Every form below leaves out most of the type (a range spans at most nine values).
-        cx.refuted = true;
         let v = self.int_pat_value(i);
         match self
             .rng
@@ -874,7 +857,6 @@ impl BodyGen<'_> {
     }
 
     fn char_refutable(&mut self, cx: &mut PatCx) -> String {
-        cx.refuted = true;
         let a = *self.rng.pick(CHARS);
         let b = *self.rng.pick(CHARS);
         let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
@@ -1040,12 +1022,13 @@ impl BodyGen<'_> {
                 self.refutable(s.ty, &mut cx, false, 0)
             };
             self.no_violations -= u32::from(!first);
-            // Always guarded, so that no later arm is unreachable (an unguarded `E::A(..)`
-            // would make a cover's `E::A(x)` so).
+            // Mostly guarded: an unguarded `E::A(..)` makes a cover's `E::A(x)` unreachable,
+            // and an unguarded irrefutable pattern every later arm (#47).
+            let forced = !self.rng.chance(25);
             arms.push(Arm {
                 pat,
                 cx,
-                guard: Some(true),
+                guard: Some(forced),
                 first,
             });
         }
@@ -1436,13 +1419,10 @@ impl BodyGen<'_> {
         let mut parts = Vec::new();
         let mut if_let = None;
         if self.rng.chance(30) {
-            // An `if let` needs a pattern that surely refutes, or its `else` is
-            // unreachable; otherwise this is a `match`.
+            // An irrefutable pattern makes the `else` unreachable (#47).
             let mut cx = Self::pat_cx(&s);
             let pat = self.refutable(s.ty, &mut cx, false, 0);
-            if cx.refuted {
-                if_let = Some((pat, cx));
-            }
+            if_let = Some((pat, cx));
         }
         let is_if_let = if_let.is_some();
         let arms = if let Some((pat, cx)) = if_let {
@@ -1501,11 +1481,8 @@ impl BodyGen<'_> {
         let ty = self.matchable_ty();
         let s = self.scrutinee(ty, depth.saturating_sub(1));
         let mut cx = Self::pat_cx(&s);
+        // An irrefutable pattern makes the `else` (or the fall-through) unreachable (#47).
         let pat = self.refutable(ty, &mut cx, false, 0);
-        if !cx.refuted {
-            // An irrefutable `if let` makes its `else` (or fall-through) unreachable.
-            return false;
-        }
         let before = self.snapshot_moved();
         self.line(&format!("if let {pat} = {} {{", s.text));
         self.open_block();
@@ -1666,10 +1643,8 @@ impl BodyGen<'_> {
         let ty = self.matchable_ty();
         let s = self.scrutinee(ty, depth.saturating_sub(1));
         let mut cx = Self::pat_cx(&s);
+        // An irrefutable pattern makes the `else` unreachable (#47).
         let pat = let_pattern(self.refutable(ty, &mut cx, false, 0));
-        if !cx.refuted {
-            return false;
-        }
         let Some(diverge) = self.strictly(|gen| gen.diverge(depth)) else {
             return false;
         };

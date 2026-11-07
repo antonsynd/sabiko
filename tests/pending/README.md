@@ -299,7 +299,11 @@ scope (rule 9). `let else` is the same lowering with a diverging fallback plus t
 
 ### Known gaps (`enums/known_gap/`)
 
-All but one run under rustc (`.expected` notes); none is required by #8.
+All run under rustc (`.expected` notes); none is required by #8. The two #47 gaps,
+`unreachable_arms_borrowck.sabi` (rustc borrow-checks code that patterns make unreachable)
+and `move_scrutinee_in_guard_then_test.sabi` (a later arm re-tested a scrutinee a failed
+guard moved out), are fixed (decision 72): the first became verdict programs in
+`differential/{moves,mutability}/`, the second `differential/run/enums/`.
 
 | file | gap | rustc |
 | --- | --- | --- |
@@ -307,8 +311,6 @@ All but one run under rustc (`.expected` notes); none is required by #8.
 | `reference_patterns.sabi` | `&p` patterns (`&Cell::Value(n)`, `let &(a, b) = &t;`), not listed in #8 (E0107 today, SPEC §2) (#49) | exit 0 |
 | `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional (#49) | exit 0 |
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
-| `unreachable_arms_borrowck.sabi` | rustc borrow-checks code that patterns make unreachable (false edges between match candidates; the `else` of an irrefutable `if let`/`let`-`else`), Sabiko does not: assignments to immutable bindings and uses after move there are E0384/E0382 in rustc and accepted by Sabiko; found by the generator, which makes no pattern unreachable (#47) | rejected (E0384, E0382) |
-| `move_scrutinee_in_guard_then_test.sabi` | a guard moves the scrutinee out and fails, and a later arm tests it again: rustc tests once, before the guards, Sabiko's candidates test again (decision 57), a use of a moved value (E0406). Moving it out in a guard is otherwise accepted (`run/enums/move_scrutinee_in_guard`) (#47) | exit 0 |
 
 ### Rules rustc applies (each confirmed by the program named)
 

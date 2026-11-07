@@ -959,14 +959,22 @@ places below its own (a guard that tested only `o`'s variant may write its paylo
 taking it is no access, so it is no conflict with a live `&mut` taken before the match (a
 guard may write a tested place through one). Assigning a fake-borrowed place (or a prefix of one) or
 borrowing it mutably is E0419 (rustc's E0510), while moving it out is not (a move
-leaves its memory as it was; decision 60), although an arm after a failed guard that
-tests the moved scrutinee again is E0406, which rustc, testing once before any guard,
-accepts (a known gap, `tests/pending/enums/known_gap/`); the arm's bindings denote shared
+leaves its memory as it was; decision 60). Each place is tested once along a path, as by
+rustc's decision tree (decision 72): an arm after a failed guard that moved the scrutinee
+out reuses what earlier arms read on every path to it and reads nothing more of a place
+they all tested, while reading a place some path to it has not tested yet is a use of the
+moved value (E0406); the arm's bindings denote shared
 references to their parts, so a guard cannot move out of them, cannot assign a
 binding (`mut n`) or write through one (`ref mut n`), both E0403 (rustc's E0594), and an
 assignment to the scrutinee also conflicts with a binding's borrow (E0410, E0506). Once
 the guard holds, the by-value bindings move or copy, so an arm that is not taken moves
-nothing. Variants of one enum are disjoint places, as are their fields. A partially moved
+nothing. Code that the patterns make unreachable (an arm or or-pattern alternative after
+an irrefutable one, the `else` of an irrefutable `if let` or `let`-`else`, the exit of an
+irrefutable `while let`) is borrow-checked as if it could run, from the state after the
+earlier pattern's tests, as rustc's false edges make it (decision 72): assigning an
+immutable binding there is E0400, a move there counts for the code after the `match`,
+and a local initialised only in the body of an irrefutable `if let` is possibly
+uninitialised after it. Variants of one enum are disjoint places, as are their fields. A partially moved
 enum is dropped field by field, each behind a drop flag set from the discriminant when the
 enum is written, so only the variant it holds is dropped.
 
