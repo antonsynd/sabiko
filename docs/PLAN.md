@@ -832,12 +832,11 @@ outside `known_gap/` landed and agrees with rustc: 27 run-time programs in
 read `Value` (CS0570), so wrappers are opaque to it. The generator produces double
 references in about 45% of borrow-clean programs (docs/TESTING.md); 2000 seeds at each of
 the bases 4000000, 5000000 and 6000000 agree with rustc on all five properties. They found
-two borrow-check divergences, avoided with TODOs and staged in
-`tests/pending/refs/known_gap/`: `&mut m` is rejected while a reborrow through `m`'s
-shared deref lives (`let d = &*m; let a = &mut m;`, accepted by rustc because a loan
-behind a shared reference does not conflict with `m` itself), and a guard fake-borrows a
-scrutinee no pattern reads (`match p { _ if g => .., _ => .. }` while `p` is mutably
-borrowed; older than #11), filed as #56 and #57 (#57 is fixed, decision 65). Known gaps (#58 unless noted): deref
+two borrow-check divergences, both fixed since: `&mut m` was rejected while a reborrow
+through `m`'s shared deref lived (`let d = &*m; let a = &mut m;`, accepted by rustc
+because a loan behind a shared reference does not conflict with `m` itself; #56, decision
+69), and a guard fake-borrowed a scrutinee no pattern reads (`match p { _ if g => .., _
+=> .. }` while `p` is mutably borrowed; older than #11; #57, decision 65). Known gaps (#58 unless noted): deref
 coercion (`&&i32` to `&i32`, E0300), temporary lifetime extension below the second level
 (`let d = &&&x;`, E0413), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
 references (Phase 9), and arrays and slices of references (#43). Mutation testing of the

@@ -586,10 +586,13 @@ use `&self` methods and `&T` parameters given `*rr` instead.
 
 ### Known gaps (`refs/known_gap/`)
 
-None is in code generation; each is a front-end gap a `&&T` program meets (the last one
-was found by the generator, which avoids it with a TODO naming the seed), still staged. A
-sixth, a guard fake-borrowing a scrutinee no pattern reads (seed 5001979, #57), is fixed
-(decision 65): it is `tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`.
+None is in code generation; each is a front-end gap a `&&T` program meets, still staged.
+Two the generator found are fixed: a guard fake-borrowing a scrutinee no pattern reads
+(seed 5001979, #57, decision 65), now
+`tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`, and `&mut m`
+while a reborrow through `m`'s shared deref lives (seed 5001324, #56, decision 69), now
+`tests/differential/loans/ok_mut_borrow_of_ref_while_reborrow_lives.sabi` and
+`tests/differential/run/refs/mut_borrow_of_ref_while_reborrow_lives.sabi`.
 All run under rustc (`.expected`).
 
 | file | gap | Sabiko today |
@@ -598,4 +601,3 @@ All run under rustc (`.expected`).
 | `deref_coercion.sabi` | `&&i32` to `&i32`, `&mut &mut i32` to `&mut i32`, `&&str` to `&str` at arguments and annotated `let`s | E0300 |
 | `static_promotion_through_mut_ref.sabi` | `*m = &7;` in `fn F(m: &mut &i32)`: rustc promotes `&7` to `&'static i32` | E0413 |
 | `explicit_lifetimes_double_ref.sabi` | `fn Inner<'a>(rr: &'a &'a i32) -> &'a i32`, `&'a &'b i32`, returning `&&T` (Phase 9) | E0107 |
-| `mut_borrow_of_ref_while_reborrow_lives.sabi` | `let d = &*m; let a = &mut m; *a = &y;` with `d` live: a loan behind a shared deref does not conflict with borrowing `m` itself in rustc (generator seed 5001324, #56) | E0408 |

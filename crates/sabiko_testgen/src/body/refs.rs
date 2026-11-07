@@ -276,15 +276,10 @@ impl BodyGen<'_> {
         let Ty::Ref { mutable, inner } = self.vars[r].ty else {
             unreachable!("a reference")
         };
-        // TODO(#56: `&mut s` while a reborrow through `s` lives; seed
-        // 5001324): Sabiko reports E0408 for `let d = &m[1..]; let a = &mut m; ..d..`
-        // (and `let d = &*m;`), which rustc accepts: a loan through a shared reference does
-        // not conflict with a borrow of the reference itself. A plain `&str` derived from
-        // `s` carries no lock in the scope model, so only a `&str` declared right here is
-        // borrowed mutably.
-        let outer = self.vars[r].mutable
-            && (fresh || inner != ValTy::Str)
-            && self.rng.chance(if fresh { 70 } else { 50 });
+        // A `&str` derived from `s` (`&s[1..]`) carries no lock in the scope model, and
+        // needs none: a loan through a shared reference does not conflict with borrowing
+        // the reference itself (#56, seed 5001324), so `&mut s` is fine while it lives.
+        let outer = self.vars[r].mutable && self.rng.chance(if fresh { 70 } else { 50 });
         if !self.ref_free(r, outer) && !self.violate() {
             // A fresh local is free; it stays declared.
             return fresh;

@@ -855,6 +855,13 @@ Loans (E0408–E0413):
   second `&mut`, E0411 for a use, E0410 for a write, E0412 for a move). Reborrows through
   the reference (`&mut *r`, `&*r`, `&mut r.X`) are allowed and suspend the original until
   the reborrow's last use.
+- A loan of a place reached through a shared reference (`&*m`, `&(*m).0`, `&s[1..]` for
+  `m: &T`, `s: &str`, or `&**rm` for `rm: &mut &T`) conflicts with nothing (#56, decision
+  69, rustc's `ignore_borrow`): the data behind a `&T` cannot change, so overwriting `m`,
+  retargeting it through `&mut m`, or borrowing `m` mutably leaves the reborrow valid,
+  still pointing at the old referent. The reborrow still keeps `m`'s own loans live (`x`
+  stays borrowed while `d = &*m` lives, for `m = &x`). Behind a `&mut` (`&*mm`), the loan
+  is tracked as usual: `&mut mm` while it lives is E0408.
 - A tuple holding references holds their loans (`let p = (&a, &mut b);` borrows both
   until `p`'s last use); its elements' origins are tracked one by one.
 - Loans of disjoint fields (`&mut p.X` and `&mut p.Y`, `&mut t.0` and `&mut t.1`) do not

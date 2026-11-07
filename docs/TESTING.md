@@ -136,10 +136,10 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   &mut T`); `programs_use_references_to_references` pins minimum counts for 11 of these
   constructs. Avoided with TODOs: three levels, `&mut &T` parameters, a retarget in a
   loop of a reference declared outside it, string patterns on a `&&str` scrutinee (#58),
-  double references in aggregates (#43), and a borrow-check divergence the runs found
-  (staged in `tests/pending/refs/known_gap/`): `&mut m` while a reborrow through `m`'s
-  shared deref lives (seed 5001324, #56). The other, a guard fake-borrowing a scrutinee no
-  pattern reads (seed 5001979, #57), is fixed (decision 65) and no longer avoided. 2000 seeds at each of the bases 4000000,
+  double references in aggregates (#43). The two borrow-check divergences the runs found
+  are fixed and no longer avoided: `&mut m` while a reborrow through `m`'s shared deref
+  lives (seed 5001324, #56, decision 69) and a guard fake-borrowing a scrutinee no pattern
+  reads (seed 5001979, #57, decision 65). 2000 seeds at each of the bases 4000000,
   5000000 and 6000000 pass all five properties.
 - ILVerify runs on every assembly the tests produce. The only ignored error is
   `ReturnPtrToStack` (decision 30).

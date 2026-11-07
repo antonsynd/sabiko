@@ -682,6 +682,115 @@ fn moving_a_reference_whose_referent_is_reborrowed() {
 }
 
 // ----------------------------------------------------------------------------------------
+// Loans behind a shared reference (#56, decision 69)
+// ----------------------------------------------------------------------------------------
+
+#[test]
+fn mutable_borrow_of_a_reference_while_its_shared_referent_is_reborrowed() {
+    // let m = &x; let d = &*m; let a = &mut m; *a = &y; m = &y; let t = *d;
+    // `d`'s loan is behind the shared `*m`: neither `&mut m` nor overwriting `m` reaches it.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let m = mir.user("m", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let reb = mir.user("reb", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let a = mir.user("a", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let value = mir.user("value", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(y), use_int(2));
+    mir.assign(bb0, local(m), shared(local(x)));
+    mir.assign(bb0, local(reb), shared(deref(m)));
+    mir.assign(bb0, local(a), mutable(local(m)));
+    mir.assign(bb0, deref(a), shared(local(y)));
+    mir.assign(bb0, local(m), shared(local(y)));
+    mir.assign(bb0, local(value), use_copy(deref(reb)));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    fx.assert_clean(&body);
+}
+
+#[test]
+fn reborrow_behind_a_shared_reference_still_keeps_the_referent_borrowed() {
+    // let m = &x; let d = &*m; x = 2; let t = *d;
+    // Ignoring the loan of `*m` must not end the loan of `x` that `m` holds: the reborrow
+    // constraint carries it into `d`.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let m = mir.user("m", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let reb = mir.user("reb", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let value = mir.user("value", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(m), shared(local(x)));
+    mir.assign(bb0, local(reb), shared(deref(m)));
+    mir.assign(bb0, local(x), use_int(2));
+    mir.assign(bb0, local(value), use_copy(deref(reb)));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    assert_eq!(
+        fx.messages(&body),
+        ["E0410 cannot assign to `x` because it is borrowed"]
+    );
+}
+
+#[test]
+fn mutable_borrow_of_a_mutable_reference_while_its_referent_is_reborrowed() {
+    // let mm = &mut x; let d = &*mm; let a = &mut mm; let t = *d;
+    // Behind a `&mut`, the loan is tracked: `&mut mm` conflicts with it.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let mm = mir.user("mm", Ty::mut_ref(Ty::I32), Mutability::Mut);
+    let reb = mir.user("reb", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let a = mir.user("a", Ty::mut_ref(Ty::mut_ref(Ty::I32)), Mutability::Not);
+    let value = mir.user("value", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(mm), mutable(local(x)));
+    mir.assign(bb0, local(reb), shared(deref(mm)));
+    mir.assign(bb0, local(a), mutable(local(mm)));
+    mir.assign(bb0, local(value), use_copy(deref(reb)));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    assert_eq!(
+        fx.messages(&body),
+        ["E0408 cannot borrow `mm` as mutable because it is also borrowed as immutable"]
+    );
+}
+
+#[test]
+fn loan_behind_a_shared_deref_below_a_mutable_one_is_ignored() {
+    // let mm = &mut r; let d = &**mm; *mm = &y; let t = *d;   (r: &i32, mm: &mut &i32)
+    // The last deref is of the shared `*mm`, so writing `*mm` leaves `d` alone.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
+    let mm = mir.user("mm", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
+    let reb = mir.user("reb", Ty::shared_ref(Ty::I32), Mutability::Not);
+    let value = mir.user("value", Ty::I32, Mutability::Not);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(x), use_int(1));
+    mir.assign(bb0, local(y), use_int(2));
+    mir.assign(bb0, local(r), shared(local(x)));
+    mir.assign(bb0, local(mm), mutable(local(r)));
+    mir.assign(bb0, local(reb), shared(deref(mm).deref()));
+    mir.assign(bb0, deref(mm), shared(local(y)));
+    mir.assign(bb0, local(value), use_copy(deref(reb)));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+
+    fx.assert_clean(&body);
+}
+
+// ----------------------------------------------------------------------------------------
 // Shallow fake borrows of compared references (decision 63)
 // ----------------------------------------------------------------------------------------
 
@@ -915,17 +1024,18 @@ fn guard_borrow_of_the_reference_allows_moves_and_accesses_through_it() {
 #[test]
 fn guard_conflict_with_two_fake_borrows_is_reported_once() {
     // g = &fake *r; s = &fake r; n = &mut r; PlaceMention(g); PlaceMention(s);
-    // `&mut r` conflicts with both; one E0419 is reported, as in rustc, the first's.
+    // `&mut r` conflicts with both; one E0419 is reported, as in rustc, the first's. `r`
+    // is a `&mut`: behind a shared `r`, the fake borrow of `*r` would be ignored (#56).
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx);
-    let x = mir.user("x", Ty::I32, Mutability::Not);
-    let r = mir.user("r", Ty::shared_ref(Ty::I32), Mutability::Mut);
-    let n = mir.user("n", Ty::mut_ref(Ty::shared_ref(Ty::I32)), Mutability::Not);
-    let of_ref = mir.temp(Ty::shared_ref(Ty::shared_ref(Ty::I32)));
+    let x = mir.user("x", Ty::I32, Mutability::Mut);
+    let r = mir.user("r", Ty::mut_ref(Ty::I32), Mutability::Mut);
+    let n = mir.user("n", Ty::mut_ref(Ty::mut_ref(Ty::I32)), Mutability::Not);
+    let of_ref = mir.temp(Ty::shared_ref(Ty::mut_ref(Ty::I32)));
     let of_referent = mir.temp(Ty::shared_ref(Ty::I32));
     let bb0 = mir.block();
     mir.assign(bb0, local(x), use_int(1));
-    mir.assign(bb0, local(r), shared(local(x)));
+    mir.assign(bb0, local(r), mutable(local(x)));
     let first = mir.assign(bb0, local(of_referent), fake_guard(deref(r)));
     mir.assign(bb0, local(of_ref), fake_guard(local(r)));
     mir.assign(bb0, local(n), mutable(local(r)));

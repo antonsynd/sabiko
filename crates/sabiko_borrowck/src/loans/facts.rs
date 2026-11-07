@@ -12,7 +12,9 @@
 //! - Assignments, call arguments and call results relate the source's [`RegionTy`] to the
 //!   destination's, covariantly, with both directions below a `&mut`.
 //! - An access invalidates every live loan whose place it conflicts with (see
-//!   [`places_conflict`]); the kind of access is remembered for the diagnostic.
+//!   [`places_conflict`]); the kind of access is remembered for the diagnostic. A loan of a
+//!   place reached through a shared reference conflicts with nothing (rustc's
+//!   `ignore_borrow`, decision 69).
 //! - Overwriting a local or its `*local`, a call result and `StorageDead` kill every loan
 //!   rooted at that local; a deeper write kills the loans it conflicts with. Kills follow
 //!   invalidations (at `Mid` versus `Start`), so an error is still reported once and then
@@ -32,7 +34,7 @@ use std::collections::HashMap;
 use polonius_engine::{AllFacts, FactTypes};
 use sabiko_mir::{
     AggregateKind, BasicBlock, Body, FakeBorrowKind, Local, LocalKind, Mutability, Operand, Place,
-    PlaceElem, Rvalue, StatementKind, TerminatorKind,
+    PlaceElem, Rvalue, StatementKind, TerminatorKind, Ty,
 };
 use sabiko_resolve::Builtin;
 use sabiko_span::Span;
@@ -125,6 +127,13 @@ pub struct LoanData {
     /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a place a match
     /// inspects, while a guard runs, or a compared reference. Both are shallow.
     pub fake: Option<FakeBorrowKind>,
+    /// Whether the borrowed place is reached through a shared reference (`&*m`, `&(*m).0`
+    /// with `m: &T`). As in rustc (`BorrowData` is not even created for one, see
+    /// `ignore_borrow`), no access conflicts with such a loan: whatever happens to the
+    /// path, the data behind a `&T` stays valid and unchanged, so overwriting `m` or
+    /// borrowing it `&mut` cannot invalidate the reborrow. The reborrow constraint
+    /// (`'m: 'fresh`) still keeps the loans `m` holds live.
+    pub behind_shared_ref: bool,
 }
 
 impl LoanData {
@@ -342,6 +351,7 @@ impl Generator<'_> {
                         span: statement.span,
                         activation,
                         fake: kind.fake(),
+                        behind_shared_ref: is_behind_shared_ref(self.body, place),
                     });
                 }
             }
@@ -724,7 +734,7 @@ impl Generator<'_> {
     ) {
         let start = self.table.start(location);
         for (index, loan) in self.loans.iter().enumerate() {
-            if except == Some(Loan(index)) {
+            if except == Some(Loan(index)) || loan.behind_shared_ref {
                 continue;
             }
             // A move leaves the scrutinee's memory as it was, so a guard may move it out
@@ -823,6 +833,21 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
         }
     }
     uses
+}
+
+/// Whether `place` goes through a `Deref` of a shared reference (rustc's `ignore_borrow`).
+fn is_behind_shared_ref(body: &Body, place: &Place) -> bool {
+    (0..place.projection.len()).any(|index| {
+        place.projection[index] == PlaceElem::Deref
+            && matches!(
+                Place {
+                    local: place.local,
+                    projection: place.projection[..index].to_vec(),
+                }
+                .ty(body),
+                Ty::Ref(Mutability::Not, _)
+            )
+    })
 }
 
 /// Whether an access of `access` with `kind` conflicts with a loan of `borrowed`.
