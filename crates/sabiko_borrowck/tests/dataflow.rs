@@ -38,6 +38,7 @@ fn one_block_body() -> (Body, Local) {
         name: name.map(str::to_owned),
         span: span(0),
         source: None,
+        match_span: None,
     };
     let x = Local(1);
     let statements = vec![

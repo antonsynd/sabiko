@@ -1,0 +1,16 @@
+[E0319] Error: no method named `Foo` found for type `!`
+    ╭─[ tests/ui/typeck/postfix_after_operandless_return.sabi:10:12 ]
+    │
+ 10 │     return.Foo(); //~ ERROR E0319 no method named `Foo` found for type `!`
+    │            ─┬─  
+    │             ╰─── method not found
+    │ 
+    │ Note: only structs have methods (inherent `impl` blocks)
+────╯
+[E0301] Error: no field `Len` on type `!`
+    ╭─[ tests/ui/typeck/postfix_after_operandless_return.sabi:15:23 ]
+    │
+ 15 │         let n = break.Len; //~ ERROR E0301 no field `Len` on type `!`
+    │                       ─┬─  
+    │                        ╰─── unknown field
+────╯

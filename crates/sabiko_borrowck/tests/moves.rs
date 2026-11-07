@@ -207,6 +207,7 @@ impl BodyBuilder {
             name: name.map(str::to_owned),
             span,
             source: None,
+            match_span: None,
         });
         Local(u32::try_from(self.body.locals.len() - 1).unwrap())
     }

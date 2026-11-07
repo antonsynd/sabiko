@@ -698,6 +698,7 @@ impl Rewriter<'_> {
             name: None,
             span,
             source: None,
+            match_span: None,
         });
         local
     }

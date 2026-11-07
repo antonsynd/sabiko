@@ -116,6 +116,10 @@ pub struct LocalDecl {
     pub span: Span,
     /// The resolver's binding, for user locals and parameters.
     pub source: Option<LocalId>,
+    /// For a by-value binding of a `match` arm, `if let`, `while let` or (destructuring)
+    /// `let` pattern: the span of the scrutinee or initialiser it is bound out of (rustc's
+    /// `opt_match_place`), where a move out of it is reported.
+    pub match_span: Option<Span>,
 }
 
 /// Index into [`Body::cleanups`].

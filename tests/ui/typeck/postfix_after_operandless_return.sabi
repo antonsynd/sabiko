@@ -1,0 +1,17 @@
+// `return.Foo()` and `break.Len` are a method call and a field access on an operand-less
+// `return`/`break` of type `!`, as in rustc, which reports E0599 and E0609 for them (#50).
+struct P { Len: i32 }
+
+impl P {
+    fn Foo(&self) -> i32 { self.Len }
+}
+
+fn A() {
+    return.Foo(); //~ ERROR E0319 no method named `Foo` found for type `!`
+}
+
+fn B() {
+    loop {
+        let n = break.Len; //~ ERROR E0301 no field `Len` on type `!`
+    }
+}
