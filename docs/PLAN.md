@@ -799,7 +799,10 @@ temporary scope rather than its own. They also found three generator bugs, fixed
 compiler bugs are fixed (decision 71): an operand with drop glue goes into a scope of the
 call, aggregate or assignment that consumes it, as in rustc, and the generator's TODOs are
 gone (`tests/differential/run/drops/unwind_tail_operand.sabi`,
-`unwind_operand_temporary.sabi`).
+`unwind_operand_temporary.sabi`). With the shapes generated again, 2000 seeds at each of
+the bases 12000000, 17200000 and 22000000 agree with rustc; base 12000000 found one more
+case of the same kind in destructuring assignment (seed 12001627,
+`unwind_destructuring_assign_place.sabi`), fixed too.
 
 Update (2026-11-05), mutation testing of strings and range slicing (#10) on the lines the
 branch changed (`docs/TESTING.md`): before the new tests, 77.8% (`sabiko_types`), 90.7%
