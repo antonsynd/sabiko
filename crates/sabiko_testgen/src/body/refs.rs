@@ -382,7 +382,16 @@ impl BodyGen<'_> {
         let m_name = self.vars[m].name.clone();
         if mutable && self.prog.is_sized(inner) && self.rng.chance(70) {
             let e = self.typed_expr(inner, depth.saturating_sub(1));
-            self.line(&format!("**{m_name} = {};", e.text));
+            if self.vars[m].moved {
+                // The value moved `m` (`match m { x => .. }` binds it whole; seed 18301027):
+                // no write through it after that.
+                let name = self.fresh_name();
+                let ty = self.prog.val_name(inner);
+                self.line(&format!("let {name}: {ty} = {};", e.text));
+                self.declare(name, Ty::Val(inner), false, false);
+            } else {
+                self.line(&format!("**{m_name} = {};", e.text));
+            }
             return;
         }
         // A loan stored into `r` inside a loop that `r` was declared outside of would still
