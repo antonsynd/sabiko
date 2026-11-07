@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      record-trend:
+        description: 'Also record this run in the benchmark trend (otherwise only the Monday scheduled run does)'
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -95,13 +100,17 @@ jobs:
 
   # Runtime and memory of Sabiko-compiled programs against the same programs in C# (and
   # rustc for reference); see benchmarks/README.md. The report goes to the job summary and,
-  # with the raw samples, to an artifact; nothing is committed (the weekly
-  # benchmark-trend.yml records history, decision 68). Only allocations are gated: they are
-  # exact, while timings on a shared runner are too noisy to fail a build on.
+  # with the raw samples, to an artifact. Only allocations are gated: they are exact, while
+  # timings on a shared runner are too noisy to fail a build on. Monday's scheduled run (or a
+  # manual run with `record-trend`) also appends its p50s to benchmarks/results/history.json,
+  # redraws benchmarks/results/trend.svg and commits both (decision 68), even when the
+  # allocation gate fails, so a regression shows on the chart.
   benchmarks:
     name: benchmarks (Sabiko vs C#, runtime and memory)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.99.1
@@ -112,6 +121,7 @@ jobs:
       - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
         run: scripts/setup-dotnet.sh
       - name: Run the benchmarks
+        id: run
         run: >
           python3 benchmarks/run_benchmarks.py
           --json bench-out/results.json --markdown bench-out/report.md
@@ -126,6 +136,24 @@ jobs:
           cat bench-out/gate.txt
           { echo '## Allocation gate'; echo '```'; cat bench-out/gate.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+      - name: Decide whether to record the trend (Mondays, or record-trend)
+        id: trend
+        if: always() && steps.run.outcome == 'success'
+        env:
+          EVENT: ${{ github.event_name }}
+          RECORD_INPUT: ${{ inputs.record-trend }}
+        run: |
+          record=false
+          if [ "$EVENT" = schedule ] && [ "$(date -u +%u)" = 1 ]; then record=true; fi
+          if [ "$EVENT" = workflow_dispatch ] && [ "$RECORD_INPUT" = true ]; then record=true; fi
+          echo "record=$record" >> "$GITHUB_OUTPUT"
+          echo "record trend: $record"
+      - name: Record the run and redraw the trend chart
+        if: always() && steps.trend.outputs.record == 'true'
+        run: |
+          python3 benchmarks/trend.py record --results bench-out/results.json --commit "$GITHUB_SHA"
+          python3 benchmarks/trend.py chart
+          cp benchmarks/results/history.json benchmarks/results/trend.svg bench-out/
       - name: Upload the results
         if: always()
         uses: actions/upload-artifact@v4
@@ -134,6 +162,25 @@ jobs:
           path: bench-out/
           if-no-files-found: warn
           retention-days: 90
+      - name: Commit history.json and trend.svg
+        if: always() && steps.trend.outputs.record == 'true'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/results/history.json benchmarks/results/trend.svg
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "Record the weekly benchmark trend ($(date -u +%Y-%m-%d))"
+          # Someone may have pushed while the benchmarks ran; only this job writes these files.
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin "$BRANCH" && git push origin "HEAD:$BRANCH" && exit 0
+            sleep $((attempt * 5))
+          done
+          exit 1
 
   # Each crate's mutants run as four round-robin shards on separate runners (one in-place
   # cargo-mutants run per runner tests one mutant at a time); `mutants-score` then judges

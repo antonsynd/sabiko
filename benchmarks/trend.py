@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Benchmark history and the performance-over-time chart.
 
-The weekly ``Benchmark trend`` workflow runs ``run_benchmarks.py --json`` on a GitHub
-runner, then:
+Monday's scheduled run of the nightly ``benchmarks`` job (or a manual run with the
+``record-trend`` input) runs ``run_benchmarks.py --json`` on a GitHub runner, then:
 
     # append the run's p50 values to benchmarks/results/history.json (one line per run)
     python3 benchmarks/trend.py record --results bench-out/results.json --commit "$GITHUB_SHA"
@@ -317,8 +317,8 @@ def render_svg(history: list[dict]) -> str:
                 f"<style>{STYLE}</style>",
                 f'<rect class="surface" width="{WIDTH}" height="{h}" rx="6"/>',
                 f'<text id="t" class="title" x="{MARGIN_X}" y="34">{escape(title)}</text>',
-                f'<text class="subtitle" x="{MARGIN_X}" y="58">No history yet: the weekly Benchmark trend '
-                "workflow adds a point every Monday (or run it by hand).</text>",
+                f'<text class="subtitle" x="{MARGIN_X}" y="58">No history yet: the nightly benchmarks job adds a point '
+                "every Monday (or run Nightly by hand with record-trend).</text>",
                 "</svg>",
                 "",
             ]

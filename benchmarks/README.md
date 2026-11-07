@@ -5,7 +5,7 @@ in C#, on the same .NET runtime, measured nightly. rustc builds of the Sabiko so
 are a third, reference column: every `.sabi` file is valid Rust (decision 49). Methodology:
 decision 50 in `docs/DECISIONS.md`. The latest checked-in report is
 [`results/latest.md`](results/latest.md); the nightly reports are in the job summaries and
-artifacts of the `Nightly` workflow, and a weekly run is recorded in
+artifacts of the `Nightly` workflow, and Monday's run is recorded in
 [`results/history.json`](results/history.json) and charted below (see [Trend](#trend)).
 
 ![Sabiko/C# time ratios over time](results/trend.svg)
@@ -184,8 +184,8 @@ Today only `nbody` allocates on the Sabiko side: printing an `f64` goes through
 The `benchmarks` job in `.github/workflows/nightly.yml` (also `workflow_dispatch`) installs
 the pinned Rust toolchain and the .NET toolchain, runs everything, appends the Markdown
 report to the job summary, uploads `results.json`, `report.md` and the gate's output as the
-`benchmark-results` artifact (kept 90 days), and then runs the allocation gate. The nightly
-job commits nothing; the weekly trend job ([Trend](#trend)) records history.
+`benchmark-results` artifact (kept 90 days), and then runs the allocation gate. On Mondays
+it also records the run in the trend ([Trend](#trend)); the other nights commit nothing.
 `results/latest.md` is a local run checked in by hand as an example and labelled with the
 machine it came from; regenerate it with `--markdown` when the benchmark set changes.
 
@@ -195,20 +195,20 @@ between nightlies.
 
 ## Trend
 
-The `Benchmark trend` workflow (`.github/workflows/benchmark-trend.yml`, decision 68) runs
-the whole set every Monday at 05:41 UTC (and on `workflow_dispatch`), then
-`benchmarks/trend.py` appends the run's p50s (every benchmark, configuration, mode and
+Monday's scheduled run of the nightly `benchmarks` job (decision 68), or a manual run of the
+`Nightly` workflow with the `record-trend` input, goes on after the allocation gate, pass or
+fail: `benchmarks/trend.py` appends the run's p50s (every benchmark, configuration, mode and
 language; no raw samples) as one line of `results/history.json`, redraws
-`results/trend.svg`, and the workflow commits both. A rerun on the same date replaces that
-date's line. The chart plots Sabiko/C# ratios of the p50, so below 1.00x Sabiko is faster:
-programs measured in the same run on the same runner, interleaved, give ratios that are far
-steadier from week to week than absolute times on a shared runner. Four series: steady state
-(in-process time per iteration) and end to end (process wall time), each in the `release`
-and `checked` configurations. The top panel is their geometric mean over each run's
-benchmarks (a newly added benchmark enters it from its first week), then one small multiple
-per benchmark, all on one scale with parity dashed. With the SVG opened on its own,
-hovering a dot (every week in the top panel, the latest in the others) shows its date and
-commit.
+`results/trend.svg`, and the job commits both to the branch it ran on and adds them to its
+artifact. A rerun on the same date replaces that date's line. The chart plots Sabiko/C#
+ratios of the p50, so below 1.00x Sabiko is faster: programs measured in the same run on the
+same runner, interleaved, give ratios that are far steadier from week to week than absolute
+times on a shared runner. Four series: steady state (in-process time per iteration) and end
+to end (process wall time), each in the `release` and `checked` configurations. The top
+panel is their geometric mean over each run's benchmarks (a newly added benchmark enters it
+from its first week), then one small multiple per benchmark, all on one scale with parity
+dashed. With the SVG opened on its own, hovering a dot (every week in the top panel, the
+latest in the others) shows its date and commit.
 
 ```sh
 python3 benchmarks/trend.py record --results target/benchmarks/results.json --commit "$(git rev-parse HEAD)"
@@ -217,7 +217,7 @@ python3 benchmarks/trend.py chart --weeks 26 --output /tmp/trend.svg
 ```
 
 `record --history` and `chart --history` point at another file, so a local run can be
-charted without touching the checked-in history. Only CI's weekly runs belong in it: one
+charted without touching the checked-in history. Only CI's runs belong in it: one
 machine label, one sample count.
 
 ## Adding a benchmark

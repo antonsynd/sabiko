@@ -30,5 +30,5 @@
 </style>
 <rect class="surface" width="860" height="120" rx="6"/>
 <text id="t" class="title" x="20" y="34">Sabiko vs C#: time ratio over time (p50, Sabiko / C#)</text>
-<text class="subtitle" x="20" y="58">No history yet: the weekly Benchmark trend workflow adds a point every Monday (or run it by hand).</text>
+<text class="subtitle" x="20" y="58">No history yet: the nightly benchmarks job adds a point every Monday (or run Nightly by hand with record-trend).</text>
 </svg>
