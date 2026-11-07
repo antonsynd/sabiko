@@ -1,0 +1,12 @@
+// `d` reborrows `**rm`, reached through the shared `*rm`: retargeting `*rm` does not touch
+// that loan, and `d` keeps pointing at `x` while `r` now points at `y` (#56).
+fn Main() {
+    let x = 1i32;
+    let y = 2i32;
+    let mut r: &i32 = &x;
+    let rm: &mut &i32 = &mut r;
+    let d: &i32 = &**rm;
+    *rm = &y;
+    PrintLine(*d);
+    PrintLine(*r);
+}

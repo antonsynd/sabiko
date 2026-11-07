@@ -1,0 +1,10 @@
+// Unlike a reborrow through a shared reference, one through `&mut` (`&*mm`) keeps `mm`
+// borrowed: `&mut mm` while `d` lives is E0502 (#56).
+fn Main() {
+    let mut x = 1i32;
+    let mut mm: &mut i32 = &mut x;
+    let d: &i32 = &*mm;
+    let a: &mut &mut i32 = &mut mm;
+    PrintLine(*d);
+    PrintLine(**a);
+}

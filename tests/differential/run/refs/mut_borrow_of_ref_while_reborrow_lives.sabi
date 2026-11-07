@@ -1,0 +1,29 @@
+// A reborrow through a shared reference outlives a retarget of that reference: `d` and `t`
+// keep the old targets after `&mut m` and `&mut s` (and `*f` after `p` is overwritten),
+// while `m`, `s` and `p.0` see the new ones (#56).
+fn Main() {
+    let x = 1i32;
+    let y = 2i32;
+    let mut m: &i32 = &x;
+    let d: &i32 = &*m;
+    let a: &mut &i32 = &mut m;
+    *a = &y;
+    PrintLine(*d);
+    PrintLine(*m);
+    let mut s: &str = "abc";
+    let t: &str = &s[1..];
+    let u: &mut &str = &mut s;
+    *u = "x";
+    PrintLine(t);
+    PrintLine(s);
+    let mut p: (&i32, i32) = (&x, 5);
+    let f: &i32 = &*p.0;
+    p = (&y, 6);
+    let e: &mut (&i32, i32) = &mut p;
+    e.1 = 7;
+    PrintLine(*f);
+    PrintLine(*p.0 + p.1);
+    let rr: &&i32 = &&x;
+    let g: &i32 = &**rr;
+    PrintLine(*g);
+}
