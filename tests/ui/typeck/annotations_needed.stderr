@@ -26,3 +26,38 @@
     │                  ┬  
     │                  ╰── the type of the indexed value must be known
 ────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:47:18 ]
+    │
+ 47 │     (_, _) = (x, []); //~ ERROR E0313 type annotations needed
+    │                  ─┬  
+    │                   ╰── cannot infer the type of this expression
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:51:14 ]
+    │
+ 51 │     let _ = ([], []); //~ ERROR E0313 type annotations needed
+    │              ─┬  
+    │               ╰── cannot infer the type of this expression
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:55:14 ]
+    │
+ 55 │     let _ = &[][..]; //~ ERROR E0313 type annotations needed
+    │              ─┬  
+    │               ╰── cannot infer the type of this expression
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:59:5 ]
+    │
+ 59 │     []; //~ ERROR E0313 type annotations needed
+    │     ─┬  
+    │      ╰── cannot infer the type of this expression
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:63:5 ]
+    │
+ 63 │     [].len() //~ ERROR E0313 type annotations needed
+    │     ─┬  
+    │      ╰── cannot infer the type of this expression
+────╯

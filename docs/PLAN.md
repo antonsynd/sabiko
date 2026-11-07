@@ -945,9 +945,10 @@ with rustc with both lints denied: over 10000 seeds at four bases (1, 1000000, 1
 programs; the hand-written corpus (`tests/differential/lints/`, `tests/ui/lints/`, checked
 by `crates/sabikoc/tests/const_lints.rs`) agrees exactly. Gap: those misses, all where
 Sabiko's MIR walks in another order than rustc's or keeps a value rustc's drops a block
-earlier (documented in decision 73). Found on the way, not fixed: `(_, _) = (x, [])`, which rustc
-rejects (E0282, the type of `[]` is not inferred; generator seed 1002197), passes Sabiko's
-type check and hits an internal error in MIR building (#78).
+earlier (documented in decision 73). Found on the way: `(_, _) = (x, [])`, which rustc rejects
+(E0282, the type of `[]` is not inferred; generator seed 1002197), passed Sabiko's type
+check and hit an internal error in MIR building; it is now E0313 on the `[]`, and the
+generator writes a value assigned to `_` with a type of its own (#78).
 
 ### Phase 5: Data types
 
