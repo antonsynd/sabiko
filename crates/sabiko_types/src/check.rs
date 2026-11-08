@@ -15,7 +15,7 @@ use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
-use crate::collect::{self, ItemTypes, VariantKind};
+use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
 use crate::ty::{Mutability, Ty, TyVid};
 
@@ -1304,7 +1304,7 @@ impl<'a> FnCtxt<'a> {
                         let vname = self.resolve.qualified_name(def);
                         match variant.kind {
                             VariantKind::Tuple => {
-                                self.expect_enum_pat(pat, adt_def, &ty, init_span);
+                                let args = self.expect_enum_pat(pat, adt_def, &ty, init_span);
                                 self.pat_variants.insert(pat.id, (adt_def, index));
                                 let n = variant.fields.len();
                                 if (rest.is_none() && fixed != n) || fixed > n {
@@ -1327,7 +1327,7 @@ impl<'a> FnCtxt<'a> {
                                         variant
                                             .fields
                                             .iter()
-                                            .map(|f| f.ty.clone())
+                                            .map(|f| adt.field_ty(&f.ty, &args))
                                             .collect::<Vec<_>>(),
                                     )
                                 }
@@ -1370,20 +1370,29 @@ impl<'a> FnCtxt<'a> {
                 let target = match self.resolve.pat_res(pat.id) {
                     Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Variant => {
                         let (adt_def, index) = self.variant_of(def);
-                        self.expect_enum_pat(pat, adt_def, &ty, init_span);
+                        let args = self.expect_enum_pat(pat, adt_def, &ty, init_span);
                         self.pat_variants.insert(pat.id, (adt_def, index));
-                        let adt = self.items.adt(adt_def);
+                        let fields = self.items.adt(adt_def).variant(index).fields.clone();
                         Some((
-                            adt.variant(index).fields.clone(),
+                            self.instance_fields(adt_def, &fields, &args),
                             format!("variant `{}`", self.resolve.qualified_name(def)),
                         ))
                     }
                     Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Struct => {
-                        if self.try_coerce(&Ty::Adt(def), &ty).is_err() {
-                            self.mismatch(pat.span, &ty, &Ty::Adt(def));
+                        let args = match pat_path(pat) {
+                            Some(path) => self.adt_args(def, path),
+                            None => self.fresh_adt_args(def),
+                        };
+                        let inst = Ty::Adt(def, args.clone().into());
+                        if self.try_coerce(&inst, &ty).is_err() {
+                            self.mismatch(pat.span, &ty, &inst);
                         }
                         let adt = self.items.adt(def);
-                        Some((adt.fields.clone(), format!("struct `{}`", adt.name)))
+                        let (fields, name) = (adt.fields.clone(), adt.name.clone());
+                        Some((
+                            self.instance_fields(def, &fields, &args),
+                            format!("struct `{name}`"),
+                        ))
                     }
                     _ => None,
                 };
@@ -1593,8 +1602,13 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             DefKind::Struct if self.items.adt(def).is_unit => {
-                if self.try_coerce(&Ty::Adt(def), ty).is_err() {
-                    self.pat_type_mismatch(pat.span, ty, &Ty::Adt(def), init_span);
+                let args = match pat_path(pat) {
+                    Some(path) => self.adt_args(def, path),
+                    None => self.fresh_adt_args(def),
+                };
+                let inst = Ty::Adt(def, args.into());
+                if self.try_coerce(&inst, ty).is_err() {
+                    self.pat_type_mismatch(pat.span, ty, &inst, init_span);
                 }
             }
             kind => {
@@ -1621,11 +1635,66 @@ impl<'a> FnCtxt<'a> {
         (parent, self.resolve.variant_index(variant))
     }
 
-    /// The value matched by a variant pattern must be of the variant's enum.
-    fn expect_enum_pat(&mut self, pat: &Pat, adt: DefId, ty: &Ty, init_span: Option<Span>) {
-        if self.try_coerce(&Ty::Adt(adt), ty).is_err() {
-            self.pat_type_mismatch(pat.span, ty, &Ty::Adt(adt), init_span);
+    /// The value matched by a variant pattern must be of the variant's enum; returns the
+    /// enum instance's generic arguments (see [`Self::adt_args`]).
+    fn expect_enum_pat(
+        &mut self,
+        pat: &Pat,
+        adt: DefId,
+        ty: &Ty,
+        init_span: Option<Span>,
+    ) -> Vec<Ty> {
+        let args = match pat_path(pat) {
+            Some(path) => self.adt_args(adt, path),
+            None => self.fresh_adt_args(adt),
+        };
+        let inst = Ty::Adt(adt, args.clone().into());
+        if self.try_coerce(&inst, ty).is_err() {
+            self.pat_type_mismatch(pat.span, ty, &inst, init_span);
         }
+        args
+    }
+
+    /// The generic arguments of the struct or enum `adt` as `path` names it (in an
+    /// expression or a pattern): the ones written after any segment (`Opt::<i32>::None`,
+    /// `Opt::None::<i32>`), its own parameters for `Self` in its `impl` block, or else
+    /// fresh inference variables. Empty for a type that is not generic.
+    fn adt_args(&mut self, adt: DefId, path: &sabiko_ast::Path) -> Vec<Ty> {
+        let generics = self.items.adt(adt).generics.clone();
+        if generics.is_empty() {
+            return Vec::new();
+        }
+        if path.segments[0].name == "Self" {
+            return generics.iter().map(|&p| Ty::Param(p)).collect();
+        }
+        // The resolver checked each list's length; one that does not fit was reported.
+        let written = path
+            .generic_args
+            .iter()
+            .find(|a| a.args.len() == generics.len());
+        match written {
+            Some(a) => a.args.iter().map(|t| self.lower_type(t)).collect(),
+            None => self.fresh_adt_args(adt),
+        }
+    }
+
+    /// Fresh inference variables for the generic arguments of `adt`.
+    fn fresh_adt_args(&mut self, adt: DefId) -> Vec<Ty> {
+        (0..self.items.adt(adt).generics.len())
+            .map(|_| self.infer.new_var(VarKind::General))
+            .collect()
+    }
+
+    /// The fields `fields` of `adt` at the instance with generic arguments `args`.
+    fn instance_fields(&self, adt: DefId, fields: &[FieldDef], args: &[Ty]) -> Vec<FieldDef> {
+        let def = self.items.adt(adt);
+        fields
+            .iter()
+            .map(|f| FieldDef {
+                ty: def.field_ty(&f.ty, args),
+                ..f.clone()
+            })
+            .collect()
     }
 
     fn pat_type_mismatch(
@@ -1867,7 +1936,8 @@ impl<'a> FnCtxt<'a> {
                         match kind {
                             VariantKind::Unit => {
                                 self.variant_exprs.insert(expr.id, (adt, index));
-                                Ty::Adt(adt)
+                                let args = self.adt_args(adt, path);
+                                Ty::Adt(adt, args.into())
                             }
                             VariantKind::Tuple if callee => Ty::FnDef(d),
                             VariantKind::Tuple => {
@@ -1906,7 +1976,8 @@ impl<'a> FnCtxt<'a> {
                     DefKind::Struct => {
                         let adt = self.items.adt(d);
                         if adt.is_unit {
-                            Ty::Adt(d)
+                            let args = self.adt_args(d, path);
+                            Ty::Adt(d, args.into())
                         } else {
                             let name = adt.name.clone();
                             self.error(
@@ -2450,15 +2521,33 @@ impl<'a> FnCtxt<'a> {
         if count == 0 {
             return;
         }
-        // The resolver reported a turbofish of the wrong length; inference fills in.
-        let args = match path.args_of(path.segments.len() - 1) {
-            Some(written) if written.args.len() == count => {
-                written.args.iter().map(|t| self.lower_type(t)).collect()
+        // An associated function of a generic type takes the type's arguments first
+        // (decision 83): `Self`'s own parameters, those after the type's segment
+        // (`Pair::<i32, bool>::New`), or inference variables.
+        let parent = self.resolve.parent_generic_count(def);
+        let mut args: Vec<Ty> = Vec::new();
+        if parent > 0 {
+            let adt = self
+                .resolve
+                .def(def)
+                .parent
+                .expect("an associated function");
+            let mut type_path = path.clone();
+            type_path.segments.truncate(1);
+            type_path.generic_args.retain(|a| a.segment == 0);
+            args = self.adt_args(adt, &type_path);
+            if args.len() != parent {
+                args = vec![Ty::Error; parent];
             }
-            _ => (0..count)
-                .map(|_| self.infer.new_var(VarKind::General))
-                .collect(),
-        };
+        }
+        // The resolver reported a turbofish of the wrong length; inference fills in.
+        let own = count - parent;
+        match path.args_of(path.segments.len() - 1) {
+            Some(written) if written.args.len() == own => {
+                args.extend(written.args.iter().map(|t| self.lower_type(t)));
+            }
+            _ => args.extend((0..own).map(|_| self.infer.new_var(VarKind::General))),
+        }
         self.generic_args.insert(id, (args, def, span));
     }
 
@@ -2486,7 +2575,7 @@ impl<'a> FnCtxt<'a> {
         };
         let def = match self.shallow(&callee_ty) {
             Ty::FnDef(d) => d,
-            Ty::Adt(_)
+            Ty::Adt(..)
                 if strip_parens(callee).id == target.id
                     && self.variant_exprs.contains_key(&target.id) =>
             {
@@ -2539,7 +2628,12 @@ impl<'a> FnCtxt<'a> {
         if self.resolve.def(def).kind == DefKind::Variant {
             // `E::V(a, b)`: a tuple variant's constructor.
             let (adt, index) = self.variant_of(def);
-            let variant = self.items.adt(adt).variant(index).clone();
+            let generic = match &target.kind {
+                ExprKind::Path(path) => self.adt_args(adt, path),
+                _ => self.fresh_adt_args(adt),
+            };
+            let mut variant = self.items.adt(adt).variant(index).clone();
+            variant.fields = self.instance_fields(adt, &variant.fields, &generic);
             if variant.fields.len() != args.len() {
                 let d =
                     Self::wrong_arg_count("enum variant", variant.fields.len(), args.len(), span)
@@ -2551,7 +2645,7 @@ impl<'a> FnCtxt<'a> {
                 self.check_expr(a, expected.as_ref());
             }
             self.variant_exprs.insert(id, (adt, index));
-            return Ty::Adt(adt);
+            return Ty::Adt(adt, generic.into());
         }
         if self.resolve.is_drop_fn(def) {
             // `D::drop(&mut d)`.
@@ -2611,8 +2705,19 @@ impl<'a> FnCtxt<'a> {
             return Ty::Error;
         };
         let mut sig = self.items.fn_sig(callee.def).clone();
-        let count = sig.generics.len();
-        let generic_args: Vec<Ty> = match turbofish {
+        // The arguments of the method's type (decision 83) are the receiver's own; a
+        // turbofish gives the method's.
+        let parent = self.resolve.parent_generic_count(callee.def);
+        let mut base = self.infer.resolve(&recv_ty);
+        while let Ty::Ref(_, inner) = base {
+            base = *inner;
+        }
+        let parent_args: Vec<Ty> = match &base {
+            Ty::Adt(_, args) if args.len() == parent => args.to_vec(),
+            _ => vec![Ty::Error; parent],
+        };
+        let count = sig.generics.len() - parent;
+        let own_args: Vec<Ty> = match turbofish {
             Some(written) if written.args.len() == count => {
                 written.args.iter().map(|t| self.lower_type(t)).collect()
             }
@@ -2645,7 +2750,9 @@ impl<'a> FnCtxt<'a> {
                     .collect()
             }
         };
-        if count > 0 {
+        let mut generic_args = parent_args;
+        generic_args.extend(own_args);
+        if !generic_args.is_empty() {
             self.generic_args
                 .insert(expr.id, (generic_args.clone(), callee.def, method.span));
             sig.inputs = sig.inputs_with(&generic_args);
@@ -2699,7 +2806,7 @@ impl<'a> FnCtxt<'a> {
                 self.infer.bind_error(&Ty::Infer(v));
                 return None;
             }
-            Ty::Adt(adt) => adt,
+            Ty::Adt(adt, _) => adt,
             _ => {
                 self.unknown_method(recv_ty, name, None, "method not found");
                 return None;
@@ -2730,7 +2837,13 @@ impl<'a> FnCtxt<'a> {
             );
             return None;
         }
-        let self_ty = sig.inputs[0].clone();
+        // In a generic type's `impl` block the receiver's type mentions the type's
+        // parameters (decision 83): they are the receiver's own arguments.
+        let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
+        let Ty::Adt(_, base_args) = &base else {
+            unreachable!("matched above")
+        };
+        let self_ty = sig.inputs[0].subst(parent, base_args);
         for (autoderefs, step) in steps.iter().enumerate() {
             if *step == self_ty {
                 // A reference receiver is reborrowed, not copied or moved: `&*r`, `&mut *m`.
@@ -2927,12 +3040,12 @@ impl<'a> FnCtxt<'a> {
             autoderefs += 1;
         }
         match ty {
-            Ty::Adt(d) => {
+            Ty::Adt(d, args) => {
                 let adt = self.items.adt(d);
                 if let Some(index) = adt.field_index(name) {
                     self.field_accesses
                         .insert(expr.id, FieldAccess { index, autoderefs });
-                    return adt.fields[index].ty.clone();
+                    return adt.field_ty(&adt.fields[index].ty, &args);
                 }
                 let available: Vec<String> =
                     adt.fields.iter().map(|f| format!("`{}`", f.name)).collect();
@@ -3156,6 +3269,7 @@ impl<'a> FnCtxt<'a> {
             let v = e.variant(index);
             let adt = collect::AdtDef {
                 name: e.name.clone(),
+                generics: e.generics.clone(),
                 fields: v.fields.clone(),
                 is_unit: false,
                 is_copy: false,
@@ -3166,6 +3280,9 @@ impl<'a> FnCtxt<'a> {
         } else {
             (def, self.items.adt(def).clone())
         };
+        let generic = self.adt_args(def, path);
+        let mut adt = adt;
+        adt.fields = self.instance_fields(def, &adt.fields, &generic);
         let mut seen: Vec<Option<Span>> = vec![None; adt.fields.len()];
         for f in fields {
             if let Some(i) = adt.field_index(&f.name.name) {
@@ -3232,7 +3349,7 @@ impl<'a> FnCtxt<'a> {
                 .with_label(path.span, format!("missing {list}")),
             );
         }
-        Ty::Adt(def)
+        Ty::Adt(def, generic.into())
     }
 
     // ----- finalisation -----
@@ -3511,7 +3628,7 @@ impl<'a> FnCtxt<'a> {
             .is_some_and(crate::collect::AdtDef::is_fieldless_enum);
         // rustc rejects casting an enum that implements `Drop` (formerly the
         // `cenum_impl_drop_cast` lint): the cast would read a value whose drop then runs.
-        let drop_impl = matches!(from, Ty::Adt(d) if self.items.drop_impl(*d).is_some());
+        let drop_impl = matches!(from, Ty::Adt(d, _) if self.items.drop_impl(*d).is_some());
         let ok = match (from, to) {
             (Ty::Prim(f), Ty::Prim(t)) => {
                 (f.is_numeric() && t.is_numeric())
@@ -3520,7 +3637,7 @@ impl<'a> FnCtxt<'a> {
                     || (*f == PrimTy::U8 && *t == PrimTy::Char)
             }
             // A fieldless enum casts to its discriminant.
-            (Ty::Adt(_), Ty::Prim(t)) if fieldless => t.is_integer() && !drop_impl,
+            (Ty::Adt(..), Ty::Prim(t)) if fieldless => t.is_integer() && !drop_impl,
             _ => false,
         };
         if ok {
@@ -3528,7 +3645,7 @@ impl<'a> FnCtxt<'a> {
         }
         let (f, t) = (self.ty_str(from), self.ty_str(to));
         let d = match (from, to) {
-            (Ty::Adt(_), Ty::Prim(p)) if fieldless && drop_impl && p.is_integer() => {
+            (Ty::Adt(..), Ty::Prim(p)) if fieldless && drop_impl && p.is_integer() => {
                 Diagnostic::error(
                     ErrorCode::INVALID_CAST,
                     format!(
@@ -3537,13 +3654,13 @@ impl<'a> FnCtxt<'a> {
                 )
                 .with_label(span, "invalid cast")
             }
-            (Ty::Adt(_), Ty::Prim(PrimTy::Bool)) if fieldless => Diagnostic::error(
+            (Ty::Adt(..), Ty::Prim(PrimTy::Bool)) if fieldless => Diagnostic::error(
                 ErrorCode::INVALID_CAST,
                 format!("cannot cast `{f}` as `bool`"),
             )
             .with_label(span, "invalid cast")
             .with_note("compare the discriminant instead: `e as i32 != 0`"),
-            (Ty::Adt(_), Ty::Prim(_)) if fieldless => Diagnostic::error(
+            (Ty::Adt(..), Ty::Prim(_)) if fieldless => Diagnostic::error(
                 ErrorCode::INVALID_CAST,
                 format!("casting `{f}` as `{t}` is invalid"),
             )
@@ -3592,6 +3709,16 @@ fn is_cast_literal(expr: &Expr) -> bool {
         ExprKind::Unary(_, inner) => is_cast_literal(inner),
         ExprKind::Block(b) => b.tail.as_deref().is_some_and(is_cast_literal),
         _ => false,
+    }
+}
+
+/// The path a path, tuple-struct or struct pattern names.
+fn pat_path(pat: &Pat) -> Option<&sabiko_ast::Path> {
+    match &pat.kind {
+        PatKind::Path(path) | PatKind::TupleStruct(path, _) | PatKind::Struct { path, .. } => {
+            Some(path)
+        }
+        _ => None,
     }
 }
 

@@ -1,0 +1,69 @@
+[E0107] Error: not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters
+    ╭─[ tests/ui/resolve/generic_types.sabi:13:9 ]
+    │
+ 13 │ impl<T> Pair<T, T> { //~ ERROR E0107 not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters
+    │         ─────┬────  
+    │              ╰────── write the type's parameters in order: `impl<A, B> Pair<A, B>`
+    │ 
+    │ Note: blocks for one instance (`impl Pair<i32, bool>`) or for repeated parameters wait for traits (#116); see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters
+    ╭─[ tests/ui/resolve/generic_types.sabi:16:6 ]
+    │
+ 16 │ impl Pair<i32, bool> { //~ ERROR E0107 not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters
+    │      ───────┬───────  
+    │             ╰───────── write the type's parameters in order: `impl<A, B> Pair<A, B>`
+    │ 
+    │ Note: blocks for one instance (`impl Pair<i32, bool>`) or for repeated parameters wait for traits (#116); see docs/PLAN.md
+────╯
+[E0221] Error: the name `A` is already used for a generic parameter in this item's generic parameters
+    ╭─[ tests/ui/resolve/generic_types.sabi:19:9 ]
+    │
+ 19 │ impl<A, A> Pair<A, A> { //~ ERROR E0221 the name `A` is already used
+    │      ┬  ┬  
+    │      │  ╰── already used
+    │      │     
+    │      ╰───── first use of `A`
+────╯
+[E0222] Error: missing generics for struct `Pair`
+    ╭─[ tests/ui/resolve/generic_types.sabi:22:9 ]
+    │
+  4 │ struct Pair<A, B> {
+    │        ──┬─  
+    │          ╰─── struct `Pair` defined here
+    │ 
+ 22 │ fn F(p: Pair) {} //~ ERROR E0222 missing generics for struct `Pair`
+    │         ──┬─  
+    │           ╰─── expected 2 generic arguments
+────╯
+[E0222] Error: struct takes 2 generic arguments but 1 generic argument was supplied
+    ╭─[ tests/ui/resolve/generic_types.sabi:24:13 ]
+    │
+  4 │ struct Pair<A, B> {
+    │        ──┬─  
+    │          ╰─── struct `Pair` defined here
+    │ 
+ 24 │ fn G(p: Pair<i32>) {} //~ ERROR E0222 struct takes 2 generic arguments but 1 generic argument was supplied
+    │             ──┬──  
+    │               ╰──── expected 2 generic arguments
+────╯
+[E0223] Error: type arguments are not allowed on struct `Plain`
+    ╭─[ tests/ui/resolve/generic_types.sabi:26:14 ]
+    │
+ 26 │ fn H(p: Plain<i32>) {} //~ ERROR E0223 type arguments are not allowed on struct `Plain`
+    │              ──┬──  
+    │                ╰──── type argument not allowed
+    │ 
+    │ Note: only generic functions, structs and enums take generic arguments
+────╯
+[E0222] Error: struct takes 2 generic arguments but 1 generic argument was supplied
+    ╭─[ tests/ui/resolve/generic_types.sabi:31:17 ]
+    │
+  4 │ struct Pair<A, B> {
+    │        ──┬─  
+    │          ╰─── struct `Pair` defined here
+    │ 
+ 31 │     let c = Pair::<i32> { First: 1, Second: true }; //~ ERROR E0222 struct takes 2 generic arguments but 1 generic argument was supplied
+    │                 ───┬───  
+    │                    ╰───── expected 2 generic arguments
+────╯

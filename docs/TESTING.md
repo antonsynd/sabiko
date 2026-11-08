@@ -133,19 +133,26 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   and 90 programs of 500. Parameters of these types, longer-lived locals, and `&str` or
   `&&T` elements are still TODO(#92).
 
-  Generic functions (#114, decision 82): half of the programs get three helpers,
-  `GenId<T>(x: T) -> T`, `GenPick<T>(c: bool, a: T, b: T) -> T` and `GenFirst<T>(x: &T)
-  -> &T`, one line each before the functions, and their bodies now and then wrap a value
-  in `GenId(e)` (with a turbofish `GenId::<T>` a third of the time) or `GenPick(c, a, b)`,
-  which evaluates and moves both values as a tuple literal does and drops the one it does
-  not return, and a shared reference to a non-array place in `GenFirst(r)` (`&*r` for a
-  reference that is not a fresh borrow). Each is transparent to the scope model; the type
-  parameter is inferred from the context, as the wrapped literals are, and never as a
-  slice (a reference to an array is not wrapped, since it may be coerced). The run found
-  one generator bug elsewhere: `stmt_ref_aggregate` generated a tuple's second element
-  with the first element's shared borrow unlocked (seed 81000007 wrote `(&t[i], match
-  &mut t[1] { .. })`). `programs_use_generic_helpers` pins 60, 20, 50 and 25 programs of
-  500 calling `GenId`, `GenId::<T>`, `GenPick` and `GenFirst`.
+  Generic functions and types (#114, #115, decisions 82 and 83): half of the programs
+  get helpers, one line each before the functions: `GenId<T>(x: T) -> T`, `GenPick<T>(c:
+  bool, a: T, b: T) -> T`, `GenFirst<T>(x: &T) -> &T`, `enum GenOpt<T> { No, Yes(T) }`,
+  `struct GenBox<T> { Value: T }` and `GenOr<T>(o: GenOpt<T>, d: T) -> T`, which matches.
+  Their bodies now and then wrap a value in `GenId(e)` (with a turbofish `GenId::<T>` a
+  third of the time), `GenPick(c, a, b)` or `GenOr(GenOpt::Yes(a), b)`, which evaluate
+  and move both values as a tuple literal does and drop the one they do not return,
+  `GenOr(GenOpt::No, b)`, or `GenBox { Value: e }.Value` (a move out of a temporary
+  instance), and a shared reference to a non-array place in `GenFirst(r)` or `GenBox {
+  Value: r }.Value` (`&*r` for a reference that is not a fresh borrow). Each is transparent
+  to the scope model; the type parameter is inferred from the context, as the wrapped
+  literals are, and never as a slice (a reference to an array is not wrapped, since it may
+  be coerced). The runs found two generator bugs elsewhere, in `stmt_ref_aggregate`: a
+  tuple's second element was generated with the first element's shared borrow unlocked
+  (seed 81000007 wrote `(&t[i], match &mut t[1] { .. })`), and so was the index read out
+  of an array of references (seeds 85000088 and 86000852 moved or mutably borrowed an
+  element's root there). `programs_use_generic_helpers`
+  pins 60, 20, 50, 25, 30, 20 and 30 programs of 500 using `GenId`, `GenId::<T>`,
+  `GenPick`, `GenFirst`, `GenOr(GenOpt::Yes(..), ..)`, `GenOr(GenOpt::No, ..)` and
+  `GenBox`.
 
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,

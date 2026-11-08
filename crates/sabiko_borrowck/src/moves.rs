@@ -585,7 +585,7 @@ impl MoveChecker<'_> {
                 PlaceElem::Downcast(_) => continue,
                 PlaceElem::Deref | PlaceElem::Index(_) => return,
             };
-            if let Ty::Adt(adt) = ty {
+            if let Ty::Adt(adt, _) = ty {
                 if self.typeck.items.drop_impl(adt).is_some() {
                     let base = Place {
                         local: place.local,

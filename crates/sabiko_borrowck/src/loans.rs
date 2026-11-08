@@ -47,7 +47,7 @@ pub fn check_signatures(
             continue;
         }
         let sig = typeck.items.fn_sig(def);
-        let regions = signature_regions(sig, &[], &mut OriginSupply::default());
+        let regions = signature_regions(sig, &[], &typeck.items, &mut OriginSupply::default());
         if regions.output.is_none() {
             report_missing_lifetime(sig, regions.input_origins, sink);
         }
@@ -483,6 +483,8 @@ impl Reporter<'_> {
         for elem in &site.path {
             place = match *elem {
                 SiteElem::Deref => place.deref(),
+                // Inside a generic argument: the place holding the instance names it.
+                SiteElem::Arg(_) => break,
                 SiteElem::Field(index) => {
                     let ty = match place.ty(self.body) {
                         Ty::Tuple(elems) => elems.get(index).cloned().unwrap_or(Ty::Error),

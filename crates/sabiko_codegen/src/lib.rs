@@ -34,7 +34,7 @@ use std::fmt::Write as _;
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::Body;
-use sabiko_resolve::{DefKind, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, ResolveResults};
 use sabiko_span::{SourceMap, Span};
 use sabiko_types::{Ty, TypeckResults};
 
@@ -106,6 +106,9 @@ pub fn emit_il(
         byref_tuples: Vec::new(),
         inline_arrays: Vec::new(),
         drop_glues: Vec::new(),
+        drop_glues_done: 0,
+        adt_instances: Vec::new(),
+        adt_instances_done: 0,
         ref_wrappers: [false; 2],
         slices: [false; 2],
     };
@@ -113,11 +116,9 @@ pub fn emit_il(
     let mut out = String::new();
     cx.header(&mut out);
     cx.structs(bodies, &mut out);
-    let _ = writeln!(
-        out,
-        ".class public abstract auto ansi sealed beforefieldinit {} extends [System.Runtime]System.Object\n{{",
-        types::quote(&cx.class_name)
-    );
+    // The module class's members, then the instances of generic types and the drop glue
+    // they need, until neither registers anything new.
+    let mut module = String::new();
     let mut main: Option<&Body> = None;
     for body in bodies {
         if resolve.def(body.def).parent.is_some() {
@@ -127,9 +128,22 @@ pub fn emit_il(
         if body.name == "Main" {
             main = Some(body);
         }
-        func::emit_body(&mut cx, body, &mut out);
+        func::emit_body(&mut cx, body, &mut module);
     }
-    cx.drop_glues(&mut out);
+    loop {
+        let before = (cx.adt_instances.len(), cx.drop_glues.len());
+        cx.adt_instance_types(bodies, &mut out);
+        cx.drop_glues(&mut module);
+        if (cx.adt_instances.len(), cx.drop_glues.len()) == before {
+            break;
+        }
+    }
+    let _ = writeln!(
+        out,
+        ".class public abstract auto ansi sealed beforefieldinit {} extends [System.Runtime]System.Object\n{{",
+        types::quote(&cx.class_name)
+    );
+    out.push_str(&module);
     if options.kind == OutputKind::Executable {
         if let Some(body) = main {
             if body.arg_count != 0 || !body.return_ty().is_unit() {
@@ -195,6 +209,13 @@ pub(crate) struct Cx<'a> {
     /// Types whose drop glue the module needs, in order of first use, with the glue
     /// method's name (decision 55).
     drop_glues: Vec<(Ty, String)>,
+    /// How many of `drop_glues` have been emitted.
+    drop_glues_done: usize,
+    /// The instances of generic structs and enums the module uses (decision 82), in
+    /// order of first use: each a value type of its own, named after it.
+    adt_instances: Vec<(DefId, Box<[Ty]>)>,
+    /// How many of `adt_instances` have been emitted.
+    adt_instances_done: usize,
     /// Whether the module uses the ``Ref`1`` (index 0) and ``RefMut`1`` (index 1) wrappers
     /// (decision 64).
     ref_wrappers: [bool; 2],
@@ -414,31 +435,87 @@ impl Cx<'_> {
             .filter(|&d| self.resolve.def(d).kind.is_type())
             .collect();
         for def in defs {
-            if self.resolve.def(def).kind == DefKind::Enum {
-                self.enum_type(def, bodies, out);
+            // A generic type has no class of its own, only its instances
+            // ([`Cx::adt_instance_types`]).
+            if !self.typeck.items.adt(def).generics.is_empty() {
                 continue;
             }
-            let adt = self.typeck.items.adt(def).clone();
-            let _ = writeln!(
-                out,
-                ".class public sequential ansi sealed beforefieldinit {} extends [System.Runtime]System.ValueType\n{{",
-                types::quote(&adt.name)
-            );
-            if adt.fields.is_empty() {
-                // An empty sequential struct needs an explicit size, as C# emits it.
-                out.push_str("  .pack 0\n  .size 1\n");
+            self.adt_type(def, &[], bodies, out);
+        }
+    }
+
+    /// The value type of the struct or enum `def` at the generic arguments `args`, with
+    /// the functions of its `impl` blocks (their instances at `args`).
+    fn adt_type(&mut self, def: DefId, args: &[Ty], bodies: &[Body], out: &mut String) {
+        if self.resolve.def(def).kind == DefKind::Enum {
+            self.enum_type(def, args, bodies, out);
+            return;
+        }
+        let adt = self.typeck.items.adt(def).clone();
+        let class = self.adt_class(def, args);
+        let _ = writeln!(
+            out,
+            ".class public sequential ansi sealed beforefieldinit {class} extends [System.Runtime]System.ValueType\n{{",
+        );
+        // An instance holding a reference is a `ref struct`, as a tuple holding one is.
+        if Ty::Adt(def, args.into()).has_ref() {
+            let _ = writeln!(out, "  {}", types::IS_BYREF_LIKE_ATTR);
+        }
+        if adt.fields.is_empty() {
+            // An empty sequential struct needs an explicit size, as C# emits it.
+            out.push_str("  .pack 0\n  .size 1\n");
+        }
+        for field in &adt.fields {
+            // A `()` field is a `Sabiko.Runtime.Unit` (decision 52); a reference is stored in
+            // its wrapper (decision 64).
+            let field_ty = adt.field_ty(&field.ty, args);
+            let ty = types::stored_type(self, &field_ty, field.span);
+            let _ = writeln!(out, "  .field public {ty} {}", types::quote(&field.name));
+        }
+        self.instance_methods(def, args, bodies, out);
+        out.push_str("}\n\n");
+    }
+
+    /// The functions of the `impl` blocks of `def`, at its generic arguments `args`.
+    pub(crate) fn instance_methods(
+        &mut self,
+        def: DefId,
+        args: &[Ty],
+        bodies: &[Body],
+        out: &mut String,
+    ) {
+        for body in bodies {
+            if self.resolve.def(body.def).parent == Some(def)
+                && body.instance.get(..args.len()) == Some(args)
+            {
+                func::emit_body(self, body, out);
             }
-            for field in &adt.fields {
-                // A `()` field is a `Sabiko.Runtime.Unit` (decision 52).
-                let ty = types::cil_type(self, &field.ty, field.span);
-                let _ = writeln!(out, "  .field public {ty} {}", types::quote(&field.name));
-            }
-            for body in bodies {
-                if self.resolve.def(body.def).parent == Some(def) {
-                    func::emit_body(self, body, out);
-                }
-            }
-            out.push_str("}\n\n");
+        }
+    }
+
+    /// The class of the struct or enum `def` at the generic arguments `args`, quoted:
+    /// its name, or for an instance of a generic type the instance's (`'Pair<i32, bool>'`),
+    /// registered for [`Cx::adt_instance_types`].
+    pub(crate) fn adt_class(&mut self, def: DefId, args: &[Ty]) -> String {
+        if args.is_empty() {
+            return types::quote(&self.typeck.items.adt(def).name);
+        }
+        if !self
+            .adt_instances
+            .iter()
+            .any(|(d, a)| *d == def && **a == *args)
+        {
+            self.adt_instances.push((def, args.into()));
+        }
+        types::quote(&Ty::Adt(def, args.into()).display(self.resolve))
+    }
+
+    /// Emits the instances registered since the last call.
+    fn adt_instance_types(&mut self, bodies: &[Body], out: &mut String) {
+        while self.adt_instances_done < self.adt_instances.len() {
+            let (def, args) = self.adt_instances[self.adt_instances_done].clone();
+            self.adt_instances_done += 1;
+            self.adt_type(def, &args, bodies, out);
         }
     }
 
@@ -484,9 +561,21 @@ impl Cx<'_> {
 
     /// The class a function is a static method of: its struct's for a function of an
     /// `impl` block, the module class otherwise.
-    pub(crate) fn owner_class(&self, def: sabiko_resolve::DefId) -> String {
+    pub(crate) fn owner_class(
+        &mut self,
+        def: sabiko_resolve::DefId,
+        generic_args: &[Ty],
+    ) -> String {
         match self.resolve.def(def).parent {
-            Some(adt) => types::quote(&self.typeck.items.adt(adt).name),
+            // A function of a generic type's `impl` block takes the type's arguments first
+            // (decision 83): it lives in that instance's class.
+            Some(adt) => {
+                let n = self
+                    .resolve
+                    .parent_generic_count(def)
+                    .min(generic_args.len());
+                self.adt_class(adt, &generic_args[..n])
+            }
             None => types::quote(&self.class_name),
         }
     }

@@ -656,13 +656,15 @@ pub fn rvalue_places(rvalue: &Rvalue) -> impl Iterator<Item = &Place> {
 /// What an [`Rvalue::Aggregate`] builds.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AggregateKind {
-    /// A struct (a unit struct has no operands).
-    Adt(DefId),
+    /// A struct (a unit struct has no operands), with its generic arguments (empty for one
+    /// that is not generic).
+    Adt(DefId, Box<[Ty]>),
     /// A tuple of at least one element; its type is the tuple of the operands' types
     /// (`()` is a constant, never an aggregate).
     Tuple,
-    /// The variant `.1` of the enum `.0`, from the variant's fields.
-    Variant(DefId, usize),
+    /// The variant `.1` of the enum `.0`, from the variant's fields, with the enum's
+    /// generic arguments.
+    Variant(DefId, usize, Box<[Ty]>),
     /// An array `[a, b, c]` of the given element type, from its elements in order (the
     /// type is needed for `[]`).
     Array(Ty),
@@ -683,9 +685,10 @@ impl Rvalue {
                 }
             }
             Rvalue::Cast(_, ty) | Rvalue::PointerCoercion(_, ty) => ty.clone(),
-            Rvalue::Aggregate(AggregateKind::Adt(def) | AggregateKind::Variant(def, _), _) => {
-                Ty::Adt(*def)
-            }
+            Rvalue::Aggregate(
+                AggregateKind::Adt(def, args) | AggregateKind::Variant(def, _, args),
+                _,
+            ) => Ty::Adt(*def, args.clone()),
             Rvalue::Discriminant(_) => Ty::Prim(sabiko_resolve::PrimTy::Isize),
             Rvalue::Repeat(op, n) => Ty::Array(Box::new(op.ty(body)), *n),
             Rvalue::Len(_) => Ty::Prim(sabiko_resolve::PrimTy::Usize),

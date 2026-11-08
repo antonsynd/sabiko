@@ -685,43 +685,68 @@ fn variant() -> impl Strategy<Value = Variant> {
     )
 }
 
+/// Zero to two generic parameters.
+fn generic_params() -> impl Strategy<Value = Vec<GenericParam>> {
+    prop::collection::vec(name(), 0..3).prop_map(|names| {
+        names
+            .iter()
+            .map(|n| GenericParam {
+                id: ID,
+                name: ident(n),
+            })
+            .collect()
+    })
+}
+
 fn item() -> impl Strategy<Value = Item> {
     let vis = prop_oneof![Just(Visibility::Private), Just(Visibility::Public)];
     let kind = prop_oneof![
-        (name(), prop::collection::vec(variant(), 0..4)).prop_map(|(n, variants)| {
-            ItemKind::Enum(EnumDecl {
-                name: ident(&n),
-                variants,
-            })
-        }),
+        (
+            name(),
+            generic_params(),
+            prop::collection::vec(variant(), 0..4)
+        )
+            .prop_map(|(n, generics, variants)| {
+                ItemKind::Enum(EnumDecl {
+                    name: ident(&n),
+                    generics,
+                    variants,
+                })
+            }),
         fn_decl(false).prop_map(ItemKind::Fn),
         (
             any::<bool>(),
+            generic_params(),
             ty(),
             prop::collection::vec((meta(), fn_decl(true)), 0..3)
         )
-            .prop_map(|(is_drop, self_ty, members)| ItemKind::Impl(ImplDecl {
-                // `impl Drop for T`, the one trait impl (decision 46).
-                trait_ref: is_drop.then(|| ident("Drop")),
-                self_ty,
-                items: members
-                    .into_iter()
-                    .map(|((attrs, docs, vis), f)| Item {
-                        id: ID,
-                        attrs,
-                        docs,
-                        vis,
-                        kind: ItemKind::Fn(f),
-                        span: SP,
-                    })
-                    .collect(),
-            })),
+            .prop_map(
+                |(is_drop, generics, self_ty, members)| ItemKind::Impl(ImplDecl {
+                    generics,
+                    // `impl Drop for T`, the one trait impl (decision 46).
+                    trait_ref: is_drop.then(|| ident("Drop")),
+                    self_ty,
+                    items: members
+                        .into_iter()
+                        .map(|((attrs, docs, vis), f)| Item {
+                            id: ID,
+                            attrs,
+                            docs,
+                            vis,
+                            kind: ItemKind::Fn(f),
+                            span: SP,
+                        })
+                        .collect(),
+                })
+            ),
         (
             name(),
+            generic_params(),
             prop::option::of(prop::collection::vec((name(), ty(), any::<bool>()), 0..3))
         )
-            .prop_map(|(n, fields)| ItemKind::Struct(StructDecl {
+            .prop_map(|(n, generics, fields)| ItemKind::Struct(StructDecl {
                 name: ident(&n),
+                generics,
                 kind: match fields {
                     None => StructKind::Unit,
                     Some(fs) => StructKind::Named(

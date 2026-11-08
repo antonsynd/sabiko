@@ -1,0 +1,88 @@
+// Shapes of generic types and their `impl` blocks: an array of `T`, a method with type
+// parameters of its own, `Self` as a type, a literal and a path, an associated constant,
+// instances as fields of other structs, and a `Copy` generic enum matched by value.
+struct Buf<T> {
+    Items: [T; 3],
+    Len: usize,
+}
+
+impl<T> Buf<T> {
+    const CAPACITY: usize = 3;
+
+    fn New(fill: [T; 3]) -> Self {
+        Self { Items: fill, Len: 0 }
+    }
+
+    fn Full(&self) -> bool {
+        self.Len == Self::CAPACITY
+    }
+
+    fn With<U>(self, extra: U) -> (Self, U) {
+        (self, extra)
+    }
+}
+
+struct Wrap<T> {
+    Value: T,
+}
+
+impl<T> Wrap<T> {
+    fn Map<U>(self, u: U) -> Wrap<(T, U)> {
+        Wrap { Value: (self.Value, u) }
+    }
+
+    fn Make(v: T) -> Self {
+        Self::Build(v)
+    }
+
+    fn Build(v: T) -> Wrap<T> {
+        Wrap { Value: v }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum Choice<T> {
+    One(T),
+    Two(T, T),
+}
+
+struct Holder {
+    Count: Wrap<u32>,
+    Pick: Choice<i8>,
+}
+
+struct Nest<T> {
+    Inner: Wrap<Choice<T>>,
+}
+
+fn Sum(c: Choice<i64>) -> i64 {
+    match c {
+        Choice::One(a) => a,
+        Choice::Two(a, b) => a + b,
+    }
+}
+
+fn Main() {
+    let mut b = Buf::New([1u8, 2, 3]);
+    b.Len = 3;
+    PrintLine(b.Full());
+    PrintLine(Buf::<u8>::CAPACITY);
+    let (b2, x) = b.With('z');
+    PrintLine(b2.Items[2]);
+    PrintLine(x);
+    let w = Wrap::Make(10).Map("ten");
+    PrintLine(w.Value.0);
+    PrintLine(w.Value.1);
+    let h = Holder { Count: Wrap { Value: 4 }, Pick: Choice::Two(-1, 2) };
+    PrintLine(h.Count.Value);
+    let c = Choice::Two(5i64, 6);
+    let d = c;
+    PrintLine(Sum(c) + Sum(d));
+    let n = Nest { Inner: Wrap { Value: Choice::One(9u64) } };
+    if let Choice::One(v) = n.Inner.Value {
+        PrintLine(v);
+    }
+    if let Choice::Two(p, q) = h.Pick {
+        PrintLine(p * q);
+    }
+}

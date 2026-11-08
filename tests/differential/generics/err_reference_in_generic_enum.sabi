@@ -1,0 +1,14 @@
+// A reference held by a generic enum keeps its loan: `Opt::Some(&x)` borrows `x`.
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+fn Main() {
+    let mut x = 1;
+    let o = Opt::Some(&x);
+    x = 2;
+    if let Opt::Some(r) = o {
+        PrintLine(*r);
+    }
+}

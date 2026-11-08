@@ -1,0 +1,54 @@
+// Drops of generic instances: a generic `impl Drop`, an instance whose field has drop
+// glue, an enum instance holding a `Drop` value in one variant, and unwinding.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop noisy ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Guard<T> {
+    Tag: i32,
+    Value: T,
+}
+
+impl<T> Drop for Guard<T> {
+    fn drop(&mut self) {
+        Print("drop guard ");
+        PrintLine(self.Tag);
+    }
+}
+
+struct Holder<T> {
+    Inner: T,
+}
+
+enum Maybe<T> {
+    Nothing,
+    Just(T),
+}
+
+fn Make<T>(tag: i32, v: T) -> Guard<T> {
+    Guard { Tag: tag, Value: v }
+}
+
+fn Main() {
+    let a = Make(1, 5u8);
+    let b = Make(2, Noisy { Id: 20 });
+    {
+        let c = Holder { Inner: Noisy { Id: 30 } };
+        PrintLine("inner");
+    }
+    let d: Maybe<Noisy> = Maybe::Just(Noisy { Id: 40 });
+    let e: Maybe<Noisy> = Maybe::Nothing;
+    let f = Holder { Inner: Make(3, Holder { Inner: Noisy { Id: 50 } }) };
+    match d {
+        Maybe::Just(n) => PrintLine(n.Id),
+        Maybe::Nothing => PrintLine(0),
+    }
+    PrintLine("end");
+}

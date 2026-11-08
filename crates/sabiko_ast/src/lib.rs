@@ -168,6 +168,10 @@ impl Item {
 /// parameter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImplDecl {
+    /// `impl<T, U>`: the block's type parameters, which its type names in order
+    /// (`impl<T> Pair<T, T>` is not supported: each must be one of the type's own,
+    /// decision 83). Empty for a block that is not generic.
+    pub generics: Vec<GenericParam>,
     /// The trait of a trait impl: only `Drop` is accepted before Phase 6 (decision 46), as
     /// a language item. `None` for an inherent impl.
     pub trait_ref: Option<Ident>,
@@ -234,6 +238,8 @@ pub struct Param {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructDecl {
     pub name: Ident,
+    /// `<T, U>` after the name; empty for a struct that is not generic.
+    pub generics: Vec<GenericParam>,
     pub kind: StructKind,
 }
 
@@ -259,6 +265,8 @@ pub struct FieldDef {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnumDecl {
     pub name: Ident,
+    /// `<T, U>` after the name; empty for an enum that is not generic.
+    pub generics: Vec<GenericParam>,
     pub variants: Vec<Variant>,
 }
 

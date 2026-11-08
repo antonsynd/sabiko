@@ -39,6 +39,15 @@ pub fn pretty_expr(expr: &Expr) -> String {
     p.out
 }
 
+/// `<T, U>`, or nothing for no parameters.
+fn generic_params(params: &[GenericParam]) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = params.iter().map(|g| g.name.name.as_str()).collect();
+    format!("<{}>", names.join(", "))
+}
+
 /// A type as source text.
 #[must_use]
 pub fn type_str(ty: &Type) -> String {
@@ -92,18 +101,12 @@ impl Printer {
         self.vis(item.vis);
         match &item.kind {
             ItemKind::Fn(f) => {
-                let _ = write!(self.out, "fn {}", f.name.name);
-                if !f.generics.is_empty() {
-                    self.out.push('<');
-                    for (i, g) in f.generics.iter().enumerate() {
-                        if i > 0 {
-                            self.out.push_str(", ");
-                        }
-                        self.out.push_str(&g.name.name);
-                    }
-                    self.out.push('>');
-                }
-                self.out.push('(');
+                let _ = write!(
+                    self.out,
+                    "fn {}{}(",
+                    f.name.name,
+                    generic_params(&f.generics)
+                );
                 if let Some(sp) = &f.self_param {
                     self.out.push_str(sp.kind.as_str());
                 }
@@ -125,7 +128,12 @@ impl Printer {
                 self.out.push('\n');
             }
             ItemKind::Struct(s) => {
-                let _ = write!(self.out, "struct {}", s.name.name);
+                let _ = write!(
+                    self.out,
+                    "struct {}{}",
+                    s.name.name,
+                    generic_params(&s.generics)
+                );
                 match &s.kind {
                     StructKind::Unit => self.out.push_str(";\n"),
                     StructKind::Named(fields) => {
@@ -153,7 +161,12 @@ impl Printer {
                 self.out.push_str(";\n");
             }
             ItemKind::Enum(e) => {
-                let _ = write!(self.out, "enum {} {{", e.name.name);
+                let _ = write!(
+                    self.out,
+                    "enum {}{} {{",
+                    e.name.name,
+                    generic_params(&e.generics)
+                );
                 self.indent += 1;
                 for v in &e.variants {
                     self.newline();
@@ -211,7 +224,7 @@ impl Printer {
                 self.out.push_str("}\n");
             }
             ItemKind::Impl(imp) => {
-                self.out.push_str("impl ");
+                let _ = write!(self.out, "impl{} ", generic_params(&imp.generics));
                 if let Some(t) = &imp.trait_ref {
                     let _ = write!(self.out, "{} for ", t.name);
                 }

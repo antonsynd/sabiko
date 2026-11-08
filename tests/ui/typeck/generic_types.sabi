@@ -1,0 +1,25 @@
+// Generic structs and enums: a parameter no field uses, instances that do not match,
+// and fields read at the instance's arguments.
+
+struct Unused<T> { //~ ERROR E0340 type parameter `T` is never used
+    X: i32,
+}
+
+struct Wrap<T> {
+    Value: T,
+}
+
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+fn Take(w: Wrap<i32>) {}
+
+fn Main() {
+    let w = Wrap { Value: true };
+    Take(w); //~ ERROR E0300 mismatched types
+    let n: i32 = Wrap { Value: 2u8 }.Value; //~ ERROR E0300 mismatched types
+    let o = Opt::None; //~ ERROR E0313 type annotations needed
+    let p: Opt<bool> = Opt::Some(5); //~ ERROR E0300 mismatched types
+}

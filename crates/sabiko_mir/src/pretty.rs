@@ -157,7 +157,7 @@ impl Printer<'_> {
             match elem {
                 PlaceElem::Downcast(index) => {
                     let name = match &ty {
-                        sabiko_types::Ty::Adt(def) => self
+                        sabiko_types::Ty::Adt(def, _) => self
                             .typeck
                             .items
                             .adt(*def)
@@ -178,7 +178,7 @@ impl Printer<'_> {
                 }
                 PlaceElem::Field(index, field_ty) => {
                     let name = match &ty {
-                        sabiko_types::Ty::Adt(def) => {
+                        sabiko_types::Ty::Adt(def, _) => {
                             let adt = self.typeck.items.adt(*def);
                             let fields = match variant.take() {
                                 Some(v) => &adt.variant(v).fields,
@@ -267,7 +267,7 @@ impl Printer<'_> {
                     format!("({})", ops.join(", "))
                 }
             }
-            Rvalue::Aggregate(AggregateKind::Adt(def), fields) => {
+            Rvalue::Aggregate(AggregateKind::Adt(def, _), fields) => {
                 let adt = self.typeck.items.adt(*def);
                 if fields.is_empty() {
                     return adt.name.clone();
@@ -285,7 +285,7 @@ impl Printer<'_> {
                     .collect();
                 format!("{} {{ {} }}", adt.name, inits.join(", "))
             }
-            Rvalue::Aggregate(AggregateKind::Variant(def, index), fields) => {
+            Rvalue::Aggregate(AggregateKind::Variant(def, index, _), fields) => {
                 let adt = self.typeck.items.adt(*def);
                 let v = adt.variant(*index);
                 let ops: Vec<String> = fields

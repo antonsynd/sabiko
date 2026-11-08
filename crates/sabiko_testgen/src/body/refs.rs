@@ -612,12 +612,18 @@ impl BodyGen<'_> {
     fn ref_array_lines(&mut self, name: &str, p: Prim, depth: u32) -> Option<Vec<String>> {
         let n = self.rng.range(1, 3);
         let mut elems = Vec::new();
+        let mut roots = Vec::new();
         for _ in 0..n {
             let place = self.place_of(ValTy::Prim(p), Access::Borrow(false))?;
             elems.push(format!("&{}", place.text));
+            roots.push((place.root, false));
         }
         let n = elems.len();
+        // The elements' shared borrows are live while the index is evaluated: no move or
+        // `&mut` of their roots there (seeds 85000088, 86000852).
+        self.lock(&roots);
         let index = self.ref_aggregate_index(n, depth);
+        self.unlock(&roots);
         let mut lines = vec![
             format!("let {name}: [&{}; {n}] = [{}];", p.name(), elems.join(", ")),
             format!("PrintLine(*{name}[{index}]);"),

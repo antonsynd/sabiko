@@ -1,0 +1,11 @@
+// Two `&mut` of one place in the fields of a generic struct.
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+fn Main() {
+    let mut v = 1;
+    let p = Pair { First: &mut v, Second: &mut v };
+    *p.First = 2;
+}

@@ -1,0 +1,18 @@
+// An instance returned by a generic method carries the loans of what went in.
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+impl<A, B> Pair<A, B> {
+    fn New(a: A, b: B) -> Pair<A, B> {
+        Pair { First: a, Second: b }
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let p = Pair::New(&x, true);
+    x = 2;
+    PrintLine(*p.First);
+}

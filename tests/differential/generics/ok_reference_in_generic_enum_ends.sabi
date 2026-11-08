@@ -1,0 +1,15 @@
+// The loan of a reference held by a generic enum ends with the enum's last use.
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+fn Main() {
+    let mut x = 1;
+    let o = Opt::Some(&x);
+    if let Opt::Some(r) = o {
+        PrintLine(*r);
+    }
+    x = 2;
+    PrintLine(x);
+}

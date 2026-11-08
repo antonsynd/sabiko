@@ -845,26 +845,46 @@ impl<'a> BodyGen<'a> {
     /// tuple literal does. The helpers' type parameter is inferred from the context, as the
     /// wrapped expressions' literals are.
     fn generic_value(&mut self, ty: ValTy, depth: u32) -> Expr {
-        if self.rng.chance(60) {
-            let e = self.val_expr(ty, depth);
-            let turbofish = if self.rng.chance(30) {
-                format!("::<{}>", self.prog.val_name(ty))
-            } else {
-                String::new()
-            };
-            Expr {
-                text: format!("GenId{turbofish}({})", e.text),
-                roots: e.roots,
+        match self.rng.weighted(&[35, 25, 15, 10, 15]) {
+            0 => {
+                let e = self.val_expr(ty, depth);
+                let turbofish = if self.rng.chance(30) {
+                    format!("::<{}>", self.prog.val_name(ty))
+                } else {
+                    String::new()
+                };
+                Expr {
+                    text: format!("GenId{turbofish}({})", e.text),
+                    roots: e.roots,
+                }
             }
-        } else {
-            let c = self.prim_expr(Prim::Bool, depth);
-            let a = self.val_expr(ty, depth);
-            let b = self.val_expr(ty, depth);
-            let mut roots = a.roots;
-            roots.extend(b.roots);
-            Expr {
-                text: format!("GenPick({}, {}, {})", c.text, a.text, b.text),
-                roots,
+            // `GenOr(GenOpt::No, b)` is `b`.
+            3 => {
+                let b = self.val_expr(ty, depth);
+                Expr {
+                    text: format!("GenOr(GenOpt::No, {})", b.text),
+                    roots: b.roots,
+                }
+            }
+            // `GenBox { Value: e }.Value` moves `e` out of a temporary instance.
+            4 => {
+                let e = self.val_expr(ty, depth);
+                Expr {
+                    text: format!("GenBox {{ Value: {} }}.Value", e.text),
+                    roots: e.roots,
+                }
+            }
+            kind => {
+                let c = (kind == 1).then(|| self.prim_expr(Prim::Bool, depth));
+                let a = self.val_expr(ty, depth);
+                let b = self.val_expr(ty, depth);
+                let mut roots = a.roots;
+                roots.extend(b.roots);
+                let text = match c {
+                    Some(c) => format!("GenPick({}, {}, {})", c.text, a.text, b.text),
+                    None => format!("GenOr(GenOpt::Yes({}), {})", a.text, b.text),
+                };
+                Expr { text, roots }
             }
         }
     }
@@ -1319,8 +1339,14 @@ impl<'a> BodyGen<'a> {
             } else {
                 format!("&*{}", r.text)
             };
+            // Through a generic function, or a field of a temporary generic struct.
+            let text = if self.rng.chance(70) {
+                format!("GenFirst({arg})")
+            } else {
+                format!("GenBox {{ Value: {arg} }}.Value")
+            };
             return Some(Expr {
-                text: format!("GenFirst({arg})"),
+                text,
                 roots: r.roots,
             });
         }

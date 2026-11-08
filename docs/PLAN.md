@@ -1244,7 +1244,8 @@ Verification
 Tracking issue #118. Order (decision 82 for the design):
 1. Generic functions and monomorphisation (#114). Done; see the status below.
 2. Generic structs and enums (#115): `Pair<A, B>`, `Opt<T>`, `impl<T>` blocks; an
-   instance holding a reference is a `ref struct`, as a tuple holding one is.
+   instance holding a reference is a `ref struct`, as a tuple holding one is. Done; see
+   the status below (decision 83).
 3. Traits, impls and bounds (#116): `trait` with required and default methods and
    associated constants, `impl Trait for Type` (primitives included), coherence, `T:
    Trait` and `where`, supertraits, method resolution through bounds, `Copy`/`Clone`, and
@@ -1290,6 +1291,30 @@ body, as rustc), UI tests in `resolve/generic_params`, `typeck/generic_functions
 two codegen ones, a MIR and an IL fixture (`generics`), and the generator, whose programs
 now and then get the helpers `GenId`, `GenPick` and `GenFirst` and wrap values and shared
 references in them. Not yet: generic structs and enums (#115), bounds (#116).
+
+Status (2026-11-08): generic structs and enums (#115, decision 83). `struct Pair<A, B>`,
+`enum Opt<T>` and `impl<A, B> Pair<A, B>` blocks, whose parameters alias the type's own
+(blocks for one instance or with repeated parameters are E0107 until traits); arguments
+are required in types (E0222 "missing generics") and inferred or written after the type
+or variant segment in expressions and patterns; an unused parameter is E0340.
+Literals, constructors, unit variants and patterns instantiate the type, field types are
+read at the instance's arguments everywhere (type checking, exhaustiveness, MIR
+building, drop elaboration, the lints, code generation), and `#[derive(Copy)]` holds at
+`Copy` arguments. The borrow checker's `RegionTy::Adt` gives an instance's fields its
+arguments' origins, so a reference stored in `Opt::Some(&x)` or a struct field keeps its
+loan through moves, matches and field reads. Code generation emits each instance as a
+value type of its own (`'Pair<i32, bool>'`), a `ref struct` with wrapped reference fields
+when it holds a reference, with the instances of its functions as static methods, and
+monomorphisation makes a generic `impl Drop`'s `drop` per instance type. Tests: eight more
+compile-time programs in `differential/generics/` (references in enums and structs,
+moves, derived `Copy`, a returned instance), five run-time ones (constructors and
+methods, drops and a generic `impl Drop`, unwinding, references in instances and in
+arrays and tuples of instances, methods with their own parameters, `Self`, associated
+constants, nested instances), UI tests `resolve/generic_types`, `typeck/generic_types`
+and `typeck/generic_enum_exhaustiveness`, a MIR and an IL fixture (`generic_types`), and
+the generator's `GenOpt<T>`, `GenBox<T>` and `GenOr` helpers. Open: the instance type
+names (`'Pair<i32, bool>'`) are not C# identifiers, so the exit gate's C# interop test
+needs Phase 8's naming of exported instances, or a C#-friendly mangling earlier.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

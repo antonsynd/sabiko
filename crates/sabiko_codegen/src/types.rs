@@ -197,7 +197,7 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             },
             str::to_owned,
         ),
-        Ty::Adt(def) => format!("valuetype {}", quote(&cx.resolve.def(*def).name)),
+        Ty::Adt(def, args) => format!("valuetype {}", cx.adt_class(*def, args)),
         Ty::Ref(_, inner) if is_str(inner) => STR_SPAN.to_owned(),
         Ty::Ref(m, inner) if is_slice(inner) => {
             let Ty::Slice(elem) = &**inner else {

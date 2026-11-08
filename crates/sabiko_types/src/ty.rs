@@ -47,8 +47,9 @@ pub enum Ty {
     Unit,
     /// `!`: the type of `break`, `continue`, `return` and a `loop` without `break`.
     Never,
-    /// A user struct.
-    Adt(DefId),
+    /// A user struct or enum, with its generic arguments (empty for one that is not
+    /// generic; one per type parameter otherwise).
+    Adt(DefId, Box<[Ty]>),
     Ref(Mutability, Box<Ty>),
     /// `(A,)`, `(A, B)`, ...: never empty, since `()` is [`Ty::Unit`].
     Tuple(Box<Vec<Ty>>),
@@ -72,6 +73,12 @@ impl Ty {
     pub const CHAR: Ty = Ty::Prim(PrimTy::Char);
     pub const I32: Ty = Ty::Prim(PrimTy::I32);
     pub const F64: Ty = Ty::Prim(PrimTy::F64);
+
+    /// A struct or enum that is not generic.
+    #[must_use]
+    pub fn adt(def: DefId) -> Ty {
+        Ty::Adt(def, Box::new([]))
+    }
 
     #[must_use]
     pub fn shared_ref(inner: Ty) -> Ty {
@@ -142,7 +149,19 @@ impl Ty {
             Ty::Tuple(elems) => elems.iter().all(Ty::is_copy),
             Ty::Array(elem, _) => elem.is_copy(),
             // A type parameter has no bounds yet, so nothing makes it `Copy` (rustc).
-            Ty::Adt(_) | Ty::Slice(_) | Ty::Infer(_) | Ty::Param(_) => false,
+            Ty::Adt(..) | Ty::Slice(_) | Ty::Infer(_) | Ty::Param(_) => false,
+        }
+    }
+
+    /// Whether the type mentions the type parameter `param`.
+    #[must_use]
+    pub fn mentions(&self, param: DefId) -> bool {
+        match self {
+            Ty::Param(p) => *p == param,
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => inner.mentions(param),
+            Ty::Tuple(elems) => elems.iter().any(|e| e.mentions(param)),
+            Ty::Adt(_, args) => args.iter().any(|a| a.mentions(param)),
+            _ => false,
         }
     }
 
@@ -153,6 +172,7 @@ impl Ty {
             Ty::Param(_) => true,
             Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => inner.has_param(),
             Ty::Tuple(elems) => elems.iter().any(Ty::has_param),
+            Ty::Adt(_, args) => args.iter().any(Ty::has_param),
             _ => false,
         }
     }
@@ -178,6 +198,7 @@ impl Ty {
             Ty::Tuple(elems) => {
                 Ty::Tuple(Box::new(elems.iter().map(|e| e.map_params(f)).collect()))
             }
+            Ty::Adt(def, args) => Ty::Adt(*def, args.iter().map(|a| a.map_params(f)).collect()),
             _ => self.clone(),
         }
     }
@@ -188,17 +209,20 @@ impl Ty {
             Ty::Infer(_) => true,
             Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => inner.has_infer(),
             Ty::Tuple(elems) => elems.iter().any(Ty::has_infer),
+            Ty::Adt(_, args) => args.iter().any(Ty::has_infer),
             _ => false,
         }
     }
 
-    /// Whether the type contains a reference anywhere (directly, or in a tuple element or
-    /// an array element).
+    /// Whether the type contains a reference anywhere (directly, or in a tuple element, an
+    /// array element, or a generic argument of a struct or enum: every type parameter
+    /// appears in a field, E0340).
     #[must_use]
     pub fn has_ref(&self) -> bool {
         match self {
             Ty::Ref(..) => true,
             Ty::Tuple(elems) => elems.iter().any(Ty::has_ref),
+            Ty::Adt(_, args) => args.iter().any(Ty::has_ref),
             Ty::Array(elem, _) | Ty::Slice(elem) => elem.has_ref(),
             _ => false,
         }
@@ -217,7 +241,20 @@ impl Ty {
             Ty::Prim(p) => out.push_str(p.name()),
             Ty::Unit => out.push_str("()"),
             Ty::Never => out.push('!'),
-            Ty::Adt(d) | Ty::Param(d) => out.push_str(&resolve.def(*d).name),
+            Ty::Param(d) => out.push_str(&resolve.def(*d).name),
+            Ty::Adt(d, args) => {
+                out.push_str(&resolve.def(*d).name);
+                if !args.is_empty() {
+                    out.push('<');
+                    for (i, a) in args.iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        a.write(resolve, out);
+                    }
+                    out.push('>');
+                }
+            }
             Ty::Ref(m, inner) => {
                 out.push('&');
                 out.push_str(m.prefix_str());

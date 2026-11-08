@@ -69,13 +69,15 @@
 //! `&&str` parameters passed `&r`, `&mut r`, a double reference local or `&&x` (see
 //! [`body`]'s `refs` module). Elements of temporary arrays of references, `&str` or
 //! shared (`["a", s][i]`, `[&x, r][i]`), now and then through a range (`[a, b, c][1..][k]`,
-//! a slice of references; #43, see [`body`]'s `arrays` module). Generic functions (#114):
-//! values wrapped in the helpers `GenId(e)`/`GenId::<T>(e)` and `GenPick(c, a, b)`, shared
-//! references in `GenFirst(r)` ([`program::GENERIC_HELPERS`]). Not generated: slice
+//! a slice of references; #43, see [`body`]'s `arrays` module). Generic functions and
+//! types (#114, #115): values wrapped in the helpers `GenId(e)`/`GenId::<T>(e)`,
+//! `GenPick(c, a, b)`, `GenOr(GenOpt::Yes(a), b)`, `GenOr(GenOpt::No, b)` and `GenBox {
+//! Value: e }.Value`, shared references in `GenFirst(r)` and `GenBox { Value: r }.Value`
+//! ([`program::GENERIC_HELPERS`]). Not generated: slice
 //! patterns, ranges as values, array comparison, arrays of references as parameters or
 //! as locals outliving a block of their own (`stmt_ref_aggregate` writes `[&T; N]`,
 //! `&[&T]`, `(&T, U)` and `[&mut T; 2]` locals of primitive referents used in one block;
-//! TODO(#92)), generic types and bounds (#115, #116), closures, returned double references and
+//! TODO(#92)), user-defined generic items and bounds (#116), closures, returned double references and
 //! three levels of references, `&mut str`, comparisons of `str` places, non-ASCII text,
 //! references (`&str` and `&&T` included, #92) in struct fields, tuples, arrays or enum
 //! payloads, `()` values, comparisons of tuples or enums, `&` patterns, half-open range

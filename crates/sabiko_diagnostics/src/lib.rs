@@ -164,6 +164,8 @@ impl ErrorCode {
     /// (edition 2024; rustc's uncoded "cannot mutably bind by value / cannot explicitly
     /// borrow within an implicitly-borrowing pattern").
     pub const BINDING_MODIFIER_UNDER_REF: Self = Self(337);
+    /// A struct's or enum's type parameter that no field uses (rustc's E0392).
+    pub const UNUSED_TYPE_PARAMETER: Self = Self(340);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

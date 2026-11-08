@@ -417,7 +417,7 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             if place.is_local()
                 && !matches!(
                     rvalue,
-                    Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), _)
+                    Rvalue::Aggregate(AggregateKind::Adt(..) | AggregateKind::Variant(..), _)
                 )
             {
                 defs[place.local.index()] += 1;
@@ -1103,12 +1103,12 @@ impl FnCx<'_, '_> {
             }
             return;
         }
-        if let Rvalue::Aggregate(AggregateKind::Adt(def), operands) = rvalue {
-            self.aggregate(place, *def, operands, span);
+        if let Rvalue::Aggregate(AggregateKind::Adt(def, args), operands) = rvalue {
+            self.aggregate(place, *def, args, operands, span);
             return;
         }
-        if let Rvalue::Aggregate(AggregateKind::Variant(def, variant), operands) = rvalue {
-            self.variant_aggregate(place, *def, *variant, operands, span);
+        if let Rvalue::Aggregate(AggregateKind::Variant(def, variant, args), operands) = rvalue {
+            self.variant_aggregate(place, *def, *variant, args, operands, span);
             return;
         }
         if let Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _) = rvalue {
@@ -1346,14 +1346,14 @@ impl FnCx<'_, '_> {
     /// field reference for the final `ldfld`/`ldflda`/`stfld`.
     fn field_base(&mut self, parent: &Place, index: usize, field_ty: &Ty, span: Span) -> String {
         let base_ty = parent.ty(self.body);
-        if let (Some(PlaceElem::Downcast(variant)), Ty::Adt(def)) =
+        if let (Some(PlaceElem::Downcast(variant)), Ty::Adt(def, args)) =
             (parent.projection.last(), &base_ty)
         {
             // `(e as V).f`: the payload's address, then its field.
             self.addr(parent, span);
             return self
                 .cx
-                .variant_field_ref(*def, *variant, index, field_ty, span);
+                .variant_field_ref(*def, args, *variant, index, field_ty, span);
         }
         self.addr(parent, span);
         let (rest, field) = self.cx.field_path(&base_ty, index, field_ty, span);
@@ -1376,8 +1376,14 @@ impl FnCx<'_, '_> {
     fn is_wrapped(&self, place: &Place) -> bool {
         match place.projection.last() {
             None => self.wrapped[place.local.index()],
+            // A reference held by a tuple element or a field of an instance is in its
+            // wrapper (decision 64).
             Some(PlaceElem::Field(_, ty)) => {
-                Cx::is_byref(ty) && matches!(Self::parent(place).ty(self.body), Ty::Tuple(_))
+                Cx::is_byref(ty)
+                    && matches!(
+                        Self::parent(place).ty(self.body),
+                        Ty::Tuple(_) | Ty::Adt(..)
+                    )
             }
             Some(PlaceElem::Deref | PlaceElem::Index(_)) => Cx::is_byref(&place.ty(self.body)),
             Some(PlaceElem::Downcast(_)) => false,
@@ -1489,11 +1495,11 @@ impl FnCx<'_, '_> {
             Some(PlaceElem::Downcast(variant)) => {
                 // The address of the variant's payload inside the enum.
                 let parent = Self::parent(place);
-                let Ty::Adt(def) = parent.ty(self.body) else {
+                let Ty::Adt(def, args) = parent.ty(self.body) else {
                     unreachable!("a downcast applies to an enum")
                 };
                 self.addr(&parent, span);
-                let payload = self.cx.payload_field_ref(def, *variant);
+                let payload = self.cx.payload_field_ref(def, &args, *variant);
                 self.op(format!("ldflda {payload}"), 1, 1);
             }
         }
@@ -1751,9 +1757,9 @@ impl FnCx<'_, '_> {
             Rvalue::Cast(operand, to) => {
                 let from = operand.ty(self.body);
                 self.operand(operand, span);
-                if let Ty::Adt(def) = from {
+                if let Ty::Adt(def, args) = from {
                     // A fieldless enum casts to its discriminant: the tag of the value.
-                    let tag = self.cx.tag_field_ref(def);
+                    let tag = self.cx.tag_field_ref(def, &args);
                     self.op(format!("ldfld {tag}"), 1, 1);
                     let tag_ty = Ty::Prim(self.cx.tag_type(def));
                     self.cast(&tag_ty, to, span);
@@ -1762,11 +1768,11 @@ impl FnCx<'_, '_> {
                 }
             }
             Rvalue::Discriminant(place) => {
-                let Ty::Adt(def) = place.ty(self.body) else {
+                let Ty::Adt(def, args) = place.ty(self.body) else {
                     unreachable!("a discriminant of an enum")
                 };
                 self.addr(place, span);
-                let tag = self.cx.tag_field_ref(def);
+                let tag = self.cx.tag_field_ref(def, &args);
                 self.op(format!("ldfld {tag}"), 1, 1);
                 let tag_ty = Ty::Prim(self.cx.tag_type(def));
                 self.cast(&tag_ty, &Ty::Prim(PrimTy::Isize), span);
@@ -1774,7 +1780,7 @@ impl FnCx<'_, '_> {
             Rvalue::Aggregate(AggregateKind::Tuple, operands) => {
                 self.tuple(result_ty, operands, span);
             }
-            Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), _) => {
+            Rvalue::Aggregate(AggregateKind::Adt(..) | AggregateKind::Variant(..), _) => {
                 // Handled by `assign`; an aggregate elsewhere would need staging.
                 self.cx
                     .unsupported("a struct literal in this position", span);
@@ -2233,10 +2239,17 @@ impl FnCx<'_, '_> {
         }
     }
 
-    fn aggregate(&mut self, place: &Place, def: DefId, operands: &[Operand], span: Span) {
+    fn aggregate(
+        &mut self,
+        place: &Place,
+        def: DefId,
+        args: &[Ty],
+        operands: &[Operand],
+        span: Span,
+    ) {
         let adt = self.cx.typeck.items.adt(def).clone();
-        let struct_name = types::quote(&adt.name);
-        let ty = Ty::Adt(def);
+        let struct_name = self.cx.adt_class(def, args);
+        let ty = Ty::Adt(def, args.into());
         // Build directly in the destination local unless an operand reads from it.
         let reads_dest = operands
             .iter()
@@ -2249,13 +2262,17 @@ impl FnCx<'_, '_> {
         self.ldloca(target);
         self.op(format!("initobj valuetype {struct_name}"), 1, 0);
         for (index, operand) in operands.iter().enumerate() {
-            let field = &adt.fields[index];
-            if field.ty.is_unit() || field.ty.is_never() {
+            let field_ty = adt.field_ty(&adt.fields[index].ty, args);
+            if field_ty.is_unit() || field_ty.is_never() {
                 continue;
             }
             self.ldloca(target);
             self.operand(operand, span);
-            let field_ref = self.field_ref(&ty, index, &field.ty, span);
+            if Cx::is_byref(&field_ty) {
+                // A reference field holds its wrapper (decision 64).
+                self.wrap(&field_ty, span);
+            }
+            let field_ref = self.field_ref(&ty, index, &field_ty, span);
             self.op(format!("stfld {field_ref}"), 2, 0);
         }
         if in_place.is_none() {
@@ -2270,11 +2287,12 @@ impl FnCx<'_, '_> {
         place: &Place,
         def: DefId,
         variant: usize,
+        args: &[Ty],
         operands: &[Operand],
         span: Span,
     ) {
         let adt = self.cx.typeck.items.adt(def).clone();
-        let ty = Ty::Adt(def);
+        let ty = Ty::Adt(def, args.into());
         let reads_dest = operands
             .iter()
             .any(|o| o.place().is_some_and(|p| p.local == place.local));
@@ -2284,30 +2302,31 @@ impl FnCx<'_, '_> {
         };
         let target = in_place.unwrap_or_else(|| self.scratch(&ty, span));
         self.ldloca(target);
-        self.op(
-            format!("initobj valuetype {}", types::quote(&adt.name)),
-            1,
-            0,
-        );
+        let class = self.cx.adt_class(def, args);
+        self.op(format!("initobj valuetype {class}"), 1, 0);
         let tag_ty = self.cx.tag_type(def);
         self.ldloca(target);
         #[allow(clippy::cast_sign_loss)]
         let discr = adt.variant(variant).discr as u128;
         self.int_const(discr, tag_ty);
-        let tag = self.cx.tag_field_ref(def);
+        let tag = self.cx.tag_field_ref(def, args);
         self.op(format!("stfld {tag}"), 2, 0);
-        let payload = self.cx.payload_field_ref(def, variant);
+        let payload = self.cx.payload_field_ref(def, args, variant);
         for (index, operand) in operands.iter().enumerate() {
-            let field_ty = adt.variant(variant).fields[index].ty.clone();
+            let field_ty = adt.field_ty(&adt.variant(variant).fields[index].ty, args);
             if field_ty.is_unit() || field_ty.is_never() {
                 continue;
             }
             self.ldloca(target);
             self.op(format!("ldflda {payload}"), 1, 1);
             self.operand(operand, span);
+            if Cx::is_byref(&field_ty) {
+                // A reference field holds its wrapper (decision 64).
+                self.wrap(&field_ty, span);
+            }
             let field_ref = self
                 .cx
-                .variant_field_ref(def, variant, index, &field_ty, span);
+                .variant_field_ref(def, args, variant, index, &field_ty, span);
             self.op(format!("stfld {field_ref}"), 2, 0);
         }
         if in_place.is_none() {
@@ -3031,7 +3050,7 @@ impl FnCx<'_, '_> {
                     .collect();
                 let callee = format!(
                     "call {ret} {}::{}({})",
-                    self.cx.owner_class(func),
+                    self.cx.owner_class(func, generic_args),
                     types::quote(&name),
                     params.join(", ")
                 );

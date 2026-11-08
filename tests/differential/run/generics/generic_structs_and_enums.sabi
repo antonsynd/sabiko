@@ -1,0 +1,79 @@
+// Generic structs and enums: constructors, methods of generic `impl` blocks, a
+// generic enum returned and matched, an instance holding a reference, nested instances.
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+impl<A, B> Pair<A, B> {
+    fn New(a: A, b: B) -> Pair<A, B> {
+        Pair { First: a, Second: b }
+    }
+
+    fn Swap(self) -> Pair<B, A> {
+        Pair { First: self.Second, Second: self.First }
+    }
+
+    fn GetFirst(&self) -> &A {
+        &self.First
+    }
+}
+
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+impl<T> Opt<T> {
+    fn IsSome(&self) -> bool {
+        match self {
+            Opt::Some(_) => true,
+            Opt::None => false,
+        }
+    }
+
+    fn UnwrapOr(self, d: T) -> T {
+        match self {
+            Opt::Some(x) => x,
+            Opt::None => d,
+        }
+    }
+}
+
+fn Find(xs: &[i32], target: i32) -> Opt<usize> {
+    let mut i = 0;
+    while i < xs.len() {
+        if xs[i] == target {
+            return Opt::Some(i);
+        }
+        i += 1;
+    }
+    Opt::None
+}
+
+fn Main() {
+    let p = Pair::New(1, "one");
+    PrintLine(p.First);
+    PrintLine(p.Second);
+    let q = p.Swap();
+    PrintLine(q.First);
+    PrintLine(*q.GetFirst());
+    let r: Pair<bool, char> = Pair { First: true, Second: 'c' };
+    PrintLine(r.Second);
+    let a = [3, 5, 7];
+    PrintLine(Find(&a, 5).UnwrapOr(99));
+    PrintLine(Find(&a, 6).UnwrapOr(99));
+    let o: Opt<f64> = Opt::None;
+    PrintLine(o.IsSome());
+    let x = 10;
+    let y = Opt::Some(&x);
+    match y {
+        Opt::Some(r) => PrintLine(*r),
+        Opt::None => PrintLine(0),
+    }
+    let nested = Opt::Some(Pair::New(Opt::Some(2u8), 3i64));
+    if let Opt::Some(Pair { First: Opt::Some(v), Second: w }) = nested {
+        PrintLine(v);
+        PrintLine(w);
+    }
+}

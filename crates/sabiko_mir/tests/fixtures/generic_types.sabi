@@ -1,0 +1,42 @@
+// Generic structs and enums (#115): aggregates carry their instance's arguments, field
+// projections the field's type at them, and a generic `impl Drop` gets an instance per
+// instance type (the forwarded snapshot).
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+impl<A, B> Pair<A, B> {
+    fn Swap(self) -> Pair<B, A> {
+        Pair { First: self.Second, Second: self.First }
+    }
+}
+
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+struct Guard<T> {
+    Value: T,
+}
+
+impl<T> Drop for Guard<T> {
+    fn drop(&mut self) {}
+}
+
+fn Get(o: Opt<i32>) -> i32 {
+    match o {
+        Opt::Some(v) => v,
+        Opt::None => 0,
+    }
+}
+
+fn Main() {
+    let p = Pair { First: 1u8, Second: true }.Swap();
+    let x = 5;
+    let o = Opt::Some(&x);
+    let n = Get(Opt::Some(3));
+    let g = Guard { Value: (p, o) };
+    let _k = n;
+}

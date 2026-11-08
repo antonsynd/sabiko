@@ -339,8 +339,12 @@ pub struct ResolveResults {
     /// `ExprKind::Path` or `ExprKind::Struct`.
     res: HashMap<NodeId, Res>,
     pat_locals: HashMap<NodeId, LocalId>,
-    /// The type parameters of each generic function, in declaration order.
+    /// The type parameters of each generic function, struct and enum, in order. For a
+    /// function of a generic `impl` block, its type's parameters come first (the block's
+    /// own are aliases of them, decision 83), then the function's.
     generics: HashMap<DefId, Vec<DefId>>,
+    /// For a function of a generic `impl` block: how many of its `generics` are its type's.
+    parent_generics: HashMap<DefId, usize>,
     /// The associated items (functions and constants) of each struct or enum, by name.
     assoc_items: HashMap<(DefId, String), DefId>,
     /// The definitions made for the primitive associated constants the file uses.
@@ -395,6 +399,19 @@ impl ResolveResults {
     #[must_use]
     pub fn generics(&self, def: DefId) -> &[DefId] {
         self.generics.get(&def).map_or(&[], Vec::as_slice)
+    }
+
+    /// How many of a function's `generics` are its `impl` block's type's (decision 83);
+    /// the rest are its own, the ones a turbofish on its name gives.
+    #[must_use]
+    pub fn parent_generic_count(&self, def: DefId) -> usize {
+        self.parent_generics.get(&def).copied().unwrap_or(0)
+    }
+
+    /// The type parameters a function declares itself (not its `impl` block's).
+    #[must_use]
+    pub fn own_generics(&self, def: DefId) -> &[DefId] {
+        &self.generics(def)[self.parent_generic_count(def)..]
     }
 
     #[must_use]
@@ -530,6 +547,7 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
         sink,
         current_fn: None,
         ty_params: Vec::new(),
+        impl_params: HashMap::new(),
         impl_scope: ImplScope::Outside,
         const_floor: None,
     };
@@ -561,8 +579,11 @@ struct Resolver<'d> {
     scopes: Vec<Vec<(String, LocalId)>>,
     sink: &'d mut DiagnosticSink,
     current_fn: Option<DefId>,
-    /// The type parameters in scope: those of the function being resolved.
+    /// The type parameters in scope: those of the item being resolved.
     ty_params: Vec<(String, DefId)>,
+    /// The names an `impl` block (by item index) gives its type's parameters
+    /// (`impl<U> S<U>` names `S`'s first parameter `U`), decision 83.
+    impl_params: HashMap<usize, Vec<(String, DefId)>>,
     /// Whether the resolver is inside an `impl` block, and for which struct: what `Self`
     /// names.
     impl_scope: ImplScope,
@@ -684,27 +705,30 @@ impl Resolver<'_> {
     fn collect_generics(&mut self, file: &SourceFile) {
         for (index, item) in file.items.iter().enumerate() {
             match &item.kind {
-                ItemKind::Fn(f) => self.collect_fn_generics(item.id, index, f),
+                ItemKind::Fn(f) => self.collect_params(item.id, index, &f.generics),
+                ItemKind::Struct(st) => self.collect_params(item.id, index, &st.generics),
+                ItemKind::Enum(e) => self.collect_params(item.id, index, &e.generics),
                 ItemKind::Impl(imp) => {
                     for member in &imp.items {
                         if let ItemKind::Fn(f) = &member.kind {
-                            self.collect_fn_generics(member.id, index, f);
+                            self.collect_params(member.id, index, &f.generics);
                         }
                     }
                 }
-                _ => {}
+                ItemKind::Const(_) => {}
             }
         }
     }
 
-    fn collect_fn_generics(&mut self, node: NodeId, index: usize, f: &FnDecl) {
-        if f.generics.is_empty() {
+    /// The type parameters `params` of the item at `node` (a function, struct or enum).
+    fn collect_params(&mut self, node: NodeId, index: usize, params: &[sabiko_ast::GenericParam]) {
+        if params.is_empty() {
             return;
         }
         let parent = self.results.def_of_item(node);
         let mut seen: HashMap<&str, Span> = HashMap::new();
         let mut ids = Vec::new();
-        for g in &f.generics {
+        for g in params {
             if let Some(&prev) = seen.get(g.name.name.as_str()) {
                 self.sink.emit(
                     Diagnostic::error(
@@ -796,11 +820,18 @@ impl Resolver<'_> {
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
+            let params = self.impl_param_map(imp);
+            self.ty_params.clone_from(&params);
+            self.impl_params.insert(index, params);
             if imp.trait_ref.is_some() {
                 self.collect_drop_impl(item, imp, &mut drop_headers);
+                self.inherit_generics(imp);
+                self.ty_params.clear();
                 continue;
             }
-            let Some(adt) = self.resolve_impl_target(&imp.self_ty) else {
+            let target = self.resolve_impl_target(&imp.self_ty);
+            self.ty_params.clear();
+            let Some(adt) = target else {
                 continue;
             };
             for member in &imp.items {
@@ -809,6 +840,7 @@ impl Resolver<'_> {
                 };
                 let def = self.results.def_of_item(member.id);
                 self.results.defs[def.0 as usize].parent = Some(adt);
+                self.inherit_generics_of(def, adt);
                 let key = (adt, ident.name.clone());
                 let Some(&(prev, prev_block)) = first.get(&key) else {
                     first.insert(key.clone(), (def, index));
@@ -832,6 +864,150 @@ impl Resolver<'_> {
                 );
             }
         }
+    }
+
+    /// The names a generic `impl` block gives its type's parameters (decision 83): its type
+    /// must be a generic struct or enum whose arguments are exactly the block's
+    /// parameters, each once (`impl<A, B> Pair<A, B>`, or `impl<U> S<U>` for `struct
+    /// S<T>`); anything else (`impl<T> Pair<T, T>`, `impl Pair<i32, bool>` with arguments
+    /// that are types) is E0107 for now. Empty for a block that is not generic.
+    fn impl_param_map(&mut self, imp: &ImplDecl) -> Vec<(String, DefId)> {
+        if imp.generics.is_empty() {
+            // `impl Pair<i32, bool>`: a block for one instance.
+            if let TypeKind::Path(path) = &imp.self_ty.kind {
+                let generic = path.is_single()
+                    && path.args_of(0).is_some_and(|a| !a.args.is_empty())
+                    && self
+                        .items
+                        .get(&path.segments[0].name)
+                        .is_some_and(|&d| self.results.def(d).kind.is_type());
+                if generic {
+                    self.unsupported_impl_params(imp.self_ty.span);
+                }
+            }
+            return Vec::new();
+        }
+        let mut seen: HashMap<&str, Span> = HashMap::new();
+        for g in &imp.generics {
+            if let Some(&prev) = seen.get(g.name.name.as_str()) {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_GENERIC_PARAM,
+                        format!(
+                            "the name `{}` is already used for a generic parameter in this item's generic parameters",
+                            g.name.name
+                        ),
+                    )
+                    .with_label(g.name.span, "already used")
+                    .with_label(prev, format!("first use of `{}`", g.name.name)),
+                );
+                return self.stray_params(imp);
+            }
+            seen.insert(&g.name.name, g.name.span);
+        }
+        let target = match &imp.self_ty.kind {
+            TypeKind::Path(path) if path.is_single() => self
+                .items
+                .get(&path.segments[0].name)
+                .copied()
+                .filter(|&d| self.results.def(d).kind.is_type())
+                .map(|d| (d, path)),
+            _ => None,
+        };
+        let Some((adt, path)) = target else {
+            self.unsupported_impl_params(imp.self_ty.span);
+            return self.stray_params(imp);
+        };
+        let adt_params = self.results.generics(adt).to_vec();
+        let args: &[Type] = path.args_of(0).map_or(&[], |a| a.args.as_slice());
+        let mut map: Vec<(String, DefId)> = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            let name = match &arg.kind {
+                TypeKind::Path(p) if p.is_single() && p.generic_args.is_empty() => {
+                    &p.segments[0].name
+                }
+                _ => break,
+            };
+            if !imp.generics.iter().any(|g| &g.name.name == name)
+                || map.iter().any(|(n, _)| n == name)
+            {
+                break;
+            }
+            if let Some(&param) = adt_params.get(i) {
+                map.push((name.clone(), param));
+            }
+        }
+        if map.len() != imp.generics.len()
+            || map.len() != adt_params.len()
+            || args.len() != map.len()
+        {
+            self.unsupported_impl_params(imp.self_ty.span);
+            return self.stray_params(imp);
+        }
+        map
+    }
+
+    /// Definitions of their own for the parameters of an `impl` block that was reported,
+    /// so that their uses resolve without more errors.
+    fn stray_params(&mut self, imp: &ImplDecl) -> Vec<(String, DefId)> {
+        let mut out: Vec<(String, DefId)> = Vec::new();
+        for g in &imp.generics {
+            if out.iter().any(|(n, _)| *n == g.name.name) {
+                continue;
+            }
+            let id = self.new_def(DefInfo {
+                kind: DefKind::TyParam,
+                name: g.name.name.clone(),
+                span: g.name.span,
+                node: g.id,
+                item_index: usize::MAX,
+                member_index: None,
+                parent: None,
+                builtin: None,
+            });
+            out.push((g.name.name.clone(), id));
+        }
+        out
+    }
+
+    fn unsupported_impl_params(&mut self, span: Span) {
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNSUPPORTED_SYNTAX,
+                "not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters",
+            )
+            .with_label(span, "write the type's parameters in order: `impl<A, B> Pair<A, B>`")
+            .with_note("blocks for one instance (`impl Pair<i32, bool>`) or for repeated parameters wait for traits (#116); see docs/PLAN.md"),
+        );
+    }
+
+    /// Gives every function of the `impl Drop` block `imp` its type's parameters first.
+    fn inherit_generics(&mut self, imp: &ImplDecl) {
+        for member in &imp.items {
+            if member.name().is_none() {
+                continue;
+            }
+            let def = self.results.def_of_item(member.id);
+            if let Some(adt) = self.results.def(def).parent {
+                self.inherit_generics_of(def, adt);
+            }
+        }
+    }
+
+    /// Puts the type parameters of `adt` before those of its associated function `def`.
+    fn inherit_generics_of(&mut self, def: DefId, adt: DefId) {
+        if self.results.def(def).kind != DefKind::Fn {
+            return;
+        }
+        let parent = self.results.generics(adt).to_vec();
+        if parent.is_empty() {
+            return;
+        }
+        let own = self.results.generics.remove(&def).unwrap_or_default();
+        self.results.parent_generics.insert(def, parent.len());
+        let mut all = parent;
+        all.extend(own);
+        self.results.generics.insert(def, all);
     }
 
     /// `impl Drop for S { fn drop(&mut self) { .. } }` (decision 46): `S` must be a struct
@@ -1013,15 +1189,26 @@ impl Resolver<'_> {
                 let def = self.results.def_of_item(member.id);
                 match &member.kind {
                     ItemKind::Fn(f) => self.resolve_fn(def, f),
-                    ItemKind::Const(c) => self.resolve_const_item(def, c),
+                    ItemKind::Const(c) => {
+                        self.ty_params = self.impl_params.get(&index).cloned().unwrap_or_default();
+                        self.resolve_const_item(def, c);
+                    }
                     _ => {}
                 }
             }
+            self.ty_params.clear();
             self.impl_scope = ImplScope::Outside;
             return;
         }
         let def = self.results.def_of_item(item.id);
         debug_assert_eq!(self.results.def(def).item_index, index);
+        // A struct's or enum's fields see its type parameters.
+        self.ty_params = self
+            .results
+            .generics(def)
+            .iter()
+            .map(|&p| (self.results.def(p).name.clone(), p))
+            .collect();
         match &item.kind {
             ItemKind::Impl(_) => unreachable!("handled above"),
             ItemKind::Fn(f) => self.resolve_fn(def, f),
@@ -1052,6 +1239,7 @@ impl Resolver<'_> {
             }
             ItemKind::Const(c) => self.resolve_const_item(def, c),
         }
+        self.ty_params.clear();
     }
 
     /// A `const` item, at the top level or in an `impl` block.
@@ -1086,12 +1274,24 @@ impl Resolver<'_> {
 
     fn resolve_fn(&mut self, def: DefId, f: &FnDecl) {
         self.current_fn = Some(def);
-        self.ty_params = self
-            .results
-            .generics(def)
-            .iter()
-            .map(|&p| (self.results.def(p).name.clone(), p))
-            .collect();
+        // A function of an `impl` block also sees the block's names for its type's
+        // parameters (decision 83).
+        let info = self.results.def(def);
+        let mut params = if info.member_index.is_some() {
+            self.impl_params
+                .get(&info.item_index)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        params.extend(
+            self.results
+                .own_generics(def)
+                .iter()
+                .map(|&p| (self.results.def(p).name.clone(), p)),
+        );
+        self.ty_params = params;
         self.scopes.push(Vec::new());
         if let Some(sp) = &f.self_param {
             // `self` cannot be a `let` binding (it is a keyword), so a lookup of it finds
@@ -1496,35 +1696,82 @@ impl Resolver<'_> {
     fn resolve_type_path(&mut self, path: &Path, in_signature: bool) -> Res {
         self.resolve_generic_args(path, in_signature);
         let res = self.resolve_type_path_inner(path);
-        self.check_generic_args(path, res);
+        self.check_generic_args(path, res, true);
         res
     }
 
-    /// Reports generic arguments the path's definitions do not take: on any segment but
-    /// the last, on a definition that is not a generic function, or the wrong number of
-    /// them for a generic function (rustc's E0109 and E0107).
-    fn check_generic_args(&mut self, path: &Path, res: Res) {
+    /// Reports generic arguments the path's definitions do not take (rustc's E0109), and
+    /// the wrong number of them (E0107): a generic function takes its own parameters (not
+    /// its `impl` block's), a generic struct or enum, or a variant, its type's. In a type
+    /// (`in_type`), a generic struct or enum needs all of them; in an expression or pattern
+    /// none may be written, and inference finds them.
+    fn check_generic_args(&mut self, path: &Path, res: Res, in_type: bool) {
+        if matches!(res, Res::Err) {
+            return;
+        }
         let last = path.segments.len() - 1;
-        for args in &path.generic_args {
-            let seg = &path.segments[args.segment];
-            let def = match res {
-                Res::Def(d) if args.segment == last => Some(d),
-                Res::Err => return,
+        for index in 0..path.segments.len() {
+            let seg = &path.segments[index];
+            let written = path.args_of(index);
+            let def = if index == last {
+                match res {
+                    Res::Def(d) => Some(d),
+                    _ => None,
+                }
+            } else if seg.name == "Self" {
+                // `Self` already has its block's arguments.
+                None
+            } else {
+                self.items
+                    .get(&seg.name)
+                    .copied()
+                    .filter(|&d| self.results.def(d).kind.is_type())
+            };
+            let kind = def.map(|d| self.results.def(d).kind);
+            // What the segment takes, and whether leaving them out is allowed.
+            let takes = match (kind, def) {
+                (Some(DefKind::Fn), Some(d)) => Some((self.results.own_generics(d).len(), true)),
+                (Some(DefKind::Struct | DefKind::Enum), Some(d)) => {
+                    let n = self.results.generics(d).len();
+                    Some((n, !in_type || seg.name == "Self"))
+                }
+                (Some(DefKind::Variant), Some(d)) => {
+                    let n = self
+                        .results
+                        .def(d)
+                        .parent
+                        .map_or(0, |e| self.results.generics(e).len());
+                    Some((n, true))
+                }
                 _ => None,
             };
-            let expected = def.filter(|&d| self.results.def(d).kind == DefKind::Fn);
-            if let Some(f) = expected {
-                let want = self.results.generics(f).len();
-                let got = args.args.len();
-                if want == got {
-                    continue;
+            let got = written.map(|a| a.args.len());
+            match (takes, got) {
+                (Some((want, may_omit)), None) => {
+                    if want > 0 && !may_omit && index == last {
+                        let info = self.results.def(def.expect("takes arguments"));
+                        let what = info.kind.describe();
+                        let plural = if want == 1 { "argument" } else { "arguments" };
+                        self.sink.emit(
+                            Diagnostic::error(
+                                ErrorCode::WRONG_GENERIC_ARG_COUNT,
+                                format!("missing generics for {what} `{}`", seg.name),
+                            )
+                            .with_label(seg.span, format!("expected {want} generic {plural}"))
+                            .with_label(info.span, format!("{what} `{}` defined here", info.name)),
+                        );
+                    }
                 }
-                if want > 0 {
+                (Some((want, _)), Some(got)) if want == got => {}
+                (Some((want, _)), Some(got)) if want > 0 => {
+                    let args = written.expect("written");
+                    let info = self.results.def(def.expect("takes arguments"));
+                    let what = info.kind.describe();
                     let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
                     let mut d = Diagnostic::error(
                         ErrorCode::WRONG_GENERIC_ARG_COUNT,
                         format!(
-                            "function takes {want} generic {} but {got} generic {} {} supplied",
+                            "{what} takes {want} generic {} but {got} generic {} {} supplied",
                             plural(want),
                             plural(got),
                             if got == 1 { "was" } else { "were" }
@@ -1534,36 +1781,44 @@ impl Resolver<'_> {
                         args.span,
                         format!("expected {want} generic {}", plural(want)),
                     );
-                    let info = self.results.def(f);
                     if !info.span.is_dummy() {
-                        d = d.with_label(
-                            info.span,
-                            format!("function `{}` defined here", info.name),
-                        );
+                        d = d.with_label(info.span, format!("{what} `{}` defined here", info.name));
                     }
                     self.sink.emit(d);
-                    continue;
+                }
+                (_, None) => {}
+                (_, Some(_)) => {
+                    let args = written.expect("written");
+                    self.args_not_allowed(seg, args, kind, res, index == last);
                 }
             }
-            let what = match (def.map(|d| self.results.def(d).kind), res) {
-                (Some(kind), _) => format!("{} `{}`", kind.describe(), seg.name),
-                (None, Res::Prim(_)) if args.segment == last => {
-                    format!("builtin type `{}`", seg.name)
-                }
-                (None, Res::Local(_)) if args.segment == last => {
-                    format!("local variable `{}`", seg.name)
-                }
-                (None, _) => format!("`{}`", seg.name),
-            };
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::GENERIC_ARGS_NOT_ALLOWED,
-                    format!("type arguments are not allowed on {what}"),
-                )
-                .with_label(args.span, "type argument not allowed")
-                .with_note("only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)"),
-            );
         }
+    }
+
+    /// E0223: generic arguments `args` after the segment `seg`, which takes none (`kind`
+    /// is its definition's, `res` the path's resolution when `seg` is its last segment).
+    fn args_not_allowed(
+        &mut self,
+        seg: &sabiko_ast::Ident,
+        args: &sabiko_ast::GenericArgs,
+        kind: Option<DefKind>,
+        res: Res,
+        is_last: bool,
+    ) {
+        let what = match (kind, res) {
+            (Some(kind), _) => format!("{} `{}`", kind.describe(), seg.name),
+            (None, Res::Prim(_)) if is_last => format!("builtin type `{}`", seg.name),
+            (None, Res::Local(_)) if is_last => format!("local variable `{}`", seg.name),
+            (None, _) => format!("`{}`", seg.name),
+        };
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::GENERIC_ARGS_NOT_ALLOWED,
+                format!("type arguments are not allowed on {what}"),
+            )
+            .with_label(args.span, "type argument not allowed")
+            .with_note("only generic functions, structs and enums take generic arguments"),
+        );
     }
 
     fn resolve_type_path_inner(&mut self, path: &Path) -> Res {
@@ -1609,7 +1864,7 @@ impl Resolver<'_> {
     fn resolve_value_path(&mut self, path: &Path) -> Res {
         self.resolve_generic_args(path, false);
         let res = self.resolve_value_path_inner(path);
-        self.check_generic_args(path, res);
+        self.check_generic_args(path, res, false);
         res
     }
 
@@ -1758,7 +2013,8 @@ impl Resolver<'_> {
             );
             return Res::Err;
         }
-        let adt = match self.resolve_type_path(&Path::single(ty.clone()), false) {
+        // The type segment's own generic arguments are checked with the whole path.
+        let adt = match self.resolve_type_path_inner(&Path::single(ty.clone())) {
             Res::Def(def) => def,
             Res::Prim(prim) => return self.resolve_prim_const(prim, item),
             Res::Local(_) | Res::Err => return Res::Err,
@@ -1853,7 +2109,7 @@ impl Resolver<'_> {
     fn resolve_struct_path(&mut self, path: &Path) -> Res {
         self.resolve_generic_args(path, false);
         let res = self.resolve_struct_path_inner(path);
-        self.check_generic_args(path, res);
+        self.check_generic_args(path, res, false);
         res
     }
 
