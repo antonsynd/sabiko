@@ -145,9 +145,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   Value: r }.Value` (`&*r` for a reference that is not a fresh borrow). Each is transparent
   to the scope model; the type parameter is inferred from the context, as the wrapped
   literals are, and never as a slice (a reference to an array is not wrapped, since it may
-  be coerced). The first run found one generator bug elsewhere: `stmt_ref_aggregate`
-  generated a tuple's second element with the first element's shared borrow unlocked
-  (seed 81000007 wrote `(&t[i], match &mut t[1] { .. })`). `programs_use_generic_helpers`
+  be coerced). The runs found two generator bugs elsewhere, in `stmt_ref_aggregate`: a
+  tuple's second element was generated with the first element's shared borrow unlocked
+  (seed 81000007 wrote `(&t[i], match &mut t[1] { .. })`), and so was the index read out
+  of an array of references (seeds 85000088 and 86000852 moved or mutably borrowed an
+  element's root there). `programs_use_generic_helpers`
   pins 60, 20, 50, 25, 30, 20 and 30 programs of 500 using `GenId`, `GenId::<T>`,
   `GenPick`, `GenFirst`, `GenOr(GenOpt::Yes(..), ..)`, `GenOr(GenOpt::No, ..)` and
   `GenBox`.
