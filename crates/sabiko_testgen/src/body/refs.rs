@@ -548,3 +548,195 @@ impl BodyGen<'_> {
         }
     }
 }
+
+impl BodyGen<'_> {
+    /// A block holding a local aggregate of references to primitive places (#92), read
+    /// or written through before the block ends, so its loans end there: `{ let a: [&T;
+    /// N] = [&p, &q]; PrintLine(*a[k]); let s: &[&T] = &a[1..]; .. }`, `{ let t: (&T,
+    /// U) = (&p, u); PrintLine(*t.0); .. }`, or `{ let a: [&mut T; 2] = [&mut p, &mut q];
+    /// *a[k] = v; PrintLine(*a[j]); }` on places of two different locals. Each borrow is
+    /// checked (and with the violation knob, sometimes not) as any other.
+    pub(super) fn stmt_ref_aggregate(&mut self, depth: u32) -> bool {
+        // A type some place in scope has: one two locals have for `&mut` (an integer, to
+        // write a literal through), any primitive one otherwise.
+        let places: Vec<Place> = self
+            .candidates()
+            .into_iter()
+            .filter(|p| matches!(p.ty, ValTy::Prim(_)))
+            .collect();
+        let mut_tys: Vec<ValTy> = places
+            .iter()
+            .filter(|p| {
+                matches!(p.ty, ValTy::Prim(Prim::Int(_))) && self.permitted(p, Access::Borrow(true))
+            })
+            .filter(|p| {
+                places.iter().any(|q| {
+                    q.ty == p.ty && q.root != p.root && self.permitted(q, Access::Borrow(true))
+                })
+            })
+            .map(|p| p.ty)
+            .collect();
+        let shared_tys: Vec<ValTy> = places
+            .iter()
+            .filter(|p| self.permitted(p, Access::Borrow(false)))
+            .map(|p| p.ty)
+            .collect();
+        let kind = self.rng.weighted(&[
+            if shared_tys.is_empty() { 0 } else { 35 },
+            if shared_tys.is_empty() { 0 } else { 30 },
+            if mut_tys.is_empty() { 15 } else { 35 },
+        ]);
+        // With no two locals to borrow mutably, the block declares its own.
+        let ty = match kind {
+            2 if mut_tys.is_empty() => ValTy::Prim(Prim::Int(*self.rng.pick(&IntTy::ALL))),
+            2 => *self.rng.pick(&mut_tys),
+            _ => *self.rng.pick(&shared_tys),
+        };
+        let ValTy::Prim(p) = ty else {
+            unreachable!("primitive places only")
+        };
+        let name = self.fresh_name();
+        let lines = match kind {
+            0 => self.ref_array_lines(&name, p, depth),
+            1 => self.ref_tuple_lines(&name, p, depth),
+            _ if mut_tys.is_empty() => Some(self.own_mut_ref_array_lines(&name, p)),
+            _ => self.mut_ref_array_lines(&name, p),
+        };
+        let Some(lines) = lines else {
+            return false;
+        };
+        self.ref_aggregate_block(&lines)
+    }
+
+    /// `let a: [&T; N] = [&p, ..];`, read by index, now and then through a slice of it.
+    fn ref_array_lines(&mut self, name: &str, p: Prim, depth: u32) -> Option<Vec<String>> {
+        let n = self.rng.range(1, 3);
+        let mut elems = Vec::new();
+        for _ in 0..n {
+            let place = self.place_of(ValTy::Prim(p), Access::Borrow(false))?;
+            elems.push(format!("&{}", place.text));
+        }
+        let n = elems.len();
+        let index = self.ref_aggregate_index(n, depth);
+        let mut lines = vec![
+            format!("let {name}: [&{}; {n}] = [{}];", p.name(), elems.join(", ")),
+            format!("PrintLine(*{name}[{index}]);"),
+        ];
+        if self.rng.chance(50) {
+            // A slice of references, through a range of the array.
+            let s = self.fresh_name();
+            let lo = self.rng.index(n + 1);
+            lines.push(format!("let {s}: &[&{}] = &{name}[{lo}usize..];", p.name()));
+            lines.push(format!(
+                "if {s}.len() > 0usize {{ PrintLine(*{s}[{s}.len() - 1usize]); }}"
+            ));
+        }
+        Some(lines)
+    }
+
+    /// `let t: (&T, U) = (&p, u);`, read, now and then destructured.
+    fn ref_tuple_lines(&mut self, name: &str, p: Prim, depth: u32) -> Option<Vec<String>> {
+        let place = self.place_of(ValTy::Prim(p), Access::Borrow(false))?;
+        let q = *self
+            .rng
+            .pick(&[Prim::Bool, Prim::Char, Prim::Int(IntTy::I32)]);
+        let value = self.prim_expr(q, depth.saturating_sub(1)).text;
+        let mut lines = vec![
+            format!(
+                "let {name}: (&{}, {}) = (&{}, {value});",
+                p.name(),
+                q.name(),
+                place.text
+            ),
+            format!("PrintLine(*{name}.0);"),
+            format!("PrintLine({name}.1);"),
+        ];
+        if self.rng.chance(40) {
+            let (r, v) = (self.fresh_name(), self.fresh_name());
+            lines.push(format!("let ({r}, {v}) = {name};"));
+            lines.push(format!("PrintLine(*{r});"));
+        }
+        Some(lines)
+    }
+
+    /// `let a: [&mut T; 2] = [&mut x, &mut y];` of two `mut` locals the block declares,
+    /// written through, then the locals read again.
+    fn own_mut_ref_array_lines(&mut self, name: &str, p: Prim) -> Vec<String> {
+        let (x, y) = (self.fresh_name(), self.fresh_name());
+        let (vx, vy, value) = (
+            self.literal(p).text,
+            self.literal(p).text,
+            self.literal(p).text,
+        );
+        let k = self.rng.index(2);
+        vec![
+            format!("let mut {x}: {} = {vx};", p.name()),
+            format!("let mut {y}: {} = {vy};", p.name()),
+            format!("let {name}: [&mut {}; 2] = [&mut {x}, &mut {y}];", p.name()),
+            format!("*{name}[{k}usize] = {value};"),
+            format!("PrintLine(*{name}[{}usize]);", 1 - k),
+            format!("PrintLine({x});"),
+            format!("PrintLine({y});"),
+        ]
+    }
+
+    /// `let a: [&mut T; 2] = [&mut p, &mut q];` of places of two different locals in scope,
+    /// written through.
+    fn mut_ref_array_lines(&mut self, name: &str, p: Prim) -> Option<Vec<String>> {
+        let ty = ValTy::Prim(p);
+        let a = self.place_of(ty, Access::Borrow(true))?;
+        let root = a.root;
+        let others: Vec<Place> = self
+            .candidates()
+            .into_iter()
+            .filter(|q| {
+                q.ty == ty
+                    && q.root != root
+                    && self.usable(q, Access::Borrow(true))
+                    && self.permitted(q, Access::Borrow(true))
+            })
+            .collect();
+        if others.is_empty() {
+            return None;
+        }
+        let mut b = self.rng.pick(&others).clone();
+        self.finish_place(&mut b, Ranges::of(Access::Borrow(true)));
+        let k = self.rng.index(2);
+        let value = self.literal(p).text;
+        Some(vec![
+            format!(
+                "let {name}: [&mut {}; 2] = [&mut {}, &mut {}];",
+                p.name(),
+                a.text,
+                b.text
+            ),
+            format!("*{name}[{k}usize] = {value};"),
+            format!("PrintLine(*{name}[{}usize]);", 1 - k),
+            format!("PrintLine(*{name}[{k}usize]);"),
+        ])
+    }
+
+    /// Writes `lines` as a block of their own.
+    fn ref_aggregate_block(&mut self, lines: &[String]) -> bool {
+        self.line("{");
+        self.open_block();
+        for l in lines {
+            self.line(l);
+        }
+        self.close_block();
+        self.line("}");
+        true
+    }
+
+    /// An index below `n` into an aggregate of references: a literal, or a computed one
+    /// reduced modulo `n`.
+    fn ref_aggregate_index(&mut self, n: usize, depth: u32) -> String {
+        if self.rng.chance(70) {
+            return format!("{}usize", self.rng.index(n));
+        }
+        let e = self
+            .prim_expr(Prim::Int(IntTy::Usize), depth.saturating_sub(1))
+            .text;
+        format!("(({e}) % {n}usize)")
+    }
+}

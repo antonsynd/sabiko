@@ -4,9 +4,11 @@
 //! `&mut &mut T`, `&&str`, `&&[T]`; locals and parameters only, never three levels).
 //! Tuples, arrays, struct fields and enum payloads of these types never hold references,
 //! so no `&str` either: arrays of references only appear as temporaries indexed in place
-//! (`["a", s][i]`, `[&x, r][i]`, #43). TODO(#92) for `&str` (and `&&T`) in the arrays,
-//! slices and tuples of locals and parameters; struct fields and enum payloads wait for
-//! lifetimes (Phase 9).
+//! (`["a", s][i]`, `[&x, r][i]`, #43) and in locals of a block of their own
+//! (`BodyGen::stmt_ref_aggregate`: `[&T; N]`, `&[&T]`, `(&T, U)`, `[&mut T; 2]` of
+//! primitive referents), which this type universe does not model. TODO(#92) for such
+//! aggregates as parameters and longer-lived locals, and for `&str` (and `&&T`) in them;
+//! struct fields and enum payloads wait for lifetimes (Phase 9).
 
 /// The twelve integer types of the shared subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

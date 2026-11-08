@@ -123,6 +123,16 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   bindings preferred, sometimes followed by `&&` and a comparison;
   `programs_use_if_let_guards` pins 30 programs of 500 with one and 9 with `&&`.
 
+  Aggregates of references as locals (#92, `BodyGen::stmt_ref_aggregate`): a block of its
+  own declares `let a: [&T; N] = [&p, &q];` (read by index, now and then through `let s:
+  &[&T] = &a[k..];`), `let t: (&T, U) = (&p, u);` (read, and destructured), or `let a:
+  [&mut T; 2] = [&mut p, &mut q];` written through `*a[k] = v` (on places of two locals in
+  scope, or on two `mut` locals the block declares when there are none), for primitive
+  referents of a type some place in scope has. The loans end with the block, so the scope
+  model only checks each borrow. `programs_use_aggregates_of_references` pins 40, 30, 50
+  and 90 programs of 500. Parameters of these types, longer-lived locals, and `&str` or
+  `&&T` elements are still TODO(#92).
+
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
   not `s`; one carrying the loan of a `&mut self` method's result gets a region),

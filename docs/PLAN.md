@@ -1145,6 +1145,17 @@ moved locals before generating the scrutinee, so a scrutinee that moved somethin
 inline `match sum { .., d => .. }`) left it usable in `else` (seed 66000512); the snapshot
 is taken after the scrutinee again.
 
+Generator coverage of aggregates of references (#92, in part): `[&T; N]`, `&[&T]`, `(&T,
+U)` and `[&mut T; 2]` locals of primitive referents, in a block of their own (read,
+written through, sliced, destructured). 1200 seeds at each of three bases found two older
+constant-propagation lint divergences: the lint computed with an `f32` literal's `f64`
+value (`(100.0f32 / 0.001f32) as u32` was 100000, rustc's 99999; fixed, with
+`differential/lints/ok_f32_constants`), and #109 (a string-literal arm after a failed guard
+is visited, as rustc's tree does not), and one older generator gap: a range of a range
+whose bounds moved something was still measured, which repeats the base's text and moved
+it twice (seed 69001088). Parameters of these types, longer-lived locals and `&str`/`&&T`
+elements remain open under #92.
+
 ### Phase 5: Data types
 
 Work

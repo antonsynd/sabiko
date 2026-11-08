@@ -33,8 +33,9 @@
 //! Arrays of references (#43) only appear as temporaries indexed in place: a `&str` or a
 //! shared reference may be an element of an array literal of them (`["a", s][i]`, `[&x,
 //! r][i]`, now and then `[a, b, c][1..][k]`, through a slice of references), see
-//! `BodyGen::ref_array_element`. TODO(#92): such arrays and slices as locals and
-//! parameters.
+//! `BodyGen::ref_array_element`; locals of them in a block of their own are
+//! `BodyGen::stmt_ref_aggregate`'s. TODO(#92): such arrays and slices as parameters and
+//! longer-lived locals.
 
 use super::{Access, BodyGen, Expr, LoopKind, Place};
 use crate::program::{int_literal, ConstValue, RetTy};
