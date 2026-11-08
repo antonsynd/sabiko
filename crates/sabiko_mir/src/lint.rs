@@ -24,7 +24,8 @@
 //!   string and reference comparisons and range slicing;
 //! - a local borrowed (unless rustc promotes the borrow to a static, see `promotable`),
 //!   dropped after drop elaboration (if only while unwinding) or larger than 1024 bytes
-//!   holds no value.
+//!   holds no value. A borrow counts only in a block rustc's MIR has: an arm an earlier
+//!   one subsumes is not in its decision tree (`kept_by_tests`, #95).
 //!
 //! Only scalars travel through operands: a copy of a tuple, struct, array or enum is
 //! unknown, a write to a part of a local forgets all of it, a payload read through a
@@ -172,13 +173,14 @@ pub fn check_all(
             }
         }
         let body = built;
+        let kept = kept_by_tests(&body, typeck, *options);
         // Neither way of revisiting a block (see `Lints::run`) follows rustc everywhere,
         // and each errs in different programs: a lint is reported only when both walks
         // find it, so Sabiko does not reject what rustc accepts (it may accept a few
         // programs rustc rejects).
-        let mut once = Lints::new(&body, typeck, options, &dropped, false);
+        let mut once = Lints::new(&body, typeck, options, &dropped, &kept, false);
         once.run();
-        let mut again = Lints::new(&body, typeck, options, &dropped, true);
+        let mut again = Lints::new(&body, typeck, options, &dropped, &kept, true);
         again.run();
         let key = |d: &Diagnostic| (d.code, d.primary_span(), d.labels[0].message.clone());
         let confirmed: HashSet<_> = again.found.iter().map(key).collect();
@@ -188,6 +190,20 @@ pub fn check_all(
             }
         }
     }
+}
+
+/// The blocks rustc's MIR has when it lints: those a walk reaches whose repeated tests are
+/// decided by what earlier tests told (`Allowed` facts), as rustc's decision tree tests
+/// each place once, so an arm an earlier one subsumes (`E::A(_, ..)` before `E::A(x, ref
+/// mut k)`) is gone there, with its borrows (#95, seed 8800051). No value decides an edge
+/// here, not even a constant one: rustc keeps both arms of `if false` at this point.
+fn kept_by_tests(body: &Body, typeck: &TypeckResults, options: LintOptions) -> Vec<bool> {
+    let all = vec![true; body.blocks.len()];
+    let mut walk = Lints::new(body, typeck, &options, &HashSet::new(), &all, true);
+    walk.modes = vec![Mode::None; body.locals.len()];
+    walk.facts_only = true;
+    walk.walk();
+    walk.entry.iter().map(Option::is_some).collect()
 }
 
 /// Which locals may hold a value, and where (see the module docs).
@@ -357,6 +373,8 @@ struct Lints<'a> {
     /// an index once, where the index expression is evaluated, however often the place is
     /// used afterwards (a `match` on `a[i]` tests it several times).
     checked: HashSet<Local>,
+    /// Edges are decided by facts only, never by a value ([`kept_by_tests`]).
+    facts_only: bool,
 }
 
 impl<'a> Lints<'a> {
@@ -365,6 +383,7 @@ impl<'a> Lints<'a> {
         typeck: &'a TypeckResults,
         options: &'a LintOptions,
         dropped: &HashSet<Local>,
+        kept: &[bool],
         revisit: bool,
     ) -> Self {
         let mut preds = vec![0; body.blocks.len()];
@@ -393,14 +412,17 @@ impl<'a> Lints<'a> {
             current: BasicBlock::START,
             tests: HashMap::new(),
             checked: HashSet::new(),
+            facts_only: false,
         };
-        cx.modes = cx.modes(dropped);
+        cx.modes = cx.modes(dropped, kept);
         cx
     }
 
     // ----- which locals hold values -----
 
-    fn modes(&self, dropped: &HashSet<Local>) -> Vec<Mode> {
+    /// Which locals may hold values. A borrow counts only in a block of `kept`: rustc's MIR
+    /// does not have the others.
+    fn modes(&self, dropped: &HashSet<Local>, kept: &[bool]) -> Vec<Mode> {
         let body = self.body;
         let mut modes: Vec<Mode> = body
             .locals
@@ -431,11 +453,11 @@ impl<'a> Lints<'a> {
                 modes[place.local.index()] = Mode::None;
             }
         };
-        for data in &body.blocks {
+        for (data, &kept) in body.blocks.iter().zip(kept) {
             for stmt in &data.statements {
                 if let StatementKind::Assign(place, rvalue) = &stmt.kind {
                     store(&mut modes, place);
-                    if let Rvalue::Ref(kind, borrowed) = rvalue {
+                    if let (true, Rvalue::Ref(kind, borrowed)) = (kept, rvalue) {
                         // rustc removes fake borrows before this lint, and promotes a
                         // shared borrow of a constant temporary to a static.
                         let promoted = *kind == BorrowKind::Shared && self.promotable(borrowed);
@@ -499,7 +521,12 @@ impl<'a> Lints<'a> {
             }
         };
         match rvalue {
-            Rvalue::Use(op) | Rvalue::Cast(op, _) | Rvalue::UnaryOp(_, op) => operand(op),
+            // A repeat of a promotable operand is (rustc promotes `&[1.5f32; 2]`, and so a
+            // struct literal holding one: seed 63000676).
+            Rvalue::Use(op)
+            | Rvalue::Cast(op, _)
+            | Rvalue::UnaryOp(_, op)
+            | Rvalue::Repeat(op, _) => operand(op),
             Rvalue::BinaryOp(op, l, r) => {
                 let divisor_ok = !matches!(op, BinOp::Div | BinOp::Rem)
                     || matches!(r, Operand::Constant(c)
@@ -572,6 +599,11 @@ impl<'a> Lints<'a> {
 
     fn run(&mut self) {
         self.lint_promoted();
+        self.walk();
+    }
+
+    /// The walk over the blocks (see [`Self::run`]).
+    fn walk(&mut self) {
         let mut worklist = vec![(BasicBlock::START, Facts::new())];
         while let Some((bb, facts)) = worklist.pop() {
             // Each block is visited once, with what the first way in tells, as rustc visits
@@ -735,6 +767,7 @@ impl<'a> Lints<'a> {
                 #[allow(clippy::cast_possible_wrap)]
                 let bits = self
                     .operand(discr)
+                    .filter(|_| !self.facts_only)
                     .and_then(|v| switch_bits(&v))
                     .map(|b| b as i128);
                 self.switch_edges(discr, targets, *otherwise, bits, worklist);

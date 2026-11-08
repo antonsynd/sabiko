@@ -1,0 +1,21 @@
+// Borrows rustc's MIR does not have when it lints (#95). An arm an earlier one subsumes
+// (`Waiting(_, ..)` before `Waiting(s, ref mut k)`) is not in rustc's decision tree, so its
+// `ref mut` binding does not make the scrutinee unknown, and the dead first arm is not
+// linted; with a guard on the first arm the second is reachable, the scrutinee is
+// borrowed, and both compilers lint. A borrow in an `if false` block still counts: rustc
+// keeps that block. A shared borrow of a constant temporary holding a repeat expression is
+// promoted (`[1.5f32; 2]`), so the temporary stays known (seed 63000676).
+#[derive(Copy, Clone)]
+enum Signal { Waiting(u64, u64), Failed }
+struct Q { Y: i8, T: f32, L: [f32; 2] }
+enum Pair { Both([char; 3], f32), Up }
+fn Subsumed() -> u64 { match Signal::Failed { Signal::Waiting(_, ..) => (!9u64) * 20u64, Signal::Waiting(s, ref mut k) => *k + s, Signal::Failed => 1 } }
+fn SubsumedWild() -> u64 { match Signal::Failed { Signal::Waiting(_, _) => (!9u64) * 21u64, Signal::Waiting(s, ref mut k) => *k + s, Signal::Failed => 1 } }
+fn Guarded() -> u64 { match Signal::Failed { Signal::Waiting(_, ..) if true => (!9u64) * 22u64, Signal::Waiting(s, ref mut k) => *k + s, Signal::Failed => 1 } }
+fn ReachableRefMut() -> u64 { match Signal::Failed { Signal::Waiting(ref mut a, _) => (!9u64) * 23u64, Signal::Failed => 1 } }
+fn BorrowInIfFalse() -> u64 { let mut s = Signal::Failed; if false { let r = &mut s; } match s { Signal::Waiting(..) => (!9u64) * 24u64, Signal::Failed => 1 } }
+fn PromotedRepeat() -> u64 { let Q { Y: -2i8, T: ref m, .. } = (Q { Y: 6i8, T: 0.5f32, L: [1.5f32; 2usize] }) else { return 0; }; (200u8 * 2u8) as u64 }
+fn PromotedRepeatScrutinee() -> u64 { match Pair::Both(['0'; 3], 0.5f32) { Pair::Both(ref d, mut f) => 1, Pair::Up => 255u64 * 18446744073709551615u64 } }
+fn Main() {
+    PrintLine(Subsumed() + SubsumedWild() + Guarded() + ReachableRefMut() + BorrowInIfFalse() + PromotedRepeat() + PromotedRepeatScrutinee());
+}
