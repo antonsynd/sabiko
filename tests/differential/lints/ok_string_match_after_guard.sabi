@@ -1,0 +1,11 @@
+// A string-literal arm after a failed guard (#109): rustc's decision tree never tests
+// `"b"` where `s == "a"`, so after the guard fails it goes on to `_`, and the `StorageDead`
+// on that path wipes `b` before the `"b"` arm is visited; the lint's facts know string
+// tests now, so Sabiko does not lint there either. Arms that are reached with `b` known
+// are still linted.
+fn Guarded(s: &str) -> usize { let b = 5usize; match s { "a" if false => 1, "b" => 4usize - b, _ => 0 } }
+fn Long(s: &str) -> usize { let b = 5usize; match s { "abcdefghijklmnopqrst" if false => 1, "b" => 4usize - b, _ => 0 } }
+fn Alternatives(s: &str) -> usize { let b = 5usize; match s { "a" | "b" if false => 1, "b" => 4usize - b, _ => 0 } }
+fn Same(s: &str) -> usize { let b = 5usize; match s { "a" if false => 1, "a" => 4usize - b, _ => 0 } }
+fn Rest(s: &str) -> usize { let b = 5usize; match s { "a" if false => 1, _ => 4usize - b } }
+fn Main() { PrintLine(Guarded("b") + Long("b") + Alternatives("b") + Same("b") + Rest("b")); }
