@@ -1,9 +1,9 @@
-[E0212] Error: no associated function named `Nope` found for struct `P`
+[E0212] Error: no associated function or constant named `Nope` found for struct `P`
     ╭─[ tests/ui/typeck/unknown_associated_function.sabi:11:16 ]
     │
- 11 │     let p = P::Nope(); //~ ERROR E0212 no associated function named `Nope` found for struct `P`
+ 11 │     let p = P::Nope(); //~ ERROR E0212 no associated function or constant named `Nope` found for struct `P`
     │                ──┬─  
-    │                  ╰─── associated function not found in struct `P`
+    │                  ╰─── associated function or constant not found in struct `P`
 ────╯
 [E0319] Error: no method named `New` found for struct `P`
     ╭─[ tests/ui/typeck/unknown_associated_function.sabi:13:15 ]

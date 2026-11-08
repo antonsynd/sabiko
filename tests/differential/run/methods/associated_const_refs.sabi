@@ -1,0 +1,5 @@
+// A borrow of an associated constant and a tuple-typed one (#48).
+struct S { }
+impl S { const A: i32 = 7; const T: (i32, (bool, char)) = (1, (false, 'z')); }
+fn Show(r: &i32) { PrintLine(*r); }
+fn Main() { Show(&S::A); let r = &S::A; PrintLine(*r + 1); PrintLine((S::T.1).1); }

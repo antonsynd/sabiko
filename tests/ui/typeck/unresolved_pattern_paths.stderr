@@ -40,7 +40,7 @@
     │         ───┬───  
     │            ╰───── not found in this scope
     │ 
-    │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+    │ Note: `A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9
 ────╯
 [E0202] Error: cannot find tuple struct or tuple variant `Limit` in this scope
     ╭─[ tests/ui/typeck/unresolved_pattern_paths.sabi:36:9 ]

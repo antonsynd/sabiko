@@ -1,0 +1,38 @@
+// Constants as range bounds match through a reference (ranges peel it, #48); a constant
+// on its own does not (see tests/ui/typeck/const_patterns_through_refs.sabi), so it
+// matches the value itself.
+const Low: u8 = 10;
+
+struct Band { }
+
+impl Band {
+    const High: u8 = 200;
+}
+
+fn Name(n: &u8) -> i32 {
+    match n {
+        u8::MIN..Low => 0,
+        Low..=Band::High => 1,
+        _ => 2,
+    }
+}
+
+fn Exact(n: u8) -> i32 {
+    match n {
+        Low => 10,
+        Band::High => 200,
+        u8::MAX => 255,
+        _ => -1,
+    }
+}
+
+fn Main() {
+    PrintLine(Name(&3));
+    PrintLine(Name(&10));
+    PrintLine(Name(&200));
+    PrintLine(Name(&255));
+    PrintLine(Exact(10));
+    PrintLine(Exact(200));
+    PrintLine(Exact(255));
+    PrintLine(Exact(7));
+}

@@ -16,13 +16,14 @@ names which phase owns which section.
   `#[path = tokens]`, with delimiters that nest and match (E0100 otherwise); only
   `derive(Copy, Clone)` is interpreted so far
 - Inherent `impl` blocks (Phase 5, #7): `impl Type { fn ... }`, any number per type,
-  before or after the struct. The members are functions (attributes, doc comments and
-  `pub` as on items); a member may take `self`, `mut self`, `&self` or `&mut self` as its
-  first parameter (a method). A `self` parameter outside an `impl` block, or not first, is
-  E0110. Not yet supported (E0107): generic impls, trait impls (`impl Trait for Type`)
-  other than `impl Drop for Type` (§7), associated constants and types, `self: Type`,
-  `&'a self`
-- Paths: `Type::Name` (exactly two segments) names an associated function; `Self` (in a
+  before or after the struct. The members are functions and constants (`const N: i32 =
+  4;`, #48), with attributes, doc comments and `pub` as on items; a function member may
+  take `self`, `mut self`, `&self` or `&mut self` as its first parameter (a method). A
+  `self` parameter outside an `impl` block, or not first, is E0110. Not yet supported
+  (E0107): generic impls, trait impls (`impl Trait for Type`) other than `impl Drop for
+  Type` (§7), associated types, `self: Type`, `&'a self`
+- Paths: `Type::Name` (exactly two segments) names an associated function or constant,
+  or a primitive type's associated constant (`i32::MAX`); `Self` (in a
   type, a struct literal, a path or as a unit-struct value) and `self` (a value) begin a
   path like an identifier. Longer paths and `::` in types and struct literals are E0107
   until modules (Phase 9)
@@ -72,9 +73,11 @@ names which phase owns which section.
 
 ## 3. Names and modules (Phase 2, 9)
 
-Associated items (#7): the functions of a struct's `impl` blocks live in the struct's own
-namespace, not in the file's item namespace: `Point::New(1, 2)`, `p.Dot(&q)`. Unqualified,
-they are not in scope, inside the block either (E0202, with a note naming `Point::New`).
+Associated items (#7, #48): the functions and constants of a struct's or enum's `impl`
+blocks live in the type's own namespace, not in the file's item namespace:
+`Point::New(1, 2)`, `p.Dot(&q)`, `Grid::Cells`, `Self::Cells`. Unqualified, they are not
+in scope, inside the block either (E0202, with a note naming `Point::New` or `Grid::Cells`);
+a constant is not a method (`g.Cells()` is E0319).
 Two of one name for the same struct are E0210, also across two blocks (reported, as rustc
 does, at the later definition within one block and at the earlier one across blocks). A
 field and a method may share a name (`c.Count` and `c.Count()`). Inside an `impl` block,
@@ -541,10 +544,17 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   primitive within the file. A primitive name is never a value (E0202).
 - A name used in the wrong position (a function as a type, a constant in a struct literal,
   a non-unit struct as a value) is E0203. `_` as a type is allowed only inside bodies
-  (E0207). A path `A::B` in value or call position names the associated function `B` of
-  the struct `A` (E0201 or E0203 when `A` names no type, E0212 when the struct, or a
-  primitive, has no such function); other paths with `::` are rejected until modules
-  arrive (E0107).
+  (E0207). A path `A::B` in value, call or pattern position names the associated function
+  or constant `B` of the struct or enum `A` (E0201 or E0203 when `A` names no type, E0212
+  when it has no such item, rustc's E0599; E0203 for a constant used as a struct); other
+  paths with `::` are rejected until modules arrive (E0107).
+- Primitive associated constants (#48): `MIN`, `MAX` and `BITS` (a `u32`) of every
+  integer type; `MIN`, `MAX`, `MIN_POSITIVE`, `EPSILON`, `INFINITY`, `NEG_INFINITY`,
+  `NAN`, `RADIX`, `MANTISSA_DIGITS`, `DIGITS` (`u32`), `MIN_EXP`, `MAX_EXP`, `MIN_10_EXP`
+  and `MAX_10_EXP` (`i32`) of `f32` and `f64`; `char::REPLACEMENT_CHARACTER`. They are
+  constants like any other (in patterns, array lengths and other constants). Any other
+  name is E0212; `char::MAX` (`'\u{10FFFF}'`) is E0318, since a `char` is one UTF-16 code
+  unit (decision 31).
 - An `impl` block is for a struct of the file (E0211 for a primitive, a reference, a
   tuple or `()`; E0201/E0203 for an unknown name or a non-type). Its functions are
   resolved like free functions, with `Self` naming the struct and, in a method, `self`
@@ -552,7 +562,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - `impl Drop for T` (§7): `T` must be a struct of the file (E0214 for a primitive, a
   tuple, a reference or `()`, rustc's E0117/E0120; E0201 for an unknown name), with one
   such impl (E0215 at the second, rustc's E0119), which defines `drop` (E0216, E0046) and
-  nothing else (E0217, E0407; `fn Drop` gets a note that the name is lowercase). Its
+  nothing else (E0217, E0407 or E0438 for a constant; `fn Drop` gets a note that the name
+  is lowercase). Its
   members are not associated functions: `T::drop` and `t.drop()` find an inherent `drop`
   first and the destructor otherwise (then E0323). An item of the file named `Drop`
   shadows the trait: `impl Drop for T` is then E0203 (rustc's E0404).
@@ -607,7 +618,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   local holds whose type nothing constrains (`let _ = [];`, `(_, _) = (x, [])`, rustc's
   E0282): the innermost such expression is reported, once per body (#78).
 - Arrays and slices (#9). `[T; N]` has a length `N` that is a `usize` constant
-  expression: literals, `const` items and constant arithmetic (another type is E0300,
+  expression: literals, `const` items (associated ones too) and constant arithmetic
+  (another type is E0300,
   `-1` E0307, a local E0220); the constants are evaluated first, so a signature may use
   them (`fn F(a: [i32; N])`). A constant of array type, and an array expression inside a
   constant, are not supported yet (E0315). `[T]` is unsized: only `&[T]` and `&mut [T]`
@@ -684,7 +696,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   binding inside binds by reference (`&` or `&mut` like the reference, `&` once any `&`
   was crossed): default binding modes. `ref x` and `ref mut x` bind a reference; under a
   by-reference default, `mut x`, `ref x` and `ref mut x` are E0337 (edition 2024's
-  reserved binding modifiers, rustc's "implicitly-borrowing pattern" errors). A literal has the
+  reserved binding modifiers, rustc's "implicitly-borrowing pattern" errors). A constant
+  pattern (`Z`, `Grid::Cells`, `u8::MAX`) does not look through a reference, as in rustc
+  (`AdjustMode::Pass`): `match &k { Z => .. }` is E0300, while a range with constant bounds
+  (`Z..=u8::MAX`) does look through it. A literal has the
   matched type (E0314 when it does not fit, E0300 for another type); a range needs an
   integer or `char` type, a lower bound not above the upper one (E0332, rustc's E0030),
   and for `a..b` a non-empty range (E0332, E0579). A variant pattern must be of the

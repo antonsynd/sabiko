@@ -34,7 +34,7 @@
     │             ┬  
     │             ╰── not found in this scope
     │ 
-    │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+    │ Note: `A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9
 ────╯
 [E0201] Error: cannot find type `Nope` in this scope
     ╭─[ tests/ui/resolve/path_to_non_type.sabi:18:13 ]
@@ -43,12 +43,12 @@
     │             ──┬─  
     │               ╰─── not found in this scope
     │ 
-    │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+    │ Note: `A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9
 ────╯
-[E0212] Error: no associated function named `New` found for type `i32`
+[E0212] Error: no associated function or constant named `New` found for type `i32`
     ╭─[ tests/ui/resolve/path_to_non_type.sabi:19:18 ]
     │
- 19 │     let d = i32::New(); //~ ERROR E0212 no associated function named `New` found for type `i32`
+ 19 │     let d = i32::New(); //~ ERROR E0212 no associated function or constant named `New` found for type `i32`
     │                  ─┬─  
-    │                   ╰─── associated function not found in type `i32`
+    │                   ╰─── associated function or constant not found in type `i32`
 ────╯

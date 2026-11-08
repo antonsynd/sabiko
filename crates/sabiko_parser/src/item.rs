@@ -52,8 +52,8 @@ impl Parser<'_, '_> {
         self.parse_item_in(false)
     }
 
-    /// An item, or (`in_impl`) a member of an `impl` block: only a function there, which
-    /// may take a `self` parameter.
+    /// An item, or (`in_impl`) a member of an `impl` block: a function, which may take a
+    /// `self` parameter, or a constant (#48).
     fn parse_item_in(&mut self, in_impl: bool) -> PResult<Item> {
         let start = self.peek().span;
         let mut docs = Vec::new();
@@ -76,12 +76,7 @@ impl Parser<'_, '_> {
         let id = self.new_id();
         let kind = match self.peek_kind() {
             TokenKind::Fn => ItemKind::Fn(self.parse_fn(in_impl)?),
-            TokenKind::Const if in_impl => {
-                return Err(self.unsupported_item(
-                    "associated constants",
-                    "a later step after inherent `impl` blocks (#7)",
-                ))
-            }
+            TokenKind::Const if in_impl => ItemKind::Const(self.parse_const()?),
             TokenKind::Type if in_impl => {
                 return Err(self.unsupported_item("associated types", "planned for Phase 6"))
             }
@@ -89,11 +84,11 @@ impl Parser<'_, '_> {
                 let d = sabiko_diagnostics::Diagnostic::error(
                     sabiko_diagnostics::ErrorCode::EXPECTED_ITEM,
                     format!(
-                        "expected a function in this `impl` block, found {}",
+                        "expected a function or a constant in this `impl` block, found {}",
                         self.describe_current_pub()
                     ),
                 )
-                .with_label(self.peek().span, "expected `fn` here");
+                .with_label(self.peek().span, "expected `fn` or `const` here");
                 return Err(self.emit(d));
             }
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()?),

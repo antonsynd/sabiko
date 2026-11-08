@@ -16,15 +16,6 @@
    │ 
    │ Note: planned for Phase 6; see docs/PLAN.md
 ───╯
-[E0107] Error: not yet supported: associated constants
-    ╭─[ tests/ui/parse/impl_syntax.sabi:11:5 ]
-    │
- 11 │     const C: i32 = 1; //~ ERROR E0107 not yet supported: associated constants
-    │     ──┬──  
-    │       ╰──── not supported in this version of Sabiko
-    │ 
-    │ Note: a later step after inherent `impl` blocks (#7); see docs/PLAN.md
-────╯
 [E0107] Error: not yet supported: associated types
     ╭─[ tests/ui/parse/impl_syntax.sabi:12:5 ]
     │
@@ -59,10 +50,10 @@
     │ 
     │ Note: planned for Phase 9; see docs/PLAN.md
 ────╯
-[E0101] Error: expected a function in this `impl` block, found `struct`
+[E0101] Error: expected a function or a constant in this `impl` block, found `struct`
     ╭─[ tests/ui/parse/impl_syntax.sabi:16:5 ]
     │
- 16 │     struct Q; //~ ERROR E0101 expected a function in this `impl` block
+ 16 │     struct Q; //~ ERROR E0101 expected a function or a constant in this `impl` block
     │     ───┬──  
-    │        ╰──── expected `fn` here
+    │        ╰──── expected `fn` or `const` here
 ────╯

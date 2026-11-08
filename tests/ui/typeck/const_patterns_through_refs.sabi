@@ -1,0 +1,50 @@
+// A constant pattern does not peel references off the matched type, as a literal or a
+// range does (rustc's `AdjustMode::Pass`, E0308): found by the generator once it wrote
+// `u16::MIN` as a pattern (#48), but as old as top-level constants in patterns.
+const Z: u16 = 0;
+
+struct S { }
+
+impl S {
+    const C: u16 = 1;
+}
+
+fn TopLevel(mut k: u16) -> i32 {
+    match &mut k {
+        Z => 1, //~ ERROR E0300 mismatched types
+        _ => 2,
+    }
+}
+
+fn Associated(k: u16) -> i32 {
+    match &k {
+        S::C => 1, //~ ERROR E0300 mismatched types
+        _ => 2,
+    }
+}
+
+fn Primitive(k: u16) -> i32 {
+    match &k {
+        left @ u16::MIN => 1, //~ ERROR E0300 mismatched types
+        _ => 2,
+    }
+}
+
+fn Nested(k: u16) -> i32 {
+    match (&k, 1) {
+        (Z, _) => 1, //~ ERROR E0300 mismatched types
+        _ => 2,
+    }
+}
+
+// Accepted: a literal and a range peel, and so do range bounds that are constants.
+fn Peeled(k: u16) -> i32 {
+    match &k {
+        0u16 => 0,
+        1u16..=S::C => 1,
+        left @ 2u16..u16::MAX => 2,
+        _ => 3,
+    }
+}
+
+fn Main() {}

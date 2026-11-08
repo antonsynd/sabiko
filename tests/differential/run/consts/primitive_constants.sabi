@@ -1,0 +1,26 @@
+// Every primitive associated constant Sabiko knows (#48) but `char::MAX` (decision 31),
+// printed, in arithmetic, in a constant and as an array length.
+const Wide: i64 = i32::MAX as i64 + 1;
+fn Main() {
+    PrintLine(i8::MIN); PrintLine(i8::MAX); PrintLine(u8::MAX); PrintLine(u8::MIN);
+    PrintLine(i16::MIN); PrintLine(u16::MAX); PrintLine(i32::MIN); PrintLine(i32::MAX);
+    PrintLine(u32::MAX); PrintLine(i64::MIN); PrintLine(u64::MAX); PrintLine(i128::MIN);
+    PrintLine(u128::MAX); PrintLine(isize::MIN); PrintLine(usize::MAX);
+    PrintLine(i32::BITS); PrintLine(u128::BITS); PrintLine(usize::BITS);
+    PrintLine(Wide);
+    PrintLine(f64::MAX); PrintLine(f64::MIN); PrintLine(f64::EPSILON); PrintLine(f64::MIN_POSITIVE);
+    PrintLine(f32::MAX); PrintLine(f32::MIN); PrintLine(f32::EPSILON); PrintLine(f32::MIN_POSITIVE);
+    PrintLine(f64::INFINITY); PrintLine(f64::NEG_INFINITY); PrintLine(f64::NAN); PrintLine(f32::NAN);
+    PrintLine(f64::RADIX); PrintLine(f64::MANTISSA_DIGITS); PrintLine(f32::DIGITS);
+    PrintLine(f64::MIN_EXP); PrintLine(f64::MAX_EXP); PrintLine(f32::MIN_10_EXP); PrintLine(f32::MAX_10_EXP);
+    PrintLine(char::REPLACEMENT_CHARACTER);
+    let n: u8 = 200;
+    PrintLine(u8::MAX - n);
+    let x = i32::MAX;
+    PrintLine(x / 2);
+    let a = [0u8; u8::BITS as usize];
+    PrintLine(a.len());
+    PrintLine(f64::NAN == f64::NAN);
+    PrintLine(f64::INFINITY > f64::MAX);
+    let b = i64::MAX;
+}

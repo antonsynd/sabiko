@@ -1,0 +1,74 @@
+[E0210] Error: duplicate definitions with name `A`
+   ╭─[ tests/ui/resolve/associated_consts.sabi:8:8 ]
+   │
+ 7 │     const A: i32 = 1;
+   │           ┬  
+   │           ╰── other definition for `A`
+ 8 │     fn A() {} //~ ERROR E0210 duplicate definitions with name `A`
+   │        ┬  
+   │        ╰── duplicate definitions for `A`
+───╯
+[E0202] Error: cannot find value `A` in this scope
+    ╭─[ tests/ui/resolve/associated_consts.sabi:10:9 ]
+    │
+ 10 │         A //~ ERROR E0202 cannot find value `A` in this scope
+    │         ┬  
+    │         ╰── not found in this scope
+    │ 
+    │ Note: `A` is an associated constant of `S`: use it as `S::A`
+────╯
+[E0210] Error: duplicate definitions with name `B`
+    ╭─[ tests/ui/resolve/associated_consts.sabi:15:11 ]
+    │
+ 15 │     const B: i32 = 2; //~ ERROR E0210 duplicate definitions with name `B`
+    │           ┬  
+    │           ╰── duplicate definitions for `B`
+    │ 
+ 19 │     const B: i32 = 3;
+    │           ┬  
+    │           ╰── other definition for `B`
+────╯
+[E0217] Error: const `C` is not a member of trait `Drop`
+    ╭─[ tests/ui/resolve/associated_consts.sabi:25:11 ]
+    │
+ 25 │     const C: i32 = 1; //~ ERROR E0217 const `C` is not a member of trait `Drop`
+    │           ┬  
+    │           ╰── not a member of trait `Drop`
+────╯
+[E0212] Error: no associated function or constant named `Nope` found for struct `S`
+    ╭─[ tests/ui/resolve/associated_consts.sabi:30:18 ]
+    │
+ 30 │     PrintLine(S::Nope); //~ ERROR E0212 no associated function or constant named `Nope` found for struct `S`
+    │                  ──┬─  
+    │                    ╰─── associated function or constant not found in struct `S`
+────╯
+[E0212] Error: no associated function or constant named `MAXIMUM` found for type `i32`
+    ╭─[ tests/ui/resolve/associated_consts.sabi:31:20 ]
+    │
+ 31 │     PrintLine(i32::MAXIMUM); //~ ERROR E0212 no associated function or constant named `MAXIMUM` found for type `i32`
+    │                    ───┬───  
+    │                       ╰───── associated function or constant not found in type `i32`
+────╯
+[E0212] Error: no associated function or constant named `MAX` found for type `bool`
+    ╭─[ tests/ui/resolve/associated_consts.sabi:32:21 ]
+    │
+ 32 │     PrintLine(bool::MAX); //~ ERROR E0212 no associated function or constant named `MAX` found for type `bool`
+    │                     ─┬─  
+    │                      ╰─── associated function or constant not found in type `bool`
+────╯
+[E0203] Error: expected struct or variant, found associated constant `S::B`
+    ╭─[ tests/ui/resolve/associated_consts.sabi:33:16 ]
+    │
+ 33 │     let s = S::B { }; //~ ERROR E0203 expected struct or variant, found associated constant `S::B`
+    │                ┬  
+    │                ╰── not a struct or a variant
+────╯
+[E0318] Error: `char::MAX` is outside the Basic Multilingual Plane
+    ╭─[ tests/ui/resolve/associated_consts.sabi:35:21 ]
+    │
+ 35 │     PrintLine(char::MAX); //~ ERROR E0318 `char::MAX` is outside the Basic Multilingual Plane
+    │                     ─┬─  
+    │                      ╰─── `'\u{10FFFF}'` does not fit a Sabiko `char`
+    │ 
+    │ Note: a `char` is one UTF-16 code unit, at most `'\u{FFFF}'` (decision 31)
+────╯

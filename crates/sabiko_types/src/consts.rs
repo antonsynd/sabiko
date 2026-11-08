@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{BinOp, Expr, ExprKind, Lit, UnOp};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{DefId, DefKind, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, PrimConst, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::check::BodyTypes;
@@ -108,10 +108,14 @@ pub(crate) fn eval_all<'a>(
     bodies: &HashMap<DefId, (&'a Expr, &'a BodyTypes)>,
     sink: &mut DiagnosticSink,
 ) -> HashMap<DefId, ConstValue> {
+    let done = resolve
+        .prim_consts()
+        .map(|(def, c)| (def, prim_const(c).1))
+        .collect();
     let mut ev = Evaluator {
         resolve,
         bodies,
-        done: HashMap::new(),
+        done,
         visiting: HashSet::new(),
         failed: HashSet::new(),
         sink,
@@ -398,6 +402,56 @@ fn is_int_literal(mut e: &Expr) -> bool {
         e = inner;
     }
     matches!(e.kind, ExprKind::Lit(Lit::Int { .. }))
+}
+
+/// The type and value of a primitive associated constant (`i32::MAX`), as Rust's standard
+/// library defines them. `char::MAX` never gets here (decision 31, see the resolver).
+#[must_use]
+pub fn prim_const(c: PrimConst) -> (Ty, ConstValue) {
+    let own = Ty::Prim(c.ty);
+    if let Some(bits) = c.ty.int_bits() {
+        let (min, max) = int_bounds(c.ty);
+        let signed = c.ty.is_signed_int();
+        return match c.name {
+            "MIN" if signed => (own, ConstValue::Int(min)),
+            "MIN" => (own, ConstValue::Uint(0)),
+            "MAX" if signed => (own, ConstValue::Int(i128::try_from(max).expect("fits"))),
+            "MAX" => (own, ConstValue::Uint(max)),
+            "BITS" => (Ty::Prim(PrimTy::U32), ConstValue::Uint(u128::from(bits))),
+            _ => unreachable!("not an integer constant: {}", c.name),
+        };
+    }
+    if c.ty == PrimTy::Char {
+        return (own, ConstValue::Char(char::REPLACEMENT_CHARACTER));
+    }
+    // A float: `f32` values are stored widened to `f64`, as their literals are.
+    let f32 = c.ty == PrimTy::F32;
+    let float = |a: f32, b: f64| ConstValue::Float(if f32 { f64::from(a) } else { b });
+    let uint = |a: u32, b: u32| {
+        let v = if f32 { a } else { b };
+        (Ty::Prim(PrimTy::U32), ConstValue::Uint(u128::from(v)))
+    };
+    let int = |a: i32, b: i32| {
+        let v = if f32 { a } else { b };
+        (Ty::Prim(PrimTy::I32), ConstValue::Int(i128::from(v)))
+    };
+    match c.name {
+        "MIN" => (own, float(f32::MIN, f64::MIN)),
+        "MAX" => (own, float(f32::MAX, f64::MAX)),
+        "MIN_POSITIVE" => (own, float(f32::MIN_POSITIVE, f64::MIN_POSITIVE)),
+        "EPSILON" => (own, float(f32::EPSILON, f64::EPSILON)),
+        "INFINITY" => (own, float(f32::INFINITY, f64::INFINITY)),
+        "NEG_INFINITY" => (own, float(f32::NEG_INFINITY, f64::NEG_INFINITY)),
+        "NAN" => (own, float(f32::NAN, f64::NAN)),
+        "RADIX" => uint(f32::RADIX, f64::RADIX),
+        "MANTISSA_DIGITS" => uint(f32::MANTISSA_DIGITS, f64::MANTISSA_DIGITS),
+        "DIGITS" => uint(f32::DIGITS, f64::DIGITS),
+        "MIN_EXP" => int(f32::MIN_EXP, f64::MIN_EXP),
+        "MAX_EXP" => int(f32::MAX_EXP, f64::MAX_EXP),
+        "MIN_10_EXP" => int(f32::MIN_10_EXP, f64::MIN_10_EXP),
+        "MAX_10_EXP" => int(f32::MAX_10_EXP, f64::MAX_10_EXP),
+        _ => unreachable!("not a float constant: {}", c.name),
+    }
 }
 
 /// The inclusive `(min, max)` of an integer type.

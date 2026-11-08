@@ -16,5 +16,5 @@ fn Main() {
     let a = F::New(); //~ ERROR E0203 expected type, found function `F`
     let b = x::New(); //~ ERROR E0201 cannot find type `x` in this scope
     let c = Nope::New(); //~ ERROR E0201 cannot find type `Nope` in this scope
-    let d = i32::New(); //~ ERROR E0212 no associated function named `New` found for type `i32`
+    let d = i32::New(); //~ ERROR E0212 no associated function or constant named `New` found for type `i32`
 }

@@ -209,25 +209,15 @@ impl PatValues<'_, '_> {
     fn pat(&mut self, pat: &Pat) {
         match &pat.kind {
             PatKind::Ident { sub, .. } => {
-                if let Some(Res::Def(def)) = self.resolve.pat_res(pat.id) {
-                    if self.resolve.def(def).kind == DefKind::Const {
-                        match self.consts.get(&def) {
-                            Some(v) => {
-                                self.body
-                                    .pat_consts
-                                    .insert(pat.id, PatConst::Value(v.clone()));
-                            }
-                            // Reported with the constant.
-                            None => self.failed = true,
-                        }
-                    }
-                }
+                self.const_pat(pat);
                 if let Some(sub) = sub {
                     self.pat(sub);
                 }
             }
+            // `Type::Name` naming an associated constant (#48).
+            PatKind::Path(_) => self.const_pat(pat),
             // An assignee's place was visited as an expression (see `for_each_child`).
-            PatKind::Wild | PatKind::Rest | PatKind::Path(_) | PatKind::Assignee(_) => {}
+            PatKind::Wild | PatKind::Rest | PatKind::Assignee(_) => {}
             PatKind::Tuple(ps) | PatKind::TupleStruct(_, ps) | PatKind::Or(ps) => {
                 for p in ps {
                     self.pat(p);
@@ -282,6 +272,23 @@ impl PatValues<'_, '_> {
 
     /// The value of a literal, a negated literal or a constant in a pattern, in the type
     /// the type checker gave it.
+    /// An identifier or path pattern naming a constant: its value.
+    fn const_pat(&mut self, pat: &Pat) {
+        if let Some(Res::Def(def)) = self.resolve.pat_res(pat.id) {
+            if self.resolve.def(def).kind == DefKind::Const {
+                match self.consts.get(&def) {
+                    Some(v) => {
+                        self.body
+                            .pat_consts
+                            .insert(pat.id, PatConst::Value(v.clone()));
+                    }
+                    // Reported with the constant.
+                    None => self.failed = true,
+                }
+            }
+        }
+    }
+
     fn value(&mut self, e: &Expr) -> Option<ConstValue> {
         let ty = self.body.expr_ty(e.id).clone();
         match &e.kind {

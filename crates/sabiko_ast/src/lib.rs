@@ -136,7 +136,8 @@ pub struct ImplDecl {
     /// The implemented type as written: a path naming a struct (or `Self`) in a valid
     /// program.
     pub self_ty: Type,
-    /// The associated functions, each an [`ItemKind::Fn`] item.
+    /// The associated items: functions ([`ItemKind::Fn`]) and constants
+    /// ([`ItemKind::Const`], #48).
     pub items: Vec<Item>,
 }
 

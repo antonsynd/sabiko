@@ -31,7 +31,7 @@
 //! an `else`.
 
 use super::{Access, BodyGen, Expr, LoopKind, Place, Ranges};
-use crate::program::{int_literal, random_int, VariantKind, CHARS};
+use crate::program::{int_literal, int_text, random_int, VariantKind, CHARS};
 use crate::ty::{IntTy, Prim, Ty, ValTy};
 
 /// The default binding mode at the top of a pattern: by value, or (matching a reference
@@ -825,7 +825,11 @@ impl BodyGen<'_> {
                 let hi = v
                     .saturating_add(i128::from(self.rng.range(1, 8)))
                     .min(i.max());
-                format!("{}..{}", int_literal(i, v), int_literal(i, hi))
+                format!(
+                    "{}..{}",
+                    int_text(self.rng, i, v),
+                    int_text(self.rng, i, hi)
+                )
             }
             3 => {
                 let mut values = vec![v];
@@ -835,7 +839,7 @@ impl BodyGen<'_> {
                         values.push(w);
                     }
                 }
-                let parts: Vec<String> = values.iter().map(|w| int_literal(i, *w)).collect();
+                let parts: Vec<String> = values.iter().map(|w| self.int_value(i, *w, cx)).collect();
                 parts.join(" | ")
             }
             4 => {
@@ -844,7 +848,17 @@ impl BodyGen<'_> {
                 self.at_pattern(ty, cx, false, |_, _| range)
             }
             // A literal (also when there is no room for an exclusive range).
-            _ => int_literal(i, v),
+            _ => self.int_value(i, v, cx),
+        }
+    }
+
+    /// A pattern matching the one value `v`. A constant (`u8::MAX`) does not peel
+    /// references the way a literal does (rustc's `AdjustMode::Pass`, E0308), so under a
+    /// default binding mode it is always the literal.
+    fn int_value(&mut self, i: IntTy, v: i128, cx: &PatCx) -> String {
+        match cx.mode {
+            Mode::Move => int_text(self.rng, i, v),
+            Mode::Ref(_) => int_literal(i, v),
         }
     }
 
@@ -853,7 +867,11 @@ impl BodyGen<'_> {
         let hi = lo
             .saturating_add(i128::from(self.rng.range(0, 8)))
             .min(i.max());
-        format!("{}..={}", int_literal(i, lo), int_literal(i, hi))
+        format!(
+            "{}..={}",
+            int_text(self.rng, i, lo),
+            int_text(self.rng, i, hi)
+        )
     }
 
     fn char_refutable(&mut self, cx: &mut PatCx) -> String {
@@ -954,16 +972,25 @@ impl BodyGen<'_> {
             let top = k + 1 == bounds.len();
             let hi = if top { i.max() } else { bounds[k + 1] - 1 };
             let hi_text = if top && i == IntTy::U128 {
-                U128_MAX.to_owned()
+                if self.rng.chance(50) {
+                    "u128::MAX".to_owned()
+                } else {
+                    U128_MAX.to_owned()
+                }
             } else {
-                int_literal(i, hi)
+                int_text(self.rng, i, hi)
             };
             let text = if lo == hi && !(top && i == IntTy::U128) {
+                // A lone value: a literal, which also matches through a reference.
                 int_literal(i, lo)
             } else if !top && self.rng.chance(30) {
-                format!("{}..{}", int_literal(i, lo), int_literal(i, hi + 1))
+                format!(
+                    "{}..{}",
+                    int_text(self.rng, i, lo),
+                    int_text(self.rng, i, hi + 1)
+                )
             } else {
-                format!("{}..={hi_text}", int_literal(i, lo))
+                format!("{}..={hi_text}", int_text(self.rng, i, lo))
             };
             shapes.push(Shape::Range(text));
         }

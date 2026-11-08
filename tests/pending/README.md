@@ -60,9 +60,8 @@ Each converted UI program names the rustc codes it was checked against in a comm
 
 ### Known gaps (`methods/known_gap/`)
 
-| file | gap | rustc |
-| --- | --- | --- |
-| `associated_consts.sabi` | `const` items in an impl block, `Grid::Cells`, `Self::Cells`: E0107 (associated constants are a later step) (#48) | exit 0 (`.expected`) |
+None left: `associated_consts.sabi` (`const` items in an impl block, `Grid::Cells`,
+`Self::Cells`) landed with #48 as `tests/differential/run/methods/associated_consts.sabi`.
 
 ### Two-phase borrows: the rules rustc applies
 
@@ -299,7 +298,9 @@ scope (rule 9). `let else` is the same lowering with a diverging fallback plus t
 
 ### Known gaps (`enums/known_gap/`)
 
-All run under rustc (`.expected` notes); none is required by #8. The two #47 gaps,
+All run under rustc (`.expected` notes); none is required by #8.
+`primitive_consts_in_patterns.sabi` (`i8::MIN..=-1`, `1..=i8::MAX`) landed with #48 as
+`tests/differential/run/enums/primitive_consts_in_patterns.sabi`. The two #47 gaps,
 `unreachable_arms_borrowck.sabi` (rustc borrow-checks code that patterns make unreachable)
 and `move_scrutinee_in_guard_then_test.sabi` (a later arm re-tested a scrutinee a failed
 guard moved out), are fixed (decision 72): the first became verdict programs in
@@ -307,7 +308,6 @@ guard moved out), are fixed (decision 72): the first became verdict programs in
 
 | file | gap | rustc |
 | --- | --- | --- |
-| `primitive_consts_in_patterns.sabi` | `i8::MIN..=-1`, `1..=i8::MAX`, `i32::MIN` as patterns: Sabiko has no associated constants on primitives (E0212 in expressions too) (#48) | exit 0 |
 | `reference_patterns.sabi` | `&p` patterns (`&Cell::Value(n)`, `let &(a, b) = &t;`), not listed in #8 (E0107 today, SPEC §2) (#49) | exit 0 |
 | `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional (#49) | exit 0 |
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
