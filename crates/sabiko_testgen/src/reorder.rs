@@ -20,8 +20,10 @@
 //!   through its `&mut` arguments or receiver), arithmetic, a shift, a negation, a
 //!   compound assignment, an index other than an integer literal within an array's length
 //!   (which may be out of bounds; a range index `a[i..j]` always counts, #10), a `[x; 0]`
-//!   whose `x` has drop glue (it is dropped at once), or a value with drop glue (whose
-//!   `drop` prints): a `let` of one,
+//!   whose `x` has drop glue (it is dropped at once), a borrow of a value with drop glue
+//!   (a borrowed temporary is dropped at the end of the statement, or with the `let`'s
+//!   bindings when extended, #88), or a value with drop glue (whose `drop` prints): a `let`
+//!   of one,
 //!   which fixes where it is dropped at the end of the block and whether a panic in
 //!   between drops it, an assignment that drops the old one, an assignment into part of
 //!   one or through a dereference (a panic in the other statement drops the value while
@@ -557,7 +559,12 @@ impl FnCx<'_, '_> {
                     self.expr(a, Mode::Read, s);
                 }
             }
+            // A borrow of a value with drop glue: a borrowed temporary is dropped at the end
+            // of the statement, or with the `let`'s bindings when it is extended (`let r =
+            // { &Make() };`, #88), so a panic in the other statement would drop it while
+            // unwinding. Borrowing a place drops nothing, but is counted too.
             ExprKind::Ref { mutable, expr } => {
+                s.effect |= self.needs_drop(expr);
                 if *mutable {
                     s.touch(Alias::Write);
                     self.expr(expr, Mode::BorrowMut, s);
