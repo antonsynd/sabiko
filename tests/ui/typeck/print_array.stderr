@@ -5,7 +5,7 @@
    │               ┬  
    │               ╰── expected a printable value, found `[i32; 3]`
    │ 
-   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`, and references to them
 ───╯
 [E0300] Error: `Print` cannot print a value of type `&[i32]`
    ╭─[ tests/ui/typeck/print_array.sabi:8:11 ]
@@ -14,5 +14,5 @@
    │           ┬  
    │           ╰── expected a printable value, found `&[i32]`
    │ 
-   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`, and references to them
 ───╯

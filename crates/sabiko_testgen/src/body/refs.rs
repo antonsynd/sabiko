@@ -20,7 +20,7 @@
 //! Parameters of the types `&&T`, `&&mut T` and `&mut &mut T` take `&r`, `&mut r`, a
 //! double reference local, or `&&x`, `& &mut x`, `&mut &mut x` of a place (a borrow of a
 //! temporary that lives to the end of the call's statement; never of a literal, which
-//! rustc promotes to a constant, #26). A function with a double reference parameter never
+//! rustc promotes to a constant, #106). A function with a double reference parameter never
 //! returns a reference unless it is a `&self` method: `fn F(rr: &&i32) -> &i32` has two
 //! elided input lifetimes (rustc's E0106). `&&str` operands are compared (`ss == &s`), and
 //! `&&p` ones of primitives (`rr < &r`).

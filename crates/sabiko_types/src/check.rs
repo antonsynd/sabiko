@@ -2738,8 +2738,8 @@ impl<'a> FnCtxt<'a> {
         )
     }
 
-    /// `Print(x)` / `PrintLine(x)`: one argument of any printable type (see
-    /// [`collect::is_printable`]); an unsuffixed literal takes its default later. Both
+    /// `Print(x)` / `PrintLine(x)`: one argument of any printable type, or a reference to
+    /// one (see [`collect::print_derefs`]); an unsuffixed literal takes its default later. Both
     /// return `()`.
     fn check_print_call(&mut self, builtin: Builtin, args: &[Expr], span: Span) -> Ty {
         if args.len() != 1 {
@@ -2788,10 +2788,16 @@ impl<'a> FnCtxt<'a> {
 
     /// Reports a `Print`/`PrintLine` argument of known type `ty` that cannot be printed.
     fn check_printable(&mut self, builtin: Builtin, span: Span, ty: &Ty) {
-        // `&loop {}` prints like `loop {}` (rustc: `!: Display`); neither runs.
-        if matches!(ty, Ty::Infer(_) | Ty::Error)
-            || ty.is_uninhabited()
-            || collect::is_printable(ty)
+        // A reference prints what it points to (`&5`, `&&s`; rustc's `Display` for `&T`).
+        let mut base = ty;
+        while let (false, Ty::Ref(_, inner)) = (collect::is_printable(base), base) {
+            base = inner;
+        }
+        // `&loop {}` prints like `loop {}` (rustc: `!: Display`); neither runs. A literal
+        // variable takes its default later.
+        if matches!(base, Ty::Infer(_) | Ty::Error)
+            || base.is_uninhabited()
+            || collect::is_printable(base)
         {
             return;
         }
@@ -2802,7 +2808,7 @@ impl<'a> FnCtxt<'a> {
                 format!("`{}` cannot print a value of type `{s}`", builtin.name()),
             )
             .with_label(span, format!("expected a printable value, found `{s}`"))
-            .with_note("printable types are integers, floats, `bool`, `char` and `&str`"),
+            .with_note("printable types are integers, floats, `bool`, `char` and `&str`, and references to them"),
         );
     }
 
