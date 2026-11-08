@@ -86,6 +86,13 @@ impl ErrorCode {
     pub const OR_PATTERN_BINDING_MODE: Self = Self(219);
     /// A local or parameter used in an array length or repeat count (rustc's E0435).
     pub const NON_CONSTANT_VALUE: Self = Self(220);
+    /// Two generic parameters of one name (rustc's E0403).
+    pub const DUPLICATE_GENERIC_PARAM: Self = Self(221);
+    /// The wrong number of generic arguments for a generic function (rustc's E0107).
+    pub const WRONG_GENERIC_ARG_COUNT: Self = Self(222);
+    /// Generic arguments on a path segment that takes none: a primitive type, a type
+    /// parameter, a local, a non-generic item (rustc's E0109).
+    pub const GENERIC_ARGS_NOT_ALLOWED: Self = Self(223);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -189,6 +196,9 @@ impl ErrorCode {
     pub const UNSUPPORTED_CODEGEN: Self = Self(500);
     /// `Main` has parameters or a non-`()` return type, or an executable has no `Main`.
     pub const INVALID_MAIN: Self = Self(501);
+    /// Monomorphisation instantiated a generic function at ever deeper types (rustc's
+    /// "reached the recursion limit while instantiating").
+    pub const INSTANTIATION_RECURSION_LIMIT: Self = Self(502);
 
     // Lints on MIR (E06xx): rustc's deny-by-default constant-propagation lints, errors here
     // since Sabiko has no `#[allow]` (decision 73); `sabikoc -A <lint>` turns them off.

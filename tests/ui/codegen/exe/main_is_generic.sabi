@@ -1,0 +1,4 @@
+// An executable's entry point cannot be generic: nothing instantiates it.
+
+fn Main<T>() { //~ ERROR E0501 `Main` function is not allowed to have generic parameters
+}

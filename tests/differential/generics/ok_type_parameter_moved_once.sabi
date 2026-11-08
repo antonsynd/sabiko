@@ -1,0 +1,6 @@
+// A `T` is moved once into the result, and borrowed before.
+fn Keep<T>(x: T) -> T {
+    let r = &x;
+    let _s = r;
+    x
+}

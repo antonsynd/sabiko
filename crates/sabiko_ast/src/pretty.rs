@@ -7,7 +7,7 @@
 
 use std::fmt::Write as _;
 
-use crate::dump::{lit_str, path_str};
+use crate::dump::{lit_str, path_str, path_text};
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
@@ -36,6 +36,17 @@ pub fn pretty_expr(expr: &Expr) -> String {
         indent: 0,
     };
     p.expr(expr, 0);
+    p.out
+}
+
+/// A type as source text.
+#[must_use]
+pub fn type_str(ty: &Type) -> String {
+    let mut p = Printer {
+        out: String::new(),
+        indent: 0,
+    };
+    p.ty(ty);
     p.out
 }
 
@@ -81,7 +92,18 @@ impl Printer {
         self.vis(item.vis);
         match &item.kind {
             ItemKind::Fn(f) => {
-                let _ = write!(self.out, "fn {}(", f.name.name);
+                let _ = write!(self.out, "fn {}", f.name.name);
+                if !f.generics.is_empty() {
+                    self.out.push('<');
+                    for (i, g) in f.generics.iter().enumerate() {
+                        if i > 0 {
+                            self.out.push_str(", ");
+                        }
+                        self.out.push_str(&g.name.name);
+                    }
+                    self.out.push('>');
+                }
+                self.out.push('(');
                 if let Some(sp) = &f.self_param {
                     self.out.push_str(sp.kind.as_str());
                 }
@@ -211,7 +233,7 @@ impl Printer {
 
     fn ty(&mut self, ty: &Type) {
         match &ty.kind {
-            TypeKind::Path(p) => self.out.push_str(&path_str(p)),
+            TypeKind::Path(p) => self.out.push_str(&path_text(p, "")),
             TypeKind::Ref { mutable, inner } => {
                 self.out.push_str(if *mutable { "&mut " } else { "&" });
                 self.ty(inner);
@@ -527,10 +549,16 @@ impl Printer {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                generic_args,
                 args,
             } => {
                 self.expr(receiver, POSTFIX_PRECEDENCE);
-                let _ = write!(self.out, ".{}", method.name);
+                let name = Path {
+                    segments: vec![method.clone()],
+                    generic_args: generic_args.iter().map(|a| (**a).clone()).collect(),
+                    span: method.span,
+                };
+                let _ = write!(self.out, ".{}", path_str(&name));
                 self.args(args);
             }
             ExprKind::Field(e, name) => {
@@ -921,10 +949,7 @@ mod tests {
     }
 
     fn path(name: &str) -> Path {
-        Path {
-            segments: vec![ident(name)],
-            span: SP,
-        }
+        Path::single(ident(name))
     }
 
     fn mk(kind: ExprKind) -> Expr {

@@ -1,0 +1,77 @@
+[E0221] Error: the name `T` is already used for a generic parameter in this item's generic parameters
+   ╭─[ tests/ui/resolve/generic_params.sabi:4:11 ]
+   │
+ 4 │ fn Dup<T, T>(x: T) {} //~ ERROR E0221 the name `T` is already used for a generic parameter
+   │        ┬  ┬  
+   │        │  ╰── already used
+   │        │     
+   │        ╰───── first use of `T`
+───╯
+[E0203] Error: expected value, found type parameter `T`
+   ╭─[ tests/ui/resolve/generic_params.sabi:7:5 ]
+   │
+ 6 │ fn Value<T>() -> i32 {
+   │          ┬  
+   │          ╰── type parameter defined here
+ 7 │     T //~ ERROR E0203 expected value, found type parameter `T`
+   │     ┬  
+   │     ╰── not a value
+───╯
+[E0222] Error: function takes 1 generic argument but 2 generic arguments were supplied
+    ╭─[ tests/ui/resolve/generic_params.sabi:17:15 ]
+    │
+ 10 │ fn Id<T>(x: T) -> T {
+    │    ─┬  
+    │     ╰── function `Id` defined here
+    │ 
+ 17 │     let a = Id::<i32, bool>(1); //~ ERROR E0222 function takes 1 generic argument but 2 generic arguments were supplied
+    │               ──────┬──────  
+    │                     ╰──────── expected 1 generic argument
+────╯
+[E0222] Error: function takes 1 generic argument but 0 generic arguments were supplied
+    ╭─[ tests/ui/resolve/generic_params.sabi:18:15 ]
+    │
+ 10 │ fn Id<T>(x: T) -> T {
+    │    ─┬  
+    │     ╰── function `Id` defined here
+    │ 
+ 18 │     let b = Id::<>(1); //~ ERROR E0222 function takes 1 generic argument but 0 generic arguments were supplied
+    │               ──┬─  
+    │                 ╰─── expected 1 generic argument
+────╯
+[E0223] Error: type arguments are not allowed on function `Plain`
+    ╭─[ tests/ui/resolve/generic_params.sabi:19:10 ]
+    │
+ 19 │     Plain::<i32>(); //~ ERROR E0223 type arguments are not allowed on function `Plain`
+    │          ───┬───  
+    │             ╰───── type argument not allowed
+    │ 
+    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+────╯
+[E0223] Error: type arguments are not allowed on `i32`
+    ╭─[ tests/ui/resolve/generic_params.sabi:20:16 ]
+    │
+ 20 │     let c = i32::<u8>::MAX; //~ ERROR E0223 type arguments are not allowed on `i32`
+    │                ───┬──  
+    │                   ╰──── type argument not allowed
+    │ 
+    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+────╯
+[E0223] Error: type arguments are not allowed on builtin type `i32`
+    ╭─[ tests/ui/resolve/generic_params.sabi:21:15 ]
+    │
+ 21 │     let d: i32<u8> = 1; //~ ERROR E0223 type arguments are not allowed on builtin type `i32`
+    │               ──┬─  
+    │                 ╰─── type argument not allowed
+    │ 
+    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+────╯
+[E0223] Error: type arguments are not allowed on local variable `x`
+    ╭─[ tests/ui/resolve/generic_params.sabi:23:14 ]
+    │
+ 23 │     let e = x::<i32>; //~ ERROR E0223 type arguments are not allowed on local variable `x`
+    │              ───┬───  
+    │                 ╰───── type argument not allowed
+    │ 
+    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+────╯

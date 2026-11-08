@@ -1,0 +1,36 @@
+// Methods with type parameters of their own, called with inference and with a
+// turbofish.
+#[derive(Copy, Clone)]
+struct Counter {
+    N: i32,
+}
+
+impl Counter {
+    fn Tag<T>(&self, x: T) -> (i32, T) {
+        (self.N, x)
+    }
+
+    fn Bump<T>(&mut self, x: T) -> T {
+        self.N += 1;
+        x
+    }
+
+    fn Make<T>(x: T) -> (Counter, T) {
+        (Counter { N: 0 }, x)
+    }
+}
+
+fn Main() {
+    let mut c = Counter { N: 5 };
+    let t = c.Tag("five");
+    PrintLine(t.0);
+    PrintLine(t.1);
+    let b = c.Bump::<bool>(true);
+    PrintLine(b);
+    PrintLine(c.N);
+    let m = Counter::Make(2.25f64);
+    PrintLine(m.0.N);
+    PrintLine(m.1);
+    let u = Counter::Make::<u8>(9);
+    PrintLine(u.1);
+}

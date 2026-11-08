@@ -277,6 +277,7 @@ impl<'a> Builder<'a> {
         let body = Body {
             def,
             name: f.name.name.clone(),
+            instance: Vec::new(),
             locals,
             arg_count: f.params.len() + usize::from(f.self_param.is_some()),
             blocks: vec![BasicBlockData::default()],
@@ -1320,8 +1321,8 @@ impl<'a> Builder<'a> {
                     DefKind::Struct | DefKind::Variant => {
                         unreachable!("a unit struct or variant is lowered by `aggregate_rvalue`")
                     }
-                    DefKind::Fn | DefKind::Enum => {
-                        unreachable!("functions and enums as values are rejected")
+                    DefKind::Fn | DefKind::Enum | DefKind::TyParam => {
+                        unreachable!("functions, enums and type parameters as values are rejected")
                     }
                 },
                 Res::Prim(_) | Res::Err => unreachable!("unresolved path in a checked body"),
@@ -1366,10 +1367,16 @@ impl<'a> Builder<'a> {
                 let Some(Res::Def(func)) = self.path_res(callee) else {
                     unreachable!("callees are function paths in a checked body")
                 };
+                let generic_args = self
+                    .types
+                    .generic_args
+                    .get(&strip_parens(callee).id)
+                    .cloned()
+                    .unwrap_or_default();
                 // `Print` and `PrintLine` are overloaded and have no signature.
                 let inputs = match self.typeck.items.builtin(func) {
                     Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
-                    _ => self.typeck.items.fn_sig(func).inputs.clone(),
+                    _ => self.typeck.items.fn_sig(func).inputs_with(&generic_args),
                 };
                 let print = matches!(
                     self.typeck.items.builtin(func),
@@ -1388,7 +1395,7 @@ impl<'a> Builder<'a> {
                             }
                         })
                         .collect();
-                    this.call_into(dest, expr, func, args, span);
+                    this.call_into(dest, expr, func, generic_args, args, span);
                 });
             }
             ExprKind::Ref {
@@ -1480,6 +1487,7 @@ impl<'a> Builder<'a> {
         dest: &Place,
         expr: &Expr,
         func: DefId,
+        generic_args: Vec<Ty>,
         args: Vec<Operand>,
         span: Span,
     ) {
@@ -1492,6 +1500,7 @@ impl<'a> Builder<'a> {
         self.terminate(
             TerminatorKind::Call {
                 func,
+                generic_args,
                 args,
                 destination: dest.clone(),
                 target,
@@ -1522,7 +1531,17 @@ impl<'a> Builder<'a> {
         span: Span,
     ) {
         let callee = self.types.method_calls[&expr.id];
-        let inputs = self.typeck.items.fn_sig(callee.def).inputs.clone();
+        let generic_args = self
+            .types
+            .generic_args
+            .get(&expr.id)
+            .cloned()
+            .unwrap_or_default();
+        let inputs = self
+            .typeck
+            .items
+            .fn_sig(callee.def)
+            .inputs_with(&generic_args);
         let recv = match callee.autoref {
             Some(m) => {
                 let mut place = self.as_place_mut(receiver, m);
@@ -1554,7 +1573,7 @@ impl<'a> Builder<'a> {
         for (i, a) in args.iter().enumerate() {
             operands.push(self.coerced_operand(a, inputs.get(i + 1), true));
         }
-        self.call_into(dest, expr, callee.def, operands, span);
+        self.call_into(dest, expr, callee.def, generic_args, operands, span);
     }
 
     /// An aggregate expression's operands, evaluated left to right, and the aggregate

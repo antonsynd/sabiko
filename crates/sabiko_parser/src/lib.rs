@@ -156,6 +156,13 @@ impl<'s, 'd> Parser<'s, 'd> {
         self.at(TokenKind::Eof)
     }
 
+    /// Replaces the current token with `kind` over `span`: the rest of a `>>` whose first
+    /// `>` closed a generic argument list. The parser never backtracks, so the token
+    /// stream can be edited in place.
+    pub(crate) fn split_token(&mut self, kind: TokenKind, span: Span) {
+        self.tokens[self.pos] = Token { kind, span };
+    }
+
     pub(crate) fn bump(&mut self) -> Token {
         let t = self.tokens[self.pos];
         if t.kind != TokenKind::Eof {

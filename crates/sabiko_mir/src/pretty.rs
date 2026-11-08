@@ -48,9 +48,24 @@ pub fn print_body(body: &Body, resolve: &ResolveResults, typeck: &TypeckResults,
         .map(|l| format!("_{}: {}", l.0, p.ty(&body.local_decl(l).ty)))
         .collect();
     let ret = body.return_ty();
+    // A generic body shows its type parameters; an instance (decision 82) its arguments.
+    let generics: Vec<String> = if body.instance.is_empty() {
+        resolve
+            .generics(body.def)
+            .iter()
+            .map(|&g| resolve.def(g).name.clone())
+            .collect()
+    } else {
+        body.instance.iter().map(|t| p.ty(t)).collect()
+    };
+    let generics = if generics.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", generics.join(", "))
+    };
     let _ = write!(
         out,
-        "fn {}({})",
+        "fn {}{generics}({})",
         resolve.qualified_name(body.def),
         params.join(", ")
     );
@@ -334,6 +349,7 @@ impl Printer<'_> {
             }
             TerminatorKind::Call {
                 func,
+                generic_args,
                 args,
                 destination,
                 target,
@@ -343,10 +359,14 @@ impl Printer<'_> {
                     Some(bb) => format!("bb{}", bb.0),
                     None => "unreachable".to_owned(),
                 };
+                let mut callee = self.resolve.qualified_name(*func);
+                if !generic_args.is_empty() {
+                    let tys: Vec<String> = generic_args.iter().map(|t| self.ty(t)).collect();
+                    callee = format!("{callee}::<{}>", tys.join(", "));
+                }
                 format!(
-                    "{} = {}({}) -> {target}",
+                    "{} = {callee}({}) -> {target}",
                     self.place(destination),
-                    self.resolve.qualified_name(*func),
                     args.join(", ")
                 )
             }

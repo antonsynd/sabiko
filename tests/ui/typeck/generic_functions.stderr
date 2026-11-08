@@ -1,0 +1,63 @@
+[E0300] Error: `PrintLine` cannot print a value of type `T`
+   ╭─[ tests/ui/typeck/generic_functions.sabi:5:15 ]
+   │
+ 5 │     PrintLine(x); //~ ERROR E0300 `PrintLine` cannot print a value of type `T`
+   │               ┬  
+   │               ╰── expected a printable value, found `T`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`, and references to them
+───╯
+[E0306] Error: binary operation `+` cannot be applied to type `T`
+   ╭─[ tests/ui/typeck/generic_functions.sabi:9:5 ]
+   │
+ 9 │     a + b //~ ERROR E0306 binary operation `+` cannot be applied to type `T`
+   │     ──┬──  
+   │       ╰──── no implementation for `T + T`
+───╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/generic_functions.sabi:21:13 ]
+    │
+ 21 │     let a = Make(); //~ ERROR E0313 type annotations needed
+    │             ──┬─  
+    │               ╰─── cannot infer type of the type parameter `T` declared on the function `Make`
+    │ 
+    │ Note: specify it with a turbofish: `Make::<..>`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/generic_functions.sabi:23:19 ]
+    │
+ 23 │     let c: bool = Id(1); //~ ERROR E0300 mismatched types
+    │                   ──┬──  
+    │                     ╰──── expected `bool`, found `{integer}`
+────╯
+[E0314] Error: literal out of range for `u8`
+    ╭─[ tests/ui/typeck/generic_functions.sabi:24:22 ]
+    │
+ 24 │     let d = Id::<u8>(300); //~ ERROR E0314
+    │                      ─┬─  
+    │                       ╰─── does not fit in `u8`
+    │ 
+    │ Note: the literal `300` does not fit into the type `u8` whose range is `0..=255`
+────╯
+[E0222] Error: method takes 1 generic argument but 2 generic arguments were supplied
+    ╭─[ tests/ui/typeck/generic_functions.sabi:38:10 ]
+    │
+ 30 │     fn Tag<T>(&self, x: T) -> T {
+    │        ─┬─  
+    │         ╰─── method `Tag` defined here
+    │ 
+ 38 │     s.Tag::<i32, i32>(1); //~ ERROR E0222 method takes 1 generic argument but 2 generic arguments were supplied
+    │          ──────┬─────  
+    │                ╰─────── expected 1 generic argument
+────╯
+[E0222] Error: method takes 0 generic arguments but 1 generic argument was supplied
+    ╭─[ tests/ui/typeck/generic_functions.sabi:39:12 ]
+    │
+ 34 │     fn Plain(&self) {}
+    │        ──┬──  
+    │          ╰──── method `Plain` defined here
+    │ 
+ 39 │     s.Plain::<i32>(); //~ ERROR E0222 method takes 0 generic arguments but 1 generic argument was supplied
+    │            ───┬───  
+    │               ╰───── expected 0 generic arguments
+────╯

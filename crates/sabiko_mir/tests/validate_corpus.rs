@@ -39,6 +39,17 @@ fn corpus() -> Vec<PathBuf> {
 
 /// Lowers a file, or returns `None` when any front-end stage reported a diagnostic.
 fn lower(src: &str) -> Option<(Vec<Body>, sabiko_types::TypeckResults)> {
+    lower_resolved(src).map(|(bodies, typeck, _)| (bodies, typeck))
+}
+
+/// [`lower`], with the resolver's results too.
+fn lower_resolved(
+    src: &str,
+) -> Option<(
+    Vec<Body>,
+    sabiko_types::TypeckResults,
+    sabiko_resolve::ResolveResults,
+)> {
     let mut sink = DiagnosticSink::new();
     let ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
     if sink.has_errors() {
@@ -54,7 +65,7 @@ fn lower(src: &str) -> Option<(Vec<Body>, sabiko_types::TypeckResults)> {
     }
     let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
     assert!(sink.diagnostics().is_empty(), "lowering never reports");
-    Some((bodies, typeck))
+    Some((bodies, typeck, resolve))
 }
 
 #[test]
@@ -62,7 +73,7 @@ fn validator_accepts_corpus() {
     let mut lowered = 0;
     for path in corpus() {
         let src = std::fs::read_to_string(&path).unwrap();
-        let Some((mut bodies, typeck)) = lower(&src) else {
+        let Some((mut bodies, typeck, resolve)) = lower_resolved(&src) else {
             continue;
         };
         lowered += bodies.len();
@@ -79,7 +90,10 @@ fn validator_accepts_corpus() {
             "{}: invalid MIR after simplification: {errors:#?}",
             path.display()
         );
-        // Drop elaboration, copy forwarding and the rest, as before code generation.
+        // Monomorphisation, drop elaboration, copy forwarding and the rest, as before code
+        // generation.
+        let mut bodies =
+            sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut DiagnosticSink::new());
         let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
         assert!(
             errors.is_empty(),

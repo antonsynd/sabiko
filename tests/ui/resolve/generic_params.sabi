@@ -1,0 +1,24 @@
+// Generic parameters: duplicates, a parameter used as a value, generic arguments where
+// none are taken, and the wrong number of them.
+
+fn Dup<T, T>(x: T) {} //~ ERROR E0221 the name `T` is already used for a generic parameter
+
+fn Value<T>() -> i32 {
+    T //~ ERROR E0203 expected value, found type parameter `T`
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Plain() {}
+
+fn Main() {
+    let a = Id::<i32, bool>(1); //~ ERROR E0222 function takes 1 generic argument but 2 generic arguments were supplied
+    let b = Id::<>(1); //~ ERROR E0222 function takes 1 generic argument but 0 generic arguments were supplied
+    Plain::<i32>(); //~ ERROR E0223 type arguments are not allowed on function `Plain`
+    let c = i32::<u8>::MAX; //~ ERROR E0223 type arguments are not allowed on `i32`
+    let d: i32<u8> = 1; //~ ERROR E0223 type arguments are not allowed on builtin type `i32`
+    let x = 1;
+    let e = x::<i32>; //~ ERROR E0223 type arguments are not allowed on local variable `x`
+}

@@ -1,0 +1,41 @@
+// Generic functions instantiated at primitives, tuples, arrays, `()`, `&str` and
+// references, with inference and with turbofish arguments.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Swap<A, B>(p: (A, B)) -> (B, A) {
+    let (a, b) = p;
+    (b, a)
+}
+
+fn Pair<A, B>(a: A, b: B) -> (A, B) {
+    (a, b)
+}
+
+fn Both<T>(a: T, b: T) -> [T; 2] {
+    [a, b]
+}
+
+fn Main() {
+    PrintLine(Id(5));
+    PrintLine(Id::<i64>(-7));
+    PrintLine(Id::<_>(2.5f64));
+    PrintLine(Id('x'));
+    PrintLine(Id("text"));
+    Id(());
+    let s = Swap((1u8, true));
+    PrintLine(s.0);
+    PrintLine(s.1);
+    let n = Swap(Swap((10, "ten")));
+    PrintLine(n.0);
+    PrintLine(n.1);
+    let p = Pair(Pair(1, 2), [3, 4]);
+    PrintLine((p.0).1 + p.1[0]);
+    let arr = Both("a", "b");
+    PrintLine(arr[1]);
+    let nested = Both(Both(1u16, 2), Both(3, 4));
+    PrintLine(nested[1][0]);
+    let x = 41;
+    PrintLine(*Id(&x) + 1);
+}

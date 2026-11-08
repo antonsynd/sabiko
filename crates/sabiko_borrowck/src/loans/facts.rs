@@ -257,7 +257,7 @@ pub enum FactsError {
 /// Generates the facts of `body`.
 pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError> {
     let mut supply = OriginSupply::default();
-    let sig = signature_regions(typeck.items.fn_sig(body.def), &mut supply);
+    let sig = signature_regions(typeck.items.fn_sig(body.def), &[], &mut supply);
     let Some(output) = sig.output.clone() else {
         return Err(FactsError::MissingLifetime {
             input_origins: sig.input_origins,
@@ -460,6 +460,7 @@ impl Generator<'_> {
             }
             TerminatorKind::Call {
                 func,
+                generic_args,
                 args,
                 destination,
                 ..
@@ -480,7 +481,11 @@ impl Generator<'_> {
                     self.write_dest(destination, location);
                     return;
                 }
-                let callee = signature_regions(self.typeck.items.fn_sig(*func), &mut self.supply);
+                let callee = signature_regions(
+                    self.typeck.items.fn_sig(*func),
+                    generic_args,
+                    &mut self.supply,
+                );
                 let mid = self.table.mid(location);
                 for (arg, param) in arg_tys.iter().zip(&callee.inputs) {
                     self.relate(arg, param, mid, false);

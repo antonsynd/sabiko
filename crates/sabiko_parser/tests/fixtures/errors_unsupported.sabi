@@ -14,7 +14,9 @@ fn F() {
     println!("hi");
     let g = Vec::<i32>::New();
 }
-fn G<T>(x: T) {}
+fn G<T: Copy>(x: T) {}
+fn M<'a>(x: &'a i32) {}
+fn N<const C: usize>() {}
 fn H(x: Vec<i32>) {}
 fn I(x: (i32, i32)) {}
 fn J(x: [i32; 3]) {}

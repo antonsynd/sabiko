@@ -1,0 +1,14 @@
+// Elision counts only written references: `x: T` adds none, so `&i32` is `y`'s.
+fn Pick<T>(x: T, y: &i32) -> &i32 {
+    let _k = x;
+    y
+}
+
+fn Main() {
+    let a = 1;
+    let r = {
+        let t = 2;
+        Pick(&t, &a)
+    };
+    PrintLine(*r);
+}

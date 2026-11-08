@@ -1,0 +1,11 @@
+// `T = &i32`: `First::<&i32>` returns `&&i32` borrowing the outer reference.
+fn First<T>(x: &T) -> &T {
+    x
+}
+
+fn Main() {
+    let a = 7;
+    let r = &a;
+    let rr = First(&r);
+    PrintLine(**rr);
+}

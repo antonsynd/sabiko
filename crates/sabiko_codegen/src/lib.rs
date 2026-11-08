@@ -142,6 +142,20 @@ pub fn emit_il(
             } else {
                 cx.entry_point(&mut out);
             }
+        } else if let Some(generic_main) = (0..resolve.defs.len())
+            .map(|i| sabiko_resolve::DefId(u32::try_from(i).expect("fewer than 2^32 items")))
+            .find(|&d| {
+                let info = resolve.def(d);
+                info.kind == DefKind::Fn && info.parent.is_none() && info.name == "Main"
+            })
+        {
+            // A generic `Main` has no instance (rustc's E0131).
+            cx.error(
+                ErrorCode::INVALID_MAIN,
+                "`Main` function is not allowed to have generic parameters",
+                resolve.def(generic_main).span,
+                "`Main` cannot have generic parameters",
+            );
         } else {
             cx.sink.emit(Diagnostic::error(
                 ErrorCode::INVALID_MAIN,

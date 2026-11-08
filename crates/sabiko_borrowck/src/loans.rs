@@ -47,7 +47,7 @@ pub fn check_signatures(
             continue;
         }
         let sig = typeck.items.fn_sig(def);
-        let regions = signature_regions(sig, &mut OriginSupply::default());
+        let regions = signature_regions(sig, &[], &mut OriginSupply::default());
         if regions.output.is_none() {
             report_missing_lifetime(sig, regions.input_origins, sink);
         }

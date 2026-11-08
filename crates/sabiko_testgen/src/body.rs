@@ -824,6 +824,9 @@ impl<'a> BodyGen<'a> {
     }
 
     fn val_expr(&mut self, ty: ValTy, depth: u32) -> Expr {
+        if self.prog.generics && depth > 0 && self.rng.chance(8) {
+            return self.generic_value(ty, depth - 1);
+        }
         if !matches!(ty, ValTy::Prim(_)) && depth >= 2 && self.rng.chance(4) {
             return self.inline_match(ty, depth);
         }
@@ -834,6 +837,35 @@ impl<'a> BodyGen<'a> {
             ValTy::Enum(e) => self.enum_expr(e, depth),
             ValTy::Array(a) => self.array_expr(a, depth, false),
             ValTy::Str => unreachable!("`str` is unsized"),
+        }
+    }
+
+    /// A value of type `ty` passed through a generic helper (#114): `GenId(e)` (now and
+    /// then with a turbofish), or `GenPick(c, a, b)`, which evaluates both values like a
+    /// tuple literal does. The helpers' type parameter is inferred from the context, as the
+    /// wrapped expressions' literals are.
+    fn generic_value(&mut self, ty: ValTy, depth: u32) -> Expr {
+        if self.rng.chance(60) {
+            let e = self.val_expr(ty, depth);
+            let turbofish = if self.rng.chance(30) {
+                format!("::<{}>", self.prog.val_name(ty))
+            } else {
+                String::new()
+            };
+            Expr {
+                text: format!("GenId{turbofish}({})", e.text),
+                roots: e.roots,
+            }
+        } else {
+            let c = self.prim_expr(Prim::Bool, depth);
+            let a = self.val_expr(ty, depth);
+            let b = self.val_expr(ty, depth);
+            let mut roots = a.roots;
+            roots.extend(b.roots);
+            Expr {
+                text: format!("GenPick({}, {}, {})", c.text, a.text, b.text),
+                roots,
+            }
         }
     }
 
@@ -1272,6 +1304,26 @@ impl<'a> BodyGen<'a> {
     /// argument, an annotated `let`).
     fn ref_expr(&mut self, mutable: bool, inner: ValTy, depth: u32) -> Option<Expr> {
         let prog = self.prog;
+        // `GenFirst(r)` (#114): the shared reference `r`, with its loans. Not for arrays,
+        // whose references may coerce to slices where `T` would have to be unsized.
+        if prog.generics
+            && !mutable
+            && inner != ValTy::Str
+            && prog.array_of(inner).is_none()
+            && depth > 0
+            && self.rng.chance(25)
+        {
+            let r = self.ref_expr(false, inner, depth - 1)?;
+            let arg = if r.text.starts_with('&') {
+                r.text
+            } else {
+                format!("&*{}", r.text)
+            };
+            return Some(Expr {
+                text: format!("GenFirst({arg})"),
+                roots: r.roots,
+            });
+        }
         if inner == ValTy::Str {
             // Strings are never borrowed mutably in the subset.
             return (!mutable).then(|| self.str_expr(depth));

@@ -836,7 +836,11 @@ impl<'a> Checker<'a> {
             }
             Ty::Ref(..) => CtorSet::Ref,
             Ty::Never => CtorSet::NoCtors,
-            Ty::Unit | Ty::FnDef(_) | Ty::Infer(_) | Ty::Error => CtorSet::Struct { empty: false },
+            // A type parameter's values are opaque: only a wildcard or a binding matches
+            // one, as for a struct without fields.
+            Ty::Unit | Ty::FnDef(_) | Ty::Param(_) | Ty::Infer(_) | Ty::Error => {
+                CtorSet::Struct { empty: false }
+            }
         }
     }
 

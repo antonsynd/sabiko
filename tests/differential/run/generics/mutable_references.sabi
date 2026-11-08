@@ -1,0 +1,24 @@
+// `T = &mut i32` and `T = &mut [i32; 3]`: writes through the reference a generic
+// function returns reach the original place.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Second<A, B>(_a: A, b: B) -> B {
+    b
+}
+
+fn Main() {
+    let mut a = 1;
+    *Id(&mut a) += 10;
+    PrintLine(a);
+    let mut arr = [1, 2, 3];
+    let r = Second(0, &mut arr);
+    r[2] = 30;
+    PrintLine(arr[2]);
+    let mut t = (1, 2);
+    let (x, y) = Id((&mut t.0, &mut t.1));
+    *x = 5;
+    *y = 6;
+    PrintLine(t.0 * t.1);
+}

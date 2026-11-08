@@ -34,8 +34,9 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
         "fixture must be valid:\n{}",
         sabiko_diagnostics::render(sink.diagnostics(), &sm, Format::HumanPlain)
     );
-    // As the driver does: drop elaboration, copy forwarding and the rest after borrow
-    // checking, each followed by the validator.
+    // As the driver does: monomorphisation, drop elaboration, copy forwarding and the rest
+    // after borrow checking, each followed by the validator.
+    let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
     let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
     assert!(
         errors.is_empty(),

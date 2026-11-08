@@ -40,6 +40,16 @@ SourceFile
               Pat x
             Path y
           Block
+      Let
+        Pat g
+        Init
+          Call
+            Path Vec::<i32>::New
+  Fn H
+    Param
+      Pat x
+      Type Vec<i32>
+    Block
   Fn I
     Param
       Pat x
@@ -68,6 +78,12 @@ SourceFile
           Field 1
             Field 0
               Path t
+      Let
+        Pat b
+        Init
+          Cast
+            Path x
+            Type Vec<i32>
 --- diagnostics ---
 [E0107] Error: not yet supported: `for` loops
    ╭─[ errors_unsupported.sabi:3:5 ]
@@ -132,127 +148,118 @@ SourceFile
     │ 
     │ Note: not planned (use `Print`/`PrintLine`); see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: turbofish generic arguments (`::<`)
-    ╭─[ errors_unsupported.sabi:15:16 ]
+[E0107] Error: not yet supported: trait bounds
+    ╭─[ errors_unsupported.sabi:17:7 ]
     │
- 15 │     let g = Vec::<i32>::New();
-    │                ─┬─  
-    │                 ╰─── not supported in this version of Sabiko
+ 17 │ fn G<T: Copy>(x: T) {}
+    │       ┬  
+    │       ╰── not supported in this version of Sabiko
     │ 
-    │ Note: planned for Phase 6; see docs/PLAN.md
+    │ Note: planned for Phase 6 (#116); see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: generic parameters
-    ╭─[ errors_unsupported.sabi:17:5 ]
+[E0107] Error: not yet supported: lifetime parameters
+    ╭─[ errors_unsupported.sabi:18:6 ]
     │
- 17 │ fn G<T>(x: T) {}
-    │     ┬  
-    │     ╰── not supported in this version of Sabiko
+ 18 │ fn M<'a>(x: &'a i32) {}
+    │      ─┬  
+    │       ╰── not supported in this version of Sabiko
     │ 
-    │ Note: planned for Phase 6; see docs/PLAN.md
+    │ Note: planned for Phase 9; see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: generic type arguments
-    ╭─[ errors_unsupported.sabi:18:12 ]
+[E0107] Error: not yet supported: const generic parameters
+    ╭─[ errors_unsupported.sabi:19:6 ]
     │
- 18 │ fn H(x: Vec<i32>) {}
-    │            ┬  
-    │            ╰── not supported in this version of Sabiko
+ 19 │ fn N<const C: usize>() {}
+    │      ──┬──  
+    │        ╰──── not supported in this version of Sabiko
     │ 
-    │ Note: planned for Phase 6; see docs/PLAN.md
+    │ Note: not planned for 0.1; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: functions without a body
-    ╭─[ errors_unsupported.sabi:21:14 ]
+    ╭─[ errors_unsupported.sabi:23:14 ]
     │
- 21 │ fn K() -> i32;
+ 23 │ fn K() -> i32;
     │              ┬  
     │              ╰── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 6 (traits) and Phase 8 (extern); see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: trait implementations other than `impl Drop`
-    ╭─[ errors_unsupported.sabi:22:10 ]
+    ╭─[ errors_unsupported.sabi:24:10 ]
     │
- 22 │ impl Foo for Bar { }
+ 24 │ impl Foo for Bar { }
     │          ─┬─  
     │           ╰─── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 6; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: `trait` items
-    ╭─[ errors_unsupported.sabi:23:1 ]
+    ╭─[ errors_unsupported.sabi:25:1 ]
     │
- 23 │ trait Bar { }
+ 25 │ trait Bar { }
     │ ──┬──  
     │   ╰──── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 6; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: modules and `use`
-    ╭─[ errors_unsupported.sabi:24:1 ]
+    ╭─[ errors_unsupported.sabi:26:1 ]
     │
- 24 │ mod baz;
+ 26 │ mod baz;
     │ ─┬─  
     │  ╰─── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 9; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: modules and `use`
-    ╭─[ errors_unsupported.sabi:25:1 ]
+    ╭─[ errors_unsupported.sabi:27:1 ]
     │
- 25 │ use std::Foo;
+ 27 │ use std::Foo;
     │ ─┬─  
     │  ╰─── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 9; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: `extern` blocks
-    ╭─[ errors_unsupported.sabi:26:1 ]
+    ╭─[ errors_unsupported.sabi:28:1 ]
     │
- 26 │ extern "dotnet" Sys { }
+ 28 │ extern "dotnet" Sys { }
     │ ───┬──  
     │    ╰──── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 8; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: `static` items
-    ╭─[ errors_unsupported.sabi:27:1 ]
+    ╭─[ errors_unsupported.sabi:29:1 ]
     │
- 27 │ static S: i32 = 1;
+ 29 │ static S: i32 = 1;
     │ ───┬──  
     │    ╰──── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 7; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: type aliases
-    ╭─[ errors_unsupported.sabi:28:1 ]
+    ╭─[ errors_unsupported.sabi:30:1 ]
     │
- 28 │ type Alias = i32;
+ 30 │ type Alias = i32;
     │ ──┬─  
     │   ╰─── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 6; see docs/PLAN.md
 ────╯
 [E0107] Error: not yet supported: tuple structs
-    ╭─[ errors_unsupported.sabi:29:13 ]
+    ╭─[ errors_unsupported.sabi:31:13 ]
     │
- 29 │ struct Tuple(i32);
+ 31 │ struct Tuple(i32);
     │             ┬  
     │             ╰── not supported in this version of Sabiko
     │ 
     │ Note: planned for Phase 5; see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: generic type arguments
-    ╭─[ errors_unsupported.sabi:30:56 ]
-    │
- 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
-    │                                                        ┬  
-    │                                                        ╰── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 6; see docs/PLAN.md
-────╯
 [E0100] Error: `<` is interpreted as a start of generic arguments for `i32`, not a comparison
-    ╭─[ errors_unsupported.sabi:30:80 ]
+    ╭─[ errors_unsupported.sabi:32:80 ]
     │
- 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
+ 32 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
     │                                                                            ─┬─ ┬  
     │                                                                             │  ╰── not interpreted as comparison
     │                                                                             │     
@@ -261,9 +268,9 @@ SourceFile
     │ Note: try comparing the cast value: `(x as i32) < ...`
 ────╯
 [E0100] Error: `<<` is interpreted as a start of generic arguments for `i32`, not a shift
-    ╭─[ errors_unsupported.sabi:30:102 ]
+    ╭─[ errors_unsupported.sabi:32:102 ]
     │
- 30 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
+ 32 │ fn L(t: Pair, x: i64) { let a = t.0.1; let b = x as Vec<i32>; let c = x as i32 < 1; let d = x as i32 << 1; }
     │                                                                                                  ─┬─ ─┬  
     │                                                                                                   │   ╰── not interpreted as shift
     │                                                                                                   │      

@@ -226,7 +226,25 @@ impl Parser<'_, '_> {
         }
         while self.eat(TokenKind::As).is_some() {
             self.descend()?;
-            let ty = self.parse_type_no_generics()?;
+            let mut ty = self.parse_type_no_generics()?;
+            let open_args = matches!(&ty.kind, TypeKind::Path(path)
+                if path.args_of(path.segments.len() - 1).is_none())
+                && self.at(TokenKind::Lt)
+                && self.looks_like_generic_args();
+            if open_args {
+                // `x as Wrap<i32>`: as in rustc, generic arguments.
+                let lt = self.peek().span;
+                let (args, end) = self.parse_generic_args()?;
+                if let TypeKind::Path(path) = &mut ty.kind {
+                    path.generic_args.push(sabiko_ast::GenericArgs {
+                        segment: path.segments.len() - 1,
+                        args,
+                        span: lt.to(end),
+                    });
+                    path.span = path.span.to(end);
+                }
+                ty.span = ty.span.to(end);
+            }
             if matches!(ty.kind, TypeKind::Path(_))
                 && matches!(self.peek_kind(), TokenKind::Lt | TokenKind::Shl)
             {
@@ -239,17 +257,10 @@ impl Parser<'_, '_> {
     }
 
     /// `x as i32 < y`: as in rustc, the `<` after a cast's type path starts generic
-    /// arguments, not a comparison. When what follows really looks like `<T, U>`, the
-    /// usual "generic arguments are not yet supported" diagnostic is more helpful.
+    /// arguments, not a comparison; when what follows is not a list of them, this reports
+    /// rustc's error.
     fn error_cast_followed_by_lt(&mut self, cast_start: Span, ty: &Type) -> crate::ParseError {
         let op = self.peek();
-        if self.looks_like_generic_args() {
-            return self.error_unsupported(
-                "generic type arguments",
-                op.span,
-                "planned for Phase 6",
-            );
-        }
         let (op_text, meaning, verb) = if op.kind == TokenKind::Lt {
             ("<", "comparison", "comparing")
         } else {
@@ -291,6 +302,11 @@ impl Parser<'_, '_> {
                 | TokenKind::Underscore
                 | TokenKind::LParen
                 | TokenKind::RParen
+                | TokenKind::LBracket
+                | TokenKind::RBracket
+                | TokenKind::Semi
+                | TokenKind::Int
+                | TokenKind::SelfType
                 | TokenKind::Lifetime => {}
                 _ => return false,
             }
@@ -415,20 +431,28 @@ impl Parser<'_, '_> {
                         continue;
                     }
                     let name = self.parse_ident()?;
-                    if self.at(TokenKind::PathSep) {
-                        let span = self.peek().span;
-                        return Err(self.error_unsupported(
-                            "turbofish method calls",
-                            span,
-                            "planned for Phase 6",
-                        ));
-                    }
+                    let generic_args =
+                        if self.at(TokenKind::PathSep) && self.nth_kind(1) == TokenKind::Lt {
+                            let sep = self.bump().span;
+                            let (args, end) = self.parse_generic_args()?;
+                            if !self.at(TokenKind::LParen) {
+                                return Err(self.error_expected("`(`"));
+                            }
+                            Some(sabiko_ast::GenericArgs {
+                                segment: 0,
+                                args,
+                                span: sep.to(end),
+                            })
+                        } else {
+                            None
+                        };
                     if self.eat(TokenKind::LParen).is_some() {
                         let args = self.parse_call_args()?;
                         e = self.mk(
                             ExprKind::MethodCall {
                                 receiver: Box::new(e),
                                 method: name,
+                                generic_args: generic_args.map(Box::new),
                                 args,
                             },
                             start,
@@ -933,10 +957,7 @@ impl Parser<'_, '_> {
                     p.parse_expr()?
                 } else {
                     // Shorthand `Point { X, Y }` means `X: X`.
-                    let path = sabiko_ast::Path {
-                        segments: vec![name.clone()],
-                        span: name.span,
-                    };
+                    let path = sabiko_ast::Path::single(name.clone());
                     p.mk(ExprKind::Path(path), fstart)
                 };
                 fields.push(FieldInit {

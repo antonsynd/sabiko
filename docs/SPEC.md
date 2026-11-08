@@ -27,6 +27,14 @@ names which phase owns which section.
   type, a struct literal, a path or as a unit-struct value) and `self` (a value) begin a
   path like an identifier. Longer paths and `::` in types and struct literals are E0107
   until modules (Phase 9)
+- Generic functions (Phase 6, #114, decision 82): `fn F<T, U>(..)`, free or in an `impl`
+  block. Generic arguments may follow any path segment: `F::<i32, _>(..)` (turbofish) in
+  expressions and patterns, `Name<A, B>` or `Name::<A, B>` in types and after a cast
+  (`x as W<T>`; as in rustc, a `<` there always starts generic arguments), and
+  `e.M::<T>(..)` on method calls; a `>>` closes two lists. Only generic functions take
+  generic arguments so far (E0223, rustc's E0109; the wrong number is E0222, rustc's
+  E0107). Not yet supported (E0107): bounds `T: Trait` and `where` clauses (#116),
+  lifetime parameters (Phase 9), `const` parameters and parameter defaults
 - Method calls `e.Name(args)`; a struct literal may be a receiver outside `if`/`while`
   conditions (`Math { Base: 3 }.Fact(5)`), and `5.Triple()` lexes as `5`, `.`, `Triple`
 - Statements and expressions
@@ -637,6 +645,17 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
   while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
   (rustc's `!: PartialEq + Display`); the code after one is unreachable.
+- Type parameters (#114, decision 82): inside a generic function, `T` is a type of its
+  own, equal only to itself. Without bounds a `T` value can only be moved, borrowed,
+  stored, returned and matched by a binding or `_`: it is not `Copy` (using it twice is a
+  move error), not printable (E0300) and takes no operator (E0306), and it is assumed to
+  have drop glue. Each use of a generic function gets an inference variable per parameter
+  (or the turbofish's types, `_` a variable); one inference leaves unknown is E0313 at
+  the use ("cannot infer type of the type parameter `T` declared on the function `F`"),
+  after the locals that hold it are reported. The body is checked once, not per use;
+  monomorphisation then compiles one copy per argument list the program reaches (E0502
+  past 128 nested instances or 65536 type nodes of arguments), and a generic `Main` is
+  E0501.
   A diverging `let` initialiser (`let v = return;`), destructuring assignment or tuple
   element without an expected type gets a fresh type that its uses decide, and `!` when
   none does: edition 2024's never-type fallback (decision 74; 2021 fell back to `()`), so

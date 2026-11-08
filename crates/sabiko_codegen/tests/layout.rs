@@ -63,6 +63,7 @@ fn compile(path: &Path, overflow_checks: bool) -> Option<(Vec<Body>, String)> {
     if sink.has_errors() {
         return None;
     }
+    let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
     let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
     assert!(
         errors.is_empty(),

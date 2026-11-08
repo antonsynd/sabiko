@@ -70,6 +70,9 @@ impl Dumper {
                 self.line(&format!("{vis}Fn {}", f.name.name));
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
+                    for g in &f.generics {
+                        d.line(&format!("GenericParam {}", g.name.name));
+                    }
                     if let Some(sp) = &f.self_param {
                         d.line(&format!("SelfParam {}", sp.kind.as_str()));
                     }
@@ -178,7 +181,7 @@ impl Dumper {
 
     fn ty(&mut self, ty: &Type) {
         match &ty.kind {
-            TypeKind::Path(p) => self.line(&format!("Type {}", path_str(p))),
+            TypeKind::Path(p) => self.line(&format!("Type {}", path_text(p, ""))),
             TypeKind::Ref { mutable, inner } => {
                 self.line(if *mutable { "RefMut" } else { "Ref" });
                 self.nested(|d| d.ty(inner));
@@ -417,9 +420,15 @@ impl Dumper {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                generic_args,
                 args,
             } => {
-                self.line(&format!("MethodCall {}", method.name));
+                let name = Path {
+                    segments: vec![method.clone()],
+                    generic_args: generic_args.iter().map(|a| (**a).clone()).collect(),
+                    span: method.span,
+                };
+                self.line(&format!("MethodCall {}", path_str(&name)));
                 self.nested(|d| {
                     d.expr(receiver);
                     d.exprs("Args", args);
@@ -535,13 +544,31 @@ impl Dumper {
     }
 }
 
+/// The path as written in an expression or pattern: generic arguments after `::`.
 pub(crate) fn path_str(p: &Path) -> String {
+    path_text(p, "::")
+}
+
+/// The path with `sep` before each generic argument list: `"::"` in expressions and
+/// patterns (`Id::<i32>`), `""` in types (`Pair<i32, bool>`).
+pub(crate) fn path_text(p: &Path, sep: &str) -> String {
     let mut s = String::new();
     for (i, seg) in p.segments.iter().enumerate() {
         if i > 0 {
             s.push_str("::");
         }
         s.push_str(&seg.name);
+        if let Some(args) = p.args_of(i) {
+            s.push_str(sep);
+            s.push('<');
+            for (j, a) in args.args.iter().enumerate() {
+                if j > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&crate::pretty::type_str(a));
+            }
+            s.push('>');
+        }
     }
     s
 }

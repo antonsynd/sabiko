@@ -224,6 +224,7 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             cx.unsupported("a value of type `!` here", span);
             "int32".to_owned()
         }
+        Ty::Param(_) => unreachable!("monomorphisation substitutes every type parameter"),
         Ty::Slice(_) | Ty::FnDef(_) | Ty::Infer(_) | Ty::Error => {
             cx.unsupported("this type", span);
             "int32".to_owned()

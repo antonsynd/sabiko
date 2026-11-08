@@ -1,0 +1,18 @@
+[E0502] Error: reached the recursion limit while instantiating `Grow<((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((i32,),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),)>`
+   ╭─[ tests/ui/codegen/instantiation_recursion_limit.sabi:6:9 ]
+   │
+ 6 │         Grow((x,), n - 1); //~ ERROR E0502 reached the recursion limit while instantiating
+   │         ────────┬────────  
+   │                 ╰────────── instantiated here
+   │ 
+   │ Note: each call instantiates the function at a larger type, without end
+───╯
+[E0502] Error: reached the type-length limit while instantiating `Double`
+    ╭─[ tests/ui/codegen/instantiation_recursion_limit.sabi:17:9 ]
+    │
+ 17 │         Double((&x, &x), n - 1); //~ ERROR E0502 reached the type-length limit while instantiating `Double`
+    │         ───────────┬───────────  
+    │                    ╰───────────── instantiated here
+    │ 
+    │ Note: each call instantiates the function at a larger type, without end
+────╯

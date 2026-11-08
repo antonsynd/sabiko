@@ -169,6 +169,9 @@ pub enum DefKind {
     /// A variant of an enum; its `parent` is the enum. Not in the item namespace: it is
     /// named `E::V` (or `Self::V`).
     Variant,
+    /// A generic type parameter; its `parent` is the function that declares it. Only in
+    /// scope in that function's signature and body.
+    TyParam,
 }
 
 impl DefKind {
@@ -180,6 +183,7 @@ impl DefKind {
             Self::Const => "constant",
             Self::Enum => "enum",
             Self::Variant => "variant",
+            Self::TyParam => "type parameter",
         }
     }
 
@@ -335,6 +339,8 @@ pub struct ResolveResults {
     /// `ExprKind::Path` or `ExprKind::Struct`.
     res: HashMap<NodeId, Res>,
     pat_locals: HashMap<NodeId, LocalId>,
+    /// The type parameters of each generic function, in declaration order.
+    generics: HashMap<DefId, Vec<DefId>>,
     /// The associated items (functions and constants) of each struct or enum, by name.
     assoc_items: HashMap<(DefId, String), DefId>,
     /// The definitions made for the primitive associated constants the file uses.
@@ -386,6 +392,11 @@ impl ResolveResults {
 
     /// The name of a definition as a path: `Point::New` for an associated item, the plain
     /// name otherwise.
+    #[must_use]
+    pub fn generics(&self, def: DefId) -> &[DefId] {
+        self.generics.get(&def).map_or(&[], Vec::as_slice)
+    }
+
     #[must_use]
     pub fn qualified_name(&self, def: DefId) -> String {
         let info = self.def(def);
@@ -518,10 +529,12 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
         scopes: Vec::new(),
         sink,
         current_fn: None,
+        ty_params: Vec::new(),
         impl_scope: ImplScope::Outside,
         const_floor: None,
     };
     r.collect_items(file);
+    r.collect_generics(file);
     r.collect_impls(file);
     for (index, item) in file.items.iter().enumerate() {
         r.resolve_item(item, index);
@@ -548,6 +561,8 @@ struct Resolver<'d> {
     scopes: Vec<Vec<(String, LocalId)>>,
     sink: &'d mut DiagnosticSink,
     current_fn: Option<DefId>,
+    /// The type parameters in scope: those of the function being resolved.
+    ty_params: Vec<(String, DefId)>,
     /// Whether the resolver is inside an `impl` block, and for which struct: what `Self`
     /// names.
     impl_scope: ImplScope,
@@ -660,6 +675,65 @@ impl Resolver<'_> {
             });
             self.items.insert(builtin.name().to_owned(), id);
         }
+    }
+
+    /// The type parameters of every generic function, each a definition with its function
+    /// as parent. They are made after every item (and builtin), so the items keep their
+    /// `DefId`s. A second parameter of one name is E0221 (rustc's E0403) and gets no
+    /// definition.
+    fn collect_generics(&mut self, file: &SourceFile) {
+        for (index, item) in file.items.iter().enumerate() {
+            match &item.kind {
+                ItemKind::Fn(f) => self.collect_fn_generics(item.id, index, f),
+                ItemKind::Impl(imp) => {
+                    for member in &imp.items {
+                        if let ItemKind::Fn(f) = &member.kind {
+                            self.collect_fn_generics(member.id, index, f);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_fn_generics(&mut self, node: NodeId, index: usize, f: &FnDecl) {
+        if f.generics.is_empty() {
+            return;
+        }
+        let parent = self.results.def_of_item(node);
+        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut ids = Vec::new();
+        for g in &f.generics {
+            if let Some(&prev) = seen.get(g.name.name.as_str()) {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_GENERIC_PARAM,
+                        format!(
+                            "the name `{}` is already used for a generic parameter in this item's generic parameters",
+                            g.name.name
+                        ),
+                    )
+                    .with_label(g.name.span, "already used")
+                    .with_label(prev, format!("first use of `{}`", g.name.name)),
+                );
+                continue;
+            }
+            seen.insert(&g.name.name, g.name.span);
+            let id = self.new_def(DefInfo {
+                kind: DefKind::TyParam,
+                name: g.name.name.clone(),
+                span: g.name.span,
+                node: g.id,
+                item_index: index,
+                member_index: None,
+                parent: Some(parent),
+                builtin: None,
+            });
+            self.results.item_defs.insert(g.id, id);
+            ids.push(id);
+        }
+        self.results.generics.insert(parent, ids);
     }
 
     /// The variants of the enum `adt`, each a definition with the enum as parent. A second
@@ -870,7 +944,7 @@ impl Resolver<'_> {
     fn resolve_drop_target(&mut self, ty: &Type) -> Option<DefId> {
         // `None` for a tuple, a reference or `()`.
         let res = if let TypeKind::Path(path) = &ty.kind {
-            let res = self.resolve_type_path(path);
+            let res = self.resolve_type_path(path, true);
             self.results.res.insert(ty.id, res);
             Some(res)
         } else {
@@ -900,7 +974,7 @@ impl Resolver<'_> {
             self.invalid_impl_target(ty.span);
             return None;
         };
-        let res = self.resolve_type_path(path);
+        let res = self.resolve_type_path(path, true);
         self.results.res.insert(ty.id, res);
         match res {
             Res::Def(def) => Some(def),
@@ -1012,6 +1086,12 @@ impl Resolver<'_> {
 
     fn resolve_fn(&mut self, def: DefId, f: &FnDecl) {
         self.current_fn = Some(def);
+        self.ty_params = self
+            .results
+            .generics(def)
+            .iter()
+            .map(|&p| (self.results.def(p).name.clone(), p))
+            .collect();
         self.scopes.push(Vec::new());
         if let Some(sp) = &f.self_param {
             // `self` cannot be a `let` binding (it is a keyword), so a lookup of it finds
@@ -1063,6 +1143,7 @@ impl Resolver<'_> {
         self.resolve_block_in_current_scope(&f.body);
         self.scopes.pop();
         self.current_fn = None;
+        self.ty_params.clear();
     }
 
     /// Resolves `pat` and binds its names in the innermost scope, returning the bindings.
@@ -1331,7 +1412,7 @@ impl Resolver<'_> {
     fn resolve_type(&mut self, ty: &Type, in_signature: bool) {
         match &ty.kind {
             TypeKind::Path(path) => {
-                let res = self.resolve_type_path(path);
+                let res = self.resolve_type_path(path, in_signature);
                 self.results.res.insert(ty.id, res);
             }
             TypeKind::Ref { inner, .. } | TypeKind::Slice(inner) => {
@@ -1403,13 +1484,98 @@ impl Resolver<'_> {
         }
     }
 
-    fn resolve_type_path(&mut self, path: &Path) -> Res {
+    /// The types of the path's generic arguments.
+    fn resolve_generic_args(&mut self, path: &Path, in_signature: bool) {
+        for args in &path.generic_args {
+            for ty in &args.args {
+                self.resolve_type(ty, in_signature);
+            }
+        }
+    }
+
+    fn resolve_type_path(&mut self, path: &Path, in_signature: bool) -> Res {
+        self.resolve_generic_args(path, in_signature);
+        let res = self.resolve_type_path_inner(path);
+        self.check_generic_args(path, res);
+        res
+    }
+
+    /// Reports generic arguments the path's definitions do not take: on any segment but
+    /// the last, on a definition that is not a generic function, or the wrong number of
+    /// them for a generic function (rustc's E0109 and E0107).
+    fn check_generic_args(&mut self, path: &Path, res: Res) {
+        let last = path.segments.len() - 1;
+        for args in &path.generic_args {
+            let seg = &path.segments[args.segment];
+            let def = match res {
+                Res::Def(d) if args.segment == last => Some(d),
+                Res::Err => return,
+                _ => None,
+            };
+            let expected = def.filter(|&d| self.results.def(d).kind == DefKind::Fn);
+            if let Some(f) = expected {
+                let want = self.results.generics(f).len();
+                let got = args.args.len();
+                if want == got {
+                    continue;
+                }
+                if want > 0 {
+                    let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+                    let mut d = Diagnostic::error(
+                        ErrorCode::WRONG_GENERIC_ARG_COUNT,
+                        format!(
+                            "function takes {want} generic {} but {got} generic {} {} supplied",
+                            plural(want),
+                            plural(got),
+                            if got == 1 { "was" } else { "were" }
+                        ),
+                    )
+                    .with_label(
+                        args.span,
+                        format!("expected {want} generic {}", plural(want)),
+                    );
+                    let info = self.results.def(f);
+                    if !info.span.is_dummy() {
+                        d = d.with_label(
+                            info.span,
+                            format!("function `{}` defined here", info.name),
+                        );
+                    }
+                    self.sink.emit(d);
+                    continue;
+                }
+            }
+            let what = match (def.map(|d| self.results.def(d).kind), res) {
+                (Some(kind), _) => format!("{} `{}`", kind.describe(), seg.name),
+                (None, Res::Prim(_)) if args.segment == last => {
+                    format!("builtin type `{}`", seg.name)
+                }
+                (None, Res::Local(_)) if args.segment == last => {
+                    format!("local variable `{}`", seg.name)
+                }
+                (None, _) => format!("`{}`", seg.name),
+            };
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::GENERIC_ARGS_NOT_ALLOWED,
+                    format!("type arguments are not allowed on {what}"),
+                )
+                .with_label(args.span, "type argument not allowed")
+                .with_note("only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)"),
+            );
+        }
+    }
+
+    fn resolve_type_path_inner(&mut self, path: &Path) -> Res {
         if !path.is_single() {
             return self.unsupported_path(path);
         }
         let name = &path.segments[0];
         if name.name == "Self" {
             return self.resolve_self_type(name.span);
+        }
+        if let Some(&(_, param)) = self.ty_params.iter().find(|(n, _)| *n == name.name) {
+            return Res::Def(param);
         }
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
@@ -1441,6 +1607,29 @@ impl Resolver<'_> {
     }
 
     fn resolve_value_path(&mut self, path: &Path) -> Res {
+        self.resolve_generic_args(path, false);
+        let res = self.resolve_value_path_inner(path);
+        self.check_generic_args(path, res);
+        res
+    }
+
+    /// Reports a type parameter named as a value (rustc's E0423); `false` when `name` is
+    /// no type parameter in scope.
+    fn type_param_as_value(&mut self, name: &sabiko_ast::Ident) -> bool {
+        let Some(&(_, param)) = self.ty_params.iter().find(|(n, _)| *n == name.name) else {
+            return false;
+        };
+        let d = Diagnostic::error(
+            ErrorCode::WRONG_NAMESPACE,
+            format!("expected value, found type parameter `{}`", name.name),
+        )
+        .with_label(name.span, "not a value")
+        .with_label(self.results.def(param).span, "type parameter defined here");
+        self.sink.emit(d);
+        true
+    }
+
+    fn resolve_value_path_inner(&mut self, path: &Path) -> Res {
         match path.segments.len() {
             1 => {}
             2 => return self.resolve_assoc_path(path),
@@ -1486,6 +1675,9 @@ impl Resolver<'_> {
             // A unit struct as a value; the type checker rejects any other struct.
             return self.resolve_self_type(name.span);
         }
+        if self.type_param_as_value(name) {
+            return Res::Err;
+        }
         if let Some(&def) = self.items.get(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
@@ -1506,6 +1698,7 @@ impl Resolver<'_> {
                         .emit(Self::with_definition_label(d, info, &name.name));
                     Res::Err
                 }
+                DefKind::TyParam => unreachable!("type parameters are not items"),
             };
         }
         let mut d = Diagnostic::error(
@@ -1565,10 +1758,7 @@ impl Resolver<'_> {
             );
             return Res::Err;
         }
-        let adt = match self.resolve_type_path(&Path {
-            segments: vec![ty.clone()],
-            span: ty.span,
-        }) {
+        let adt = match self.resolve_type_path(&Path::single(ty.clone()), false) {
             Res::Def(def) => def,
             Res::Prim(prim) => return self.resolve_prim_const(prim, item),
             Res::Local(_) | Res::Err => return Res::Err,
@@ -1661,6 +1851,13 @@ impl Resolver<'_> {
     /// The path of a struct literal or pattern: a struct, or `E::V` naming a variant (any
     /// kind: the type checker reports a variant of the wrong shape).
     fn resolve_struct_path(&mut self, path: &Path) -> Res {
+        self.resolve_generic_args(path, false);
+        let res = self.resolve_struct_path_inner(path);
+        self.check_generic_args(path, res);
+        res
+    }
+
+    fn resolve_struct_path_inner(&mut self, path: &Path) -> Res {
         match path.segments.len() {
             1 => {}
             2 => {
@@ -1834,8 +2031,16 @@ impl Resolver<'_> {
                     self.resolve_expr(a);
                 }
             }
-            ExprKind::MethodCall { receiver, args, .. } => {
+            ExprKind::MethodCall {
+                receiver,
+                generic_args,
+                args,
+                ..
+            } => {
                 self.resolve_expr(receiver);
+                for ty in generic_args.iter().flat_map(|g| &g.args) {
+                    self.resolve_type(ty, false);
+                }
                 for a in args {
                     self.resolve_expr(a);
                 }

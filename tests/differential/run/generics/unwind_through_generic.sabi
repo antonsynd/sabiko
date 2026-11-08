@@ -1,0 +1,27 @@
+// A panic inside a generic function drops its `T` values on the way out.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Fail<T>(x: T, y: T, stop: bool) -> T {
+    let keep = x;
+    if stop {
+        Panic("stop");
+    }
+    keep
+}
+
+fn Main() {
+    let a = Noisy { Id: 1 };
+    let b = Fail(Noisy { Id: 2 }, Noisy { Id: 3 }, false);
+    PrintLine(b.Id);
+    let c = Fail(Noisy { Id: 4 }, Noisy { Id: 5 }, true);
+    PrintLine(c.Id);
+}

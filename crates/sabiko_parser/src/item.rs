@@ -1,10 +1,10 @@
 //! Items, attributes, types, patterns, blocks and statements.
 
 use sabiko_ast::{
-    Attribute, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDef, FieldPat, FnDecl, Ident,
-    ImplDecl, Item, ItemKind, LetStmt, Param, Pat, PatKind, Path, RangeEnd, SelfKind, SelfParam,
-    SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type, TypeKind, UnOp, Variant, VariantData,
-    Visibility,
+    Attribute, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDef, FieldPat, FnDecl, GenericArgs,
+    GenericParam, Ident, ImplDecl, Item, ItemKind, LetStmt, Param, Pat, PatKind, Path, RangeEnd,
+    SelfKind, SelfParam, SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type, TypeKind, UnOp,
+    Variant, VariantData, Visibility,
 };
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::TokenKind;
@@ -235,8 +235,10 @@ impl Parser<'_, '_> {
         }
     }
 
-    /// `A::B::C`. The first segment may be `Self` (the type of the enclosing `impl`) or
-    /// `self` (the receiver, as a value); the resolver gives both their meaning.
+    /// `A::B::C`, with turbofish generic arguments after any segment (`Id::<i32>`,
+    /// `Pair::<i32, bool>::New`). The first segment may be `Self` (the type of the
+    /// enclosing `impl`) or `self` (the receiver, as a value); the resolver gives both
+    /// their meaning.
     pub(crate) fn parse_path(&mut self) -> PResult<Path> {
         let first = if matches!(self.peek_kind(), TokenKind::SelfType | TokenKind::SelfValue) {
             let t = self.bump();
@@ -249,22 +251,127 @@ impl Parser<'_, '_> {
         };
         let start = first.span;
         let mut segments = vec![first];
+        let mut generic_args = Vec::new();
         while self.at(TokenKind::PathSep) {
             if self.nth_kind(1) == TokenKind::Lt {
-                let span = self.peek().span.to(self.tokens[self.pos + 1].span);
-                return Err(self.error_unsupported(
-                    "turbofish generic arguments (`::<`)",
-                    span,
-                    "planned for Phase 6",
-                ));
+                let sep = self.bump().span;
+                if generic_args
+                    .last()
+                    .is_some_and(|a: &GenericArgs| a.segment == segments.len() - 1)
+                {
+                    // `F::<A>::<B>`: rustc's "expected identifier, found `<`".
+                    return Err(self.error_expected("identifier"));
+                }
+                let (args, end) = self.parse_generic_args()?;
+                generic_args.push(GenericArgs {
+                    segment: segments.len() - 1,
+                    args,
+                    span: sep.to(end),
+                });
+                continue;
             }
             self.bump();
             segments.push(self.parse_ident()?);
         }
         Ok(Path {
             segments,
+            generic_args,
             span: self.span_from(start),
         })
+    }
+
+    /// `<A, B>`, at the `<`. Returns the arguments and the span of the closing `>`. A `>>`
+    /// closing two lists (`Opt<Opt<i32>>`) is split: its first `>` closes this list.
+    pub(crate) fn parse_generic_args(&mut self) -> PResult<(Vec<Type>, Span)> {
+        self.expect(TokenKind::Lt)?;
+        self.nested(|p| {
+            let mut args = Vec::new();
+            while !p.at_generic_close() && !p.at_eof() {
+                if p.at(TokenKind::Lifetime) {
+                    let span = p.peek().span;
+                    return Err(p.error_unsupported(
+                        "lifetime arguments",
+                        span,
+                        "planned for Phase 9",
+                    ));
+                }
+                args.push(p.parse_type()?);
+                if p.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            let end = p.expect_generic_close()?;
+            Ok((args, end))
+        })
+    }
+
+    fn at_generic_close(&self) -> bool {
+        matches!(self.peek_kind(), TokenKind::Gt | TokenKind::Shr)
+    }
+
+    /// Consumes a `>`, or the first `>` of a `>>`.
+    fn expect_generic_close(&mut self) -> PResult<Span> {
+        if self.at(TokenKind::Shr) {
+            let span = self.peek().span;
+            let first = Span::new(self.file, span.start, span.start + 1);
+            self.split_token(
+                TokenKind::Gt,
+                Span::new(self.file, span.start + 1, span.end),
+            );
+            return Ok(first);
+        }
+        Ok(self.expect(TokenKind::Gt)?.span)
+    }
+
+    /// `<T, U>` after a function's name, at the `<`.
+    fn parse_generic_params(&mut self) -> PResult<Vec<GenericParam>> {
+        self.expect(TokenKind::Lt)?;
+        let mut params = Vec::new();
+        while !self.at_generic_close() && !self.at_eof() {
+            match self.peek_kind() {
+                TokenKind::Lifetime => {
+                    let span = self.peek().span;
+                    return Err(self.error_unsupported(
+                        "lifetime parameters",
+                        span,
+                        "planned for Phase 9",
+                    ));
+                }
+                TokenKind::Const => {
+                    let span = self.peek().span;
+                    return Err(self.error_unsupported(
+                        "const generic parameters",
+                        span,
+                        "not planned for 0.1",
+                    ));
+                }
+                _ => {}
+            }
+            let id = self.new_id();
+            let name = self.parse_ident()?;
+            if self.at(TokenKind::Colon) {
+                let span = self.peek().span;
+                return Err(self.error_unsupported(
+                    "trait bounds",
+                    span,
+                    "planned for Phase 6 (#116)",
+                ));
+            }
+            if self.at(TokenKind::Eq) {
+                let span = self.peek().span;
+                return Err(self.error_unsupported(
+                    "default type parameters",
+                    span,
+                    "not planned for 0.1",
+                ));
+            }
+            params.push(GenericParam { id, name });
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect_generic_close()?;
+        Ok(params)
     }
 
     /// `impl Type { fn ... }` or `impl Drop for Type { fn ... }`, after any attributes and
@@ -391,10 +498,11 @@ impl Parser<'_, '_> {
     fn parse_fn(&mut self, in_impl: bool) -> PResult<FnDecl> {
         self.expect(TokenKind::Fn)?;
         let name = self.parse_ident()?;
-        if self.at(TokenKind::Lt) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("generic parameters", span, "planned for Phase 6"));
-        }
+        let generics = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
         self.expect(TokenKind::LParen)?;
         let mut self_param = None;
         let mut params = Vec::new();
@@ -431,6 +539,7 @@ impl Parser<'_, '_> {
         let body = self.parse_block()?;
         Ok(FnDecl {
             name,
+            generics,
             self_param,
             params,
             ret,
@@ -744,14 +853,20 @@ impl Parser<'_, '_> {
                 ))
             }
             TokenKind::Ident | TokenKind::SelfType => {
-                let path = self.parse_path()?;
+                let mut path = self.parse_path()?;
                 if generics && self.at(TokenKind::Lt) {
-                    let span = self.peek().span;
-                    return Err(self.error_unsupported(
-                        "generic type arguments",
-                        span,
-                        "planned for Phase 6",
-                    ));
+                    let segment = path.segments.len() - 1;
+                    if path.args_of(segment).is_some() {
+                        return Err(self.error_expected("`::` or a type"));
+                    }
+                    let lt = self.peek().span;
+                    let (args, end) = self.parse_generic_args()?;
+                    path.generic_args.push(GenericArgs {
+                        segment,
+                        args,
+                        span: lt.to(end),
+                    });
+                    path.span = path.span.to(end);
                 }
                 TypeKind::Path(path)
             }
@@ -1220,7 +1335,7 @@ impl Parser<'_, '_> {
                 self.bump();
                 Ok(StmtOrTail::Stmt(Stmt {
                     id,
-                    kind: StmtKind::Let(LetStmt { pat, ty, init, els }),
+                    kind: StmtKind::Let(Box::new(LetStmt { pat, ty, init, els })),
                     span: self.span_from(start),
                 }))
             }

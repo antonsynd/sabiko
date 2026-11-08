@@ -1234,11 +1234,12 @@ impl FnCx<'_, '_> {
             }
             TerminatorKind::Call {
                 func,
+                generic_args,
                 args,
                 destination,
                 target,
             } => {
-                self.call(*func, args, destination, term.span);
+                self.call(*func, generic_args, args, destination, term.span);
                 // A return the jump inlines may read the call's result from the stack.
                 self.stmt_start = self.code.len();
                 match target {
@@ -2971,7 +2972,14 @@ impl FnCx<'_, '_> {
     // Calls
     // ----------------------------------------------------------------------------------
 
-    fn call(&mut self, func: DefId, args: &[Operand], destination: &Place, span: Span) {
+    fn call(
+        &mut self,
+        func: DefId,
+        generic_args: &[Ty],
+        args: &[Operand],
+        destination: &Place,
+        span: Span,
+    ) {
         match self.cx.resolve.builtin(func) {
             Some(builtin @ (Builtin::Print | Builtin::PrintLine)) => {
                 let arg_ty = args[0].ty(self.body);
@@ -3011,8 +3019,10 @@ impl FnCx<'_, '_> {
                 }
             }
             None => {
-                let sig = self.cx.typeck.items.fn_sig(func).clone();
-                let name = self.cx.resolve.def(func).name.clone();
+                let mut sig = self.cx.typeck.items.fn_sig(func).clone();
+                sig.inputs = sig.inputs_with(generic_args);
+                sig.output = sig.output_with(generic_args);
+                let name = sabiko_mir::mono::instance_name(self.cx.resolve, func, generic_args);
                 let ret = types::ret_type(self.cx, &sig.output, span);
                 let params: Vec<String> = sig
                     .inputs

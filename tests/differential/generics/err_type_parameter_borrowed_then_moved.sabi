@@ -1,0 +1,11 @@
+// Moving a `T` while a reference to it is live.
+fn Take<T>(x: T) -> T {
+    x
+}
+
+fn Hold<T>(x: T) -> T {
+    let r = &x;
+    let y = Take(x);
+    let _s = r;
+    y
+}

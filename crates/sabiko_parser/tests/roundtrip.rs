@@ -24,10 +24,32 @@ fn ident(name: &str) -> Ident {
 }
 
 fn path(name: &str) -> Path {
-    Path {
-        segments: vec![ident(name)],
+    Path::single(ident(name))
+}
+
+fn leaf_ty(kind: TypeKind) -> Type {
+    Type {
+        id: ID,
+        kind,
         span: SP,
     }
+}
+
+/// Generic arguments for segment `segment`: `()` or a one-segment type path.
+fn generic_args(segment: usize) -> impl Strategy<Value = GenericArgs> {
+    prop::collection::vec(
+        prop_oneof![
+            Just(leaf_ty(TypeKind::Unit)),
+            Just(leaf_ty(TypeKind::Infer)),
+            name().prop_map(|n| leaf_ty(TypeKind::Path(path(&n)))),
+        ],
+        0..3,
+    )
+    .prop_map(move |args| GenericArgs {
+        segment,
+        args,
+        span: SP,
+    })
 }
 
 fn name() -> impl Strategy<Value = String> {
@@ -86,6 +108,19 @@ fn ty() -> impl Strategy<Value = Type> {
     })
     .prop_recursive(3, 8, 2, |inner| {
         prop_oneof![
+            (name(), prop::collection::vec(inner.clone(), 0..3)).prop_map(|(n, args)| Type {
+                id: ID,
+                kind: TypeKind::Path(Path {
+                    segments: vec![ident(&n)],
+                    generic_args: vec![GenericArgs {
+                        segment: 0,
+                        args,
+                        span: SP,
+                    }],
+                    span: SP,
+                }),
+                span: SP,
+            }),
             (any::<bool>(), inner.clone()).prop_map(|(mutable, t)| Type {
                 id: ID,
                 kind: TypeKind::Ref {
@@ -121,10 +156,21 @@ fn ty() -> impl Strategy<Value = Type> {
 
 /// A path of one to `max` segments: `a`, `Foo::b`.
 fn path_upto(max: usize) -> impl Strategy<Value = Path> {
-    prop::collection::vec(name(), 1..=max).prop_map(|segs| Path {
-        segments: segs.iter().map(|s| ident(s)).collect(),
-        span: SP,
-    })
+    (
+        prop::collection::vec(name(), 1..=max),
+        prop::option::of(generic_args(0)),
+    )
+        .prop_map(|(segs, args)| Path {
+            generic_args: args
+                .into_iter()
+                .map(|a| GenericArgs {
+                    segment: segs.len() - 1,
+                    ..a
+                })
+                .collect(),
+            segments: segs.iter().map(|s| ident(s)).collect(),
+            span: SP,
+        })
 }
 
 fn neg(l: Lit) -> Expr {
@@ -172,6 +218,7 @@ fn pat() -> BoxedStrategy<Pat> {
         }),
         (name(), name()).prop_map(|(a, b)| PatKind::Path(Path {
             segments: vec![ident(&a), ident(&b)],
+            generic_args: Vec::new(),
             span: SP,
         })),
         lit_pat_expr().prop_map(|e| PatKind::Lit(Box::new(e))),
@@ -290,6 +337,7 @@ fn assignee_pat(place: impl Strategy<Value = Expr> + Clone + 'static) -> BoxedSt
             ((name(), name()), elems).prop_map(|((a, b), elems)| PatKind::TupleStruct(
                 Path {
                     segments: vec![ident(&a), ident(&b)],
+                    generic_args: Vec::new(),
                     span: SP,
                 },
                 elems
@@ -445,11 +493,13 @@ fn expr() -> impl Strategy<Value = Expr> {
             (
                 inner.clone(),
                 name(),
+                prop::option::of(generic_args(0)),
                 prop::collection::vec(inner.clone(), 0..3)
             )
-                .prop_map(|(r, m, args)| mk(ExprKind::MethodCall {
+                .prop_map(|(r, m, generic_args, args)| mk(ExprKind::MethodCall {
                     receiver: Box::new(r),
                     method: ident(&m),
+                    generic_args: generic_args.map(Box::new),
                     args
                 })),
             (inner.clone(), field_name())
@@ -515,13 +565,13 @@ fn block_with(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Block> {
                 span: SP,
             }))
         )
-            .prop_map(|(pat, ty, init, els)| StmtKind::Let(LetStmt {
+            .prop_map(|(pat, ty, init, els)| StmtKind::Let(Box::new(LetStmt {
                 pat,
                 ty,
                 // `let`-`else` needs an initialiser.
                 els: els.filter(|_| init.is_some()).map(Box::new),
                 init,
-            })),
+            }))),
         // Block-like expressions may omit the semicolon; others may not.
         (inner.clone(), any::<bool>()).prop_map(|(expr, semi)| {
             let semi = semi || !expr.is_block_like();
@@ -739,14 +789,21 @@ fn fn_decl(methods: bool) -> impl Strategy<Value = FnDecl> {
         Just(None).boxed()
     };
     (
-        name(),
+        (name(), prop::collection::vec(name(), 0..3)),
         self_param,
         prop::collection::vec((pat(), ty()), 0..3),
         prop::option::of(ty()),
         block_with(expr().boxed()),
     )
-        .prop_map(|(n, self_kind, params, ret, body)| FnDecl {
+        .prop_map(|((n, generics), self_kind, params, ret, body)| FnDecl {
             name: ident(&n),
+            generics: generics
+                .iter()
+                .map(|g| GenericParam {
+                    id: ID,
+                    name: ident(g),
+                })
+                .collect(),
             self_param: self_kind.map(|kind| SelfParam {
                 id: ID,
                 kind,
@@ -1052,6 +1109,7 @@ fn assert_tail_roundtrips(tail: Expr) {
             vis: Visibility::Private,
             kind: ItemKind::Fn(FnDecl {
                 name: ident("f"),
+                generics: vec![],
                 self_param: None,
                 params: vec![],
                 ret: None,
