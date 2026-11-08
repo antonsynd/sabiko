@@ -1036,41 +1036,47 @@ fn cast_before_lt_roundtrips() {
         )),
     ];
     for tail in cases {
-        let file = SourceFile {
-            docs: vec![],
-            items: vec![Item {
-                id: ID,
-                attrs: vec![],
-                docs: vec![],
-                vis: Visibility::Private,
-                kind: ItemKind::Fn(FnDecl {
-                    name: ident("f"),
-                    self_param: None,
-                    params: vec![],
-                    ret: None,
-                    body: Block {
-                        id: ID,
-                        stmts: vec![],
-                        tail: Some(Box::new(tail)),
-                        span: SP,
-                    },
-                }),
-                span: SP,
-            }],
-            span: SP,
-        };
-        let src = pretty(&file);
-        let mut sink = DiagnosticSink::new();
-        let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
-        assert!(
-            !sink.has_errors(),
-            "diagnostics on printed source:\n{src}\n{:#?}",
-            sink.diagnostics()
-        );
-        strip_parens_file(&mut parsed);
-        assert_eq!(dump(&parsed), dump(&file), "source:\n{src}");
-        assert_eq!(pretty(&parsed), src, "printer is not a fixpoint");
+        assert_tail_roundtrips(tail);
     }
+}
+
+/// Prints a function whose body is `tail`, parses it back, and checks that the two trees
+/// agree and that printing again changes nothing.
+fn assert_tail_roundtrips(tail: Expr) {
+    let file = SourceFile {
+        docs: vec![],
+        items: vec![Item {
+            id: ID,
+            attrs: vec![],
+            docs: vec![],
+            vis: Visibility::Private,
+            kind: ItemKind::Fn(FnDecl {
+                name: ident("f"),
+                self_param: None,
+                params: vec![],
+                ret: None,
+                body: Block {
+                    id: ID,
+                    stmts: vec![],
+                    tail: Some(Box::new(tail)),
+                    span: SP,
+                },
+            }),
+            span: SP,
+        }],
+        span: SP,
+    };
+    let src = pretty(&file);
+    let mut sink = DiagnosticSink::new();
+    let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
+    assert!(
+        !sink.has_errors(),
+        "diagnostics on printed source:\n{src}\n{:#?}",
+        sink.diagnostics()
+    );
+    strip_parens_file(&mut parsed);
+    assert_eq!(dump(&parsed), dump(&file), "source:\n{src}");
+    assert_eq!(pretty(&parsed), src, "printer is not a fixpoint");
 }
 
 /// Regression (nightly fuzz, `parse` target): `#[d s {)]` parsed with args `s {)` and
@@ -1102,5 +1108,40 @@ fn attribute_args_follow_rust_and_roundtrip() {
         let mut sink = DiagnosticSink::new();
         let _ = sabiko_parser::parse_file(FileId(0), src, &mut sink);
         assert!(sink.has_errors(), "{src} should be rejected");
+    }
+}
+
+/// Regression (CI, Windows, the round-trip property test): `break (_ = 0)` printed as
+/// `break _ = 0`, which neither rustc nor the parser reads as one expression (a `_` cannot
+/// start the operand of `break` or `return`).
+#[test]
+fn jump_operand_starting_with_underscore_roundtrips() {
+    // `_ = 0`
+    let assign_to_wild = || {
+        mk(ExprKind::DestructuringAssign(
+            Box::new(mk_pat(PatKind::Wild)),
+            Box::new(mk(ExprKind::Lit(Lit::Int {
+                value: 0,
+                suffix: None,
+            }))),
+        ))
+    };
+    let cases = vec![
+        // loop { break (_ = 0) }
+        mk(ExprKind::Loop {
+            body: Block {
+                id: ID,
+                stmts: vec![],
+                tail: Some(Box::new(mk(ExprKind::Break(Some(Box::new(
+                    assign_to_wild(),
+                )))))),
+                span: SP,
+            },
+        }),
+        // return (_ = 0)
+        mk(ExprKind::Return(Some(Box::new(assign_to_wild())))),
+    ];
+    for tail in cases {
+        assert_tail_roundtrips(tail);
     }
 }

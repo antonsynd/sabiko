@@ -598,7 +598,7 @@ impl Printer {
                 self.out.push_str("break");
                 if let Some(e) = e {
                     self.out.push(' ');
-                    self.expr(e, 0);
+                    self.operand_of_jump(e);
                 }
             }
             ExprKind::Continue => self.out.push_str("continue"),
@@ -606,7 +606,7 @@ impl Printer {
                 self.out.push_str("return");
                 if let Some(e) = e {
                     self.out.push(' ');
-                    self.expr(e, 0);
+                    self.operand_of_jump(e);
                 }
             }
             ExprKind::Struct { path, fields, rest } => {
@@ -672,6 +672,18 @@ impl Printer {
 
     /// Conditions of `if`/`while` may not contain a bare struct literal, and a `break`/
     /// `return` operand may not start with `{` there; wrap such conditions.
+    /// The operand of `break` or `return`: a `_` cannot start one (rustc and the parser
+    /// end the operand-less jump there), so `break (_ = 0)` keeps its parentheses.
+    fn operand_of_jump(&mut self, e: &Expr) {
+        if leftmost_is_underscore(e) {
+            self.out.push('(');
+            self.expr(e, 0);
+            self.out.push(')');
+        } else {
+            self.expr(e, 0);
+        }
+    }
+
     fn cond(&mut self, cond: &Expr) {
         if let Some(operands) = cond.let_chain() {
             // A `let` must stay a bare operand of the chain; the other operands bind
@@ -800,6 +812,27 @@ fn rightmost_is_brace(e: &Expr) -> bool {
         | ExprKind::Deref(r)
         | ExprKind::Break(Some(r))
         | ExprKind::Return(Some(r)) => rightmost_is_brace(r),
+        _ => false,
+    }
+}
+
+/// Whether the first token printed for `e` is `_` (an assignee-only underscore, or a
+/// destructuring assignment to `_`).
+fn leftmost_is_underscore(e: &Expr) -> bool {
+    if precedence(e) == ATOM_PRECEDENCE && !matches!(e.kind, ExprKind::Underscore) {
+        return false;
+    }
+    match &e.kind {
+        ExprKind::Underscore => true,
+        ExprKind::DestructuringAssign(p, _) => matches!(p.kind, PatKind::Wild),
+        ExprKind::Binary(_, l, _) | ExprKind::Assign(l, _) | ExprKind::AssignOp(_, l, _) => {
+            leftmost_is_underscore(l)
+        }
+        ExprKind::Cast(x, _)
+        | ExprKind::Field(x, _)
+        | ExprKind::Index(x, _)
+        | ExprKind::Call { callee: x, .. }
+        | ExprKind::MethodCall { receiver: x, .. } => leftmost_is_underscore(x),
         _ => false,
     }
 }
