@@ -1,0 +1,16 @@
+// Associated constants (#48) are checked and evaluated like `const` items: a cycle
+// (rustc's E0391), overflow (E0080), a mismatched initialiser (E0308), and a constant is
+// not a method (E0599).
+struct S { }
+
+impl S {
+    const A: i32 = Self::B + 1;
+    const B: i32 = S::A; //~ ERROR E0316 cycle detected when evaluating constant `A`
+    const Big: u8 = u8::MAX + 1; //~ ERROR E0316 attempt to add with overflow
+    const Flag: i32 = true; //~ ERROR E0300 mismatched types
+}
+
+fn Main() {
+    let s = S { };
+    let n = s.A(); //~ ERROR E0319 no method named `A` found for struct `S`
+}

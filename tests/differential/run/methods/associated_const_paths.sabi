@@ -1,0 +1,31 @@
+// `Self::` and `Type::` paths to associated constants (#48): in other constants (also
+// top-level ones), patterns, array lengths and repeat counts, and tuple constants.
+struct Grid { W: i32 }
+const Base: i32 = 2;
+impl Grid {
+    const Side: i32 = Base * 4;
+    pub const Cells: i32 = Self::Side * Grid::Side;
+    const Pair: (i32, bool) = (Self::Side, true);
+    const Len: usize = 3;
+    fn Kind(n: i32) -> i32 {
+        match n {
+            Self::Side => 1,
+            Grid::Cells => 2,
+            _ => 0,
+        }
+    }
+    fn Row() -> [i32; Grid::Len] { [Self::Side; Self::Len] }
+}
+const Total: i32 = Grid::Cells + Grid::Pair.0;
+fn Main() {
+    PrintLine(Grid::Cells);
+    PrintLine(Total);
+    PrintLine(Grid::Pair.1);
+    PrintLine(Grid::Kind(8));
+    PrintLine(Grid::Kind(64));
+    PrintLine(Grid::Kind(3));
+    let r = Grid::Row();
+    PrintLine(r[2] + r.len() as i32);
+    let a = [0u8; Grid::Len * 2];
+    PrintLine(a.len());
+}

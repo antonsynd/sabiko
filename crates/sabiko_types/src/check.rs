@@ -1144,7 +1144,7 @@ impl<'a> FnCtxt<'a> {
             if let PatKind::Ident { .. } | PatKind::Assignee(_) = pat.kind {
                 // A constant or a unit struct named by a lone identifier, or a unit struct
                 // or variant on the left of a destructuring assignment: it compares.
-                let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
+                let ty = self.peel_unless_const(pat, res, ty, by_ref);
                 self.check_path_pat(pat, res, &ty, init_span);
                 return;
             }
@@ -1253,7 +1253,7 @@ impl<'a> FnCtxt<'a> {
             }
             PatKind::Path(_) => {
                 let res = self.resolve.pat_res(pat.id).unwrap_or(Res::Err);
-                let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
+                let ty = self.peel_unless_const(pat, res, ty, by_ref);
                 self.check_path_pat(pat, res, &ty, init_span);
             }
             PatKind::TupleStruct(path, elems) => {
@@ -1506,6 +1506,23 @@ impl<'a> FnCtxt<'a> {
 
     /// A path pattern (`E::V`, a constant, a unit struct) against a value of `ty`
     /// (references already peeled).
+    /// The type a path pattern is checked against. A unit struct or variant peels
+    /// references off the matched type (default binding modes), a constant does not, as
+    /// in rustc (`AdjustMode::Pass`): `match &mut k { Z => .. }` is E0300 for `const Z:
+    /// u16`, though a literal there would peel.
+    fn peel_unless_const(
+        &mut self,
+        pat: &Pat,
+        res: Res,
+        ty: &Ty,
+        by_ref: Option<Mutability>,
+    ) -> Ty {
+        if matches!(res, Res::Def(def) if self.resolve.def(def).kind == DefKind::Const) {
+            return ty.clone();
+        }
+        self.peel_pat_refs(pat, ty, by_ref).0
+    }
+
     fn check_path_pat(&mut self, pat: &Pat, res: Res, ty: &Ty, init_span: Option<Span>) {
         let Res::Def(def) = res else {
             return;

@@ -1,0 +1,14 @@
+// Associated constants in an `impl` block of an enum (#48).
+enum Color { Red, Green, Blue }
+impl Color {
+    const Count: usize = 3;
+    const First: i32 = -1;
+    fn Index(&self) -> usize { match self { Color::Red => 0, Color::Green => 1, Color::Blue => 2 } }
+    fn Last() -> usize { Self::Count - 1 }
+}
+fn Main() {
+    PrintLine(Color::Count);
+    PrintLine(Color::Last());
+    PrintLine(Color::First);
+    PrintLine(Color::Blue.Index());
+}

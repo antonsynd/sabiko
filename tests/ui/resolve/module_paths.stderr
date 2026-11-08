@@ -23,7 +23,7 @@
    │             ─┬─  
    │              ╰─── not found in this scope
    │ 
-   │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+   │ Note: `A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9
 ───╯
 [E0201] Error: cannot find type `Mod` in this scope
    ╭─[ tests/ui/resolve/module_paths.sabi:9:13 ]
@@ -32,7 +32,7 @@
    │             ─┬─  
    │              ╰─── not found in this scope
    │ 
-   │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+   │ Note: `A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9
 ───╯
 [E0201] Error: cannot find type `Mod` in this scope
     ╭─[ tests/ui/resolve/module_paths.sabi:10:13 ]
@@ -41,7 +41,7 @@
     │             ─┬─  
     │              ╰─── not found in this scope
     │ 
-    │ Note: `A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9
+    │ Note: `A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9
 ────╯
 [E0107] Error: not yet supported: paths with `::`
     ╭─[ tests/ui/resolve/module_paths.sabi:11:13 ]

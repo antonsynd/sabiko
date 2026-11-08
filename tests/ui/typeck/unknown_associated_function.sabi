@@ -8,7 +8,7 @@ impl P {
 }
 
 fn Main() {
-    let p = P::Nope(); //~ ERROR E0212 no associated function named `Nope` found for struct `P`
+    let p = P::Nope(); //~ ERROR E0212 no associated function or constant named `Nope` found for struct `P`
     let q = P::New();
     let r = q.New(); //~ ERROR E0319 no method named `New` found for struct `P`
 }

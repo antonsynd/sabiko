@@ -1,0 +1,40 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/const_patterns_through_refs.sabi:14:9 ]
+    │
+ 13 │     match &mut k {
+    │           ───┬──  
+    │              ╰──── this expression has type `&mut u16`
+ 14 │         Z => 1, //~ ERROR E0300 mismatched types
+    │         ┬  
+    │         ╰── expected `&mut u16`, found `u16`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/const_patterns_through_refs.sabi:21:9 ]
+    │
+ 20 │     match &k {
+    │           ─┬  
+    │            ╰── this expression has type `&u16`
+ 21 │         S::C => 1, //~ ERROR E0300 mismatched types
+    │         ──┬─  
+    │           ╰─── expected `&u16`, found `u16`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/const_patterns_through_refs.sabi:28:16 ]
+    │
+ 27 │     match &k {
+    │           ─┬  
+    │            ╰── this expression has type `&u16`
+ 28 │         left @ u16::MIN => 1, //~ ERROR E0300 mismatched types
+    │                ────┬───  
+    │                    ╰───── expected `&u16`, found `u16`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/const_patterns_through_refs.sabi:35:10 ]
+    │
+ 34 │     match (&k, 1) {
+    │           ───┬───  
+    │              ╰───── this expression has type `&u16`
+ 35 │         (Z, _) => 1, //~ ERROR E0300 mismatched types
+    │          ┬  
+    │          ╰── expected `&u16`, found `u16`
+────╯

@@ -1,0 +1,31 @@
+[E0316] Error: cycle detected when evaluating constant `A`
+   ╭─[ tests/ui/typeck/associated_consts.sabi:8:20 ]
+   │
+ 7 │     const A: i32 = Self::B + 1;
+   │           ┬  
+   │           ╰── `A` defined here
+ 8 │     const B: i32 = S::A; //~ ERROR E0316 cycle detected when evaluating constant `A`
+   │                    ──┬─  
+   │                      ╰─── cyclic reference
+───╯
+[E0316] Error: attempt to add with overflow
+   ╭─[ tests/ui/typeck/associated_consts.sabi:9:21 ]
+   │
+ 9 │     const Big: u8 = u8::MAX + 1; //~ ERROR E0316 attempt to add with overflow
+   │                     ─────┬─────  
+   │                          ╰─────── in this constant
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/associated_consts.sabi:10:23 ]
+    │
+ 10 │     const Flag: i32 = true; //~ ERROR E0300 mismatched types
+    │                       ──┬─  
+    │                         ╰─── expected `i32`, found `bool`
+────╯
+[E0319] Error: no method named `A` found for struct `S`
+    ╭─[ tests/ui/typeck/associated_consts.sabi:15:15 ]
+    │
+ 15 │     let n = s.A(); //~ ERROR E0319 no method named `A` found for struct `S`
+    │               ┬  
+    │               ╰── method not found
+────╯

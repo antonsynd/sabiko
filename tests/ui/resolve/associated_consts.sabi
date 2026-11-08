@@ -1,0 +1,36 @@
+// Associated constants (#48), as rustc reports them: E0599 for an unknown one, E0592 for
+// two of one name (a function counts), E0438 in `impl Drop`, E0425 for a bare name (with
+// the path to use), E0223 for one used as a struct.
+struct S { }
+
+impl S {
+    const A: i32 = 1;
+    fn A() {} //~ ERROR E0210 duplicate definitions with name `A`
+    fn F() -> i32 {
+        A //~ ERROR E0202 cannot find value `A` in this scope
+    }
+}
+
+impl S {
+    const B: i32 = 2; //~ ERROR E0210 duplicate definitions with name `B`
+}
+
+impl S {
+    const B: i32 = 3;
+}
+
+struct D { }
+
+impl Drop for D {
+    const C: i32 = 1; //~ ERROR E0217 const `C` is not a member of trait `Drop`
+    fn drop(&mut self) {}
+}
+
+fn Main() {
+    PrintLine(S::Nope); //~ ERROR E0212 no associated function or constant named `Nope` found for struct `S`
+    PrintLine(i32::MAXIMUM); //~ ERROR E0212 no associated function or constant named `MAXIMUM` found for type `i32`
+    PrintLine(bool::MAX); //~ ERROR E0212 no associated function or constant named `MAX` found for type `bool`
+    let s = S::B { }; //~ ERROR E0203 expected struct or variant, found associated constant `S::B`
+    // A Sabiko `char` is one UTF-16 code unit (decision 31).
+    PrintLine(char::MAX); //~ ERROR E0318 `char::MAX` is outside the Basic Multilingual Plane
+}

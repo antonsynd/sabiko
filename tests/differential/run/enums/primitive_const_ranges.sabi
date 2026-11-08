@@ -1,0 +1,19 @@
+// Primitive associated constants as range bounds and constant patterns (#48).
+fn Classify(n: u8) -> i32 {
+    match n {
+        u8::MIN => 0,
+        1..=100 => 1,
+        101..u8::MAX => 2,
+        u8::MAX => 3,
+    }
+}
+fn Wide(n: i64) -> i32 {
+    match n {
+        i64::MIN..=-1 => -1,
+        0..=i64::MAX => 1,
+    }
+}
+fn Main() {
+    PrintLine(Classify(0)); PrintLine(Classify(50)); PrintLine(Classify(200)); PrintLine(Classify(255));
+    PrintLine(Wide(i64::MIN)); PrintLine(Wide(i64::MAX));
+}

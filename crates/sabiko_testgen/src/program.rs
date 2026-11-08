@@ -754,6 +754,24 @@ pub fn int_literal(ty: IntTy, v: i128) -> String {
     format!("{v}{}", ty.name())
 }
 
+/// The source text of the value `v` of type `ty`: a boundary of the type is sometimes its
+/// associated constant (`i8::MIN`, `u16::MAX`, #48), anything else a suffixed literal.
+/// `u128`'s largest generator value is not `u128::MAX` (see `IntTy::max`).
+pub fn int_text(rng: &mut Rng, ty: IntTy, v: i128) -> String {
+    let name = if v == ty.min() {
+        "MIN"
+    } else if v == ty.max() && ty != IntTy::U128 {
+        "MAX"
+    } else {
+        return int_literal(ty, v);
+    };
+    if rng.chance(50) {
+        format!("{}::{name}", ty.name())
+    } else {
+        int_literal(ty, v)
+    }
+}
+
 /// A random value of an integer type: small values most of the time (so arithmetic on them
 /// rarely overflows), occasionally a boundary or a random bit pattern.
 pub fn random_int(rng: &mut Rng, ty: IntTy) -> i128 {
@@ -817,7 +835,7 @@ pub fn random_literal(rng: &mut Rng, p: Prim) -> (String, ConstValue) {
     match p {
         Prim::Int(i) => {
             let v = random_int(rng, i);
-            (int_literal(i, v), ConstValue::Int(v))
+            (int_text(rng, i, v), ConstValue::Int(v))
         }
         Prim::F32 | Prim::F64 => {
             let (text, v) = float_literal(rng, p);

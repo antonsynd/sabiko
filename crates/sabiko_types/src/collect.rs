@@ -591,6 +591,9 @@ pub(crate) fn collect(
             }
         }
     }
+    for (def, c) in resolve.prim_consts() {
+        items.const_tys.insert(def, crate::consts::prim_const(c).0);
+    }
     check_recursive_structs(resolve, &items, sink);
     items.needs_drop = structs_needing_drop(resolve, &items);
     check_copy_derives(resolve, &items, sink);

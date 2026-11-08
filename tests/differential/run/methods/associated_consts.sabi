@@ -1,7 +1,6 @@
-// KNOWN GAP (associated constants, not part of #7, which adds associated functions only):
-// `const` items inside an inherent impl, reached as `Type::Name` from outside and as
-// `Self::Name`/`Type::Name` from inside. A natural next step once `Type::Item` paths
-// exist; belongs in `differential/run/methods/` when associated constants land.
+// Associated constants (#48): `const` items inside an inherent impl, reached as
+// `Type::Name` from outside and as `Self::Name`/`Type::Name` from inside, one defined
+// through another.
 struct Grid { W: i32 }
 
 impl Grid {

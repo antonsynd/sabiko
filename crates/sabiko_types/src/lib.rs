@@ -91,7 +91,7 @@ pub fn typeck(
         }
     }
     let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::new();
-    for item in &file.items {
+    for item in file.all_items() {
         match &item.kind {
             ItemKind::Const(c) => {
                 let def = resolve.def_of_item(item.id);

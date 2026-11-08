@@ -543,7 +543,8 @@ loop; instance methods on structs in the C#) runs at parity with C# in release b
 (p50 in-process 1.00x, process 1.06x) and allocates nothing; checked builds are 1.23x
 in-process, the cost of 64-bit overflow checks through runtime helpers (decision 43) that
 checked `fibonacci` shows too, not of the calls. The other benchmarks did not move. Gaps:
-associated constants (`tests/pending/methods/known_gap/associated_consts.sabi`, E0107),
+associated constants (`tests/pending/methods/known_gap/associated_consts.sabi`, E0107;
+since done, #48),
 `&&P` and `&mut &mut P` receivers at run time (`known_gap/double_ref_receivers.sabi`: borrow
 checking accepts them, code generation still rejects `&&T` with E0500 until `Ref<T>`; since
 lowered, #11),
@@ -634,7 +635,8 @@ the changed lines leaves only equivalent survivors (the paragraph after). Benchm
 `enums`: Sabiko takes 1.5 to 1.9 times as long as C# in-process and allocates nothing; the
 gap is the candidates re-reading the tag where a decision tree (as in rustc) would switch
 once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p`, half-open
-ranges, primitive associated constants in patterns, `==` on enums (Phase 6), a match
+ranges, primitive associated constants in patterns (since done, #48), `==` on enums
+(Phase 6), a match
 through `&&T` (`Ref<T>`; since lowered, #11), string literal patterns (with
 `&str`, #10), float range patterns (rejected with a misleading message), code that patterns
 make unreachable was not borrow-checked (rustc's false edges), and an arm that tests a
@@ -963,7 +965,24 @@ Operands of type `!` (#87, decision 75): `1 == return true` was accepted, becaus
 checker coerced a `!` operand to the other operand's type; rustc rejects it in every
 edition (no `i32: PartialEq<!>`). Operators now judge `!` operands as rustc's trait
 selection does (SPEC 11.2, Operators); 92 of 93 probe programs over every operator agree
-with rustc (the other compares tuples, not yet supported; `tests/ui/typeck/never_operands.sabi`, `differential/never/ok_never_operands.sabi`).
+with rustc (the other compares tuples, not yet supported;
+`tests/ui/typeck/never_operands.sabi`, `differential/never/ok_never_operands.sabi`).
+
+Associated constants (#48, decision 76): `const` items in inherent `impl` blocks of structs
+and enums, reached as `Type::Name` and `Self::Name` in expressions, patterns, array lengths
+and other constants, and the primitive types' constants (`i32::MAX`, `u8::BITS`,
+`f64::EPSILON`, `f32::NAN`; `char::MAX` is E0318 by decision 31). An impl constant is a
+`DefKind::Const` member like an associated function is a `DefKind::Fn` one, so the constant
+evaluator, patterns and MIR treat it as any `const` item; a primitive one gets a definition
+of its own the first time it is used, typed and valued from a table. The two staged
+programs moved to `differential/run/` with six more, the UI tests
+`resolve/associated_consts` and `typeck/associated_consts` agree with rustc line for line
+(but `char::MAX`, and a cycle reported where it closes), and the generator writes the
+boundary of an integer type as `T::MIN`/`T::MAX` half the time. That found a bug as old as
+constant patterns: a constant pattern looked through a reference like a literal, so
+`match &mut k { Z => .. }` was accepted (rustc: E0308, constants do not adjust); it is E0300
+now (`typeck/const_patterns_through_refs`). Sweeps of 400 seeds at bases 1, 3000000 and
+52000000 agree with rustc.
 
 ### Phase 5: Data types
 
@@ -996,7 +1015,7 @@ against drops rather than retrofitted.
 - `impl` blocks, methods with `self`, `&self`, `&mut self`, associated functions,
   method call syntax with auto-ref; two-phase borrows for autoref'd receivers and implicit
   `&mut` reborrows in argument position. Done (#7, #15, decisions 53 and 54; see the
-  status note above); associated constants remain (#48).
+  status note above), and associated constants (#48, decision 76).
 - Drop elaboration (moved here from Phase 3 by decision 26, given a phase by decision 46):
   drop flags, drops at scope end in reverse declaration order, each droppable scope lowered
   inside `try/finally`. `impl Drop for S` is the one trait impl accepted before Phase 6,

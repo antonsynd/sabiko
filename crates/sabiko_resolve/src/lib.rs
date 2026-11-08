@@ -216,6 +216,56 @@ impl Builtin {
     }
 }
 
+/// An associated constant of a primitive type (`i32::MAX`, `f64::EPSILON`, #48). Each one
+/// used gets a [`DefKind::Const`] definition of its own, with no source item: the type
+/// checker supplies its type and value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PrimConst {
+    pub ty: PrimTy,
+    pub name: &'static str,
+}
+
+impl PrimConst {
+    const INT: &'static [&'static str] = &["MIN", "MAX", "BITS"];
+    const FLOAT: &'static [&'static str] = &[
+        "MIN",
+        "MAX",
+        "MIN_POSITIVE",
+        "EPSILON",
+        "INFINITY",
+        "NEG_INFINITY",
+        "NAN",
+        "RADIX",
+        "MANTISSA_DIGITS",
+        "DIGITS",
+        "MIN_EXP",
+        "MAX_EXP",
+        "MIN_10_EXP",
+        "MAX_10_EXP",
+    ];
+    /// `char::MAX` is `'\u{10FFFF}'`, which a Sabiko `char` cannot hold (decision 31): it
+    /// is known so that it can be rejected as such.
+    const CHAR: &'static [&'static str] = &["MAX", "REPLACEMENT_CHARACTER"];
+
+    /// The associated constant `name` of `ty`, as in Rust's standard library.
+    #[must_use]
+    pub fn lookup(ty: PrimTy, name: &str) -> Option<Self> {
+        let names = if ty.int_bits().is_some() {
+            Self::INT
+        } else if ty.is_float() {
+            Self::FLOAT
+        } else if ty == PrimTy::Char {
+            Self::CHAR
+        } else {
+            &[]
+        };
+        names
+            .iter()
+            .find(|n| **n == name)
+            .map(|&name| PrimConst { ty, name })
+    }
+}
+
 /// An item definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefInfo {
@@ -226,12 +276,13 @@ pub struct DefInfo {
     pub span: Span,
     /// The `Item` node. [`NodeId::DUMMY`] for a builtin.
     pub node: NodeId,
-    /// Index into `SourceFile::items` (of the `impl` block, for an associated function).
+    /// Index into `SourceFile::items` (of the `impl` block, for an associated item).
     /// `usize::MAX` for a builtin.
     pub item_index: usize,
-    /// For an associated function, its index among the members of its `impl` block.
+    /// For an associated item (function or constant), its index among the members of its
+    /// `impl` block.
     pub member_index: Option<usize>,
-    /// For an associated function, the struct (or enum) its `impl` block is for; for a
+    /// For an associated item, the struct (or enum) its `impl` block is for; for a
     /// variant, its enum; `None` for other items, and for the members of an `impl` whose
     /// type did not resolve.
     pub parent: Option<DefId>,
@@ -240,7 +291,8 @@ pub struct DefInfo {
 }
 
 impl DefInfo {
-    /// Whether this is a function of an `impl` block (a method or an associated function).
+    /// Whether this is a member of an `impl` block (a method, an associated function or an
+    /// associated constant).
     #[must_use]
     pub fn is_assoc(&self) -> bool {
         self.member_index.is_some()
@@ -283,8 +335,10 @@ pub struct ResolveResults {
     /// `ExprKind::Path` or `ExprKind::Struct`.
     res: HashMap<NodeId, Res>,
     pat_locals: HashMap<NodeId, LocalId>,
-    /// The associated functions of each struct, by name.
-    assoc_fns: HashMap<(DefId, String), DefId>,
+    /// The associated items (functions and constants) of each struct or enum, by name.
+    assoc_items: HashMap<(DefId, String), DefId>,
+    /// The definitions made for the primitive associated constants the file uses.
+    prim_consts: HashMap<DefId, PrimConst>,
     /// The `self` binding of each method, keyed by its function's definition.
     self_locals: HashMap<DefId, LocalId>,
     /// The `drop` function of each struct with an `impl Drop` (decision 46). It is not an
@@ -313,7 +367,7 @@ impl ResolveResults {
     }
 
     /// The AST item of a user definition (a member of an `impl` block for an associated
-    /// function). Must not be called for a builtin (see [`ResolveResults::builtin`]):
+    /// item). Must not be called for a builtin (see [`ResolveResults::builtin`]):
     /// builtins have no item.
     #[must_use]
     pub fn item<'a>(&self, file: &'a SourceFile, id: DefId) -> &'a Item {
@@ -330,8 +384,8 @@ impl ResolveResults {
         }
     }
 
-    /// The name of a definition as a path: `Point::New` for an associated function,
-    /// the plain name otherwise.
+    /// The name of a definition as a path: `Point::New` for an associated item, the plain
+    /// name otherwise.
     #[must_use]
     pub fn qualified_name(&self, def: DefId) -> String {
         let info = self.def(def);
@@ -341,10 +395,32 @@ impl ResolveResults {
         }
     }
 
-    /// The associated function `name` of the struct `adt`, if it has one.
+    /// The associated item (function or constant) `name` of the struct or enum `adt`, if it
+    /// has one.
+    #[must_use]
+    pub fn assoc_item(&self, adt: DefId, name: &str) -> Option<DefId> {
+        self.assoc_items.get(&(adt, name.to_owned())).copied()
+    }
+
+    /// The primitive associated constant (`i32::MAX`) a constant definition stands for.
+    #[must_use]
+    pub fn prim_const(&self, def: DefId) -> Option<PrimConst> {
+        self.prim_consts.get(&def).copied()
+    }
+
+    /// Every primitive associated constant the file uses, by definition, in order.
+    pub fn prim_consts(&self) -> impl Iterator<Item = (DefId, PrimConst)> + '_ {
+        let mut all: Vec<(DefId, PrimConst)> =
+            self.prim_consts.iter().map(|(d, c)| (*d, *c)).collect();
+        all.sort_by_key(|(d, _)| *d);
+        all.into_iter()
+    }
+
+    /// The associated function `name` of the struct or enum `adt`, if it has one.
     #[must_use]
     pub fn assoc_fn(&self, adt: DefId, name: &str) -> Option<DefId> {
-        self.assoc_fns.get(&(adt, name.to_owned())).copied()
+        self.assoc_item(adt, name)
+            .filter(|&def| self.def(def).kind == DefKind::Fn)
     }
 
     /// The `drop` function of the struct `adt`'s `impl Drop`, if it has one.
@@ -506,13 +582,15 @@ impl Resolver<'_> {
                     // The members are definitions of their own, in source order, but not in
                     // the item namespace: they are reached as `Type::Name` or as methods.
                     for (member_index, member) in imp.items.iter().enumerate() {
-                        let ItemKind::Fn(f) = &member.kind else {
-                            continue;
+                        let (kind, name) = match &member.kind {
+                            ItemKind::Fn(f) => (DefKind::Fn, &f.name),
+                            ItemKind::Const(c) => (DefKind::Const, &c.name),
+                            _ => continue,
                         };
                         let id = self.new_def(DefInfo {
-                            kind: DefKind::Fn,
-                            name: f.name.name.clone(),
-                            span: f.name.span,
+                            kind,
+                            name: name.name.clone(),
+                            span: name.span,
                             node: member.id,
                             item_index: index,
                             member_index: Some(member_index),
@@ -652,23 +730,23 @@ impl Resolver<'_> {
                 continue;
             };
             for member in &imp.items {
-                let ItemKind::Fn(f) = &member.kind else {
+                let Some(ident) = member.name() else {
                     continue;
                 };
                 let def = self.results.def_of_item(member.id);
                 self.results.defs[def.0 as usize].parent = Some(adt);
-                let key = (adt, f.name.name.clone());
+                let key = (adt, ident.name.clone());
                 let Some(&(prev, prev_block)) = first.get(&key) else {
                     first.insert(key.clone(), (def, index));
-                    self.results.assoc_fns.insert(key, def);
+                    self.results.assoc_items.insert(key, def);
                     continue;
                 };
                 let prev_span = self.results.def(prev).span;
-                let name = &f.name.name;
+                let name = &ident.name;
                 let (primary, other) = if prev_block == index {
-                    (f.name.span, prev_span)
+                    (ident.span, prev_span)
                 } else {
-                    (prev_span, f.name.span)
+                    (prev_span, ident.span)
                 };
                 self.sink.emit(
                     Diagnostic::error(
@@ -730,8 +808,21 @@ impl Resolver<'_> {
         drop_headers.insert(adt, header);
         let mut has_drop = false;
         for member in &imp.items {
-            let ItemKind::Fn(f) = &member.kind else {
-                continue;
+            let f = match &member.kind {
+                ItemKind::Fn(f) => f,
+                ItemKind::Const(c) => {
+                    let def = self.results.def_of_item(member.id);
+                    self.results.defs[def.0 as usize].parent = Some(adt);
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::NOT_A_DROP_MEMBER,
+                            format!("const `{}` is not a member of trait `Drop`", c.name.name),
+                        )
+                        .with_label(c.name.span, "not a member of trait `Drop`"),
+                    );
+                    continue;
+                }
+                _ => continue,
             };
             let def = self.results.def_of_item(member.id);
             self.results.defs[def.0 as usize].parent = Some(adt);
@@ -845,9 +936,11 @@ impl Resolver<'_> {
             };
             self.impl_scope = target.map_or(ImplScope::Unresolved, ImplScope::Struct);
             for member in &imp.items {
-                if let ItemKind::Fn(f) = &member.kind {
-                    let def = self.results.def_of_item(member.id);
-                    self.resolve_fn(def, f);
+                let def = self.results.def_of_item(member.id);
+                match &member.kind {
+                    ItemKind::Fn(f) => self.resolve_fn(def, f),
+                    ItemKind::Const(c) => self.resolve_const_item(def, c),
+                    _ => {}
                 }
             }
             self.impl_scope = ImplScope::Outside;
@@ -883,15 +976,18 @@ impl Resolver<'_> {
                     }
                 }
             }
-            ItemKind::Const(c) => {
-                self.resolve_type(&c.ty, true);
-                self.current_fn = Some(def);
-                self.scopes.push(Vec::new());
-                self.resolve_expr(&c.value);
-                self.scopes.pop();
-                self.current_fn = None;
-            }
+            ItemKind::Const(c) => self.resolve_const_item(def, c),
         }
+    }
+
+    /// A `const` item, at the top level or in an `impl` block.
+    fn resolve_const_item(&mut self, def: DefId, c: &sabiko_ast::ConstDecl) {
+        self.resolve_type(&c.ty, true);
+        self.current_fn = Some(def);
+        self.scopes.push(Vec::new());
+        self.resolve_expr(&c.value);
+        self.scopes.pop();
+        self.current_fn = None;
     }
 
     /// The fields of a struct or a struct variant: unique names (E0204) and their types.
@@ -1420,26 +1516,34 @@ impl Resolver<'_> {
         if PrimTy::from_name(&name.name).is_some() {
             d = d.with_note(format!("`{}` is a type, not a value", name.name));
         }
-        let owners: Vec<String> = self
+        let owners: Vec<(String, bool)> = self
             .results
-            .assoc_fns
-            .keys()
-            .filter(|(_, n)| *n == name.name)
-            .map(|(adt, _)| self.results.def(*adt).name.clone())
+            .assoc_items
+            .iter()
+            .filter(|((_, n), _)| *n == name.name)
+            .map(|((adt, _), def)| {
+                let is_const = self.results.def(*def).kind == DefKind::Const;
+                (self.results.def(*adt).name.clone(), is_const)
+            })
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        if let Some(owner) = owners.first() {
-            d = d.with_note(format!(
-                "`{}` is an associated function of `{owner}`: call it as `{owner}::{}(..)`",
-                name.name, name.name
-            ));
+        if let Some((owner, is_const)) = owners.first() {
+            let n = &name.name;
+            d = d.with_note(if *is_const {
+                format!("`{n}` is an associated constant of `{owner}`: use it as `{owner}::{n}`")
+            } else {
+                format!(
+                    "`{n}` is an associated function of `{owner}`: call it as `{owner}::{n}(..)`"
+                )
+            });
         }
         self.sink.emit(d);
         Res::Err
     }
 
-    /// `Type::Name`: an associated function of a struct (`Self` inside an `impl` block).
+    /// `Type::Name`: a variant, or an associated function or constant of a struct or enum
+    /// (`Self` inside an `impl` block).
     /// The first segment is looked up as a type: a local, a function or a constant of
     /// that name does not count, as in rustc.
     fn resolve_assoc_path(&mut self, path: &Path) -> Res {
@@ -1457,7 +1561,7 @@ impl Resolver<'_> {
                     format!("cannot find type `{}` in this scope", ty.name),
                 )
                 .with_label(ty.span, "not found in this scope")
-                .with_note("`A::B` names the associated function `B` of the struct `A`; module paths are planned for Phase 9"),
+                .with_note("`A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9"),
             );
             return Res::Err;
         }
@@ -1466,16 +1570,13 @@ impl Resolver<'_> {
             span: ty.span,
         }) {
             Res::Def(def) => def,
-            Res::Prim(prim) => {
-                self.unknown_assoc_item(item, &format!("type `{}`", prim.name()));
-                return Res::Err;
-            }
+            Res::Prim(prim) => return self.resolve_prim_const(prim, item),
             Res::Local(_) | Res::Err => return Res::Err,
         };
         if let Some(def) = self.variant(adt, &item.name) {
             return Res::Def(def);
         }
-        if let Some(def) = self.results.assoc_fn(adt, &item.name) {
+        if let Some(def) = self.results.assoc_item(adt, &item.name) {
             return Res::Def(def);
         }
         if item.name == "drop" {
@@ -1506,18 +1607,53 @@ impl Resolver<'_> {
         Res::Err
     }
 
+    /// `i32::MAX`: a primitive associated constant, with a definition of its own (one per
+    /// constant, however often it is used).
+    fn resolve_prim_const(&mut self, prim: PrimTy, item: &sabiko_ast::Ident) -> Res {
+        let Some(c) = PrimConst::lookup(prim, &item.name) else {
+            self.unknown_assoc_item(item, &format!("type `{}`", prim.name()));
+            return Res::Err;
+        };
+        if c.ty == PrimTy::Char && c.name == "MAX" {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::NON_BMP_CHAR,
+                    "`char::MAX` is outside the Basic Multilingual Plane",
+                )
+                .with_label(item.span, "`'\\u{10FFFF}'` does not fit a Sabiko `char`")
+                .with_note("a `char` is one UTF-16 code unit, at most `'\\u{FFFF}'` (decision 31)"),
+            );
+            return Res::Err;
+        }
+        if let Some((&def, _)) = self.results.prim_consts.iter().find(|(_, k)| **k == c) {
+            return Res::Def(def);
+        }
+        let def = self.new_def(DefInfo {
+            kind: DefKind::Const,
+            name: format!("{}::{}", prim.name(), c.name),
+            span: Span::dummy(),
+            node: NodeId::DUMMY,
+            item_index: usize::MAX,
+            member_index: None,
+            parent: None,
+            builtin: None,
+        });
+        self.results.prim_consts.insert(def, c);
+        Res::Def(def)
+    }
+
     fn unknown_assoc_item(&mut self, item: &sabiko_ast::Ident, owner: &str) {
         self.sink.emit(
             Diagnostic::error(
                 ErrorCode::UNKNOWN_ASSOC_ITEM,
                 format!(
-                    "no associated function named `{}` found for {owner}",
+                    "no associated function or constant named `{}` found for {owner}",
                     item.name
                 ),
             )
             .with_label(
                 item.span,
-                format!("associated function not found in {owner}"),
+                format!("associated function or constant not found in {owner}"),
             ),
         );
     }
@@ -1530,13 +1666,19 @@ impl Resolver<'_> {
             2 => {
                 let res = self.resolve_assoc_path(path);
                 return match res {
-                    Res::Def(def) if self.results.def(def).kind == DefKind::Fn => {
+                    Res::Def(def)
+                        if matches!(self.results.def(def).kind, DefKind::Fn | DefKind::Const) =>
+                    {
                         let name = path.last();
+                        let what = match self.results.def(def).kind {
+                            DefKind::Fn => "associated function",
+                            _ => "associated constant",
+                        };
                         self.sink.emit(
                             Diagnostic::error(
                                 ErrorCode::WRONG_NAMESPACE,
                                 format!(
-                                    "expected struct or variant, found associated function `{}`",
+                                    "expected struct or variant, found {what} `{}`",
                                     self.results.qualified_name(def)
                                 ),
                             )
