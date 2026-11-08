@@ -1,0 +1,18 @@
+enum Shape {
+    Circle { Radius: f64 },
+    Rect(f64, f64),
+}
+
+impl Shape {
+    fn Area(&self) -> f64 {
+        match *self {
+            Shape::Circle { Radius } => 3.0 * Radius * Radius,
+            Shape::Rect(w, h) => w * h,
+        }
+    }
+}
+
+fn Main() {
+    let shapes = [Shape::Rect(3.0, 4.0), Shape::Circle { Radius: 2.0 }];
+    PrintLine(shapes[0].Area() + shapes[1].Area());
+}
