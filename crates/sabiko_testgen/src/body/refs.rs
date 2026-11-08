@@ -25,6 +25,10 @@
 //! elided input lifetimes (rustc's E0106). `&&str` operands are compared (`ss == &s`), and
 //! `&&p` ones of primitives (`rr < &r`).
 //!
+//! References to temporaries extended through a block's tail, `if` branches or `match`
+//! arms (#88, decision 78) are here too (`stmt_let_extended`): `let r = { &e };`, `let r =
+//! if c { &a } else { &b };`, `let r = match n { 0 => &a, _ => { &b } };`.
+//!
 //! Not generated: TODO(#92) double references in tuples and arrays (struct fields and
 //! enum payloads wait for lifetimes), as for single ones. TODO(#58): three levels (`&&&T`), `&mut &T`
 //! parameters (a callee can only retarget them to what the caller lent it), retargets of
@@ -36,7 +40,7 @@
 use super::matches::{Mode, Scrut};
 use super::{Access, BodyGen, Expr, Place, Ranges};
 use crate::program::str_literal;
-use crate::ty::{Ty, ValTy};
+use crate::ty::{IntTy, Prim, Ty, ValTy};
 
 impl BodyGen<'_> {
     /// The live double reference locals (and parameters) satisfying `pred` on their type.
@@ -450,5 +454,85 @@ impl BodyGen<'_> {
         let mut place = self.rng.pick(&ok).clone();
         self.finish_place(&mut place, Ranges::No);
         Some(place)
+    }
+}
+
+impl BodyGen<'_> {
+    /// `let r = { &e };`, `let r = if c { &a } else { &b };` or `let r = match n { 0 => &a,
+    /// _ => &b };` (`&mut` too), the operands values of a sized type: temporary lifetime
+    /// extension through a block's tail, `if` branches and `match` arms (#88). The
+    /// reference borrows a temporary that lives as long as `r`, and nothing in scope, so
+    /// it holds no loan of the scope model.
+    pub(super) fn stmt_let_extended(&mut self, depth: u32) -> bool {
+        let inner = self.random_val_ty();
+        if !self.prog.is_sized(inner) {
+            return false;
+        }
+        let mutable = self.rng.chance(35);
+        let d = depth.saturating_sub(1);
+        let text = match self.rng.weighted(&[40, 40, 20]) {
+            0 => {
+                let e = self.borrowed_temporary(mutable, inner, d);
+                if self.rng.chance(30) {
+                    format!("{{ {{ {e} }} }}")
+                } else {
+                    format!("{{ {e} }}")
+                }
+            }
+            choice => {
+                // Each branch moves on its own path; after the `if` or `match`, whatever
+                // one of them moved is moved (as in `if_expr`).
+                let head = if choice == 1 {
+                    format!("if {}", self.prim_expr(Prim::Bool, d).text)
+                } else {
+                    let n = self.prim_expr(Prim::Int(IntTy::I32), d);
+                    format!("match {}", n.text)
+                };
+                let before: Vec<bool> = self.vars.iter().map(|v| v.moved).collect();
+                let a = self.borrowed_temporary(mutable, inner, d);
+                let after_a: Vec<bool> = self.vars.iter().map(|v| v.moved).collect();
+                for (v, &m) in self.vars.iter_mut().zip(&before) {
+                    v.moved = m;
+                }
+                let b = self.borrowed_temporary(mutable, inner, d);
+                for (v, &m) in self.vars.iter_mut().zip(&after_a) {
+                    v.moved |= m;
+                }
+                if choice == 1 {
+                    format!("{head} {{ {a} }} else {{ {b} }}")
+                } else {
+                    format!("{head} {{ 0 => {a}, _ => {{ {b} }} }}")
+                }
+            }
+        };
+        let name = self.fresh_name();
+        let ty = Ty::Ref { mutable, inner };
+        let annotation = if self.rng.chance(30) {
+            format!(": {}", self.prog.ty_name(ty))
+        } else {
+            String::new()
+        };
+        self.line(&format!("let {name}{annotation} = {text};"));
+        self.bind_ref(name, ty, &Expr::value(text));
+        true
+    }
+
+    /// `&e` (`&mut e`) of a value `e` of type `inner`: a temporary, never a place. A
+    /// call or literal is borrowed as it is, anything else in parentheses, or in braces
+    /// when it may be a place (`&{ x }` copies or moves `x`; `&(x)` would borrow it).
+    fn borrowed_temporary(&mut self, mutable: bool, inner: ValTy, depth: u32) -> String {
+        let e = self.val_expr(inner, depth);
+        let prefix = if mutable { "&mut " } else { "&" };
+        let t = &e.text;
+        let first = t.chars().next().unwrap_or(' ');
+        let place_like = first == '('
+            || first == '*'
+            || t.chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'));
+        if place_like && !first.is_ascii_digit() {
+            format!("{prefix}{{ {t} }}")
+        } else {
+            format!("{prefix}({t})")
+        }
     }
 }

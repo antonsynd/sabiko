@@ -1,0 +1,16 @@
+// Extension covers temporaries, not a block's locals: `{ let x = ..; &x }` borrows a
+// local that dies with the block, extending position or not (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let r = {
+        let x = Make(1);
+        &x
+    };
+    PrintLine(r.V);
+}

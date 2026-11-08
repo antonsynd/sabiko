@@ -1,0 +1,15 @@
+// Only a `let` initialiser extends: an assignment of an `if` whose branch borrows a
+// temporary drops it at the end of the statement (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let c = true;
+    let r;
+    r = if c { &Make(1) } else { &Make(2) };
+    PrintLine(r.V);
+}

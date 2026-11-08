@@ -1,0 +1,9 @@
+// An unsized borrow extended through a block tail or an `if` branch (#88): `let s: &[i32]
+// = { &[1, 2] };` coerces the tail, whose array lives as long as `s`.
+fn Sum(s: &[i32]) -> i32 { s[0] + s[s.len() - 1] }
+fn Main() {
+    let c = true;
+    let s: &[i32] = { &[1, 2] };
+    let t: &[i32] = if c { &[3, 4, 5] } else { &[6] };
+    PrintLine(Sum(s) + Sum(t));
+}

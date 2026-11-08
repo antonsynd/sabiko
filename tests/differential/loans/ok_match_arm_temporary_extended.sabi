@@ -1,0 +1,16 @@
+// The arms of a `match` in an extending position extend their temporaries (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let n = 2;
+    let r = match n {
+        1 => &Make(1),
+        _ => { &Make(2) }
+    };
+    PrintLine(r.V);
+}

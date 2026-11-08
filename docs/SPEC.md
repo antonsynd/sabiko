@@ -187,8 +187,18 @@ dropped as rustc drops them (edition 2024, decision 74):
   literal, tuple or assignment that is the tail drops its already evaluated operands with
   the tail's other temporaries while unwinding, the last made first; the operand of
   `return` is not a tail. (Edition 2021 kept tail and `if let` temporaries to the end of
-  the enclosing statement.) Not yet: extension through a block's tail (`let r = {
-  &Make() };` is E0413, rustc extends it, #88).
+  the enclosing statement.)
+- Temporary lifetime extension (decision 78, rustc's rules): the operand of `&`/`&mut` in
+  an *extending position* of a `let` initialiser lives as long as the `let`'s bindings and
+  is dropped with them, after the bindings and in reverse order of creation. The
+  initialiser is extending, and so are the operand of an extending `&` (`let d = &&&x;`),
+  the elements of an extending tuple or array (`let a = [&F(), &G()];`), the tail of an
+  extending block (`let r = { &Make() };`), the branches of an extending `if`/`else` or
+  `if let` (only the temporary of the path taken is made and dropped) and the arms of an
+  extending `match`. A `break` value, a call argument (`Id({ &Make() })`) and the
+  right-hand side of an assignment are not extending: there the temporary dies at the end
+  of the statement (E0413). Struct literal fields would be, but need references in fields
+  (Phase 9).
 - `let _ = <value>;` drops the value at once, `let _x = ..;` at the end of the block, and
   `let (_, y) = (..);` drops the unbound element at the end of the `let`; an expression
   statement drops its value at its end. `let _ = place;` does nothing (§11.4).
@@ -908,8 +918,9 @@ Moves (E0406, E0407):
 - A destructuring `let` whose initialiser is a place binds each name to its element of the
   place: only the bound elements are moved or copied, `_` touches nothing (`let (a, _) =
   t;` leaves `t.1` usable). Any other initialiser is evaluated into a temporary first.
-  Temporary lifetime extension follows rustc through tuples: in `let p = (&f(), 1);` and
-  `let (a, b) = &(x, y);` the borrowed temporary lives as long as the bindings.
+  Temporary lifetime extension (§ above) applies to it: in `let p = (&f(), 1);`, `let (a,
+  b) = &(x, y);` and `let (a, b) = { (&f(), 1) };` the borrowed temporary lives as long as
+  the bindings.
 - `let _ = place;` (a place initialiser: a local, a field of a place, a dereference) only
   mentions the place (#37, rustc's `PlaceMention`): nothing is read, moved, copied or
   required to be initialised, so `let _ = p; Take(p);` is fine for a non-`Copy` `p`, and so

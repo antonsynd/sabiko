@@ -1,0 +1,38 @@
+// Temporary lifetime extension through a block's tail (#88): in `let r = { &Make(1) };`
+// the tail of a block in an extending position is extending too, so `Make(1)` lives as
+// long as `r` and is dropped at the end of `Main`'s block, after `r`'s later uses and in
+// reverse order of creation with the other extended temporaries; the block's own locals
+// are dropped when it ends.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+fn Main() {
+    let r = { &Make(1) };
+    PrintLine(r.V + 10);
+    let s = { let _x = Make(2); { &Make(3) } };
+    PrintLine(s.V + 10);
+    let m = { &mut Make(4) };
+    m.V += 1;
+    PrintLine(m.V);
+    let t = ({ &Make(6) }, 7);
+    PrintLine(t.0.V + t.1);
+    let (f, g) = { (&Make(8), 9) };
+    let (ref h, _) = { (Make(10), &Make(11)) };
+    PrintLine(f.V + g + h.V);
+    let mut i = 0;
+    while i < 2 {
+        let q = { &Make(20 + i) };
+        PrintLine(q.V + 10);
+        i += 1;
+    }
+    PrintLine(0);
+}

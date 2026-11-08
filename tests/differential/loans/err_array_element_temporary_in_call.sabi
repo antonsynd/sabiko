@@ -1,0 +1,16 @@
+// The elements of an array passed to a function are not extending (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn First(a: [&D; 2]) -> &D {
+    a[0]
+}
+
+fn Main() {
+    let r = First([&Make(1), &Make(2)]);
+    PrintLine(r.V);
+}

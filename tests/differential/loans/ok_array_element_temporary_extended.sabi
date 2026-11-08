@@ -1,0 +1,12 @@
+// The elements of an array in an extending position extend their temporaries (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let a = [&Make(1), &Make(2)];
+    PrintLine(a[0].V + a[1].V);
+}

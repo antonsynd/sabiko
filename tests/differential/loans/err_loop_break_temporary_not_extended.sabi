@@ -1,0 +1,15 @@
+// `break &e` is not an extending position: the loop's value borrows a temporary that
+// dies with the `break` statement (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let r = loop {
+        break &Make(1);
+    };
+    PrintLine(r.V);
+}

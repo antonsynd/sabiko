@@ -1460,6 +1460,7 @@ impl<'a> BodyGen<'a> {
             if has_arrays { 7 } else { 0 }, // 28 let m = &mut a[i..j]
             8,                           // 29 let rr = &r; let m = &mut r;
             6,                           // 30 destructuring assignment
+            5,                           // 31 let r = { &e }; if c { &a } else { &b }
         ];
         match self.rng.weighted(&weights) {
             0 => self.stmt_let(depth),
@@ -1504,6 +1505,7 @@ impl<'a> BodyGen<'a> {
             28 => self.stmt_range_ref(depth),
             29 => self.stmt_let_ref_ref(depth),
             30 => self.stmt_assign_destructure(depth),
+            31 => self.stmt_let_extended(depth),
             _ => {
                 let c = self.prim_expr(Prim::Bool, 1);
                 self.line(&format!("if {} {{ Panic(\"generated panic\"); }}", c.text));

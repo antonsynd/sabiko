@@ -923,3 +923,45 @@ fn programs_use_arrays_of_references() {
         "of {SEEDS} programs: {any} index an array of references (expected 100), {ranged} a range of one (expected 15)"
     );
 }
+
+/// Whether `line` binds a reference to a temporary extended through a block's tail, an
+/// `if`'s branches or a `match`'s arms (#88): `let r = { &e };`, `let r = if c { &a } else
+/// { &b };`, `let r = match n { 0 => &a, _ => { &b } };`.
+fn extended_borrow(line: &str) -> Option<&'static str> {
+    let l = line.trim_start();
+    if !l.starts_with("let ") {
+        return None;
+    }
+    let (_, init) = l.split_once(" = ")?;
+    if init.starts_with("{ &") || init.starts_with("{ { &") {
+        Some("block")
+    } else if init.starts_with("if ") && init.contains(" { &") && init.contains("} else { &") {
+        Some("if")
+    } else if init.starts_with("match ") && init.contains("{ 0 => &") {
+        Some("match")
+    } else {
+        None
+    }
+}
+
+/// The generator borrows temporaries in extending positions under blocks, `if`s and
+/// `match`es (#88). Counted in 500 programs: 121 blocks, 111 `if`s, 66 `match`es.
+#[test]
+fn programs_extend_temporaries_through_blocks_and_branches() {
+    let knobs = Knobs::default();
+    let (mut block, mut branch, mut arm) = (0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        let kinds: Vec<&str> = src.lines().filter_map(extended_borrow).collect();
+        block += usize::from(kinds.contains(&"block"));
+        branch += usize::from(kinds.contains(&"if"));
+        arm += usize::from(kinds.contains(&"match"));
+    }
+    eprintln!(
+        "of {SEEDS} programs: {block} extend through a block, {branch} an `if`, {arm} a `match`"
+    );
+    assert!(
+        block >= 90 && branch >= 80 && arm >= 45,
+        "of {SEEDS} programs: {block} extend through a block (expected 90), {branch} an `if` (expected 80), {arm} a `match` (expected 45)"
+    );
+}

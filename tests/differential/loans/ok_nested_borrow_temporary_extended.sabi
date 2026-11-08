@@ -1,0 +1,14 @@
+// The operand of an extending `&` is extending: `&&Make(1)` and `&{ &Make(2) }` keep both
+// temporaries (#58, #88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let a = &&Make(1);
+    let b = &{ &Make(2) };
+    PrintLine(a.V + b.V);
+}

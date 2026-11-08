@@ -1,0 +1,13 @@
+// Both branches of an `if` in an extending position extend their temporaries (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let c = true;
+    let r = if c { &Make(1) } else { &Make(2) };
+    PrintLine(r.V);
+}

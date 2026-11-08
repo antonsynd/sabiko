@@ -1,0 +1,31 @@
+// A panic in the middle of a `let` initialiser whose block tail and branches extend
+// temporaries (#88): the ones already made are dropped, the one on the other branch
+// never existed, and the binding is never initialised.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+fn Boom(v: i32) -> i32 {
+    if v > 0 {
+        Panic("boom");
+    }
+    v
+}
+
+fn Main() {
+    let _g = Make(0);
+    let c = true;
+    let r = {
+        let _x = Make(1);
+        (if c { &Make(2) } else { &Make(3) }, &Make(4), Boom(1), &Make(5))
+    };
+    PrintLine(r.0.V);
+}

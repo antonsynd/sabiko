@@ -1,0 +1,199 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/extended_temporaries.sabi
+---
+fn D::drop(_1: &mut D) {
+    let mut _0: ();
+    let mut _2: ();
+    let mut _3: i32;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = PrintLine(copy (*_1).Id) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_2);
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Make(_1: i32) -> D {
+    let mut _0: D;
+    let mut _2: i32;
+
+    bb0: {
+        _0 = D { Id: copy _1 };
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Tail() {
+    let mut _0: ();
+    let _1: &D;                          // r
+    let mut _2: D;
+    let _3: D;                           // _x
+    let mut _4: ();
+    let mut _5: i32;
+    let mut _6: bool;
+    cleanup c0: _2 => drop(_2) if _6;
+    cleanup c1 in c0: _3 => drop(_3);
+
+    bb0 (cleanup c0): {
+        StorageLive(_1);
+        StorageLive(_2);
+        _6 = const false;
+        StorageLive(_3);
+        _3 = Make(const 1_i32) -> bb1;
+    }
+
+    bb1 (cleanup c1): {
+        _2 = Make(const 2_i32) -> bb7;
+    }
+
+    bb2 (cleanup c1): {
+        _1 = &_2;
+        goto -> bb8;
+    }
+
+    bb3 (cleanup c0): {
+        StorageDead(_3);
+        StorageLive(_4);
+        _4 = PrintLine(copy (*_1).Id) -> bb4;
+    }
+
+    bb4 (cleanup c0): {
+        StorageDead(_4);
+        _0 = const ();
+        StorageDead(_1);
+        goto -> bb9;
+    }
+
+    bb5: {
+        StorageDead(_2);
+        _6 = const false;
+        goto -> bb6;
+    }
+
+    bb6: {
+        return;
+    }
+
+    bb7 (cleanup c1): {
+        _6 = const true;
+        goto -> bb2;
+    }
+
+    bb8 (cleanup c0): {
+        drop(_3) -> bb3;
+    }
+
+    bb9: {
+        drop(_2) -> bb5;
+    }
+}
+
+fn Branches(_1: bool) {
+    let mut _0: ();
+    let _2: &D;                          // r
+    let mut _3: D;
+    let mut _4: D;
+    let mut _5: bool;
+    let mut _6: ();
+    let mut _7: i32;
+    let mut _8: bool;
+    let mut _9: bool;
+    cleanup c0: _3 => drop(_3) if _8;
+    cleanup c1 in c0: _4 => nothing;
+
+    bb0 (cleanup c1): {
+        StorageLive(_2);
+        StorageLive(_3);
+        _8 = const false;
+        StorageLive(_4);
+        _9 = const false;
+        switchInt(copy _1) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1 (cleanup c1): {
+        _3 = Make(const 1_i32) -> bb10;
+    }
+
+    bb2 (cleanup c1): {
+        _4 = Make(const 2_i32) -> bb11;
+    }
+
+    bb3 (cleanup c1): {
+        _2 = &_3;
+        goto -> bb5;
+    }
+
+    bb4 (cleanup c1): {
+        _2 = &_4;
+        goto -> bb5;
+    }
+
+    bb5 (cleanup c1): {
+        StorageLive(_6);
+        _6 = PrintLine(copy (*_2).Id) -> bb6;
+    }
+
+    bb6 (cleanup c1): {
+        StorageDead(_6);
+        _0 = const ();
+        StorageDead(_2);
+        goto -> bb13;
+    }
+
+    bb7: {
+        StorageDead(_4);
+        _9 = const false;
+        goto -> bb15;
+    }
+
+    bb8: {
+        StorageDead(_3);
+        _8 = const false;
+        goto -> bb9;
+    }
+
+    bb9: {
+        return;
+    }
+
+    bb10 (cleanup c1): {
+        _8 = const true;
+        goto -> bb3;
+    }
+
+    bb11 (cleanup c1): {
+        _9 = const true;
+        goto -> bb4;
+    }
+
+    bb12 (cleanup c0): {
+        drop(_4) -> bb7;
+    }
+
+    bb13 (cleanup c0): {
+        switchInt(copy _9) -> [0: bb7, otherwise: bb12];
+    }
+
+    bb14: {
+        drop(_3) -> bb8;
+    }
+
+    bb15: {
+        switchInt(copy _8) -> [0: bb8, otherwise: bb14];
+    }
+}

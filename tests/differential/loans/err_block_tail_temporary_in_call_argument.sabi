@@ -1,0 +1,17 @@
+// A block's tail is extending only where the block is: as a call argument it is not,
+// so the temporary dies at the end of the `let` statement (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Id(r: &D) -> &D {
+    r
+}
+
+fn Main() {
+    let r = Id({ &Make(1) });
+    PrintLine(r.V);
+}
