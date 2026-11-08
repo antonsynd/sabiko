@@ -65,6 +65,7 @@ fn one_block_body() -> (Body, Local) {
     let body = Body {
         def: DefId(0),
         name: "F".to_owned(),
+        instance: Vec::new(),
         locals: vec![
             decl(Ty::Unit, LocalKind::Return, None),
             decl(Ty::I32, LocalKind::User, Some("x")),

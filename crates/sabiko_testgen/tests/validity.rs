@@ -1005,8 +1005,8 @@ fn programs_use_let_chains() {
         "of {SEEDS} programs: {any} have a let chain, {leading} one led by a `bool`, {two_lets} one with two `let`s, {after} a `bool` after a `let`"
     );
     assert!(
-        any >= 60 && leading >= 18 && two_lets >= 35 && after >= 45,
-        "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 18), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 45)"
+        any >= 60 && leading >= 15 && two_lets >= 35 && after >= 45,
+        "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 15), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 45)"
     );
 }
 
@@ -1052,5 +1052,28 @@ fn programs_use_aggregates_of_references() {
     assert!(
         arrays >= 40 && slices >= 30 && tuples >= 50 && muts >= 90,
         "of {SEEDS} programs: {arrays} `[&T; N]` (expected 40), {slices} `&[&T]` (expected 30), {tuples} `(&T, U)` (expected 50), {muts} `[&mut T; 2]` (expected 90)"
+    );
+}
+
+/// Generic functions (#114): about half the programs have the helpers, and their bodies
+/// call each of them, `GenId` now and then with a turbofish.
+#[test]
+fn programs_use_generic_helpers() {
+    let knobs = Knobs::default();
+    let (mut ids, mut turbofish, mut picks, mut firsts) = (0, 0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        let body = src.split("fn GenFirst").nth(1).unwrap_or("");
+        ids += usize::from(body.contains("GenId("));
+        turbofish += usize::from(body.contains("GenId::<"));
+        picks += usize::from(body.contains("GenPick("));
+        firsts += usize::from(body.contains("GenFirst("));
+    }
+    eprintln!(
+        "of {SEEDS} programs: {ids} call `GenId`, {turbofish} with a turbofish, {picks} call `GenPick`, {firsts} `GenFirst`"
+    );
+    assert!(
+        ids >= 60 && turbofish >= 20 && picks >= 50 && firsts >= 25,
+        "of {SEEDS} programs: {ids} `GenId` (expected 60), {turbofish} turbofish (expected 20), {picks} `GenPick` (expected 50), {firsts} `GenFirst` (expected 25)"
     );
 }

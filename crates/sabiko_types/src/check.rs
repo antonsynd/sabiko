@@ -37,6 +37,10 @@ pub struct MethodCallee {
     pub autoref: Option<Mutability>,
 }
 
+/// A use of a generic function in a body: its generic arguments (inference variables
+/// until the body is done), the function, and the span of the use.
+type GenericUse = (Vec<Ty>, DefId, Span);
+
 /// Per-body results, with every inference variable resolved.
 #[derive(Clone, Debug, Default)]
 pub struct BodyTypes {
@@ -59,6 +63,11 @@ pub struct BodyTypes {
     pub coerced_tuples: HashSet<NodeId>,
     /// The callee of every method call, keyed by the `ExprKind::MethodCall` node.
     pub method_calls: HashMap<NodeId, MethodCallee>,
+    /// The generic arguments of each use of a generic function, one per type parameter:
+    /// keyed by the callee's `ExprKind::Path` node for a call, by the
+    /// `ExprKind::MethodCall` node for a method call. Absent for a function that is not
+    /// generic.
+    pub generic_args: HashMap<NodeId, Vec<Ty>>,
     /// The type of the value each pattern node is matched against, before it looks
     /// through references (see `pat_derefs`), keyed by the `Pat` node.
     pub pat_types: HashMap<NodeId, Ty>,
@@ -172,6 +181,9 @@ pub(crate) struct FnCtxt<'a> {
     ref_bindings: HashMap<NodeId, Mutability>,
     coerced_tuples: HashSet<NodeId>,
     method_calls: HashMap<NodeId, MethodCallee>,
+    /// See [`BodyTypes::generic_args`]; with the function and the span to report an
+    /// argument that inference leaves unknown at.
+    generic_args: HashMap<NodeId, GenericUse>,
     pat_types: HashMap<NodeId, Ty>,
     pat_variants: HashMap<NodeId, (DefId, usize)>,
     variant_exprs: HashMap<NodeId, (DefId, usize)>,
@@ -242,6 +254,7 @@ impl<'a> FnCtxt<'a> {
             ref_bindings: HashMap::new(),
             coerced_tuples: HashSet::new(),
             method_calls: HashMap::new(),
+            generic_args: HashMap::new(),
             pat_types: HashMap::new(),
             pat_variants: HashMap::new(),
             variant_exprs: HashMap::new(),
@@ -686,8 +699,9 @@ impl<'a> FnCtxt<'a> {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                generic_args,
                 args,
-            } => self.check_method_call(expr, receiver, method, args),
+            } => self.check_method_call(expr, receiver, method, generic_args.as_deref(), args),
             ExprKind::Field(base, name) => {
                 let base_ty = self.check_expr(base, None);
                 self.check_field(expr, &base_ty, &name.name, name.span)
@@ -1839,7 +1853,11 @@ impl<'a> FnCtxt<'a> {
                             );
                             return Ty::Error;
                         }
+                        self.instantiate(expr.id, d, path, expr.span);
                         Ty::FnDef(d)
+                    }
+                    DefKind::TyParam => {
+                        unreachable!("the resolver rejects a type parameter as a value")
                     }
                     DefKind::Const => self.items.const_ty(d).clone(),
                     DefKind::Variant => {
@@ -2421,6 +2439,38 @@ impl<'a> FnCtxt<'a> {
         ty
     }
 
+    /// Records the generic arguments of a use of the function `def` at node `id`: the
+    /// turbofish's (`_` a fresh variable), or a fresh inference variable per type parameter.
+    /// Nothing for a function that is not generic.
+    fn instantiate(&mut self, id: NodeId, def: DefId, path: &sabiko_ast::Path, span: Span) {
+        if self.items.builtin(def).is_some() {
+            return;
+        }
+        let count = self.items.fn_sig(def).generics.len();
+        if count == 0 {
+            return;
+        }
+        // The resolver reported a turbofish of the wrong length; inference fills in.
+        let args = match path.args_of(path.segments.len() - 1) {
+            Some(written) if written.args.len() == count => {
+                written.args.iter().map(|t| self.lower_type(t)).collect()
+            }
+            _ => (0..count)
+                .map(|_| self.infer.new_var(VarKind::General))
+                .collect(),
+        };
+        self.generic_args.insert(id, (args, def, span));
+    }
+
+    /// The generic arguments recorded for the use at node `id` (empty when the function is
+    /// not generic).
+    fn args_of_use(&self, id: NodeId) -> Vec<Ty> {
+        self.generic_args
+            .get(&id)
+            .map(|(args, _, _)| args.clone())
+            .unwrap_or_default()
+    }
+
     #[allow(clippy::too_many_lines)]
     fn check_call(&mut self, id: NodeId, callee: &Expr, args: &[Expr], span: Span) -> Ty {
         let target = strip_parens(callee);
@@ -2511,7 +2561,10 @@ impl<'a> FnCtxt<'a> {
             }
             return Ty::Error;
         }
-        let sig = self.items.fn_sig(def).clone();
+        let mut sig = self.items.fn_sig(def).clone();
+        let generic_args = self.args_of_use(target.id);
+        sig.inputs = sig.inputs_with(&generic_args);
+        sig.output = sig.output_with(&generic_args);
         if sig.inputs.len() != args.len() {
             let d = Self::wrong_arg_count("function", sig.inputs.len(), args.len(), span);
             let name = self.resolve.def(def).name.clone();
@@ -2541,6 +2594,7 @@ impl<'a> FnCtxt<'a> {
         expr: &Expr,
         receiver: &Expr,
         method: &sabiko_ast::Ident,
+        turbofish: Option<&sabiko_ast::GenericArgs>,
         args: &[Expr],
     ) -> Ty {
         // `(*s).len()` measures a slice place; any other method of a slice is reported by
@@ -2556,7 +2610,47 @@ impl<'a> FnCtxt<'a> {
             }
             return Ty::Error;
         };
-        let sig = self.items.fn_sig(callee.def).clone();
+        let mut sig = self.items.fn_sig(callee.def).clone();
+        let count = sig.generics.len();
+        let generic_args: Vec<Ty> = match turbofish {
+            Some(written) if written.args.len() == count => {
+                written.args.iter().map(|t| self.lower_type(t)).collect()
+            }
+            written => {
+                if let Some(written) = written {
+                    let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+                    let got = written.args.len();
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::WRONG_GENERIC_ARG_COUNT,
+                            format!(
+                                "method takes {count} generic {} but {got} generic {} {} supplied",
+                                plural(count),
+                                plural(got),
+                                if got == 1 { "was" } else { "were" }
+                            ),
+                        )
+                        .with_label(
+                            written.span,
+                            format!("expected {count} generic {}", plural(count)),
+                        )
+                        .with_label(
+                            sig.name_span,
+                            format!("method `{}` defined here", method.name),
+                        ),
+                    );
+                }
+                (0..count)
+                    .map(|_| self.infer.new_var(VarKind::General))
+                    .collect()
+            }
+        };
+        if count > 0 {
+            self.generic_args
+                .insert(expr.id, (generic_args.clone(), callee.def, method.span));
+            sig.inputs = sig.inputs_with(&generic_args);
+            sig.output = sig.output_with(&generic_args);
+        }
         let params = &sig.inputs[1..];
         if params.len() != args.len() {
             let d = Self::wrong_arg_count("method", params.len(), args.len(), expr.span)
@@ -3191,6 +3285,42 @@ impl<'a> FnCtxt<'a> {
         expr_types
     }
 
+    /// The generic arguments of every use of a generic function, resolved; an argument
+    /// inference left unknown is E0313 (rustc's E0282) at the use, and an error type.
+    fn resolve_generic_args(&mut self) -> HashMap<NodeId, Vec<Ty>> {
+        let mut uses: Vec<(NodeId, GenericUse)> =
+            std::mem::take(&mut self.generic_args).into_iter().collect();
+        uses.sort_by_key(|(_, (_, _, span))| (span.start, span.end));
+        let mut out = HashMap::new();
+        for (id, (args, def, span)) in uses {
+            let mut resolved = Vec::new();
+            for (i, arg) in args.iter().enumerate() {
+                let mut t = self.infer.resolve_with_defaults(arg);
+                if t.has_infer() {
+                    let param = self.items.fn_sig(def).generics[i];
+                    let param_name = self.resolve.def(param).name.clone();
+                    let fn_name = self.resolve.def(def).name.clone();
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(
+                            span,
+                            format!("cannot infer type of the type parameter `{param_name}` declared on the function `{fn_name}`"),
+                        )
+                        .with_note(format!("specify it with a turbofish: `{fn_name}::<..>`")),
+                    );
+                    self.infer.bind_error(&t);
+                    t = Ty::Error;
+                }
+                resolved.push(t);
+            }
+            out.insert(id, resolved);
+        }
+        out
+    }
+
     fn finish(mut self) -> BodyTypes {
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
@@ -3225,6 +3355,7 @@ impl<'a> FnCtxt<'a> {
             }
             local_types.insert(id, t);
         }
+        let generic_args = self.resolve_generic_args();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let mut t = self.infer.resolve_with_defaults(&ty);
@@ -3287,6 +3418,7 @@ impl<'a> FnCtxt<'a> {
             ref_bindings: self.ref_bindings,
             coerced_tuples: self.coerced_tuples,
             method_calls: self.method_calls,
+            generic_args,
             pat_types,
             pat_variants: self.pat_variants,
             variant_exprs: self.variant_exprs,

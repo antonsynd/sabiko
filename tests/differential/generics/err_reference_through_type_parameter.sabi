@@ -1,0 +1,11 @@
+// A reference passed through `T` keeps its loan: `Id(&y)` borrows `y` (T = &i32).
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Main() {
+    let mut y = 4;
+    let r = Id(&y);
+    y = 5;
+    PrintLine(*r);
+}

@@ -300,7 +300,19 @@ pub struct Program {
     pub arrays: Vec<ArrayDef>,
     pub consts: Vec<ConstDef>,
     pub fns: Vec<FnSig>,
+    /// Whether the program has the generic helpers [`GENERIC_HELPERS`] (#114), which
+    /// bodies wrap expressions in.
+    pub generics: bool,
 }
+
+/// Generic functions (#114) that the bodies of a program with [`Program::generics`] wrap
+/// expressions in. Each is transparent to the scope model: `GenId(e)` is `e`, `GenPick(c,
+/// a, b)` evaluates (and moves) both `a` and `b` like a tuple literal and returns one of
+/// them, dropping the other, and `GenFirst(r)` returns the shared reference `r`, with its
+/// loans. One line each, at column 0, so no statement is ever inserted into them.
+pub const GENERIC_HELPERS: &str = "fn GenId<T>(x: T) -> T { x }\n\
+fn GenPick<T>(c: bool, a: T, b: T) -> T { if c { a } else { b } }\n\
+fn GenFirst<T>(x: &T) -> &T { x }\n";
 
 impl Program {
     pub fn is_copy(&self, ty: Ty) -> bool {
@@ -604,6 +616,10 @@ impl Program {
             let _ = writeln!(out, "const {}: {} = {};", c.name, c.ty.name(), c.init);
         }
         if !self.consts.is_empty() {
+            out.push('\n');
+        }
+        if self.generics {
+            out.push_str(GENERIC_HELPERS);
             out.push('\n');
         }
         out
@@ -1517,6 +1533,7 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
         arrays: Vec::new(),
         consts: Vec::new(),
         fns: Vec::new(),
+        generics: false,
     };
     program.consts = gen_consts(rng, knobs);
     let count = rng.index(knobs.max_tuples / 2 + 1);
@@ -1547,6 +1564,7 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
         let sig = gen_sig(rng, &program, name, is_main, method);
         program.fns.push(sig);
     }
+    program.generics = rng.chance(50);
     program
 }
 

@@ -58,6 +58,10 @@ pub enum Ty {
     Slice(Box<Ty>),
     /// The zero-sized type of a function item; only callable.
     FnDef(DefId),
+    /// A generic type parameter (its definition), in the signature and body of the
+    /// function that declares it. Monomorphisation substitutes it before code generation
+    /// (decision 82), so no later stage than borrow checking sees one.
+    Param(DefId),
     Infer(TyVid),
     /// Produced after an error was reported; unifies with everything silently.
     Error,
@@ -137,7 +141,44 @@ impl Ty {
             Ty::Ref(m, _) => !m.is_mut(),
             Ty::Tuple(elems) => elems.iter().all(Ty::is_copy),
             Ty::Array(elem, _) => elem.is_copy(),
-            Ty::Adt(_) | Ty::Slice(_) | Ty::Infer(_) => false,
+            // A type parameter has no bounds yet, so nothing makes it `Copy` (rustc).
+            Ty::Adt(_) | Ty::Slice(_) | Ty::Infer(_) | Ty::Param(_) => false,
+        }
+    }
+
+    /// Whether the type mentions a type parameter.
+    #[must_use]
+    pub fn has_param(&self) -> bool {
+        match self {
+            Ty::Param(_) => true,
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => inner.has_param(),
+            Ty::Tuple(elems) => elems.iter().any(Ty::has_param),
+            _ => false,
+        }
+    }
+
+    /// The type with each parameter `params[i]` replaced by `args[i]`; parameters not in
+    /// `params` stay.
+    #[must_use]
+    pub fn subst(&self, params: &[DefId], args: &[Ty]) -> Ty {
+        if params.is_empty() || !self.has_param() {
+            return self.clone();
+        }
+        self.map_params(&mut |p| params.iter().position(|&q| q == p).map(|i| args[i].clone()))
+    }
+
+    /// The type with each parameter for which `f` returns `Some` replaced.
+    #[must_use]
+    pub fn map_params(&self, f: &mut impl FnMut(DefId) -> Option<Ty>) -> Ty {
+        match self {
+            Ty::Param(p) => f(*p).unwrap_or_else(|| self.clone()),
+            Ty::Ref(m, inner) => Ty::Ref(*m, Box::new(inner.map_params(f))),
+            Ty::Array(inner, n) => Ty::Array(Box::new(inner.map_params(f)), *n),
+            Ty::Slice(inner) => Ty::Slice(Box::new(inner.map_params(f))),
+            Ty::Tuple(elems) => {
+                Ty::Tuple(Box::new(elems.iter().map(|e| e.map_params(f)).collect()))
+            }
+            _ => self.clone(),
         }
     }
 
@@ -176,7 +217,7 @@ impl Ty {
             Ty::Prim(p) => out.push_str(p.name()),
             Ty::Unit => out.push_str("()"),
             Ty::Never => out.push('!'),
-            Ty::Adt(d) => out.push_str(&resolve.def(*d).name),
+            Ty::Adt(d) | Ty::Param(d) => out.push_str(&resolve.def(*d).name),
             Ty::Ref(m, inner) => {
                 out.push('&');
                 out.push_str(m.prefix_str());

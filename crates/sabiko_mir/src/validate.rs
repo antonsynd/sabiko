@@ -704,6 +704,7 @@ impl Validator<'_> {
             }
             TerminatorKind::Call {
                 func,
+                generic_args,
                 args,
                 destination,
                 target,
@@ -714,7 +715,20 @@ impl Validator<'_> {
                     self.print_call(bb, builtin, args, destination, *target);
                     return;
                 }
-                let sig = self.typeck.items.fn_sig(*func).clone();
+                let mut sig = self.typeck.items.fn_sig(*func).clone();
+                if generic_args.len() != sig.generics.len() {
+                    self.err(
+                        bb,
+                        format!(
+                            "call passes {} generic arguments to a function taking {}",
+                            generic_args.len(),
+                            sig.generics.len()
+                        ),
+                    );
+                    return;
+                }
+                sig.inputs = sig.inputs_with(generic_args);
+                sig.output = sig.output_with(generic_args);
                 if sig.inputs.len() != args.len() {
                     self.err(
                         bb,

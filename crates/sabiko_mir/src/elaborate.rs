@@ -147,7 +147,9 @@ impl DropPaths {
                 self.leaf_nodes.push(index);
                 return index;
             }
-            Ty::Array(..) => {
+            // A type parameter is opaque: dropped whole (only the lints elaborate a generic
+            // body; code generation sees its instances, decision 82).
+            Ty::Array(..) | Ty::Param(_) => {
                 self.nodes[index].leaf = Some(self.leaf_nodes.len());
                 self.leaf_nodes.push(index);
                 return index;
@@ -872,6 +874,7 @@ impl Rewriter<'_> {
         match kind {
             TerminatorKind::Call {
                 func,
+                generic_args,
                 args,
                 destination,
                 target,
@@ -920,6 +923,7 @@ impl Rewriter<'_> {
                 };
                 TerminatorKind::Call {
                     func,
+                    generic_args,
                     args,
                     destination,
                     target,

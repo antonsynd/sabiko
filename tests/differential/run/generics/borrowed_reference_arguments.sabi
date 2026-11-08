@@ -1,0 +1,27 @@
+// A generic body borrowing a value of a type parameter instantiated with a reference: the
+// instance holds a reference to a reference (decision 64's wrappers after monomorphisation).
+fn Keep<T>(x: T) -> T {
+    let r = &x;
+    let s = &r;
+    let _t = s;
+    x
+}
+
+fn Deref<T>(x: &T) -> &T {
+    let r = &x;
+    *r
+}
+
+fn Main() {
+    let a = 7;
+    let k = Keep(&a);
+    PrintLine(*k);
+    let ra = &a;
+    let m = Keep(&ra);
+    PrintLine(**m);
+    PrintLine(*Deref(&a));
+    let mut b = 1;
+    let mb = Keep(&mut b);
+    *mb = 9;
+    PrintLine(b);
+}

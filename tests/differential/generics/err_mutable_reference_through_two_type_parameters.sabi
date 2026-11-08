@@ -1,0 +1,10 @@
+// Two generic arguments, each a `&mut` of the same place: both live at once.
+fn Pair<A, B>(a: A, b: B) -> (A, B) {
+    (a, b)
+}
+
+fn Main() {
+    let mut v = 1;
+    let p = Pair(&mut v, &mut v);
+    *p.0 = 2;
+}

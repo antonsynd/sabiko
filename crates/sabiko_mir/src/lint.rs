@@ -595,7 +595,8 @@ impl<'a> Lints<'a> {
                     fields(&mut adt.fields.iter().map(|f| &f.ty))?
                 }
             }
-            Ty::Slice(_) | Ty::Infer(_) | Ty::Error => return None,
+            // A type parameter's layout is unknown until monomorphisation.
+            Ty::Slice(_) | Ty::Param(_) | Ty::Infer(_) | Ty::Error => return None,
         })
     }
 

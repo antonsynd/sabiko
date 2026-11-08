@@ -1,0 +1,39 @@
+// Values of a type parameter instantiated with a `Drop` type are dropped by the
+// instance: at the end of their scope, when overwritten, and not after a move.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Consume<T>(x: T) {
+    PrintLine("consume");
+}
+
+fn Keep<T>(x: T, y: T) -> T {
+    PrintLine("keep");
+    x
+}
+
+fn Replace<T>(x: T, y: T) -> T {
+    let mut v = x;
+    v = y;
+    PrintLine("replaced");
+    v
+}
+
+fn Main() {
+    Consume(Noisy { Id: 1 });
+    let k = Keep(Noisy { Id: 2 }, Noisy { Id: 3 });
+    PrintLine(k.Id);
+    let r = Replace(Noisy { Id: 4 }, Noisy { Id: 5 });
+    PrintLine(r.Id);
+    Consume(5);
+    let pair = Keep((Noisy { Id: 6 }, 1), (Noisy { Id: 7 }, 2));
+    PrintLine(pair.1);
+}

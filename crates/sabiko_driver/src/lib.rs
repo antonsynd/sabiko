@@ -181,7 +181,11 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                 }
                                 if options.emit == Emit::MirElaborated && !sink.has_errors() {
                                     // After borrow checking, which sees the drops as built
-                                    // (decision 55).
+                                    // (decision 55), and on the instances of generic
+                                    // functions (decision 82).
+                                    bodies = sabiko_mir::mono::monomorphize(
+                                        bodies, &resolve, &typeck, &mut sink,
+                                    );
                                     sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
                                     check_mir(&bodies, &typeck, &mut sink);
                                     sabiko_mir::simplify::simplify_all(&mut bodies);
@@ -191,36 +195,15 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                     );
                                 }
                                 if options.emit == Emit::Il && !sink.has_errors() {
-                                    // rustc runs these lints only when it generates code.
-                                    let lints = sabiko_mir::lint::LintOptions {
-                                        overflow_checks: options.overflow_checks,
-                                        allowed: options.allowed_lints,
-                                    };
-                                    sabiko_mir::lint::check_all(
-                                        &bodies, &typeck, &lints, &mut sink,
-                                    );
-                                }
-                                if options.emit == Emit::Il && !sink.has_errors() {
-                                    // After borrow checking, which sees the drops as built
-                                    // (decision 55) and needs every copy MIR building
-                                    // made (decisions 36 and 51).
-                                    let failures =
-                                        sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
-                                    report_invalid_mir(failures, &mut sink);
-                                    let codegen = sabiko_codegen::Options {
-                                        assembly_name: assembly_name(name),
-                                        kind: options.output_kind,
-                                        overflow_checks: options.overflow_checks,
-                                    };
-                                    output = sabiko_codegen::emit_il(
-                                        &bodies,
+                                    output = lint_and_emit_il(
+                                        bodies,
                                         &resolve,
                                         &typeck,
                                         &source_map,
-                                        &codegen,
+                                        name,
+                                        options,
                                         &mut sink,
-                                    )
-                                    .unwrap_or_default();
+                                    );
                                 }
                             }
                         }
@@ -237,6 +220,46 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
         diagnostics,
         output,
     }
+}
+
+/// The end of the pipeline for `--emit=il` (and assemblies): rustc's constant-propagation
+/// lints, which rustc runs only when it generates code, then monomorphisation (decision
+/// 82), the lowering passes and code generation. Empty when a step reports errors.
+fn lint_and_emit_il(
+    mut bodies: Vec<sabiko_mir::Body>,
+    resolve: &sabiko_resolve::ResolveResults,
+    typeck: &sabiko_types::TypeckResults,
+    source_map: &SourceMap,
+    name: &str,
+    options: Options,
+    sink: &mut DiagnosticSink,
+) -> String {
+    let lints = sabiko_mir::lint::LintOptions {
+        overflow_checks: options.overflow_checks,
+        allowed: options.allowed_lints,
+    };
+    sabiko_mir::lint::check_all(&bodies, typeck, &lints, sink);
+    if sink.has_errors() {
+        return String::new();
+    }
+    // Code is generated for the instances of generic functions, not for their generic
+    // bodies (decision 82).
+    bodies = sabiko_mir::mono::monomorphize(bodies, resolve, typeck, sink);
+    check_mir(&bodies, typeck, sink);
+    if sink.has_errors() {
+        return String::new();
+    }
+    // After borrow checking, which sees the drops as built (decision 55) and needs every
+    // copy MIR building made (decisions 36 and 51).
+    let failures = sabiko_mir::lower_for_codegen(&mut bodies, typeck);
+    report_invalid_mir(failures, sink);
+    let codegen = sabiko_codegen::Options {
+        assembly_name: assembly_name(name),
+        kind: options.output_kind,
+        overflow_checks: options.overflow_checks,
+    };
+    sabiko_codegen::emit_il(&bodies, resolve, typeck, source_map, &codegen, sink)
+        .unwrap_or_default()
 }
 
 /// The assembly name for a source file: its file stem (`dir/hello.sabi` gives `hello`).

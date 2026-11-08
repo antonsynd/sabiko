@@ -1,0 +1,6 @@
+// A reference to a local of type `T` cannot be returned.
+fn Get<T>(x: T, r: &T) -> &T {
+    let _k = r;
+    let t = x;
+    &t
+}

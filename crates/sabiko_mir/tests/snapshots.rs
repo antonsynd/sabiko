@@ -34,9 +34,9 @@ fn fixtures() {
     });
 }
 
-/// The same fixtures after drop elaboration (decision 55), simplification and copy
-/// forwarding (decision 51), which the driver runs after borrow checking and before code
-/// generation (it then also strips the storage markers).
+/// The same fixtures after monomorphisation (decision 82), drop elaboration (decision 55),
+/// simplification and copy forwarding (decision 51), which the driver runs after borrow
+/// checking and before code generation (it then also strips the storage markers).
 #[test]
 fn fixtures_forwarded() {
     insta::glob!("fixtures/*.sabi", |path| {
@@ -48,7 +48,8 @@ fn fixtures_forwarded() {
         let ast = sabiko_parser::parse_file(id, &src, &mut sink);
         let resolve = sabiko_resolve::resolve(&ast, &mut sink);
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
-        let mut bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
+        let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
+        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
         sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
         sabiko_mir::simplify::simplify_all(&mut bodies);
         sabiko_mir::forward::forward_all(&mut bodies);
@@ -76,7 +77,8 @@ fn fixtures_elaborated() {
         let resolve = sabiko_resolve::resolve(&ast, &mut sink);
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(sink.diagnostics().is_empty(), "fixture must be valid");
-        let mut bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
+        let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
+        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
         sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
         let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
         assert!(

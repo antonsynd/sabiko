@@ -260,23 +260,44 @@ impl SigRegions {
 /// rules: a method taking `&self` or `&mut self` returns references with `self`'s origin,
 /// whatever its other parameters; otherwise the one origin of the parameters, if there is
 /// exactly one.
-pub fn signature_regions(sig: &FnSig, supply: &mut OriginSupply) -> SigRegions {
+///
+/// `generic_args` are a call's generic arguments (empty for a function's own signature,
+/// whose type parameters hold no reference of its body). Each argument gets its origins
+/// once, and every occurrence of its parameter shares them, as rustc's `T = &'1 i32` does:
+/// `Id::<&i32>(&y)` returns a reference with the argument's origin. Elision counts only
+/// the references the signature writes, not those of the arguments.
+pub fn signature_regions(
+    sig: &FnSig,
+    generic_args: &[Ty],
+    supply: &mut OriginSupply,
+) -> SigRegions {
+    let args: Vec<RegionTy> = generic_args
+        .iter()
+        .map(|t| RegionTy::fresh(t, supply))
+        .collect();
+    let params = Params {
+        defs: if args.is_empty() { &[] } else { &sig.generics },
+        args: &args,
+    };
     let inputs: Vec<RegionTy> = sig
         .inputs
         .iter()
-        .map(|ty| RegionTy::fresh(ty, supply))
+        .map(|ty| params.fresh(ty, supply))
         .collect();
-    let input_origins: Vec<Origin> = inputs.iter().flat_map(RegionTy::origins).collect();
+    let mut input_origins = Vec::new();
+    for (ty, region) in sig.inputs.iter().zip(&inputs) {
+        written_origins(ty, region, &mut input_origins);
+    }
     let self_origin = match (sig.self_kind, inputs.first()) {
         (Some(SelfKind::Ref { .. }), Some(RegionTy::Ref(_, origin, _))) => Some(*origin),
         _ => None,
     };
     let output = if !sig.output.has_ref() {
-        Some(RegionTy::Other)
+        Some(params.uniform(&sig.output, None))
     } else if let Some(origin) = self_origin {
-        Some(RegionTy::uniform(&sig.output, origin))
+        Some(params.uniform(&sig.output, Some(origin)))
     } else if let [single] = input_origins[..] {
-        Some(RegionTy::uniform(&sig.output, single))
+        Some(params.uniform(&sig.output, Some(single)))
     } else {
         None
     };
@@ -284,5 +305,90 @@ pub fn signature_regions(sig: &FnSig, supply: &mut OriginSupply) -> SigRegions {
         inputs,
         output,
         input_origins: input_origins.len(),
+    }
+}
+
+/// The origins of the references written in `ty` (not those a type parameter stands
+/// for), given the region type built for it.
+fn written_origins(ty: &Ty, region: &RegionTy, out: &mut Vec<Origin>) {
+    match (ty, region) {
+        (Ty::Ref(_, inner), RegionTy::Ref(_, origin, rinner)) => {
+            out.push(*origin);
+            written_origins(inner, rinner, out);
+        }
+        (Ty::Tuple(elems), RegionTy::Tuple(relems)) => {
+            for (e, r) in elems.iter().zip(relems) {
+                written_origins(e, r, out);
+            }
+        }
+        (Ty::Array(elem, _) | Ty::Slice(elem), RegionTy::Tuple(relems)) => {
+            if let Some(r) = relems.first() {
+                written_origins(elem, r, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A call's type parameters and the region types of its generic arguments.
+struct Params<'a> {
+    defs: &'a [sabiko_resolve::DefId],
+    args: &'a [RegionTy],
+}
+
+impl Params<'_> {
+    fn arg(&self, param: sabiko_resolve::DefId) -> RegionTy {
+        self.defs
+            .iter()
+            .position(|&d| d == param)
+            .map_or(RegionTy::Other, |i| self.args[i].clone())
+    }
+
+    /// Whether `ty` holds a reference, counting the arguments' references.
+    fn holds_ref(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Param(p) => !self.arg(*p).origins().is_empty(),
+            Ty::Ref(..) => true,
+            Ty::Tuple(elems) => elems.iter().any(|e| self.holds_ref(e)),
+            Ty::Array(elem, _) | Ty::Slice(elem) => self.holds_ref(elem),
+            _ => false,
+        }
+    }
+
+    /// [`RegionTy::fresh`], with each type parameter's argument region type.
+    fn fresh(&self, ty: &Ty, supply: &mut OriginSupply) -> RegionTy {
+        match ty {
+            Ty::Param(p) => self.arg(*p),
+            Ty::Ref(m, inner) => {
+                let origin = supply.fresh();
+                RegionTy::Ref(*m, origin, Box::new(self.fresh(inner, supply)))
+            }
+            Ty::Tuple(elems) if self.holds_ref(ty) => {
+                RegionTy::Tuple(elems.iter().map(|e| self.fresh(e, supply)).collect())
+            }
+            Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
+                RegionTy::Tuple(vec![self.fresh(elem, supply)])
+            }
+            _ => RegionTy::Other,
+        }
+    }
+
+    /// [`RegionTy::uniform`] with `origin` on every written reference (none when `None`:
+    /// the type writes none), and each type parameter's argument region type.
+    fn uniform(&self, ty: &Ty, origin: Option<Origin>) -> RegionTy {
+        match ty {
+            Ty::Param(p) => self.arg(*p),
+            Ty::Ref(m, inner) => match origin {
+                Some(o) => RegionTy::Ref(*m, o, Box::new(self.uniform(inner, origin))),
+                None => RegionTy::Other,
+            },
+            Ty::Tuple(elems) if self.holds_ref(ty) => {
+                RegionTy::Tuple(elems.iter().map(|e| self.uniform(e, origin)).collect())
+            }
+            Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
+                RegionTy::Tuple(vec![self.uniform(elem, origin)])
+            }
+            _ => RegionTy::Other,
+        }
     }
 }

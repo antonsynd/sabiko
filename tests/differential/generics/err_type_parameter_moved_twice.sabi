@@ -1,0 +1,4 @@
+// A `T` is not `Copy` without a bound: using it twice moves it twice.
+fn Twice<T>(x: T) -> (T, T) {
+    (x, x)
+}

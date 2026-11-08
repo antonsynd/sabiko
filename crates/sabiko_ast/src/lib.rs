@@ -28,11 +28,32 @@ pub struct Ident {
     pub span: Span,
 }
 
-/// A `::`-separated path such as `Point` or `Geometry::Scale`.
+/// A `::`-separated path such as `Point` or `Geometry::Scale`, with generic arguments
+/// on any of its segments (`Id::<i32>`, `Pair<i32, bool>`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Path {
     pub segments: Vec<Ident>,
+    /// The generic arguments written in the path, by segment, in segment order; at most
+    /// one list per segment.
+    pub generic_args: Vec<GenericArgs>,
     pub span: Span,
+}
+
+/// `<A, B>` after a path segment: `::<A, B>` in an expression, `<A, B>` in a type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GenericArgs {
+    /// The index of the segment the arguments follow.
+    pub segment: usize,
+    pub args: Vec<Type>,
+    /// From the `<` (or the `::` before it) to the `>`.
+    pub span: Span,
+}
+
+/// A generic type parameter `T` of a function (`fn Id<T>(x: T) -> T`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GenericParam {
+    pub id: NodeId,
+    pub name: Ident,
 }
 
 impl Path {
@@ -47,6 +68,23 @@ impl Path {
     #[must_use]
     pub fn is_single(&self) -> bool {
         self.segments.len() == 1
+    }
+
+    /// A path of one segment and no generic arguments.
+    #[must_use]
+    pub fn single(name: Ident) -> Self {
+        let span = name.span;
+        Self {
+            segments: vec![name],
+            generic_args: Vec::new(),
+            span,
+        }
+    }
+
+    /// The generic arguments written after segment `index`.
+    #[must_use]
+    pub fn args_of(&self, index: usize) -> Option<&GenericArgs> {
+        self.generic_args.iter().find(|a| a.segment == index)
     }
 }
 
@@ -174,6 +212,8 @@ impl SelfKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDecl {
     pub name: Ident,
+    /// `<T, U>` after the name; empty for a function that is not generic.
+    pub generics: Vec<GenericParam>,
     /// The receiver of a method; only inside an `impl` block.
     pub self_param: Option<SelfParam>,
     /// The parameters after the receiver.
@@ -450,7 +490,7 @@ pub struct Stmt {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StmtKind {
-    Let(LetStmt),
+    Let(Box<LetStmt>),
     /// An expression statement; `semi` records whether it ended with `;`. Block-like
     /// expressions (`if`, `while`, `loop`, `{}`) may omit it.
     Expr {
@@ -523,6 +563,8 @@ pub enum ExprKind {
     MethodCall {
         receiver: Box<Expr>,
         method: Ident,
+        /// `::<A, B>` after the method's name (its segment index is 0).
+        generic_args: Option<Box<GenericArgs>>,
         args: Vec<Expr>,
     },
     /// `e.Name`, or `e.0` on a tuple: the name is the index as written (`0`, `01`, `0x1`;

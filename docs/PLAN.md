@@ -27,12 +27,12 @@ started from (*Designing a Borrow-Checked CIL Language* and *Designing Ferrite*)
 | .NET reference types | Opaque `Gc<T>` handle, borrow-checked at the handle level | Explicit opt-in to GC-managed memory for interop only. |
 | Strings | `&str` = `ReadOnlySpan<char>` (Phase 5); owned `String` = native UTF-16 buffer freed deterministically (Phase 7); `System.String` only as `Gc<System::String>` with zero-copy `.as_str()` (Phase 7) | Keeps every struct `unmanaged`; C# passes `string` to `&str` implicitly; one copy, no transcoding, to produce a .NET string. |
 | Slices | `&[T]` = `ReadOnlySpan<T>`, `&mut [T]` = `Span<T>`; `[T; N]` = inline array | Bounds checks provided by the CLR. |
-| Traits | .NET interfaces; `impl Trait for S` = `S : ITrait`; bounds = generic constraints | Reified generics shared with C#; static dispatch via `constrained. callvirt`. |
+| Traits | .NET interfaces where C# needs them; bounds are checked by the compiler and calls dispatch statically to the impl (decision 82) | Monomorphisation resolves every trait call to a direct `call`. |
 | Dynamic dispatch | Only through explicit `Gc<dyn Trait>` | Boxing is never implicit. |
 | Enums | Tagged value type: `tag` field + per-variant payload fields (overlap only when all payloads are unmanaged) | Correct for generic payloads; optimise layout later. |
 | Drop | `trait Drop`; compiler inserts drops at scope end (reverse order, drop flags); each scope with something to drop on a panic path lowered as a `try`/`fault` region, a panic during unwinding aborts (decisions 55, 56) | Drops also run during panic unwinding for free. |
 | Panics | `throw Sabiko.Runtime.PanicException` | Maps onto CLR exceptions; C# can catch it. |
-| Generics | Reified .NET generics, no monomorphisation in the compiler | C# can instantiate Sabiko generics. |
+| Generics | Monomorphised in the compiler after type and borrow checking, which run once on the generic code (decision 82; supersedes reified .NET generics) | References as type arguments, traits on primitives and drops of `T` need no run-time support; every Sabiko type is a value type, so the JIT specialises each instantiation anyway. |
 | Runtime borrow checking | `Cell<T>` / `RefCell<T>` in the runtime library | For cases static checking cannot prove (async, callbacks from C#). |
 | Macros | None in v1; `Print`/`PrintLine` are prelude functions | Barebones first. |
 | Source extension | `.sabi` | Short, pronounceable, no known collisions. `.sabiko` is the fallback. |
@@ -84,8 +84,8 @@ docs/
 ```
 
 Pipeline: `source -> tokens -> AST -> resolved HIR -> typed HIR -> MIR -> (borrowck,
-drop elaboration, copy forwarding, MIR validation) -> CIL model -> .il -> ilasm ->
-.dll/.exe`.
+lints, monomorphisation, drop elaboration, copy forwarding, MIR validation) -> CIL model ->
+.il -> ilasm -> .dll/.exe`.
 
 Every MIR transformation is followed by a MIR validator pass in debug builds (as rustc
 does), so internal invariant breaks are caught at the pass that introduced them.
@@ -1241,27 +1241,55 @@ Verification
 
 ### Phase 6: Traits and generics
 
-Work
-- `core` prelude written in Sabiko, moved here from Phase 5 (decision 47): `Option`,
-  `Result`, `?` operator, `unwrap`, `expect`, and `.get(i) -> Option<&T>` on slices
-  lowered to a length check. `?` converts errors through `From` once traits exist.
-- `trait` with required methods and default methods (default methods become static
-  helper methods, since .NET interfaces on structs cannot carry state).
-- `impl Trait for Type`; coherence (one impl per trait/type pair).
-- Generic functions and structs with bounds `T: Trait`; reified generics with
-  `.NET` constraints; implicit `struct` constraint unless `T: ?Sized`-style opt out for
-  `Gc<T>`.
-- Static dispatch via `constrained. callvirt`; `dyn Trait` only through
-  `Gc<dyn Trait>` (boxing explicit).
-- Operator traits (`Add`, `Eq`, `PartialOrd`) on user types; `#[derive]` for `Copy`,
-  `Clone`, `Debug`-like `fmt`, `PartialEq`.
+Tracking issue #118. Order (decision 82 for the design):
+1. Generic functions and monomorphisation (#114). Done; see the status below.
+2. Generic structs and enums (#115): `Pair<A, B>`, `Opt<T>`, `impl<T>` blocks; an
+   instance holding a reference is a `ref struct`, as a tuple holding one is.
+3. Traits, impls and bounds (#116): `trait` with required and default methods and
+   associated constants, `impl Trait for Type` (primitives included), coherence, `T:
+   Trait` and `where`, supertraits, method resolution through bounds, `Copy`/`Clone`, and
+   `Drop` as an ordinary trait (retiring decision 46's special case). Monomorphisation
+   resolves each trait call to its impl's method.
+4. `core` prelude written in Sabiko (#13, decision 47): `Option`, `Result`, `?`, `unwrap`,
+   `expect`, and `.get(i) -> Option<&T>` on slices. `?` converts errors through `From`.
+5. Operator traits, comparisons and derives (#117): `Add`, `Sub`, ..., their `*Assign`
+   forms, `PartialEq`/`Eq`/`PartialOrd`/`Ord` on user types and in generic code,
+   arithmetic on references, `#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]`.
+
+Moved out: `dyn Trait` goes to Phase 7, with `Gc`; the C# test that implements a Sabiko
+trait goes to Phase 8, which may add opt-in reified exports (decision 82).
 
 Verification
-- UI tests: unsatisfied bound, ambiguous method, implicit boxing rejected, missing impl
-  method.
-- Interop test: C# type implementing a Sabiko trait passed to a Sabiko generic function,
-  and a Sabiko struct used where C# expects `where T : struct, ITrait`.
-- `ilverify` across generic instantiations; run-pass tests for generic containers.
+- UI tests: unsatisfied bound, ambiguous method, missing impl item, conflicting impl.
+- Run-time differential tests for generic containers and trait dispatch; ILVerify across
+  instances.
+- An interop test in which C# consumes concrete instances (`Pair<i32, bool>`,
+  `Option<i32>`).
+- Differential tests and the generator cover every new construct, or each construct the
+  generator avoids has a TODO naming its issue; mutation scores re-measured.
+
+Status (2026-11-08): generic functions (#114, decision 82). `fn F<T, U>(..)` on free
+functions and in `impl` blocks, called with inferred arguments or a turbofish (`Id::<i32>`,
+`x.M::<T>()`, `_` allowed); generic arguments parse on any path segment and after a cast,
+and the resolver reports them where nothing takes them (E0223) or in the wrong number
+(E0222), with E0221 for a duplicate parameter. A type parameter is `Ty::Param`: it unifies
+only with itself, is not `Copy` (a `T` used twice is E0406, as in rustc), cannot be
+printed or used with operators until bounds exist, matches only bindings and wildcards,
+and may have drop glue. MIR is built, borrow-checked and linted once per generic function;
+each `Call` carries its generic arguments, and the borrow checker gives each argument one
+region type that every occurrence of its parameter shares, so references flow through `T`
+(`let r = Id(&y); y = 5; *r` is E0410, as rustc's E0506). `mono::monomorphize` then
+replaces the generic bodies by the instances the non-generic functions reach, with drops,
+cleanup scopes and moves fixed for the concrete types; an endless chain of instances is
+E0502 at depth 128 or at 65536 type nodes of arguments, and a generic `Main` is E0501. Each instance is a static method named
+after it (`'Swap<bool, &i32>'`). Tests: ten compile-time programs in
+`differential/generics/`, seven run-time ones in `differential/run/generics/` (tuples,
+arrays, `&str`, `&mut` arguments, a borrowed `T = &i32`, drops and unwinding through `T`,
+generic methods), a lint one (`lints/ok_generic_functions`: each lint once per generic
+body, as rustc), UI tests in `resolve/generic_params`, `typeck/generic_functions` and the
+two codegen ones, a MIR and an IL fixture (`generics`), and the generator, whose programs
+now and then get the helpers `GenId`, `GenPick` and `GenFirst` and wrap values and shared
+references in them. Not yet: generic structs and enums (#115), bounds (#116).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

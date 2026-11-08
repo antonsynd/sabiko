@@ -1,0 +1,12 @@
+// The loan of a reference passed through `T` ends with its last use.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Main() {
+    let mut y = 4;
+    let r = Id(&y);
+    PrintLine(*r);
+    y = 5;
+    PrintLine(y);
+}

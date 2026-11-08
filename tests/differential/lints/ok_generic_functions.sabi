@@ -1,0 +1,15 @@
+// Generic functions (decision 82): the lints run once on the generic body, as rustc's do,
+// whatever the instances; a value of a type parameter is never known, and a drop of one
+// wipes nothing the lint knows.
+fn Overflow<T>(x: T) -> T { let a = 200u8; let _b = a + 100u8; x }
+fn Index<T>(x: T, n: usize) -> T { let a = [1, 2, 3]; let i = 5usize; let _v = a[i]; x }
+fn Keep<T>(x: T) -> T { let k = 3usize; let a = [1, 2]; let y = x; let _v = a[k]; y }
+fn Unused<T>(x: T) { let d = 0i32; let _q = 1i32 / d; }
+fn Twice<T>(x: T) -> (T, i32) { let n = i32::MAX; (x, n + 1) }
+fn Main() {
+    let _a = Overflow(1);
+    let _b = Overflow("s");
+    let _c = Index(2.5f64, 1);
+    let _d = Keep(true);
+    let _e = Twice('c');
+}

@@ -33,6 +33,7 @@ pub mod build;
 pub mod elaborate;
 pub mod forward;
 pub mod lint;
+pub mod mono;
 pub mod pretty;
 pub mod simplify;
 pub mod validate;
@@ -164,6 +165,11 @@ pub struct CleanupDrop {
 pub struct Body {
     pub def: DefId,
     pub name: String,
+    /// The generic arguments this body is an instance of (decision 82): empty for a
+    /// function that is not generic, and for a generic function's own body, which only
+    /// type checking, borrow checking and the lints see; set by [`mono`] on each
+    /// instance, whose types then mention no type parameter.
+    pub instance: Vec<Ty>,
     /// `locals[0]` is the return place, then `arg_count` arguments, then the rest.
     pub locals: Vec<LocalDecl>,
     pub arg_count: usize,
@@ -714,6 +720,9 @@ pub enum TerminatorKind {
     /// Call a function item. `target` is `None` when the callee never returns.
     Call {
         func: DefId,
+        /// The callee's generic arguments, one per type parameter; empty when it is not
+        /// generic. In a generic body they may mention its own type parameters.
+        generic_args: Vec<Ty>,
         args: Vec<Operand>,
         destination: Place,
         target: Option<BasicBlock>,

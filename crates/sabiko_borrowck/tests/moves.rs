@@ -174,6 +174,7 @@ impl BodyBuilder {
             body: Body {
                 def: fx.main,
                 name: "Main".to_owned(),
+                instance: Vec::new(),
                 locals: Vec::new(),
                 arg_count: 0,
                 blocks: Vec::new(),
@@ -297,6 +298,7 @@ impl BodyBuilder {
             bb,
             TerminatorKind::Call {
                 func,
+                generic_args: Vec::new(),
                 args,
                 destination,
                 target: Some(target),

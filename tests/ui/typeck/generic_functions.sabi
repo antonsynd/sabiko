@@ -1,0 +1,41 @@
+// Type parameters without bounds: a `T` cannot be printed or added, and a parameter
+// inference cannot determine needs a turbofish.
+
+fn Show<T>(x: T) {
+    PrintLine(x); //~ ERROR E0300 `PrintLine` cannot print a value of type `T`
+}
+
+fn Add<T>(a: T, b: T) -> T {
+    a + b //~ ERROR E0306 binary operation `+` cannot be applied to type `T`
+}
+
+fn Make<T>() -> i32 {
+    0
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Main() {
+    let a = Make(); //~ ERROR E0313 type annotations needed
+    let b = Make::<bool>();
+    let c: bool = Id(1); //~ ERROR E0300 mismatched types
+    let d = Id::<u8>(300); //~ ERROR E0314
+}
+
+struct S {}
+
+impl S {
+    fn Tag<T>(&self, x: T) -> T {
+        x
+    }
+
+    fn Plain(&self) {}
+}
+
+fn Methods(s: S) {
+    s.Tag::<i32, i32>(1); //~ ERROR E0222 method takes 1 generic argument but 2 generic arguments were supplied
+    s.Plain::<i32>(); //~ ERROR E0222 method takes 0 generic arguments but 1 generic argument was supplied
+    let t: bool = s.Tag(true);
+}

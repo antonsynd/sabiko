@@ -382,6 +382,7 @@ mod tests {
         Body {
             def: DefId(0),
             name: "F".to_owned(),
+            instance: Vec::new(),
             locals: all,
             arg_count: 1,
             blocks,

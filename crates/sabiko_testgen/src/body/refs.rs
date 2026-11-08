@@ -640,7 +640,12 @@ impl BodyGen<'_> {
         let q = *self
             .rng
             .pick(&[Prim::Bool, Prim::Char, Prim::Int(IntTy::I32)]);
+        // The first element's shared borrow is live while the second is evaluated: no
+        // `&mut` of its root there (seed 81000007: `(&t[i], match &mut t[1] { .. })`).
+        let roots = [(place.root, false)];
+        self.lock(&roots);
         let value = self.prim_expr(q, depth.saturating_sub(1)).text;
+        self.unlock(&roots);
         let mut lines = vec![
             format!(
                 "let {name}: (&{}, {}) = (&{}, {value});",

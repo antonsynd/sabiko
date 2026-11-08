@@ -1,0 +1,31 @@
+// Generic functions (decision 82): one generic body each, borrow-checked once; the
+// forwarded snapshot shows the instances monomorphisation makes, with the drops of a
+// type parameter instantiated without drop glue removed.
+struct D {
+    X: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Swap<A, B>(p: (A, B)) -> (B, A) {
+    let (a, b) = p;
+    (b, a)
+}
+
+fn Discard<T>(x: T) {
+    let _y = Id(x);
+}
+
+fn Main() {
+    let a = Id(1);
+    let s = Swap((true, &a));
+    Discard(D { X: 2 });
+    Discard::<u8>(3);
+    let _t = (s, a);
+}

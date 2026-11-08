@@ -148,6 +148,7 @@ impl BodyBuilder {
             body: Body {
                 def: fx.main,
                 name: "Main".to_owned(),
+                instance: Vec::new(),
                 locals: Vec::new(),
                 arg_count: 0,
                 blocks: Vec::new(),
@@ -969,6 +970,7 @@ fn switch_discriminant_and_call_arguments_are_uses() {
         bb1,
         TerminatorKind::Call {
             func: fx.callee,
+            generic_args: Vec::new(),
             args: vec![copy(a)],
             destination: local(y),
             target: Some(bb2),
@@ -997,6 +999,7 @@ fn call_destination_initialises_and_counts_as_assignment() {
         bb0,
         TerminatorKind::Call {
             func: fx.callee,
+            generic_args: Vec::new(),
             args: vec![copy(a)],
             destination: local(y),
             target: Some(bb1),
@@ -1006,6 +1009,7 @@ fn call_destination_initialises_and_counts_as_assignment() {
         bb1,
         TerminatorKind::Call {
             func: fx.callee,
+            generic_args: Vec::new(),
             args: vec![copy(y)],
             destination: local(y),
             target: None,
@@ -1030,6 +1034,7 @@ fn call_destination_projection_is_checked() {
         bb0,
         TerminatorKind::Call {
             func: fx.callee,
+            generic_args: Vec::new(),
             args: vec![int(1)],
             destination: local(p).deref().field(0, Ty::I32),
             target: None,

@@ -49,6 +49,9 @@ pub fn print_derefs(ty: &Ty) -> Option<usize> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnSig {
+    /// The type parameters, in declaration order; empty unless the function is generic.
+    /// `inputs` and `output` mention them as `Ty::Param`.
+    pub generics: Vec<DefId>,
     /// The parameter types, the receiver's (`P`, `&P` or `&mut P`) first for a method.
     pub inputs: Vec<Ty>,
     pub output: Ty,
@@ -59,6 +62,24 @@ pub struct FnSig {
     pub name_span: Span,
     /// Spans of the parameters, for arity diagnostics.
     pub param_spans: Vec<Span>,
+}
+
+impl FnSig {
+    /// The parameter types with the type parameters replaced by `args`, the generic
+    /// arguments of a call (one per parameter in `generics`).
+    #[must_use]
+    pub fn inputs_with(&self, args: &[Ty]) -> Vec<Ty> {
+        self.inputs
+            .iter()
+            .map(|t| t.subst(&self.generics, args))
+            .collect()
+    }
+
+    /// The return type with the type parameters replaced by `args`.
+    #[must_use]
+    pub fn output_with(&self, args: &[Ty]) -> Ty {
+        self.output.subst(&self.generics, args)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -234,6 +255,10 @@ impl ItemTypes {
             Ty::Tuple(elems) => elems.iter().any(|e| self.needs_drop(e)),
             // An empty array holds nothing to drop, as in rustc.
             Ty::Array(elem, n) => *n > 0 && self.needs_drop(elem),
+            // It may be instantiated with a type that has drop glue, so a generic body
+            // drops it, as rustc's does; monomorphisation removes the drops an instance
+            // does not need (decision 82).
+            Ty::Param(_) => true,
             _ => false,
         }
     }
@@ -351,6 +376,7 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLe
     match &ty.kind {
         TypeKind::Path(_) => match resolve.res(ty.id) {
             Res::Prim(p) => Ty::Prim(p),
+            Res::Def(d) if resolve.def(d).kind == DefKind::TyParam => Ty::Param(d),
             Res::Def(d) => Ty::Adt(d),
             Res::Local(_) => unreachable!("locals never resolve in type position"),
             Res::Err => Ty::Error,
@@ -465,6 +491,7 @@ fn fn_sig(
         None => Ty::Unit,
     };
     FnSig {
+        generics: resolve.generics(def).to_vec(),
         inputs,
         output,
         self_kind: f.self_param.as_ref().map(|sp| sp.kind),
@@ -591,6 +618,7 @@ pub(crate) fn collect(
                 items.fn_sigs.insert(
                     def,
                     FnSig {
+                        generics: Vec::new(),
                         inputs: vec![Ty::shared_ref(Ty::Prim(PrimTy::Str))],
                         output: Ty::Never,
                         self_kind: None,

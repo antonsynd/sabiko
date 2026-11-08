@@ -1,0 +1,14 @@
+// A generic function passes its parameter on to another, at its own type.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Wrap<T>(x: T) -> (T,) {
+    (Id(x),)
+}
+
+fn Main() {
+    let v = 5;
+    let w = Wrap(&v);
+    PrintLine(*w.0);
+}

@@ -1,0 +1,7 @@
+[E0501] Error: `Main` function is not allowed to have generic parameters
+   ╭─[ tests/ui/codegen/exe/main_is_generic.sabi:3:4 ]
+   │
+ 3 │ fn Main<T>() { //~ ERROR E0501 `Main` function is not allowed to have generic parameters
+   │    ──┬─  
+   │      ╰─── `Main` cannot have generic parameters
+───╯
