@@ -40,7 +40,8 @@ fn Main() {
     *x += 100;
     *y += 200;
     Print(pair.0); Print(' '); PrintLine(pair.1);
-    let (mut m, n) = &pair;
+    let (m, n) = &pair;
+    let mut m = *m;
     m += 1;
     Print(m); Print(' '); PrintLine(*n);
     let s = ("hi", 3);

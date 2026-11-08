@@ -1,0 +1,9 @@
+[E0300] Error: `PrintLine` cannot print a value of type `P`
+   ╭─[ tests/ui/typeck/never_fallback_print.sabi:7:15 ]
+   │
+ 7 │     PrintLine(v); //~ ERROR E0300 `PrintLine` cannot print a value of type `P`
+   │               ┬  
+   │               ╰── expected a printable value, found `P`
+   │ 
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+───╯

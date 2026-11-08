@@ -1,0 +1,44 @@
+[E0337] Error: cannot mutably bind by value within an implicitly-borrowing pattern
+   ╭─[ tests/ui/typeck/binding_modifier_under_ref.sabi:7:10 ]
+   │
+ 7 │     let (mut a, b) = r; //~ ERROR E0337 cannot mutably bind by value within an implicitly-borrowing pattern
+   │          ──┬──  
+   │            ╰──── `mut` binding modifier not allowed when implicitly borrowing
+   │ 
+   │ Note 1: `i32` is matched through a reference here, so the binding already borrows it (edition 2024)
+   │ 
+   │ Note 2: remove the modifier, or match on the value instead of the reference
+───╯
+[E0337] Error: cannot explicitly borrow within an implicitly-borrowing pattern
+    ╭─[ tests/ui/typeck/binding_modifier_under_ref.sabi:11:10 ]
+    │
+ 11 │     let (ref a, b) = r; //~ ERROR E0337 cannot explicitly borrow within an implicitly-borrowing pattern
+    │          ──┬──  
+    │            ╰──── explicit `ref` binding modifier not allowed when implicitly borrowing
+    │ 
+    │ Note 1: `i32` is matched through a reference here, so the binding already borrows it (edition 2024)
+    │ 
+    │ Note 2: remove the modifier, or match on the value instead of the reference
+────╯
+[E0337] Error: cannot explicitly borrow within an implicitly-borrowing pattern
+    ╭─[ tests/ui/typeck/binding_modifier_under_ref.sabi:15:10 ]
+    │
+ 15 │     let (ref mut a, b) = r; //~ ERROR E0337 cannot explicitly borrow within an implicitly-borrowing pattern
+    │          ────┬────  
+    │              ╰────── explicit `ref` binding modifier not allowed when implicitly borrowing
+    │ 
+    │ Note 1: `i32` is matched through a reference here, so the binding already borrows it (edition 2024)
+    │ 
+    │ Note 2: remove the modifier, or match on the value instead of the reference
+────╯
+[E0337] Error: cannot mutably bind by value within an implicitly-borrowing pattern
+    ╭─[ tests/ui/typeck/binding_modifier_under_ref.sabi:20:20 ]
+    │
+ 20 │         Slot::Full(mut p) => p.X = 0, //~ ERROR E0337 cannot mutably bind by value within an implicitly-borrowing pattern
+    │                    ──┬──  
+    │                      ╰──── `mut` binding modifier not allowed when implicitly borrowing
+    │ 
+    │ Note 1: `P` is matched through a reference here, so the binding already borrows it (edition 2024)
+    │ 
+    │ Note 2: remove the modifier, or match on the value instead of the reference
+────╯

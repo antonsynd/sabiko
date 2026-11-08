@@ -1,0 +1,23 @@
+// Edition 2024: a diverging value whose type nothing decides falls back to `!` (2021: `()`,
+// which cannot be printed), and its uses may still decide it.
+struct P { X: i32 }
+
+fn Printed(n: i32) {
+    let v = match n { _ => return };
+    PrintLine(v);
+}
+
+fn PrintedDirectly() {
+    PrintLine(loop {});
+}
+
+fn Decided() -> i32 {
+    let x = return 1;
+    let y: i32 = x;
+    y
+}
+
+fn Element() -> P {
+    let t = (P { X: 1 }, return P { X: 2 });
+    t.0
+}

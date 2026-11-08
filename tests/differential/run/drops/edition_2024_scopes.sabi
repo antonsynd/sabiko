@@ -1,0 +1,63 @@
+// Edition 2024 temporary scopes: a block's tail temporaries are dropped before the block's
+// locals (a function body's too, and a call that is the tail drops its evaluated operands
+// with them while unwinding), and an `if let` scrutinee's temporaries live through `then`
+// and are dropped before `else`.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+impl D {
+    fn Get(&self) -> i32 { self.Id }
+}
+
+enum Pick { One(i32), Other }
+
+fn Choose(d: &D) -> Pick {
+    if d.Id > 0 { Pick::One(d.Id) } else { Pick::Other }
+}
+
+fn Body() -> i32 {
+    let local = D { Id: 1 };
+    D { Id: 2 }.Get() + local.Id
+}
+
+fn Nested() -> i32 {
+    let n = {
+        let inner = D { Id: 3 };
+        D { Id: 4 }.Get() + inner.Id
+    };
+    PrintLine("after block");
+    n
+}
+
+fn Branch(c: bool) -> i32 {
+    if c {
+        let a = D { Id: 5 };
+        D { Id: 6 }.Get() + a.Id
+    } else {
+        0
+    }
+}
+
+fn IfLet(k: i32) {
+    if let Pick::One(n) = Choose(&D { Id: k }) {
+        Print("then ");
+        PrintLine(n);
+    } else {
+        PrintLine("else");
+    }
+    PrintLine("after if let");
+}
+
+fn Main() {
+    PrintLine(Body());
+    PrintLine(Nested());
+    PrintLine(Branch(true));
+    IfLet(7);
+    IfLet(-8);
+}

@@ -136,6 +136,14 @@ impl InferCtxt {
     }
 
     /// Binds every unbound variable inside `ty` to `Error`, after its problem was reported.
+    /// The never-type fallback (edition 2024): `ty`, if still an unbound variable, becomes
+    /// `!`, which [`Self::unify`] never binds.
+    pub fn fall_back_to_never(&mut self, ty: &Ty) {
+        if let Ty::Infer(v) = self.shallow_resolve(ty) {
+            self.bind(v, Ty::Never);
+        }
+    }
+
     pub fn bind_error(&mut self, ty: &Ty) {
         match self.shallow_resolve(ty) {
             Ty::Infer(v) => self.bind(v, Ty::Error),
@@ -393,7 +401,7 @@ mod tests {
     }
 
     /// `!` coerces to anything but never unifies: a variable stays open, so a diverging
-    /// initialiser falls back to `()` instead of making the binding `!`.
+    /// initialiser's type is decided by its uses, and only falls back to `!` without one.
     #[test]
     fn never_does_not_bind_a_variable() {
         let mut cx = InferCtxt::new();

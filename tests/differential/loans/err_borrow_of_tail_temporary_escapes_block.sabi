@@ -1,0 +1,13 @@
+// Edition 2024: a block's tail temporaries are dropped before the block's value is used,
+// so a reference into one cannot leave the block (2021 kept it to the statement's end).
+struct D { Id: i32 }
+
+impl D {
+    fn Ref(&self) -> &i32 { &self.Id }
+}
+
+fn Main() {
+    let k = 3;
+    let n = *{ D { Id: k }.Ref() };
+    PrintLine(n);
+}

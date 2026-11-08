@@ -131,13 +131,13 @@ fn Nested(_1: i32) -> i32 {
 
     bb6: {
         _0 = Add(copy _20, copy _22);
-        StorageDead(_15);
-        StorageDead(_4);
-        StorageDead(_2);
         StorageDead(_23);
         StorageDead(_22);
         StorageDead(_21);
         StorageDead(_20);
+        StorageDead(_15);
+        StorageDead(_4);
+        StorageDead(_2);
         goto -> bb7;
     }
 

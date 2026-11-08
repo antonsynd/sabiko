@@ -158,10 +158,6 @@ fn Literals() -> i32 {
         _18 = Len((*_19));
         _17 = copy _18 as i32;
         _0 = Add(copy _6, copy _17);
-        StorageDead(_4);
-        StorageDead(_3);
-        StorageDead(_2);
-        StorageDead(_1);
         StorageDead(_19);
         StorageDead(_18);
         StorageDead(_17);
@@ -176,6 +172,10 @@ fn Literals() -> i32 {
         StorageDead(_8);
         StorageDead(_7);
         StorageDead(_6);
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageDead(_2);
+        StorageDead(_1);
         goto -> bb2;
     }
 

@@ -194,13 +194,13 @@ fn Fill(_1: &mut [i32], _2: i32) -> i32 {
 
     bb4: {
         _0 = Add(copy _12, copy _13);
-        StorageDead(_9);
-        StorageDead(_7);
-        StorageDead(_5);
         StorageDead(_15);
         StorageDead(_14);
         StorageDead(_13);
         StorageDead(_12);
+        StorageDead(_9);
+        StorageDead(_7);
+        StorageDead(_5);
         goto -> bb5;
     }
 

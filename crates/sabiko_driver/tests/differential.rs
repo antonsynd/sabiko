@@ -159,7 +159,7 @@ fn run_rustc(rustc: &Path, tmp: &Path, rel: &str, src: &str) -> Outcome {
     let output = Command::new(rustc)
         .args([
             "--edition",
-            "2021",
+            "2024",
             "--crate-type",
             "lib",
             "--emit=metadata",

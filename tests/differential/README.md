@@ -30,7 +30,7 @@ fn PrintLine<T: std::fmt::Display>(x: T) { println!("{x}") }
 fn Panic(msg: &str) -> ! { panic!("{msg}") }
 ```
 
-and a blank line, then runs `rustc --edition 2021 --crate-type lib --emit=metadata
+and a blank line, then runs `rustc --edition 2024 --crate-type lib --emit=metadata
 -A warnings` in a scratch directory under the system temp dir, which it removes
 afterwards. It uses `$RUSTC` if set, else `rustc` on `PATH`; when neither runs, the test
 prints a notice and is skipped.

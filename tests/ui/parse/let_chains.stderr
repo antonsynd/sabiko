@@ -1,9 +1,9 @@
-[E0100] Error: let chains are only allowed in Rust 2024 or later
+[E0100] Error: let chains are not supported yet
    ╭─[ tests/ui/parse/let_chains.sabi:6:8 ]
    │
- 6 │     if let Cell::Value(n) = c && n > 0 { //~ ERROR E0100 let chains are only allowed in Rust 2024 or later
+ 6 │     if let Cell::Value(n) = c && n > 0 { //~ ERROR E0100 let chains are not supported yet
    │        ────────────┬────────────  
    │                    ╰────────────── a `let` in a condition must be the whole condition
    │ 
-   │ Note: Sabiko follows edition 2021; nest an `if` inside the `if let` instead
+   │ Note: let chains are not supported yet (#86); nest an `if` inside the `if let` instead
 ───╯

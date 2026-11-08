@@ -1601,7 +1601,7 @@ impl<'a> BodyGen<'a> {
     }
 
     /// `let (a, _, b) = &t;` (or `&mut t`, a reference local, a call returning a reference):
-    /// Rust 2021's default binding modes bind references to the elements, each a reference
+    /// default binding modes bind references to the elements, each a reference
     /// local with its own region over the borrowed roots.
     fn stmt_let_tuple_ref(&mut self) -> bool {
         let t = self.rng.index(self.prog.tuples.len());

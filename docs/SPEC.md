@@ -54,7 +54,7 @@ names which phase owns which section.
 - `match e { p if guard => body, .. }`; the scrutinee may not be a bare struct literal
   (E0108). A block-like arm body needs no comma. `if let p = e { .. } else { .. }`, `while
   let p = e { .. }` and `let p = e else { .. };`; let chains (`if let p = e && c`) are
-  edition 2024 and rejected (E0100), and the initialiser of a `let`-`else` may not end with
+  valid edition 2024 but not supported yet (E0100, #86), and the initialiser of a `let`-`else` may not end with
   `}` or be a lazy boolean (E0100)
 - Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays
   `[T; N]`, slices `[T]`, named types, generics
@@ -141,7 +141,7 @@ impl so far: `impl Drop for S { fn drop(&mut self) { .. } }`, defining `drop` wi
 that signature and nothing else (§11.1, §11.2). The method keeps Rust's lowercase name. A
 type has *drop glue* when it is such a struct, or a struct or tuple with a field (element)
 that has drop glue; such a type is never `Copy` (E0324, E0417). Values with drop glue are
-dropped as rustc drops them (edition 2021):
+dropped as rustc drops them (edition 2024, decision 74):
 
 - A value's own `drop` runs first, with its fields intact (it may read and change them);
   then its fields with drop glue are dropped in declaration order (not the order of the
@@ -177,9 +177,15 @@ dropped as rustc drops them (edition 2021):
   E0716), and so does a `let` (or `let`-`else`) whose pattern has a `ref`/`ref mut`
   binding, for its initialiser's value (`let S { ref mut a, .. } = Make();`, rustc's
   extending patterns); a failing `let`-`else` drops its initialiser's temporaries before
-  the `else` block runs; a block's tail expression's temporaries are dropped after the block's locals
-  (a function body's after its locals and before its parameters); the operand of
-  `return` is not a tail, its temporaries go first.
+  the `else` block runs; an `if let` scrutinee's temporaries live through the `then` block
+  and are dropped after it, and before the `else` block on the other path; a block's tail
+  expression's temporaries are dropped when its value is complete, before the block's
+  locals (a function body's too, before its locals and parameters); a call, struct
+  literal, tuple or assignment that is the tail drops its already evaluated operands with
+  the tail's other temporaries while unwinding, the last made first; the operand of
+  `return` is not a tail. (Edition 2021 kept tail and `if let` temporaries to the end of
+  the enclosing statement.) Not yet: extension through a block's tail (`let r = {
+  &Make() };` is E0413, rustc extends it, #88).
 - `let _ = <value>;` drops the value at once, `let _x = ..;` at the end of the block, and
   `let (_, y) = (..);` drops the unbound element at the end of the `let`; an expression
   statement drops its value at its end. `let _ = place;` does nothing (§11.4).
@@ -578,6 +584,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
   while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
   (rustc's `!: PartialEq + Display`); the code after one is unreachable.
+  A diverging `let` initialiser (`let v = return;`), destructuring assignment or tuple
+  element without an expected type gets a fresh type that its uses decide, and `!` when
+  none does: edition 2024's never-type fallback (decision 74; 2021 fell back to `()`), so
+  `let v = match n { _ => return }; PrintLine(v);` is accepted (`!` prints, never runs).
 - Inference runs per function body and per constant initialiser, by unification; nothing
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of
@@ -641,7 +651,7 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   checked and coerced against its expected element type, so the elements are coercion
   sites (`let p: (&i32, u8) = (&mut x, 1);` coerces, and a `&mut` place element is
   reborrowed, not moved); without one an element keeps its own type, and an element of
-  type `!` gets a fresh type falling back to `()`, as a diverging `let` initialiser does.
+  type `!` gets a fresh type, as a diverging `let` initialiser does (see `!` above).
   An arity mismatch is E0300 with a note "expected a tuple with N elements, found one with
   M elements". `t.i` is element `i` of a tuple, auto-dereferencing through references;
   an index that is out of range, not plain decimal (`t.01`, `t.0x1`) or used on a
@@ -655,9 +665,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   anything and binds nothing, and an identifier binds the whole value. A tuple pattern
   matched against a reference to a tuple (`let (a, b) = &t;`) looks through the reference
   and binds references to the elements, `&` or `&mut` like the reference (a `&` anywhere
-  outside makes every inner binding `&`): Rust 2021's default binding modes. A `mut x`
-  binding there binds by value again, as in Rust 2021 (a copy, or a move, which E0407
-  rejects out of a reference).
+  outside makes every inner binding `&`): default binding modes. A `mut x`, `ref x` or
+  `ref mut x` binding there is E0337 (edition 2024; 2021 bound `mut x` by value again).
 - Enums (#8). `E::V` is a value of type `E` for a unit variant; `E::V(a, b)` constructs a
   tuple variant (E0304 for the wrong count, rustc's E0061; `E::Unit()` is E0305, E0618);
   `E::V { F: a }` a struct variant, with a struct literal's checks. A tuple variant's
@@ -673,8 +682,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - Pattern typing (#8). A pattern that is not a binding (a literal, range, path, tuple,
   tuple-variant or struct pattern) matched against a reference looks through it, and every
   binding inside binds by reference (`&` or `&mut` like the reference, `&` once any `&`
-  was crossed): Rust 2021's default binding modes. `ref x` and `ref mut x` always bind a
-  reference; `mut x` under a by-reference default binds by value again. A literal has the
+  was crossed): default binding modes. `ref x` and `ref mut x` bind a reference; under a
+  by-reference default, `mut x`, `ref x` and `ref mut x` are E0337 (edition 2024's
+  reserved binding modifiers, rustc's "implicitly-borrowing pattern" errors). A literal has the
   matched type (E0314 when it does not fit, E0300 for another type); a range needs an
   integer or `char` type, a lower bound not above the upper one (E0332, rustc's E0030),
   and for `a..b` a non-empty range (E0332, E0579). A variant pattern must be of the

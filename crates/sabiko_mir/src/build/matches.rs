@@ -934,7 +934,8 @@ impl Builder<'_> {
     }
 
     /// `if let pat = scrutinee { then } else { els }`: a `match` with one tested arm. The
-    /// scrutinee's temporaries live to the end of the enclosing statement (edition 2021).
+    /// scrutinee is a temporary scope of its own (edition 2024): its temporaries live
+    /// through `then` and are dropped after it, and on the other path before `else` runs.
     pub(super) fn lower_if_let(
         &mut self,
         dest: Option<&Place>,
@@ -948,23 +949,22 @@ impl Builder<'_> {
             self.lower_expr_discard(scrutinee);
             return;
         }
+        let saved_scope = self.push_temp_scope();
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let then_block = self.new_block();
         let saved = self.start_tests(&[pat], &place);
         self.lower_candidates(pat, None, &place, scrutinee.span, then_block, true);
         self.tests = saved;
-        let else_start = self.current;
         let join = self.new_block();
-        self.enter(then_block);
-        self.with_bindings(&locals, then.span, |this| {
-            this.in_temp_scope(then.span, |this| match dest {
-                Some(dest) => this.lower_block_into(dest, then),
-                None => this.lower_block_discard(then),
-            });
-        });
-        self.terminate(TerminatorKind::Goto { target: join }, span);
-        self.enter(else_start);
+        // The other path ends the scrutinee's temporaries first. They stay in their scope
+        // for `then`, so they are taken out while `else` is lowered (an early exit from it
+        // must not drop them again), as for `let`-`else`.
+        let saved_chain = (self.chain.clone(), self.pending.clone());
+        let temps = std::mem::take(&mut self.scopes[self.temp_scope]);
+        for &local in temps.iter().rev() {
+            self.end_local(local, span);
+        }
         match (els, dest) {
             (Some(els), Some(dest)) => {
                 self.in_temp_scope(els.span, |this| this.expr_into_dest(dest, els));
@@ -973,6 +973,17 @@ impl Builder<'_> {
             (None, Some(dest)) => self.assign(dest.clone(), Self::unit_rvalue(span), span),
             (None, None) => {}
         }
+        self.terminate(TerminatorKind::Goto { target: join }, span);
+        self.scopes[self.temp_scope] = temps;
+        (self.chain, self.pending) = saved_chain;
+        self.enter(then_block);
+        self.with_bindings(&locals, then.span, |this| {
+            this.in_temp_scope(then.span, |this| match dest {
+                Some(dest) => this.lower_block_into(dest, then),
+                None => this.lower_block_discard(then),
+            });
+        });
+        self.close_temp_scope(saved_scope, span);
         self.terminate(TerminatorKind::Goto { target: join }, span);
         self.enter(join);
     }
