@@ -1098,6 +1098,20 @@ a `&[T]` is expected now has `T` elements (rustc's rvalue hint), so `let c: &[&[
 (`run/arrays/coerced_block_and_nested_elements`) and a `CoercedTails` case in the
 `arrays_coercions` MIR snapshot.
 
+Constant-propagation lints Sabiko reported and rustc did not (#95). Two causes, both in
+which locals hold values. A borrow in an arm an earlier arm subsumes (`Waiting(_, ..)`
+before `Waiting(s, ref mut k)`) made the scrutinee unknown, so the dead first arm was
+linted; rustc's decision tree has no such arm when it lints, so the borrow now counts only
+in the blocks a walk reaches when repeated tests are decided by earlier ones alone
+(`kept_by_tests`; no value decides an edge there, since rustc keeps both arms of `if
+false`). And a shared borrow of a constant temporary holding a repeat expression (`[1.5f32;
+2]`) is promoted by rustc, which Sabiko's promotion model did not know. The issue's own
+minimal reproducers had been reduced with `--emit=metadata`, which skips rustc's MIR
+lints; the seeds were regenerated with the generator at the commit that found them and
+checked with full compilation. New: `differential/lints/ok_borrows_rustc_removes_or_promotes`
+(also the cases both compilers still lint: a guard on the first arm, a borrow in `if
+false`). 2000 generated seeds at each of the bases 8800000 and 63000000 agree.
+
 ### Phase 5: Data types
 
 Work
