@@ -1156,6 +1156,15 @@ whose bounds moved something was still measured, which repeats the base's text a
 it twice (seed 69001088). Parameters of these types, longer-lived locals and `&str`/`&&T`
 elements remain open under #92.
 
+String-literal arms after a failed guard (#109): the constant-propagation lint linted `"b"
+=> 4usize - b` in `match s { "a" if false => 1, "b" => .., _ => 0 }`, which rustc does
+not, because its decision tree never tests `"b"` where `s == "a"` and the path it takes
+wipes `b` first. The lint's facts now cover string-literal tests (`==`/`!=` against a
+string constant, keyed per walk), so a later candidate's string test that an earlier one
+decides takes only the edge rustc's tree would. New: `differential/lints/
+ok_string_match_after_guard`. 3000 generated seeds at each of three bases agree except
+seed 71001629, an older divergence in the order blocks are visited (#111).
+
 ### Phase 5: Data types
 
 Work

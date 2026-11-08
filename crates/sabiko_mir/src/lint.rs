@@ -36,7 +36,8 @@
 //! rustc's match lowering is a decision tree that tests each place once; Sabiko's tests
 //! candidate after candidate (decisions 57 and 72). So the walk carries facts along its
 //! edges (`Allowed`): what each `switchInt` edge says about the local switched on, and
-//! about `x` when the switch is on `b = x op k`. A later candidate's repeated test that
+//! about `x` when the switch is on `b = x op k` (`k` may be a string constant compared by
+//! `==`/`!=`, a string-literal pattern: #109). A later candidate's repeated test that
 //! the facts decide takes only the edge rustc's tree would, so an arm that only a failed
 //! guard reaches in rustc is dead here too. Neither of two ways of treating a block
 //! reached again (visit it again whenever the new way in knows less, or only to take an
@@ -375,6 +376,8 @@ struct Lints<'a> {
     checked: HashSet<Local>,
     /// Edges are decided by facts only, never by a value ([`kept_by_tests`]).
     facts_only: bool,
+    /// The keys given to string constants in tests ([`Self::test_key`]).
+    strings: std::cell::RefCell<HashMap<String, i128>>,
 }
 
 impl<'a> Lints<'a> {
@@ -413,6 +416,7 @@ impl<'a> Lints<'a> {
             tests: HashMap::new(),
             checked: HashSet::new(),
             facts_only: false,
+            strings: std::cell::RefCell::new(HashMap::new()),
         };
         cx.modes = cx.modes(dropped, kept);
         cx
@@ -715,7 +719,7 @@ impl<'a> Lints<'a> {
         let known = match test {
             Some(Rvalue::BinaryOp(op, l, Operand::Constant(c))) => {
                 let x = l.place().filter(|p| p.projection.is_empty())?.local;
-                let set = Allowed::compared(*op, key(&c.value)?)?;
+                let set = Allowed::compared(*op, self.test_key(*op, &c.value)?)?;
                 let x = facts.get(&x)?;
                 if x.subset_of(&set) {
                     1
@@ -927,7 +931,9 @@ impl<'a> Lints<'a> {
                         .place()
                         .filter(|p| p.projection.is_empty())
                         .map(|p| p.local);
-                    if let (Some(x), Some(k), true) = (x, key(&c.value), op.is_comparison()) {
+                    if let (Some(x), Some(k), true) =
+                        (x, self.test_key(*op, &c.value), op.is_comparison())
+                    {
                         self.tests.insert(place.local, (x, *op, k));
                     }
                 }
@@ -1309,7 +1315,7 @@ impl<'a> Lints<'a> {
         let Operand::Constant(c) = r else {
             return None;
         };
-        let set = Allowed::compared(op, key(&c.value)?)?;
+        let set = Allowed::compared(op, self.test_key(op, &c.value)?)?;
         let known = self.facts.get(&x)?;
         let holds = if known.subset_of(&set) {
             true
@@ -1319,6 +1325,23 @@ impl<'a> Lints<'a> {
             return None;
         };
         Some(Value::Scalar(ConstValue::Bool(holds)))
+    }
+
+    /// The key of `k` in a test `x op k` that facts may decide: [`key`]'s, or for a string
+    /// constant compared by `==` or `!=` (a string-literal pattern), one of its own in
+    /// this walk, so that a place known to equal `"a"` is known to differ from `"b"`, as
+    /// in rustc's decision tree, which never tests `"b"` where `s == "a"` (#109). An
+    /// ordering of strings gives no facts: the keys do not keep it.
+    fn test_key(&self, op: BinOp, k: &ConstValue) -> Option<i128> {
+        let ConstValue::Str(s) = k else {
+            return key(k);
+        };
+        if !matches!(op, BinOp::Eq | BinOp::Ne) {
+            return None;
+        }
+        let mut strings = self.strings.borrow_mut();
+        let next = i128::try_from(strings.len()).ok()?;
+        Some(*strings.entry(s.clone()).or_insert(next))
     }
 
     fn report(&mut self, lint: Lint, span: Span, label: String) {
