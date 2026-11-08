@@ -1009,3 +1009,28 @@ fn programs_use_let_chains() {
         "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 18), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 45)"
     );
 }
+
+#[test]
+fn programs_use_if_let_guards() {
+    let knobs = Knobs::default();
+    let (mut any, mut chained) = (0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        let guards: Vec<&str> = src
+            .lines()
+            .filter_map(|l| l.split_once(" if let ").map(|(_, rest)| rest))
+            .filter(|rest| rest.contains("=>"))
+            .collect();
+        any += usize::from(!guards.is_empty());
+        chained += usize::from(
+            guards
+                .iter()
+                .any(|g| g.split("=>").next().is_some_and(|c| c.contains(" && "))),
+        );
+    }
+    eprintln!("of {SEEDS} programs: {any} have an `if let` guard, {chained} one with `&&`");
+    assert!(
+        any >= 30 && chained >= 9,
+        "of {SEEDS} programs: {any} have an `if let` guard (expected 30), {chained} one with `&&` (expected 9)"
+    );
+}

@@ -35,6 +35,7 @@
 //! discriminants cast with `as`, `impl` blocks of enums; `match` as a statement, as a
 //! `let` initialiser and inline in expressions, `if let` (statement and expression),
 //! `while let` over a state local, let chains of either (`if c && let p = s && d`),
+//! `if let` match guards (`p if let 3 = x && c =>`),
 //! `let`-`else` diverging with `return`, `break`,
 //! `continue` or a panic, and irrefutable destructuring `let`s of structs and
 //! single-variant enums. Patterns: variants (nested), literals and ranges (`a..=b`, `a..b`)

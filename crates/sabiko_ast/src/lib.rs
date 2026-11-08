@@ -572,9 +572,9 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         arms: Vec<Arm>,
     },
-    /// `let pat = expr`: only in the condition of an `if` or `while`, as the whole of it
-    /// (`if let`, `while let`) or as an operand of its `&&` chain (a let chain, edition
-    /// 2024: [`Expr::let_chain`]).
+    /// `let pat = expr`: only in the condition of an `if` or `while` or in a match guard,
+    /// as the whole of it (`if let`, `while let`, `p if let q = e =>`) or as an operand of
+    /// its `&&` chain (a let chain, edition 2024: [`Expr::let_chain`]).
     Let(Box<Pat>, Box<Expr>),
 }
 

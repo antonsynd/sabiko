@@ -1,0 +1,8 @@
+// A guard `let`'s `ref mut` binding borrows its place for the rest of the guard and the arm.
+struct S { V: i32 }
+enum H { Full(S), Empty }
+enum M { Has(i32), No }
+fn F(mut h: H, mut m: M, c: bool) -> i32 {
+    match c { true if let M::Has(ref mut y) = m && { m = M::No; true } => { *y = 1; 1 } _ => 0 }
+}
+fn Main() { F(H::Full(S { V: 1 }), M::Has(2), true); }

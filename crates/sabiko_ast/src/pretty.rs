@@ -637,7 +637,12 @@ impl Printer {
                     self.top_pat(&arm.pat);
                     if let Some(g) = &arm.guard {
                         self.out.push_str(" if ");
-                        self.expr(g, 0);
+                        // A guard with a `let` prints as a condition does (#98).
+                        if g.let_chain().is_some() || matches!(g.kind, ExprKind::Let(..)) {
+                            self.cond(g);
+                        } else {
+                            self.expr(g, 0);
+                        }
                     }
                     self.out.push_str(" => ");
                     // A block-like expression ends an arm as it ends a statement, so a

@@ -913,7 +913,11 @@ impl Builder<'_> {
             .collect();
         // A `match` in the guard binds its own candidates.
         let bound = std::mem::take(&mut self.bound_for_guard);
-        let (holds, fails) = self.branch_on(guard, span);
+        let (holds, fails) = if guard_has_let(guard) {
+            self.lower_let_guard(guard, span)
+        } else {
+            self.branch_on(guard, span)
+        };
         self.bound_for_guard = bound;
         self.guard_places = saved;
         self.enter(fails);
@@ -929,6 +933,44 @@ impl Builder<'_> {
         for temp in temps.into_iter().chain(values) {
             self.push_stmt(StatementKind::PlaceMention(Place::local(temp)), span);
         }
+    }
+
+    /// A guard with `let`s (`p if let q = e && c =>`, #98): lowered as a let chain in a
+    /// scope of its own, whose failures drop what it holds so far and go to the returned
+    /// `fails` block. Where it holds, what the scope holds (the `let`s' scrutinee
+    /// temporaries and bindings) is not dropped but handed to the arm (`guard_held`), whose
+    /// body scope takes it over, so it lives to the end of the arm as in rustc; its
+    /// cleanup scopes open again at the body. Returns the blocks where it holds and where
+    /// it fails.
+    fn lower_let_guard(&mut self, guard: &Expr, span: Span) -> (BasicBlock, BasicBlock) {
+        let operands = guard_operands(guard);
+        let saved_scope = self.push_temp_scope();
+        let depth = self.scopes.len() - 1;
+        let fails = self.new_block();
+        self.lower_chain(&operands, span, &mut |this: &mut Self| {
+            this.leave_to(depth, fails, span);
+        });
+        let held = self.scopes.pop().expect("pushed above");
+        self.temp_scope = saved_scope;
+        self.pending.retain(|l| !held.contains(l));
+        if let Some(index) = self.chain.iter().position(|(l, _)| held.contains(l)) {
+            let keep: Vec<Local> = self
+                .chain
+                .drain(index..)
+                .map(|(l, _)| l)
+                .filter(|l| !held.contains(l))
+                .collect();
+            for local in keep {
+                self.push_cleanup(local);
+            }
+            self.chain_changed();
+        }
+        for local in held {
+            if !self.guard_held.contains(&local) {
+                self.guard_held.push(local);
+            }
+        }
+        (self.current, fails)
     }
 
     /// The body of an arm (or the `then` of an `if let`, the body of a `while let`), in a
@@ -964,15 +1006,28 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &pats);
         let fakes = self.guard_fake_places(arms, &place);
         let saved = self.start_tests(&pats, &place);
+        let outer_held = std::mem::take(&mut self.guard_held);
         let mut entries = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
-            let locals = self.prepare_locals(&arm.pat);
+            let mut locals = self.prepare_locals(&arm.pat);
+            if let Some(guard) = &arm.guard {
+                for operand in guard_operands(guard) {
+                    if let ExprKind::Let(pat, _) = &operand.kind {
+                        let prepared = self.prepare_locals(pat);
+                        self.prepared_lets.insert(operand.id, prepared);
+                    }
+                }
+            }
             let body = self.new_block();
             let guard = arm.guard.as_ref().map(|g| (g, &fakes[..]));
             let is_last = index + 1 == arms.len();
             self.lower_candidates(&arm.pat, guard, &place, scrutinee.span, body, !is_last);
+            // What the guard's `let`s hold lives through the body, after the pattern's
+            // bindings, so it is dropped first (rustc's order).
+            locals.append(&mut self.guard_held);
             entries.push((body, locals));
         }
+        self.guard_held = outer_held;
         self.tests = saved;
         // Exhaustiveness was checked: no value gets here.
         self.terminate(TerminatorKind::Unreachable, span);
@@ -1201,7 +1256,10 @@ impl Builder<'_> {
                 return false;
             }
             let place = self.scrutinee_place(scrutinee, &[pat]);
-            let locals = self.prepare_locals(pat);
+            let locals = match self.prepared_lets.get(&operand.id) {
+                Some(locals) => locals.clone(),
+                None => self.prepare_locals(pat),
+            };
             let matched = self.new_block();
             let saved = self.start_tests(&[pat], &place);
             self.lower_candidates(pat, None, &place, scrutinee.span, matched, true);
@@ -1411,4 +1469,16 @@ fn is_full_range(c: Option<&PatConst>, ty: &Ty) -> bool {
         _ => false,
     };
     lo_is_min && hi_is_max
+}
+
+/// The operands of a match guard: its let chain's, or the guard alone.
+fn guard_operands(guard: &Expr) -> Vec<&Expr> {
+    guard.let_chain().unwrap_or_else(|| vec![guard])
+}
+
+/// Whether a match guard has a `let` (an `if let` guard or a let chain, #98).
+fn guard_has_let(guard: &Expr) -> bool {
+    guard_operands(guard)
+        .iter()
+        .any(|e| matches!(e.kind, ExprKind::Let(..)))
 }

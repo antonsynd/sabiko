@@ -5,7 +5,7 @@
    │        ───────────┬──────────  
    │                   ╰──────────── `let` is not allowed here
    │ 
-   │ Note 1: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+   │ Note 1: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
    │ 
    │ Note 2: `||` operators are not supported in let chain conditions
 ───╯
@@ -16,7 +16,7 @@
     │             ───────────┬──────────  
     │                        ╰──────────── `let` is not allowed here
     │ 
-    │ Note 1: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note 1: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
     │ 
     │ Note 2: `||` operators are not supported in let chain conditions
 ────╯
@@ -27,7 +27,7 @@
     │                 ───────────┬──────────  
     │                            ╰──────────── `let` is not allowed here
     │ 
-    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
 ────╯
 [E0102] Error: expected an expression, found `let` statement
     ╭─[ tests/ui/parse/let_chains.sabi:19:9 ]
@@ -36,7 +36,7 @@
     │         ───────────┬──────────  
     │                    ╰──────────── `let` is not allowed here
     │ 
-    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
 ────╯
 [E0102] Error: expected an expression, found `let` statement
     ╭─[ tests/ui/parse/let_chains.sabi:23:13 ]
@@ -45,7 +45,7 @@
     │             ───────────┬──────────  
     │                        ╰──────────── `let` is not allowed here
     │ 
-    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
 ────╯
 [E0102] Error: expected an expression, found `let` statement
     ╭─[ tests/ui/parse/let_chains.sabi:27:16 ]
@@ -54,7 +54,7 @@
     │                ───────────┬──────────  
     │                           ╰──────────── `let` is not allowed here
     │ 
-    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
 ────╯
 [E0102] Error: expected an expression, found `let` statement
     ╭─[ tests/ui/parse/let_chains.sabi:31:13 ]
@@ -63,7 +63,7 @@
     │             ───────────┬──────────  
     │                        ╰──────────── `let` is not allowed here
     │ 
-    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
 ────╯
 [E0102] Error: expected an expression, found `let` statement
     ╭─[ tests/ui/parse/let_chains.sabi:35:13 ]
@@ -72,5 +72,5 @@
     │             ───────────┬──────────  
     │                        ╰──────────── `let` is not allowed here
     │ 
-    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)
 ────╯
