@@ -1088,6 +1088,16 @@ and 63000000 agree with rustc except one constant-propagation lint, seed 6300067
 divergence of #95's kind (a condition that is itself an `if` lets the lint visit a dead
 branch), added to #95.
 
+Coercions at block tails and through `&` (#94): a block or `if` whose tail an unsizing
+coercion changed kept its own type (`&[i32; 2]`), so as an element of a coerced tuple or
+array, or as a call argument, it was lowered into a temporary of that type and failed MIR
+validation (a debug-build panic; `({ &a }, 1)` as `(&[i32], i32)`, `F({ &a })`, `[{ &a }]`);
+it now has the coerced type, as a `match` already had. And an array literal borrowed where
+a `&[T]` is expected now has `T` elements (rustc's rvalue hint), so `let c: &[&[i32]] =
+&[&[1, 2], &[3]];` is accepted instead of E0300. New: a run-time program
+(`run/arrays/coerced_block_and_nested_elements`) and a `CoercedTails` case in the
+`arrays_coercions` MIR snapshot.
+
 ### Phase 5: Data types
 
 Work

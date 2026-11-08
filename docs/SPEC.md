@@ -674,7 +674,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   type. `e.len()` on an array or slice (through references) is a `usize`; any other
   method of one is E0319, `e.len` E0320, an argument E0304. `&[T; N]` coerces to `&[T]`
   and `&mut [T; N]` to `&mut [T]` or `&[T]` (unsizing) at every coercion site, and
-  `&mut [T]` to `&[T]`; `&[T]` never converts back to an array (E0300). Arrays of `Copy`
+  `&mut [T]` to `&[T]`; `&[T]` never converts back to an array (E0300). A block, `if` or
+  `match` whose tail is coerced has the coerced type wherever it stands (`({ &a }, 1)` as
+  `(&[i32], i32)`, `F({ &a })`, `[{ &a }]`), and an array literal borrowed where a `&[T]`
+  is expected has `T` elements, each a coercion site (`let c: &[&[i32]] = &[&[1, 2],
+  &[3]];`, rustc's rvalue hint; #94). Arrays of `Copy`
   elements are `Copy`. Arrays are not printable, have no arithmetic and do not cast;
   comparing arrays or slices (`==`, `<`, ...) is valid Rust but E0107 until the comparison
   traits (Phase 6). A struct containing itself through an array is E0206.

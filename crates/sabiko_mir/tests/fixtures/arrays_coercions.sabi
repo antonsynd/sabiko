@@ -41,6 +41,15 @@ fn Discard(s: &[i32], units: [(); 2], i: usize) {
     let u = units[i];
 }
 
+// A block whose tail is coerced has the coerced type, so a tuple element lowers it into a
+// `&[i32]` temporary; an array literal under `&[&[i32]]` coerces each element (#94).
+fn CoercedTails(a: &[i32; 2], c: bool) -> usize {
+    let u: (&[i32], bool) = ({ a }, c);
+    let v: (&[i32],) = (if c { a } else { &[] },);
+    let rows: &[&[i32]] = &[&[1, 2], &[3]];
+    u.0.len() + v.0.len() + rows.len()
+}
+
 fn Main() {
     let mut a = [1, 2, 3];
     let grid = [[0u8; N]; 3];
