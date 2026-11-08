@@ -1046,7 +1046,17 @@ impl<'a> Lints<'a> {
     fn operand(&self, op: &Operand) -> Option<Value> {
         let value = match op {
             Operand::Copy(p) | Operand::Move(p) => self.place(p)?,
-            Operand::Constant(c) => constant(&c.value)?,
+            // An `f32` literal is the nearest `f32` (`0.001f32` is 0.0010000000474974513),
+            // which the constant holds as an `f64`: rustc computes with the `f32`
+            // (`(100.0f32 / 0.001f32) as u32` is 99999, seed 67000955).
+            Operand::Constant(c) => match (&c.ty, &c.value) {
+                (Ty::Prim(PrimTy::F32), ConstValue::Float(f)) => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let f = f64::from(*f as f32);
+                    Value::Scalar(ConstValue::Float(f))
+                }
+                _ => constant(&c.value)?,
+            },
         };
         matches!(value, Value::Scalar(_)).then_some(value)
     }

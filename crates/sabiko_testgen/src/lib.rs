@@ -70,8 +70,10 @@
 //! [`body`]'s `refs` module). Elements of temporary arrays of references, `&str` or
 //! shared (`["a", s][i]`, `[&x, r][i]`), now and then through a range (`[a, b, c][1..][k]`,
 //! a slice of references; #43, see [`body`]'s `arrays` module). Not generated: slice
-//! patterns, ranges as values, array comparison, arrays of references as locals and
-//! parameters (TODO(#92)), generics, closures, returned double references and
+//! patterns, ranges as values, array comparison, arrays of references as parameters or
+//! as locals outliving a block of their own (`stmt_ref_aggregate` writes `[&T; N]`,
+//! `&[&T]`, `(&T, U)` and `[&mut T; 2]` locals of primitive referents used in one block;
+//! TODO(#92)), generics, closures, returned double references and
 //! three levels of references, `&mut str`, comparisons of `str` places, non-ASCII text,
 //! references (`&str` and `&&T` included, #92) in struct fields, tuples, arrays or enum
 //! payloads, `()` values, comparisons of tuples or enums, `&` patterns, half-open range

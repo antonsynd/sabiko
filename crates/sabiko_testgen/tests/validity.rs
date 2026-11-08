@@ -1034,3 +1034,23 @@ fn programs_use_if_let_guards() {
         "of {SEEDS} programs: {any} have an `if let` guard (expected 30), {chained} one with `&&` (expected 9)"
     );
 }
+
+#[test]
+fn programs_use_aggregates_of_references() {
+    let knobs = Knobs::default();
+    let (mut arrays, mut slices, mut tuples, mut muts) = (0, 0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        arrays += usize::from(src.contains(": [&") && !src.contains(": [&mut"));
+        slices += usize::from(src.contains(": &[&"));
+        tuples += usize::from(src.contains(": (&"));
+        muts += usize::from(src.contains(": [&mut "));
+    }
+    eprintln!(
+        "of {SEEDS} programs: {arrays} have a `[&T; N]` local, {slices} a `&[&T]` one, {tuples} a `(&T, U)` one, {muts} a `[&mut T; 2]` one"
+    );
+    assert!(
+        arrays >= 40 && slices >= 30 && tuples >= 50 && muts >= 90,
+        "of {SEEDS} programs: {arrays} `[&T; N]` (expected 40), {slices} `&[&T]` (expected 30), {tuples} `(&T, U)` (expected 50), {muts} `[&mut T; 2]` (expected 90)"
+    );
+}

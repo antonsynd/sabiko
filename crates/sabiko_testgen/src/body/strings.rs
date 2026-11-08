@@ -126,12 +126,17 @@ impl BodyGen<'_> {
                 self.range_depth += 1;
                 let inner = self.str_base(depth.saturating_sub(1));
                 self.range_depth -= 1;
+                let before = self.snapshot_moved();
                 let range = self.str_range(&inner);
+                // Measuring the result repeats its text, bounds included: not when they
+                // moved something (`s[..(E::Make(m.1) % 7usize)]` moved `m.1` twice, seed
+                // 69001088).
+                let moved = self.snapshot_moved() != before;
                 return StrBase {
                     text: format!("{}[{range}]", inner.text),
                     roots: inner.roots,
                     len: None,
-                    measurable: inner.measurable,
+                    measurable: inner.measurable && !moved,
                 };
             }
             _ => {}

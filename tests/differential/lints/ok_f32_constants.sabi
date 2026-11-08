@@ -1,0 +1,7 @@
+// The constant-propagation lints compute with `f32` constants as `f32`s: `0.001f32` is the
+// nearest `f32`, so `(100.0f32 / 0.001f32) as u32` is 99999 (seed 67000955).
+fn Main() {
+    PrintLine((4294967294u32) + ((100.0f32 / 0.001f32) as u32));
+    PrintLine(((1.0f32 / 3.0f32) * 3.0f32) as u8 + 255u8);
+    PrintLine((0.1f32 + 0.2f32) as f64);
+}
