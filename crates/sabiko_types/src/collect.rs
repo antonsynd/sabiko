@@ -93,6 +93,10 @@ pub struct FieldDef {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdtDef {
     pub name: String,
+    /// The type parameters, in order; empty unless the type is generic. Field types
+    /// mention them as `Ty::Param`: [`AdtDef::field_ty`] substitutes an instance's
+    /// arguments.
+    pub generics: Vec<DefId>,
     /// A struct's fields; empty for an enum, whose fields are its variants'.
     pub fields: Vec<FieldDef>,
     /// `struct S;`
@@ -105,6 +109,19 @@ pub struct AdtDef {
 }
 
 impl AdtDef {
+    /// The type `ty` of one of this type's fields, in the instance with generic arguments
+    /// `args` (empty for a type that is not generic).
+    #[must_use]
+    pub fn field_ty(&self, ty: &Ty, args: &[Ty]) -> Ty {
+        if self.generics.len() == args.len() {
+            ty.subst(&self.generics, args)
+        } else {
+            // An error type's arguments (or a generic type named without them, already
+            // reported).
+            ty.subst(&self.generics, &vec![Ty::Error; self.generics.len()])
+        }
+    }
+
     #[must_use]
     pub fn field_index(&self, name: &str) -> Option<usize> {
         self.fields.iter().position(|f| f.name == name)
@@ -217,11 +234,26 @@ impl ItemTypes {
         &self.adts[&def]
     }
 
+    /// The field types of the struct `ty`, or of its variant `variant` when it is an enum,
+    /// at `ty`'s generic arguments. Empty for any other type.
+    #[must_use]
+    pub fn field_tys(&self, ty: &Ty, variant: Option<usize>) -> Vec<Ty> {
+        let Ty::Adt(def, args) = ty else {
+            return Vec::new();
+        };
+        let adt = self.adt(*def);
+        let fields = match variant {
+            Some(v) => &adt.variant(v).fields,
+            None => &adt.fields,
+        };
+        fields.iter().map(|f| adt.field_ty(&f.ty, args)).collect()
+    }
+
     /// The enum a type names, if it is one.
     #[must_use]
     pub fn as_enum(&self, ty: &Ty) -> Option<&AdtDef> {
         match ty {
-            Ty::Adt(def) => self.adts.get(def).filter(|a| a.is_enum()),
+            Ty::Adt(def, _) => self.adts.get(def).filter(|a| a.is_enum()),
             _ => None,
         }
     }
@@ -251,7 +283,16 @@ impl ItemTypes {
     #[must_use]
     pub fn needs_drop(&self, ty: &Ty) -> bool {
         match ty {
-            Ty::Adt(def) => self.needs_drop.contains(def),
+            Ty::Adt(def, args) if args.is_empty() => self.needs_drop.contains(def),
+            // An instance of a generic type: its own `impl Drop`, or a field that needs drop
+            // at these arguments.
+            Ty::Adt(def, args) => {
+                self.drop_impls.contains_key(def)
+                    || self.adts.get(def).is_some_and(|a| {
+                        a.all_field_tys()
+                            .any(|t| self.needs_drop(&a.field_ty(t, args)))
+                    })
+            }
             Ty::Tuple(elems) => elems.iter().any(|e| self.needs_drop(e)),
             // An empty array holds nothing to drop, as in rustc.
             Ty::Array(elem, n) => *n > 0 && self.needs_drop(elem),
@@ -268,7 +309,12 @@ impl ItemTypes {
     #[must_use]
     pub fn is_copy(&self, ty: &Ty) -> bool {
         match ty {
-            Ty::Adt(def) => self.adts.get(def).is_some_and(|a| a.is_copy),
+            // A derived `Copy` of a generic type requires its arguments to be `Copy`, as
+            // rustc's derive does.
+            Ty::Adt(def, args) => {
+                self.adts.get(def).is_some_and(|a| a.is_copy)
+                    && args.iter().all(|a| self.is_copy(a))
+            }
             Ty::Tuple(elems) => elems.iter().all(|e| self.is_copy(e)),
             Ty::Array(elem, _) => self.is_copy(elem),
             _ => ty.is_copy(),
@@ -374,10 +420,10 @@ fn field_def(
 /// from `lens`; one that failed to evaluate makes the array an error type.
 pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLens) -> Ty {
     match &ty.kind {
-        TypeKind::Path(_) => match resolve.res(ty.id) {
+        TypeKind::Path(path) => match resolve.res(ty.id) {
             Res::Prim(p) => Ty::Prim(p),
             Res::Def(d) if resolve.def(d).kind == DefKind::TyParam => Ty::Param(d),
-            Res::Def(d) => Ty::Adt(d),
+            Res::Def(d) => adt_type(d, path, resolve, &mut |t| lower_sig_type(t, resolve, lens)),
             Res::Local(_) => unreachable!("locals never resolve in type position"),
             Res::Err => Ty::Error,
         },
@@ -402,6 +448,31 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLe
         }
         TypeKind::Slice(elem) => Ty::Slice(Box::new(lower_sig_type(elem, resolve, lens))),
         TypeKind::Infer => Ty::Error,
+    }
+}
+
+/// The struct or enum `adt` named by `path` in a type: with the path's generic arguments,
+/// lowered by `lower`, or with its own parameters for `Self` inside its `impl` block. An
+/// error type when the arguments are missing or of the wrong number (the resolver
+/// reported it).
+pub(crate) fn adt_type(
+    adt: DefId,
+    path: &sabiko_ast::Path,
+    resolve: &ResolveResults,
+    lower: &mut dyn FnMut(&Type) -> Ty,
+) -> Ty {
+    let generics = resolve.generics(adt);
+    if generics.is_empty() {
+        return Ty::adt(adt);
+    }
+    if path.last().name == "Self" {
+        return Ty::Adt(adt, generics.iter().map(|&p| Ty::Param(p)).collect());
+    }
+    match path.args_of(path.segments.len() - 1) {
+        Some(written) if written.args.len() == generics.len() => {
+            Ty::Adt(adt, written.args.iter().map(lower).collect())
+        }
+        _ => Ty::Error,
     }
 }
 
@@ -469,7 +540,16 @@ fn fn_sig(
     if let Some(sp) = &f.self_param {
         // `Self` is the struct of the `impl` block; an error type when that failed to
         // resolve (reported with the block).
-        let self_ty = resolve.def(def).parent.map_or(Ty::Error, Ty::Adt);
+        let self_ty = resolve.def(def).parent.map_or(Ty::Error, |adt| {
+            Ty::Adt(
+                adt,
+                resolve
+                    .generics(adt)
+                    .iter()
+                    .map(|&p| Ty::Param(p))
+                    .collect(),
+            )
+        });
         inputs.push(match sp.kind {
             SelfKind::Value { .. } => self_ty,
             SelfKind::Ref { mutable } => Ty::Ref(Mutability::from_bool(mutable), Box::new(self_ty)),
@@ -530,6 +610,7 @@ pub(crate) fn collect(
                     def,
                     AdtDef {
                         name: s.name.name.clone(),
+                        generics: resolve.generics(def).to_vec(),
                         fields,
                         is_unit,
                         is_copy,
@@ -595,6 +676,7 @@ pub(crate) fn collect(
                     def,
                     AdtDef {
                         name: e.name.name.clone(),
+                        generics: resolve.generics(def).to_vec(),
                         fields: Vec::new(),
                         is_unit: false,
                         is_copy,
@@ -645,6 +727,7 @@ pub(crate) fn collect(
     }
     check_recursive_structs(resolve, &items, sink);
     items.needs_drop = structs_needing_drop(resolve, &items);
+    check_unused_params(resolve, &items, sink);
     check_copy_derives(resolve, &items, sink);
     items
 }
@@ -732,6 +815,8 @@ fn structs_needing_drop(resolve: &ResolveResults, items: &ItemTypes) -> HashSet<
         let before = set.len();
         let probe = ItemTypes {
             needs_drop: set.clone(),
+            adts: items.adts.clone(),
+            drop_impls: items.drop_impls.clone(),
             ..ItemTypes::default()
         };
         for &def in &structs {
@@ -741,6 +826,31 @@ fn structs_needing_drop(resolve: &ResolveResults, items: &ItemTypes) -> HashSet<
         }
         if set.len() == before {
             return set;
+        }
+    }
+}
+
+/// Every type parameter of a struct or enum must appear in a field (E0340, rustc's
+/// E0392): an instance's references, drop glue and layout come from its fields.
+fn check_unused_params(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    for def in adt_defs(resolve) {
+        let adt = items.adt(def);
+        for &param in &adt.generics {
+            if adt.all_field_tys().any(|t| t.mentions(param)) {
+                continue;
+            }
+            let info = resolve.def(param);
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNUSED_TYPE_PARAMETER,
+                    format!("type parameter `{}` is never used", info.name),
+                )
+                .with_label(info.span, "unused type parameter")
+                .with_note(format!(
+                    "use `{}` in a field of `{}`, or remove it",
+                    info.name, adt.name
+                )),
+            );
         }
     }
 }
@@ -768,7 +878,10 @@ fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Di
         }
         let variant_fields = adt.variants().iter().flat_map(|v| v.fields.iter());
         for field in adt.fields.iter().chain(variant_fields) {
-            if !items.is_copy(&field.ty) {
+            // The derive requires `T: Copy` of each parameter, so a parameter is `Copy`
+            // here (any `Copy` type stands for it).
+            let assumed = field.ty.map_params(&mut |_| Some(Ty::Unit));
+            if !items.is_copy(&assumed) {
                 sink.emit(
                     Diagnostic::error(
                         ErrorCode::COPY_NOT_IMPLEMENTABLE,
@@ -850,7 +963,13 @@ fn has_array(ty: &Ty) -> bool {
 /// recursively.
 fn structs_by_value(ty: &Ty, out: &mut Vec<DefId>) {
     match ty {
-        Ty::Adt(def) => out.push(*def),
+        // Each argument of a generic type is held by value too: fields hold no references.
+        Ty::Adt(def, args) => {
+            out.push(*def);
+            for a in args {
+                structs_by_value(a, out);
+            }
+        }
         Ty::Array(elem, _) => structs_by_value(elem, out),
         Ty::Tuple(elems) => {
             for e in elems.iter() {

@@ -370,7 +370,7 @@ fn validator_rejects_malformed_enum_mir() {
     );
     rejects(
         &with_aggregate(&|kind, _| {
-            if let AggregateKind::Variant(_, v) = kind {
+            if let AggregateKind::Variant(_, v, _) = kind {
                 *v = 9;
             }
         }),

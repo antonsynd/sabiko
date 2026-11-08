@@ -1,0 +1,192 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/generic_types.sabi
+---
+fn Pair::Swap<A, B>(_1: Pair<A, B>) -> Pair<B, A> {
+    let mut _0: Pair<B, A>;
+    let mut _2: B;
+    let mut _3: A;
+    cleanup c0: _1 => drop(_1);
+    cleanup c1 in c0: _2 => drop(_2);
+    cleanup c2 in c1: _3 => drop(_3);
+
+    bb0 (cleanup c0): {
+        StorageLive(_2);
+        _2 = move _1.Second;
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c1): {
+        StorageLive(_3);
+        _3 = move _1.First;
+        goto -> bb2;
+    }
+
+    bb2 (cleanup c2): {
+        _0 = Pair { First: move _2, Second: move _3 };
+        goto -> bb3;
+    }
+
+    bb3 (cleanup c1): {
+        drop(_3) -> bb4;
+    }
+
+    bb4 (cleanup c0): {
+        StorageDead(_3);
+        drop(_2) -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_2);
+        drop(_1) -> bb6;
+    }
+
+    bb6: {
+        return;
+    }
+}
+
+fn Guard::drop<T>(_1: &mut Guard<T>) {
+    let mut _0: ();
+
+    bb0: {
+        _0 = const ();
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Get(_1: Opt<i32>) -> i32 {
+    let mut _0: i32;
+    let _2: i32;                         // v
+    let mut _3: isize;
+
+    bb0: {
+        PlaceMention(_1);
+        StorageLive(_3);
+        _3 = discriminant(_1);
+        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb7;
+    }
+
+    bb2: {
+        switchInt(copy _3) -> [0: bb5, otherwise: bb6];
+    }
+
+    bb3: {
+        falseEdge -> [real: bb4, imaginary: bb2];
+    }
+
+    bb4: {
+        StorageLive(_2);
+        _2 = copy (_1 as Some).0;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _0 = const 0_i32;
+        goto -> bb7;
+    }
+
+    bb6: {
+        unreachable;
+    }
+
+    bb7: {
+        StorageDead(_3);
+        goto -> bb8;
+    }
+
+    bb8: {
+        return;
+    }
+}
+
+fn Main() {
+    let mut _0: ();
+    let _1: Pair<bool, u8>;              // p
+    let mut _2: Pair<u8, bool>;
+    let _3: i32;                         // x
+    let _4: Opt<&i32>;                   // o
+    let mut _5: &i32;
+    let _6: i32;                         // n
+    let mut _7: Opt<i32>;
+    let _8: Guard<(Pair<bool, u8>, Opt<&i32>)>; // g
+    let mut _9: (Pair<bool, u8>, Opt<&i32>);
+    let mut _10: Pair<bool, u8>;
+    let mut _11: Opt<&i32>;
+    let _12: i32;                        // _k
+    cleanup c0: _8 => drop(_8);
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = Pair { First: const 1_u8, Second: const true };
+        _1 = Pair::Swap::<u8, bool>(move _2) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_2);
+        StorageLive(_3);
+        _3 = const 5_i32;
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = &_3;
+        _4 = Opt::Some { 0: copy _5 };
+        StorageDead(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = Opt::Some { 0: const 3_i32 };
+        _6 = Get(move _7) -> bb2;
+    }
+
+    bb2: {
+        StorageDead(_7);
+        StorageLive(_8);
+        StorageLive(_9);
+        StorageLive(_10);
+        _10 = move _1;
+        StorageLive(_11);
+        _11 = move _4;
+        _9 = (move _10, move _11);
+        _8 = Guard { Value: move _9 };
+        goto -> bb3;
+    }
+
+    bb3 (cleanup c0): {
+        StorageDead(_11);
+        StorageDead(_10);
+        StorageDead(_9);
+        StorageLive(_12);
+        _12 = copy _6;
+        _0 = const ();
+        StorageDead(_12);
+        goto -> bb4;
+    }
+
+    bb4: {
+        drop(_8) -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_8);
+        StorageDead(_6);
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageDead(_1);
+        goto -> bb6;
+    }
+
+    bb6: {
+        return;
+    }
+}

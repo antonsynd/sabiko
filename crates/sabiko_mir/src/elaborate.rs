@@ -142,7 +142,7 @@ impl DropPaths {
             // An array is moved and dropped whole: nothing can be moved out of an element
             // (E0420), so like a struct with its own `drop` it is one leaf. A write to an
             // element drops the element's old value.
-            Ty::Adt(def) if typeck.items.drop_impl(*def).is_some() => {
+            Ty::Adt(def, _) if typeck.items.drop_impl(*def).is_some() => {
                 self.nodes[index].leaf = Some(self.leaf_nodes.len());
                 self.leaf_nodes.push(index);
                 return index;
@@ -154,25 +154,23 @@ impl DropPaths {
                 self.leaf_nodes.push(index);
                 return index;
             }
-            Ty::Adt(def) => {
+            Ty::Adt(def, args) => {
                 let adt = typeck.items.adt(*def);
                 if adt.is_enum() {
                     adt.variants()
                         .iter()
                         .enumerate()
                         .flat_map(|(v, variant)| {
-                            variant
-                                .fields
-                                .iter()
-                                .enumerate()
-                                .map(move |(f, fd)| (Some(v), f, fd.ty.clone(), variant.discr))
+                            variant.fields.iter().enumerate().map(move |(f, fd)| {
+                                (Some(v), f, adt.field_ty(&fd.ty, args), variant.discr)
+                            })
                         })
                         .collect()
                 } else {
                     adt.fields
                         .iter()
                         .enumerate()
-                        .map(|(f, fd)| (None, f, fd.ty.clone(), 0))
+                        .map(|(f, fd)| (None, f, adt.field_ty(&fd.ty, args), 0))
                         .collect()
                 }
             }

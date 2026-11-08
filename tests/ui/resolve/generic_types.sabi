@@ -1,0 +1,32 @@
+// Generic structs and enums: arguments are required in types, optional in expressions
+// and patterns, and an `impl` block must name its type's parameters in order.
+
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+struct Plain {
+    X: i32,
+}
+
+impl<T> Pair<T, T> { //~ ERROR E0107 not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters
+}
+
+impl Pair<i32, bool> { //~ ERROR E0107 not yet supported: an `impl` block whose type arguments are not exactly its own generic parameters
+}
+
+impl<A, A> Pair<A, A> { //~ ERROR E0221 the name `A` is already used
+}
+
+fn F(p: Pair) {} //~ ERROR E0222 missing generics for struct `Pair`
+
+fn G(p: Pair<i32>) {} //~ ERROR E0222 struct takes 2 generic arguments but 1 generic argument was supplied
+
+fn H(p: Plain<i32>) {} //~ ERROR E0223 type arguments are not allowed on struct `Plain`
+
+fn Main() {
+    let a = Pair { First: 1, Second: true };
+    let b = Pair::<i32, bool> { First: 1, Second: true };
+    let c = Pair::<i32> { First: 1, Second: true }; //~ ERROR E0222 struct takes 2 generic arguments but 1 generic argument was supplied
+}

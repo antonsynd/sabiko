@@ -2,9 +2,11 @@
 //!
 //! Sabiko has no lifetime syntax yet, so every reference type gets an inferred origin:
 //! a [`RegionTy`] mirrors a [`Ty`] and carries one [`Origin`] per `Ref` node. Struct
-//! fields never hold references in this phase, so origins appear along chains of `Ref`s
-//! (`&&T`, `&mut &T`), in the elements of tuples (`(&T, &mut U)`) and in the element of
-//! an array or slice, represented as a one-element tuple (`[&T; 3]`).
+//! fields never write a reference in this phase, so origins appear along chains of `Ref`s
+//! (`&&T`, `&mut &T`), in the elements of tuples (`(&T, &mut U)`), in the element of an
+//! array or slice, represented as a one-element tuple (`[&T; 3]`), and in the generic
+//! arguments of a struct or enum instance (`Opt<&T>`), whose fields share the arguments'
+//! origins (#115).
 //!
 //! Function signatures use *universal* origins: one per reference in the parameter types.
 //! The return type follows Rust's elision rules: in a method taking `&self` or `&mut self`
@@ -17,7 +19,8 @@
 use polonius_engine::Atom;
 use sabiko_mir::{Mutability, PlaceElem, Ty};
 
-use sabiko_types::{FnSig, SelfKind};
+use sabiko_resolve::DefId;
+use sabiko_types::{FnSig, ItemTypes, SelfKind};
 
 macro_rules! atom {
     ($(#[$doc:meta])* $name:ident) => {
@@ -94,42 +97,57 @@ pub enum RegionTy {
     Ref(Mutability, Origin, Box<RegionTy>),
     /// A tuple with references among its elements.
     Tuple(Vec<RegionTy>),
+    /// A struct or enum instance with references among its generic arguments: the region
+    /// types of its arguments, and those of its fields (by variant, a struct's at 0),
+    /// which hold the arguments' origins.
+    Adt {
+        args: Vec<RegionTy>,
+        fields: Vec<Vec<RegionTy>>,
+    },
     /// Anything without references: primitives, structs, `()`, `!`, errors.
     Other,
 }
 
 impl RegionTy {
     /// `ty` with a fresh origin on every reference.
-    pub fn fresh(ty: &Ty, supply: &mut OriginSupply) -> Self {
-        match ty {
-            Ty::Ref(m, inner) => {
-                let origin = supply.fresh();
-                Self::Ref(*m, origin, Box::new(Self::fresh(inner, supply)))
-            }
-            Ty::Tuple(elems) if ty.has_ref() => {
-                Self::Tuple(elems.iter().map(|e| Self::fresh(e, supply)).collect())
-            }
-            // Every element of an array (or slice) has the same origins: one element.
-            Ty::Array(elem, _) | Ty::Slice(elem) if ty.has_ref() => {
-                Self::Tuple(vec![Self::fresh(elem, supply)])
-            }
-            _ => Self::Other,
-        }
+    pub fn fresh(ty: &Ty, items: &ItemTypes, supply: &mut OriginSupply) -> Self {
+        Params::none(items).fresh(ty, supply)
     }
 
     /// `ty` with the same origin on every reference (the elided return type).
     #[must_use]
-    pub fn uniform(ty: &Ty, origin: Origin) -> Self {
-        match ty {
-            Ty::Ref(m, inner) => Self::Ref(*m, origin, Box::new(Self::uniform(inner, origin))),
-            Ty::Tuple(elems) if ty.has_ref() => {
-                Self::Tuple(elems.iter().map(|e| Self::uniform(e, origin)).collect())
-            }
-            Ty::Array(elem, _) | Ty::Slice(elem) if ty.has_ref() => {
-                Self::Tuple(vec![Self::uniform(elem, origin)])
-            }
-            _ => Self::Other,
+    pub fn uniform(ty: &Ty, origin: Origin, items: &ItemTypes) -> Self {
+        Params::none(items).uniform(ty, Some(origin))
+    }
+
+    /// The region type of an instance of the struct or enum `def` whose arguments have the
+    /// region types `args`: each field's, with the type's parameters replaced by them.
+    fn adt(def: DefId, args: Vec<RegionTy>, items: &ItemTypes) -> Self {
+        if args.iter().all(|a| *a == RegionTy::Other) {
+            return RegionTy::Other;
         }
+        let adt = items.adt(def);
+        let params = Params {
+            defs: &adt.generics,
+            args: &args,
+            items,
+        };
+        let variants: Vec<&[sabiko_types::FieldDef]> = if adt.is_enum() {
+            adt.variants().iter().map(|v| v.fields.as_slice()).collect()
+        } else {
+            vec![adt.fields.as_slice()]
+        };
+        // Field types write no reference (Phase 9), so nothing here takes a new origin.
+        let mut unused = OriginSupply::default();
+        let fields = variants
+            .iter()
+            .map(|fs| {
+                fs.iter()
+                    .map(|f| params.fresh(&f.ty, &mut unused))
+                    .collect()
+            })
+            .collect();
+        RegionTy::Adt { args, fields }
     }
 
     /// Every origin in the type, depth first, outermost first along each chain of
@@ -161,6 +179,13 @@ impl RegionTy {
                     path.pop();
                 }
             }
+            Self::Adt { args, .. } => {
+                for (i, a) in args.iter().enumerate() {
+                    path.push(SiteElem::Arg(i));
+                    a.sites(path, f);
+                    path.pop();
+                }
+            }
             Self::Other => {}
         }
     }
@@ -170,7 +195,7 @@ impl RegionTy {
     pub fn referent(&self) -> &RegionTy {
         match self {
             Self::Ref(_, _, inner) => inner,
-            Self::Tuple(_) | Self::Other => &Self::Other,
+            Self::Tuple(_) | Self::Adt { .. } | Self::Other => &Self::Other,
         }
     }
 
@@ -179,6 +204,7 @@ impl RegionTy {
     #[must_use]
     pub fn project(&self, projection: &[PlaceElem]) -> RegionTy {
         let mut cur = self;
+        let mut variant = None;
         for elem in projection {
             match (elem, cur) {
                 (PlaceElem::Deref, _) => cur = cur.referent(),
@@ -186,14 +212,25 @@ impl RegionTy {
                     Some(e) => cur = e,
                     None => return Self::Other,
                 },
+                // A field of an instance holds its arguments' origins.
+                (PlaceElem::Field(index, _), Self::Adt { fields, .. }) => {
+                    match fields.get(variant.unwrap_or(0)).and_then(|f| f.get(*index)) {
+                        Some(f) => cur = f,
+                        None => return Self::Other,
+                    }
+                }
                 // An array holding references is a one-element tuple of its element.
                 (PlaceElem::Index(_), Self::Tuple(elems)) => match elems.first() {
                     Some(e) => cur = e,
                     None => return Self::Other,
                 },
                 (PlaceElem::Field(..) | PlaceElem::Index(_), _) => return Self::Other,
-                (PlaceElem::Downcast(_), _) => {}
+                (PlaceElem::Downcast(v), _) => {
+                    variant = Some(*v);
+                    continue;
+                }
             }
+            variant = None;
         }
         cur.clone()
     }
@@ -204,6 +241,8 @@ impl RegionTy {
 pub enum SiteElem {
     Deref,
     Field(usize),
+    /// Inside the generic argument at this index of a struct or enum instance.
+    Arg(usize),
 }
 
 /// The origins of one function signature.
@@ -244,7 +283,11 @@ impl SigRegions {
                     }
                     walk(inner, out);
                 }
-                RegionTy::Tuple(elems) => elems.iter().for_each(|e| walk(e, out)),
+                RegionTy::Tuple(elems) | RegionTy::Adt { args: elems, .. } => {
+                    for e in elems {
+                        walk(e, out);
+                    }
+                }
                 RegionTy::Other => {}
             }
         }
@@ -269,15 +312,17 @@ impl SigRegions {
 pub fn signature_regions(
     sig: &FnSig,
     generic_args: &[Ty],
+    items: &ItemTypes,
     supply: &mut OriginSupply,
 ) -> SigRegions {
     let args: Vec<RegionTy> = generic_args
         .iter()
-        .map(|t| RegionTy::fresh(t, supply))
+        .map(|t| RegionTy::fresh(t, items, supply))
         .collect();
     let params = Params {
         defs: if args.is_empty() { &[] } else { &sig.generics },
         args: &args,
+        items,
     };
     let inputs: Vec<RegionTy> = sig
         .inputs
@@ -326,17 +371,32 @@ fn written_origins(ty: &Ty, region: &RegionTy, out: &mut Vec<Origin>) {
                 written_origins(elem, r, out);
             }
         }
+        (Ty::Adt(_, targs), RegionTy::Adt { args, .. }) => {
+            for (t, r) in targs.iter().zip(args) {
+                written_origins(t, r, out);
+            }
+        }
         _ => {}
     }
 }
 
 /// A call's type parameters and the region types of its generic arguments.
 struct Params<'a> {
-    defs: &'a [sabiko_resolve::DefId],
+    defs: &'a [DefId],
     args: &'a [RegionTy],
+    items: &'a ItemTypes,
 }
 
-impl Params<'_> {
+impl<'a> Params<'a> {
+    /// No parameters: a type parameter holds no reference.
+    fn none(items: &'a ItemTypes) -> Self {
+        Params {
+            defs: &[],
+            args: &[],
+            items,
+        }
+    }
+
     fn arg(&self, param: sabiko_resolve::DefId) -> RegionTy {
         self.defs
             .iter()
@@ -350,6 +410,7 @@ impl Params<'_> {
             Ty::Param(p) => !self.arg(*p).origins().is_empty(),
             Ty::Ref(..) => true,
             Ty::Tuple(elems) => elems.iter().any(|e| self.holds_ref(e)),
+            Ty::Adt(_, args) => args.iter().any(|a| self.holds_ref(a)),
             Ty::Array(elem, _) | Ty::Slice(elem) => self.holds_ref(elem),
             _ => false,
         }
@@ -369,6 +430,10 @@ impl Params<'_> {
             Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
                 RegionTy::Tuple(vec![self.fresh(elem, supply)])
             }
+            Ty::Adt(def, args) if self.holds_ref(ty) => {
+                let args = args.iter().map(|a| self.fresh(a, supply)).collect();
+                RegionTy::adt(*def, args, self.items)
+            }
             _ => RegionTy::Other,
         }
     }
@@ -387,6 +452,10 @@ impl Params<'_> {
             }
             Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
                 RegionTy::Tuple(vec![self.uniform(elem, origin)])
+            }
+            Ty::Adt(def, args) if self.holds_ref(ty) => {
+                let args = args.iter().map(|a| self.uniform(a, origin)).collect();
+                RegionTy::adt(*def, args, self.items)
             }
             _ => RegionTy::Other,
         }

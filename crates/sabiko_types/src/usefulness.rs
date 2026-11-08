@@ -48,6 +48,11 @@ use crate::ty::Ty;
 /// enum.
 pub trait PatCx {
     fn adt(&self, def: DefId) -> AdtShape;
+
+    /// The type parameters of a generic struct or enum, which its field types mention.
+    fn generics(&self, _def: DefId) -> Vec<DefId> {
+        Vec::new()
+    }
 }
 
 /// The shape of a user type, as [`PatCx::adt`] describes it.
@@ -275,7 +280,7 @@ pub fn reports_type_non_empty(cx: &dyn PatCx, scrut_ty: &Ty, arms: &[Arm]) -> bo
         return false;
     }
     let non_empty_enum = match scrut_ty {
-        Ty::Adt(def) => {
+        Ty::Adt(def, _) => {
             matches!(cx.adt(*def), AdtShape::Enum { variants, .. } if !variants.is_empty())
         }
         _ => false,
@@ -760,6 +765,14 @@ impl<'a> Checker<'a> {
         Rc::clone(self.adts.entry(def).or_insert_with(|| Rc::new(cx.adt(def))))
     }
 
+    /// The field type `ty` of `def` at its instance with arguments `args`.
+    fn instance_field(&self, def: DefId, ty: &Ty, args: &[Ty]) -> Ty {
+        if args.is_empty() {
+            return ty.clone();
+        }
+        ty.subst(&self.cx.generics(def), args)
+    }
+
     // --- types -------------------------------------------------------------------------
 
     /// Whether the type has no values, as rustc decides it: references are always
@@ -768,7 +781,7 @@ impl<'a> Checker<'a> {
         match ty {
             Ty::Never => true,
             Ty::Tuple(elems) => elems.iter().any(|e| self.is_uninhabited(e)),
-            Ty::Adt(def) => {
+            Ty::Adt(def, _) => {
                 if let Some(&known) = self.uninhabited.get(def) {
                     return known;
                 }
@@ -813,7 +826,7 @@ impl<'a> Checker<'a> {
             },
             // No array or slice patterns yet: only wildcards and bindings match them.
             Ty::Array(..) | Ty::Slice(_) => CtorSet::Unlistable,
-            Ty::Adt(def) => {
+            Ty::Adt(def, _) => {
                 let shape = self.adt(*def);
                 match &*shape {
                     AdtShape::Struct { .. } => CtorSet::Struct {
@@ -848,14 +861,22 @@ impl<'a> Checker<'a> {
     fn field_tys(&mut self, ty: &Ty, ctor: &Ctor) -> Vec<Ty> {
         match (ctor, ty) {
             (Ctor::Struct, Ty::Tuple(elems)) => elems.to_vec(),
-            (Ctor::Struct, Ty::Adt(def)) => match &*self.adt(*def) {
-                AdtShape::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            (Ctor::Struct, Ty::Adt(def, args)) => match &*self.adt(*def) {
+                AdtShape::Struct { fields, .. } => fields
+                    .iter()
+                    .map(|f| self.instance_field(*def, &f.ty, args))
+                    .collect(),
                 AdtShape::Enum { .. } => Vec::new(),
             },
-            (Ctor::Variant(i), Ty::Adt(def)) => match &*self.adt(*def) {
+            (Ctor::Variant(i), Ty::Adt(def, args)) => match &*self.adt(*def) {
                 AdtShape::Enum { variants, .. } => variants
                     .get(*i)
-                    .map(|v| v.fields.iter().map(|f| f.ty.clone()).collect())
+                    .map(|v| {
+                        v.fields
+                            .iter()
+                            .map(|f| self.instance_field(*def, &f.ty, args))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 AdtShape::Struct { .. } => Vec::new(),
             },
@@ -886,7 +907,7 @@ impl<'a> Checker<'a> {
             PatKind::Wild => self.alloc(Ctor::Wildcard, Vec::new(), span),
             PatKind::Ctor { variant, fields } => {
                 let ctor = match (variant, &pat.ty) {
-                    (Some(i), Ty::Adt(def))
+                    (Some(i), Ty::Adt(def, _))
                         if matches!(&*self.adt(*def), AdtShape::Enum { .. }) =>
                     {
                         Ctor::Variant(*i)
@@ -1216,7 +1237,7 @@ impl<'a> Checker<'a> {
             .collect();
         let (name, kind, field_names): (String, VariantKind, Vec<String>) =
             match (&wit.ty, &wit.ctor) {
-                (Ty::Adt(def), ctor) => match (&*self.adt(*def), ctor) {
+                (Ty::Adt(def, _), ctor) => match (&*self.adt(*def), ctor) {
                     (AdtShape::Enum { name, variants }, Ctor::Variant(i)) => match variants.get(*i)
                     {
                         Some(v) => (
@@ -1473,7 +1494,7 @@ mod tests {
 
     fn adt(name: &str) -> Ty {
         let index = NAMES.iter().position(|n| *n == name).expect("known type");
-        Ty::Adt(DefId(u32::try_from(index).unwrap()))
+        Ty::adt(DefId(u32::try_from(index).unwrap()))
     }
 
     fn tup(elems: &[Ty]) -> Ty {
@@ -1905,7 +1926,7 @@ mod tests {
             while self.eat("::") {
                 path.push(self.ident());
             }
-            let Ty::Adt(def) = ty else {
+            let Ty::Adt(def, _) = ty else {
                 panic!("path `{}` at a non-ADT type", path.join("::"))
             };
             let (variant, kind, shape_fields) = match self.cx.adt(*def) {

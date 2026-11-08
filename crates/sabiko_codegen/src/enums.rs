@@ -13,7 +13,7 @@ use sabiko_resolve::{DefId, PrimTy};
 use sabiko_span::Span;
 use sabiko_types::{AdtDef, Ty, VariantKind};
 
-use crate::{func, types, Cx};
+use crate::{types, Cx};
 
 impl Cx<'_> {
     /// The integer type of an enum's tag: `int32`, or `int64` when a discriminant does not
@@ -32,55 +32,62 @@ impl Cx<'_> {
     }
 
     /// The field reference of an enum's tag.
-    pub(crate) fn tag_field_ref(&self, def: DefId) -> String {
-        let adt = self.typeck.items.adt(def);
+    pub(crate) fn tag_field_ref(&mut self, def: DefId, args: &[Ty]) -> String {
         let tag = types::prim_type(self.tag_type(def)).expect("an integer type");
-        format!(
-            "{tag} {}::{}",
-            types::quote(&adt.name),
-            types::quote(tag_name(adt))
-        )
+        let class = self.adt_class(def, args);
+        let adt = self.typeck.items.adt(def);
+        format!("{tag} {class}::{}", types::quote(tag_name(adt)))
     }
 
     /// The field reference of variant `variant`'s payload in its enum.
-    pub(crate) fn payload_field_ref(&self, def: DefId, variant: usize) -> String {
+    pub(crate) fn payload_field_ref(&mut self, def: DefId, args: &[Ty], variant: usize) -> String {
+        let payload = self.payload_class(def, args, variant);
+        let class = self.adt_class(def, args);
         let adt = self.typeck.items.adt(def);
         let v = adt.variant(variant);
-        format!(
-            "valuetype {} {}::{}",
-            self.payload_class(def, variant),
-            types::quote(&adt.name),
-            types::quote(&v.name)
-        )
+        format!("valuetype {payload} {class}::{}", types::quote(&v.name))
     }
 
     /// The field reference of field `index` of variant `variant`'s payload.
     pub(crate) fn variant_field_ref(
         &mut self,
         def: DefId,
+        args: &[Ty],
         variant: usize,
         index: usize,
         field_ty: &Ty,
         span: Span,
     ) -> String {
         let adt = self.typeck.items.adt(def).clone();
-        let cil = types::cil_type(self, field_ty, span);
+        // A reference field is stored in its wrapper, as a tuple element is (decision 64).
+        let cil = types::stored_type(self, field_ty, span);
         format!(
             "{cil} {}::{}",
-            self.payload_class(def, variant),
+            self.payload_class(def, args, variant),
             types::quote(&payload_field_name(&adt, variant, index))
         )
     }
 
     /// The value type of an enum, its payloads nested in it, and the functions of its
     /// `impl` blocks.
-    pub(crate) fn enum_type(&mut self, def: DefId, bodies: &[sabiko_mir::Body], out: &mut String) {
+    pub(crate) fn enum_type(
+        &mut self,
+        def: DefId,
+        args: &[Ty],
+        bodies: &[sabiko_mir::Body],
+        out: &mut String,
+    ) {
         let adt = self.typeck.items.adt(def).clone();
+        let class = self.adt_class(def, args);
         let _ = writeln!(
             out,
-            ".class public sequential ansi sealed beforefieldinit {} extends [System.Runtime]System.ValueType\n{{",
-            types::quote(&adt.name)
+            ".class public sequential ansi sealed beforefieldinit {class} extends [System.Runtime]System.ValueType\n{{",
         );
+        // An instance holding a reference is a `ref struct`, its payloads too.
+        let byref_like = Ty::Adt(def, args.into()).has_ref();
+        if byref_like {
+            let _ = writeln!(out, "  {}", types::IS_BYREF_LIKE_ATTR);
+        }
         for (index, v) in adt.variants().iter().enumerate() {
             if v.fields.is_empty() {
                 continue;
@@ -90,8 +97,13 @@ impl Cx<'_> {
                 "  .class nested public sequential ansi sealed beforefieldinit {} extends [System.Runtime]System.ValueType\n  {{",
                 types::quote(&self.payload_type_name(def, index))
             );
+            let payload_refs = v.fields.iter().any(|f| adt.field_ty(&f.ty, args).has_ref());
+            if payload_refs {
+                let _ = writeln!(out, "    {}", types::IS_BYREF_LIKE_ATTR);
+            }
             for (i, f) in v.fields.iter().enumerate() {
-                let ty = types::cil_type(self, &f.ty, f.span);
+                let field_ty = adt.field_ty(&f.ty, args);
+                let ty = types::stored_type(self, &field_ty, f.span);
                 let _ = writeln!(
                     out,
                     "    .field public {ty} {}",
@@ -110,18 +122,14 @@ impl Cx<'_> {
             if v.fields.is_empty() {
                 continue;
             }
+            let payload = self.payload_class(def, args, index);
             let _ = writeln!(
                 out,
-                "  .field public valuetype {} {}",
-                self.payload_class(def, index),
+                "  .field public valuetype {payload} {}",
                 types::quote(&v.name)
             );
         }
-        for body in bodies {
-            if self.resolve.def(body.def).parent == Some(def) {
-                func::emit_body(self, body, out);
-            }
-        }
+        self.instance_methods(def, args, bodies, out);
         out.push_str("}\n\n");
     }
 
@@ -147,11 +155,10 @@ impl Cx<'_> {
     }
 
     /// The nested value type of a variant's payload: `'E'/'VPayload'`.
-    fn payload_class(&self, def: DefId, variant: usize) -> String {
-        let adt = self.typeck.items.adt(def);
+    fn payload_class(&mut self, def: DefId, args: &[Ty], variant: usize) -> String {
+        let class = self.adt_class(def, args);
         format!(
-            "{}/{}",
-            types::quote(&adt.name),
+            "{class}/{}",
             types::quote(&self.payload_type_name(def, variant))
         )
     }

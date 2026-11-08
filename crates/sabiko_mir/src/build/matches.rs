@@ -162,14 +162,7 @@ impl Builder<'_> {
     fn field_tys(&self, place: &Place, variant: Option<usize>) -> Vec<Ty> {
         match place.ty(&self.body) {
             Ty::Tuple(tys) => *tys,
-            Ty::Adt(def) => {
-                let adt = self.typeck.items.adt(def);
-                let fields = match variant {
-                    Some(v) => &adt.variant(v).fields,
-                    None => &adt.fields,
-                };
-                fields.iter().map(|f| f.ty.clone()).collect()
-            }
+            ty @ Ty::Adt(..) => self.typeck.items.field_tys(&ty, variant),
             _ => Vec::new(),
         }
     }
@@ -198,7 +191,7 @@ impl Builder<'_> {
             }
             PatKind::Struct { fields, .. } => {
                 let names: Vec<String> = match place.ty(&self.body) {
-                    Ty::Adt(def) => {
+                    Ty::Adt(def, _) => {
                         let adt = self.typeck.items.adt(def);
                         let defs = match variant {
                             Some((_, v)) => &adt.variant(v).fields,

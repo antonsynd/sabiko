@@ -123,15 +123,15 @@ impl Fixture {
     }
 
     fn point_ty(&self) -> Ty {
-        Ty::Adt(self.point)
+        Ty::adt(self.point)
     }
 
     fn guard_ty(&self) -> Ty {
-        Ty::Adt(self.guard)
+        Ty::adt(self.guard)
     }
 
     fn guard_aggregate(&self) -> Rvalue {
-        Rvalue::Aggregate(AggregateKind::Adt(self.guard), vec![int(1)])
+        Rvalue::Aggregate(AggregateKind::Adt(self.guard, Box::new([])), vec![int(1)])
     }
 
     fn check(&self, body: &Body) -> Vec<Diagnostic> {
@@ -370,7 +370,10 @@ fn mention(l: Local) -> StatementKind {
 }
 
 fn point_aggregate(fx: &Fixture) -> Rvalue {
-    Rvalue::Aggregate(AggregateKind::Adt(fx.point), vec![int(1), int(2)])
+    Rvalue::Aggregate(
+        AggregateKind::Adt(fx.point, Box::new([])),
+        vec![int(1), int(2)],
+    )
 }
 
 // ----------------------------------------------------------------------------------------
@@ -888,7 +891,7 @@ fn shallow_borrow_of_a_field_conflicts_with_assigning_the_struct_only() {
     // f = &fake shallow p.X; p.Y = 3; p = Point { .. }; PlaceMention(f);
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx);
-    let p = mir.user("p", Ty::Adt(fx.point), Mutability::Mut);
+    let p = mir.user("p", Ty::adt(fx.point), Mutability::Mut);
     let f = mir.temp(Ty::shared_ref(Ty::I32));
     let bb0 = mir.block();
     mir.assign(bb0, local(p), point_aggregate(&fx));

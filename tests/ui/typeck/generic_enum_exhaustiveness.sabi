@@ -1,0 +1,28 @@
+// Exhaustiveness over instances of a generic enum uses the instance's field types.
+
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+fn F(o: Opt<bool>) -> i32 {
+    match o { //~ ERROR E0328 non-exhaustive patterns: `Opt::Some(false)` not covered
+        Opt::None => 0,
+        Opt::Some(true) => 1,
+    }
+}
+
+fn G(o: Opt<Opt<u8>>) -> i32 {
+    match o { //~ ERROR E0328 non-exhaustive patterns: `Opt::Some(Opt::None)` not covered
+        Opt::None => 0,
+        Opt::Some(Opt::Some(_)) => 1,
+    }
+}
+
+fn H(o: Opt<bool>) -> i32 {
+    match o {
+        Opt::None => 0,
+        Opt::Some(true) => 1,
+        Opt::Some(false) => 2,
+    }
+}

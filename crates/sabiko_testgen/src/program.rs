@@ -305,14 +305,19 @@ pub struct Program {
     pub generics: bool,
 }
 
-/// Generic functions (#114) that the bodies of a program with [`Program::generics`] wrap
-/// expressions in. Each is transparent to the scope model: `GenId(e)` is `e`, `GenPick(c,
-/// a, b)` evaluates (and moves) both `a` and `b` like a tuple literal and returns one of
-/// them, dropping the other, and `GenFirst(r)` returns the shared reference `r`, with its
-/// loans. One line each, at column 0, so no statement is ever inserted into them.
+/// Generic functions, a generic enum and a generic struct (#114, #115) that the bodies of
+/// a program with [`Program::generics`] wrap expressions in. Each is transparent to the
+/// scope model: `GenId(e)` is `e`; `GenPick(c, a, b)` and `GenOr(GenOpt::Yes(a), b)`
+/// evaluate (and move) both values like a tuple literal and return one of them, dropping
+/// the other; `GenOr(GenOpt::No, b)` is `b`; `GenBox { Value: e }.Value` is `e`; and
+/// `GenFirst(r)` returns the shared reference `r`, with its loans. One line each, at
+/// column 0, so no statement is ever inserted into them.
 pub const GENERIC_HELPERS: &str = "fn GenId<T>(x: T) -> T { x }\n\
 fn GenPick<T>(c: bool, a: T, b: T) -> T { if c { a } else { b } }\n\
-fn GenFirst<T>(x: &T) -> &T { x }\n";
+fn GenFirst<T>(x: &T) -> &T { x }\n\
+enum GenOpt<T> { No, Yes(T) }\n\
+struct GenBox<T> { Value: T }\n\
+fn GenOr<T>(o: GenOpt<T>, d: T) -> T { match o { GenOpt::Yes(v) => v, GenOpt::No => d } }\n";
 
 impl Program {
     pub fn is_copy(&self, ty: Ty) -> bool {

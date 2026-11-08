@@ -46,7 +46,7 @@
     │          ───┬───  
     │             ╰───── type argument not allowed
     │ 
-    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+    │ Note: only generic functions, structs and enums take generic arguments
 ────╯
 [E0223] Error: type arguments are not allowed on `i32`
     ╭─[ tests/ui/resolve/generic_params.sabi:20:16 ]
@@ -55,7 +55,7 @@
     │                ───┬──  
     │                   ╰──── type argument not allowed
     │ 
-    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+    │ Note: only generic functions, structs and enums take generic arguments
 ────╯
 [E0223] Error: type arguments are not allowed on builtin type `i32`
     ╭─[ tests/ui/resolve/generic_params.sabi:21:15 ]
@@ -64,7 +64,7 @@
     │               ──┬─  
     │                 ╰─── type argument not allowed
     │ 
-    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+    │ Note: only generic functions, structs and enums take generic arguments
 ────╯
 [E0223] Error: type arguments are not allowed on local variable `x`
     ╭─[ tests/ui/resolve/generic_params.sabi:23:14 ]
@@ -73,5 +73,5 @@
     │              ───┬───  
     │                 ╰───── type argument not allowed
     │ 
-    │ Note: only generic functions take generic arguments; generic structs and enums are planned for Phase 6 (#115)
+    │ Note: only generic functions, structs and enums take generic arguments
 ────╯

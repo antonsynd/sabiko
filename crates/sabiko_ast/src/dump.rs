@@ -70,9 +70,7 @@ impl Dumper {
                 self.line(&format!("{vis}Fn {}", f.name.name));
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
-                    for g in &f.generics {
-                        d.line(&format!("GenericParam {}", g.name.name));
-                    }
+                    d.generic_params(&f.generics);
                     if let Some(sp) = &f.self_param {
                         d.line(&format!("SelfParam {}", sp.kind.as_str()));
                     }
@@ -94,6 +92,7 @@ impl Dumper {
                 self.line(&format!("{vis}Struct {}", s.name.name));
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
+                    d.generic_params(&s.generics);
                     match &s.kind {
                         StructKind::Unit => d.line("Unit"),
                         StructKind::Named(fields) => {
@@ -125,6 +124,7 @@ impl Dumper {
                 self.line(&format!("{vis}Enum {}", e.name.name));
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
+                    d.generic_params(&e.generics);
                     for v in &e.variants {
                         d.line(&format!("Variant {}", v.name.name));
                         d.nested(|d| {
@@ -161,12 +161,19 @@ impl Dumper {
                 }
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
+                    d.generic_params(&imp.generics);
                     d.ty(&imp.self_ty);
                     for member in &imp.items {
                         d.item(member);
                     }
                 });
             }
+        }
+    }
+
+    fn generic_params(&mut self, params: &[GenericParam]) {
+        for g in params {
+            self.line(&format!("GenericParam {}", g.name.name));
         }
     }
 

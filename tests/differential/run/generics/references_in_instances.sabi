@@ -1,0 +1,53 @@
+// Instances holding references: `&mut` written through, `&str` and slices, references
+// read back out of fields and variants, and instances in arrays and tuples.
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+fn Get<T>(o: Opt<T>, d: T) -> T {
+    match o {
+        Opt::Some(v) => v,
+        Opt::None => d,
+    }
+}
+
+fn Main() {
+    let mut a = 1;
+    let mut b = 2;
+    let p = Pair { First: &mut a, Second: &mut b };
+    *p.First += 10;
+    *p.Second *= 3;
+    PrintLine(a + b);
+    let words = ["x", "yy", "zzz"];
+    let q = Pair { First: "label", Second: &words[1..] };
+    PrintLine(q.First);
+    PrintLine(q.Second.len());
+    PrintLine(q.Second[1]);
+    let c = 7;
+    let d = 8;
+    let o = Opt::Some(&c);
+    PrintLine(*Get(o, &d));
+    PrintLine(*Get(Opt::None, &d));
+    let opts = [Opt::Some(1u16), Opt::None, Opt::Some(3)];
+    let mut total = 0u16;
+    let mut i = 0;
+    while i < opts.len() {
+        if let Opt::Some(v) = opts[i] {
+            total += v;
+        }
+        i += 1;
+    }
+    PrintLine(total);
+    let t = (Opt::Some(true), Pair { First: 'k', Second: 2.5f32 });
+    if let (Opt::Some(flag), Pair { First, Second }) = t {
+        PrintLine(flag);
+        PrintLine(First);
+        PrintLine(Second);
+    }
+}

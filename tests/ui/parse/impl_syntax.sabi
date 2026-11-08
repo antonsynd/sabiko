@@ -3,7 +3,7 @@
 // is not first (rustc: "unexpected `self` parameter in function").
 struct P { X: i32 }
 
-impl<T> P { } //~ ERROR E0107 not yet supported: generic parameters
+impl<T> P { } // parses; the resolver rejects a block whose type does not take its parameters
 
 impl Clone for P { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
 

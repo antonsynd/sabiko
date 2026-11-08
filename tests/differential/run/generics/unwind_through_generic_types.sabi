@@ -1,0 +1,36 @@
+// A panic while generic instances with drop glue are live drops them all.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+fn Check<T>(v: T, fail: bool) -> T {
+    if fail {
+        Panic("failed");
+    }
+    v
+}
+
+fn Main() {
+    let p = Pair { First: Noisy { Id: 1 }, Second: 2 };
+    let e: Either<i32, Noisy> = Either::Right(Noisy { Id: 3 });
+    let q = Check(Pair { First: 4, Second: Noisy { Id: 5 } }, false);
+    let r = Check(Either::Left::<Noisy, i32>(Noisy { Id: 6 }), true);
+    PrintLine("unreachable");
+}

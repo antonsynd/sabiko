@@ -257,7 +257,12 @@ pub enum FactsError {
 /// Generates the facts of `body`.
 pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError> {
     let mut supply = OriginSupply::default();
-    let sig = signature_regions(typeck.items.fn_sig(body.def), &[], &mut supply);
+    let sig = signature_regions(
+        typeck.items.fn_sig(body.def),
+        &[],
+        &typeck.items,
+        &mut supply,
+    );
     let Some(output) = sig.output.clone() else {
         return Err(FactsError::MissingLifetime {
             input_origins: sig.input_origins,
@@ -272,8 +277,10 @@ pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError
                 .inputs
                 .get(index - 1)
                 .cloned()
-                .unwrap_or_else(|| RegionTy::fresh(&decl.ty, &mut supply)),
-            LocalKind::User | LocalKind::Temp => RegionTy::fresh(&decl.ty, &mut supply),
+                .unwrap_or_else(|| RegionTy::fresh(&decl.ty, &typeck.items, &mut supply)),
+            LocalKind::User | LocalKind::Temp => {
+                RegionTy::fresh(&decl.ty, &typeck.items, &mut supply)
+            }
         };
         locals.push(region_ty);
     }
@@ -484,6 +491,7 @@ impl Generator<'_> {
                 let callee = signature_regions(
                     self.typeck.items.fn_sig(*func),
                     generic_args,
+                    &self.typeck.items,
                     &mut self.supply,
                 );
                 let mid = self.table.mid(location);
@@ -544,7 +552,9 @@ impl Generator<'_> {
                 self.access(place, AccessKind::Move, location);
                 self.place_region_ty(place)
             }
-            Operand::Constant(constant) => RegionTy::fresh(&constant.ty, &mut self.supply),
+            Operand::Constant(constant) => {
+                RegionTy::fresh(&constant.ty, &self.typeck.items, &mut self.supply)
+            }
         }
     }
 
@@ -573,11 +583,34 @@ impl Generator<'_> {
                 }
                 ty
             }
-            Rvalue::Aggregate(AggregateKind::Adt(_) | AggregateKind::Variant(..), fields) => {
-                for field in fields {
-                    self.operand(field, location);
+            // An instance carries what its fields carry: each operand flows into its
+            // field's region type, which holds the instance's argument origins.
+            Rvalue::Aggregate(
+                kind @ (AggregateKind::Adt(def, args) | AggregateKind::Variant(def, _, args)),
+                fields,
+            ) => {
+                let tys: Vec<RegionTy> = fields.iter().map(|f| self.operand(f, location)).collect();
+                let ty = Ty::Adt(*def, args.clone());
+                if !ty.has_ref() {
+                    return RegionTy::Other;
                 }
-                RegionTy::Other
+                let target = RegionTy::fresh(&ty, &self.typeck.items, &mut self.supply);
+                let variant = match kind {
+                    AggregateKind::Variant(_, v, _) => *v,
+                    _ => 0,
+                };
+                if let RegionTy::Adt {
+                    fields: field_tys, ..
+                } = &target
+                {
+                    let mid = self.table.mid(location);
+                    if let Some(slots) = field_tys.get(variant) {
+                        for (src, dst) in tys.iter().zip(slots) {
+                            self.relate(src, dst, mid, false);
+                        }
+                    }
+                }
+                target
             }
             // A tuple carries its elements' origins: `(&a, 1)` holds the loan of `a`.
             Rvalue::Aggregate(AggregateKind::Tuple, elems) => {
@@ -594,7 +627,7 @@ impl Generator<'_> {
                 if !elem.has_ref() {
                     return RegionTy::Other;
                 }
-                let target = RegionTy::fresh(elem, &mut self.supply);
+                let target = RegionTy::fresh(elem, &self.typeck.items, &mut self.supply);
                 let mid = self.table.mid(location);
                 for ty in &tys {
                     self.relate(ty, &target, mid, false);
@@ -698,8 +731,17 @@ impl Generator<'_> {
                 }
                 self.relate(src_inner, dst_inner, point, invariant || m.is_mut());
             }
-            // Element by element; a tuple is covariant in its elements.
-            (RegionTy::Tuple(src_elems), RegionTy::Tuple(dst_elems)) => {
+            // Element by element; a tuple is covariant in its elements, and an instance in
+            // its arguments (its fields hold them).
+            (RegionTy::Tuple(src_elems), RegionTy::Tuple(dst_elems))
+            | (
+                RegionTy::Adt {
+                    args: src_elems, ..
+                },
+                RegionTy::Adt {
+                    args: dst_elems, ..
+                },
+            ) => {
                 for (s, d) in src_elems.iter().zip(dst_elems) {
                     self.relate(s, d, point, invariant);
                 }

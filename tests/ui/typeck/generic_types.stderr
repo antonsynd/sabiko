@@ -1,0 +1,37 @@
+[E0340] Error: type parameter `T` is never used
+   ╭─[ tests/ui/typeck/generic_types.sabi:4:15 ]
+   │
+ 4 │ struct Unused<T> { //~ ERROR E0340 type parameter `T` is never used
+   │               ┬  
+   │               ╰── unused type parameter
+   │ 
+   │ Note: use `T` in a field of `Unused`, or remove it
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/generic_types.sabi:21:10 ]
+    │
+ 21 │     Take(w); //~ ERROR E0300 mismatched types
+    │          ┬  
+    │          ╰── expected `Wrap<i32>`, found `Wrap<bool>`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/generic_types.sabi:22:18 ]
+    │
+ 22 │     let n: i32 = Wrap { Value: 2u8 }.Value; //~ ERROR E0300 mismatched types
+    │                  ────────────┬────────────  
+    │                              ╰────────────── expected `i32`, found `u8`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/generic_types.sabi:23:9 ]
+    │
+ 23 │     let o = Opt::None; //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `o` an explicit type
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/generic_types.sabi:24:24 ]
+    │
+ 24 │     let p: Opt<bool> = Opt::Some(5); //~ ERROR E0300 mismatched types
+    │                        ──────┬─────  
+    │                              ╰─────── expected `Opt<bool>`, found `Opt<_>`
+────╯

@@ -94,6 +94,7 @@ impl InferCtxt {
                     .collect::<Vec<_>>()
                     .into(),
             ),
+            Ty::Adt(def, args) => Ty::Adt(*def, args.iter().map(|a| self.resolve(a)).collect()),
             Ty::Infer(_) => match self.shallow_resolve(ty) {
                 t @ Ty::Infer(_) => t,
                 t => self.resolve(&t),
@@ -116,6 +117,10 @@ impl InferCtxt {
                     .map(|e| self.resolve_with_defaults(e))
                     .collect::<Vec<_>>()
                     .into(),
+            ),
+            Ty::Adt(def, args) => Ty::Adt(
+                *def,
+                args.iter().map(|a| self.resolve_with_defaults(a)).collect(),
             ),
             Ty::Infer(_) => match self.shallow_resolve(ty) {
                 Ty::Infer(v) => match self.kind(v) {
@@ -157,6 +162,11 @@ impl InferCtxt {
                     self.bind_error(e);
                 }
             }
+            Ty::Adt(_, args) => {
+                for a in &args {
+                    self.bind_error(a);
+                }
+            }
             _ => {}
         }
     }
@@ -168,6 +178,7 @@ impl InferCtxt {
             Ty::Infer(w) => self.root(v) == self.root(w),
             Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => self.occurs(v, &inner),
             Ty::Tuple(elems) => elems.iter().any(|e| self.occurs(v, e)),
+            Ty::Adt(_, args) => args.iter().any(|a| self.occurs(v, a)),
             _ => false,
         }
     }
@@ -185,6 +196,9 @@ impl InferCtxt {
             | (Ty::Slice(ia), Ty::Slice(ib)) => self.is_cyclic(&ia, &ib),
             (Ty::Tuple(ea), Ty::Tuple(eb)) if ea.len() == eb.len() => {
                 ea.iter().zip(eb.iter()).any(|(a, b)| self.is_cyclic(a, b))
+            }
+            (Ty::Adt(da, aa), Ty::Adt(db, ab)) if da == db && aa.len() == ab.len() => {
+                aa.iter().zip(ab.iter()).any(|(a, b)| self.is_cyclic(a, b))
             }
             _ => false,
         }
@@ -256,6 +270,17 @@ impl InferCtxt {
                     return Err(UnifyError);
                 }
                 for (x, y) in ea.iter().zip(eb.iter()) {
+                    self.unify(x, y)?;
+                }
+                Ok(())
+            }
+            // The same struct or enum, argument by argument (invariant, as rustc's ADTs
+            // without variance are here: no subtyping on references to compare).
+            (Ty::Adt(da, aa), Ty::Adt(db, ab)) => {
+                if da != db || aa.len() != ab.len() {
+                    return Err(UnifyError);
+                }
+                for (x, y) in aa.iter().zip(ab.iter()) {
                     self.unify(x, y)?;
                 }
                 Ok(())

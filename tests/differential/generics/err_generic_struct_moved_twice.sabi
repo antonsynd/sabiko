@@ -1,0 +1,14 @@
+// An instance of a generic struct without `Copy` moves.
+struct Wrap<T> {
+    Value: T,
+}
+
+fn Take<T>(w: Wrap<T>) -> T {
+    w.Value
+}
+
+fn Main() {
+    let w = Wrap { Value: 1 };
+    let a = Take(w);
+    let b = Take(w);
+}

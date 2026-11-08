@@ -327,7 +327,7 @@ impl Validator<'_> {
         for elem in &place.projection {
             let downcast = variant.take();
             ty = match (elem, ty) {
-                (PlaceElem::Downcast(index), Ty::Adt(def)) => {
+                (PlaceElem::Downcast(index), Ty::Adt(def, args)) => {
                     let adt = self.typeck.items.adt(def);
                     if *index >= adt.variants().len() {
                         self.err(
@@ -341,13 +341,13 @@ impl Validator<'_> {
                         return None;
                     }
                     variant = Some(*index);
-                    Ty::Adt(def)
+                    Ty::Adt(def, args)
                 }
                 (PlaceElem::Downcast(_), other) => {
                     self.err(bb, format!("downcast of non-enum type {other:?}"));
                     return None;
                 }
-                (PlaceElem::Field(..), Ty::Adt(def))
+                (PlaceElem::Field(..), Ty::Adt(def, _))
                     if self.typeck.items.adt(def).is_enum() && downcast.is_none() =>
                 {
                     self.err(bb, "field of an enum without a downcast to a variant");
@@ -358,20 +358,20 @@ impl Validator<'_> {
                     self.err(bb, format!("deref of non-reference type {other:?}"));
                     return None;
                 }
-                (PlaceElem::Field(index, field_ty), Ty::Adt(def)) => {
+                (PlaceElem::Field(index, field_ty), Ty::Adt(def, args)) => {
                     let adt = self.typeck.items.adt(def);
                     let fields = match downcast {
                         Some(v) => &adt.variant(v).fields,
                         None => &adt.fields,
                     };
-                    match fields.get(*index) {
-                        Some(f) if f.ty == *field_ty => field_ty.clone(),
+                    match fields.get(*index).map(|f| adt.field_ty(&f.ty, &args)) {
+                        Some(f) if f == *field_ty => field_ty.clone(),
                         Some(f) => {
                             self.err(
                                 bb,
                                 format!(
-                                    "field {index} of `{}` has type {:?}, projection says {field_ty:?}",
-                                    adt.name, f.ty
+                                    "field {index} of `{}` has type {f:?}, projection says {field_ty:?}",
+                                    adt.name
                                 ),
                             );
                             return None;
@@ -504,7 +504,7 @@ impl Validator<'_> {
                 }
                 Some(Ty::Tuple(tys.into()))
             }
-            Rvalue::Aggregate(AggregateKind::Adt(def), operands) => {
+            Rvalue::Aggregate(AggregateKind::Adt(def, args), operands) => {
                 let adt = self.typeck.items.adt(*def);
                 if operands.len() != adt.fields.len() {
                     self.err(
@@ -517,7 +517,11 @@ impl Validator<'_> {
                         ),
                     );
                 }
-                let field_tys: Vec<Ty> = adt.fields.iter().map(|f| f.ty.clone()).collect();
+                let field_tys: Vec<Ty> = adt
+                    .fields
+                    .iter()
+                    .map(|f| adt.field_ty(&f.ty, args))
+                    .collect();
                 for (op, field_ty) in operands.iter().zip(&field_tys) {
                     if let Some(ty) = self.operand_ty(bb, op) {
                         if !compatible(&ty, field_ty) {
@@ -530,9 +534,9 @@ impl Validator<'_> {
                         }
                     }
                 }
-                Some(Ty::Adt(*def))
+                Some(Ty::Adt(*def, args.clone()))
             }
-            Rvalue::Aggregate(AggregateKind::Variant(def, index), operands) => {
+            Rvalue::Aggregate(AggregateKind::Variant(def, index, args), operands) => {
                 let adt = self.typeck.items.adt(*def);
                 let Some(v) = adt.variants().get(*index) else {
                     self.err(
@@ -541,7 +545,8 @@ impl Validator<'_> {
                     );
                     return None;
                 };
-                let field_tys: Vec<Ty> = v.fields.iter().map(|f| f.ty.clone()).collect();
+                let field_tys: Vec<Ty> =
+                    v.fields.iter().map(|f| adt.field_ty(&f.ty, args)).collect();
                 if operands.len() != field_tys.len() {
                     self.err(
                         bb,
@@ -566,7 +571,7 @@ impl Validator<'_> {
                         }
                     }
                 }
-                Some(Ty::Adt(*def))
+                Some(Ty::Adt(*def, args.clone()))
             }
             Rvalue::Discriminant(place) => {
                 let ty = self.place_ty(bb, place)?;

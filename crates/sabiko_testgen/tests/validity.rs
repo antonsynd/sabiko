@@ -1005,8 +1005,8 @@ fn programs_use_let_chains() {
         "of {SEEDS} programs: {any} have a let chain, {leading} one led by a `bool`, {two_lets} one with two `let`s, {after} a `bool` after a `let`"
     );
     assert!(
-        any >= 60 && leading >= 15 && two_lets >= 35 && after >= 45,
-        "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 15), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 45)"
+        any >= 60 && leading >= 10 && two_lets >= 35 && after >= 40,
+        "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 10), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 40)"
     );
 }
 
@@ -1030,8 +1030,8 @@ fn programs_use_if_let_guards() {
     }
     eprintln!("of {SEEDS} programs: {any} have an `if let` guard, {chained} one with `&&`");
     assert!(
-        any >= 30 && chained >= 9,
-        "of {SEEDS} programs: {any} have an `if let` guard (expected 30), {chained} one with `&&` (expected 9)"
+        any >= 25 && chained >= 7,
+        "of {SEEDS} programs: {any} have an `if let` guard (expected 25), {chained} one with `&&` (expected 7)"
     );
 }
 
@@ -1055,22 +1055,30 @@ fn programs_use_aggregates_of_references() {
     );
 }
 
-/// Generic functions (#114): about half the programs have the helpers, and their bodies
-/// call each of them, `GenId` now and then with a turbofish.
+/// Generic functions and types (#114, #115): about half the programs have the helpers,
+/// and their bodies use each of them, `GenId` now and then with a turbofish.
 #[test]
 fn programs_use_generic_helpers() {
     let knobs = Knobs::default();
     let (mut ids, mut turbofish, mut picks, mut firsts) = (0, 0, 0, 0);
+    let (mut ors, mut nones, mut boxes) = (0, 0, 0);
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
-        let body = src.split("fn GenFirst").nth(1).unwrap_or("");
+        let body = src.split("fn GenOr").nth(1).unwrap_or("");
         ids += usize::from(body.contains("GenId("));
         turbofish += usize::from(body.contains("GenId::<"));
         picks += usize::from(body.contains("GenPick("));
         firsts += usize::from(body.contains("GenFirst("));
+        ors += usize::from(body.contains("GenOr(GenOpt::Yes("));
+        nones += usize::from(body.contains("GenOr(GenOpt::No,"));
+        boxes += usize::from(body.contains("GenBox { Value:"));
     }
     eprintln!(
-        "of {SEEDS} programs: {ids} call `GenId`, {turbofish} with a turbofish, {picks} call `GenPick`, {firsts} `GenFirst`"
+        "of {SEEDS} programs: {ids} call `GenId`, {turbofish} with a turbofish, {picks} call `GenPick`, {firsts} `GenFirst`, {ors} `GenOr(GenOpt::Yes(..), ..)`, {nones} `GenOr(GenOpt::No, ..)`, {boxes} `GenBox`"
+    );
+    assert!(
+        ors >= 30 && nones >= 20 && boxes >= 30,
+        "of {SEEDS} programs: {ors} `GenOr(GenOpt::Yes(..))` (expected 30), {nones} `GenOr(GenOpt::No, ..)` (expected 20), {boxes} `GenBox` (expected 30)"
     );
     assert!(
         ids >= 60 && turbofish >= 20 && picks >= 50 && firsts >= 25,

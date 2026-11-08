@@ -578,21 +578,28 @@ impl<'a> Lints<'a> {
                 let (s, a) = self.layout(elem)?;
                 (s.checked_mul(*n)?, a)
             }
-            Ty::Adt(def) => {
+            Ty::Adt(def, args) => {
                 let adt = self.typeck.items.adt(*def);
                 if adt.is_enum() {
                     let tag = (8, 8);
                     let mut size = 0u64;
                     let mut align = 1u64;
                     for v in adt.variants() {
-                        let (s, a) = fields(&mut v.fields.iter().map(|f| &f.ty))?;
+                        let tys: Vec<Ty> =
+                            v.fields.iter().map(|f| adt.field_ty(&f.ty, args)).collect();
+                        let (s, a) = fields(&mut tys.iter())?;
                         size = size.max(s);
                         align = align.max(a);
                     }
                     let align = align.max(tag.1);
                     ((size + tag.0).div_ceil(align) * align, align)
                 } else {
-                    fields(&mut adt.fields.iter().map(|f| &f.ty))?
+                    let tys: Vec<Ty> = adt
+                        .fields
+                        .iter()
+                        .map(|f| adt.field_ty(&f.ty, args))
+                        .collect();
+                    fields(&mut tys.iter())?
                 }
             }
             // A type parameter's layout is unknown until monomorphisation.
@@ -912,7 +919,7 @@ impl<'a> Lints<'a> {
                 if let (true, true, Rvalue::Discriminant(p)) =
                     (unknown, place.projection.is_empty(), rvalue)
                 {
-                    if let Ty::Adt(def) = p.ty(self.body) {
+                    if let Ty::Adt(def, _) = p.ty(self.body) {
                         let discrs = self
                             .typeck
                             .items
@@ -1099,7 +1106,7 @@ impl<'a> Lints<'a> {
                     Value::Aggregate {
                         variant: Some(v), ..
                     } => {
-                        let Ty::Adt(def) = from else { return None };
+                        let Ty::Adt(def, _) = from else { return None };
                         let variant = self.typeck.items.adt(def).variant(v);
                         if variant.explicit_base && self.options.overflow_checks {
                             // rustc adds the offset to the explicit discriminant with an
@@ -1117,8 +1124,8 @@ impl<'a> Lints<'a> {
             Rvalue::Aggregate(kind, ops) => {
                 let fields = ops.iter().map(|op| self.operand(op)).collect();
                 let variant = match kind {
-                    AggregateKind::Variant(_, v) => Some(*v),
-                    AggregateKind::Adt(_) | AggregateKind::Tuple | AggregateKind::Array(_) => None,
+                    AggregateKind::Variant(_, v, _) => Some(*v),
+                    AggregateKind::Adt(..) | AggregateKind::Tuple | AggregateKind::Array(_) => None,
                 };
                 Some(Value::Aggregate { variant, fields })
             }
@@ -1126,7 +1133,7 @@ impl<'a> Lints<'a> {
                 Value::Aggregate {
                     variant: Some(v), ..
                 } => {
-                    let Ty::Adt(def) = p.ty(self.body) else {
+                    let Ty::Adt(def, _) = p.ty(self.body) else {
                         return None;
                     };
                     Some(Value::Scalar(ConstValue::Int(

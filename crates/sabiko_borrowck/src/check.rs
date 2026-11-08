@@ -375,7 +375,7 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
             }
             PlaceElem::Field(field, field_ty) => {
                 let name = match &ty {
-                    Ty::Adt(def) => {
+                    Ty::Adt(def, _) => {
                         let adt = typeck.items.adt(*def);
                         let fields = match variant.take() {
                             Some(v) => &adt.variant(v).fields,

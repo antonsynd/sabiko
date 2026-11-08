@@ -1583,6 +1583,60 @@ impl<'a> Builder<'a> {
     /// for an aggregate with a pointer coercion still to apply; nothing is lowered then.
     /// `place = [..]` uses it to evaluate the place between the operands and the store
     /// (`lower_assign`).
+    /// A struct or struct-variant literal: its operands in declaration order, evaluated in
+    /// source order.
+    fn struct_literal(&mut self, expr: &Expr, fields: &[sabiko_ast::FieldInit]) -> Rvalue {
+        let Res::Def(def) = self.resolve.res(expr.id) else {
+            unreachable!("unresolved struct literal in a checked body")
+        };
+        let variant = self.types.variant_exprs.get(&expr.id).copied();
+        let generic = self.adt_args(expr);
+        let (kind, adt, mut field_defs) = match variant {
+            Some((adt, index)) => (
+                AggregateKind::Variant(adt, index, generic.clone()),
+                adt,
+                self.typeck.items.adt(adt).variant(index).fields.clone(),
+            ),
+            None => (
+                AggregateKind::Adt(def, generic.clone()),
+                def,
+                self.typeck.items.adt(def).fields.clone(),
+            ),
+        };
+        let adt_def = self.typeck.items.adt(adt);
+        for f in &mut field_defs {
+            f.ty = adt_def.field_ty(&f.ty, &generic);
+        }
+        // Initialisers run in source order; the aggregate lists declaration order.
+        let mut operands: Vec<Option<Operand>> = vec![None; field_defs.len()];
+        let indices: Vec<usize> = fields
+            .iter()
+            .map(|f| {
+                field_defs
+                    .iter()
+                    .position(|d| d.name == f.name.name)
+                    .expect("struct literal fields exist in a checked body")
+            })
+            .collect();
+        for (field, index) in fields.iter().zip(indices) {
+            let field_ty = field_defs[index].ty.clone();
+            operands[index] = Some(self.coerced_operand(&field.value, Some(&field_ty), false));
+        }
+        let operands = operands
+            .into_iter()
+            .map(|op| op.expect("every field is initialised in a checked body"))
+            .collect();
+        Rvalue::Aggregate(kind, operands)
+    }
+
+    /// The generic arguments of the struct or enum `expr` builds (its type's).
+    fn adt_args(&self, expr: &Expr) -> Box<[Ty]> {
+        match self.ty(expr) {
+            Ty::Adt(_, args) => args.clone(),
+            _ => Box::new([]),
+        }
+    }
+
     fn aggregate_rvalue(&mut self, expr: &Expr) -> Option<Rvalue> {
         if self.has_pending_coercion(expr) {
             return None;
@@ -1616,70 +1670,35 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Path(_) => match self.resolve.res(expr.id) {
                 Res::Def(def) if self.def_kind(def) == DefKind::Struct => {
-                    Rvalue::Aggregate(AggregateKind::Adt(def), Vec::new())
+                    let args = self.adt_args(expr);
+                    Rvalue::Aggregate(AggregateKind::Adt(def, args), Vec::new())
                 }
                 Res::Def(def) if self.def_kind(def) == DefKind::Variant => {
                     let (adt, index) = self.types.variant_exprs[&expr.id];
-                    Rvalue::Aggregate(AggregateKind::Variant(adt, index), Vec::new())
+                    let args = self.adt_args(expr);
+                    Rvalue::Aggregate(AggregateKind::Variant(adt, index, args), Vec::new())
                 }
                 _ => return None,
             },
             ExprKind::Call { args, .. } if self.types.variant_exprs.contains_key(&expr.id) => {
                 // `E::V(a, b)`: the variant's fields, in order.
                 let (adt, index) = self.types.variant_exprs[&expr.id];
-                let tys: Vec<Ty> = self
-                    .typeck
-                    .items
-                    .adt(adt)
+                let generic = self.adt_args(expr);
+                let def = self.typeck.items.adt(adt);
+                let tys: Vec<Ty> = def
                     .variant(index)
                     .fields
                     .iter()
-                    .map(|f| f.ty.clone())
+                    .map(|f| def.field_ty(&f.ty, &generic))
                     .collect();
                 let operands = args
                     .iter()
                     .zip(&tys)
                     .map(|(a, ty)| self.coerced_operand(a, Some(ty), false))
                     .collect();
-                Rvalue::Aggregate(AggregateKind::Variant(adt, index), operands)
+                Rvalue::Aggregate(AggregateKind::Variant(adt, index, generic), operands)
             }
-            ExprKind::Struct { fields, .. } => {
-                let Res::Def(def) = self.resolve.res(expr.id) else {
-                    unreachable!("unresolved struct literal in a checked body")
-                };
-                let variant = self.types.variant_exprs.get(&expr.id).copied();
-                let (kind, field_defs) = match variant {
-                    Some((adt, index)) => (
-                        AggregateKind::Variant(adt, index),
-                        self.typeck.items.adt(adt).variant(index).fields.clone(),
-                    ),
-                    None => (
-                        AggregateKind::Adt(def),
-                        self.typeck.items.adt(def).fields.clone(),
-                    ),
-                };
-                // Initialisers run in source order; the aggregate lists declaration order.
-                let mut operands: Vec<Option<Operand>> = vec![None; field_defs.len()];
-                let indices: Vec<usize> = fields
-                    .iter()
-                    .map(|f| {
-                        field_defs
-                            .iter()
-                            .position(|d| d.name == f.name.name)
-                            .expect("struct literal fields exist in a checked body")
-                    })
-                    .collect();
-                for (field, index) in fields.iter().zip(indices) {
-                    let field_ty = field_defs[index].ty.clone();
-                    operands[index] =
-                        Some(self.coerced_operand(&field.value, Some(&field_ty), false));
-                }
-                let operands = operands
-                    .into_iter()
-                    .map(|op| op.expect("every field is initialised in a checked body"))
-                    .collect();
-                Rvalue::Aggregate(kind, operands)
-            }
+            ExprKind::Struct { fields, .. } => self.struct_literal(expr, fields),
             _ => return None,
         };
         Some(rvalue)

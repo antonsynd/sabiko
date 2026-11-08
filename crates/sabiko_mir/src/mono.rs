@@ -40,10 +40,13 @@ fn type_length(ty: &Ty) -> usize {
 }
 
 /// The name of an instance's method: the function's name, with the generic arguments
-/// (`Id<i32>`, `Swap<&str, (i32, bool)>`) when there are any.
+/// (`Id<i32>`, `Swap<&str, (i32, bool)>`) when there are any. A function of a generic
+/// type's `impl` block lives in that instance's class, so only its own arguments are
+/// named (decision 83).
 #[must_use]
 pub fn instance_name(resolve: &ResolveResults, def: DefId, args: &[Ty]) -> String {
     let name = &resolve.def(def).name;
+    let args = &args[resolve.parent_generic_count(def).min(args.len())..];
     if args.is_empty() {
         return name.clone();
     }
@@ -78,50 +81,107 @@ pub fn monomorphize(
     // Instances to make, with how deep in a chain of instances each was reached.
     let mut queue: Vec<(DefId, Vec<Ty>, usize, Span)> = Vec::new();
     let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::new();
-    let mut enqueue = |body: &Body, depth: usize, queue: &mut Vec<_>| {
-        for (def, args, span) in generic_calls(body) {
-            if seen.insert((def, args.clone())) {
-                queue.push((def, args, depth + 1, span));
+    for body in &out {
+        enqueue(body, 0, &mut queue, &mut seen);
+    }
+    let mut drop_seen: HashSet<Ty> = HashSet::new();
+    let mut scanned = 0;
+    let mut next = 0;
+    loop {
+        while next < queue.len() {
+            let (def, args, depth, span) = queue[next].clone();
+            next += 1;
+            let length: usize = args.iter().map(type_length).sum();
+            if depth > RECURSION_LIMIT || length > TYPE_LENGTH_LIMIT {
+                let (limit, shown) = if depth > RECURSION_LIMIT {
+                    ("recursion", instance_name(resolve, def, &args))
+                } else {
+                    // Too long to print.
+                    ("type-length", resolve.def(def).name.clone())
+                };
+                sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::INSTANTIATION_RECURSION_LIMIT,
+                        format!("reached the {limit} limit while instantiating `{shown}`"),
+                    )
+                    .with_label(span, "instantiated here")
+                    .with_note("each call instantiates the function at a larger type, without end"),
+                );
+                // The chain stops here; other instances are still made.
+                continue;
+            }
+            // A generic function whose body has errors was not built; nothing calls it
+            // then, since the caller's errors stop compilation too.
+            let Some(template) = generic.get(&def) else {
+                continue;
+            };
+            let params = &typeck.items.fn_sig(def).generics;
+            let instance = instantiate(template, params, &args, resolve, typeck);
+            enqueue(&instance, depth, &mut queue, &mut seen);
+            out.push(instance);
+        }
+        // Every instance of a generic type with its own `impl Drop` needs that `drop` at
+        // its arguments, which no call names: its drop glue calls it.
+        let before = queue.len();
+        while scanned < out.len() {
+            let body = &out[scanned];
+            scanned += 1;
+            let depth = 1;
+            for decl in &body.locals {
+                drop_instances(&decl.ty, typeck, &mut drop_seen, &mut |drop_fn, args| {
+                    if seen.insert((drop_fn, args.clone())) {
+                        queue.push((drop_fn, args, depth, body.span));
+                    }
+                });
             }
         }
-    };
-    for body in &out {
-        enqueue(body, 0, &mut queue);
-    }
-    let mut next = 0;
-    while next < queue.len() {
-        let (def, args, depth, span) = queue[next].clone();
-        next += 1;
-        let length: usize = args.iter().map(type_length).sum();
-        if depth > RECURSION_LIMIT || length > TYPE_LENGTH_LIMIT {
-            let (limit, shown) = if depth > RECURSION_LIMIT {
-                ("recursion", instance_name(resolve, def, &args))
-            } else {
-                // Too long to print.
-                ("type-length", resolve.def(def).name.clone())
-            };
-            sink.emit(
-                Diagnostic::error(
-                    ErrorCode::INSTANTIATION_RECURSION_LIMIT,
-                    format!("reached the {limit} limit while instantiating `{shown}`"),
-                )
-                .with_label(span, "instantiated here")
-                .with_note("each call instantiates the function at a larger type, without end"),
-            );
-            // The chain stops here; other instances are still made.
-            continue;
+        if queue.len() == before {
+            return out;
         }
-        // A generic function whose body has errors was not built; nothing calls it then,
-        // since the caller's errors stop compilation too.
-        let Some(template) = generic.get(&def) else {
-            continue;
-        };
-        let params = &typeck.items.fn_sig(def).generics;
-        let instance = instantiate(template, params, &args, resolve, typeck);
-        enqueue(&instance, depth, &mut queue);
-        out.push(instance);
     }
-    out
+}
+
+/// Queues the instances of generic functions `body` calls that are not made yet.
+fn enqueue(
+    body: &Body,
+    depth: usize,
+    queue: &mut Vec<(DefId, Vec<Ty>, usize, Span)>,
+    seen: &mut HashSet<(DefId, Vec<Ty>)>,
+) {
+    for (def, args, span) in generic_calls(body) {
+        if seen.insert((def, args.clone())) {
+            queue.push((def, args, depth + 1, span));
+        }
+    }
+}
+
+/// Calls `f` with the `drop` function and generic arguments of every instance of a
+/// generic type with its own `impl Drop` that `ty` holds by value, through fields too.
+fn drop_instances(
+    ty: &Ty,
+    typeck: &TypeckResults,
+    seen: &mut HashSet<Ty>,
+    f: &mut impl FnMut(DefId, Vec<Ty>),
+) {
+    match ty {
+        Ty::Tuple(elems) => elems
+            .iter()
+            .for_each(|e| drop_instances(e, typeck, seen, f)),
+        Ty::Array(elem, _) => drop_instances(elem, typeck, seen, f),
+        Ty::Adt(def, args) if !args.is_empty() => {
+            if !seen.insert(ty.clone()) {
+                return;
+            }
+            if let Some(drop_fn) = typeck.items.drop_impl(*def) {
+                f(drop_fn, args.to_vec());
+            }
+            let adt = typeck.items.adt(*def);
+            for field in adt.all_field_tys() {
+                drop_instances(&adt.field_ty(field, args), typeck, seen, f);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The generic functions `body` calls, with their (concrete) arguments and the call's span.
@@ -367,8 +427,12 @@ fn subst_rvalue(rvalue: &mut Rvalue, s: &impl Fn(&mut Ty)) {
             s(ty);
         }
         Rvalue::Aggregate(kind, ops) => {
-            if let AggregateKind::Array(ty) = kind {
-                s(ty);
+            match kind {
+                AggregateKind::Array(ty) => s(ty),
+                AggregateKind::Adt(_, args) | AggregateKind::Variant(_, _, args) => {
+                    args.iter_mut().for_each(s);
+                }
+                AggregateKind::Tuple => {}
             }
             for op in ops {
                 subst_operand(op, s);

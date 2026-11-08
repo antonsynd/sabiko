@@ -91,11 +91,11 @@ impl Fixture {
     }
 
     fn point_ty(&self) -> Ty {
-        Ty::Adt(self.point)
+        Ty::adt(self.point)
     }
 
     fn line_ty(&self) -> Ty {
-        Ty::Adt(self.line)
+        Ty::adt(self.line)
     }
 
     /// The resolver's binding of `name` in `Main`, when the fixture program has one.
@@ -291,7 +291,10 @@ fn local(l: Local) -> Place {
 }
 
 fn point_aggregate(fx: &Fixture) -> Rvalue {
-    Rvalue::Aggregate(AggregateKind::Adt(fx.point), vec![int(1), int(2)])
+    Rvalue::Aggregate(
+        AggregateKind::Adt(fx.point, Box::new([])),
+        vec![int(1), int(2)],
+    )
 }
 
 // ----------------------------------------------------------------------------------------
@@ -1146,14 +1149,14 @@ fn drop_of_a_maybe_uninitialised_immutable_local_is_accepted() {
     let fx = Fixture::new();
     let mut b = BodyBuilder::new(&fx, Ty::Unit);
     let flag = b.arg("flag", Ty::BOOL, Mutability::Not);
-    let g = b.user(&fx, "g", Ty::Adt(fx.guard), Mutability::Not);
+    let g = b.user(&fx, "g", Ty::adt(fx.guard), Mutability::Not);
     let (bb0, then, join, end) = (b.block(), b.block(), b.block(), b.block());
     b.live(bb0, g);
     b.branch(bb0, copy(flag), then, join);
     b.assign(
         then,
         local(g),
-        Rvalue::Aggregate(AggregateKind::Adt(fx.guard), vec![int(1)]),
+        Rvalue::Aggregate(AggregateKind::Adt(fx.guard, Box::new([])), vec![int(1)]),
     );
     b.goto(then, join);
     b.terminate(

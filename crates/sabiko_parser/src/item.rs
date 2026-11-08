@@ -379,10 +379,11 @@ impl Parser<'_, '_> {
     /// (decision 46); any other trait impl is not yet supported.
     fn parse_impl(&mut self) -> PResult<ImplDecl> {
         self.expect(TokenKind::Impl)?;
-        if self.at(TokenKind::Lt) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("generic parameters", span, "planned for Phase 6"));
-        }
+        let generics = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
         let mut self_ty = self.parse_type()?;
         let mut trait_ref = None;
         if self.at(TokenKind::For) {
@@ -418,6 +419,7 @@ impl Parser<'_, '_> {
         }
         self.expect(TokenKind::RBrace)?;
         Ok(ImplDecl {
+            generics,
             trait_ref,
             self_ty,
             items,
@@ -575,10 +577,11 @@ impl Parser<'_, '_> {
     fn parse_struct(&mut self) -> PResult<StructDecl> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
-        if self.at(TokenKind::Lt) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("generic parameters", span, "planned for Phase 6"));
-        }
+        let generics = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
         let kind = match self.peek_kind() {
             TokenKind::Semi => {
                 self.bump();
@@ -602,7 +605,11 @@ impl Parser<'_, '_> {
             }
             _ => return Err(self.error_expected("`{`, or `;` for a unit struct")),
         };
-        Ok(StructDecl { name, kind })
+        Ok(StructDecl {
+            name,
+            generics,
+            kind,
+        })
     }
 
     /// A field of a struct, or of a struct-like enum variant (`in_variant`), whose fields
@@ -647,14 +654,11 @@ impl Parser<'_, '_> {
     fn parse_enum(&mut self) -> PResult<EnumDecl> {
         self.expect(TokenKind::Enum)?;
         let name = self.parse_ident()?;
-        if self.at(TokenKind::Lt) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported(
-                "generic parameters",
-                span,
-                "generic enums are planned for Phase 6",
-            ));
-        }
+        let generics = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
         self.expect(TokenKind::LBrace)?;
         let mut variants = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at_eof() {
@@ -664,7 +668,11 @@ impl Parser<'_, '_> {
             }
         }
         self.expect(TokenKind::RBrace)?;
-        Ok(EnumDecl { name, variants })
+        Ok(EnumDecl {
+            name,
+            generics,
+            variants,
+        })
     }
 
     fn parse_variant(&mut self) -> PResult<Variant> {

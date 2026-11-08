@@ -27,12 +27,15 @@ impl Cx<'_> {
     /// in place, given its address: its own `drop` when nothing else needs dropping, else
     /// its glue, registered for [`Cx::drop_glues`].
     pub(crate) fn drop_glue_call(&mut self, ty: &Ty, span: Span) -> String {
-        if let Ty::Adt(def) = ty {
+        if let Ty::Adt(def, args) = ty {
             let items = &self.typeck.items;
+            let adt = items.adt(*def);
             if items.drop_impl(*def).is_some()
-                && !items.adt(*def).all_field_tys().any(|t| items.needs_drop(t))
+                && !adt
+                    .all_field_tys()
+                    .any(|t| items.needs_drop(&adt.field_ty(t, args)))
             {
-                return self.own_drop_call(*def, ty, span);
+                return self.own_drop_call(ty, span);
             }
         }
         let name = format!("<Drop>{}", ty.display(self.resolve));
@@ -50,10 +53,9 @@ impl Cx<'_> {
     /// Emits the glue of every type registered so far, and of the types their glue
     /// registers in turn.
     pub(crate) fn drop_glues(&mut self, out: &mut String) {
-        let mut next = 0;
-        while next < self.drop_glues.len() {
-            let (ty, name) = self.drop_glues[next].clone();
-            next += 1;
+        while self.drop_glues_done < self.drop_glues.len() {
+            let (ty, name) = self.drop_glues[self.drop_glues_done].clone();
+            self.drop_glues_done += 1;
             self.drop_glue(&ty, &name, out);
         }
     }
@@ -67,25 +69,24 @@ impl Cx<'_> {
         }
         // The own `drop`, then each field with drop glue, as instruction sequences.
         let mut steps: Vec<Vec<String>> = Vec::new();
-        if let Ty::Adt(def) = ty {
+        if let Ty::Adt(def, _) = ty {
             if self.typeck.items.drop_impl(*def).is_some() {
-                steps.push(vec![
-                    "ldarg.0".to_owned(),
-                    self.own_drop_call(*def, ty, span),
-                ]);
+                steps.push(vec!["ldarg.0".to_owned(), self.own_drop_call(ty, span)]);
             }
         }
         let own = steps.len();
         if let Some(adt) = self.typeck.items.as_enum(ty).cloned() {
             // An enum: each variant's fields, by a helper that does nothing unless its
             // variant is the one held; only one of them drops anything.
-            let Ty::Adt(def) = ty else { unreachable!() };
+            let Ty::Adt(def, args) = ty else {
+                unreachable!()
+            };
             let mut helpers = Vec::new();
             for (v, variant) in adt.variants().iter().enumerate() {
                 if !variant
                     .fields
                     .iter()
-                    .any(|f| self.typeck.items.needs_drop(&f.ty))
+                    .any(|f| self.typeck.items.needs_drop(&adt.field_ty(&f.ty, args)))
                 {
                     continue;
                 }
@@ -102,19 +103,12 @@ impl Cx<'_> {
             }
             self.glue_method(name, &cil, &[], &steps, own, out);
             for (v, helper) in helpers {
-                self.variant_glue(*def, v, &helper, &cil, out);
+                self.variant_glue(*def, args, v, &helper, &cil, out);
             }
             return;
         }
         let field_tys: Vec<Ty> = match ty {
-            Ty::Adt(def) => self
-                .typeck
-                .items
-                .adt(*def)
-                .fields
-                .iter()
-                .map(|f| f.ty.clone())
-                .collect(),
+            Ty::Adt(..) => self.typeck.items.field_tys(ty, None),
             Ty::Tuple(elems) => elems.to_vec(),
             _ => Vec::new(),
         };
@@ -214,6 +208,7 @@ impl Cx<'_> {
     fn variant_glue(
         &mut self,
         def: sabiko_resolve::DefId,
+        args: &[Ty],
         variant: usize,
         name: &str,
         cil: &str,
@@ -222,21 +217,22 @@ impl Cx<'_> {
         let span = Span::dummy();
         let adt = self.typeck.items.adt(def).clone();
         let v = adt.variant(variant).clone();
-        let payload = self.payload_field_ref(def, variant);
+        let payload = self.payload_field_ref(def, args, variant);
         let mut steps = Vec::new();
         for (index, field) in v.fields.iter().enumerate() {
-            if !self.typeck.items.needs_drop(&field.ty) {
+            let field_ty = adt.field_ty(&field.ty, args);
+            if !self.typeck.items.needs_drop(&field_ty) {
                 continue;
             }
-            let field_ref = self.variant_field_ref(def, variant, index, &field.ty, span);
+            let field_ref = self.variant_field_ref(def, args, variant, index, &field_ty, span);
             steps.push(vec![
                 "ldarg.0".to_owned(),
                 format!("ldflda {payload}"),
                 format!("ldflda {field_ref}"),
-                self.drop_glue_call(&field.ty, span),
+                self.drop_glue_call(&field_ty, span),
             ]);
         }
-        let tag = self.tag_field_ref(def);
+        let tag = self.tag_field_ref(def, args);
         let tag_ty = self.tag_type(def);
         let load_discr = match tag_ty {
             sabiko_resolve::PrimTy::I32 => format!("ldc.i4 {}", v.discr),
@@ -306,14 +302,15 @@ impl Cx<'_> {
         out.push_str("    ret\n  }\n\n");
     }
 
-    /// The `call` instruction of the `drop` of the `impl Drop` of the struct `def`.
-    fn own_drop_call(&mut self, def: sabiko_resolve::DefId, ty: &Ty, span: Span) -> String {
+    /// The `call` instruction of the `drop` of the `impl Drop` of the struct or enum `ty`
+    /// (of the instance's, for a generic one: monomorphisation made it).
+    fn own_drop_call(&mut self, ty: &Ty, span: Span) -> String {
+        let Ty::Adt(def, args) = ty else {
+            unreachable!("only structs and enums implement `Drop`")
+        };
+        let class = self.adt_class(*def, args);
         let cil = types::cil_type(self, ty, span);
-        format!(
-            "call void {}::{}({cil}&)",
-            types::quote(&self.typeck.items.adt(def).name),
-            types::quote(DROP_METHOD)
-        )
+        format!("call void {class}::{}({cil}&)", types::quote(DROP_METHOD))
     }
 
     /// The field reference of field (element) `index` of a value of type `base_ty`, after
@@ -342,13 +339,13 @@ impl Cx<'_> {
         field_ty: &Ty,
         span: Span,
     ) -> String {
-        let Ty::Adt(def) = base_ty else {
+        let Ty::Adt(def, args) = base_ty else {
             panic!("field projection on non-struct {base_ty:?}");
         };
-        let adt = self.typeck.items.adt(*def);
-        let struct_name = types::quote(&adt.name);
-        let field_name = types::quote(&adt.fields[index].name);
-        let cil = types::cil_type(self, field_ty, span);
+        let struct_name = self.adt_class(*def, args);
+        let field_name = types::quote(&self.typeck.items.adt(*def).fields[index].name);
+        // A reference field is stored in its wrapper, as a tuple element is (decision 64).
+        let cil = types::stored_type(self, field_ty, span);
         format!("{cil} {struct_name}::{field_name}")
     }
 

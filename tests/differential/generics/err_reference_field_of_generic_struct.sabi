@@ -1,0 +1,13 @@
+// A reference read out of a generic struct's field still borrows the original place.
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+fn Main() {
+    let mut x = 1;
+    let p = Pair { First: &x, Second: 5 };
+    let r = p.First;
+    x = 3;
+    PrintLine(*r);
+}

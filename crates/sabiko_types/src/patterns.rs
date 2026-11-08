@@ -448,6 +448,10 @@ struct Shapes<'a> {
 }
 
 impl usefulness::PatCx for Shapes<'_> {
+    fn generics(&self, def: DefId) -> Vec<DefId> {
+        self.items.adt(def).generics.clone()
+    }
+
     fn adt(&self, def: DefId) -> usefulness::AdtShape {
         let adt = self.items.adt(def);
         let kind = |k: VariantKind| match k {
@@ -930,12 +934,19 @@ impl Exhaustive<'_, '_> {
 
     fn field_defs(&self, ty: &Ty, variant: Option<usize>) -> Vec<crate::collect::FieldDef> {
         match ty {
-            Ty::Adt(def) => {
+            Ty::Adt(def, args) => {
                 let adt = self.items.adt(*def);
-                match variant {
-                    Some(v) => adt.variant(v).fields.clone(),
-                    None => adt.fields.clone(),
-                }
+                let fields = match variant {
+                    Some(v) => &adt.variant(v).fields,
+                    None => &adt.fields,
+                };
+                fields
+                    .iter()
+                    .map(|f| crate::collect::FieldDef {
+                        ty: adt.field_ty(&f.ty, args),
+                        ..f.clone()
+                    })
+                    .collect()
             }
             _ => Vec::new(),
         }

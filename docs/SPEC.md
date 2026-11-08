@@ -31,10 +31,17 @@ names which phase owns which section.
   block. Generic arguments may follow any path segment: `F::<i32, _>(..)` (turbofish) in
   expressions and patterns, `Name<A, B>` or `Name::<A, B>` in types and after a cast
   (`x as W<T>`; as in rustc, a `<` there always starts generic arguments), and
-  `e.M::<T>(..)` on method calls; a `>>` closes two lists. Only generic functions take
-  generic arguments so far (E0223, rustc's E0109; the wrong number is E0222, rustc's
-  E0107). Not yet supported (E0107): bounds `T: Trait` and `where` clauses (#116),
-  lifetime parameters (Phase 9), `const` parameters and parameter defaults
+  `e.M::<T>(..)` on method calls; a `>>` closes two lists. Generic arguments anywhere
+  else are E0223 (rustc's E0109); the wrong number is E0222 (rustc's E0107). Not yet
+  supported (E0107): bounds `T: Trait` and `where` clauses (#116), lifetime parameters
+  (Phase 9), `const` parameters and parameter defaults
+- Generic structs and enums (#115, decision 83): `struct Pair<A, B> { .. }`, `enum
+  Opt<T> { .. }`, and `impl<A, B> Pair<A, B> { .. }`, whose parameters must be the
+  type's, in order, each once (E0107 otherwise: `impl<T> Pair<T, T>`, `impl Pair<i32,
+  bool>`). A type needs its arguments (`Pair<i32, bool>`; `Pair` alone is E0222); an
+  expression or pattern may leave them to inference or write them after the type's
+  segment (`Pair::<i32, bool> { .. }`, `Opt::<i32>::None`, `Pair::<u8, u8>::New(..)`) or
+  the variant's (`Opt::None::<i32>`). Every parameter must appear in a field (E0340)
 - Method calls `e.Name(args)`; a struct literal may be a receiver outside `if`/`while`
   conditions (`Math { Base: 3 }.Fact(5)`), and `5.Triple()` lexes as `5`, `.`, `Triple`
 - Statements and expressions
