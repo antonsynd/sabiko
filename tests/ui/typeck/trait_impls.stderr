@@ -1,0 +1,119 @@
+[E0215] Error: conflicting implementations of trait `Show` for type `i32`
+    ╭─[ tests/ui/typeck/trait_impls.sabi:24:1 ]
+    │
+ 18 │ impl Show for i32 {
+    │ ────────┬────────  
+    │         ╰────────── first implementation here
+    │ 
+ 24 │ impl Show for i32 { //~ ERROR E0215 conflicting implementations of trait `Show` for type `i32`
+    │ ────────┬────────  
+    │         ╰────────── conflicting implementation for `i32`
+────╯
+[E0215] Error: conflicting implementations of trait `Show` for type `(u8, bool)`
+    ╭─[ tests/ui/typeck/trait_impls.sabi:36:1 ]
+    │
+ 30 │ impl<T> Show for (T, bool) {
+    │ ─────────────┬────────────  
+    │              ╰────────────── first implementation here
+    │ 
+ 36 │ impl Show for (u8, bool) { //~ ERROR E0215 conflicting implementations of trait `Show` for type `(u8, bool)`
+    │ ────────────┬───────────  
+    │             ╰───────────── conflicting implementation for `(u8, bool)`
+────╯
+[E0321] Error: method `Area` has an incompatible type for trait
+    ╭─[ tests/ui/typeck/trait_impls.sabi:47:20 ]
+    │
+ 10 │     fn Area(&self, scale: i32) -> i32;
+    │                    ─────┬────  
+    │                         ╰────── type in trait
+    │ 
+ 47 │     fn Area(&self, scale: bool) -> i32 { //~ ERROR E0321 method `Area` has an incompatible type for trait
+    │                    ─────┬─────  
+    │                         ╰─────── expected `i32`, found `bool`
+────╯
+[E0321] Error: method `Name` has an incompatible type for trait
+    ╭─[ tests/ui/typeck/trait_impls.sabi:50:8 ]
+    │
+ 11 │     fn Name(&self) -> bool;
+    │        ──┬─  
+    │          ╰─── type in trait
+    │ 
+ 50 │     fn Name(&self) -> i32 { //~ ERROR E0321 method `Name` has an incompatible type for trait
+    │        ──┬─  
+    │          ╰─── expected return type `bool`, found `i32`
+────╯
+[E0321] Error: method `New` has a `&self` declaration in the impl, but not in the trait
+    ╭─[ tests/ui/typeck/trait_impls.sabi:53:12 ]
+    │
+ 12 │     fn New() -> Self;
+    │        ─┬─  
+    │         ╰─── trait method declared without `self`
+    │ 
+ 53 │     fn New(&self) -> Self { //~ ERROR E0321 method `New` has a `&self` declaration in the impl, but not in the trait
+    │            ──┬──  
+    │              ╰──── `&self` used in impl
+────╯
+[E0321] Error: method `Grow` has an incompatible type for trait
+    ╭─[ tests/ui/typeck/trait_impls.sabi:56:13 ]
+    │
+ 13 │     fn Grow(&mut self);
+    │             ────┬────  
+    │                 ╰────── type in trait
+    │ 
+ 56 │     fn Grow(&self) {} //~ ERROR E0321 method `Grow` has an incompatible type for trait
+    │             ──┬──  
+    │               ╰──── expected `&mut P`, found `&P`
+────╯
+[E0343] Error: method `Map` has 2 type parameters but its trait declaration has 1 type parameter
+    ╭─[ tests/ui/typeck/trait_impls.sabi:57:8 ]
+    │
+ 14 │     fn Map<T>(&self, x: T) -> i32;
+    │        ─┬─  
+    │         ╰─── expected 1 type parameter
+    │ 
+ 57 │     fn Map<T, U>(&self, x: T) -> i32 { //~ ERROR E0343 method `Map` has 2 type parameters but its trait declaration has 1 type parameter
+    │        ─┬─  
+    │         ╰─── found 2 type parameters
+────╯
+[E0344] Error: impl has stricter requirements than trait
+    ╭─[ tests/ui/typeck/trait_impls.sabi:60:17 ]
+    │
+ 15 │     fn Bound<T>(&self, x: T) -> i32;
+    │        ──┬──  
+    │          ╰──── definition of the method in the trait
+    │ 
+ 60 │     fn Bound<T: Show>(&self, x: T) -> i32 { //~ ERROR E0344 impl has stricter requirements than trait
+    │                 ──┬─  
+    │                   ╰─── impl has extra requirement `T: Show`
+────╯
+[E0322] Error: method `Count` has 1 parameter but the declaration in trait `Count::Count` has 2
+    ╭─[ tests/ui/typeck/trait_impls.sabi:71:8 ]
+    │
+ 66 │     fn Count(&self, a: i32) -> i32;
+    │        ──┬──  
+    │          ╰──── trait requires 2 parameters
+    │ 
+ 71 │     fn Count(&self) -> i32 { //~ ERROR E0322 method `Count` has 1 parameter but the declaration in trait `Count::Count` has 2
+    │        ──┬──  
+    │          ╰──── expected 2 parameters, found 1
+────╯
+[E0321] Error: method `Reset` has a `&mut self` declaration in the trait, but not in the impl
+    ╭─[ tests/ui/typeck/trait_impls.sabi:74:8 ]
+    │
+ 67 │     fn Reset(&mut self);
+    │        ──┬──  
+    │          ╰──── `&mut self` used in trait
+    │ 
+ 74 │     fn Reset() {} //~ ERROR E0321 method `Reset` has a `&mut self` declaration in the trait, but not in the impl
+    │        ──┬──  
+    │          ╰──── expected `&mut self` in impl
+────╯
+[E0107] Error: not yet supported: implementing a trait for a type that holds a reference
+    ╭─[ tests/ui/typeck/trait_impls.sabi:77:15 ]
+    │
+ 77 │ impl Show for &P { //~ ERROR E0107 not yet supported: implementing a trait for a type that holds a reference
+    │               ─┬  
+    │                ╰── `&P`
+    │ 
+    │ Note: see docs/PLAN.md
+────╯

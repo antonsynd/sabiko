@@ -45,6 +45,13 @@ SourceFile
         Init
           Call
             Path Vec::<i32>::New
+  Fn G
+    GenericParam T
+      Bounds Copy
+    Param
+      Pat x
+      Type T
+    Block
   Fn H
     Param
       Pat x
@@ -64,6 +71,9 @@ SourceFile
         Type i32
         Lit 3
     Block
+  Impl Foo for
+    Type Bar
+  Trait Bar
   Fn L
     Param
       Pat t
@@ -148,15 +158,6 @@ SourceFile
     │ 
     │ Note: not planned (use `Print`/`PrintLine`); see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: trait bounds
-    ╭─[ errors_unsupported.sabi:17:7 ]
-    │
- 17 │ fn G<T: Copy>(x: T) {}
-    │       ┬  
-    │       ╰── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 6 (#116); see docs/PLAN.md
-────╯
 [E0107] Error: not yet supported: lifetime parameters
     ╭─[ errors_unsupported.sabi:18:6 ]
     │
@@ -175,32 +176,14 @@ SourceFile
     │ 
     │ Note: not planned for 0.1; see docs/PLAN.md
 ────╯
-[E0107] Error: not yet supported: functions without a body
+[E0100] Error: free function without a body
     ╭─[ errors_unsupported.sabi:23:14 ]
     │
  23 │ fn K() -> i32;
     │              ┬  
-    │              ╰── not supported in this version of Sabiko
+    │              ╰── a function needs a body: `{ .. }`
     │ 
-    │ Note: planned for Phase 6 (traits) and Phase 8 (extern); see docs/PLAN.md
-────╯
-[E0107] Error: not yet supported: trait implementations other than `impl Drop`
-    ╭─[ errors_unsupported.sabi:24:10 ]
-    │
- 24 │ impl Foo for Bar { }
-    │          ─┬─  
-    │           ╰─── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 6; see docs/PLAN.md
-────╯
-[E0107] Error: not yet supported: `trait` items
-    ╭─[ errors_unsupported.sabi:25:1 ]
-    │
- 25 │ trait Bar { }
-    │ ──┬──  
-    │   ╰──── not supported in this version of Sabiko
-    │ 
-    │ Note: planned for Phase 6; see docs/PLAN.md
+    │ Note: only the required methods of a trait have no body; `extern` functions are planned for Phase 8
 ────╯
 [E0107] Error: not yet supported: modules and `use`
     ╭─[ errors_unsupported.sabi:26:1 ]

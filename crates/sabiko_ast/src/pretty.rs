@@ -44,8 +44,35 @@ fn generic_params(params: &[GenericParam]) -> String {
     if params.is_empty() {
         return String::new();
     }
-    let names: Vec<&str> = params.iter().map(|g| g.name.name.as_str()).collect();
+    let names: Vec<String> = params
+        .iter()
+        .map(|g| {
+            if g.bounds.is_empty() {
+                g.name.name.clone()
+            } else {
+                format!("{}: {}", g.name.name, bounds_str(&g.bounds))
+            }
+        })
+        .collect();
     format!("<{}>", names.join(", "))
+}
+
+/// `A + B<T>`: the traits of a bound.
+fn bounds_str(bounds: &[TraitRef]) -> String {
+    let paths: Vec<String> = bounds.iter().map(|b| path_text(&b.path, "")).collect();
+    paths.join(" + ")
+}
+
+/// ` where T: A, U: B`, or nothing.
+fn where_str(preds: &[WherePredicate]) -> String {
+    if preds.is_empty() {
+        return String::new();
+    }
+    let preds: Vec<String> = preds
+        .iter()
+        .map(|p| format!("{}: {}", type_str(&p.ty), bounds_str(&p.bounds)))
+        .collect();
+    format!(" where {}", preds.join(", "))
 }
 
 /// A type as source text.
@@ -123,8 +150,13 @@ impl Printer {
                     self.out.push_str(" -> ");
                     self.ty(ret);
                 }
-                self.out.push(' ');
-                self.block(&f.body);
+                self.out.push_str(&where_str(&f.where_clause));
+                if let Some(body) = &f.body {
+                    self.out.push(' ');
+                    self.block(body);
+                } else {
+                    self.out.push(';');
+                }
                 self.out.push('\n');
             }
             ItemKind::Struct(s) => {
@@ -226,22 +258,35 @@ impl Printer {
             ItemKind::Impl(imp) => {
                 let _ = write!(self.out, "impl{} ", generic_params(&imp.generics));
                 if let Some(t) = &imp.trait_ref {
-                    let _ = write!(self.out, "{} for ", t.name);
+                    let _ = write!(self.out, "{} for ", path_text(&t.path, ""));
                 }
                 self.ty(&imp.self_ty);
-                self.out.push_str(" {");
-                self.indent += 1;
-                for member in &imp.items {
-                    self.newline();
-                    self.item(member);
-                    // A member ends with a newline at column 0; the next line is indented.
-                    self.out.pop();
+                self.out.push_str(&where_str(&imp.where_clause));
+                self.members(&imp.items);
+            }
+            ItemKind::Trait(t) => {
+                let _ = write!(self.out, "trait {}", t.name.name);
+                if !t.supertraits.is_empty() {
+                    let _ = write!(self.out, ": {}", bounds_str(&t.supertraits));
                 }
-                self.indent -= 1;
-                self.newline();
-                self.out.push_str("}\n");
+                self.members(&t.items);
             }
         }
+    }
+
+    /// ` { members }` of an `impl` block or a trait, and the newline after it.
+    fn members(&mut self, items: &[Item]) {
+        self.out.push_str(" {");
+        self.indent += 1;
+        for member in items {
+            self.newline();
+            self.item(member);
+            // A member ends with a newline at column 0; the next line is indented.
+            self.out.pop();
+        }
+        self.indent -= 1;
+        self.newline();
+        self.out.push_str("}\n");
     }
 
     fn ty(&mut self, ty: &Type) {

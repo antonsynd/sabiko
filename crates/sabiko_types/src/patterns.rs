@@ -146,7 +146,9 @@ pub(crate) fn pattern_values(
         for p in &f.params {
             cx.pat(&p.pat);
         }
-        cx.block(&f.body);
+        if let Some(b) = &f.body {
+            cx.block(b);
+        }
         if cx.failed {
             body.has_errors = true;
         }
@@ -524,7 +526,9 @@ pub(crate) fn exhaustiveness(
         for p in &f.params {
             cx.refutable(&p.pat, "function argument");
         }
-        cx.block(&f.body);
+        if let Some(b) = &f.body {
+            cx.block(b);
+        }
         if sink.error_count() > errors_before {
             body.has_errors = true;
         }

@@ -1250,7 +1250,8 @@ Tracking issue #118. Order (decision 82 for the design):
    associated constants, `impl Trait for Type` (primitives included), coherence, `T:
    Trait` and `where`, supertraits, method resolution through bounds, `Copy`/`Clone`, and
    `Drop` as an ordinary trait (retiring decision 46's special case). Monomorphisation
-   resolves each trait call to its impl's method.
+   resolves each trait call to its impl's method. First part done (decision 84; see the
+   status below); associated constants and `Copy`/`Clone`/`Drop` as traits are next.
 4. `core` prelude written in Sabiko (#13, decision 47): `Option`, `Result`, `?`, `unwrap`,
    `expect`, and `.get(i) -> Option<&T>` on slices. `?` converts errors through `From`.
 5. Operator traits, comparisons and derives (#117): `Add`, `Sub`, ..., their `*Assign`
@@ -1315,6 +1316,35 @@ and `typeck/generic_enum_exhaustiveness`, a MIR and an IL fixture (`generic_type
 the generator's `GenOpt<T>`, `GenBox<T>` and `GenOr` helpers. Open: the instance type
 names (`'Pair<i32, bool>'`) are not C# identifiers, so the exit gate's C# interop test
 needs Phase 8's naming of exported instances, or a C#-friendly mangling earlier.
+
+Status (2026-11-08): traits, impls and bounds, first part (#116, decision 84). `trait`
+items with required and provided methods and associated functions (any receiver, type
+parameters of their own, `Self` in signatures), supertraits, trait `impl` blocks for
+structs and enums of the file, their instances, primitives, tuples, arrays and type
+parameters (`impl<T: Show> Loud for T`), with parameters of their own and bounds; bounds
+`T: A + B` and `where T: A` on functions and `impl` blocks. The resolver gives a trait an
+implicit `Self` parameter and each trait `impl` block a definition; `Type::Name`,
+`Self::Name`, `T::Name` and `Trait::Name` reach trait members. The type checker collects
+the blocks, checks them against their traits (E0216 missing, E0217 extra, E0321/E0322/
+E0343/E0344 signatures, E0215 overlap, E0341 supertraits), finds methods by rustc's probe
+order through impls and bounds (E0342 ambiguous, E0319 with a hint), judges each use's
+bounds at the end of the body (E0341), lets a bound pick an integer literal's type when
+one block fits, and requires sized type arguments (E0208, a gap since #114) and, in
+provided methods, `Self` behind references (E0208, as rustc without `where Self:
+Sized`).
+Monomorphisation resolves every trait call at concrete types to the block's method or the
+provided method at `Self`; code generation emits them in the module class as
+`'<i32 as Show>::Show'`. Tests: eight run-time programs in `differential/run/traits/`,
+eight compile-time ones in `differential/traits/` (references returned by trait methods,
+by-value receivers, bounds), UI tests `resolve/traits`, `typeck/trait_bounds` and
+`typeck/trait_impls` and `typeck/trait_self_sized`, a MIR and an IL fixture (`traits`), and the generator's
+`TRAIT_HELPERS` (a blanket `GenKeep` with a provided method returning `&Self`, `GenSign`
+for `i32` and `bool`, bounded `GenKept` and `GenSigns`). Not yet: associated constants
+in traits and `Copy`/`Clone`/`Drop` as traits (#116's second part; until then `impl
+Drop` is decision 46's language item and `Copy`/`Clone`/`Drop` in a bound are E0107),
+generic traits (#117), associated types, blocks for types holding references or unsized
+types, `where` clauses on types other than parameters, `where Self: Sized`, bounds on
+struct and enum parameters, `<T as Trait>::` paths.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

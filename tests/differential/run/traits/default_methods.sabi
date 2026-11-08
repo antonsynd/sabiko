@@ -1,0 +1,57 @@
+// Provided methods call required ones; an impl may override a provided method.
+trait Shape {
+    fn Area(&self) -> i32;
+    fn Name(&self) -> i32 {
+        0
+    }
+    fn Describe(&self) {
+        Print(self.Name());
+        Print(" has area ");
+        PrintLine(self.Area());
+    }
+    fn Doubled(&self) -> i32 {
+        Self::Unit() + self.Area() * 2
+    }
+    fn Unit() -> i32 {
+        1
+    }
+}
+
+struct Square {
+    Side: i32,
+}
+
+struct Rect {
+    W: i32,
+    H: i32,
+}
+
+impl Shape for Square {
+    fn Area(&self) -> i32 {
+        self.Side * self.Side
+    }
+}
+
+impl Shape for Rect {
+    fn Area(&self) -> i32 {
+        self.W * self.H
+    }
+    fn Name(&self) -> i32 {
+        7
+    }
+    fn Unit() -> i32 {
+        100
+    }
+}
+
+fn Main() {
+    let s = Square { Side: 3 };
+    let r = Rect { W: 2, H: 5 };
+    s.Describe();
+    r.Describe();
+    PrintLine(s.Doubled());
+    PrintLine(r.Doubled());
+    PrintLine(Square::Unit());
+    PrintLine(Rect::Unit());
+    PrintLine(Shape::Area(&r));
+}

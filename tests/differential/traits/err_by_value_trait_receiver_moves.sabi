@@ -1,0 +1,20 @@
+// A trait method taking `self` by value moves a receiver that is not `Copy`.
+trait Consume {
+    fn Consume(self) -> i32;
+}
+
+struct Token {
+    Id: i32,
+}
+
+impl Consume for Token {
+    fn Consume(self) -> i32 {
+        self.Id
+    }
+}
+
+fn Main() {
+    let t = Token { Id: 1 };
+    let a = t.Consume();
+    let b = t.Consume();
+}

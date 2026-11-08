@@ -1,11 +1,11 @@
-// What inherent `impl` blocks do not support yet (generics, trait impls, associated
-// types, explicit `self` types and lifetimes), and a `self` parameter that
+// What `impl` blocks do not support yet (`?Sized` bounds, associated types, explicit
+// `self` types and lifetimes), and a `self` parameter that
 // is not first (rustc: "unexpected `self` parameter in function").
 struct P { X: i32 }
 
 impl<T> P { } // parses; the resolver rejects a block whose type does not take its parameters
 
-impl Clone for P { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
+impl<T: ?Sized> Clone for P { } //~ ERROR E0107 not yet supported: `?Sized` bounds
 
 impl P {
     const C: i32 = 1;

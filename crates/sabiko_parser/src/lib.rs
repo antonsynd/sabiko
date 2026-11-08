@@ -375,7 +375,7 @@ mod tests {
         );
         // `if a {} - 1;` is a complete `if` statement followed by `-1;` (a separate statement).
         let body = match &f.items[0].kind {
-            sabiko_ast::ItemKind::Fn(f) => &f.body,
+            sabiko_ast::ItemKind::Fn(f) => f.body.as_ref().expect("a body"),
             _ => unreachable!(),
         };
         assert!(!sink.has_errors(), "{:?}", sink.diagnostics());

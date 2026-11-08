@@ -1,11 +1,11 @@
-[E0107] Error: not yet supported: trait implementations other than `impl Drop`
-   ╭─[ tests/ui/parse/impl_syntax.sabi:8:12 ]
+[E0107] Error: not yet supported: `?Sized` bounds
+   ╭─[ tests/ui/parse/impl_syntax.sabi:8:9 ]
    │
- 8 │ impl Clone for P { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
-   │            ─┬─  
-   │             ╰─── not supported in this version of Sabiko
+ 8 │ impl<T: ?Sized> Clone for P { } //~ ERROR E0107 not yet supported: `?Sized` bounds
+   │         ┬  
+   │         ╰── not supported in this version of Sabiko
    │ 
-   │ Note: planned for Phase 6; see docs/PLAN.md
+   │ Note: not planned for 0.1; see docs/PLAN.md
 ───╯
 [E0107] Error: not yet supported: associated types
     ╭─[ tests/ui/parse/impl_syntax.sabi:12:5 ]

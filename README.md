@@ -39,6 +39,8 @@ in progress.**
 Supported today:
 - Primitive types, tuples, structs, enums, arrays, slices and `&str`.
 - Methods and constants.
+- Generic functions, structs and enums, monomorphised; traits with provided methods,
+  supertraits, impls for any type including primitives, and bounds.
 - `match` with exhaustiveness checking, `if let`, `let`-`else`, let chains and `if let`
   guards.
 - Drops at scope end and on unwinding.

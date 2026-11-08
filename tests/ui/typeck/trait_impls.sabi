@@ -1,0 +1,83 @@
+// Trait `impl` blocks: overlapping blocks (rustc's E0119), methods whose signatures differ
+// from the trait's (E0053, E0050, E0049, E0185, E0186), stricter bounds (E0276), and
+// types not supported yet.
+
+trait Show {
+    fn Show(&self) -> i32;
+}
+
+trait Shape {
+    fn Area(&self, scale: i32) -> i32;
+    fn Name(&self) -> bool;
+    fn New() -> Self;
+    fn Grow(&mut self);
+    fn Map<T>(&self, x: T) -> i32;
+    fn Bound<T>(&self, x: T) -> i32;
+}
+
+impl Show for i32 {
+    fn Show(&self) -> i32 {
+        *self
+    }
+}
+
+impl Show for i32 { //~ ERROR E0215 conflicting implementations of trait `Show` for type `i32`
+    fn Show(&self) -> i32 {
+        0
+    }
+}
+
+impl<T> Show for (T, bool) {
+    fn Show(&self) -> i32 {
+        1
+    }
+}
+
+impl Show for (u8, bool) { //~ ERROR E0215 conflicting implementations of trait `Show` for type `(u8, bool)`
+    fn Show(&self) -> i32 {
+        2
+    }
+}
+
+struct P {
+    X: i32,
+}
+
+impl Shape for P {
+    fn Area(&self, scale: bool) -> i32 { //~ ERROR E0321 method `Area` has an incompatible type for trait
+        1
+    }
+    fn Name(&self) -> i32 { //~ ERROR E0321 method `Name` has an incompatible type for trait
+        1
+    }
+    fn New(&self) -> Self { //~ ERROR E0321 method `New` has a `&self` declaration in the impl, but not in the trait
+        P { X: 0 }
+    }
+    fn Grow(&self) {} //~ ERROR E0321 method `Grow` has an incompatible type for trait
+    fn Map<T, U>(&self, x: T) -> i32 { //~ ERROR E0343 method `Map` has 2 type parameters but its trait declaration has 1 type parameter
+        0
+    }
+    fn Bound<T: Show>(&self, x: T) -> i32 { //~ ERROR E0344 impl has stricter requirements than trait
+        0
+    }
+}
+
+trait Count {
+    fn Count(&self, a: i32) -> i32;
+    fn Reset(&mut self);
+}
+
+impl Count for P {
+    fn Count(&self) -> i32 { //~ ERROR E0322 method `Count` has 1 parameter but the declaration in trait `Count::Count` has 2
+        0
+    }
+    fn Reset() {} //~ ERROR E0321 method `Reset` has a `&mut self` declaration in the trait, but not in the impl
+}
+
+impl Show for &P { //~ ERROR E0107 not yet supported: implementing a trait for a type that holds a reference
+    fn Show(&self) -> i32 {
+        0
+    }
+}
+
+fn Main() {}

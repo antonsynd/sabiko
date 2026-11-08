@@ -1,0 +1,62 @@
+// A bound on a subtrait gives its supertraits' methods too.
+trait Named {
+    fn Name(&self) -> i32;
+}
+
+trait Greeter: Named {
+    fn Greet(&self) {
+        Print("hello ");
+        PrintLine(self.Name());
+    }
+    fn Loud(&self) -> i32;
+}
+
+trait Polite: Greeter {
+    fn Bow(&self) -> i32 {
+        self.Loud() + self.Name()
+    }
+}
+
+struct Ann;
+
+impl Named for Ann {
+    fn Name(&self) -> i32 {
+        1
+    }
+}
+
+impl Greeter for Ann {
+    fn Loud(&self) -> i32 {
+        10
+    }
+}
+
+impl Polite for Ann {}
+
+impl Named for u8 {
+    fn Name(&self) -> i32 {
+        *self as i32
+    }
+}
+
+impl Greeter for u8 {
+    fn Loud(&self) -> i32 {
+        100
+    }
+    fn Greet(&self) {
+        PrintLine("hi");
+    }
+}
+
+impl Polite for u8 {}
+
+fn Meet<T: Polite>(x: &T) -> i32 {
+    x.Greet();
+    x.Name() + x.Bow()
+}
+
+fn Main() {
+    PrintLine(Meet(&Ann));
+    PrintLine(Meet(&5u8));
+    Ann.Greet();
+}

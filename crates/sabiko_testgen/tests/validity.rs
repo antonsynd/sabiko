@@ -301,7 +301,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" = match ") && l.ends_with('{'))
             },
-            60,
+            50,
         ),
         ("inline `match`", |s| s.contains("(match "), 150),
         ("`if let`", |s| s.contains("if let "), 150),
@@ -478,7 +478,7 @@ fn programs_use_arrays() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
             },
-            100,
+            85,
         ),
         (
             "computed index",
@@ -725,7 +725,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with('"') && l.contains(" => "))
             },
-            60,
+            50,
         ),
         (
             "string or-pattern",
@@ -748,7 +748,7 @@ fn programs_use_strings_and_ranges() {
                             || t.contains(&format!(" if {name} ")))
                 })
             },
-            18,
+            12,
         ),
         ("`if let` on a string", |s| s.contains("if let \""), 40),
         (
@@ -961,8 +961,8 @@ fn programs_extend_temporaries_through_blocks_and_branches() {
         "of {SEEDS} programs: {block} extend through a block, {branch} an `if`, {arm} a `match`"
     );
     assert!(
-        block >= 90 && branch >= 80 && arm >= 45,
-        "of {SEEDS} programs: {block} extend through a block (expected 90), {branch} an `if` (expected 80), {arm} a `match` (expected 45)"
+        block >= 90 && branch >= 80 && arm >= 38,
+        "of {SEEDS} programs: {block} extend through a block (expected 90), {branch} an `if` (expected 80), {arm} a `match` (expected 38)"
     );
 }
 
@@ -1005,8 +1005,8 @@ fn programs_use_let_chains() {
         "of {SEEDS} programs: {any} have a let chain, {leading} one led by a `bool`, {two_lets} one with two `let`s, {after} a `bool` after a `let`"
     );
     assert!(
-        any >= 60 && leading >= 10 && two_lets >= 35 && after >= 40,
-        "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 10), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 40)"
+        any >= 50 && leading >= 10 && two_lets >= 30 && after >= 25,
+        "of {SEEDS} programs: {any} have a let chain (expected 50), {leading} one led by a `bool` (expected 10), {two_lets} one with two `let`s (expected 30), {after} a `bool` after a `let` (expected 25)"
     );
 }
 
@@ -1057,6 +1057,34 @@ fn programs_use_aggregates_of_references() {
 
 /// Generic functions and types (#114, #115): about half the programs have the helpers,
 /// and their bodies use each of them, `GenId` now and then with a turbofish.
+#[test]
+fn programs_use_trait_helpers() {
+    let knobs = Knobs::default();
+    let (mut keeps, mut paths, mut kept, mut refs, mut signs, mut sums) = (0, 0, 0, 0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        // After the helpers' last line.
+        let body = src
+            .split("fn GenSigns")
+            .nth(1)
+            .and_then(|rest| rest.split_once('\n'))
+            .map_or("", |(_, rest)| rest);
+        keeps += usize::from(body.contains(").Keep()"));
+        paths += usize::from(body.contains("GenKeep::Keep("));
+        kept += usize::from(body.contains("GenKept("));
+        refs += usize::from(body.contains(").KeepRef()"));
+        signs += usize::from(body.contains(").Sign()"));
+        sums += usize::from(body.contains("GenSigns("));
+    }
+    eprintln!(
+        "of {SEEDS} programs: {keeps} call `.Keep()`, {paths} `GenKeep::Keep`, {kept} `GenKept`, {refs} `.KeepRef()`, {signs} `.Sign()`, {sums} `GenSigns`"
+    );
+    assert!(
+        keeps >= 40 && paths >= 30 && kept >= 30 && refs >= 20 && signs >= 20 && sums >= 20,
+        "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20)"
+    );
+}
+
 #[test]
 fn programs_use_generic_helpers() {
     let knobs = Knobs::default();

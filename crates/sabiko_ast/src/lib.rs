@@ -49,11 +49,30 @@ pub struct GenericArgs {
     pub span: Span,
 }
 
-/// A generic type parameter `T` of a function (`fn Id<T>(x: T) -> T`).
+/// A generic type parameter `T` of a function (`fn Id<T>(x: T) -> T`), with its bounds
+/// (`T: Show + Eq`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GenericParam {
     pub id: NodeId,
     pub name: Ident,
+    /// The traits after `:`; empty for a parameter without bounds.
+    pub bounds: Vec<TraitRef>,
+}
+
+/// A trait named in a bound, a supertrait list or an `impl Trait for Type` header. The
+/// resolver records what its path names under its own [`NodeId`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitRef {
+    pub id: NodeId,
+    pub path: Path,
+}
+
+/// `T: A + B` in a `where` clause.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WherePredicate {
+    pub ty: Type,
+    pub bounds: Vec<TraitRef>,
+    pub span: Span,
 }
 
 impl Path {
@@ -114,12 +133,13 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    /// Every item in source order, the members of an `impl` block right after the block
-    /// itself.
+    /// Every item in source order, the members of an `impl` block or a trait right after
+    /// the block itself.
     pub fn all_items(&self) -> impl Iterator<Item = &Item> {
         self.items.iter().flat_map(|item| {
             let members: &[Item] = match &item.kind {
                 ItemKind::Impl(imp) => &imp.items,
+                ItemKind::Trait(t) => &t.items,
                 _ => &[],
             };
             std::iter::once(item).chain(members)
@@ -147,6 +167,8 @@ pub enum ItemKind {
     Impl(ImplDecl),
     /// `enum Name { A, B(T), C { F: T } }`
     Enum(EnumDecl),
+    /// `trait Name: Super { fn Required(&self); fn Provided(&self) { .. } }`
+    Trait(TraitDecl),
 }
 
 impl Item {
@@ -158,6 +180,7 @@ impl Item {
             ItemKind::Struct(s) => Some(&s.name),
             ItemKind::Const(c) => Some(&c.name),
             ItemKind::Enum(e) => Some(&e.name),
+            ItemKind::Trait(t) => Some(&t.name),
             ItemKind::Impl(_) => None,
         }
     }
@@ -172,14 +195,27 @@ pub struct ImplDecl {
     /// (`impl<T> Pair<T, T>` is not supported: each must be one of the type's own,
     /// decision 83). Empty for a block that is not generic.
     pub generics: Vec<GenericParam>,
-    /// The trait of a trait impl: only `Drop` is accepted before Phase 6 (decision 46), as
-    /// a language item. `None` for an inherent impl.
-    pub trait_ref: Option<Ident>,
+    /// The trait of a trait impl (`impl Show for i32`); `None` for an inherent impl.
+    /// `Drop` is still a language item (decision 46) unless the file defines a trait of
+    /// that name.
+    pub trait_ref: Option<TraitRef>,
     /// The implemented type as written: a path naming a struct (or `Self`) in a valid
     /// program.
     pub self_ty: Type,
+    /// `where T: Show`.
+    pub where_clause: Vec<WherePredicate>,
     /// The associated items: functions ([`ItemKind::Fn`]) and constants
     /// ([`ItemKind::Const`], #48).
+    pub items: Vec<Item>,
+}
+
+/// `trait Name: Super { .. }`. Its members are functions ([`ItemKind::Fn`]), with a body
+/// (a provided method) or without (a required one).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitDecl {
+    pub name: Ident,
+    /// The supertraits after `:`.
+    pub supertraits: Vec<TraitRef>,
     pub items: Vec<Item>,
 }
 
@@ -224,7 +260,10 @@ pub struct FnDecl {
     pub params: Vec<Param>,
     /// `None` means the function returns `()`.
     pub ret: Option<Type>,
-    pub body: Block,
+    /// `where T: Show`.
+    pub where_clause: Vec<WherePredicate>,
+    /// `None` for a required method of a trait (`fn Name(&self);`), and only there.
+    pub body: Option<Block>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

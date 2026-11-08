@@ -1,0 +1,109 @@
+[E0200] Error: the name `Show` is defined multiple times
+   ╭─[ tests/ui/resolve/traits.sabi:9:8 ]
+   │
+ 5 │     fn Show(&self) -> i32;
+   │        ──┬─  
+   │          ╰─── previous definition of `Show` here
+   │ 
+ 9 │     fn Show(&self) -> bool; //~ ERROR E0200 the name `Show` is defined multiple times
+   │        ──┬─  
+   │          ╰─── `Show` redefined here
+   │ 
+   │ Note: a trait's members must have distinct names
+───╯
+[E0201] Error: cannot find trait `Missing` in this scope
+    ╭─[ tests/ui/resolve/traits.sabi:19:6 ]
+    │
+ 19 │ impl Missing for S {} //~ ERROR E0201 cannot find trait `Missing` in this scope
+    │      ───┬───  
+    │         ╰───── not found in this scope
+────╯
+[E0203] Error: expected trait, found struct `S`
+    ╭─[ tests/ui/resolve/traits.sabi:21:6 ]
+    │
+ 17 │ struct S;
+    │        ┬  
+    │        ╰── `S` defined here
+    │ 
+ 21 │ impl S for i32 {} //~ ERROR E0203 expected trait, found struct `S`
+    │      ┬  
+    │      ╰── not a trait
+────╯
+[E0217] Error: method `Extra` is not a member of trait `Show`
+    ╭─[ tests/ui/resolve/traits.sabi:27:8 ]
+    │
+ 27 │     fn Extra(&self) {} //~ ERROR E0217 method `Extra` is not a member of trait `Show`
+    │        ──┬──  
+    │          ╰──── not a member of trait `Show`
+────╯
+[E0210] Error: duplicate definitions with name `Show`
+    ╭─[ tests/ui/resolve/traits.sabi:28:8 ]
+    │
+ 24 │     fn Show(&self) -> i32 {
+    │        ──┬─  
+    │          ╰─── previous definition of `Show` here
+    │ 
+ 28 │     fn Show(&self) -> i32 { //~ ERROR E0210 duplicate definitions with name `Show`
+    │        ──┬─  
+    │          ╰─── duplicate definitions for `Show`
+────╯
+[E0216] Error: not all trait items implemented, missing: `Area`, `Perimeter`
+    ╭─[ tests/ui/resolve/traits.sabi:33:1 ]
+    │
+ 12 │ trait Area {
+    │       ──┬─  
+    │         ╰─── trait `Area` declared here
+    │ 
+ 33 │ impl Area for S {} //~ ERROR E0216 not all trait items implemented, missing: `Area`, `Perimeter`
+    │ ───────┬───────  
+    │        ╰───────── missing `Area`, `Perimeter` in implementation
+────╯
+[E0203] Error: expected type, found trait `Show`
+    ╭─[ tests/ui/resolve/traits.sabi:35:14 ]
+    │
+  4 │ trait Show {
+    │       ──┬─  
+    │         ╰─── `Show` defined here
+    │ 
+ 35 │ fn AsType(x: Show) {} //~ ERROR E0203 expected type, found trait `Show`
+    │              ──┬─  
+    │                ╰─── not a type
+    │ 
+    │ Note: trait objects (`dyn Show`) are planned for Phase 7; a type parameter takes any type that implements it: `fn F<T: Show>(x: T)`
+────╯
+[E0107] Error: not yet supported: the `Copy` trait in a bound or an `impl` header
+    ╭─[ tests/ui/resolve/traits.sabi:37:14 ]
+    │
+ 37 │ fn Copies<T: Copy>(x: T) {} //~ ERROR E0107 not yet supported: the `Copy` trait in a bound
+    │              ──┬─  
+    │                ╰─── a language trait
+    │ 
+    │ Note: `Copy`, `Clone` and `Drop` become ordinary traits in Phase 6 (#116); see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: a `where` clause on a type other than a type parameter
+    ╭─[ tests/ui/resolve/traits.sabi:41:5 ]
+    │
+ 41 │     i32: Show, //~ ERROR E0107 not yet supported: a `where` clause on a type other than a type parameter
+    │     ─┬─  
+    │      ╰─── bound a type parameter here, or write the bound on it: `T: Show`
+    │ 
+    │ Note: see docs/PLAN.md
+────╯
+[E0203] Error: expected value, found trait `Show`
+    ╭─[ tests/ui/resolve/traits.sabi:46:13 ]
+    │
+  4 │ trait Show {
+    │       ──┬─  
+    │         ╰─── `Show` defined here
+    │ 
+ 46 │     let v = Show; //~ ERROR E0203 expected value, found trait `Show`
+    │             ──┬─  
+    │               ╰─── not a value
+────╯
+[E0212] Error: cannot find method or associated constant `Size` in trait `Show`
+    ╭─[ tests/ui/resolve/traits.sabi:47:19 ]
+    │
+ 47 │     let n = Show::Size(&S); //~ ERROR E0212 cannot find method or associated constant `Size` in trait `Show`
+    │                   ──┬─  
+    │                     ╰─── not found in `Show`
+────╯

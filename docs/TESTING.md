@@ -154,6 +154,22 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `GenPick`, `GenFirst`, `GenOr(GenOpt::Yes(..), ..)`, `GenOr(GenOpt::No, ..)` and
   `GenBox`.
 
+  Traits (#116, decision 84): half of the programs, independently, get
+  `program::TRAIT_HELPERS`, one line each: `trait GenKeep { fn Keep(self) -> Self; fn
+  KeepRef(&self) -> &Self { self } }` with a blanket `impl<T> GenKeep for T`, `trait
+  GenSign` (a required `Sign` and a provided `Twice`) for `i32` and `bool` (whose block
+  overrides `Twice`), `GenKept<T: GenKeep>` and `GenSigns<T>(a, b) where T: GenSign +
+  GenKeep`. Bodies wrap a value in `(e).Keep()`, `GenKeep::Keep(e)` or `GenKept(e)`, a
+  shared reference to a non-array place in `(r).KeepRef()`, and make an integer from
+  `(e).Sign()` or `GenSigns(a, b)` of `i32` or `bool` values (cast to the integer's
+  type), so method probing through a blanket impl and through two blocks, `Trait::Name`
+  paths, provided methods, bounds with `where`, and an integer literal's type picked by
+  the one integer block all meet rustc. `programs_use_trait_helpers` pins 40, 30, 30, 20,
+  20 and 20 programs of 500. The new draws shift every program's random choices, which
+  lowered a few unrelated usage counts; their thresholds went down with them (let chains
+  50, `let` = `match` 50, string `match` arms 50, guarded string bindings 12, `while i <
+  s.len()` 85, extension through a `match` 38).
+
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
   not `s`; one carrying the loan of a `&mut self` method's result gets a region),

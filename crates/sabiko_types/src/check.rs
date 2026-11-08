@@ -12,11 +12,12 @@ use sabiko_ast::{
     TypeKind, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, Predicate, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
+use crate::traits::Solution;
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -35,6 +36,14 @@ pub struct MethodCallee {
     pub def: DefId,
     pub autoderefs: usize,
     pub autoref: Option<Mutability>,
+}
+
+/// A bound a use requires: `ty` (with inference variables until the body is done) must
+/// implement `trait_`. Judged in `finish`.
+struct Obligation {
+    ty: Ty,
+    trait_: DefId,
+    span: Span,
 }
 
 /// A use of a generic function in a body: its generic arguments (inference variables
@@ -63,6 +72,10 @@ pub struct BodyTypes {
     pub coerced_tuples: HashSet<NodeId>,
     /// The callee of every method call, keyed by the `ExprKind::MethodCall` node.
     pub method_calls: HashMap<NodeId, MethodCallee>,
+    /// The function a path names where the type checker chose it rather than the
+    /// resolver: `Type::Name` naming a trait's method, among the traits with a method of
+    /// that name the one the type implements. Keyed by the `ExprKind::Path` node.
+    pub path_defs: HashMap<NodeId, DefId>,
     /// The generic arguments of each use of a generic function, one per type parameter:
     /// keyed by the callee's `ExprKind::Path` node for a call, by the
     /// `ExprKind::MethodCall` node for a method call. Absent for a function that is not
@@ -230,6 +243,13 @@ pub(crate) struct FnCtxt<'a> {
     /// (unless it names a `const` item): judged in `finish`, once the type is known.
     pending_repeats: Vec<(Span, Ty)>,
     errors_before: usize,
+    /// The bounds that hold in the function being checked (`ItemTypes::param_env`).
+    env: Vec<Predicate>,
+    /// What `Self` names in a trait `impl` block's function: its `Self::V`, `Self { .. }`
+    /// take their generic arguments from it.
+    self_ty: Option<Ty>,
+    obligations: Vec<Obligation>,
+    path_defs: HashMap<NodeId, DefId>,
 }
 
 impl<'a> FnCtxt<'a> {
@@ -280,6 +300,10 @@ impl<'a> FnCtxt<'a> {
             repeat_counts: HashMap::new(),
             pending_repeats: Vec::new(),
             errors_before,
+            env: Vec::new(),
+            self_ty: None,
+            obligations: Vec::new(),
+            path_defs: HashMap::new(),
         }
     }
 
@@ -313,6 +337,15 @@ impl<'a> FnCtxt<'a> {
     }
 
     pub(crate) fn check_fn(mut self, f: &FnDecl, def: DefId) -> BodyTypes {
+        let Some(body) = &f.body else {
+            // A required method of a trait has nothing to check.
+            return self.finish();
+        };
+        self.env = self.items.param_env(def).to_vec();
+        if self.resolve.parent_kind(def) == Some(DefKind::Impl) {
+            let imp = self.resolve.def(def).parent.expect("a parent");
+            self.self_ty = Some(self.items.impl_self_ty(imp));
+        }
         let sig = self.items.fn_sig(def).clone();
         let mut inputs = sig.inputs.iter();
         if let Some(sp) = &f.self_param {
@@ -328,7 +361,10 @@ impl<'a> FnCtxt<'a> {
             self.check_pat(&p.pat, ty, None);
         }
         let ret = self.ret_ty.clone();
-        self.check_block(&f.body, Some(&ret));
+        self.check_block(body, Some(&ret));
+        if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
+            self.check_self_sized(def, f);
+        }
         self.finish()
     }
 
@@ -471,7 +507,7 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             TypeKind::Slice(elem) => Ty::Slice(Box::new(self.lower_type_unchecked(elem))),
-            _ => collect::lower_sig_type(ty, self.resolve, &collect::ArrayLens::new()),
+            _ => collect::lower_sig_type(ty, self.resolve, &self.items.sig_cx),
         }
     }
 
@@ -1108,6 +1144,10 @@ impl<'a> FnCtxt<'a> {
         if !matches!(ty, Ty::Array(..) | Ty::Slice(_) | Ty::Prim(PrimTy::Str)) {
             return None;
         }
+        if method.name != "len" && !self.resolve.trait_items_named(&method.name).is_empty() {
+            // A trait's method, which the probe finds (or reports).
+            return None;
+        }
         for a in args {
             self.check_expr(a, None);
         }
@@ -1665,6 +1705,12 @@ impl<'a> FnCtxt<'a> {
             return Vec::new();
         }
         if path.segments[0].name == "Self" {
+            // In a trait `impl` block, the arguments of its type.
+            if let Some(Ty::Adt(d, args)) = &self.self_ty {
+                if *d == adt && args.len() == generics.len() {
+                    return args.to_vec();
+                }
+            }
             return generics.iter().map(|&p| Ty::Param(p)).collect();
         }
         // The resolver checked each list's length; one that does not fit was reported.
@@ -1910,23 +1956,19 @@ impl<'a> FnCtxt<'a> {
             Res::Def(d) => {
                 let info = self.resolve.def(d);
                 match info.kind {
-                    DefKind::Fn => {
-                        if !callee {
-                            self.error(
-                                Diagnostic::error(
-                                    ErrorCode::FN_ITEM_AS_VALUE,
-                                    format!("function `{}` cannot be used as a value yet", info.name),
-                                )
-                                .with_label(expr.span, "function items are only callable")
-                                .with_note("function pointers and closures are planned for Phase 6; see docs/PLAN.md"),
-                            );
-                            return Ty::Error;
-                        }
-                        self.instantiate(expr.id, d, path, expr.span);
-                        Ty::FnDef(d)
+                    DefKind::Fn => self.check_fn_path(expr, path, d, callee),
+                    DefKind::TyParam | DefKind::Trait => {
+                        unreachable!("the resolver rejects a type parameter or a trait as a value")
                     }
-                    DefKind::TyParam => {
-                        unreachable!("the resolver rejects a type parameter as a value")
+                    DefKind::Impl => {
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::WRONG_NAMESPACE,
+                                "expected value, found `Self`",
+                            )
+                            .with_label(path.span, "`Self` is not a unit struct here"),
+                        );
+                        Ty::Error
                     }
                     DefKind::Const => self.items.const_ty(d).clone(),
                     DefKind::Variant => {
@@ -1998,6 +2040,45 @@ impl<'a> FnCtxt<'a> {
             Res::Prim(_) => unreachable!("the resolver rejects primitive names in value position"),
             Res::Err => Ty::Error,
         }
+    }
+
+    /// A path naming the function `def`: callable only (E0317), and for a trait's member
+    /// the member the type implements, with its `Self`.
+    fn check_fn_path(
+        &mut self,
+        expr: &Expr,
+        path: &sabiko_ast::Path,
+        def: DefId,
+        callee: bool,
+    ) -> Ty {
+        if !callee {
+            let name = self.resolve.def(def).name.clone();
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::FN_ITEM_AS_VALUE,
+                    format!("function `{name}` cannot be used as a value yet"),
+                )
+                .with_label(expr.span, "function items are only callable")
+                .with_note(
+                    "function pointers and closures are planned for Phase 6; see docs/PLAN.md",
+                ),
+            );
+            return Ty::Error;
+        }
+        let mut def = def;
+        let mut self_ty = None;
+        if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
+            let Some((chosen, ty)) = self.select_trait_item(expr, path, def) else {
+                return Ty::Error;
+            };
+            if chosen != def {
+                self.path_defs.insert(expr.id, chosen);
+            }
+            def = chosen;
+            self_ty = Some(ty);
+        }
+        self.instantiate(expr.id, def, path, expr.span, self_ty);
+        Ty::FnDef(def)
     }
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
@@ -2513,7 +2594,17 @@ impl<'a> FnCtxt<'a> {
     /// Records the generic arguments of a use of the function `def` at node `id`: the
     /// turbofish's (`_` a fresh variable), or a fresh inference variable per type parameter.
     /// Nothing for a function that is not generic.
-    fn instantiate(&mut self, id: NodeId, def: DefId, path: &sabiko_ast::Path, span: Span) {
+    /// Records the generic arguments of a use of the function `def` at the path `path`
+    /// (node `id`), and the bounds they must meet. A trait's member takes `self_ty` as its
+    /// `Self` (decision 84).
+    fn instantiate(
+        &mut self,
+        id: NodeId,
+        def: DefId,
+        path: &sabiko_ast::Path,
+        span: Span,
+        self_ty: Option<Ty>,
+    ) {
         if self.items.builtin(def).is_some() {
             return;
         }
@@ -2526,7 +2617,9 @@ impl<'a> FnCtxt<'a> {
         // (`Pair::<i32, bool>::New`), or inference variables.
         let parent = self.resolve.parent_generic_count(def);
         let mut args: Vec<Ty> = Vec::new();
-        if parent > 0 {
+        if let Some(self_ty) = self_ty {
+            args.push(self_ty);
+        } else if parent > 0 {
             let adt = self
                 .resolve
                 .def(def)
@@ -2548,7 +2641,232 @@ impl<'a> FnCtxt<'a> {
             }
             _ => args.extend((0..own).map(|_| self.infer.new_var(VarKind::General))),
         }
+        self.require_bounds(def, &args, span);
         self.generic_args.insert(id, (args, def, span));
+    }
+
+    /// The bounds of the function `def` at the generic arguments `args` become
+    /// obligations of the body, judged when it is done.
+    fn require_bounds(&mut self, def: DefId, args: &[Ty], span: Span) {
+        let generics = &self.items.fn_sig(def).generics;
+        for pred in self.items.param_env(def) {
+            self.obligations.push(Obligation {
+                ty: Ty::Param(pred.param).subst(generics, args),
+                trait_: pred.trait_,
+                span,
+            });
+        }
+    }
+
+    /// What `Self` is for the path expression `expr` naming a trait's member: the type
+    /// its first segment names, or an inference variable for `Trait::Name`.
+    fn assoc_self_ty(&mut self, expr: &Expr, path: &sabiko_ast::Path) -> Ty {
+        match self.resolve.assoc_self(expr.id) {
+            Some(Res::Def(d)) => match self.resolve.def(d).kind {
+                DefKind::Trait => self.infer.new_var(VarKind::General),
+                DefKind::TyParam => Ty::Param(d),
+                DefKind::Impl => self.items.impl_self_ty(d),
+                DefKind::Struct | DefKind::Enum => {
+                    let mut type_path = path.clone();
+                    type_path.segments.truncate(1);
+                    type_path.generic_args.retain(|a| a.segment == 0);
+                    let args = self.adt_args(d, &type_path);
+                    Ty::Adt(d, args.into())
+                }
+                _ => Ty::Error,
+            },
+            Some(Res::Prim(p)) => Ty::Prim(p),
+            _ => Ty::Error,
+        }
+    }
+
+    /// The trait method a path `A::Name` calls, and its `Self`: for `Trait::Name` the
+    /// resolver's, at a `Self` inference finds; for a type `A`, the one among the traits
+    /// with a member `Name` that `A` implements (E0319 when none does, E0342, rustc's
+    /// E0034, when several do).
+    fn select_trait_item(
+        &mut self,
+        expr: &Expr,
+        path: &sabiko_ast::Path,
+        def: DefId,
+    ) -> Option<(DefId, Ty)> {
+        let self_ty = self.assoc_self_ty(expr, path);
+        let by_trait = matches!(
+            self.resolve.assoc_self(expr.id),
+            Some(Res::Def(d)) if self.resolve.def(d).kind == DefKind::Trait
+        );
+        if by_trait || self_ty.is_error() {
+            return Some((def, self_ty));
+        }
+        let name = self.resolve.def(def).name.clone();
+        let found: Vec<DefId> = self
+            .resolve
+            .trait_items_named(&name)
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter(|&m| {
+                let tr = self.resolve.def(m).parent.expect("a trait member");
+                self.may_implement(&self_ty, tr)
+            })
+            .collect();
+        let shown = self.ty_str(&self_ty);
+        match found.as_slice() {
+            [one] => Some((*one, self_ty)),
+            [] => {
+                let tr = self.resolve.def(def).parent.expect("a trait member");
+                let trait_name = self.resolve.def(tr).name.clone();
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::UNKNOWN_ASSOC_ITEM,
+                        format!("no function or associated item named `{name}` found for type `{shown}`"),
+                    )
+                    .with_label(path.last().span, format!("function or associated item not found in `{shown}`"))
+                    .with_note(format!("the trait `{trait_name}` defines an item `{name}`, but `{shown}` does not implement it")),
+                );
+                None
+            }
+            many => {
+                self.ambiguous(path.last().span, &name, many, &shown);
+                None
+            }
+        }
+    }
+
+    /// Whether `ty` implements `tr` or may once inference knows more: an integer variable
+    /// may be any integer type an `impl` of `tr` is for.
+    fn may_implement(&mut self, ty: &Ty, tr: DefId) -> bool {
+        let ty = self.infer.resolve(ty);
+        match self.items.implements(&ty, tr, &self.env) {
+            Solution::Yes => true,
+            Solution::No => false,
+            Solution::Ambiguous => {
+                self.impl_candidates(&ty, tr) > 0
+                    || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
+            }
+        }
+    }
+
+    /// How many `impl` blocks of `tr` have a type that `ty`, with inference variables,
+    /// could be: an integer (float) variable can only be an integer (float) type, a
+    /// general one anything.
+    fn impl_candidates(&mut self, ty: &Ty, tr: DefId) -> usize {
+        let impls: Vec<(Ty, Vec<DefId>)> = self
+            .items
+            .impls_of(tr)
+            .map(|i| (i.self_ty.clone(), i.generics.clone()))
+            .collect();
+        impls
+            .iter()
+            .filter(|(pat, params)| self.could_be(pat, params, ty))
+            .count()
+    }
+
+    fn could_be(&mut self, pat: &Ty, params: &[DefId], ty: &Ty) -> bool {
+        if let Ty::Param(p) = pat {
+            if params.contains(p) {
+                return true;
+            }
+        }
+        match (pat, ty) {
+            (_, Ty::Infer(v)) => match self.infer.kind(*v) {
+                VarKind::General => true,
+                VarKind::Int => matches!(pat, Ty::Prim(p) if p.is_integer()),
+                VarKind::Float => matches!(pat, Ty::Prim(p) if p.is_float()),
+            },
+            (_, Ty::Error) => true,
+            (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && self.could_be(a, params, b),
+            (Ty::Array(a, n), Ty::Array(b, m)) => n == m && self.could_be(a, params, b),
+            (Ty::Slice(a), Ty::Slice(b)) => self.could_be(a, params, b),
+            (Ty::Tuple(a), Ty::Tuple(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|(x, y)| self.could_be(x, params, y))
+            }
+            (Ty::Adt(d1, a), Ty::Adt(d2, b)) => {
+                d1 == d2
+                    && a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|(x, y)| self.could_be(x, params, y))
+            }
+            (a, b) => a == b,
+        }
+    }
+
+    /// Lets the pending bounds guide inference, as rustc's selection does: a bound on a
+    /// type with inference variables that only one `impl` block's type could match makes
+    /// it that type (`5.Show()` with only `impl Show for i64` is an `i64`). A bare
+    /// general variable decides nothing. Repeats until nothing changes.
+    fn select_obligations(&mut self) {
+        loop {
+            let mut progress = false;
+            let pending: Vec<(Ty, DefId)> = self
+                .obligations
+                .iter()
+                .map(|o| (o.ty.clone(), o.trait_))
+                .collect();
+            for (ty, tr) in pending {
+                let ty = self.infer.resolve(&ty);
+                if !ty.has_infer()
+                    || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
+                {
+                    continue;
+                }
+                if self.impl_candidates(&ty, tr) != 1 {
+                    continue;
+                }
+                let all: Vec<(Ty, Vec<DefId>)> = self
+                    .items
+                    .impls_of(tr)
+                    .map(|i| (i.self_ty.clone(), i.generics.clone()))
+                    .collect();
+                let Some((pat, params)) = all.into_iter().find(|(p, g)| self.could_be(p, g, &ty))
+                else {
+                    continue;
+                };
+                let fresh: Vec<Ty> = params
+                    .iter()
+                    .map(|_| self.infer.new_var(VarKind::General))
+                    .collect();
+                let pat = pat.subst(&params, &fresh);
+                // Progress is a variable of `ty` learning something, not a fresh one
+                // (a blanket block's `T`) being bound to it.
+                if self.infer.unify(&pat, &ty).is_ok()
+                    && known_nodes(&self.infer.resolve(&ty)) > known_nodes(&ty)
+                {
+                    progress = true;
+                }
+            }
+            if !progress {
+                return;
+            }
+        }
+    }
+
+    /// E0342 (rustc's E0034): several traits' methods named `name` apply to `shown`.
+    fn ambiguous(&mut self, span: Span, name: &str, candidates: &[DefId], shown: &str) {
+        let mut d = Diagnostic::error(
+            ErrorCode::AMBIGUOUS_METHOD,
+            "multiple applicable items in scope",
+        )
+        .with_label(span, format!("multiple `{name}` found"));
+        for (i, &m) in candidates.iter().enumerate() {
+            let tr = self.resolve.def(m).parent.expect("a trait member");
+            let trait_name = &self.resolve.def(tr).name;
+            d = d.with_label(
+                self.resolve.def(m).span,
+                format!(
+                    "candidate #{} is defined in the trait `{trait_name}`",
+                    i + 1
+                ),
+            );
+            d = d.with_note(format!(
+                "disambiguate it with the trait's path: `{trait_name}::{name}(..)` for `{shown}`"
+            ));
+        }
+        self.error(d);
     }
 
     /// The generic arguments recorded for the use at node `id` (empty when the function is
@@ -2698,23 +3016,20 @@ impl<'a> FnCtxt<'a> {
         if let Some(ty) = self.check_len_call(expr, &recv_ty, method, args) {
             return ty;
         }
-        let Some(callee) = self.probe_method(&recv_ty, method) else {
+        let Some((callee, parent_args)) = self.probe_method(&recv_ty, method) else {
             for a in args {
                 self.check_expr(a, None);
             }
             return Ty::Error;
         };
         let mut sig = self.items.fn_sig(callee.def).clone();
-        // The arguments of the method's type (decision 83) are the receiver's own; a
-        // turbofish gives the method's.
+        // The arguments of the method's type (decision 83) are the receiver's own, a trait
+        // method's is its `Self` (decision 84); a turbofish gives the method's.
         let parent = self.resolve.parent_generic_count(callee.def);
-        let mut base = self.infer.resolve(&recv_ty);
-        while let Ty::Ref(_, inner) = base {
-            base = *inner;
-        }
-        let parent_args: Vec<Ty> = match &base {
-            Ty::Adt(_, args) if args.len() == parent => args.to_vec(),
-            _ => vec![Ty::Error; parent],
+        let parent_args = if parent_args.len() == parent {
+            parent_args
+        } else {
+            vec![Ty::Error; parent]
         };
         let count = sig.generics.len() - parent;
         let own_args: Vec<Ty> = match turbofish {
@@ -2753,6 +3068,7 @@ impl<'a> FnCtxt<'a> {
         let mut generic_args = parent_args;
         generic_args.extend(own_args);
         if !generic_args.is_empty() {
+            self.require_bounds(callee.def, &generic_args, method.span);
             self.generic_args
                 .insert(expr.id, (generic_args.clone(), callee.def, method.span));
             sig.inputs = sig.inputs_with(&generic_args);
@@ -2776,20 +3092,32 @@ impl<'a> FnCtxt<'a> {
         sig.output
     }
 
-    /// Finds the method `name` for a receiver of type `recv_ty`, as rustc's probe does
-    /// for inherent methods: the receiver is dereferenced step by step (`&&P`, `&P`,
-    /// `P`), and at each step the method's receiver type (`P`, `&P` or `&mut P`) is
-    /// matched against the step's type by value, then against `&step`, then against
-    /// `&mut step`. Only structs have methods, so the method itself is the innermost
-    /// type's; the steps decide how the receiver is adjusted. Reports and returns `None`
-    /// when there is no such method.
-    fn probe_method(&mut self, recv_ty: &Ty, name: &sabiko_ast::Ident) -> Option<MethodCallee> {
+    /// Finds the method `name` for a receiver of type `recv_ty`, as rustc's probe does:
+    /// the receiver is dereferenced step by step (`&&P`, `&P`, `P`), and at each step the
+    /// step's type is tried by value, then as `&step`, then as `&mut step`, against the
+    /// receiver type of each candidate: the inherent method of the innermost struct or
+    /// enum first, then the methods named `name` of every trait the candidate's `Self`
+    /// implements (a bound in scope for a type parameter), decision 84. Several traits at
+    /// one step are E0342 (rustc's E0034). Returns the callee and the generic arguments
+    /// of its block or trait: the receiver type's for an inherent method, `Self` for a
+    /// trait's. Reports and returns `None` when nothing matches.
+    fn probe_method(
+        &mut self,
+        recv_ty: &Ty,
+        name: &sabiko_ast::Ident,
+    ) -> Option<(MethodCallee, Vec<Ty>)> {
         let mut steps = vec![self.infer.resolve(recv_ty)];
         while let Ty::Ref(_, inner) = steps.last().expect("one step").clone() {
             steps.push(*inner);
         }
         let base = steps.last().expect("one step").clone();
-        let adt = match base {
+        let trait_methods: Vec<DefId> = self
+            .resolve
+            .trait_items_named(&name.name)
+            .into_iter()
+            .filter(|&m| self.items.fn_sig(m).self_kind.is_some())
+            .collect();
+        match base {
             Ty::Error => return None,
             Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
                 self.error(
@@ -2806,49 +3134,35 @@ impl<'a> FnCtxt<'a> {
                 self.infer.bind_error(&Ty::Infer(v));
                 return None;
             }
-            Ty::Adt(adt, _) => adt,
-            _ => {
-                self.unknown_method(recv_ty, name, None, "method not found");
-                return None;
-            }
-        };
-        let Some(def) = self.resolve.assoc_fn(adt, &name.name) else {
-            if name.name == "drop" && self.items.drop_impl(adt).is_some() {
-                // `d.drop()`: the destructor of `impl Drop` is not callable.
-                self.explicit_drop_call(name.span);
-                return None;
-            }
-            let is_field = self.items.adt(adt).field_index(&name.name).is_some();
-            let label = if is_field {
-                "field, not a method"
-            } else {
-                "method not found"
-            };
-            self.unknown_method(recv_ty, name, Some(adt), label);
-            return None;
-        };
-        let sig = self.items.fn_sig(def);
-        if sig.self_kind.is_none() {
-            self.unknown_method(
-                recv_ty,
-                name,
-                Some(adt),
-                "this is an associated function, not a method",
-            );
-            return None;
+            _ => {}
         }
-        // In a generic type's `impl` block the receiver's type mentions the type's
-        // parameters (decision 83): they are the receiver's own arguments.
-        let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
-        let Ty::Adt(_, base_args) = &base else {
-            unreachable!("matched above")
+        // The inherent method, with its receiver type at the innermost type's arguments.
+        let inherent = match &base {
+            Ty::Adt(adt, base_args) => self
+                .resolve
+                .assoc_fn(*adt, &name.name)
+                .filter(|&def| self.items.fn_sig(def).self_kind.is_some())
+                .map(|def| {
+                    let sig = self.items.fn_sig(def);
+                    let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
+                    (
+                        def,
+                        sig.inputs[0].subst(parent, base_args),
+                        base_args.to_vec(),
+                    )
+                }),
+            _ => None,
         };
-        let self_ty = sig.inputs[0].subst(parent, base_args);
         for (autoderefs, step) in steps.iter().enumerate() {
-            if *step == self_ty {
-                // A reference receiver is reborrowed, not copied or moved: `&*r`, `&mut *m`.
-                return Some(match step {
-                    Ty::Ref(m, _) => MethodCallee {
+            for autoref in [None, Some(Mutability::Not), Some(Mutability::Mut)] {
+                let adjusted = match autoref {
+                    None => step.clone(),
+                    Some(m) => Ty::Ref(m, Box::new(step.clone())),
+                };
+                // A reference receiver taken by value is reborrowed, not copied or moved:
+                // `&*r`, `&mut *m`.
+                let callee = |def: DefId| match (autoref, step) {
+                    (None, Ty::Ref(m, _)) => MethodCallee {
                         def,
                         autoderefs: autoderefs + 1,
                         autoref: Some(*m),
@@ -2856,21 +3170,77 @@ impl<'a> FnCtxt<'a> {
                     _ => MethodCallee {
                         def,
                         autoderefs,
-                        autoref: None,
+                        autoref,
                     },
-                });
-            }
-            for m in [Mutability::Not, Mutability::Mut] {
-                if Ty::Ref(m, Box::new(step.clone())) == self_ty {
-                    return Some(MethodCallee {
-                        def,
-                        autoderefs,
-                        autoref: Some(m),
-                    });
+                };
+                if let Some((def, self_ty, args)) = &inherent {
+                    if *self_ty == adjusted {
+                        return Some((callee(*def), args.clone()));
+                    }
+                }
+                let mut found: Vec<(DefId, Ty)> = Vec::new();
+                for &m in &trait_methods {
+                    let tr = self.resolve.def(m).parent.expect("a trait member");
+                    let self_ty = match self.items.fn_sig(m).self_kind {
+                        Some(sabiko_ast::SelfKind::Ref { mutable }) => match &adjusted {
+                            Ty::Ref(mm, inner) if *mm == Mutability::from_bool(mutable) => {
+                                (**inner).clone()
+                            }
+                            _ => continue,
+                        },
+                        _ => adjusted.clone(),
+                    };
+                    if self.may_implement(&self_ty, tr) {
+                        found.push((m, self_ty));
+                    }
+                }
+                match found.as_slice() {
+                    [] => {}
+                    [(def, self_ty)] => return Some((callee(*def), vec![self_ty.clone()])),
+                    many => {
+                        let defs: Vec<DefId> = many.iter().map(|(d, _)| *d).collect();
+                        let shown = self.ty_str(&many[0].1);
+                        self.ambiguous(name.span, &name.name, &defs, &shown);
+                        return None;
+                    }
                 }
             }
         }
-        unreachable!("a method of the innermost struct matches by value or by autoref")
+        self.method_not_found(recv_ty, &base, name, &trait_methods);
+        None
+    }
+
+    /// Reports a method call nothing matched (E0319, rustc's E0599), with what may explain
+    /// it: a field of that name, an associated function, a destructor, a trait that has
+    /// the method but is not implemented or not a bound.
+    fn method_not_found(
+        &mut self,
+        recv_ty: &Ty,
+        base: &Ty,
+        name: &sabiko_ast::Ident,
+        trait_methods: &[DefId],
+    ) {
+        if let Ty::Adt(adt, _) = base {
+            let adt = *adt;
+            if name.name == "drop"
+                && self.items.drop_impl(adt).is_some()
+                && self.resolve.assoc_fn(adt, &name.name).is_none()
+            {
+                // `d.drop()`: the destructor of `impl Drop` is not callable.
+                self.explicit_drop_call(name.span);
+                return;
+            }
+            let label = if self.resolve.assoc_fn(adt, &name.name).is_some() {
+                "this is an associated function, not a method"
+            } else if self.items.adt(adt).field_index(&name.name).is_some() {
+                "field, not a method"
+            } else {
+                "method not found"
+            };
+            self.unknown_method(recv_ty, name, Some(adt), label, trait_methods);
+        } else {
+            self.unknown_method(recv_ty, name, None, "method not found", trait_methods);
+        }
     }
 
     /// E0323: `d.drop()` or `D::drop(&mut d)` (rustc's E0040). Sabiko has no
@@ -2893,11 +3263,18 @@ impl<'a> FnCtxt<'a> {
         name: &sabiko_ast::Ident,
         adt: Option<DefId>,
         label: &str,
+        trait_methods: &[DefId],
     ) {
         let shown = self.ty_str(recv_ty);
-        let what = match (self.shallow(recv_ty), adt) {
-            (Ty::Ref(..), _) => format!("reference `{shown}`"),
-            (_, Some(_)) => format!("struct `{shown}`"),
+        let mut base = self.infer.resolve(recv_ty);
+        while let Ty::Ref(_, inner) = base {
+            base = *inner;
+        }
+        let what = match (self.shallow(recv_ty), adt, &base) {
+            (Ty::Ref(..), _, _) => format!("reference `{shown}`"),
+            (_, Some(adt), _) if self.items.adt(adt).is_enum() => format!("enum `{shown}`"),
+            (_, Some(_), _) => format!("struct `{shown}`"),
+            (_, None, Ty::Param(_)) => format!("type parameter `{shown}`"),
             _ => format!("type `{shown}`"),
         };
         let mut d = Diagnostic::error(
@@ -2913,8 +3290,25 @@ impl<'a> FnCtxt<'a> {
                     name.name
                 ));
             }
-        } else {
-            d = d.with_note("only structs have methods (inherent `impl` blocks)");
+        }
+        if let Some(&m) = trait_methods.first() {
+            let tr = self.resolve.def(m).parent.expect("a trait member");
+            let trait_name = self.resolve.def(tr).name.clone();
+            let base_shown = self.ty_str(&base);
+            d = d.with_note(match base {
+                Ty::Param(_) => format!(
+                    "the trait `{trait_name}` defines an item `{}`: restrict type parameter `{base_shown}` with it, `{base_shown}: {trait_name}`",
+                    name.name
+                ),
+                _ => format!(
+                    "the trait `{trait_name}` defines an item `{}`, but `{base_shown}` does not implement it",
+                    name.name
+                ),
+            });
+        } else if adt.is_none() {
+            d = d.with_note(
+                "methods come from inherent `impl` blocks of structs and enums, and from traits",
+            );
         }
         self.error(d);
     }
@@ -3431,6 +3825,22 @@ impl<'a> FnCtxt<'a> {
                     self.infer.bind_error(&t);
                     t = Ty::Error;
                 }
+                // Every type parameter but a trait's `Self` is `Sized` (rustc's E0277).
+                let trait_self = i == 0 && self.resolve.parent_kind(def) == Some(DefKind::Trait);
+                if crate::traits::is_unsized(&t) && !trait_self {
+                    let param = self.items.fn_sig(def).generics[i];
+                    let param_name = self.resolve.def(param).name.clone();
+                    let shown = self.ty_str(&t);
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::UNSIZED_TYPE,
+                            format!("the size for values of type `{shown}` cannot be known at compilation time"),
+                        )
+                        .with_label(span, "doesn't have a size known at compile-time")
+                        .with_note(format!("the type parameter `{param_name}` stands for sized types only; pass a reference instead")),
+                    );
+                    t = Ty::Error;
+                }
                 resolved.push(t);
             }
             out.insert(id, resolved);
@@ -3438,7 +3848,116 @@ impl<'a> FnCtxt<'a> {
         out
     }
 
+    /// Judges the bounds the body's uses require (E0341, rustc's E0277), once inference is
+    /// done. A type inference left unknown is E0313 (rustc's E0283), unless an error about
+    /// it was reported.
+    fn check_obligations(&mut self) {
+        let mut seen: HashSet<(Ty, DefId, Span)> = HashSet::new();
+        for ob in std::mem::take(&mut self.obligations) {
+            let ty = self.infer.resolve_with_defaults(&ob.ty);
+            if !seen.insert((ty.clone(), ob.trait_, ob.span)) {
+                continue;
+            }
+            let trait_name = self.resolve.def(ob.trait_).name.clone();
+            match self.items.implements(&ty, ob.trait_, &self.env) {
+                Solution::Yes => {}
+                Solution::Ambiguous => {
+                    let shown = self.ty_str(&ty);
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(ob.span, "cannot infer type")
+                        .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
+                    );
+                    self.infer.bind_error(&ty);
+                }
+                Solution::No => {
+                    let shown = self.ty_str(&ty);
+                    let mut d = Diagnostic::error(
+                        ErrorCode::UNSATISFIED_BOUND,
+                        format!("the trait bound `{shown}: {trait_name}` is not satisfied"),
+                    )
+                    .with_label(
+                        ob.span,
+                        format!("the trait `{trait_name}` is not implemented for `{shown}`"),
+                    );
+                    if let Ty::Param(_) = ty {
+                        d = d.with_note(format!(
+                            "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+                        ));
+                    }
+                    self.error(d);
+                }
+            }
+        }
+    }
+
+    /// In a trait's provided method `Self` may be unsized, as in rustc: a parameter, a
+    /// return type or a local holding a `Self` by value is E0208 (rustc's E0277). rustc
+    /// accepts them under `where Self: Sized`, which is not supported yet.
+    fn check_self_sized(&mut self, def: DefId, f: &FnDecl) {
+        let tr = self.resolve.def(def).parent.expect("a trait member");
+        let self_param = self.resolve.trait_self(tr);
+        let sig = self.items.fn_sig(def).clone();
+        let mut spans: Vec<Span> = Vec::new();
+        for (ty, span) in sig.inputs.iter().zip(&sig.param_spans) {
+            if holds_by_value(ty, self_param) {
+                spans.push(*span);
+            }
+        }
+        if holds_by_value(&sig.output, self_param) {
+            spans.push(f.ret.as_ref().map_or(sig.name_span, |t| t.span));
+        }
+        let mut locals: Vec<(LocalId, Ty)> = self
+            .local_types
+            .iter()
+            .map(|(l, t)| (*l, t.clone()))
+            .collect();
+        locals.sort_by_key(|(l, _)| *l);
+        for (local, ty) in locals {
+            let info = self.resolve.local(local);
+            if info.is_param {
+                continue;
+            }
+            if holds_by_value(&self.infer.resolve(&ty), self_param) {
+                spans.push(info.span);
+            }
+        }
+        for span in spans {
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::UNSIZED_TYPE,
+                    "the size for values of type `Self` cannot be known at compilation time",
+                )
+                .with_label(span, "doesn't have a size known at compile-time")
+                .with_note("in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet"),
+            );
+        }
+    }
+
+    /// `-e` where `e` was still `{integer}` and became unsigned (E0307).
+    fn check_pending_negs(&mut self) {
+        for (span, ty) in std::mem::take(&mut self.pending_negs) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if let Ty::Prim(p) = t {
+                if p.is_unsigned_int() {
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::INVALID_UNARY_OP,
+                            format!("cannot apply unary operator `-` to type `{}`", p.name()),
+                        )
+                        .with_label(span, "cannot apply unary operator `-`")
+                        .with_note("unsigned values cannot be negated"),
+                    );
+                }
+            }
+        }
+    }
+
     fn finish(mut self) -> BodyTypes {
+        self.select_obligations();
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).
@@ -3473,6 +3992,7 @@ impl<'a> FnCtxt<'a> {
             local_types.insert(id, t);
         }
         let generic_args = self.resolve_generic_args();
+        self.check_obligations();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let mut t = self.infer.resolve_with_defaults(&ty);
@@ -3482,21 +4002,7 @@ impl<'a> FnCtxt<'a> {
             pat_types.insert(id, t);
         }
         let expr_types = self.resolve_expr_types();
-        for (span, ty) in std::mem::take(&mut self.pending_negs) {
-            let t = self.infer.resolve_with_defaults(&ty);
-            if let Ty::Prim(p) = t {
-                if p.is_unsigned_int() {
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::INVALID_UNARY_OP,
-                            format!("cannot apply unary operator `-` to type `{}`", p.name()),
-                        )
-                        .with_label(span, "cannot apply unary operator `-`")
-                        .with_note("unsigned values cannot be negated"),
-                    );
-                }
-            }
-        }
+        self.check_pending_negs();
 
         for (op, ty, span) in std::mem::take(&mut self.pending_comparisons) {
             let t = self.infer.resolve_with_defaults(&ty);
@@ -3544,6 +4050,7 @@ impl<'a> FnCtxt<'a> {
             len_calls: self.len_calls,
             coercions: Self::resolved_coercions(&mut self.infer, self.coercions),
             repeat_counts: self.repeat_counts,
+            path_defs: self.path_defs,
             has_errors,
         }
     }
@@ -3732,6 +4239,30 @@ fn strip_parens(mut e: &Expr) -> &Expr {
 /// `1 element`, `3 elements`.
 /// For each of `pats` (at most one `..` among them), the index of the element or field
 /// it matches among `len`; `None` for the `..` itself.
+/// Whether `ty` holds a value of the type parameter `param` itself (not behind a
+/// reference): what needs it to be sized.
+fn holds_by_value(ty: &Ty, param: DefId) -> bool {
+    match ty {
+        Ty::Param(p) => *p == param,
+        Ty::Array(inner, _) | Ty::Slice(inner) => holds_by_value(inner, param),
+        Ty::Tuple(elems) => elems.iter().any(|e| holds_by_value(e, param)),
+        Ty::Adt(_, args) => args.iter().any(|a| holds_by_value(a, param)),
+        _ => false,
+    }
+}
+
+/// How many nodes of `ty` are not inference variables: what selection learning a type
+/// increases.
+fn known_nodes(ty: &Ty) -> usize {
+    match ty {
+        Ty::Infer(_) => 0,
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => 1 + known_nodes(inner),
+        Ty::Tuple(elems) => 1 + elems.iter().map(known_nodes).sum::<usize>(),
+        Ty::Adt(_, args) => 1 + args.iter().map(known_nodes).sum::<usize>(),
+        _ => 1,
+    }
+}
+
 pub fn rest_positions(pats: &[Pat], len: usize) -> Vec<Option<usize>> {
     let rest = pats.iter().position(|p| matches!(p.kind, PatKind::Rest));
     let after = rest.map_or(0, |r| pats.len() - r - 1);

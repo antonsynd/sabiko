@@ -13,6 +13,15 @@ use sabiko_span::Span;
 use crate::recovery::is_item_start;
 use crate::{PResult, Parser};
 
+/// What an item is a member of, which decides the members allowed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Members {
+    /// A top-level item.
+    None,
+    Impl,
+    Trait,
+}
+
 impl Parser<'_, '_> {
     pub(crate) fn parse_source_file(&mut self) -> SourceFile {
         let mut docs = Vec::new();
@@ -49,12 +58,13 @@ impl Parser<'_, '_> {
     }
 
     fn parse_item(&mut self) -> PResult<Item> {
-        self.parse_item_in(false)
+        self.parse_item_in(Members::None)
     }
 
-    /// An item, or (`in_impl`) a member of an `impl` block: a function, which may take a
-    /// `self` parameter, or a constant (#48).
-    fn parse_item_in(&mut self, in_impl: bool) -> PResult<Item> {
+    /// An item, or a member of an `impl` block or a trait (`members`): a function, which
+    /// may take a `self` parameter, or (in an `impl` block) a constant (#48).
+    fn parse_item_in(&mut self, members: Members) -> PResult<Item> {
+        let in_impl = members != Members::None;
         let start = self.peek().span;
         let mut docs = Vec::new();
         let mut attrs = Vec::new();
@@ -75,16 +85,27 @@ impl Parser<'_, '_> {
         };
         let id = self.new_id();
         let kind = match self.peek_kind() {
-            TokenKind::Fn => ItemKind::Fn(self.parse_fn(in_impl)?),
+            TokenKind::Fn => ItemKind::Fn(self.parse_fn(members)?),
+            TokenKind::Const if members == Members::Trait => {
+                return Err(self.unsupported_item(
+                    "associated constants in traits",
+                    "planned for Phase 6 (#116)",
+                ))
+            }
             TokenKind::Const if in_impl => ItemKind::Const(self.parse_const()?),
             TokenKind::Type if in_impl => {
                 return Err(self.unsupported_item("associated types", "planned for Phase 6"))
             }
             _ if in_impl => {
+                let block = if members == Members::Trait {
+                    "trait"
+                } else {
+                    "`impl` block"
+                };
                 let d = sabiko_diagnostics::Diagnostic::error(
                     sabiko_diagnostics::ErrorCode::EXPECTED_ITEM,
                     format!(
-                        "expected a function or a constant in this `impl` block, found {}",
+                        "expected a function or a constant in this {block}, found {}",
                         self.describe_current_pub()
                     ),
                 )
@@ -95,9 +116,7 @@ impl Parser<'_, '_> {
             TokenKind::Const => ItemKind::Const(self.parse_const()?),
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()?),
             TokenKind::Impl => ItemKind::Impl(self.parse_impl()?),
-            TokenKind::Trait => {
-                return Err(self.unsupported_item("`trait` items", "planned for Phase 6"))
-            }
+            TokenKind::Trait => ItemKind::Trait(self.parse_trait()?),
             TokenKind::Mod | TokenKind::Use => {
                 return Err(self.unsupported_item("modules and `use`", "planned for Phase 9"))
             }
@@ -117,7 +136,7 @@ impl Parser<'_, '_> {
                 let d = sabiko_diagnostics::Diagnostic::error(
                     sabiko_diagnostics::ErrorCode::EXPECTED_ITEM,
                     format!(
-                        "expected an item (`fn`, `struct`, `enum`, `const` or `impl`), found {}",
+                        "expected an item (`fn`, `struct`, `enum`, `const`, `trait` or `impl`), found {}",
                         self.describe_current_pub()
                     ),
                 )
@@ -324,7 +343,7 @@ impl Parser<'_, '_> {
     }
 
     /// `<T, U>` after a function's name, at the `<`.
-    fn parse_generic_params(&mut self) -> PResult<Vec<GenericParam>> {
+    fn parse_generic_params(&mut self, allow_bounds: bool) -> PResult<Vec<GenericParam>> {
         self.expect(TokenKind::Lt)?;
         let mut params = Vec::new();
         while !self.at_generic_close() && !self.at_eof() {
@@ -349,13 +368,18 @@ impl Parser<'_, '_> {
             }
             let id = self.new_id();
             let name = self.parse_ident()?;
+            let mut bounds = Vec::new();
             if self.at(TokenKind::Colon) {
-                let span = self.peek().span;
-                return Err(self.error_unsupported(
-                    "trait bounds",
-                    span,
-                    "planned for Phase 6 (#116)",
-                ));
+                if !allow_bounds {
+                    let span = self.peek().span;
+                    return Err(self.error_unsupported(
+                        "bounds on the type parameters of a struct or enum",
+                        span,
+                        "write the bounds on the `impl` blocks and functions that need them",
+                    ));
+                }
+                self.bump();
+                bounds = self.parse_bounds()?;
             }
             if self.at(TokenKind::Eq) {
                 let span = self.peek().span;
@@ -365,7 +389,7 @@ impl Parser<'_, '_> {
                     "not planned for 0.1",
                 ));
             }
-            params.push(GenericParam { id, name });
+            params.push(GenericParam { id, name, bounds });
             if self.eat(TokenKind::Comma).is_none() {
                 break;
             }
@@ -374,54 +398,162 @@ impl Parser<'_, '_> {
         Ok(params)
     }
 
-    /// `impl Type { fn ... }` or `impl Drop for Type { fn ... }`, after any attributes and
-    /// visibility. `Drop` is the only trait that may be implemented before Phase 6
-    /// (decision 46); any other trait impl is not yet supported.
+    /// `A + B`: the traits of a bound, after the `:`. At least one.
+    fn parse_bounds(&mut self) -> PResult<Vec<sabiko_ast::TraitRef>> {
+        let mut bounds = Vec::new();
+        loop {
+            match self.peek_kind() {
+                TokenKind::Question => {
+                    let span = self.peek().span;
+                    return Err(self.error_unsupported(
+                        "`?Sized` bounds",
+                        span,
+                        "not planned for 0.1",
+                    ));
+                }
+                TokenKind::Lifetime => {
+                    let span = self.peek().span;
+                    return Err(self.error_unsupported(
+                        "lifetime bounds",
+                        span,
+                        "planned for Phase 9",
+                    ));
+                }
+                _ => {}
+            }
+            bounds.push(self.parse_trait_ref()?);
+            if self.eat(TokenKind::Plus).is_none() {
+                return Ok(bounds);
+            }
+        }
+    }
+
+    /// A trait's path, as in a type (`Show`, `Into<i32>`).
+    fn parse_trait_ref(&mut self) -> PResult<sabiko_ast::TraitRef> {
+        let id = self.new_id();
+        let ty = self.parse_type()?;
+        if let TypeKind::Path(path) = ty.kind {
+            return Ok(sabiko_ast::TraitRef { id, path });
+        }
+        let d = Diagnostic::error(
+            ErrorCode::UNEXPECTED_TOKEN,
+            "expected a trait, found a type",
+        )
+        .with_label(ty.span, "not a trait");
+        Err(self.emit(d))
+    }
+
+    /// `where T: A + B, U: C` before a body or an `impl` block's `{`; empty without
+    /// `where`.
+    fn parse_where_clause(&mut self) -> PResult<Vec<sabiko_ast::WherePredicate>> {
+        let mut preds = Vec::new();
+        if self.eat(TokenKind::Where).is_none() {
+            return Ok(preds);
+        }
+        while !matches!(
+            self.peek_kind(),
+            TokenKind::LBrace | TokenKind::Semi | TokenKind::Eof
+        ) {
+            if self.at(TokenKind::Lifetime) {
+                let span = self.peek().span;
+                return Err(self.error_unsupported("lifetime bounds", span, "planned for Phase 9"));
+            }
+            let start = self.peek().span;
+            let ty = self.parse_type()?;
+            self.expect(TokenKind::Colon)?;
+            let bounds = self.parse_bounds()?;
+            preds.push(sabiko_ast::WherePredicate {
+                ty,
+                bounds,
+                span: self.span_from(start),
+            });
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        Ok(preds)
+    }
+
+    /// `impl<T> Type { fn ... }` or `impl<T> Trait for Type where .. { fn ... }`, after any
+    /// attributes and visibility.
     fn parse_impl(&mut self) -> PResult<ImplDecl> {
         self.expect(TokenKind::Impl)?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params()?
+            self.parse_generic_params(true)?
         } else {
             Vec::new()
         };
+        let trait_start = self.peek().span;
+        let trait_id = self.new_id();
         let mut self_ty = self.parse_type()?;
         let mut trait_ref = None;
         if self.at(TokenKind::For) {
-            let drop_trait = match &self_ty.kind {
-                TypeKind::Path(path) if path.is_single() && path.segments[0].name == "Drop" => {
-                    Some(path.segments[0].clone())
-                }
-                _ => None,
-            };
-            let Some(name) = drop_trait else {
-                let span = self.peek().span;
-                return Err(self.error_unsupported(
-                    "trait implementations other than `impl Drop`",
-                    span,
-                    "planned for Phase 6",
-                ));
+            let TypeKind::Path(path) = self_ty.kind else {
+                let d = Diagnostic::error(
+                    ErrorCode::UNEXPECTED_TOKEN,
+                    "expected a trait, found a type",
+                )
+                .with_label(self.span_from(trait_start), "not a trait");
+                return Err(self.emit(d));
             };
             self.bump();
-            trait_ref = Some(name);
+            trait_ref = Some(sabiko_ast::TraitRef { id: trait_id, path });
             self_ty = self.parse_type()?;
         }
-        if self.at(TokenKind::Where) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("`where` clauses", span, "planned for Phase 6"));
-        }
+        let where_clause = self.parse_where_clause()?;
+        let items = self.parse_members(Members::Impl)?;
+        Ok(ImplDecl {
+            generics,
+            trait_ref,
+            self_ty,
+            where_clause,
+            items,
+        })
+    }
+
+    /// `{ members }` of an `impl` block or a trait.
+    fn parse_members(&mut self, members: Members) -> PResult<Vec<Item>> {
         self.expect(TokenKind::LBrace)?;
         let mut items = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at_eof() {
-            match self.parse_item_in(true) {
+            match self.parse_item_in(members) {
                 Ok(item) => items.push(item),
                 Err(_) => self.recover_to_impl_member(),
             }
         }
         self.expect(TokenKind::RBrace)?;
-        Ok(ImplDecl {
-            generics,
-            trait_ref,
-            self_ty,
+        Ok(items)
+    }
+
+    /// `trait Name: Super { members }`, after any attributes and visibility.
+    fn parse_trait(&mut self) -> PResult<sabiko_ast::TraitDecl> {
+        self.expect(TokenKind::Trait)?;
+        let name = self.parse_ident()?;
+        if self.at(TokenKind::Lt) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported(
+                "generic traits",
+                span,
+                "planned for Phase 6 (#117)",
+            ));
+        }
+        let supertraits = if self.eat(TokenKind::Colon).is_some() {
+            self.parse_bounds()?
+        } else {
+            Vec::new()
+        };
+        if self.at(TokenKind::Where) {
+            let span = self.peek().span;
+            return Err(self.error_unsupported(
+                "`where` clauses on traits",
+                span,
+                "write supertraits after `:`",
+            ));
+        }
+        let items = self.parse_members(Members::Trait)?;
+        Ok(sabiko_ast::TraitDecl {
+            name,
+            supertraits,
             items,
         })
     }
@@ -497,11 +629,12 @@ impl Parser<'_, '_> {
         }))
     }
 
-    fn parse_fn(&mut self, in_impl: bool) -> PResult<FnDecl> {
+    fn parse_fn(&mut self, members: Members) -> PResult<FnDecl> {
+        let in_impl = members != Members::None;
         self.expect(TokenKind::Fn)?;
         let name = self.parse_ident()?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params()?
+            self.parse_generic_params(true)?
         } else {
             Vec::new()
         };
@@ -526,17 +659,30 @@ impl Parser<'_, '_> {
         } else {
             None
         };
-        if self.at(TokenKind::Where) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported("`where` clauses", span, "planned for Phase 6"));
-        }
+        let where_clause = self.parse_where_clause()?;
         if self.at(TokenKind::Semi) {
             let span = self.peek().span;
-            return Err(self.error_unsupported(
-                "functions without a body",
-                span,
-                "planned for Phase 6 (traits) and Phase 8 (extern)",
-            ));
+            if members == Members::Trait {
+                self.bump();
+                return Ok(FnDecl {
+                    name,
+                    generics,
+                    self_param,
+                    params,
+                    ret,
+                    where_clause,
+                    body: None,
+                });
+            }
+            let what = if in_impl {
+                "associated function in `impl` without body"
+            } else {
+                "free function without a body"
+            };
+            let d = Diagnostic::error(ErrorCode::UNEXPECTED_TOKEN, what)
+                .with_label(span, "a function needs a body: `{ .. }`")
+                .with_note("only the required methods of a trait have no body; `extern` functions are planned for Phase 8");
+            return Err(self.emit(d));
         }
         let body = self.parse_block()?;
         Ok(FnDecl {
@@ -545,7 +691,8 @@ impl Parser<'_, '_> {
             self_param,
             params,
             ret,
-            body,
+            where_clause,
+            body: Some(body),
         })
     }
 
@@ -578,7 +725,7 @@ impl Parser<'_, '_> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params()?
+            self.parse_generic_params(false)?
         } else {
             Vec::new()
         };
@@ -655,7 +802,7 @@ impl Parser<'_, '_> {
         self.expect(TokenKind::Enum)?;
         let name = self.parse_ident()?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params()?
+            self.parse_generic_params(false)?
         } else {
             Vec::new()
         };

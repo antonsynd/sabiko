@@ -85,7 +85,11 @@ impl Dumper {
                         d.line("Ret");
                         d.nested(|d| d.ty(ret));
                     }
-                    d.block(&f.body);
+                    d.where_clause(&f.where_clause);
+                    match &f.body {
+                        Some(body) => d.block(body),
+                        None => d.line("NoBody"),
+                    }
                 });
             }
             ItemKind::Struct(s) => {
@@ -156,14 +160,25 @@ impl Dumper {
             }
             ItemKind::Impl(imp) => {
                 match &imp.trait_ref {
-                    Some(t) => self.line(&format!("{vis}Impl {} for", t.name)),
+                    Some(t) => self.line(&format!("{vis}Impl {} for", path_text(&t.path, ""))),
                     None => self.line(&format!("{vis}Impl")),
                 }
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
                     d.generic_params(&imp.generics);
                     d.ty(&imp.self_ty);
+                    d.where_clause(&imp.where_clause);
                     for member in &imp.items {
+                        d.item(member);
+                    }
+                });
+            }
+            ItemKind::Trait(t) => {
+                self.line(&format!("{vis}Trait {}", t.name.name));
+                self.nested(|d| {
+                    d.meta(&item.attrs, &item.docs);
+                    d.bounds("Supertraits", &t.supertraits);
+                    for member in &t.items {
                         d.item(member);
                     }
                 });
@@ -174,6 +189,25 @@ impl Dumper {
     fn generic_params(&mut self, params: &[GenericParam]) {
         for g in params {
             self.line(&format!("GenericParam {}", g.name.name));
+            self.nested(|d| d.bounds("Bounds", &g.bounds));
+        }
+    }
+
+    fn bounds(&mut self, what: &str, bounds: &[TraitRef]) {
+        if bounds.is_empty() {
+            return;
+        }
+        let paths: Vec<String> = bounds.iter().map(|b| path_text(&b.path, "")).collect();
+        self.line(&format!("{what} {}", paths.join(" + ")));
+    }
+
+    fn where_clause(&mut self, preds: &[WherePredicate]) {
+        for p in preds {
+            self.line("Where");
+            self.nested(|d| {
+                d.ty(&p.ty);
+                d.bounds("Bounds", &p.bounds);
+            });
         }
     }
 
@@ -558,7 +592,7 @@ pub(crate) fn path_str(p: &Path) -> String {
 
 /// The path with `sep` before each generic argument list: `"::"` in expressions and
 /// patterns (`Id::<i32>`), `""` in types (`Pair<i32, bool>`).
-pub(crate) fn path_text(p: &Path, sep: &str) -> String {
+pub fn path_text(p: &Path, sep: &str) -> String {
     let mut s = String::new();
     for (i, seg) in p.segments.iter().enumerate() {
         if i > 0 {

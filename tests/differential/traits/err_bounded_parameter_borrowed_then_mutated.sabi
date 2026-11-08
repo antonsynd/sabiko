@@ -1,0 +1,11 @@
+// Through a bound, a method's returned reference still borrows the argument.
+trait Cell {
+    fn Get(&self) -> &i32;
+    fn Set(&mut self, v: i32);
+}
+
+fn Bump<T: Cell>(t: &mut T) -> i32 {
+    let r = t.Get();
+    t.Set(*r + 1);
+    *r
+}

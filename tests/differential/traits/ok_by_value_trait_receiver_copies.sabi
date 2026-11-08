@@ -1,0 +1,17 @@
+// A `Copy` receiver taken by value is copied, so it can be used again.
+trait Consume {
+    fn Consume(self) -> i32;
+}
+
+impl Consume for i32 {
+    fn Consume(self) -> i32 {
+        self + 1
+    }
+}
+
+fn Main() {
+    let t = 1;
+    let a = t.Consume();
+    let b = t.Consume();
+    PrintLine(a + b);
+}

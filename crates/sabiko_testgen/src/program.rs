@@ -303,6 +303,9 @@ pub struct Program {
     /// Whether the program has the generic helpers [`GENERIC_HELPERS`] (#114), which
     /// bodies wrap expressions in.
     pub generics: bool,
+    /// Whether the program has the trait helpers [`TRAIT_HELPERS`] (#116), which bodies
+    /// wrap expressions in.
+    pub traits: bool,
 }
 
 /// Generic functions, a generic enum and a generic struct (#114, #115) that the bodies of
@@ -318,6 +321,21 @@ fn GenFirst<T>(x: &T) -> &T { x }\n\
 enum GenOpt<T> { No, Yes(T) }\n\
 struct GenBox<T> { Value: T }\n\
 fn GenOr<T>(o: GenOpt<T>, d: T) -> T { match o { GenOpt::Yes(v) => v, GenOpt::No => d } }\n";
+
+/// Traits, implementations and bounded generic functions (#116) that the bodies of a
+/// program with [`Program::traits`] wrap expressions in. Each is transparent to the scope
+/// model: `GenKeep` is implemented for every type, `(e).Keep()`, `GenKeep::Keep(e)` and
+/// `GenKept(e)` are `e`, and `(r).KeepRef()` (a provided method) returns the shared
+/// reference `r`, with its loans; `GenSign` is implemented for `i32` and `bool`, and
+/// `(e).Sign()` and `GenSigns(a, b)` evaluate their values and return an `i32` in
+/// `-2..=2`. One line each, at column 0, so no statement is ever inserted into them.
+pub const TRAIT_HELPERS: &str = "trait GenKeep { fn Keep(self) -> Self; fn KeepRef(&self) -> &Self { self } }\n\
+impl<T> GenKeep for T { fn Keep(self) -> Self { self } }\n\
+fn GenKept<T: GenKeep>(x: T) -> T { x.Keep() }\n\
+trait GenSign { fn Sign(&self) -> i32; fn Twice(&self) -> i32 { self.Sign() * 2 } }\n\
+impl GenSign for i32 { fn Sign(&self) -> i32 { if *self < 0 { -1 } else if *self > 0 { 1 } else { 0 } } }\n\
+impl GenSign for bool { fn Sign(&self) -> i32 { if *self { 1 } else { 0 } } fn Twice(&self) -> i32 { -self.Sign() } }\n\
+fn GenSigns<T>(a: T, b: T) -> i32 where T: GenSign + GenKeep { a.Keep().Sign() + GenSign::Twice(&b) / 2 }\n";
 
 impl Program {
     pub fn is_copy(&self, ty: Ty) -> bool {
@@ -625,6 +643,10 @@ impl Program {
         }
         if self.generics {
             out.push_str(GENERIC_HELPERS);
+            out.push('\n');
+        }
+        if self.traits {
+            out.push_str(TRAIT_HELPERS);
             out.push('\n');
         }
         out
@@ -1539,6 +1561,7 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
         consts: Vec::new(),
         fns: Vec::new(),
         generics: false,
+        traits: false,
     };
     program.consts = gen_consts(rng, knobs);
     let count = rng.index(knobs.max_tuples / 2 + 1);
@@ -1570,6 +1593,7 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
         program.fns.push(sig);
     }
     program.generics = rng.chance(50);
+    program.traits = rng.chance(50);
     program
 }
 

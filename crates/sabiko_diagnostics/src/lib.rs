@@ -72,12 +72,16 @@ impl ErrorCode {
     pub const SELF_OUTSIDE_METHOD: Self = Self(213);
     /// `impl Drop` for something other than a struct of the file (rustc's E0120, E0117).
     pub const INVALID_DROP_TARGET: Self = Self(214);
-    /// A second `impl Drop` for the same struct (rustc's E0119).
-    pub const CONFLICTING_DROP_IMPLS: Self = Self(215);
-    /// An `impl Drop` without `fn drop` (rustc's E0046).
-    pub const MISSING_DROP_FN: Self = Self(216);
-    /// An item of an `impl Drop` other than `drop` (rustc's E0407).
-    pub const NOT_A_DROP_MEMBER: Self = Self(217);
+    /// Two implementations of one trait whose types overlap: a second `impl Drop` for the
+    /// same struct, `impl Show for i32` twice, `impl<T> Show for T` beside `impl Show for
+    /// i32` (rustc's E0119).
+    pub const CONFLICTING_IMPLS: Self = Self(215);
+    /// A trait impl without every required method of its trait, `impl Drop` without `fn
+    /// drop` (rustc's E0046).
+    pub const MISSING_TRAIT_ITEMS: Self = Self(216);
+    /// An item of a trait impl its trait does not declare, of an `impl Drop` other than
+    /// `drop` (rustc's E0407, E0438).
+    pub const NOT_A_TRAIT_MEMBER: Self = Self(217);
     /// A name bound in one alternative of an or-pattern but not in another (rustc's
     /// E0408).
     pub const OR_PATTERN_BINDING_MISSING: Self = Self(218);
@@ -120,11 +124,13 @@ impl ErrorCode {
     pub const UNKNOWN_METHOD: Self = Self(319);
     /// `e.Name` naming a method, not a field (rustc's E0615).
     pub const METHOD_AS_FIELD: Self = Self(320);
-    /// `drop` declared with another receiver or return type than `fn drop(&mut self)`
-    /// (rustc's E0053, E0186).
-    pub const DROP_SIGNATURE_MISMATCH: Self = Self(321);
-    /// `drop` declared with parameters besides `&mut self` (rustc's E0050).
-    pub const DROP_PARAM_COUNT: Self = Self(322);
+    /// A method of a trait impl with another receiver, parameter or return type than its
+    /// trait declares, `drop` other than `fn drop(&mut self)` (rustc's E0053, E0185,
+    /// E0186).
+    pub const IMPL_SIGNATURE_MISMATCH: Self = Self(321);
+    /// A method of a trait impl with another number of parameters than its trait declares,
+    /// `drop` with parameters besides `&mut self` (rustc's E0050).
+    pub const IMPL_PARAM_COUNT: Self = Self(322);
     /// `d.drop()` or `D::drop(&mut d)` (rustc's E0040).
     pub const EXPLICIT_DROP_CALL: Self = Self(323);
     /// `#[derive(Copy)]` on a type that implements `Drop` (rustc's E0184).
@@ -166,6 +172,18 @@ impl ErrorCode {
     pub const BINDING_MODIFIER_UNDER_REF: Self = Self(337);
     /// A struct's or enum's type parameter that no field uses (rustc's E0392).
     pub const UNUSED_TYPE_PARAMETER: Self = Self(340);
+    /// A type that does not implement a trait a bound requires: a generic argument, a
+    /// receiver, the type of a trait impl with a supertrait (rustc's E0277).
+    pub const UNSATISFIED_BOUND: Self = Self(341);
+    /// A method call or `Type::Name` path that more than one trait's method matches
+    /// (rustc's E0034).
+    pub const AMBIGUOUS_METHOD: Self = Self(342);
+    /// A method of a trait impl with another number of generic parameters than its trait
+    /// declares (rustc's E0049).
+    pub const IMPL_GENERIC_COUNT: Self = Self(343);
+    /// A method of a trait impl whose generic parameters have bounds its trait's do not
+    /// (rustc's E0276).
+    pub const IMPL_STRICTER_BOUNDS: Self = Self(344);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

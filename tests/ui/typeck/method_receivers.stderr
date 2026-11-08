@@ -12,7 +12,7 @@
    │                           ─┬─  
    │                            ╰─── method not found
    │ 
-   │ Note: only structs have methods (inherent `impl` blocks)
+   │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ───╯
 [E0319] Error: no method named `Swap` found for type `({integer}, {integer})`
    ╭─[ tests/ui/typeck/method_receivers.sabi:8:7 ]
@@ -21,7 +21,7 @@
    │       ──┬─  
    │         ╰─── method not found
    │ 
-   │ Note: only structs have methods (inherent `impl` blocks)
+   │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ───╯
 [E0319] Error: no method named `Len` found for `&str`
    ╭─[ tests/ui/typeck/method_receivers.sabi:9:12 ]

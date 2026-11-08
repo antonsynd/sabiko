@@ -1,0 +1,42 @@
+// A trait implemented for an enum names its variants through `Self`.
+trait Cycle {
+    fn Next(&self) -> Self;
+    fn Value(&self) -> i32;
+}
+
+#[derive(Clone, Copy)]
+enum Light {
+    Red,
+    Amber,
+    Green,
+}
+
+impl Cycle for Light {
+    fn Next(&self) -> Self {
+        match self {
+            Self::Red => Self::Green,
+            Self::Green => Self::Amber,
+            Self::Amber => Light::Red,
+        }
+    }
+    fn Value(&self) -> i32 {
+        *self as i32
+    }
+}
+
+fn Run<T: Cycle>(start: T, steps: i32) -> i32 {
+    let mut cur = start;
+    let mut total = 0;
+    let mut i = 0;
+    while i < steps {
+        total = total * 10 + cur.Value();
+        cur = cur.Next();
+        i += 1;
+    }
+    total
+}
+
+fn Main() {
+    PrintLine(Run(Light::Red, 5));
+    PrintLine(Light::Amber.Next().Value());
+}
