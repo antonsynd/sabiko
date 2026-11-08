@@ -26,6 +26,27 @@ pub fn is_printable(ty: &Ty) -> bool {
     }
 }
 
+/// How many references a `Print`/`PrintLine` argument of type `ty` is printed through:
+/// `Some(0)` for a printable value, `Some(n)` for `n` references to one (`&i32`, `&&str`,
+/// `&mut f64`: rustc's `impl<T: Display> Display for &T` and `&mut T`, #26), `None` when
+/// nothing printable is behind it. The argument is dereferenced that many times when the
+/// call is lowered.
+#[must_use]
+pub fn print_derefs(ty: &Ty) -> Option<usize> {
+    let mut ty = ty;
+    let mut n = 0;
+    loop {
+        if is_printable(ty) {
+            return Some(n);
+        }
+        let Ty::Ref(_, inner) = ty else {
+            return None;
+        };
+        ty = inner;
+        n += 1;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnSig {
     /// The parameter types, the receiver's (`P`, `&P` or `&mut P`) first for a method.

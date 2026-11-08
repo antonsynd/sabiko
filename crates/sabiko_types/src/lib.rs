@@ -17,7 +17,9 @@ pub mod usefulness;
 use std::collections::HashMap;
 
 pub use check::{rest_positions, BodyTypes, FieldAccess, MethodCallee, PatConst};
-pub use collect::{is_printable, AdtDef, FieldDef, FnSig, ItemTypes, VariantDef, VariantKind};
+pub use collect::{
+    is_printable, print_derefs, AdtDef, FieldDef, FnSig, ItemTypes, VariantDef, VariantKind,
+};
 pub use consts::ConstValue;
 pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};

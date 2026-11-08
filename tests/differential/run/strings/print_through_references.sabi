@@ -1,0 +1,30 @@
+// `Print`/`PrintLine` print what a reference points to, through any number of references
+// (rustc's `impl<T: Display> Display for &T` and `&mut T`, #26): literals, locals, fields,
+// elements, `&str`s, wide integers and floats.
+struct P { X: i32, Y: bool }
+
+fn Main() {
+    PrintLine(&5);
+    PrintLine(&&-6i64);
+    let x = 7u8;
+    PrintLine(&x);
+    let r = &x;
+    PrintLine(&r);
+    let mut f = 2.5f64;
+    PrintLine(&mut f);
+    let m = &mut f;
+    *m += 1.0;
+    PrintLine(&m);
+    let p = P { X: 9, Y: true };
+    Print(&p.X);
+    Print(' ');
+    PrintLine(&p.Y);
+    let s = "slice";
+    PrintLine(&s);
+    PrintLine(&&&s[1..3]);
+    let a = [true, false];
+    PrintLine(&a[1]);
+    PrintLine(&'c');
+    PrintLine(&170141183460469231731687303715884105727i128);
+    PrintLine(&&340282366920938463463374607431768211455u128);
+}

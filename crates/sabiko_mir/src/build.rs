@@ -805,6 +805,24 @@ impl<'a> Builder<'a> {
 
     // ----- helpers -----
 
+    /// A `Print`/`PrintLine` argument dereferenced down to the value it prints: `&x`,
+    /// `&&s` (rustc's `Display` for references, #26). The printed value is `Copy`.
+    fn printed_value(&mut self, mut op: Operand, span: Span) -> Operand {
+        let derefs = sabiko_types::print_derefs(&op.ty(&self.body)).unwrap_or(0);
+        for _ in 0..derefs {
+            let place = match op {
+                Operand::Copy(p) | Operand::Move(p) => p,
+                Operand::Constant(_) => {
+                    let temp = self.new_temp(op.ty(&self.body), span);
+                    self.assign(Place::local(temp), Rvalue::Use(op), span);
+                    Place::local(temp)
+                }
+            };
+            op = Operand::Copy(place.deref());
+        }
+        op
+    }
+
     fn ty(&self, expr: &Expr) -> &Ty {
         self.types.expr_ty(expr.id)
     }
@@ -1344,11 +1362,22 @@ impl<'a> Builder<'a> {
                     Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
                     _ => self.typeck.items.fn_sig(func).inputs.clone(),
                 };
+                let print = matches!(
+                    self.typeck.items.builtin(func),
+                    Some(Builtin::Print | Builtin::PrintLine)
+                );
                 self.in_operand_scope(Some(expr), span, |this| {
                     let args: Vec<Operand> = args
                         .iter()
                         .enumerate()
-                        .map(|(i, a)| this.coerced_operand(a, inputs.get(i), true))
+                        .map(|(i, a)| {
+                            let op = this.coerced_operand(a, inputs.get(i), true);
+                            if print {
+                                this.printed_value(op, a.span)
+                            } else {
+                                op
+                            }
+                        })
                         .collect();
                     this.call_into(dest, expr, func, args, span);
                 });

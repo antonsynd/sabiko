@@ -454,7 +454,7 @@ to right and `newobj` calls the tuple type's constructor (an eight-parameter `Va
 first builds its `Rest` the same way); every element is read before the tuple is stored,
 so `p = (p.1, p.0)` reads both elements first. Calls are `call`
 with the callee's full signature; `Print`/`PrintLine` select the runtime overload by the
-argument's type and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cannot return,
+argument's type (an argument behind references is dereferenced to its value first) and `Panic` calls `Sabiko.Runtime.Panic::Fail`; a call that cannot return,
 and `unreachable`, are followed by `call Sabiko.Runtime.Checks::Unreachable()`, `ldnull`,
 `throw`. `if` is `brfalse`, other `switchInt`s a `beq`
 chain; `return` loads the return local and `ret`.
@@ -636,6 +636,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   element without an expected type gets a fresh type that its uses decide, and `!` when
   none does: edition 2024's never-type fallback (decision 74; 2021 fell back to `()`), so
   `let v = match n { _ => return }; PrintLine(v);` is accepted (`!` prints, never runs).
+- `Print(x)` and `PrintLine(x)` take one argument of a printable type (integers, floats,
+  `bool`, `char`, `&str`) or a reference to one through any number of references (`&5`,
+  `&&s`, `&mut f`), printed as what it points to (rustc's `Display` for `&T` and `&mut T`,
+  #26); anything else is E0300.
 - Inference runs per function body and per constant initialiser, by unification; nothing
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of

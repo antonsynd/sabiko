@@ -19,7 +19,7 @@
    │               ┬  
    │               ╰── expected a printable value, found `({integer}, {integer})`
    │ 
-   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`, and references to them
 ───╯
 [E0300] Error: `Print` cannot print a value of type `()`
    ╭─[ tests/ui/typeck/tuple_operators.sabi:9:11 ]
@@ -28,7 +28,7 @@
    │           ─┬  
    │            ╰── expected a printable value, found `()`
    │ 
-   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`, and references to them
 ───╯
 [E0308] Error: non-primitive cast: `(i32, i32)` as `i32`
     ╭─[ tests/ui/typeck/tuple_operators.sabi:10:13 ]

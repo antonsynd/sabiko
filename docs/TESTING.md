@@ -170,7 +170,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   retarget adds the new target's loan to the retargeted local's borrows and kills the
   `&mut` doing it. Elision counts lifetimes (`Ty::lifetimes`), so only a `&self` method
   with a `&&T` parameter returns a reference (rustc's E0106 otherwise); nothing borrows a
-  literal directly (no `'static` promotion, #26). About 45% of borrow-clean programs hold
+  literal directly (no `'static` promotion, #106). About 45% of borrow-clean programs hold
   a double reference (906 of 2000 at base 5000000: 383 retarget, 70 write through `&mut
   &mut T`); `programs_use_references_to_references` pins minimum counts for 11 of these
   constructs. Avoided with TODOs: three levels, `&mut &T` parameters, a retarget in a

@@ -854,7 +854,7 @@ through `m`'s shared deref lived (`let d = &*m; let a = &mut m;`, accepted by ru
 because a loan behind a shared reference does not conflict with `m` itself; #56, decision
 69), and a guard fake-borrowed a scrutinee no pattern reads (`match p { _ if g => .., _
 => .. }` while `p` is mutably borrowed; older than #11; #57, decision 65). Known gaps (#58 unless noted): deref
-coercion (`&&i32` to `&i32`, E0300), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
+coercion (`&&i32` to `&i32`, E0300), `'static` promotion of `&7` retargeted through `&mut &i32` (#106), explicit lifetimes on double
 references (Phase 9), and arrays and slices of references (since #43, decision 77). Mutation testing of the
 changed codegen lines (docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
 the 4 survivors are equivalent, and the killing tests found no bug.
@@ -1121,6 +1121,14 @@ else { .. };`, which Sabiko accepted, is E0300 like rustc's E0308. A `while let`
 diverging scrutinee had no lowering (it was never type-correct before) and now leaves at
 the scrutinee, as `if let` does. New: `run/control/diverging_scrutinee_patterns` and the
 UI test `typeck/never_scrutinee_ref_binding`.
+
+The last verdict divergences of #26: `Print`/`PrintLine` now take references to printable
+values, through any number of references (`PrintLine(&x)`, `&&s`, `&mut f`), as rustc's
+`Display` for `&T` and `&mut T` does; the argument is dereferenced when the call is
+lowered, so validation and codegen see the value as before. Constant promotion (`&4` as a
+`'static` reference) needs static storage and moved to its own issue, #106. The `!`
+fallback rows went to #85 and #87 earlier, and `(&return 1).X`'s message already names
+`&!`. New: `run/strings/print_through_references`.
 
 ### Phase 5: Data types
 

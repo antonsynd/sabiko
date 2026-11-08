@@ -5,5 +5,5 @@
    │               ┬  
    │               ╰── expected a printable value, found `P`
    │ 
-   │ Note: printable types are integers, floats, `bool`, `char` and `&str`
+   │ Note: printable types are integers, floats, `bool`, `char` and `&str`, and references to them
 ───╯
