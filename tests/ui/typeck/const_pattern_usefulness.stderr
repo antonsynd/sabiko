@@ -1,23 +1,48 @@
 [E0330] Warning: unreachable pattern
-    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:21:9 ]
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:23:9 ]
     │
- 21 │         (true, false) => 4, //~ WARN E0330 unreachable pattern
+ 23 │         (true, false) => 4, //~ WARN E0330 unreachable pattern
     │         ──────┬──────  
     │               ╰──────── no value can reach this
 ────╯
 [E0328] Error: non-exhaustive patterns: `(true, true)` not covered
-    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:26:11 ]
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:28:11 ]
     │
- 26 │     match t { //~ ERROR E0328 non-exhaustive patterns: `(true, true)` not covered
+ 28 │     match t { //~ ERROR E0328 non-exhaustive patterns: `(true, true)` not covered
     │           ┬  
     │           ╰── pattern `(true, true)` not covered
     │ 
     │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
 ────╯
 [E0330] Warning: unreachable pattern
-    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:35:9 ]
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:37:9 ]
     │
- 35 │         1.5 => 2, //~ WARN E0330 unreachable pattern
+ 37 │         1.5 => 2, //~ WARN E0330 unreachable pattern
     │         ─┬─  
     │          ╰─── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:51:9 ]
+    │
+ 51 │         5 => 2, //~ WARN E0330 unreachable pattern
+    │         ┬  
+    │         ╰── no value can reach this
+────╯
+[E0328] Error: non-exhaustive patterns: `i32::MIN..=4_i32` and `6_i32..=i32::MAX` not covered
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:58:11 ]
+    │
+ 58 │     match x { //~ ERROR E0328 non-exhaustive patterns: `i32::MIN..=4_i32` and `6_i32..=i32::MAX` not covered
+    │           ┬  
+    │           ╰── patterns `i32::MIN..=4_i32` and `6_i32..=i32::MAX` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `i32::MIN..=2147483646_i32` not covered
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:64:11 ]
+    │
+ 64 │     match x { //~ ERROR E0328 non-exhaustive patterns: `i32::MIN..=2147483646_i32` not covered
+    │           ┬  
+    │           ╰── pattern `i32::MIN..=2147483646_i32` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
 ────╯

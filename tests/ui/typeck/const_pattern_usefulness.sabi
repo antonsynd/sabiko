@@ -1,7 +1,9 @@
 // Constants in patterns as the usefulness check sees them (#48, #50): a constant covers
 // only its value, so a wildcard after it is still reachable; a tuple constant is a tuple
 // pattern of its elements' values; a float constant equals a float literal of the same
-// value.
+// value. So does a path naming an associated or primitive constant (`S::C`, `i32::MAX`),
+// which was taken for an unresolved path and covered every value, so a `match` on it alone
+// passed as exhaustive and reached `unreachable` at run time.
 const C: i32 = 5;
 const P: (bool, bool) = (true, false);
 const F: f64 = 1.5;
@@ -34,6 +36,33 @@ fn Floats(x: f64) -> i32 {
         F => 1,
         1.5 => 2, //~ WARN E0330 unreachable pattern
         _ => 3,
+    }
+}
+
+struct S { }
+
+impl S {
+    const K: i32 = 5;
+}
+
+fn Paths(x: i32) -> i32 {
+    match x {
+        S::K => 1,
+        5 => 2, //~ WARN E0330 unreachable pattern
+        i32::MAX => 3,
+        _ => 4,
+    }
+}
+
+fn AssociatedMissing(x: i32) -> i32 {
+    match x { //~ ERROR E0328 non-exhaustive patterns: `i32::MIN..=4_i32` and `6_i32..=i32::MAX` not covered
+        S::K => 1,
+    }
+}
+
+fn PrimitiveMissing(x: i32) -> i32 {
+    match x { //~ ERROR E0328 non-exhaustive patterns: `i32::MIN..=2147483646_i32` not covered
+        i32::MAX => 1,
     }
 }
 

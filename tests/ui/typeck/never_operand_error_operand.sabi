@@ -1,0 +1,11 @@
+// An operation with a `!` operand whose other operand already failed to type-check is
+// reported once, for that operand, not again as an operation on `!` (`cannot add
+// `{error}` to `!``), as rustc does.
+struct S { }
+
+fn Error() -> i32 {
+    let x = return 1;
+    x + S::Missing //~ ERROR E0212 no associated function or constant named `Missing` found for struct `S`
+}
+
+fn Main() {}

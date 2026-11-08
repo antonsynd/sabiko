@@ -1,8 +1,9 @@
-// Constant evaluation as MIR prints it: `bool` operators, tuple constants of one and two
+// Constant evaluation as MIR prints it: `bool` and integer `|` (with overlapping bits), tuple constants of one and two
 // elements, associated constants of `char` and the float types, and a left shift of a
 // negative value (sign extension back from the unsigned domain).
 const ORS: (bool, bool, bool) = (true | true, true || false, false | false);
 const XOR: bool = true ^ true;
+const BITS: (i32, u8) = (5 | 3, 6 | 3);
 const ONE: (i32,) = (7,);
 const TWO: (i32, bool) = (2, false);
 const SECOND: bool = TWO.1;
@@ -14,6 +15,7 @@ const SHIFTED: i8 = -1 << 3;
 fn Main() {
     let ors = ORS;
     let xor = XOR;
+    let bits = BITS;
     let one = ONE;
     let two = TWO;
     let second = SECOND;

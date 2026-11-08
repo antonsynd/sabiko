@@ -7,13 +7,14 @@ fn Main() {
     let mut _0: ();
     let _1: (bool, bool, bool);          // ors
     let _2: bool;                        // xor
-    let _3: (i32,);                      // one
-    let _4: (i32, bool);                 // two
-    let _5: bool;                        // second
-    let _6: char;                        // c
-    let _7: f64;                         // e
-    let _8: f32;                         // b
-    let _9: i8;                          // s
+    let _3: (i32, u8);                   // bits
+    let _4: (i32,);                      // one
+    let _5: (i32, bool);                 // two
+    let _6: bool;                        // second
+    let _7: char;                        // c
+    let _8: f64;                         // e
+    let _9: f32;                         // b
+    let _10: i8;                         // s
 
     bb0: {
         StorageLive(_1);
@@ -21,20 +22,23 @@ fn Main() {
         StorageLive(_2);
         _2 = const false;
         StorageLive(_3);
-        _3 = const (7_i32,);
+        _3 = const (7_i32, 7_u8);
         StorageLive(_4);
-        _4 = const (2_i32, false);
+        _4 = const (7_i32,);
         StorageLive(_5);
-        _5 = const false;
+        _5 = const (2_i32, false);
         StorageLive(_6);
-        _6 = const '�';
+        _6 = const false;
         StorageLive(_7);
-        _7 = const 2.220446049250313e-16_f64;
+        _7 = const '�';
         StorageLive(_8);
-        _8 = const 3.4028234663852886e38_f32;
+        _8 = const 2.220446049250313e-16_f64;
         StorageLive(_9);
-        _9 = const -8_i8;
+        _9 = const 3.4028234663852886e38_f32;
+        StorageLive(_10);
+        _10 = const -8_i8;
         _0 = const ();
+        StorageDead(_10);
         StorageDead(_9);
         StorageDead(_8);
         StorageDead(_7);

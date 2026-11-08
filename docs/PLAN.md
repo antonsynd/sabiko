@@ -1034,12 +1034,16 @@ and parameters; #58: three-level references). The fuzzers' token soup has `enum`
 Mutation scores re-measured by nightly run 23 (on `799a45b`): `sabiko_borrowck` 95.0%
 (342 + 4 / 364, threshold 93), `sabiko_codegen` 95.8% (643 + 4 / 675, threshold 95) and
 `sabiko_types` 97.4% (1173 + 1 / 1205), below its 98: 14 more survivors than run 20, in
-code added since (associated and tuple constants, `!` operands). New tests kill 15 of the
-31, which gives 1189 of 1205, 98.7%, and one of them found a bug: the never-type fallback
-(#85) bound a diverging tuple element to `!` after an integer literal had decided it
-(`let mut u = (return 1, 2); u.0 = 5;` built MIR with a `5` of type `!`); it now leaves
-literal variables to their defaults; the 16 left are equivalent or older pattern-checking
-survivors (docs/TESTING.md, Mutation testing). The run's fuzz failure was #93's crash,
+code added since (associated and tuple constants, `!` operands). New tests kill 10 of the
+31, which gives 1184 of 1205, 98.3%; the 21 left are equivalent or older pattern-checking
+survivors (docs/TESTING.md, Mutation testing). Writing them found two bugs. A path
+pattern naming an associated or primitive constant (`S::K`, `i32::MAX`, #48) was lowered
+for the exhaustiveness check as a wildcard, so `match x { S::K => 1 }` passed as
+exhaustive and reached the `unreachable` terminator at run time (a panic, not undefined
+behaviour); it is E0328 with rustc's witnesses now. And the never-type fallback (#85)
+bound a diverging tuple element to `!` after an integer literal had decided it (`let mut
+u = (return 1, 2); u.0 = 5;` built MIR with a `5` of type `!`); it now leaves literal
+variables to their defaults. The run's fuzz failure was #93's crash,
 fixed before this status. Open items carried past the phase: #45 (slicing patterns, `for`,
 slice methods), #49 (reference and half-open range patterns), #51 (two benchmark gaps),
 #58 (deref coercion), #92, #94, #95, and let chains (#86).
