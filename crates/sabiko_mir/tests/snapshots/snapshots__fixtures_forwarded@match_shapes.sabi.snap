@@ -104,9 +104,9 @@ fn Unexpected(_1: bool) {
     let mut _0: ();
     let _2: u8;                          // y
     let mut _3: bool;
-    let mut _4: ((), u8);
+    let mut _4: (!, u8);
     let mut _5: !;
-    let mut _6: ((), u8);
+    let mut _6: (!, u8);
     let mut _7: !;
 
     bb0: {

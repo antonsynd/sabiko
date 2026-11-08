@@ -809,10 +809,12 @@ impl Parser<'_, '_> {
     fn let_chain_error(&mut self, span: Span) -> crate::ParseError {
         let d = Diagnostic::error(
             ErrorCode::UNEXPECTED_TOKEN,
-            "let chains are only allowed in Rust 2024 or later",
+            "let chains are not supported yet",
         )
         .with_label(span, "a `let` in a condition must be the whole condition")
-        .with_note("Sabiko follows edition 2021; nest an `if` inside the `if let` instead");
+        .with_note(
+            "let chains are not supported yet (#86); nest an `if` inside the `if let` instead",
+        );
         self.emit(d)
     }
 

@@ -359,7 +359,7 @@ pub fn run_rust_with(
     let out = Command::new(rustc)
         .args([
             "--edition",
-            "2021",
+            "2024",
             "--crate-type",
             "bin",
             "-A",
@@ -694,7 +694,7 @@ pub fn rustc_verdict(
     let out = Command::new(rustc)
         .args([
             "--edition",
-            "2021",
+            "2024",
             "--crate-type",
             "lib",
             "--emit=metadata",
@@ -733,7 +733,7 @@ pub fn rustc_const_lints(
     let out = Command::new(rustc)
         .args([
             "--edition",
-            "2021",
+            "2024",
             "--crate-type",
             "bin",
             "--emit=mir",

@@ -494,7 +494,7 @@ are ordinary field projections in MIR, so moves, partial moves, re-initialisatio
 disjoint loans and mutability work on them as on struct fields; tuples of references carry
 their loans (`RegionTy::Tuple`) and count for elision. Default binding modes are
 implemented for tuple patterns (`let (a, b) = &mut t;` binds `&mut` elements; `mut x`
-there binds by value, as in Rust 2021), and temporary lifetime extension reaches through
+there binds by value, as in Rust 2021; E0337 since the move to edition 2024, decision 74), and temporary lifetime extension reaches through
 tuple elements of a `let` initialiser. All 31 staged compile-time and 16 of the 17 staged
 run-time programs agree with rustc; the generator produces tuples (types, literals, element
 reads and writes, destructuring by value and by reference, parameters, returns, fields)
@@ -561,8 +561,8 @@ is accepted for the structs of the file, the only trait impl so far, with rustc'
 E0321/E0322 signature, E0323 explicit call, E0324 `Copy` with a destructor, E0418 move out
 of a `Drop` type, rustc's E0509, now in the differential harness's borrow family). MIR
 building emits a `Drop` at every scope end, early exit and statement end (edition 2021
-temporary scopes, including condition temporaries, extended `let r = &temp` and tail
-temporaries after the block's locals) and nests cleanup scopes over the blocks where a
+temporary scopes then, edition 2024's since decision 74: condition temporaries, extended
+`let r = &temp`, tail temporaries before the block's locals) and nests cleanup scopes over the blocks where a
 panic must drop something. The borrow checker sees those drops (a drop invalidates loans
 but is not a use of the references a value holds). Drop elaboration, a new MIR pass after
 borrow checking, makes them exact from initialisation dataflow: drop flags where a value
@@ -949,6 +949,15 @@ earlier (documented in decision 73). Found on the way: `(_, _) = (x, [])`, which
 (E0282, the type of `[]` is not inferred; generator seed 1002197), passed Sabiko's type
 check and hit an internal error in MIR building; it is now E0313 on the `[]`, and the
 generator writes a value assigned to `_` with a type of its own (#78).
+
+Edition 2024 (#81, decision 74): the language and every rustc oracle moved from edition
+2021 to 2024. Tail-expression temporaries are dropped before the block's locals (#82),
+`if let` scrutinee temporaries before `else` (#83), `mut`/`ref` bindings under a
+by-reference default binding mode are E0337 (#84), and the never type falls back to `!`
+(#85). Two differential programs that tested 2021's by-value `mut` binding were removed
+(now UI tests), and new ones pin 2024's drop order and the tail temporary that can no
+longer escape its block. Open: let chains (#86), `1 == return true` (#87, both editions),
+temporary lifetime extension through a block's tail (#88, both editions).
 
 ### Phase 5: Data types
 

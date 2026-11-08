@@ -17,11 +17,13 @@
 //! into existence, `StorageDead` at the end of its scope (the enclosing block for `let`
 //! bindings, the enclosing statement for temporaries) in reverse declaration order, and
 //! on every early exit (`break`, `continue`, `return`) for all scopes being left.
-//! Temporaries go to rustc's temporary scope (edition 2021): the innermost statement, `if`
-//! or `while` condition, operand of `&&`/`||`, body of an `if`, `else`, `while` or `loop`,
-//! or the function body. A block is not one, so the temporaries of a block's tail
-//! expression outlive the block's locals. The exception is an operand with drop glue: it
-//! belongs to the call, aggregate or assignment that consumes it (decision 71).
+//! Temporaries go to rustc's temporary scope (edition 2024, decision 74): the innermost
+//! statement, `if` or `while` condition, `if let` scrutinee (live through `then`, dropped
+//! before `else`), operand of `&&`/`||`, body of an `if`, `else`, `while` or `loop`, or
+//! tail expression of a block, whose temporaries are dropped before the block's locals.
+//! The exception is an operand with drop glue: it belongs to the call, aggregate or
+//! assignment that consumes it (decision 71), which for a tail expression is the tail's
+//! own scope.
 //!
 //! Drops (decision 55): a local whose type has drop glue gets a `Drop` terminator right
 //! before its `StorageDead`, on every path out of its scope, whether or not it still holds
@@ -120,6 +122,10 @@ struct Builder<'a> {
     /// Index into `scopes` of the scope of the call, aggregate or assignment whose operands
     /// are being lowered ([`Self::in_operand_scope`]), while it is the innermost one.
     operand_scope: Option<usize>,
+    /// The temporary scope of a block's tail expression and the expression (its parentheses
+    /// stripped): rustc's scope of that expression itself, so a call, aggregate or
+    /// assignment that is the tail puts its operands there (see [`Self::in_tail_scope`]).
+    tail_scope: Option<(usize, NodeId)>,
     /// Locals with drop glue declared but not written yet, whose cleanup scope opens after
     /// their first write.
     pending: HashSet<Local>,
@@ -246,6 +252,7 @@ impl<'a> Builder<'a> {
             scopes: Vec::new(),
             temp_scope: 0,
             operand_scope: None,
+            tail_scope: None,
             pending: HashSet::new(),
             chain: Vec::new(),
             extend_at: None,
@@ -290,8 +297,8 @@ impl<'a> Builder<'a> {
                 self.close_temp_scope(saved, param_span(f));
             }
         }
-        // The temporary scope of the body's tail expression, whose temporaries are dropped
-        // after the body's locals and before the arguments (edition 2021).
+        // The body's own temporary scope, around its block (whose tail has a scope of its
+        // own inside it).
         self.push_temp_scope();
         self.lower_block_into(&Place::local(Local::RETURN), &f.body);
         while !self.scopes.is_empty() {
@@ -690,13 +697,41 @@ impl<'a> Builder<'a> {
     /// the statement's temporaries made since (`F(D { .. }, G(&D { .. }))`) and before the
     /// locals of a block whose tail it is part of (#54). The consumer moves it, so its drop
     /// when the scope ends finds it uninitialised; drop elaboration removes that.
-    fn in_operand_scope<T>(&mut self, span: Span, f: impl FnOnce(&mut Self) -> T) -> T {
+    ///
+    /// When `expr` is a block's tail, its scope is the tail's temporary scope, already open:
+    /// the operands go there, among the tail's other temporaries.
+    fn in_operand_scope<T>(
+        &mut self,
+        expr: Option<&Expr>,
+        span: Span,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let innermost = self.scopes.len() - 1;
+        if expr.is_some_and(|e| self.tail_scope == Some((innermost, e.id))) {
+            let saved = self.operand_scope.replace(innermost);
+            let out = f(self);
+            self.operand_scope = saved;
+            return out;
+        }
         self.push_scope();
         let saved = self.operand_scope.replace(self.scopes.len() - 1);
         let out = f(self);
         self.operand_scope = saved;
         self.pop_scope(span);
         out
+    }
+
+    /// Lowers `f`, which lowers `tail`, the tail expression of a block, in a temporary
+    /// scope of its own (edition 2024): its temporaries are dropped once its value is
+    /// written, before the block's locals. In rustc the scope is `tail`'s own, which is also
+    /// the scope of a call, aggregate or assignment `tail` is.
+    fn in_tail_scope(&mut self, tail: &Expr, f: impl FnOnce(&mut Self)) {
+        let saved = self.push_temp_scope();
+        let tail_scope = (self.scopes.len() - 1, strip_parens(tail).id);
+        let saved_tail = self.tail_scope.replace(tail_scope);
+        f(self);
+        self.tail_scope = saved_tail;
+        self.close_temp_scope(saved, tail.span);
     }
 
     /// Lowers `f` in a temporary scope of its own: an `if`, `else`, `while` or `loop` body,
@@ -1151,7 +1186,7 @@ impl<'a> Builder<'a> {
         }
         // An aggregate's operands are in its scope; for any other expression the scope is
         // empty and leaves nothing behind.
-        let done = self.in_operand_scope(span, |this| {
+        let done = self.in_operand_scope(Some(expr), span, |this| {
             let Some(rvalue) = this.aggregate_rvalue(expr) else {
                 return false;
             };
@@ -1261,7 +1296,7 @@ impl<'a> Builder<'a> {
                     Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
                     _ => self.typeck.items.fn_sig(func).inputs.clone(),
                 };
-                self.in_operand_scope(span, |this| {
+                self.in_operand_scope(Some(expr), span, |this| {
                     let args: Vec<Operand> = args
                         .iter()
                         .enumerate()
@@ -1338,7 +1373,7 @@ impl<'a> Builder<'a> {
                 self.assign(dest.clone(), Rvalue::Len(Place::local(temp).deref()), span);
             }
             ExprKind::MethodCall { receiver, args, .. } => {
-                self.in_operand_scope(span, |this| {
+                self.in_operand_scope(Some(expr), span, |this| {
                     this.lower_method_call(dest, expr, receiver, args, span);
                 });
             }
@@ -1542,7 +1577,7 @@ impl<'a> Builder<'a> {
     /// `(a, b, ...)` into `dest`. See [`Self::tuple_operands`].
     fn tuple_into(&mut self, dest: &Place, expr: &Expr, extending: bool) {
         let span = self.span_of(expr);
-        self.in_operand_scope(span, |this| {
+        self.in_operand_scope(Some(expr), span, |this| {
             let operands = this.tuple_operands(expr, extending);
             this.assign(
                 dest.clone(),
@@ -1791,7 +1826,7 @@ impl<'a> Builder<'a> {
         match &expr.kind {
             // The operands are in the assignment's scope, as in rustc: a panic in the place
             // drops them before the statement's temporaries.
-            ExprKind::Assign(lhs, rhs) => self.in_operand_scope(span, |this| {
+            ExprKind::Assign(lhs, rhs) => self.in_operand_scope(Some(expr), span, |this| {
                 this.lower_plain_assign(lhs, rhs, span);
             }),
             ExprKind::AssignOp(op, lhs, rhs) => {
@@ -1856,7 +1891,7 @@ impl<'a> Builder<'a> {
                 continue; // A unit struct or variant: it compared.
             };
             let saved = self.push_temp_scope();
-            self.in_operand_scope(target.span, |this| {
+            self.in_operand_scope(None, target.span, |this| {
                 this.assign_part(p.id, id, target);
             });
             self.close_temp_scope(saved, target.span);
@@ -2120,7 +2155,7 @@ impl<'a> Builder<'a> {
             self.lower_stmt(stmt);
         }
         match &block.tail {
-            Some(tail) => self.expr_into_dest(dest, tail),
+            Some(tail) => self.in_tail_scope(tail, |this| this.expr_into_dest(dest, tail)),
             None => {
                 if dest.ty(&self.body).is_unit() {
                     self.assign(dest.clone(), Self::unit_rvalue(block.span), block.span);
@@ -2137,7 +2172,7 @@ impl<'a> Builder<'a> {
             self.lower_stmt(stmt);
         }
         if let Some(tail) = &block.tail {
-            self.lower_expr_discard(tail);
+            self.in_tail_scope(tail, |this| this.lower_expr_discard(tail));
         }
         self.pop_scope(block.span);
     }

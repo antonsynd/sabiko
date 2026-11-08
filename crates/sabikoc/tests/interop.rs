@@ -114,7 +114,7 @@ fn rustc_check(rustc: &Path, lib: &Path, dir: &Path) -> Result<(), String> {
         Command::new(rustc)
             .args([
                 "--edition",
-                "2021",
+                "2024",
                 "--crate-type",
                 "lib",
                 "--emit=metadata",

@@ -153,6 +153,10 @@ impl ErrorCode {
     pub const INVALID_INDEX_TYPE: Self = Self(335);
     /// Indexing a value that is not an array or a slice (rustc's E0608).
     pub const NOT_INDEXABLE: Self = Self(336);
+    /// `mut`, `ref` or `ref mut` on a binding whose default binding mode is a reference
+    /// (edition 2024; rustc's uncoded "cannot mutably bind by value / cannot explicitly
+    /// borrow within an implicitly-borrowing pattern").
+    pub const BINDING_MODIFIER_UNDER_REF: Self = Self(337);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

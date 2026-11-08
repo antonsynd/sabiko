@@ -1,0 +1,17 @@
+// A `Print`/`PrintLine` argument whose type a diverging initialiser left open is checked
+// once its type is decided: by a later use here (rustc: `P: Display` does not hold).
+struct P { X: i32 }
+
+fn Later() {
+    let v = return;
+    PrintLine(v); //~ ERROR E0300 `PrintLine` cannot print a value of type `P`
+    let p: P = v;
+}
+
+// Nothing decides it: it falls back to `!`, which prints (and never runs).
+fn Fallback() {
+    let v = return;
+    Print(v);
+}
+
+fn Main() {}

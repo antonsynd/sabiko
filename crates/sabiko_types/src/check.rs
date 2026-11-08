@@ -17,7 +17,7 @@ use sabiko_span::Span;
 
 use crate::collect::{self, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::ty::{Mutability, Ty};
+use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -179,8 +179,11 @@ pub(crate) struct FnCtxt<'a> {
     casts: Vec<PendingCast>,
     /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
     pending_negs: Vec<(Span, Ty)>,
-    /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `()`.
+    /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `!`.
     diverging_vars: Vec<Ty>,
+    /// `Print`/`PrintLine` arguments typed by such a variable (`let v = return;
+    /// PrintLine(v);`), checked once the fallback decided them.
+    pending_prints: Vec<(Builtin, Span, Ty)>,
     /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
     pending_comparisons: Vec<(BinOp, Ty, Span)>,
     /// The values of the `const` items, for array lengths; `None` while the constants
@@ -233,6 +236,7 @@ impl<'a> FnCtxt<'a> {
             casts: Vec::new(),
             pending_negs: Vec::new(),
             diverging_vars: Vec::new(),
+            pending_prints: Vec::new(),
             pending_comparisons: Vec::new(),
             consts: None,
             index_derefs: HashMap::new(),
@@ -789,8 +793,8 @@ impl<'a> FnCtxt<'a> {
     /// checked (and coerced) against its expected element type, which becomes the
     /// element's type, so the tuple as a whole matches the expectation (rustc's
     /// expectation flows into tuple elements the same way). An element that diverges
-    /// without an expectation gets a fresh variable that falls back to `()`, as a
-    /// diverging `let` initialiser does: `!` itself never becomes an element type.
+    /// without an expectation gets a fresh variable that falls back to `!` when nothing
+    /// else decides it, as a diverging `let` initialiser does.
     fn check_tuple(&mut self, id: NodeId, elems: &[Expr], expected: Option<&Ty>) -> Ty {
         let expected_elems = match expected.map(|e| self.shallow(e)) {
             Some(Ty::Tuple(tys)) if tys.len() == elems.len() => Some(tys),
@@ -1029,12 +1033,38 @@ impl<'a> FnCtxt<'a> {
         Some(Ty::Prim(PrimTy::Usize))
     }
 
+    /// Edition 2024 reserves binding modifiers under a reference default binding mode:
+    /// `let (mut a, b) = &t;` and `let (ref a, b) = &t;` are errors (rustc's
+    /// "implicitly-borrowing pattern"), where 2021 bound by value again or ignored the `ref`.
+    fn binding_modifier_under_ref(&mut self, pat: &Pat, explicit_ref: bool, ty: &Ty) {
+        let (message, label) = if explicit_ref {
+            (
+                "cannot explicitly borrow within an implicitly-borrowing pattern",
+                "explicit `ref` binding modifier not allowed when implicitly borrowing",
+            )
+        } else {
+            (
+                "cannot mutably bind by value within an implicitly-borrowing pattern",
+                "`mut` binding modifier not allowed when implicitly borrowing",
+            )
+        };
+        let found = self.ty_str(ty);
+        self.error(
+            Diagnostic::error(ErrorCode::BINDING_MODIFIER_UNDER_REF, message)
+                .with_label(pat.span, label)
+                .with_note(format!(
+                    "`{found}` is matched through a reference here, so the binding already borrows it (edition 2024)"
+                ))
+                .with_note("remove the modifier, or match on the value instead of the reference"),
+        );
+    }
+
     /// Checks a binding pattern against the type of the value it binds, recording the
     /// type of every local it introduces. `init_span` points at the initialiser, for
     /// diagnostics. A tuple pattern matched against a reference to a tuple looks through
-    /// the reference and binds references to the elements (Rust 2021's default binding
-    /// modes: `let (a, b) = &t;` gives `a: &A`); a `mut x` binding in that mode binds by
-    /// value again, as in Rust 2021.
+    /// the reference and binds references to the elements (default binding modes: `let (a,
+    /// b) = &t;` gives `a: &A`); a `mut`/`ref` modifier in that mode is an error (edition
+    /// 2024, [`Self::binding_modifier_under_ref`]).
     fn check_pat(&mut self, pat: &Pat, ty: &Ty, init_span: Option<Span>) {
         self.check_pat_in_mode(pat, ty, None, init_span);
     }
@@ -1064,6 +1094,9 @@ impl<'a> FnCtxt<'a> {
                 name,
                 sub,
             } => {
+                if by_ref.is_some() && (*explicit_ref || *mutable) {
+                    self.binding_modifier_under_ref(pat, *explicit_ref, ty);
+                }
                 if let Some(local) = self.resolve.local_of_pat(pat.id) {
                     let binding_ty = if *explicit_ref {
                         let m = Mutability::from_bool(*mutable);
@@ -1381,7 +1414,7 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// A pattern that is not a binding matched against a reference looks through it
-    /// (Rust 2021's default binding modes): every reference peeled makes the default
+    /// (default binding modes): every reference peeled makes the default
     /// binding mode `ref` (`ref mut` for `&mut`, unless a `&` was already crossed).
     fn peel_pat_refs(
         &mut self,
@@ -2432,6 +2465,13 @@ impl<'a> FnCtxt<'a> {
         for arg in args {
             let ty = self.check_expr(arg, None);
             let ty = self.infer.resolve(&ty);
+            if let Ty::Infer(v) = ty {
+                if self.is_diverging_var(v) {
+                    // Decided by a later use or by the never-type fallback: checked then.
+                    self.pending_prints.push((builtin, arg.span, ty));
+                    continue;
+                }
+            }
             let known = self.has_no_general_var(&ty);
             if !known {
                 self.error(
@@ -2451,24 +2491,35 @@ impl<'a> FnCtxt<'a> {
                 self.infer.bind_error(&ty);
                 continue;
             }
-            // `&loop {}` prints like `loop {}` (rustc: `!: Display`); neither runs.
-            if matches!(ty, Ty::Infer(_) | Ty::Error)
-                || ty.is_uninhabited()
-                || collect::is_printable(&ty)
-            {
-                continue;
-            }
-            let s = self.ty_str(&ty);
-            self.error(
-                Diagnostic::error(
-                    ErrorCode::TYPE_MISMATCH,
-                    format!("`{}` cannot print a value of type `{s}`", builtin.name()),
-                )
-                .with_label(arg.span, format!("expected a printable value, found `{s}`"))
-                .with_note("printable types are integers, floats, `bool`, `char` and `&str`"),
-            );
+            self.check_printable(builtin, arg.span, &ty);
         }
         Ty::Unit
+    }
+
+    /// Whether the variable `v` is one of a diverging initialiser or element.
+    fn is_diverging_var(&mut self, v: TyVid) -> bool {
+        let vars = self.diverging_vars.clone();
+        vars.iter().any(|d| self.infer.resolve(d) == Ty::Infer(v))
+    }
+
+    /// Reports a `Print`/`PrintLine` argument of known type `ty` that cannot be printed.
+    fn check_printable(&mut self, builtin: Builtin, span: Span, ty: &Ty) {
+        // `&loop {}` prints like `loop {}` (rustc: `!: Display`); neither runs.
+        if matches!(ty, Ty::Infer(_) | Ty::Error)
+            || ty.is_uninhabited()
+            || collect::is_printable(ty)
+        {
+            return;
+        }
+        let s = self.ty_str(ty);
+        self.error(
+            Diagnostic::error(
+                ErrorCode::TYPE_MISMATCH,
+                format!("`{}` cannot print a value of type `{s}`", builtin.name()),
+            )
+            .with_label(span, format!("expected a printable value, found `{s}`"))
+            .with_note("printable types are integers, floats, `bool`, `char` and `&str`"),
+        );
     }
 
     /// Whether `ty` (resolved) holds no general inference variable: literal variables
@@ -2851,11 +2902,14 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn finish(mut self) -> BodyTypes {
-        // Never-type fallback: `let x = return;` leaves `x` unconstrained; it becomes `()`.
+        // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
+        // unconstrained; it becomes `!` (`()` in edition 2021).
         for v in std::mem::take(&mut self.diverging_vars) {
-            if let Ty::Infer(_) = self.infer.resolve(&v) {
-                let _ = self.infer.unify(&v, &Ty::Unit);
-            }
+            self.infer.fall_back_to_never(&v);
+        }
+        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
+            let ty = self.infer.resolve_with_defaults(&ty);
+            self.check_printable(builtin, span, &ty);
         }
         // Report locals whose type is still unknown, then apply literal defaults.
         let mut local_types = HashMap::new();

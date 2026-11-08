@@ -1,0 +1,32 @@
+// Edition 2024: under a reference default binding mode, a binding may not carry `mut`,
+// `ref` or `ref mut` (2021 bound by value again, or ignored the `ref`).
+struct P { X: i32 }
+enum Slot { Full(P), Empty }
+
+fn MutTuple(r: &(i32, i32)) {
+    let (mut a, b) = r; //~ ERROR E0337 cannot mutably bind by value within an implicitly-borrowing pattern
+}
+
+fn RefTuple(r: &(i32, i32)) {
+    let (ref a, b) = r; //~ ERROR E0337 cannot explicitly borrow within an implicitly-borrowing pattern
+}
+
+fn RefMutTuple(r: &mut (i32, i32)) {
+    let (ref mut a, b) = r; //~ ERROR E0337 cannot explicitly borrow within an implicitly-borrowing pattern
+}
+
+fn MutVariant(r: &Slot) {
+    match r {
+        Slot::Full(mut p) => p.X = 0, //~ ERROR E0337 cannot mutably bind by value within an implicitly-borrowing pattern
+        Slot::Empty => {}
+    }
+}
+
+// Fine: no reference was peeled.
+fn ByValue(t: (i32, (&i32, i32))) -> i32 {
+    let (mut a, (b, ref c)) = t;
+    a += *b;
+    a + *c
+}
+
+fn Main() {}
