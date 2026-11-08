@@ -1,0 +1,97 @@
+// An operand of type `!` does not coerce to the other operand's type (#87): rustc types
+// the right operand against a variable that only the operator trait's impl for the left
+// type decides, and no arithmetic, bitwise or shift trait has an impl for `!`.
+fn Add(x: i32) -> i32 {
+    x + return 2 //~ ERROR E0306 cannot add `!` to `i32`
+}
+
+fn AddLeft() -> i32 {
+    (return 2) + 1 //~ ERROR E0306 cannot add `i32` to `!`
+}
+
+fn Both() -> i32 {
+    (return 2) * (return 3) //~ ERROR E0306 cannot multiply `!` by `!`
+}
+
+fn Others(x: i32, b: bool) {
+    let _ = x - loop {}; //~ ERROR E0306 cannot subtract `!` from `i32`
+    let _ = x / { return }; //~ ERROR E0306 cannot divide `i32` by `!`
+    let _ = x % Panic("p"); //~ ERROR E0306 cannot calculate the remainder of `i32` divided by `!`
+    let _ = x & (return); //~ ERROR E0306 no implementation for `i32 & !`
+    let _ = b | (return); //~ ERROR E0306 no implementation for `bool | !`
+    let _ = x << (return); //~ ERROR E0306 no implementation for `i32 << !`
+    let _ = (return) >> x; //~ ERROR E0306 no implementation for `! >> i32`
+}
+
+fn Compound(mut x: i32) {
+    x += return; //~ ERROR E0306 cannot add-assign `!` to `i32`
+    x -= return; //~ ERROR E0306 cannot subtract-assign `!` from `i32`
+    x *= return; //~ ERROR E0306 cannot multiply-assign `i32` by `!`
+    x %= return; //~ ERROR E0306 cannot calculate and assign the remainder of `i32` divided by `!`
+    x <<= return; //~ ERROR E0306 no implementation for `i32 <<= !`
+}
+
+// A comparison takes `!` when the left type is known with one impl (`i32: PartialEq<i32>`),
+// but not while it is a literal's `{integer}` (an impl per integer type), nor for `&A`
+// under `==` (`PartialEq<&B>` and `PartialEq<&mut B>`).
+fn Literal() -> bool {
+    1 == return true //~ ERROR E0306 can't compare `i32` with `!`
+}
+
+fn FloatLiteral() -> bool {
+    1.5 < { return true } //~ ERROR E0306 can't compare `f64` with `!`
+}
+
+fn Unannotated() -> bool {
+    let x = 1;
+    x != loop {} //~ ERROR E0306 can't compare `i32` with `!`
+}
+
+fn Str(s: &str) -> bool {
+    s == return true //~ ERROR E0306 can't compare `&str` with `!`
+}
+
+fn Reference(r: &i32) -> bool {
+    r != return true //~ ERROR E0306 can't compare `&i32` with `!`
+}
+
+fn NeverLeft() -> bool {
+    (return true) == 1i32 //~ ERROR E0306 can't compare `!` with `i32`
+}
+
+// A diverging variable nothing else decides falls back to `!` and is judged as one.
+fn DivergingVariable() -> i32 {
+    let y = return 2;
+    1 + y //~ ERROR E0306 cannot add `!` to `i32`
+}
+
+fn DivergingCompared() -> bool {
+    let y = return true;
+    let x = 1;
+    x == y //~ ERROR E0306 can't compare `i32` with `!`
+}
+
+// `-` has no impl for `!`; on a diverging variable rustc needs its type at once.
+fn Negated() -> i32 {
+    -(return 1) //~ ERROR E0307 cannot apply unary operator `-` to type `!`
+}
+
+fn NegatedVariable() -> i32 {
+    let y = return 1;
+    let r: i32 = -y; //~ ERROR E0313 type annotations needed
+    r
+}
+
+// Accepted, as by rustc (also `tests/differential/never/ok_never_operands.sabi`).
+fn Accepted(x: i32, s: &str, r: &i32) -> bool {
+    let a = x == return true;
+    let b = 1u8 < { return true };
+    let c = s < return true;
+    let d = r >= loop {};
+    let e = (return true) == (return false);
+    let f = !(return true);
+    let g = true && return false;
+    a && b && c && d && e && f && g
+}
+
+fn Main() {}

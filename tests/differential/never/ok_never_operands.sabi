@@ -1,0 +1,56 @@
+// Operands of type `!` that rustc accepts (#87): a comparison whose left type is known
+// with a single impl (`i32: PartialEq<i32>`, `&A: PartialOrd<&B>`), `!` against `!`, and
+// a diverging variable that a later use decides before the never-type fallback.
+fn Typed(x: i32, c: char, f: f64) -> bool {
+    let a = x == return true;
+    let b = 1u8 < { return true };
+    let d = c != loop {};
+    let e = f >= Panic("p");
+    a && b && d && e
+}
+
+fn References(s: &str, r: &i32, m: &mut i32) -> bool {
+    let a = s < return true;
+    let b = r >= loop {};
+    let c = m <= { return false };
+    a && b && c
+}
+
+fn BothNever() -> bool {
+    let y = return true;
+    let a = (return true) == (return false);
+    let b = (return true) < y;
+    a && b && !(return true)
+}
+
+fn LiteralDecidedLater() -> bool {
+    let x = 1;
+    let r = x == return true;
+    let n: u8 = x;
+    r
+}
+
+fn VariableDecidedLater() -> i32 {
+    let y = return 2;
+    let r = y + 1;
+    let z: i32 = y;
+    r
+}
+
+fn ComparedDecidedLater() -> bool {
+    let y = return true;
+    let r = y == 1;
+    let z: i32 = y;
+    r
+}
+
+fn CompoundDecidedLater() -> i32 {
+    let mut y = return 2;
+    y += 1;
+    y <<= 1;
+    y
+}
+
+fn Main() {
+    PrintLine(Typed(1, 'a', 1.0));
+}
