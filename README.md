@@ -1,91 +1,82 @@
 # Sabiko
 
 **Sabiko** (錆 *sabi* "rust" + 子 *-ko* "child") is a small Rust-inspired language for
-.NET. It compiles to verifiable CIL, enforces ownership, borrowing and mutability at
-compile time, frees Sabiko-owned memory deterministically without the garbage collector,
-and interoperates with C# with zero marshalling.
-
-Status: **Phase 4 complete.** The compiler runs end to end: lexer, parser, name resolution,
-type checking with local inference, `const` evaluation, MIR lowering, the borrow checker
-(mutability, initialisation, moves, and loans solved by the Polonius engine from
-MIR-generated facts), and a CIL backend that emits textual IL for `ilasm`. Programs compile
-to verifiable .NET assemblies that run on .NET 10 against the small C# runtime library
-`Sabiko.Runtime` (printing, panics). Integer arithmetic has Rust semantics: panics on
-overflow in debug builds, wrapping with `--release`. Two differential harnesses check every
-program in `tests/differential/` against `rustc`: compile-time verdicts (accept versus
-borrow error) and, for programs under `run/`, identical output and exit codes.
+.NET. It compiles to verifiable CIL and checks ownership, borrowing and mutability at
+compile time. The goal is to free Sabiko-owned memory deterministically, without the
+garbage collector, and to call to and from C# with no marshalling.
 
 ```rust
-struct Point { X: i32, Y: i32 }
+enum Shape {
+    Circle { Radius: f64 },
+    Rect(f64, f64),
+}
 
-fn MovePoint(p: &mut Point, dx: i32, dy: i32) {
-    p.X = p.X + dx;
-    p.Y = p.Y + dy;
+impl Shape {
+    fn Area(&self) -> f64 {
+        match *self {
+            Shape::Circle { Radius } => 3.0 * Radius * Radius,
+            Shape::Rect(w, h) => w * h,
+        }
+    }
 }
 
 fn Main() {
-    let mut cursor = Point { X: 10, Y: 10 };
-    MovePoint(&mut cursor, 5, -2);
-    PrintLine(cursor.X);
+    let shapes = [Shape::Rect(3.0, 4.0), Shape::Circle { Radius: 2.0 }];
+    PrintLine(shapes[0].Area() + shapes[1].Area());   // 24
 }
 ```
 
-```sh
-sabikoc hello.sabi --emit=exe && dotnet hello.dll   # prints 15
-```
+Sabiko is a syntactic subset of Rust; the one difference is .NET naming (PascalCase items
+and fields). That lets rustc act as the test oracle. Structs and enums become value types,
+`&T`/`&mut T` become `in`/`ref` managed pointers, arrays become inline arrays, and slices
+and `&str` become spans.
 
-Compiles to a `sequential` value type and a static method taking `ref Point`, callable
-from C# as `Hello.MovePoint(ref cursor, 5, -2)` (functions live in a static class named
-after the module).
+## Status
+
+Phases 0–5 of [`docs/PLAN.md`](docs/PLAN.md) are done. **Phase 6, traits and generics, is
+in progress.**
+
+Supported today:
+- Primitive types, tuples, structs, enums, arrays, slices and `&str`.
+- Methods and constants.
+- `match` with exhaustiveness checking, `if let`, `let`-`else`, let chains and `if let`
+  guards.
+- Drops at scope end and on unwinding.
+- Rust's overflow semantics: a panic in debug builds, wrapping with `--release`.
+- rustc's constant-propagation lints.
+- A borrow checker built on Polonius, using facts derived from MIR.
+
+Still to come: `Option`/`Result`, `Box`/`Gc`/`Cell`, and C# interop (Phases 6–8).
 
 ## Building
 
-Requires the pinned Rust toolchain (`rust-toolchain.toml`) and the .NET 10 runtime.
-`scripts/setup-dotnet.sh` fetches everything else from NuGet into `./tools`: `ilasm`,
-`ildasm`, ILVerify, the reference assemblies and the C# compiler, and builds
-`Sabiko.Runtime.dll` with it (no .NET SDK needed).
+You need the pinned Rust toolchain and the .NET 10 runtime, but no .NET SDK.
+`scripts/setup-dotnet.sh` (`.ps1` on Windows) fetches `ilasm`, ILVerify, the reference
+assemblies and `csc` into `./tools`, and builds the runtime library.
 
 ```sh
-scripts/setup-dotnet.sh        # installs the .NET toolchain into ./tools (see --help)
-source tools/env.sh
-cargo build
-scripts/check-spike.sh         # assembles, verifies and runs the hand-written IL spike
-scripts/check-runtime.sh       # pins the runtime library's formatting and panic behaviour
-cargo run -p sabikoc -- examples/hello.sabi --emit=exe -o out/hello.dll && dotnet out/hello.dll
-cargo run -p sabikoc -- examples/hello.sabi --emit=il    # print the CIL module
-cargo run -p sabikoc -- examples/hello.sabi --emit=mir   # print MIR
-cargo run -p sabikoc -- examples/hello.sabi --emit=mir-elaborated   # MIR after drop elaboration
-cargo run -p sabikoc -- examples/hello.sabi --stop-after=typeck   # resolve and type-check only
+scripts/setup-dotnet.sh && source tools/env.sh
+cargo run -p sabikoc -- examples/shapes.sabi --emit=exe -o out/shapes.dll && dotnet out/shapes.dll
+cargo run -p sabikoc -- examples/shapes.sabi --emit=mir   # or il, mir-elaborated, ast, pretty, tokens
+cargo test --workspace
 ```
 
-`--emit=dll` builds a library; `--emit=exe` adds the entry point and a
-`runtimeconfig.json`; both place `Sabiko.Runtime.dll` next to the output. `--release`
-switches integer arithmetic from panicking to wrapping on overflow. `sabikoc` finds
-`ilasm` and the runtime in `./tools` (or via `--ilasm`, `--runtime-path`, `SABIKO_ILASM`,
-`SABIKO_RUNTIME_DIR`).
+Other flags: `--emit=dll` builds a library, `--release` makes overflow wrap, and `-A <lint>`
+allows a lint.
 
-Testing: `cargo test` runs everything: the UI golden tests under `tests/ui` (see
-`tests/ui/README.md`; `BLESS=1` regenerates expectations), the IL and MIR snapshot tests
-(`INSTA_UPDATE=always` or `cargo insta review` to accept changes), the run-pass tests under
-`tests/run-pass` (compiled, verified with ILVerify, run, compared with `.stdout` files and
-exit codes), and the differential tests against `rustc` under `tests/differential`
-(compile-time verdicts, and identical output for the programs under `run/`). The tests
-that need the .NET toolchain or `rustc` print a notice and skip when they are missing;
-CI sets `SABIKO_REQUIRE_DOTNET=1` so they must run there. Beyond the hand-written corpora,
-a seeded program generator is checked against rustc on every run, a proptest suite asserts
-the pipeline never panics on mutated programs, and a nightly workflow adds libFuzzer
-targets, thousands of generated seeds and mutation testing with enforced scores. See
-`docs/TESTING.md`.
+## Testing
 
-On Windows use `scripts/setup-dotnet.ps1` instead.
+`cargo test` runs four kinds of tests:
+- UI golden tests and MIR/IL snapshots.
+- Run-pass programs, verified with ILVerify and executed.
+- Differential tests: each program is built with both Sabiko and rustc, and their
+  verdicts, lints and output must match.
+- Generated programs, also checked against rustc.
 
-## Layout
-
-- `crates/` the compiler, one crate per pipeline stage
-- `runtime/` the C# runtime library `Sabiko.Runtime` and its IL probes
-- `spike/` hand-written CIL used to validate the toolchain
-- `scripts/` toolchain setup and helpers
-- `docs/` plan, decisions log, language spec
+The nightly build adds fuzzing, mutation testing and [benchmarks against
+C#](benchmarks/README.md). See [`docs/TESTING.md`](docs/TESTING.md), and for the compiler's
+stages, the [plan](docs/PLAN.md), [decisions](docs/DECISIONS.md) and
+[spec](docs/SPEC.md).
 
 ## Licence
 
