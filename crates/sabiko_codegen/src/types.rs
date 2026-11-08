@@ -20,6 +20,15 @@ pub(crate) const READ_ONLY_SPAN_CLASS: &str = "[System.Runtime]System.ReadOnlySp
 pub(crate) const MEMORY_MARSHAL: &str =
     "[System.Runtime]System.Runtime.InteropServices.MemoryMarshal";
 
+/// `System.Runtime.CompilerServices.Unsafe`, whose `Add` reaches the elements of a
+/// slice of references (decision 77).
+pub(crate) const UNSAFE: &str = "[System.Runtime]System.Runtime.CompilerServices.Unsafe";
+
+/// The generated views over elements that hold references, shared and mutable, where
+/// `ReadOnlySpan<T>` and `Span<T>` cannot hold them (decision 77; [`Cx::slice_view`]).
+pub(crate) const SLICE_CLASS: &str = "'Slice`1'";
+pub(crate) const SLICE_MUT_CLASS: &str = "'SliceMut`1'";
+
 /// The one field of the value type an array `[T; N]` is lowered to (decision 61).
 pub(crate) const ARRAY_ELEMENT_FIELD: &str = "'Element'";
 
@@ -105,14 +114,41 @@ pub(crate) fn span_type(cx: &mut Cx<'_>, elem: &Ty, mutable: bool, span: Span) -
     format!("valuetype {}", span_class(cx, elem, mutable, span))
 }
 
-/// `Span<T>` or `ReadOnlySpan<T>` as a class, for member references.
+/// `Span<T>` or `ReadOnlySpan<T>` as a class, for member references; for elements that
+/// hold references, the generated ``SliceMut`1`` or ``Slice`1`` (decision 77), which
+/// has the same members. `T` is the element's storage type ([`stored_type`]).
 pub(crate) fn span_class(cx: &mut Cx<'_>, elem: &Ty, mutable: bool, span: Span) -> String {
-    let class = if mutable {
-        SPAN_CLASS
+    let class = span_open(cx, elem, mutable);
+    format!("{class}<{}>", stored_type(cx, elem, span))
+}
+
+/// The open generic class of the span over elements of type `elem`, as [`span_class`]
+/// chooses it, for the signatures that name it with a type parameter (`Slice`'s result,
+/// the read-only conversion).
+pub(crate) fn span_open(cx: &mut Cx<'_>, elem: &Ty, mutable: bool) -> &'static str {
+    match (elem.has_ref(), mutable) {
+        (true, _) => cx.slice_view(mutable),
+        (false, true) => SPAN_CLASS,
+        (false, false) => READ_ONLY_SPAN_CLASS,
+    }
+}
+
+/// The instruction that turns the address of the first of `n` elements of type `elem`
+/// and the count `n` (an `int32`) on the stack into a span over them:
+/// `MemoryMarshal.CreateSpan` (`CreateReadOnlySpan` for a shared one), or the
+/// constructor of the generated view for elements that hold references (decision 77).
+pub(crate) fn span_over(cx: &mut Cx<'_>, elem: &Ty, mutable: bool, span: Span) -> String {
+    if elem.has_ref() {
+        let class = span_class(cx, elem, mutable, span);
+        return format!("newobj instance void valuetype {class}::.ctor(!0&, int32)");
+    }
+    let elem_cil = stored_type(cx, elem, span);
+    let (class, create) = if mutable {
+        (SPAN_CLASS, "CreateSpan")
     } else {
-        READ_ONLY_SPAN_CLASS
+        (READ_ONLY_SPAN_CLASS, "CreateReadOnlySpan")
     };
-    format!("{class}<{}>", cil_type(cx, elem, span))
+    format!("call valuetype {class}<!!0> {MEMORY_MARSHAL}::{create}<{elem_cil}>(!!0&, int32)")
 }
 
 /// The CIL type of a primitive, or `None` for `str`, which only exists behind a reference.
@@ -167,10 +203,6 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             let Ty::Slice(elem) = &**inner else {
                 unreachable!()
             };
-            if elem.has_ref() {
-                cx.unsupported("a slice of references", span);
-                return "int32".to_owned();
-            }
             span_type(cx, elem, m.is_mut(), span)
         }
         // A reference to `()` is as stateless as `()` (decision 64).

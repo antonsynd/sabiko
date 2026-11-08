@@ -719,8 +719,8 @@ product) runs at 0.96x (release) and 0.99x (checked) of C#'s time in process and
 launch, allocating only for printing an `f64`. Known gaps (`tests/pending/arrays/known_gap/`):
 range indexing and slicing (ranges are not expressions yet), slice patterns, `for` loops,
 `==`/`<` on arrays and slices (Phase 6), `const` items of array type (E0315), slice
-methods other than `len()`, arrays and slices of references (E0500: an inline array cannot
-hold a managed pointer, nor the `Ref<T>` wrapper #11 added, which is a `ref struct`; #43), and rustc's deny-by-default
+methods other than `len()`, arrays and slices of references (E0500 then; lowered since
+#43, decision 77), and rustc's deny-by-default
 `unconditional_panic` lint for constant out-of-bounds indices, which Sabiko did not run
 (it had no constant-propagation lints, like `arithmetic_overflow`; both since #44, decision
 73): such programs compiled
@@ -783,7 +783,7 @@ the borrow being taken before the bounds), 48 run-time programs in
 programs in `tests/ui/{parse,typeck}/`. Known gaps: range values (`let r = 1..3;`),
 comparing `str` places (`*s == *t`, E0208) and `&&str` operands (E0500 until #11, since
 lowered), `&str`
-in structs, enums and arrays (#43), and every other `str` and slice method (`chars()`,
+in structs and enums (lifetimes, Phase 9) and arrays (since #43, decision 77), and every other `str` and slice method (`chars()`,
 `is_empty()`, ..., #45).
 
 Update (2026-11-05), generator for strings and range slicing (#10): `sabiko_testgen`
@@ -856,7 +856,7 @@ because a loan behind a shared reference does not conflict with `m` itself; #56,
 => .. }` while `p` is mutably borrowed; older than #11; #57, decision 65). Known gaps (#58 unless noted): deref
 coercion (`&&i32` to `&i32`, E0300), temporary lifetime extension below the second level
 (`let d = &&&x;`, E0413), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
-references (Phase 9), and arrays and slices of references (#43). Mutation testing of the
+references (Phase 9), and arrays and slices of references (since #43, decision 77). Mutation testing of the
 changed codegen lines (docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
 the 4 survivors are equivalent, and the killing tests found no bug.
 
@@ -984,6 +984,25 @@ constant patterns: a constant pattern looked through a reference like a literal,
 now (`typeck/const_patterns_through_refs`). Sweeps of 400 seeds at bases 1, 3000000 and
 52000000 agree with rustc.
 
+Arrays and slices of references (#43, decision 77): `[&T; N]`, `[&mut T; N]`, `[&str; N]`,
+`&[&T]`, `&mut [&mut T]`, `&[&str]` and arrays of tuples and slices holding references are
+lowered. An element that holds a reference is stored as a reference place is (decision 64:
+a reference in its `Ref<T>`/`RefMut<T>` wrapper, a span as it is), the array is the same
+inline array marked as a `ref struct`, and a slice of such elements is a generated
+`Slice<T>`/`SliceMut<T>` view with the span's members, since `Span<T>` cannot hold a `ref
+struct`; both were checked in IL on .NET 10 first (decision 64 had assumed an inline array
+could not hold one). The staged `arrays_of_references` moved to `differential/run/arrays/`
+with six more programs (slices of references as parameters, sub-slices, repeats, nested
+arrays, `&&T` and tuple elements, drops through unwinding, and the bounds and range
+panics), all agreeing with rustc; `*a[i]` now locates its bounds check at `a[i]`, as rustc
+does. The generator writes elements of temporary arrays of references (`["a", s][i]`, `[&x,
+&*r][i]`, `[a, b, c][1..][k]`); arrays and tuples of references as locals and parameters
+are #92. Its first sweep found a generator bug (a `&mut` local given where a shared
+reference was wanted mixed the element types, seed 7000161). Nightly run 23's fuzzer found
+a type checker bug from #87: an operation on a diverging variable decided after its result
+was used (`let r = y + 1; let _: i64 = y;` with `r` returned as `i32`) was accepted and
+built ill-typed MIR; it is E0300 now (`typeck/never_operand_result_used_first`).
+
 ### Phase 5: Data types
 
 Work
@@ -1028,9 +1047,9 @@ against drops rather than retrofitted.
   and `let`-`else`; see the status notes above); match borrow checking as rustc's (#47,
   decision 72) done; follow-up: `&p` and open-range patterns (#49).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
-  Done (#9, decision 61; see the status note above), and range slicing with #10; slice
-  patterns, `for` loops, slice methods other than `len()` (#45) and arrays of references
-  (#43) remain.
+  Done (#9, decision 61; see the status note above), range slicing with #10, and arrays
+  and slices of references (#43, decision 77); slice patterns, `for` loops and slice
+  methods other than `len()` remain (#45).
 - `&str` as `ReadOnlySpan<char>`, string literals (`ldstr` + `AsSpan`, or RVA data),
   basic slicing. No owned string yet; `Gc<System::String>` moves to Phase 7 (decision 48).
   Done (#10, decision 62: slicing with ranges in index position, also of arrays and
@@ -1040,8 +1059,9 @@ against drops rather than retrofitted.
   generic types that may hold it are emitted with `allows ref struct`. This also lowers
   `&&T`. Done for `&&T`, `&()` and references in tuples (#11, decision 64; see the status
   note above): `Ref<T>`/`RefMut<T>` are generated per module with a `byreflike`
-  parameter, ready to be a generic argument once Phase 6 has generic types; arrays and
-  slices of references remain (#43).
+  parameter, ready to be a generic argument once Phase 6 has generic types. Arrays and
+  slices of references too (#43, decision 77): a byref-like inline array of wrappers or
+  spans, and generated `Slice<T>`/`SliceMut<T>` views where `Span<T>` cannot hold them.
 
 Verification
 - Exhaustiveness UI tests (missing variant, unreachable arm, nested patterns).

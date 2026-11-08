@@ -1,0 +1,21 @@
+// Arrays and slices of references (decision 77): a `[&i32; 2]` is a `ref struct` inline
+// array of `Ref<int32>`; `&[&i32]` and `&mut [&mut i32]` are the generated `Slice<T>` and
+// `SliceMut<T>` views; `[&str; 2]` holds `ReadOnlySpan<char>` elements.
+fn Sum(s: &[&i32]) -> i32 {
+    *s[0] + *s[s.len() - 1]
+}
+
+fn Bump(s: &mut [&mut i32]) {
+    *s[0] += 1;
+}
+
+fn Main() {
+    let x = 1;
+    let refs = [&x, &x];
+    PrintLine(Sum(&refs[1..]));
+    let mut y = 2;
+    let mut muts = [&mut y];
+    Bump(&mut muts);
+    let names = ["a"; 2];
+    PrintLine(names[1]);
+}

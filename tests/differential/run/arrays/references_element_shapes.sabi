@@ -1,0 +1,75 @@
+// Element shapes of arrays and slices of references (#43): references to `()`, pairs of
+// references, arrays of references inside tuples, references to slices of references,
+// explicit reborrows, copies, `match` on an element, and arrays behind `&mut`.
+struct Names {
+    Count: i32,
+}
+
+impl Names {
+    fn Greet(&self, who: &[&str]) -> i32 {
+        let mut n = 0;
+        let mut i = 0;
+        while i < who.len() {
+            match who[i] {
+                "ada" => n += 100,
+                "grace" => n += 10,
+                _ => n += 1,
+            }
+            i += 1;
+        }
+        n + self.Count
+    }
+}
+
+fn Twice(a: &mut [&mut i32; 2]) {
+    *a[0] *= 2;
+    *a[1] *= 2;
+}
+
+fn First(s: &[&i32]) -> i32 {
+    *s[0]
+}
+
+fn Main() {
+    let u = ();
+    let units = [&u, &u, &u];
+    PrintLine(units.len());
+
+    let x = 3;
+    let name = "joan";
+    let pairs = [(&x, name), (&x, "ada")];
+    PrintLine(pairs[1].1);
+    PrintLine(*pairs[0].0 + pairs.len() as i32);
+
+    let held = ([&x, &x], 4);
+    PrintLine(*held.0[1] + held.1);
+
+    let refs = [&x, &x];
+    let s: &[&i32] = &refs;
+    let ss = &s;
+    PrintLine(*ss[1] + ss.len() as i32);
+    let copy = refs;
+    PrintLine(*copy[0] + *refs[1]);
+
+    let mut a = 5;
+    let mut b = 6;
+    let mut muts = [&mut a, &mut b];
+    Twice(&mut muts);
+    let all: &mut [&mut i32] = &mut muts;
+    *all[1] += 1;
+    let view = &*all;
+    PrintLine(*view[0] + *view[1]);
+    PrintLine(a * 100 + b);
+
+    let mut xs = [1, 2];
+    let mut ys = [&xs[0], &xs[1]];
+    PrintLine(First(&ys) + First(&ys[1..]));
+    ys[1] = ys[0];
+    PrintLine(First(&ys[1..]));
+    xs[0] = 9;
+    PrintLine(xs[0]);
+
+    let n = Names { Count: 1000 };
+    PrintLine(n.Greet(&["ada", "linus", "grace", "ada"]));
+    PrintLine(n.Greet(&[]));
+}

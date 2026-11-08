@@ -1,0 +1,27 @@
+// Arrays whose elements hold both a reference and a value with drop glue: the elements
+// drop first to last, at the end of the scope, and during unwinding.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Five() -> usize {
+    5
+}
+
+fn Main() {
+    let k = 5;
+    {
+        let a = [(&k, Noisy { Id: 1 }), (&k, Noisy { Id: 2 })];
+        PrintLine(*a[1].0);
+    }
+    PrintLine(0);
+    let b = [(&k, Noisy { Id: 3 }), (&k, Noisy { Id: 4 })];
+    let i = Five();
+    PrintLine(*b[i].0);
+}

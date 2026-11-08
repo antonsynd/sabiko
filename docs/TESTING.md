@@ -87,6 +87,16 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   regression programs (docs/PLAN.md, Phase 5 status). About 2.5% of borrow-clean programs
   end in an index-out-of-bounds panic, others in overflow panics of index arithmetic.
 
+  Arrays of references (#43, decision 77, `BodyGen::ref_array_element`): a `&str` or a
+  shared reference expression is now and then an element of a temporary array literal of
+  them, indexed in place (`["a", s][i]`, `[&x, r][i]`) or through a range, which makes it
+  a slice of references (`[a, b, c][1..][k]`), with the usual in-bounds, out-of-bounds and
+  overflowing indices and ranges; the elements' loans are held while the later elements
+  and the index are generated, and the expression carries them all. About a quarter of
+  programs have one (`programs_use_arrays_of_references` pins 100 and 15 ranged of 500).
+  Arrays and slices of references as locals and parameters, and tuples with references,
+  are not generated yet (TODO(#92)).
+
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
   not `s`; one carrying the loan of a `&mut self` method's result gets a region),
@@ -108,7 +118,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   base, and a `&mut self` call on an element of one is not treated as two-phase. The
   left-hand side of an assignment gets its indices after the right-hand side, which Rust
   evaluates first. The constructs avoided carry TODOs: `&str` in structs,
-  enums, arrays and the generator's tuple types (#43), comparisons of `str` places,
+  enums (lifetimes, Phase 9), the arrays of locals and parameters and the generator's
+  tuple types (#92), comparisons of `str` places,
   non-ASCII text (decision 62), and the compiler bugs below. `reorder` treats a range
   index like a computed index (it may panic; `&a[i..]` takes `a`'s address; an
   `IndexMut` place writes its base). 2000 seeds at each of the bases 10000000, 11000000
@@ -142,7 +153,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   &mut T`); `programs_use_references_to_references` pins minimum counts for 11 of these
   constructs. Avoided with TODOs: three levels, `&mut &T` parameters, a retarget in a
   loop of a reference declared outside it, string patterns on a `&&str` scrutinee (#58),
-  double references in aggregates (#43). The two borrow-check divergences the runs found
+  double references in aggregates (#92). The two borrow-check divergences the runs found
   are fixed and no longer avoided: `&mut m` while a reborrow through `m`'s shared deref
   lives (seed 5001324, #56, decision 69) and a guard fake-borrowing a scrutinee no pattern
   reads (seed 5001979, #57, decision 65). 2000 seeds at each of the bases 4000000,

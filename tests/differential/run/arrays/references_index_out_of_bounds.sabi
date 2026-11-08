@@ -1,0 +1,11 @@
+// An out-of-range index into an array of references panics with rustc's message.
+fn Main() {
+    let a = 1;
+    let b = 2;
+    let refs = [&a, &b];
+    let mut i = 0;
+    while i < 3 {
+        PrintLine(*refs[i]);
+        i += 1;
+    }
+}

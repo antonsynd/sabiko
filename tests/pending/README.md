@@ -435,7 +435,8 @@ The staged programs were checked with rustc 1.99.1 (58cf8f9c3 2026-10-13), the v
 ### Known gaps (`arrays/known_gap/`)
 
 All eight run (or, for `unconditional_panic`, are rejected) under rustc; none was required
-by #9. `unconditional_panic.sabi` has since landed (#44, decision 73).
+by #9. `unconditional_panic.sabi` has since landed (#44, decision 73), and
+`arrays_of_references.sabi` (#43, decision 77).
 
 | file | gap | rustc |
 | --- | --- | --- |
@@ -444,7 +445,7 @@ by #9. `unconditional_panic.sabi` has since landed (#44, decision 73).
 | `array_equality.sabi` | `==`, `!=`, `<` on arrays and slices, array against slice: E0107 until the Phase 6 comparison traits (#45) | exit 0 |
 | `const_array_items.sabi` | `const PRIMES: [i32; 4]`, `const SECOND: i32 = PRIMES[1]`: constants are scalars (E0315) (#45) | exit 0 |
 | `for_loops.sabi` | `for x in a`, `in &a`, `in s`, `in 0..a.len()`: no `for` until iterators (E0107) (#45) | exit 0 |
-| `arrays_of_references.sabi` | `[&x, &y]`, `["ada", "grace"]`, `[&mut p, &mut q]`: E0500 (decision 61), an inline array cannot hold a managed pointer or a `ReadOnlySpan<char>`; waits for `Ref<T>` (#43) | exit 0 |
+| `arrays_of_references.sabi` | landed with #43 (decision 77): `tests/differential/run/arrays/arrays_of_references.sabi` | exit 0 |
 | `slice_methods.sabi` | `.is_empty()`, `.swap`, `.reverse`, `.contains`, `.split_at_mut`, `.fill`: only `.len()` (E0319) (#45) | exit 0 |
 | `unconditional_panic.sabi` | landed with #44 (decision 73): `tests/ui/lints/unconditional_panic.sabi`, E0601 | rejected |
 

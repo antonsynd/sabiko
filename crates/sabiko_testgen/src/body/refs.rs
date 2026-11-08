@@ -25,8 +25,8 @@
 //! elided input lifetimes (rustc's E0106). `&&str` operands are compared (`ss == &s`), and
 //! `&&p` ones of primitives (`rr < &r`).
 //!
-//! Not generated: TODO(#43) double references in tuples, struct fields, arrays and enum
-//! payloads, as for single ones. TODO(#58): three levels (`&&&T`), `&mut &T`
+//! Not generated: TODO(#92) double references in tuples and arrays (struct fields and
+//! enum payloads wait for lifetimes), as for single ones. TODO(#58): three levels (`&&&T`), `&mut &T`
 //! parameters (a callee can only retarget them to what the caller lent it), retargets of
 //! a reference local declared outside the loop the retarget is in (the new loan would be
 //! held at the top of the next iteration, which the scope model does not follow), and

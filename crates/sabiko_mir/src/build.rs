@@ -1071,7 +1071,15 @@ impl<'a> Builder<'a> {
                 }
                 place.field(access.index, field_ty)
             }
-            ExprKind::Deref(inner) => self.as_place(inner).deref(),
+            ExprKind::Deref(inner) => {
+                let place = self.as_place(inner);
+                if place.has_index() {
+                    // `*a[i]` (#43): rustc checks `a[i]` at its own span, which starts
+                    // after the `*`. A mention checks the indices and reads nothing.
+                    self.push_stmt(StatementKind::PlaceMention(place.clone()), inner.span);
+                }
+                place.deref()
+            }
             ExprKind::Index(base, index) => {
                 let derefs = self.types.index_derefs[&expr.id];
                 let mut place = self.as_place(base);

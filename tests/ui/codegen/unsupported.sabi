@@ -1,11 +1,10 @@
 // Constructs that pass type and borrow checking but the IL backend does not lower yet.
 // Each must be reported as E0500: the backend never compiles them to placeholder IL.
 // (`()`-typed struct fields and parameters were here until tuples and `()` values landed,
-// decision 52; references to references and to `()` until `Ref<T>`, decision 64.)
+// decision 52; references to references and to `()` until `Ref<T>`, decision 64; arrays
+// and slices of references until decision 77.)
 
-// An inline array cannot hold a managed pointer, nor a span view one (#43).
-fn First(_refs: [&i32; 2]) {} //~ ERROR E0500 an array holding references is not yet supported by code generation
-
-fn Second(_view: &[&i32]) {} //~ ERROR E0500 a slice of references is not yet supported by code generation
+// An inline array's length is an `int32` in the CLR.
+fn Huge(_bytes: &[u8; 3000000000]) {} //~ ERROR E0500 an array of more than 2147483647 elements is not yet supported by code generation
 
 fn Main() {}

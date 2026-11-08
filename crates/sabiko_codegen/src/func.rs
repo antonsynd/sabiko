@@ -1370,16 +1370,16 @@ impl FnCx<'_, '_> {
     }
 
     /// Whether `place` holds a reference in its `Ref<T>` wrapper (decision 64) rather
-    /// than as a managed pointer: a borrowed local, a tuple element, or the referent of a
-    /// reference to a reference.
+    /// than as a managed pointer: a borrowed local, a tuple element, an array or slice
+    /// element (decision 77), or the referent of a reference to a reference.
     fn is_wrapped(&self, place: &Place) -> bool {
         match place.projection.last() {
             None => self.wrapped[place.local.index()],
             Some(PlaceElem::Field(_, ty)) => {
                 Cx::is_byref(ty) && matches!(Self::parent(place).ty(self.body), Ty::Tuple(_))
             }
-            Some(PlaceElem::Deref) => Cx::is_byref(&place.ty(self.body)),
-            Some(PlaceElem::Index(_) | PlaceElem::Downcast(_)) => false,
+            Some(PlaceElem::Deref | PlaceElem::Index(_)) => Cx::is_byref(&place.ty(self.body)),
+            Some(PlaceElem::Downcast(_)) => false,
         }
     }
 
@@ -1793,15 +1793,14 @@ impl FnCx<'_, '_> {
         matches!(reference.ty(self.body), Ty::Ref(m, _) if m.is_mut())
     }
 
-    /// `Span<T>` to `ReadOnlySpan<T>`, on the value on top of the stack.
+    /// `Span<T>` to `ReadOnlySpan<T>` (or the views of decision 77), on the value on top
+    /// of the stack.
     fn span_to_read_only(&mut self, elem: &Ty, span: Span) {
         let mutable = types::span_class(self.cx, elem, true, span);
+        let open_mut = types::span_open(self.cx, elem, true);
+        let open = types::span_open(self.cx, elem, false);
         self.op(
-            format!(
-                "call valuetype {}<!0> valuetype {mutable}::op_Implicit(valuetype {}<!0>)",
-                types::READ_ONLY_SPAN_CLASS,
-                types::SPAN_CLASS
-            ),
+            format!("call valuetype {open}<!0> valuetype {mutable}::op_Implicit(valuetype {open_mut}<!0>)"),
             1,
             1,
         );
@@ -1809,13 +1808,14 @@ impl FnCx<'_, '_> {
 
     /// Pushes a span over the elements of the array whose address is on the stack:
     /// `MemoryMarshal.CreateSpan(ref a.Element, N)` (`CreateReadOnlySpan` for a shared
-    /// view). An empty array has no element to start a span at: the address is dropped
-    /// and an empty span pushed.
+    /// view; the generated view's constructor for elements that hold references, decision
+    /// 77). An empty array has no element to start a span at: the address is dropped and
+    /// an empty span pushed.
     fn array_span(&mut self, array: &Ty, mutable: bool, span: Span) {
         let Ty::Array(elem, n) = array else {
             unreachable!("a span over a non-array")
         };
-        let elem_cil = types::cil_type(self.cx, elem, span);
+        let elem_cil = types::stored_type(self.cx, elem, span);
         if *n == 0 {
             self.op("pop", 1, 0);
             let span_ty = Ty::Ref(
@@ -1840,19 +1840,8 @@ impl FnCx<'_, '_> {
             1,
         );
         self.ldc_i4(i32::try_from(*n).expect("array lengths fit an int32 (checked when lowered)"));
-        let (class, create) = if mutable {
-            (types::SPAN_CLASS, "CreateSpan")
-        } else {
-            (types::READ_ONLY_SPAN_CLASS, "CreateReadOnlySpan")
-        };
-        self.op(
-            format!(
-                "call valuetype {class}<!!0> {}::{create}<{elem_cil}>(!!0&, int32)",
-                types::MEMORY_MARSHAL
-            ),
-            2,
-            1,
-        );
+        let create = types::span_over(self.cx, elem, mutable, span);
+        self.op(create, 2, 1);
     }
 
     /// Makes the elements of the array or slice place `base` reachable as a span and says
@@ -2013,9 +2002,21 @@ impl FnCx<'_, '_> {
                 1,
             );
             self.operand_value(op, span);
-            self.store_indirect(elem, span);
+            self.store_element(elem, span);
         }
         self.ldloc(tmp);
+    }
+
+    /// Stores a value of type `elem` at the element address below it on the stack: a
+    /// reference in its `Ref<T>` wrapper (decision 77).
+    fn store_element(&mut self, elem: &Ty, span: Span) {
+        if Cx::is_byref(elem) {
+            self.wrap(elem, span);
+            let cil = types::stored_type(self.cx, elem, span);
+            self.op(format!("stobj {cil}"), 2, 0);
+        } else {
+            self.store_indirect(elem, span);
+        }
     }
 
     /// `[x; N]`: the operand is read once, then copied into every element with
@@ -2059,6 +2060,9 @@ impl FnCx<'_, '_> {
         self.stloc(sp);
         self.ldloca(sp);
         self.ldloc(value);
+        if Cx::is_byref(elem) {
+            self.wrap(elem, span);
+        }
         let class = types::span_class(self.cx, elem, true, span);
         self.op(
             format!("call instance void valuetype {class}::Fill(!0)"),
@@ -2174,11 +2178,7 @@ impl FnCx<'_, '_> {
             self.op("sub", 2, 1);
         }
         self.op("conv.i4", 1, 1);
-        let open = if mutable {
-            types::SPAN_CLASS
-        } else {
-            types::READ_ONLY_SPAN_CLASS
-        };
+        let open = types::span_open(self.cx, &elem, mutable);
         self.op(
             format!("call instance valuetype {open}<!0> valuetype {class}::Slice(int32, int32)"),
             3,

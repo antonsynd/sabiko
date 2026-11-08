@@ -2,8 +2,11 @@
 //! tuples and arrays of value types, slices and `str` (behind references only), references
 //! to any of them, and references to those references (#11: `&&T`, `&&mut T`, `&mut &T`,
 //! `&mut &mut T`, `&&str`, `&&[T]`; locals and parameters only, never three levels).
-//! Tuples, arrays, struct fields and enum payloads never hold references, so no `&str`
-//! either: TODO(#43) for `&str` (and `&&T`) in structs, enums, arrays and tuples.
+//! Tuples, arrays, struct fields and enum payloads of these types never hold references,
+//! so no `&str` either: arrays of references only appear as temporaries indexed in place
+//! (`["a", s][i]`, `[&x, r][i]`, #43). TODO(#92) for `&str` (and `&&T`) in the arrays,
+//! slices and tuples of locals and parameters; struct fields and enum payloads wait for
+//! lifetimes (Phase 9).
 
 /// The twelve integer types of the shared subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

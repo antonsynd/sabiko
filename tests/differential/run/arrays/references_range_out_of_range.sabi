@@ -1,0 +1,11 @@
+// An out-of-range sub-slice of a slice of references panics with rustc's message.
+fn Tail(s: &[&str], from: usize) -> usize {
+    s[from..].len()
+}
+
+fn Main() {
+    let names = ["ada", "grace"];
+    PrintLine(Tail(&names, 1));
+    PrintLine(Tail(&names, 2));
+    PrintLine(Tail(&names, 3));
+}
