@@ -1,0 +1,18 @@
+// A diverging tuple element later assigned a literal: its variable, unified with the
+// literal's, defaults as the literal (`i32`, `f64`), not to `!` (found while killing the
+// `check_tuple` mutant for #14; MIR validation failed before).
+fn F(c: bool) -> i32 {
+    let t = (return 1, 2);
+    let mut u = t;
+    u.0 = 5;
+    u.1
+}
+fn G() -> f64 {
+    let mut x = return 1.0;
+    x = 2.5;
+    x
+}
+fn Main() {
+    PrintLine(F(true));
+    PrintLine(G());
+}

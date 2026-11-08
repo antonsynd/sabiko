@@ -1,0 +1,7 @@
+[E0212] Error: no associated function or constant named `Missing` found for struct `S`
+   ╭─[ tests/ui/typeck/never_operand_error_operand.sabi:8:12 ]
+   │
+ 8 │     x + S::Missing //~ ERROR E0212 no associated function or constant named `Missing` found for struct `S`
+   │            ───┬───  
+   │               ╰───── associated function or constant not found in struct `S`
+───╯

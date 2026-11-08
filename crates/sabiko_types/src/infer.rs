@@ -137,10 +137,14 @@ impl InferCtxt {
 
     /// Binds every unbound variable inside `ty` to `Error`, after its problem was reported.
     /// The never-type fallback (edition 2024): `ty`, if still an unbound variable, becomes
-    /// `!`, which [`Self::unify`] never binds.
+    /// `!`, which [`Self::unify`] never binds. A diverging variable unified with an integer
+    /// or float literal's is that literal's now, and defaults as one (`let mut t = (return,
+    /// 2); t.0 = 5;` makes `t.0` an `i32`, as in rustc).
     pub fn fall_back_to_never(&mut self, ty: &Ty) {
         if let Ty::Infer(v) = self.shallow_resolve(ty) {
-            self.bind(v, Ty::Never);
+            if self.kind(v) == VarKind::General {
+                self.bind(v, Ty::Never);
+            }
         }
     }
 
@@ -280,6 +284,21 @@ mod tests {
         let f = cx.new_var(VarKind::Float);
         assert!(cx.unify(&f, &Ty::BOOL).is_err());
         assert_eq!(cx.resolve_with_defaults(&f), Ty::F64);
+    }
+
+    /// The never-type fallback binds a variable that is still general only: one unified
+    /// with a literal's variable defaults as the literal.
+    #[test]
+    fn never_fallback_leaves_literal_variables() {
+        let mut cx = InferCtxt::new();
+        let d = cx.new_var(VarKind::General);
+        let lit = cx.new_var(VarKind::Int);
+        cx.unify(&d, &lit).unwrap();
+        cx.fall_back_to_never(&d);
+        assert_eq!(cx.resolve_with_defaults(&d), Ty::I32);
+        let e = cx.new_var(VarKind::General);
+        cx.fall_back_to_never(&e);
+        assert_eq!(cx.resolve(&e), Ty::Never);
     }
 
     #[test]

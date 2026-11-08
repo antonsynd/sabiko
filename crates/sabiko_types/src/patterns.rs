@@ -818,9 +818,15 @@ impl Exhaustive<'_, '_> {
         };
         match &pat.kind {
             PatKind::TupleStruct(..) => self.body.pat_variants.contains_key(&pat.id),
-            PatKind::Path(_) | PatKind::Struct { .. } => {
-                self.body.pat_variants.contains_key(&pat.id) || is_struct()
+            // A path naming an associated or primitive constant (`S::C`, `i32::MAX`, #48)
+            // has its value; before, it was taken for an unresolved path and covered
+            // every value, so `match x { S::C => .. }` passed as exhaustive.
+            PatKind::Path(_) => {
+                self.body.pat_variants.contains_key(&pat.id)
+                    || is_struct()
+                    || self.body.pat_consts.contains_key(&pat.id)
             }
+            PatKind::Struct { .. } => self.body.pat_variants.contains_key(&pat.id) || is_struct(),
             _ => true,
         }
     }

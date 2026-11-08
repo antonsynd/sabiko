@@ -3,7 +3,9 @@
 // is unknown; a local written on two paths is unknown after they join; a local written
 // twice loses its value at the next rustc block; a branch, arm or `else` the constants
 // rule out is not visited; a borrowed or dropped local is not propagated; an aggregate
-// copied whole is unknown; overflow in floats is no error.
+// copied whole is unknown; overflow in floats is no error; the cast of a variant whose
+// discriminant follows an explicit one ends rustc's block (a checked addition), so a local
+// written twice before it is unknown after it.
 struct D {
     V: i32,
 }
@@ -15,6 +17,11 @@ impl Drop for D {
 enum E {
     A,
     B(usize),
+}
+
+enum K {
+    X = 5,
+    Y,
 }
 
 fn Get() -> usize {
@@ -111,4 +118,11 @@ fn Payload() -> i32 {
 
 fn Float() -> f64 {
     1.0e308 * 10.0
+}
+
+fn ExplicitBase() -> i32 {
+    let mut x = 1;
+    x = 2147483647;
+    let k = K::Y as usize;
+    x + 1
 }

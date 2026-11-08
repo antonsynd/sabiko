@@ -364,6 +364,60 @@ get killing tests (one shape was a miscompile) and 25 are equivalent, 96.3%.
 are in pattern checking and exhaustiveness (`check_pat_in_mode`, `rest_positions`,
 `patterns.rs`, `usefulness.rs`).
 
+Nightly run 23 (2026-11-08, on `799a45b`) re-measured all three for the Phase 5 exit (#14):
+
+| Crate | Mutants | Caught + timeout / viable | Score | Threshold |
+| --- | --- | --- | --- | --- |
+| `sabiko_borrowck` | 422 | 342 + 4 / 364 | 95.0% | 93 |
+| `sabiko_codegen` | 685 | 643 + 4 / 675 | 95.8% | 95 |
+| `sabiko_types` | 1321 | 1173 + 1 / 1205 | 97.4% | 98 |
+
+`sabiko_types` fell below its threshold with 31 survivors, 14 more than run 20, in code
+added since: associated constants (#48), tuple constants in patterns (#50) and `!`
+operands (#87). Tests kill 10 of them, checked with `cargo mutants --re` on those mutants
+against the crate's test packages (`sabiko_driver`, `sabiko_mir`) on a tree whose own
+tests pass (a first check on a tree where the new differential program crashed counted
+every mutant as caught):
+- the MIR fixture `const_values.sabi`: `bool` and integer `|` in constants (`binary`),
+  tuple constants of one and two elements as MIR prints them (`ConstValue::render`'s
+  `Ty::Tuple` arm and one-element `(x,)`), and `char` and float associated constants
+  (`prim_const`);
+- `tests/ui/typeck/const_pattern_usefulness.sabi`: a constant covers only its value, a
+  tuple constant is a tuple pattern of its elements (`const_pat_kind`'s `Ty::Tuple` arm),
+  and a path naming an associated or primitive constant (`S::K`, `i32::MAX`) is that
+  constant (`lower_kind`'s `DefKind::Const` guard on paths). Writing it found a soundness
+  bug from #48: `names_a_constructor` took such a path for an unresolved one and lowered
+  it to a wildcard, so `match x { S::K => 1 }` on an `i32` passed as exhaustive and reached
+  the `unreachable` terminator at run time; rustc's E0004 witnesses now come out the same;
+- `tests/ui/typeck/never_operand_error_operand.sabi`: an operation on `!` whose other
+  operand already failed is reported once (`check_never_operands`' `Ty::Error` filter);
+- `tests/differential/never/ok_tuple_diverging_element_assigned.sabi`: a diverging tuple
+  element without an expected type gets a diverging variable, not `!` (`check_tuple`).
+  Writing it found a bug: the never-type fallback bound that variable to `!` even after
+  `u.0 = 5` had unified it with the literal's, so MIR held a `5` of type `!` (a validation
+  failure). The fallback now leaves a variable an integer or float literal decided
+  (`never_fallback_leaves_literal_variables`; run-time program
+  `differential/run/regressions/never_element_assigned_literal.sabi`);
+- `ExplicitBase` in `tests/ui/lints/ok_not_flagged.sabi`: casting a variant whose
+  discriminant follows an explicit one ends rustc's block, so a local written twice
+  before it is unknown after it (`collect`'s `explicit_base |=`);
+- #93's `tests/ui/typeck/never_operand_result_used_first.sabi`, which landed after run 23:
+  `check_decided_operation` (the whole function and its first `&&`).
+
+That gives 1184 of 1205, 98.3%. The 21 left are 12 equivalent mutants and 9 older
+pattern-checking survivors. Equivalent: those of the 2026-10-21 list (`(max << 1) | 1`
+and the sign extension's `|` as `^`, the `op.is_comparison()` and float-cast
+`p.is_integer()` guards, the parenthesised callee's `!` in `check_call`, `check_if`'s `(_,
+!)` arm); a tuple-constant field's guard `access.autoderefs == 0 && access.index <
+elems.len()` and its `&&` and `<` mutants, since the type checker admits `.N` on a tuple
+constant only in range and never through a reference; `compare`'s `Float` arm and
+`PatValues::value`'s `DefKind::Const` guard, which only range bounds reach and float
+ranges are rejected (#49); and `lower_kind`'s `i < fields.len()` as `<=`, since
+`rest_positions` never yields the length. The older ones are run 20's
+(`check_pat_in_mode`'s guards at four arms, `peel_pat_refs`'s `>`, `rest_positions`'s
+`>`, and `usefulness.rs`'s `IntRange::intersection` `<`, the `AdtShape::Enum` guard and a
+`<` in `Checker::lower`). The threshold stays at 98.
+
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
 2026-10-21, `sabiko_borrowck` on 2026-10-22), score = (caught + timeout) / viable:
 
