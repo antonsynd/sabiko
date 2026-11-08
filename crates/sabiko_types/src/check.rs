@@ -135,6 +135,26 @@ struct PendingCast {
     to: Ty,
 }
 
+/// A binary operation with an operand of type `!` (#87), or typed by a diverging variable
+/// nothing has decided yet (`let y = return; y + 1`), judged in `finish` before the
+/// never-type fallback. rustc types an operator's right operand against a fresh variable
+/// that only the operator trait's impl for the left type decides, so `!` reaches the
+/// trait instead of coercing: no arithmetic, bitwise or shift trait has an impl for `!`
+/// (`i32` has `Add<i32>` and `Add<&i32>`, so nothing decides the variable), and a
+/// comparison takes one only when the left type is known before the literal defaults
+/// and has a single impl. A variable decided by `finish` (`let _: i32 = y;`) makes the
+/// operation an ordinary one, checked then.
+struct NeverOperand {
+    op: BinOp,
+    /// `a op= b`.
+    compound: bool,
+    lhs: Ty,
+    rhs: Ty,
+    span: Span,
+    /// The result of an arithmetic or shift operation, unknown until it is judged.
+    out: Option<Ty>,
+}
+
 #[allow(clippy::struct_excessive_bools)] // independent flags of the expression being checked
 pub(crate) struct FnCtxt<'a> {
     resolve: &'a ResolveResults,
@@ -186,6 +206,7 @@ pub(crate) struct FnCtxt<'a> {
     pending_prints: Vec<(Builtin, Span, Ty)>,
     /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
     pending_comparisons: Vec<(BinOp, Ty, Span)>,
+    never_operands: Vec<NeverOperand>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a HashMap<DefId, crate::ConstValue>>,
@@ -238,6 +259,7 @@ impl<'a> FnCtxt<'a> {
             diverging_vars: Vec::new(),
             pending_prints: Vec::new(),
             pending_comparisons: Vec::new(),
+            never_operands: Vec::new(),
             consts: None,
             index_derefs: HashMap::new(),
             len_calls: HashMap::new(),
@@ -539,17 +561,47 @@ impl<'a> FnCtxt<'a> {
     /// the expression's own type, which is also recorded.
     fn check_expr(&mut self, expr: &Expr, expected: Option<&Ty>) -> Ty {
         let ty = self.check_expr_kind(expr, expected);
+        self.coerce_to_expected(expr, &ty, expected);
+        self.record(expr, ty)
+    }
+
+    fn coerce_to_expected(&mut self, expr: &Expr, ty: &Ty, expected: Option<&Ty>) {
         if let Some(exp) = expected {
             // Blocks and `if` report mismatches on their tails / branches themselves.
             if !matches!(
                 expr.kind,
                 ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
             ) {
-                self.coerce(expr.span, &ty, exp);
-                self.note_pointer_coercion(expr.id, &ty, exp);
+                self.coerce(expr.span, ty, exp);
+                self.note_pointer_coercion(expr.id, ty, exp);
             }
         }
-        self.record(expr, ty)
+    }
+
+    /// Checks an operand of an operator as [`Self::check_expr`] does, also saying whether
+    /// its type is `!` or a diverging variable still open (see [`NeverOperand`]). Such an
+    /// operand is not coerced to `expected`, which then only guides the checking: the
+    /// operator decides what it becomes.
+    fn check_operand(&mut self, expr: &Expr, expected: Option<&Ty>) -> (Ty, bool) {
+        if let ExprKind::Paren(inner) = &expr.kind {
+            let (ty, never) = self.check_operand(inner, expected);
+            return (self.record(expr, ty), never);
+        }
+        let ty = self.check_expr_kind(expr, expected);
+        let never = self.is_never_like(&ty);
+        if !never {
+            self.coerce_to_expected(expr, &ty, expected);
+        }
+        (self.record(expr, ty), never)
+    }
+
+    /// Whether `ty` is `!` or a diverging variable nothing has decided yet.
+    fn is_never_like(&mut self, ty: &Ty) -> bool {
+        match self.shallow(ty) {
+            Ty::Never => true,
+            Ty::Infer(v) => self.is_diverging_var(v),
+            _ => false,
+        }
     }
 
     /// Records a coercion of `found` to `expected` that changes the pointer's
@@ -596,13 +648,23 @@ impl<'a> FnCtxt<'a> {
             ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let lhs_ty = self.check_place(lhs);
-                let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) {
+                let lhs_never = self.is_never_like(&lhs_ty);
+                let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) || lhs_never {
                     None
                 } else {
                     Some(&lhs_ty)
                 };
-                let rhs_ty = self.check_expr(rhs, rhs_expected);
-                if matches!(op, BinOp::Shl | BinOp::Shr) {
+                let (rhs_ty, rhs_never) = self.check_operand(rhs, rhs_expected);
+                if lhs_never || rhs_never {
+                    self.never_operands.push(NeverOperand {
+                        op: *op,
+                        compound: true,
+                        lhs: lhs_ty,
+                        rhs: rhs_ty,
+                        span: expr.span,
+                        out: None,
+                    });
+                } else if matches!(op, BinOp::Shl | BinOp::Shr) {
                     self.check_shift_operands(*op, &lhs_ty, &rhs_ty, expr.span);
                 } else {
                     self.check_arith_operands(*op, &lhs_ty, &rhs_ty, expr.span);
@@ -1796,12 +1858,25 @@ impl<'a> FnCtxt<'a> {
             self.negating = !inner && matches!(operand, ExprKind::Lit(Lit::Int { .. }));
             self.double_negation = matches!(operand, ExprKind::Unary(UnOp::Neg, _));
         }
-        let ty = self.check_expr(operand, expected);
+        let (ty, never) = self.check_operand(operand, expected);
         self.negating = false;
         self.double_negation = false;
         let resolved = self.shallow(&ty);
+        if never && matches!(resolved, Ty::Infer(_)) {
+            // `let y = return; -y`: rustc needs `y`'s type here to pick the operator's
+            // impl, even if a later use would decide it (E0282).
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                    "type annotations needed",
+                )
+                .with_label(operand.span, "cannot infer the type of this operand"),
+            );
+            return Ty::Error;
+        }
         let ok = match (&resolved, op) {
-            (Ty::Error | Ty::Never, _) => true,
+            // `!(return)` is `!: Not`; there is no `!: Neg` (#87).
+            (Ty::Error, _) | (Ty::Never, UnOp::Not) => true,
             (Ty::Infer(v), _) => {
                 let kind = self.infer.kind(*v);
                 match op {
@@ -1853,13 +1928,26 @@ impl<'a> FnCtxt<'a> {
                 Ty::BOOL
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                let l = self.check_expr(lhs, None);
+                let (l, l_never) = self.check_operand(lhs, None);
+                if l_never {
+                    // Only `!: PartialEq<!>` and `!: PartialOrd<!>` exist.
+                    let (r, _) = self.check_operand(rhs, None);
+                    self.never_operand(op, l, r, span);
+                    return Ty::BOOL;
+                }
                 if let Ty::Ref(..) = self.shallow(&l) {
                     self.check_ref_comparison(op, &l, rhs, span);
                     return Ty::BOOL;
                 }
                 let errors_before = self.sink.error_count();
-                self.check_expr(rhs, Some(&l));
+                let (r, r_never) = self.check_operand(rhs, Some(&l));
+                if r_never {
+                    if self.comparison_decided(op, &l) != Some(true) {
+                        self.never_operand(op, l, r, span);
+                        return Ty::BOOL;
+                    }
+                    self.coerce(rhs.span, &r, &l);
+                }
                 let resolved = self.shallow(&l);
                 if matches!(resolved, Ty::Tuple(_)) && self.sink.error_count() > errors_before {
                     // `(1, 2) == (1, 2, 3)`: the mismatch is the problem worth reporting.
@@ -1876,8 +1964,11 @@ impl<'a> FnCtxt<'a> {
                 Ty::BOOL
             }
             BinOp::Shl | BinOp::Shr => {
-                let l = self.check_expr(lhs, expected);
-                let r = self.check_expr(rhs, None);
+                let (l, l_never) = self.check_operand(lhs, expected);
+                let (r, r_never) = self.check_operand(rhs, None);
+                if l_never || r_never {
+                    return self.never_operand(op, l, r, span);
+                }
                 if self.check_shift_operands(op, &l, &r, span) {
                     l
                 } else {
@@ -1885,8 +1976,11 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             _ => {
-                let l = self.check_expr(lhs, expected);
-                let r = self.check_expr(rhs, Some(&l));
+                let (l, l_never) = self.check_operand(lhs, expected);
+                let (r, r_never) = self.check_operand(rhs, (!l_never).then_some(&l));
+                if l_never || r_never {
+                    return self.never_operand(op, l, r, span);
+                }
                 if self.check_arith_operands(op, &l, &r, span) {
                     l
                 } else {
@@ -1905,10 +1999,18 @@ impl<'a> FnCtxt<'a> {
     /// outer reference from the left one and coerces to it, so a `&mut` right operand of a
     /// `&` left one is accepted, but every inner level must match exactly.
     fn check_ref_comparison(&mut self, op: BinOp, lhs_ty: &Ty, rhs: &Expr, span: Span) {
-        let rhs_ty = self.check_expr(rhs, None);
+        let (rhs_ty, rhs_never) = self.check_operand(rhs, None);
+        if rhs_never {
+            if self.comparison_decided(op, lhs_ty) == Some(true) {
+                self.coerce(rhs.span, &rhs_ty, lhs_ty);
+            } else {
+                self.never_operand(op, lhs_ty.clone(), rhs_ty, span);
+            }
+            return;
+        }
         let r_res = self.shallow(&rhs_ty);
         match r_res {
-            Ty::Never | Ty::Error => return,
+            Ty::Error => return,
             Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
                 self.coerce(rhs.span, &rhs_ty, lhs_ty);
                 return;
@@ -1968,6 +2070,121 @@ impl<'a> FnCtxt<'a> {
         } else if !is_comparable(&referent) {
             let resolved = self.infer.resolve(lhs_ty);
             self.binary_op_error(op, &resolved, span);
+        }
+    }
+
+    /// Records an operation with an operand of type `!` (see [`NeverOperand`]) and
+    /// returns its type for now.
+    fn never_operand(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
+        let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
+        let ty = out.clone().unwrap_or(Ty::BOOL);
+        self.never_operands.push(NeverOperand {
+            op,
+            compound: false,
+            lhs,
+            rhs,
+            span,
+            out,
+        });
+        ty
+    }
+
+    /// Whether a comparison with a `!` right operand and left operand type `lhs` has an
+    /// impl to take: a scalar has one (`i32: PartialEq<i32>`), `&A` has one `PartialOrd`
+    /// impl (`PartialOrd<&B>`) but two `PartialEq` ones (`PartialEq<&B>` and
+    /// `PartialEq<&mut B>`). `None` while `lhs` is still a variable (`{integer}` has an
+    /// impl per integer type).
+    fn comparison_decided(&mut self, op: BinOp, lhs: &Ty) -> Option<bool> {
+        match self.shallow(lhs) {
+            Ty::Infer(_) => None,
+            Ty::Ref(..) => Some(!matches!(op, BinOp::Eq | BinOp::Ne)),
+            // Other types are judged by the comparison itself.
+            _ => Some(true),
+        }
+    }
+
+    /// Judges the operations [`Self::never_operand`] recorded, before the never-type
+    /// fallback: an operand still `!` or still an open diverging variable is `!`.
+    fn check_never_operands(&mut self) {
+        for n in std::mem::take(&mut self.never_operands) {
+            let l_never = self.is_never_like(&n.lhs);
+            let r_never = self.is_never_like(&n.rhs);
+            let ok = if !n.op.is_comparison() || n.compound {
+                !l_never && !r_never
+            } else if l_never {
+                r_never
+            } else if r_never {
+                match self.comparison_decided(n.op, &n.lhs) {
+                    Some(decided) => decided,
+                    // An unknown type is reported with its local.
+                    None => {
+                        matches!(self.shallow(&n.lhs), Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
+                    }
+                }
+            } else {
+                true
+            };
+            if ok {
+                self.check_decided_operation(&n, r_never);
+                continue;
+            }
+            if let Some(out) = &n.out {
+                self.infer.bind_error(out);
+            }
+            let mut side = |never: bool, ty: &Ty| {
+                if never {
+                    return Some("!".to_owned());
+                }
+                let ty = self.infer.resolve_with_defaults(ty);
+                // Reported already, or with its local.
+                (ty != Ty::Error && !ty.has_infer()).then(|| self.ty_str(&ty))
+            };
+            let (Some(l), Some(r)) = (side(l_never, &n.lhs), side(r_never, &n.rhs)) else {
+                continue;
+            };
+            let sym = format!("{}{}", n.op.as_str(), if n.compound { "=" } else { "" });
+            let assign = if n.compound { "-assign" } else { "" };
+            let message = match n.op {
+                _ if n.op.is_comparison() => format!("can't compare `{l}` with `{r}`"),
+                BinOp::Add => format!("cannot add{assign} `{r}` to `{l}`"),
+                BinOp::Sub => format!("cannot subtract{assign} `{r}` from `{l}`"),
+                BinOp::Mul => format!("cannot multiply{assign} `{l}` by `{r}`"),
+                BinOp::Div => format!("cannot divide{assign} `{l}` by `{r}`"),
+                BinOp::Rem if n.compound => {
+                    format!("cannot calculate and assign the remainder of `{l}` divided by `{r}`")
+                }
+                BinOp::Rem => format!("cannot calculate the remainder of `{l}` divided by `{r}`"),
+                _ => format!("no implementation for `{l} {sym} {r}`"),
+            };
+            self.error(
+                Diagnostic::error(ErrorCode::INVALID_BINARY_OP, message)
+                    .with_label(n.span, format!("no implementation for `{l} {sym} {r}`"))
+                    .with_note(
+                        "`!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself",
+                    ),
+            );
+        }
+    }
+
+    /// A recorded operation whose operands were decided after all (`let y = return; let
+    /// r = y + 1; let _: i32 = y;`): checked as an ordinary one now.
+    fn check_decided_operation(&mut self, n: &NeverOperand, r_never: bool) {
+        let shift = matches!(n.op, BinOp::Shl | BinOp::Shr);
+        if n.op.is_comparison() && !n.compound {
+            if !r_never {
+                self.coerce(n.span, &n.rhs, &n.lhs);
+            }
+            return;
+        }
+        let ok = if shift {
+            self.check_shift_operands(n.op, &n.lhs, &n.rhs, n.span)
+        } else {
+            self.coerce(n.span, &n.rhs, &n.lhs);
+            self.check_arith_operands(n.op, &n.lhs, &n.rhs, n.span)
+        };
+        if let Some(out) = &n.out {
+            let result = if ok { n.lhs.clone() } else { Ty::Error };
+            let _ = self.infer.unify(out, &result);
         }
     }
 
@@ -2902,6 +3119,7 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn finish(mut self) -> BodyTypes {
+        self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).
         for v in std::mem::take(&mut self.diverging_vars) {

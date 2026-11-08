@@ -748,6 +748,19 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     arrive in Phase 6).
   - `&& ||`: `bool` operands, `bool` result.
   - Unary `-`: signed integer or float. Unary `!`: integer or `bool`.
+  - An operand of type `!` does not coerce to the other operand's type (#87, decision 75),
+    as rustc types the right operand against a variable that only the operator trait's
+    impl for the left type decides. Arithmetic, bitwise, shift and compound assignment
+    operators reject it (`1 + return 2`, `x += loop {}`: E0306), as does unary `-`
+    (E0307); unary `!` and `&& ||` accept it. A comparison accepts a `!` right operand
+    when the left operand's type is known by the end of the body, before literals take
+    their defaults, and has one impl: a primitive (`x == return true` for `x: i32`, but
+    not `1 == return true`, whose `{integer}` has one per integer type), or a reference
+    under `< <= > >=` (`&A` has two `PartialEq` impls, so `s == return true` is E0306 for
+    `s: &str`). A `!` left operand compares only with another `!`. A diverging variable
+    (`let y = return;`) that nothing has decided when the operator is checked is judged
+    as `!` if nothing decides it later either; a unary operator on one is E0313, as rustc
+    needs its type at once.
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an
   operator whose other operand fixed the type is E0300.
 - Casts `e as T`, with Rust semantics (integer casts wrap, float to integer saturates):

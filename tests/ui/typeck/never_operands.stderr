@@ -1,0 +1,221 @@
+[E0306] Error: cannot add `!` to `i32`
+   ╭─[ tests/ui/typeck/never_operands.sabi:5:5 ]
+   │
+ 5 │     x + return 2 //~ ERROR E0306 cannot add `!` to `i32`
+   │     ──────┬─────  
+   │           ╰─────── no implementation for `i32 + !`
+   │ 
+   │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+───╯
+[E0306] Error: cannot add `i32` to `!`
+   ╭─[ tests/ui/typeck/never_operands.sabi:9:5 ]
+   │
+ 9 │     (return 2) + 1 //~ ERROR E0306 cannot add `i32` to `!`
+   │     ───────┬──────  
+   │            ╰──────── no implementation for `! + i32`
+   │ 
+   │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+───╯
+[E0306] Error: cannot multiply `!` by `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:13:5 ]
+    │
+ 13 │     (return 2) * (return 3) //~ ERROR E0306 cannot multiply `!` by `!`
+    │     ───────────┬───────────  
+    │                ╰───────────── no implementation for `! * !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot subtract `!` from `i32`
+    ╭─[ tests/ui/typeck/never_operands.sabi:17:13 ]
+    │
+ 17 │     let _ = x - loop {}; //~ ERROR E0306 cannot subtract `!` from `i32`
+    │             ─────┬─────  
+    │                  ╰─────── no implementation for `i32 - !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot divide `i32` by `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:18:13 ]
+    │
+ 18 │     let _ = x / { return }; //~ ERROR E0306 cannot divide `i32` by `!`
+    │             ───────┬──────  
+    │                    ╰──────── no implementation for `i32 / !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot calculate the remainder of `i32` divided by `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:19:13 ]
+    │
+ 19 │     let _ = x % Panic("p"); //~ ERROR E0306 cannot calculate the remainder of `i32` divided by `!`
+    │             ───────┬──────  
+    │                    ╰──────── no implementation for `i32 % !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: no implementation for `i32 & !`
+    ╭─[ tests/ui/typeck/never_operands.sabi:20:13 ]
+    │
+ 20 │     let _ = x & (return); //~ ERROR E0306 no implementation for `i32 & !`
+    │             ──────┬─────  
+    │                   ╰─────── no implementation for `i32 & !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: no implementation for `bool | !`
+    ╭─[ tests/ui/typeck/never_operands.sabi:21:13 ]
+    │
+ 21 │     let _ = b | (return); //~ ERROR E0306 no implementation for `bool | !`
+    │             ──────┬─────  
+    │                   ╰─────── no implementation for `bool | !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: no implementation for `i32 << !`
+    ╭─[ tests/ui/typeck/never_operands.sabi:22:13 ]
+    │
+ 22 │     let _ = x << (return); //~ ERROR E0306 no implementation for `i32 << !`
+    │             ──────┬──────  
+    │                   ╰──────── no implementation for `i32 << !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: no implementation for `! >> i32`
+    ╭─[ tests/ui/typeck/never_operands.sabi:23:13 ]
+    │
+ 23 │     let _ = (return) >> x; //~ ERROR E0306 no implementation for `! >> i32`
+    │             ──────┬──────  
+    │                   ╰──────── no implementation for `! >> i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot add-assign `!` to `i32`
+    ╭─[ tests/ui/typeck/never_operands.sabi:27:5 ]
+    │
+ 27 │     x += return; //~ ERROR E0306 cannot add-assign `!` to `i32`
+    │     ─────┬─────  
+    │          ╰─────── no implementation for `i32 += !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot subtract-assign `!` from `i32`
+    ╭─[ tests/ui/typeck/never_operands.sabi:28:5 ]
+    │
+ 28 │     x -= return; //~ ERROR E0306 cannot subtract-assign `!` from `i32`
+    │     ─────┬─────  
+    │          ╰─────── no implementation for `i32 -= !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot multiply-assign `i32` by `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:29:5 ]
+    │
+ 29 │     x *= return; //~ ERROR E0306 cannot multiply-assign `i32` by `!`
+    │     ─────┬─────  
+    │          ╰─────── no implementation for `i32 *= !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot calculate and assign the remainder of `i32` divided by `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:30:5 ]
+    │
+ 30 │     x %= return; //~ ERROR E0306 cannot calculate and assign the remainder of `i32` divided by `!`
+    │     ─────┬─────  
+    │          ╰─────── no implementation for `i32 %= !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: no implementation for `i32 <<= !`
+    ╭─[ tests/ui/typeck/never_operands.sabi:31:5 ]
+    │
+ 31 │     x <<= return; //~ ERROR E0306 no implementation for `i32 <<= !`
+    │     ──────┬─────  
+    │           ╰─────── no implementation for `i32 <<= !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `i32` with `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:38:5 ]
+    │
+ 38 │     1 == return true //~ ERROR E0306 can't compare `i32` with `!`
+    │     ────────┬───────  
+    │             ╰───────── no implementation for `i32 == !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `f64` with `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:42:5 ]
+    │
+ 42 │     1.5 < { return true } //~ ERROR E0306 can't compare `f64` with `!`
+    │     ──────────┬──────────  
+    │               ╰──────────── no implementation for `f64 < !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `i32` with `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:47:5 ]
+    │
+ 47 │     x != loop {} //~ ERROR E0306 can't compare `i32` with `!`
+    │     ──────┬─────  
+    │           ╰─────── no implementation for `i32 != !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `&str` with `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:51:5 ]
+    │
+ 51 │     s == return true //~ ERROR E0306 can't compare `&str` with `!`
+    │     ────────┬───────  
+    │             ╰───────── no implementation for `&str == !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `&i32` with `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:55:5 ]
+    │
+ 55 │     r != return true //~ ERROR E0306 can't compare `&i32` with `!`
+    │     ────────┬───────  
+    │             ╰───────── no implementation for `&i32 != !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `!` with `i32`
+    ╭─[ tests/ui/typeck/never_operands.sabi:59:5 ]
+    │
+ 59 │     (return true) == 1i32 //~ ERROR E0306 can't compare `!` with `i32`
+    │     ──────────┬──────────  
+    │               ╰──────────── no implementation for `! == i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot add `!` to `i32`
+    ╭─[ tests/ui/typeck/never_operands.sabi:65:5 ]
+    │
+ 65 │     1 + y //~ ERROR E0306 cannot add `!` to `i32`
+    │     ──┬──  
+    │       ╰──── no implementation for `i32 + !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `i32` with `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:71:5 ]
+    │
+ 71 │     x == y //~ ERROR E0306 can't compare `i32` with `!`
+    │     ───┬──  
+    │        ╰──── no implementation for `i32 == !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0307] Error: cannot apply unary operator `-` to type `!`
+    ╭─[ tests/ui/typeck/never_operands.sabi:76:6 ]
+    │
+ 76 │     -(return 1) //~ ERROR E0307 cannot apply unary operator `-` to type `!`
+    │      ─────┬────  
+    │           ╰────── cannot apply unary operator `-`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_operands.sabi:81:19 ]
+    │
+ 81 │     let r: i32 = -y; //~ ERROR E0313 type annotations needed
+    │                   ┬  
+    │                   ╰── cannot infer the type of this operand
+────╯

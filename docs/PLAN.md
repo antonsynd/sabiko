@@ -956,8 +956,14 @@ Edition 2024 (#81, decision 74): the language and every rustc oracle moved from 
 by-reference default binding mode are E0337 (#84), and the never type falls back to `!`
 (#85). Two differential programs that tested 2021's by-value `mut` binding were removed
 (now UI tests), and new ones pin 2024's drop order and the tail temporary that can no
-longer escape its block. Open: let chains (#86), `1 == return true` (#87, both editions),
-temporary lifetime extension through a block's tail (#88, both editions).
+longer escape its block. Open: let chains (#86), temporary lifetime extension through a
+block's tail (#88, both editions).
+
+Operands of type `!` (#87, decision 75): `1 == return true` was accepted, because the type
+checker coerced a `!` operand to the other operand's type; rustc rejects it in every
+edition (no `i32: PartialEq<!>`). Operators now judge `!` operands as rustc's trait
+selection does (SPEC 11.2, Operators); 92 of 93 probe programs over every operator agree
+with rustc (the other compares tuples, not yet supported; `tests/ui/typeck/never_operands.sabi`, `differential/never/ok_never_operands.sabi`).
 
 ### Phase 5: Data types
 
