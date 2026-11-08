@@ -1,0 +1,9 @@
+// Each alternative of an or-pattern binds its `ref mut` before the guard, which may not borrow the scrutinee.
+enum E { A(i32, i32), B }
+fn Main() {
+    let mut o = E::A(1, 2);
+    match o {
+        E::A(ref mut a, _) | E::A(_, ref mut a) if { let r = &o; true } => { *a = 1; }
+        _ => {}
+    }
+}

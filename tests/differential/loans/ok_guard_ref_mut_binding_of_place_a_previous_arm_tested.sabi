@@ -1,0 +1,11 @@
+// A `ref mut` binding of a place an earlier arm tested does not conflict with the guard's fake borrow.
+enum E { A(i32, i32), B }
+fn Main() {
+    let mut o = E::A(1, 2);
+    let c = true;
+    match o {
+        E::B => {}
+        ref mut x if c => { *x = E::B; }
+        _ => {}
+    }
+}

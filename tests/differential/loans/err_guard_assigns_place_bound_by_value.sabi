@@ -1,0 +1,8 @@
+// A by-value binding's place is borrowed to the end of the guard (rustc's fake read): the guard may not assign it.
+fn Main() {
+    let mut t = (1, 2);
+    match t {
+        (_, b) if { t.1 = 5; true } => { PrintLine(b); }
+        _ => {}
+    }
+}

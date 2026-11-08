@@ -1,0 +1,8 @@
+// A `ref` binding the arm uses conflicts with a mutable borrow of its place in the guard.
+fn Main() {
+    let mut t = (1, 2);
+    match t {
+        ref x if { let r = &mut t; r.0 > 0 } => { PrintLine(x.0); }
+        _ => {}
+    }
+}

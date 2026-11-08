@@ -1,0 +1,9 @@
+// A guard may read a field the `ref mut` binding does not borrow.
+fn Main() {
+    let mut t = (1, 2);
+    match t {
+        (ref mut a, b) if t.1 >= b => { *a = 3; }
+        _ => {}
+    }
+    PrintLine(t.0);
+}

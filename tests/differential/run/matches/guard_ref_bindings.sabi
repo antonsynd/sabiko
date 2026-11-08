@@ -1,0 +1,49 @@
+// `ref` and `ref mut` bindings are bound before their guard (#100): a guard that fails on
+// one alternative of an or-pattern leaves the next to bind the same names again, a guard
+// reads through a `ref mut` binding the arm then writes through, and by-value bindings
+// copy their parts only once the guard holds.
+enum E { A(i32, i32), B }
+
+fn Bump(o: &mut E, limit: i32) -> i32 {
+    match o {
+        E::A(a, _) | E::A(_, a) if *a > limit => {
+            *a += 100;
+            *a
+        }
+        _ => 0,
+    }
+}
+
+fn Explicit(mut o: E, limit: i32) -> i32 {
+    let r = match o {
+        E::A(ref mut a, _) | E::A(_, ref mut a) if *a > limit => {
+            *a += 10;
+            *a
+        }
+        E::A(ref x, ref y) if *x == *y => *x * 1000,
+        E::A(x, y) if x < y => x - y,
+        _ => -1,
+    };
+    match o {
+        E::A(x, y) => {
+            Print(x);
+            Print(' ');
+            PrintLine(y);
+        }
+        E::B => PrintLine("B"),
+    }
+    r
+}
+
+fn Main() {
+    let mut o = E::A(1, 7);
+    PrintLine(Bump(&mut o, 5));
+    PrintLine(Bump(&mut o, 0));
+    PrintLine(Bump(&mut o, 1000));
+    PrintLine(Explicit(E::A(9, 2), 5));
+    PrintLine(Explicit(E::A(2, 9), 5));
+    PrintLine(Explicit(E::A(3, 3), 5));
+    PrintLine(Explicit(E::A(1, 2), 5));
+    PrintLine(Explicit(E::A(4, 2), 5));
+    PrintLine(Explicit(E::B, 5));
+}

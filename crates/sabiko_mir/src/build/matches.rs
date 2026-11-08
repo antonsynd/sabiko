@@ -12,20 +12,26 @@
 //! temporary unless it is a place, and mentioned (`PlaceMention`, as rustc does): a match
 //! reads only what its tests read (a lone `_` arm reads nothing).
 //!
-//! Guards (rustc's scheme): before the guard runs, the places the match inspects are
-//! *fake*-borrowed (shallow borrows the borrow checker treats as shared ones, so assigning
-//! or mutably borrowing them in the guard is an error, rustc's E0510) and each binding is
-//! bound by shared reference. The fake-borrowed places are rustc's: across every
+//! Guards (rustc's scheme): before the guard runs, the candidate's bindings are made for
+//! it, then the places the match inspects are *fake*-borrowed (shallow borrows the borrow
+//! checker treats as shared ones, so assigning or mutably borrowing them in the guard is
+//! an error, rustc's E0510). A `ref`/`ref mut` binding gets its arm's reference there and
+//! then (rustc's `RefWithinGuard`, #100), so while the arm uses it the guard may not read
+//! a place it mutably borrows or write one it borrows; a by-value binding is bound by
+//! shared reference, kept alive to the end of the guard (rustc's fake read), so the guard
+//! may not write its place either. The fake-borrowed places are rustc's: across every
 //! candidate of the match, each place a test reads (an enum's discriminant, a compared
 //! value) and each prefix of it that ends just before a `Deref`, and the prefixes before a
 //! `Deref` of each binding's place; a match whose patterns test nothing and bind nothing
 //! behind a reference takes none (`match p { _ if g => .. }` reads nothing of `p`, so a
 //! live `&mut p` is no conflict). Inside the guard a name denotes `*g` for a reference `g`
-//! to its place (or `g` itself for a binding that is a reference), so a guard can neither
-//! move out of the scrutinee nor write through a binding (`mut n`, `ref mut n`: E0594 in
-//! rustc). A guard that fails tries the next candidate; one that holds keeps the fake
-//! borrows alive to its end and then binds by value, so a binding moves its part of the
-//! scrutinee only once its arm is taken.
+//! to its place (or `g` itself for a binding that is a reference, the arm's own local for
+//! a `ref` binding, and `*g` for a `g` borrowing a `ref mut` binding's local), so a guard
+//! can neither move out of the scrutinee nor write through a binding (`mut n`, `ref mut
+//! n`: E0594 in rustc). A guard that fails ends its `ref`/`ref mut` bindings' storage and
+//! tries the next candidate; one that holds keeps the fake borrows and the by-value
+//! bindings' references alive to its end and then binds by value, so a binding moves its
+//! part of the scrutinee only once its arm is taken.
 //!
 //! Tests are made once per place, as rustc's decision tree makes them (decision 72): a
 //! discriminant read, or the value of a place more than one candidate compares, goes into
@@ -696,6 +702,9 @@ impl Builder<'_> {
             }
             BindMode::Prepared => {
                 let local = self.mir_local(id);
+                if self.bound_for_guard.contains(&local) {
+                    return;
+                }
                 if by_value {
                     self.body.locals[local.index()].match_span = self.binding_scrutinee;
                 }
@@ -705,9 +714,19 @@ impl Builder<'_> {
         }
     }
 
-    /// For a guard: makes every binding of `pat` denote its place through a shared
-    /// reference (see the module docs), recorded in `guard_places`.
-    fn bind_for_guard(&mut self, pat: &Pat, place: Place, choice: &Choice) {
+    /// For a guard (rustc's scheme, see the module docs): a `ref`/`ref mut` binding gets
+    /// its arm's reference now, which the guard sees (a `ref mut` one through a shared
+    /// reference to it, so the guard cannot write through it), and which stays the arm's;
+    /// a by-value binding denotes its place through a shared reference, recorded in
+    /// `values` to be kept alive to the end of the guard. Records what each name denotes in
+    /// `guard_places`.
+    fn bind_for_guard(
+        &mut self,
+        pat: &Pat,
+        place: Place,
+        choice: &Choice,
+        values: &mut Vec<Local>,
+    ) {
         if self.ident_is_path(pat) {
             return;
         }
@@ -717,29 +736,55 @@ impl Builder<'_> {
                     .resolve
                     .local_of_pat(pat.id)
                     .expect("identifier patterns introduce locals");
-                let ty = place.ty(&self.body);
-                let by_ref = self.types.ref_bindings.contains_key(&pat.id);
-                // A by-value binding of a reference denotes a shared reborrow of it rather
-                // than a reference to the reference (`&&T` has no CIL type yet).
-                let (borrowed, inner_ref) = match (&ty, by_ref) {
-                    (Ty::Ref(_, inner), false) => (place.clone().deref(), Some((**inner).clone())),
-                    _ => (place.clone(), None),
-                };
-                let temp_ty = Ty::shared_ref(inner_ref.clone().unwrap_or(ty));
-                let temp = self.new_temp(temp_ty, pat.span);
-                self.assign(
-                    Place::local(temp),
-                    Rvalue::Ref(BorrowKind::Shared, borrowed),
-                    pat.span,
-                );
-                let guard_place = if by_ref || inner_ref.is_some() {
-                    Place::local(temp)
+                if let Some(&m) = self.types.ref_bindings.get(&pat.id) {
+                    let local = self.mir_local(id);
+                    self.push_stmt(StatementKind::StorageLive(local), pat.span);
+                    self.push_stmt(
+                        StatementKind::Assign(
+                            Place::local(local),
+                            Rvalue::Ref(BorrowKind::new(m), place.clone()),
+                        ),
+                        pat.span,
+                    );
+                    self.bound_for_guard.push(local);
+                    let guard_place = if m == Mutability::Mut {
+                        let ty = self.body.local_decl(local).ty.clone();
+                        let temp = self.new_temp(Ty::shared_ref(ty), pat.span);
+                        self.assign(
+                            Place::local(temp),
+                            Rvalue::Ref(BorrowKind::Shared, Place::local(local)),
+                            pat.span,
+                        );
+                        Place::local(temp).deref()
+                    } else {
+                        Place::local(local)
+                    };
+                    self.guard_places.insert(id, guard_place);
                 } else {
-                    Place::local(temp).deref()
-                };
-                self.guard_places.insert(id, guard_place);
+                    let ty = place.ty(&self.body);
+                    // A binding of a reference denotes a shared reborrow of it rather than
+                    // a reference to the reference.
+                    let (borrowed, inner_ref) = match &ty {
+                        Ty::Ref(_, inner) => (place.clone().deref(), Some((**inner).clone())),
+                        _ => (place.clone(), None),
+                    };
+                    let temp_ty = Ty::shared_ref(inner_ref.clone().unwrap_or(ty));
+                    let temp = self.new_temp(temp_ty, pat.span);
+                    self.assign(
+                        Place::local(temp),
+                        Rvalue::Ref(BorrowKind::Shared, borrowed),
+                        pat.span,
+                    );
+                    values.push(temp);
+                    let guard_place = if inner_ref.is_some() {
+                        Place::local(temp)
+                    } else {
+                        Place::local(temp).deref()
+                    };
+                    self.guard_places.insert(id, guard_place);
+                }
                 if let Some(sub) = sub {
-                    self.bind_for_guard(sub, place, choice);
+                    self.bind_for_guard(sub, place, choice, values);
                 }
             }
             PatKind::Wild
@@ -750,13 +795,13 @@ impl Builder<'_> {
             | PatKind::Range(..) => {}
             PatKind::Or(alts) => {
                 let alt = &alts[choice[&pat.id]];
-                self.bind_for_guard(alt, place, choice);
+                self.bind_for_guard(alt, place, choice, values);
             }
             PatKind::Tuple(_) | PatKind::TupleStruct(..) | PatKind::Struct { .. } => {
                 let place = self.pat_place(pat, place);
                 let (_, subs) = self.subpatterns(pat, &place);
                 for (p, sub_place) in subs {
-                    self.bind_for_guard(p, sub_place, choice);
+                    self.bind_for_guard(p, sub_place, choice, values);
                 }
             }
         }
@@ -829,6 +874,7 @@ impl Builder<'_> {
             let saved = self.binding_scrutinee.replace(scrutinee);
             self.bind_pat(pat, place.clone(), &choice, BindMode::Prepared);
             self.binding_scrutinee = saved;
+            self.bound_for_guard.clear();
             let span = pat.span;
             self.terminate(TerminatorKind::Goto { target: success }, span);
             self.enter(fail);
@@ -848,6 +894,11 @@ impl Builder<'_> {
         fail: BasicBlock,
     ) {
         let span = guard.span;
+        // The bindings first, then the fake borrows, as rustc: a `ref mut` binding's borrow
+        // of a place the match tested is not taken while that place is fake-borrowed.
+        let saved = std::mem::take(&mut self.guard_places);
+        let mut values = Vec::new();
+        self.bind_for_guard(pat, place.clone(), choice, &mut values);
         let temps: Vec<Local> = fakes
             .iter()
             .map(|fake| {
@@ -860,15 +911,22 @@ impl Builder<'_> {
                 temp
             })
             .collect();
-        let saved = std::mem::take(&mut self.guard_places);
-        self.bind_for_guard(pat, place.clone(), choice);
+        // A `match` in the guard binds its own candidates.
+        let bound = std::mem::take(&mut self.bound_for_guard);
         let (holds, fails) = self.branch_on(guard, span);
+        self.bound_for_guard = bound;
         self.guard_places = saved;
         self.enter(fails);
+        // The next candidate binds its own (an or-pattern's alternatives share the locals).
+        let bound = self.bound_for_guard.clone();
+        self.storage_dead(&bound, span);
         self.note_fail();
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
-        for temp in temps {
+        // The fake borrows, and the references a by-value binding is seen through (rustc's
+        // `FakeRead(ForGuardBinding)`), live to the end of the guard: the guard may not
+        // write what the match tested or what a binding will copy or move.
+        for temp in temps.into_iter().chain(values) {
             self.push_stmt(StatementKind::PlaceMention(Place::local(temp)), span);
         }
     }
