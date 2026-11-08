@@ -364,6 +364,50 @@ get killing tests (one shape was a miscompile) and 25 are equivalent, 96.3%.
 are in pattern checking and exhaustiveness (`check_pat_in_mode`, `rest_positions`,
 `patterns.rs`, `usefulness.rs`).
 
+Nightly run 23 (2026-11-08, on `799a45b`) re-measured all three for the Phase 5 exit (#14):
+
+| Crate | Mutants | Caught + timeout / viable | Score | Threshold |
+| --- | --- | --- | --- | --- |
+| `sabiko_borrowck` | 422 | 342 + 4 / 364 | 95.0% | 93 |
+| `sabiko_codegen` | 685 | 643 + 4 / 675 | 95.8% | 95 |
+| `sabiko_types` | 1321 | 1173 + 1 / 1205 | 97.4% | 98 |
+
+`sabiko_types` fell below its threshold with 31 survivors, 14 more than run 20, in code
+added since: associated constants (#48), tuple constants in patterns (#50) and `!`
+operands (#87). Tests kill 15 of them, checked with `cargo mutants --re` on exactly those
+mutants against the crate's test packages (`sabiko_driver`, `sabiko_mir`; 24 of 24
+matching mutants caught):
+- the MIR fixture `const_values.sabi`: `bool` `|` in constants (`binary`), tuple constants
+  of one and two elements as MIR prints them (`ConstValue::render`'s `Ty::Tuple` arm and
+  one-element `(x,)`), and `char` and float associated constants (`prim_const`);
+- `tests/ui/typeck/const_pattern_usefulness.sabi`: a constant path covers only its value
+  (`lower_kind`'s `DefKind::Const` guard), a tuple constant is a tuple pattern of its
+  elements (`const_pat_kind`'s `Ty::Tuple` arm, `lower_kind`'s index bound), a float
+  constant equals a float literal (`compare`'s `Float` arm, `PatValues::value`'s guard);
+- `tests/differential/never/ok_tuple_diverging_element_assigned.sabi`: a diverging tuple
+  element without an expected type gets a diverging variable, not `!` (`check_tuple`).
+  Writing it found a bug: the never-type fallback bound that variable to `!` even after
+  `u.0 = 5` had unified it with the literal's, so MIR held a `5` of type `!` (a validation
+  failure). The fallback now leaves a variable an integer or float literal decided
+  (`never_fallback_leaves_literal_variables`; run-time program
+  `differential/run/regressions/never_element_assigned_literal.sabi`);
+- `ExplicitBase` in `tests/ui/lints/ok_not_flagged.sabi`: casting a variant whose
+  discriminant follows an explicit one ends rustc's block, so a local written twice
+  before it is unknown after it (`collect`'s `explicit_base |=`);
+- #93's `tests/ui/typeck/never_operand_result_used_first.sabi`, which landed after run 23:
+  `check_decided_operation` and `check_never_operands`. `check_if`'s `(_, !)` arm, listed
+  as equivalent before, is caught now too.
+
+That gives 1189 of 1205, 98.7%. The 16 left: the equivalent mutants of the 2026-10-21
+list (the sign extension's `|` as `^`, the `op.is_comparison()` and float-cast
+`p.is_integer()` guards, the parenthesised callee's `!` in `check_call`); a tuple-constant
+field's guard `access.autoderefs == 0 && access.index < elems.len()` and its `&&` and `<`
+mutants, since the type checker admits `.N` on a tuple constant only in range and never
+through a reference; and run 20's pattern-checking survivors (`check_pat_in_mode`'s
+guards at four arms, `peel_pat_refs`'s `>`, `rest_positions`'s `>`, and `usefulness.rs`'s
+`IntRange::intersection` `<`, the `AdtShape::Enum` guard and a `<` in `Checker::lower`).
+The threshold stays at 98.
+
 Scores at the end of the hardening pass (2026-10-19; `sabiko_types` re-measured on
 2026-10-21, `sabiko_borrowck` on 2026-10-22), score = (caught + timeout) / viable:
 

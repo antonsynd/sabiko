@@ -1,0 +1,40 @@
+// Constants in patterns as the usefulness check sees them (#48, #50): a constant covers
+// only its value, so a wildcard after it is still reachable; a tuple constant is a tuple
+// pattern of its elements' values; a float constant equals a float literal of the same
+// value.
+const C: i32 = 5;
+const P: (bool, bool) = (true, false);
+const F: f64 = 1.5;
+
+fn Plain(x: i32) -> i32 {
+    match x {
+        C => 1,
+        _ => 2,
+    }
+}
+
+fn TupleCovers(t: (bool, bool)) -> i32 {
+    match t {
+        P => 1,
+        (true, true) => 2,
+        (false, _) => 3,
+        (true, false) => 4, //~ WARN E0330 unreachable pattern
+    }
+}
+
+fn TupleMissing(t: (bool, bool)) -> i32 {
+    match t { //~ ERROR E0328 non-exhaustive patterns: `(true, true)` not covered
+        P => 1,
+        (false, _) => 3,
+    }
+}
+
+fn Floats(x: f64) -> i32 {
+    match x {
+        F => 1,
+        1.5 => 2, //~ WARN E0330 unreachable pattern
+        _ => 3,
+    }
+}
+
+fn Main() {}

@@ -1,0 +1,23 @@
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:21:9 ]
+    │
+ 21 │         (true, false) => 4, //~ WARN E0330 unreachable pattern
+    │         ──────┬──────  
+    │               ╰──────── no value can reach this
+────╯
+[E0328] Error: non-exhaustive patterns: `(true, true)` not covered
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:26:11 ]
+    │
+ 26 │     match t { //~ ERROR E0328 non-exhaustive patterns: `(true, true)` not covered
+    │           ┬  
+    │           ╰── pattern `(true, true)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/const_pattern_usefulness.sabi:35:9 ]
+    │
+ 35 │         1.5 => 2, //~ WARN E0330 unreachable pattern
+    │         ─┬─  
+    │          ╰─── no value can reach this
+────╯

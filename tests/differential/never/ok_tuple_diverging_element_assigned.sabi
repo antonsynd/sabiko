@@ -1,0 +1,8 @@
+// A diverging tuple element without an expected type gets a fresh diverging variable, as
+// in rustc, not the type `!`: assigning an integer to it later decides it.
+fn F() -> i32 {
+    let t = (return 1, 2);
+    let mut u = t;
+    u.0 = 5;
+    u.1
+}

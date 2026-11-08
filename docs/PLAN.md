@@ -1023,6 +1023,27 @@ pattern has `..`, seeds 8800051 and 8800299); everything else agrees with rustc.
 coercion gaps found on the way are #94 (an unsized block element of a coerced tuple fails MIR validation, and
 `&[&[1, 2], &[3]]` as `&[&[i32]]` is E0300).
 
+Status (2026-11-08): **Phase 5 complete** (#4, exit gate #14). Every exit criterion holds:
+exhaustiveness UI tests (missing variants, unreachable arms, nested and constant patterns),
+the C# enum layout test (`tests/interop/enum_layout`), drop-order tests against rustc
+(reverse order, drop flags, unwinding), rustc's message for an out-of-range `a[i]`, and
+differential programs and generator support for every construct of the phase, or a TODO
+naming the issue for what the generator avoids (#92: aggregates of references as locals
+and parameters; #58: three-level references). The fuzzers' token soup has `enum`,
+`match`, `impl`, `=>` and `..`, and their corpora are seeded from the new programs.
+Mutation scores re-measured by nightly run 23 (on `799a45b`): `sabiko_borrowck` 95.0%
+(342 + 4 / 364, threshold 93), `sabiko_codegen` 95.8% (643 + 4 / 675, threshold 95) and
+`sabiko_types` 97.4% (1173 + 1 / 1205), below its 98: 14 more survivors than run 20, in
+code added since (associated and tuple constants, `!` operands). New tests kill 15 of the
+31, which gives 1189 of 1205, 98.7%, and one of them found a bug: the never-type fallback
+(#85) bound a diverging tuple element to `!` after an integer literal had decided it
+(`let mut u = (return 1, 2); u.0 = 5;` built MIR with a `5` of type `!`); it now leaves
+literal variables to their defaults; the 16 left are equivalent or older pattern-checking
+survivors (docs/TESTING.md, Mutation testing). The run's fuzz failure was #93's crash,
+fixed before this status. Open items carried past the phase: #45 (slicing patterns, `for`,
+slice methods), #49 (reference and half-open range patterns), #51 (two benchmark gaps),
+#58 (deref coercion), #92, #94, #95, and let chains (#86).
+
 ### Phase 5: Data types
 
 Work
@@ -1094,7 +1115,8 @@ Verification
 - Index out of range: run-pass test expects a panic with rustc's message for `a[i]`.
   Done: `tests/differential/run/arrays/index_out_of_bounds*.sabi` compare the full panic
   report with rustc's (#9).
-- Differential tests and the program generator extended to every new construct.
+- Differential tests and the program generator extended to every new construct. Done
+  (#14; see the Phase 5 status above), with mutation scores re-measured (nightly run 23).
 
 ### Phase 6: Traits and generics
 
