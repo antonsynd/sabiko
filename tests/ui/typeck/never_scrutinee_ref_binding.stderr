@@ -1,0 +1,39 @@
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/never_scrutinee_ref_binding.sabi:8:9 ]
+   │
+ 7 │     match return 1 {
+   │           ────┬───  
+   │               ╰───── this expression has type `!`
+ 8 │         E::A(ref b) => *b, //~ ERROR E0300 mismatched types
+   │         ─────┬─────  
+   │              ╰─────── expected `!`, found `E`
+───╯
+[E0300] Error: mismatched types
+   ╭─[ tests/ui/typeck/never_scrutinee_ref_binding.sabi:9:9 ]
+   │
+ 7 │     match return 1 {
+   │           ────┬───  
+   │               ╰───── this expression has type `!`
+   │ 
+ 9 │         E::B => 2, //~ ERROR E0300 mismatched types
+   │         ──┬─  
+   │           ╰─── expected `!`, found `E`
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_scrutinee_ref_binding.sabi:14:12 ]
+    │
+ 14 │     if let E::A(ref b) = return 1 { *b } else { 2 } //~ ERROR E0300 mismatched types
+    │            ─────┬─────   ────┬───  
+    │                 ╰────────────────── expected `!`, found `E`
+    │                              │     
+    │                              ╰───── this expression has type `!`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_scrutinee_ref_binding.sabi:18:9 ]
+    │
+ 18 │     let E::A(ref b) = return 1 else { return 2 }; //~ ERROR E0300 mismatched types
+    │         ─────┬─────   ────┬───  
+    │              ╰────────────────── expected `!`, found `E`
+    │                           │     
+    │                           ╰───── this expression has type `!`
+────╯

@@ -1112,6 +1112,16 @@ checked with full compilation. New: `differential/lints/ok_borrows_rustc_removes
 (also the cases both compilers still lint: a guard on the first arm, a borrow in `if
 false`). 2000 generated seeds at each of the bases 8800000 and 63000000 agree.
 
+Patterns against a diverging scrutinee (#99): `match return 1 { E::A(b) => b, E::B => 2 }`,
+`if let E::A(b) = return 1`, a literal pattern, `while let` and let chains were E0300 (the
+pattern checked against `!`), while rustc gives the scrutinee a fresh type the patterns
+decide. They now follow rustc's `demand_scrutinee_type`, including its exception: with an
+explicit `ref` binding the scrutinee's own `!` is matched, so `let E::A(ref b) = return 1
+else { .. };`, which Sabiko accepted, is E0300 like rustc's E0308. A `while let` with a
+diverging scrutinee had no lowering (it was never type-correct before) and now leaves at
+the scrutinee, as `if let` does. New: `run/control/diverging_scrutinee_patterns` and the
+UI test `typeck/never_scrutinee_ref_binding`.
+
 ### Phase 5: Data types
 
 Work

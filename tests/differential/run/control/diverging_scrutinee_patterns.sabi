@@ -1,0 +1,57 @@
+// A pattern against a diverging scrutinee (#99): the scrutinee coerces to a fresh type the
+// patterns decide, so constructor and literal patterns are valid in a `match`, `if let`,
+// `while let`, `let`-`else` and a let chain; the scrutinee runs and leaves, and nothing
+// after it does.
+enum E { A(i32), B }
+
+fn Match(k: i32) -> i32 {
+    if k > 0 {
+        return match return k * 2 { E::A(b) => b, E::B => 2 };
+    }
+    -1
+}
+
+fn Literal(k: i32) -> i32 {
+    match return k + 100 { 3 => 1, _ => 2 }
+}
+
+fn IfLet(k: i32) -> i32 {
+    if let E::A(b) = return k * 3 { b } else { 2 }
+}
+
+fn LetElse(k: i32) -> i32 {
+    let E::A(b) = return k + 7 else { return 0 };
+    b
+}
+
+fn Chain(k: i32) -> i32 {
+    if k > 1 && let E::A(b) = return k * 10 { b } else { -1 }
+}
+
+fn WhileLet(k: i32) -> i32 {
+    let mut n = 0;
+    while n < 3 {
+        n += 1;
+        while let E::A(b) = (if n == k { return n * 100 } else { return n }) {
+            n += b;
+        }
+    }
+    n
+}
+
+fn Loop(k: i32) -> i32 {
+    match loop { if k > 0 { return k; } else { return -k; } } { E::A(b) => b, E::B => 0 }
+}
+
+fn Main() {
+    PrintLine(Match(4));
+    PrintLine(Match(0));
+    PrintLine(Literal(1));
+    PrintLine(IfLet(5));
+    PrintLine(LetElse(1));
+    PrintLine(Chain(3));
+    PrintLine(Chain(1));
+    PrintLine(WhileLet(1));
+    PrintLine(WhileLet(2));
+    PrintLine(Loop(-6));
+}

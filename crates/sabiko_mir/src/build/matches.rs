@@ -1070,6 +1070,17 @@ impl Builder<'_> {
             scope_depth: depth,
         });
         let saved = self.push_temp_scope();
+        if self.ty(scrutinee).is_never() {
+            // `while let E::A(x) = return 1 {}` (#99): the scrutinee leaves, so neither the
+            // pattern nor the body is reached.
+            self.lower_expr_discard(scrutinee);
+            self.close_temp_scope(saved, span);
+            self.terminate(TerminatorKind::Goto { target: header }, span);
+            let scope = self.loops.pop().expect("loop scope pushed above");
+            let exit = scope.exit.unwrap_or_else(|| self.new_block());
+            self.enter(exit);
+            return;
+        }
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let body_block = self.new_block();
