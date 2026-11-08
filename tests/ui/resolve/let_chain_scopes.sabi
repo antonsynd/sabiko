@@ -1,0 +1,17 @@
+// A let chain's bindings are in scope for the operands after their `let` and for `then`,
+// not before it and not in `else`.
+enum Opt { No, Some(i32) }
+
+fn Before(a: Opt) -> i32 {
+    if x > 0 && let Opt::Some(x) = a { x } else { 0 } //~ ERROR E0202 cannot find value `x` in this scope
+}
+
+fn Else(a: Opt, c: bool) -> i32 {
+    if let Opt::Some(y) = a && c {
+        y
+    } else {
+        y //~ ERROR E0202 cannot find value `y` in this scope
+    }
+}
+
+fn Main() {}

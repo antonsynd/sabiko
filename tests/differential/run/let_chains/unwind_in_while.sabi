@@ -1,0 +1,27 @@
+// A panic in a `while` let chain's operand on a later iteration drops that iteration's
+// bindings; the earlier iterations' were dropped at their ends.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Check(n: i32) -> bool {
+    if n == 2 {
+        Panic("boom");
+    }
+    true
+}
+
+fn Main() {
+    let mut n = 0;
+    let _g = D { V: -1 };
+    while let Maybe::Has(d) = Maybe::Has(D { V: n * 10 }) && Check(n) && let e = (D { V: n * 10 + 1 }) {
+        PrintLine(d.V + e.V);
+        n += 1;
+    }
+}

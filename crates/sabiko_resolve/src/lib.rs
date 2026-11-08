@@ -1752,9 +1752,14 @@ impl Resolver<'_> {
     }
 
     /// The condition of an `if` or `while`, in a scope the caller opened: a `let` binds its
-    /// pattern there, after its scrutinee is resolved.
+    /// pattern there, after its scrutinee is resolved. In a let chain, the operands after a
+    /// `let` see its bindings.
     fn resolve_cond(&mut self, cond: &Expr) {
-        if let ExprKind::Let(pat, scrutinee) = &cond.kind {
+        if let Some(operands) = cond.let_chain() {
+            for operand in operands {
+                self.resolve_cond(operand);
+            }
+        } else if let ExprKind::Let(pat, scrutinee) = &cond.kind {
             self.resolve_expr(scrutinee);
             self.bind_let_pat(pat);
         } else {
@@ -1857,8 +1862,8 @@ impl Resolver<'_> {
                 self.scopes.pop();
             }
             ExprKind::Let(pat, scrutinee) => {
-                // Only as a whole condition, which `resolve_cond` handles; the parser
-                // never produces one elsewhere.
+                // Only in a condition, which `resolve_cond` handles; the parser never
+                // produces one elsewhere.
                 self.resolve_expr(scrutinee);
                 self.scopes.push(Vec::new());
                 self.bind_let_pat(pat);

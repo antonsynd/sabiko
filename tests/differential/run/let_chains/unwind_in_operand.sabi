@@ -1,0 +1,29 @@
+// A panic in a later operand of a let chain drops what the chain holds so far, last first:
+// the extended borrow's temporary, then the earlier binding, then the function's locals.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Make(v: i32) -> D { D { V: v } }
+
+fn Boom(v: i32) -> bool {
+    if v > 0 {
+        Panic("boom");
+    }
+    true
+}
+
+fn Main() {
+    let _g = Make(0);
+    if let Maybe::Has(a) = Maybe::Has(Make(1)) && let r = &Make(2) && Make(3).V == 3 && Boom(a.V + r.V) {
+        PrintLine("then");
+    } else {
+        PrintLine("else");
+    }
+}

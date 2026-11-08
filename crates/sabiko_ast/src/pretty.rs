@@ -673,6 +673,25 @@ impl Printer {
     /// Conditions of `if`/`while` may not contain a bare struct literal, and a `break`/
     /// `return` operand may not start with `{` there; wrap such conditions.
     fn cond(&mut self, cond: &Expr) {
+        if let Some(operands) = cond.let_chain() {
+            // A `let` must stay a bare operand of the chain; the other operands bind
+            // tighter than `&&`.
+            for (i, e) in operands.into_iter().enumerate() {
+                if i > 0 {
+                    self.out.push_str(" && ");
+                }
+                if matches!(e.kind, ExprKind::Let(..)) {
+                    self.expr(e, 0);
+                } else if needs_cond_parens(e) {
+                    self.out.push('(');
+                    self.expr(e, 0);
+                    self.out.push(')');
+                } else {
+                    self.expr(e, BinOp::And.precedence() + 1);
+                }
+            }
+            return;
+        }
         if needs_cond_parens(cond) {
             self.out.push('(');
             self.expr(cond, 0);

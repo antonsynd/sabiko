@@ -1125,10 +1125,11 @@ impl Parser<'_, '_> {
     /// Braces lift the struct-literal restriction of an enclosing `if`/`while` condition,
     /// also for the block of an `if` or loop nested in one: `while if c { A {}; } {}`.
     pub(crate) fn parse_block(&mut self) -> PResult<Block> {
-        let saved = self.no_struct_literal;
+        let saved = (self.no_struct_literal, self.let_allowed);
         self.no_struct_literal = false;
+        self.let_allowed = false;
         let block = self.parse_block_inner();
-        self.no_struct_literal = saved;
+        (self.no_struct_literal, self.let_allowed) = saved;
         block
     }
 

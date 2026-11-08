@@ -1,0 +1,8 @@
+// A by-value binding of a `Copy` field does not borrow the scrutinee.
+enum Opt { No, Some(i32) }
+
+fn F(mut a: Opt) -> i32 {
+    if let Opt::Some(x) = a && { a = Opt::No; true } { x } else { 0 }
+}
+
+fn Main() { F(Opt::Some(1)); }

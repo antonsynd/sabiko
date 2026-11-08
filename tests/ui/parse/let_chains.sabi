@@ -1,10 +1,40 @@
-// `if let ... && ...` (let chains) is valid edition 2024 but not supported yet (#86).
-// (Nested `if let` or a guard in a `match` say the same.)
+// Let chains (edition 2024): a `let` in a condition must be an operand of its outermost
+// `&&` chain. Under `||`, `!`, parentheses or a comparison, or anywhere outside an `if` or
+// `while` condition, it is an error, as in rustc.
 enum Cell { Empty, Value(i32) }
 
-fn F(c: Cell) -> i32 {
-    if let Cell::Value(n) = c && n > 0 { //~ ERROR E0100 let chains are not supported yet
-        return n;
-    }
-    0
+fn Or(c: Cell, b: bool) {
+    if let Cell::Value(n) = c || b {} //~ ERROR E0102 expected an expression, found `let` statement
 }
+
+fn OrBefore(c: Cell, b: bool) {
+    if b || let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Parens(c: Cell, b: bool) {
+    while b && (let Cell::Value(n) = c) {} //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Not(c: Cell) {
+    if !let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Compared(c: Cell, b: bool) {
+    if b == let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Nested(c: Cell) {
+    if let x = let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Statement(c: Cell) {
+    let b = let Cell::Value(n) = c; //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Argument(c: Cell) {
+    if Take(let Cell::Value(n) = c) {} //~ ERROR E0102 expected an expression, found `let` statement
+}
+
+fn Take(b: bool) -> bool { b }
+
+fn Main() {}

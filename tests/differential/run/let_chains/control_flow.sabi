@@ -1,0 +1,85 @@
+// Leaving a let chain's `if` or `while` early (`return`, `break`, `continue`, from `then`,
+// `else` or an operand) drops what the chain holds; a chain can produce a value, be an
+// `else if`, and end in a scrutinee that diverges.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.V);
+    }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Wrap(v: i32, has: bool) -> Maybe {
+    if has { Maybe::Has(D { V: v }) } else { Maybe::Empty }
+}
+
+fn ReturnFromThen(has: bool) -> i32 {
+    if let Maybe::Has(a) = Wrap(1, has) && let b = (D { V: 2 }) {
+        return a.V + b.V;
+    } else {
+        PrintLine("else");
+    }
+    0
+}
+
+fn ReturnFromOperand(k: i32) -> i32 {
+    if let Maybe::Has(a) = Wrap(k, true) && (if a.V > 5 { return a.V * 2; } else { true }) && let Maybe::Has(b) = Wrap(k + 1, k > 2) {
+        a.V + b.V
+    } else {
+        -1
+    }
+}
+
+fn Loop() -> i32 {
+    let mut n = 0;
+    let mut total = 0;
+    while let Maybe::Has(a) = Wrap(n, true) && n < 10 {
+        n += 1;
+        if a.V == 1 {
+            continue;
+        }
+        if let Maybe::Has(b) = Wrap(a.V * 100, a.V % 2 == 0) && b.V > 300 {
+            break;
+        }
+        total += a.V;
+    }
+    total
+}
+
+fn Value(k: i32) -> i32 {
+    let r = if let Maybe::Has(a) = Wrap(k, k > 0) && a.V < 10 && let Maybe::Has(ref b) = Wrap(a.V * 2, true) {
+        &D { V: a.V + b.V }
+    } else if let Maybe::Has(c) = Wrap(k, k != 0) && c.V > -5 {
+        &D { V: c.V }
+    } else {
+        &D { V: 99 }
+    };
+    PrintLine("after if");
+    r.V
+}
+
+fn Diverging(flag: bool) -> i32 {
+    if let Maybe::Has(a) = Wrap(4, flag) && let _ = return a.V {
+        a.V + 100
+    } else {
+        -2
+    }
+}
+
+fn Main() {
+    PrintLine(ReturnFromThen(true));
+    PrintLine(ReturnFromThen(false));
+    PrintLine(ReturnFromOperand(7));
+    PrintLine(ReturnFromOperand(3));
+    PrintLine(ReturnFromOperand(1));
+    PrintLine(Loop());
+    PrintLine(Value(3));
+    PrintLine(Value(20));
+    PrintLine(Value(-3));
+    PrintLine(Value(0));
+    PrintLine(Diverging(true));
+    PrintLine(Diverging(false));
+}

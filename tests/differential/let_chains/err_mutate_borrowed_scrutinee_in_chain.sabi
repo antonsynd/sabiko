@@ -1,0 +1,8 @@
+// A `ref` binding of an earlier `let` borrows its scrutinee for the rest of the chain.
+enum Opt { No, Some(i32) }
+
+fn F(mut a: Opt) -> i32 {
+    if let Opt::Some(ref x) = a && { a = Opt::No; true } { *x } else { 0 }
+}
+
+fn Main() {}

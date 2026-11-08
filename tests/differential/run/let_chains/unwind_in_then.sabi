@@ -1,0 +1,23 @@
+// A panic in the `then` block of a let chain drops the block's locals, then the chain's
+// bindings and scrutinee temporaries, last first.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Wrap(v: i32) -> Maybe { Maybe::Has(D { V: v }) }
+
+fn Main() {
+    let _g = D { V: 0 };
+    if let Maybe::Has(a) = Wrap(1) && a.V == 1 && let Maybe::Has(ref b) = Wrap(2) {
+        let _local = D { V: 3 };
+        if a.V + b.V == 3 {
+            Panic("boom");
+        }
+    }
+}

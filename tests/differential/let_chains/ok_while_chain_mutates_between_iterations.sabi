@@ -1,0 +1,15 @@
+// The borrows of a `while` chain end with each iteration.
+enum Opt { No, Some(i32) }
+
+fn F() -> i32 {
+    let mut a = Opt::Some(3);
+    let mut total = 0;
+    while let Opt::Some(ref n) = a && *n > 0 {
+        total += *n;
+        let next = *n - 1;
+        a = if next > 0 { Opt::Some(next) } else { Opt::No };
+    }
+    total
+}
+
+fn Main() { F(); }

@@ -579,7 +579,9 @@ impl Exhaustive<'_, '_> {
                 self.refutable(pat, "local binding");
             }
             ExprKind::If { cond, then, els } => {
-                if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
+                if let Some(operands) = cond.let_chain() {
+                    self.chain(&operands);
+                } else if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
                     self.expr(scrutinee);
                     self.conditional(pat, Some(scrutinee), ConditionalKind::IfLet, cond.span);
                 } else {
@@ -591,7 +593,9 @@ impl Exhaustive<'_, '_> {
                 }
             }
             ExprKind::While { cond, body } => {
-                if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
+                if let Some(operands) = cond.let_chain() {
+                    self.chain(&operands);
+                } else if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
                     self.expr(scrutinee);
                     self.conditional(pat, Some(scrutinee), ConditionalKind::WhileLet, cond.span);
                 } else {
@@ -603,6 +607,19 @@ impl Exhaustive<'_, '_> {
                 Child::Expr(c) => self.expr(c),
                 Child::Block(b) => self.block(b),
             }),
+        }
+    }
+
+    /// The operands of a let chain. A `let` in a chain may be refutable or not: rustc
+    /// (1.99) warns about neither, so only the binding names are checked.
+    fn chain(&mut self, operands: &[&Expr]) {
+        for operand in operands {
+            if let ExprKind::Let(pat, scrutinee) = &operand.kind {
+                self.expr(scrutinee);
+                self.bindings_named_like_variants(pat);
+            } else {
+                self.expr(operand);
+            }
         }
     }
 

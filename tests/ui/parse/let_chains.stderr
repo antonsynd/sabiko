@@ -1,9 +1,76 @@
-[E0100] Error: let chains are not supported yet
-   ╭─[ tests/ui/parse/let_chains.sabi:6:8 ]
+[E0102] Error: expected an expression, found `let` statement
+   ╭─[ tests/ui/parse/let_chains.sabi:7:8 ]
    │
- 6 │     if let Cell::Value(n) = c && n > 0 { //~ ERROR E0100 let chains are not supported yet
-   │        ────────────┬────────────  
-   │                    ╰────────────── a `let` in a condition must be the whole condition
+ 7 │     if let Cell::Value(n) = c || b {} //~ ERROR E0102 expected an expression, found `let` statement
+   │        ───────────┬──────────  
+   │                   ╰──────────── `let` is not allowed here
    │ 
-   │ Note: let chains are not supported yet (#86); nest an `if` inside the `if let` instead
+   │ Note 1: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+   │ 
+   │ Note 2: `||` operators are not supported in let chain conditions
 ───╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:11:13 ]
+    │
+ 11 │     if b || let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+    │             ───────────┬──────────  
+    │                        ╰──────────── `let` is not allowed here
+    │ 
+    │ Note 1: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+    │ 
+    │ Note 2: `||` operators are not supported in let chain conditions
+────╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:15:17 ]
+    │
+ 15 │     while b && (let Cell::Value(n) = c) {} //~ ERROR E0102 expected an expression, found `let` statement
+    │                 ───────────┬──────────  
+    │                            ╰──────────── `let` is not allowed here
+    │ 
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+────╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:19:9 ]
+    │
+ 19 │     if !let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+    │         ───────────┬──────────  
+    │                    ╰──────────── `let` is not allowed here
+    │ 
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+────╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:23:13 ]
+    │
+ 23 │     if b == let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+    │             ───────────┬──────────  
+    │                        ╰──────────── `let` is not allowed here
+    │ 
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+────╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:27:16 ]
+    │
+ 27 │     if let x = let Cell::Value(n) = c {} //~ ERROR E0102 expected an expression, found `let` statement
+    │                ───────────┬──────────  
+    │                           ╰──────────── `let` is not allowed here
+    │ 
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+────╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:31:13 ]
+    │
+ 31 │     let b = let Cell::Value(n) = c; //~ ERROR E0102 expected an expression, found `let` statement
+    │             ───────────┬──────────  
+    │                        ╰──────────── `let` is not allowed here
+    │ 
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+────╯
+[E0102] Error: expected an expression, found `let` statement
+    ╭─[ tests/ui/parse/let_chains.sabi:35:13 ]
+    │
+ 35 │     if Take(let Cell::Value(n) = c) {} //~ ERROR E0102 expected an expression, found `let` statement
+    │             ───────────┬──────────  
+    │                        ╰──────────── `let` is not allowed here
+    │ 
+    │ Note: `let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)
+────╯

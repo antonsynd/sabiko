@@ -965,3 +965,47 @@ fn programs_extend_temporaries_through_blocks_and_branches() {
         "of {SEEDS} programs: {block} extend through a block (expected 90), {branch} an `if` (expected 80), {arm} a `match` (expected 45)"
     );
 }
+
+/// The kinds of let chain an `if` or `while` line holds: `let` after another operand, more
+/// than one `let`, and a `bool` operand after a `let`.
+fn let_chain(line: &str) -> Option<(bool, bool, bool)> {
+    let line = line.trim_start();
+    let cond = line
+        .strip_prefix("if ")
+        .or_else(|| line.strip_prefix("while "))?
+        .strip_suffix(" {")?;
+    let operands: Vec<&str> = cond.split(" && ").collect();
+    let lets = operands.iter().filter(|o| o.starts_with("let ")).count();
+    if lets == 0 || operands.len() < 2 {
+        return None;
+    }
+    let first_let = operands.iter().position(|o| o.starts_with("let "))?;
+    Some((
+        first_let > 0,
+        lets > 1,
+        operands[first_let + 1..]
+            .iter()
+            .any(|o| !o.starts_with("let ")),
+    ))
+}
+
+#[test]
+fn programs_use_let_chains() {
+    let knobs = Knobs::default();
+    let (mut any, mut leading, mut two_lets, mut after) = (0, 0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        let chains: Vec<(bool, bool, bool)> = src.lines().filter_map(let_chain).collect();
+        any += usize::from(!chains.is_empty());
+        leading += usize::from(chains.iter().any(|c| c.0));
+        two_lets += usize::from(chains.iter().any(|c| c.1));
+        after += usize::from(chains.iter().any(|c| c.2));
+    }
+    eprintln!(
+        "of {SEEDS} programs: {any} have a let chain, {leading} one led by a `bool`, {two_lets} one with two `let`s, {after} a `bool` after a `let`"
+    );
+    assert!(
+        any >= 60 && leading >= 18 && two_lets >= 35 && after >= 45,
+        "of {SEEDS} programs: {any} have a let chain (expected 60), {leading} one led by a `bool` (expected 18), {two_lets} one with two `let`s (expected 35), {after} a `bool` after a `let` (expected 45)"
+    );
+}

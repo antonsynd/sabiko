@@ -1,7 +1,8 @@
 //! Expressions: a Pratt loop for binary operators over a recursive descent core.
 
 use sabiko_ast::{
-    Arm, BinOp, Expr, ExprKind, FieldInit, Lit, RangeEnd, Type, TypeKind, UnOp, CAST_PRECEDENCE,
+    Arm, BinOp, Expr, ExprKind, FieldInit, Lit, NodeId, RangeEnd, Type, TypeKind, UnOp,
+    CAST_PRECEDENCE,
 };
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::literal::{self, LiteralError};
@@ -547,7 +548,8 @@ impl Parser<'_, '_> {
     }
 
     /// Runs `f` for the inside of a bracketed construct whose closing token is `close`.
-    /// Brackets lift the struct-literal restriction of `if`/`while` conditions, and on an
+    /// Brackets lift the struct-literal restriction of `if`/`while` conditions and end the
+    /// part of one where `let` is an expression, and on an
     /// error the rest of the construct is skipped (up to and including `close`) before the
     /// error propagates, so that the enclosing statement's recovery does not stop at a
     /// closer that is not its own (`let p = P { x: , }; ...` must not end the block).
@@ -556,10 +558,11 @@ impl Parser<'_, '_> {
         close: TokenKind,
         f: impl FnOnce(&mut Self) -> PResult<T>,
     ) -> PResult<T> {
-        let saved = self.no_struct_literal;
+        let saved = (self.no_struct_literal, self.let_allowed);
         self.no_struct_literal = false;
+        self.let_allowed = false;
         let r = f(self);
-        self.no_struct_literal = saved;
+        (self.no_struct_literal, self.let_allowed) = saved;
         if r.is_err() {
             self.skip_to_closer(close);
         }
@@ -688,6 +691,13 @@ impl Parser<'_, '_> {
                 Ok(self.mk(ExprKind::Path(path), start))
             }
             TokenKind::Match => self.parse_match(),
+            TokenKind::Let if self.let_allowed => self.parse_let_expr(),
+            TokenKind::Let => {
+                // Read it whole, to report it whole.
+                let e = self.parse_let_expr()?;
+                self.cond_lets.pop();
+                Err(self.misplaced_let(e.span, false))
+            }
             TokenKind::For => {
                 Err(self.error_unsupported("`for` loops", start, "planned for Phase 5"))
             }
@@ -776,20 +786,40 @@ impl Parser<'_, '_> {
         ))
     }
 
-    /// The condition of an `if` or `while`: an expression, or `let pat = expr`. Let chains
-    /// (`let p = e && c`) are edition 2024 only, and rejected.
+    /// The condition of an `if` or `while`: an expression in which `let pat = expr` may
+    /// appear, joined to the rest by `&&` only (a let chain, edition 2024): `if let Some(x)
+    /// = a && x > 0 && let Ok(y) = F(x)`. A `let` under `||`, `!`, parentheses or any other
+    /// operator is an error, as in rustc.
     fn parse_cond(&mut self) -> PResult<Expr> {
-        if !self.at(TokenKind::Let) {
-            return self.parse_expr_no_struct();
+        let saved = std::mem::replace(&mut self.let_allowed, true);
+        let mark = self.cond_lets.len();
+        let cond = self.parse_expr_no_struct();
+        self.let_allowed = saved;
+        let lets = self.cond_lets.split_off(mark);
+        let cond = cond?;
+        if lets.is_empty() {
+            return Ok(cond);
         }
+        let mut chain = Vec::new();
+        let mut or = false;
+        chain_lets(&cond, &mut chain, &mut or);
+        if let Some(&(_, span)) = lets.iter().find(|(id, _)| !chain.contains(id)) {
+            return Err(self.misplaced_let(span, or));
+        }
+        Ok(cond)
+    }
+
+    /// `let pat = expr` in a condition. The scrutinee binds tighter than `&&` and `||`,
+    /// which continue the condition.
+    fn parse_let_expr(&mut self) -> PResult<Expr> {
         let start = self.bump().span;
         let pat = self.parse_pat_or()?;
         self.expect(TokenKind::Eq)?;
-        let saved = self.no_struct_literal;
+        let saved = (self.no_struct_literal, self.let_allowed);
         self.no_struct_literal = true;
-        // Above `&&` and `||`, which would make a let chain.
+        self.let_allowed = false;
         let scrutinee = self.nested(|p| p.parse_binary(BinOp::And.precedence() + 1));
-        self.no_struct_literal = saved;
+        (self.no_struct_literal, self.let_allowed) = saved;
         let scrutinee = scrutinee?;
         if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
             let span = self.peek().span;
@@ -799,22 +829,25 @@ impl Parser<'_, '_> {
                 "only an index `e[a..b]` is supported until range values (generic types, Phase 6)",
             ));
         }
-        if matches!(self.peek_kind(), TokenKind::AndAnd | TokenKind::OrOr) {
-            let span = start.to(self.peek().span);
-            return Err(self.let_chain_error(span));
-        }
-        Ok(self.mk(ExprKind::Let(Box::new(pat), Box::new(scrutinee)), start))
+        let e = self.mk(ExprKind::Let(Box::new(pat), Box::new(scrutinee)), start);
+        self.cond_lets.push((e.id, e.span));
+        Ok(e)
     }
 
-    fn let_chain_error(&mut self, span: Span) -> crate::ParseError {
-        let d = Diagnostic::error(
-            ErrorCode::UNEXPECTED_TOKEN,
-            "let chains are not supported yet",
+    /// rustc's "expected expression, found `let` statement": a `let` outside the `&&`
+    /// chain of an `if` or `while` condition. `or`: the condition has a `||` on its chain.
+    fn misplaced_let(&mut self, span: Span, or: bool) -> crate::ParseError {
+        let mut d = Diagnostic::error(
+            ErrorCode::EXPECTED_EXPRESSION,
+            "expected an expression, found `let` statement",
         )
-        .with_label(span, "a `let` in a condition must be the whole condition")
+        .with_label(span, "`let` is not allowed here")
         .with_note(
-            "let chains are not supported yet (#86); nest an `if` inside the `if let` instead",
+            "`let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)",
         );
+        if or {
+            d = d.with_note("`||` operators are not supported in let chain conditions");
+        }
         self.emit(d)
     }
 
@@ -1075,5 +1108,20 @@ impl Parser<'_, '_> {
     fn emit_at(&mut self, d: Diagnostic, _span: Span) -> crate::ParseError {
         self.sink.emit(d);
         crate::ParseError
+    }
+}
+
+/// The `let` expressions of the `&&` chain `cond` is (`a && let p = e && c`), outermost
+/// operators only: a `let` under parentheses or any other operator is not on it. Sets `or`
+/// when a `||` is met on the chain.
+fn chain_lets(cond: &Expr, out: &mut Vec<NodeId>, or: &mut bool) {
+    match &cond.kind {
+        ExprKind::Binary(BinOp::And, l, r) => {
+            chain_lets(l, out, or);
+            chain_lets(r, out, or);
+        }
+        ExprKind::Binary(BinOp::Or, ..) => *or = true,
+        ExprKind::Let(..) => out.push(cond.id),
+        _ => {}
     }
 }

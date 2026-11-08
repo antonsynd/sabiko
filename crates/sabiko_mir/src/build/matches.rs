@@ -45,7 +45,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sabiko_ast::{Arm, Block, Expr, NodeId, Pat, PatKind};
+use sabiko_ast::{Arm, Block, Expr, ExprKind, NodeId, Pat, PatKind};
 use sabiko_resolve::{DefKind, LocalId, Res};
 use sabiko_span::Span;
 use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
@@ -1030,6 +1030,124 @@ impl Builder<'_> {
         let scope = self.loops.pop().expect("loop scope pushed above");
         let exit = scope.exit.unwrap_or_else(|| self.new_block());
         self.enter(exit);
+    }
+
+    /// `if` with a let chain (edition 2024): `if let A = a && c && let B = b { then } else
+    /// { els }`. As in rustc, the condition is one temporary scope holding each `let`'s
+    /// scrutinee temporaries and bindings, in order, which live through `then`; any other
+    /// operand is a temporary scope of its own, dropped before the next one runs. Where
+    /// an operand fails, what the condition holds so far is dropped (last first) before
+    /// `else`.
+    pub(super) fn lower_if_chain(
+        &mut self,
+        dest: Option<ValueDest>,
+        operands: &[&Expr],
+        then: &Block,
+        els: Option<&Expr>,
+        span: Span,
+    ) {
+        let saved_scope = self.push_temp_scope();
+        let depth = self.scopes.len() - 1;
+        let else_block = self.new_block();
+        let reachable = self.lower_chain(operands, span, &mut |this: &mut Self| {
+            this.leave_to(depth, else_block, span);
+        });
+        if reachable {
+            self.in_temp_scope(then.span, |this| match dest {
+                Some(dest) => this.lower_block_into(dest.place, then, dest.extending),
+                None => this.lower_block_discard(then),
+            });
+        }
+        self.close_temp_scope(saved_scope, span);
+        let join = self.new_block();
+        self.terminate(TerminatorKind::Goto { target: join }, span);
+        // As after `if`'s `then`, `else` starts under the cleanup scopes open after `then`.
+        self.enter(else_block);
+        match (els, dest) {
+            (Some(els), Some(dest)) => {
+                self.in_temp_scope(els.span, |this| {
+                    this.value_into(dest.place, els, dest.extending);
+                });
+            }
+            (Some(els), None) => self.in_temp_scope(els.span, |this| this.lower_expr_discard(els)),
+            (None, Some(dest)) => {
+                self.assign(dest.place.clone(), Self::unit_rvalue(span), span);
+            }
+            (None, None) => {}
+        }
+        self.terminate(TerminatorKind::Goto { target: join }, span);
+        self.enter(join);
+    }
+
+    /// `while` with a let chain: a loop around [`Self::lower_if_chain`]'s condition whose
+    /// failure breaks. The condition's scope is dropped every iteration.
+    pub(super) fn lower_while_chain(&mut self, operands: &[&Expr], body: &Block, span: Span) {
+        let header = self.new_block();
+        self.terminate(TerminatorKind::Goto { target: header }, span);
+        self.enter(header);
+        self.loops.push(LoopScope {
+            header,
+            exit: None,
+            dest: None,
+            scope_depth: self.scopes.len(),
+        });
+        let saved = self.push_temp_scope();
+        let reachable = self.lower_chain(operands, span, &mut |this: &mut Self| {
+            this.lower_break(None, span);
+            this.terminate(TerminatorKind::Unreachable, span);
+        });
+        if reachable {
+            self.in_temp_scope(body.span, |this| this.lower_block_discard(body));
+        }
+        self.close_temp_scope(saved, span);
+        self.terminate(TerminatorKind::Goto { target: header }, span);
+        let scope = self.loops.pop().expect("loop scope pushed above");
+        let exit = scope.exit.unwrap_or_else(|| self.new_block());
+        self.enter(exit);
+    }
+
+    /// The operands of a let chain, each on the success path of the ones before it, in
+    /// the condition's scope (the temporary scope): a `let`'s scrutinee temporaries go
+    /// there, then its bindings, whose cleanup scopes open where it matched. Where an
+    /// operand fails, `fail` ends the block the builder is in. Returns whether the chain
+    /// can succeed: a `let` whose scrutinee diverges ends it (the builder is then in an
+    /// unreachable block).
+    fn lower_chain(
+        &mut self,
+        operands: &[&Expr],
+        span: Span,
+        fail: &mut dyn FnMut(&mut Self),
+    ) -> bool {
+        let scope = self.temp_scope;
+        for operand in operands {
+            let ExprKind::Let(pat, scrutinee) = &operand.kind else {
+                let (holds, fails) = self.branch_on(operand, span);
+                self.enter(fails);
+                fail(self);
+                self.enter(holds);
+                continue;
+            };
+            if self.ty(scrutinee).is_never() {
+                self.lower_expr_discard(scrutinee);
+                return false;
+            }
+            let place = self.scrutinee_place(scrutinee, &[pat]);
+            let locals = self.prepare_locals(pat);
+            let matched = self.new_block();
+            let saved = self.start_tests(&[pat], &place);
+            self.lower_candidates(pat, None, &place, scrutinee.span, matched, true);
+            self.tests = saved;
+            fail(self);
+            self.enter(matched);
+            for &local in &locals {
+                self.scopes[scope].push(local);
+                self.track_drop(local);
+            }
+            for &local in &locals {
+                self.open_pending(local);
+            }
+        }
+        true
     }
 
     /// `let pat = init else { els };`, and a destructuring `let` whose pattern has an

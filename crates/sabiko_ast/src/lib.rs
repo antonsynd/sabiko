@@ -572,12 +572,39 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         arms: Vec<Arm>,
     },
-    /// `let pat = expr`: only as the whole condition of an `if` or `while` (`if let`,
-    /// `while let`); let chains are edition 2024.
+    /// `let pat = expr`: only in the condition of an `if` or `while`, as the whole of it
+    /// (`if let`, `while let`) or as an operand of its `&&` chain (a let chain, edition
+    /// 2024: [`Expr::let_chain`]).
     Let(Box<Pat>, Box<Expr>),
 }
 
 impl Expr {
+    /// The operands of this `if`/`while` condition when it is a let chain (edition 2024): a
+    /// `&&` chain with a `let` among its operands, `if let Some(x) = a && x > 0 && let
+    /// Ok(y) = F(x)`, left to right. `None` for any other condition, a lone `let`
+    /// included. The parser allows a `let` only on the outermost `&&` chain of a
+    /// condition, so the operands are found without looking through parentheses.
+    #[must_use]
+    pub fn let_chain(&self) -> Option<Vec<&Expr>> {
+        fn flatten<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
+            if let ExprKind::Binary(BinOp::And, l, r) = &e.kind {
+                flatten(l, out);
+                flatten(r, out);
+            } else {
+                out.push(e);
+            }
+        }
+        if !matches!(self.kind, ExprKind::Binary(BinOp::And, ..)) {
+            return None;
+        }
+        let mut operands = Vec::new();
+        flatten(self, &mut operands);
+        operands
+            .iter()
+            .any(|e| matches!(e.kind, ExprKind::Let(..)))
+            .then_some(operands)
+    }
+
     /// Block-like expressions end a statement without needing `;`.
     #[must_use]
     pub fn is_block_like(&self) -> bool {

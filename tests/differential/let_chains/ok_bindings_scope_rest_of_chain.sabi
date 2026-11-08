@@ -1,0 +1,15 @@
+// Each `let` of a chain binds for the operands after it and for `then`; a later `let` may
+// shadow an earlier binding.
+enum Opt { No, Some(i32) }
+
+fn Get(k: i32) -> Opt { if k > 0 { Opt::Some(k) } else { Opt::No } }
+
+fn F(a: Opt) -> i32 {
+    if let Opt::Some(x) = a && x > 1 && let Opt::Some(x) = Get(x - 1) && x != 3 {
+        x
+    } else {
+        0
+    }
+}
+
+fn Main() { F(Opt::Some(4)); }

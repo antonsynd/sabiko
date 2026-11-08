@@ -58,6 +58,11 @@ impl BodyGen<'_> {
 
     /// Whether reference local `v` may be used (copied, reborrowed, borrowed) as a shared
     /// reference, or (`mutable`) a mutable one, now.
+    /// Whether a reference local may be moved here, by a binding of the whole of it.
+    pub(super) fn ref_movable(&self, v: usize) -> bool {
+        self.no_moves == 0 && self.vars[v].loop_depth == self.loop_depth()
+    }
+
     fn ref_free(&self, v: usize, mutable: bool) -> bool {
         let var = &self.vars[v];
         !var.moved && var.mut_locks == 0 && (!mutable || var.shared_locks == 0)
@@ -199,6 +204,12 @@ impl BodyGen<'_> {
         };
         let binds_mut = outer && mutable;
         if !self.ref_free(v, binds_mut) && !self.violate() {
+            return None;
+        }
+        // A binding of the whole moves a `&mut &T`/`&mut &mut T`: not where the local may
+        // not be moved (inside a loop it was declared outside: seed 8600601 moved a `&mut
+        // &mut bool` parameter on every iteration).
+        if outer && !self.ref_movable(v) && !self.violate() {
             return None;
         }
         Some(Scrut {
@@ -518,21 +529,22 @@ impl BodyGen<'_> {
     }
 
     /// `&e` (`&mut e`) of a value `e` of type `inner`: a temporary, never a place. A
-    /// call or literal is borrowed as it is, anything else in parentheses, or in braces
-    /// when it may be a place (`&{ x }` copies or moves `x`; `&(x)` would borrow it).
+    /// literal or a unary operator's value is borrowed in parentheses; anything else in
+    /// braces, as it may be a place (`&{ x }` copies or moves `x`; `&(x)` would borrow it,
+    /// and `&mut (d[i])` of an immutable `d` is an error: seed 279).
     fn borrowed_temporary(&mut self, mutable: bool, inner: ValTy, depth: u32) -> String {
         let e = self.val_expr(inner, depth);
         let prefix = if mutable { "&mut " } else { "&" };
         let t = &e.text;
         let first = t.chars().next().unwrap_or(' ');
-        let place_like = first == '('
-            || first == '*'
-            || t.chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'));
-        if place_like && !first.is_ascii_digit() {
-            format!("{prefix}{{ {t} }}")
-        } else {
+        let value = first.is_ascii_digit()
+            || matches!(first, '-' | '!' | '\'' | '"')
+            || t == "true"
+            || t == "false";
+        if value {
             format!("{prefix}({t})")
+        } else {
+            format!("{prefix}{{ {t} }}")
         }
     }
 }

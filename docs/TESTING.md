@@ -101,9 +101,23 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   { &e };` (now and then in two blocks), `let r = if c { &a } else { &b };` and `let r =
   match n { 0 => &a, _ => { &b } };`, shared or `&mut`, of values of any sized type; a
   value that may be a place is borrowed as `&{ e }`, never `&(e)`, so the borrow is always
-  of a temporary. The reference holds no loan of the scope model. About half of the
-  programs have one (`programs_extend_temporaries_through_blocks_and_branches` pins 90
-  blocks, 80 `if`s and 45 `match`es of 500).
+  of a temporary (only a literal or a unary operator's value is parenthesised: seed 279
+  of the borrow-clean set wrote `&mut (d[i])` of an immutable `d`). The reference holds
+  no loan of the scope model. About half of the programs have one
+  (`programs_extend_temporaries_through_blocks_and_branches` pins 90 blocks, 80 `if`s and
+  45 `match`es of 500).
+
+  Let chains (#86, decision 79, `BodyGen::chain_rest`): half of the `if let` statements
+  and a third of the `while let` ones are chains, `if c && let p = s && d && let q = t {`:
+  an optional leading `bool`, then one or two more operands, each a `bool` that prefers
+  reading a binding or another `let` of any scrutinee. The later operands are generated
+  with the `then` block (or loop body) already open and the earlier `let`s' bindings
+  declared and locking what they borrow, as statements there are; generating an
+  expression writes no lines, so the condition is still written first. `else` starts from
+  the state after the whole condition (what any operand moved is moved there, as the
+  borrow checker sees a failure after it). `programs_use_let_chains` pins 60 programs of
+  500 with a chain, 18 led by a `bool`, 35 with two `let`s and 45 with a `bool` after a
+  `let`.
 
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,

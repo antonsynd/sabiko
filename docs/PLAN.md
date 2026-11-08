@@ -957,8 +957,8 @@ Edition 2024 (#81, decision 74): the language and every rustc oracle moved from 
 by-reference default binding mode are E0337 (#84), and the never type falls back to `!`
 (#85). Two differential programs that tested 2021's by-value `mut` binding were removed
 (now UI tests), and new ones pin 2024's drop order and the tail temporary that can no
-longer escape its block. Open: let chains (#86). Temporary lifetime extension through a
-block's tail (#88, both editions) landed later (decision 78, below).
+longer escape its block. Temporary lifetime extension through a block's tail (#88, both
+editions) and let chains (#86) landed later (decisions 78 and 79, below).
 
 Operands of type `!` (#87, decision 75): `1 == return true` was accepted, because the type
 checker coerced a `!` operand to the other operand's type; rustc rejects it in every
@@ -1046,7 +1046,33 @@ u = (return 1, 2); u.0 = 5;` built MIR with a `5` of type `!`); it now leaves li
 variables to their defaults. The run's fuzz failure was #93's crash,
 fixed before this status. Open items carried past the phase: #45 (slicing patterns, `for`,
 slice methods), #49 (reference and half-open range patterns), #51 (two benchmark gaps),
-#58 (deref coercion), #92, #94, #95, and let chains (#86).
+#58 (deref coercion), #92, #94, #95, and let chains (#86, since landed: below).
+
+Let chains (#86, decision 79), after the phase: `if let Some(x) = a && x > 0 && let Ok(y)
+= F(x) { .. }`, and the same in `while`, were E0100. A `let` is now an expression inside
+an `if`/`while` condition, and every one must be an operand of the condition's outermost
+`&&` chain (E0102 otherwise, rustc's "expected an expression, found `let` statement");
+each binds for the operands after it and for `then`. MIR building gives chains their own
+lowering (a lone `if let` keeps its own): one scope for the condition, holding each
+`let`'s scrutinee temporaries and bindings through `then`, every other operand branched
+on in a scope of its own, and each failure dropping what the condition holds before
+`else` or the loop's exit, which is rustc's order on every path, unwinding included. New
+programs: nine compile-time ones in `differential/let_chains/` (scopes, moves and borrows
+across operands, `mut` bindings, a `while` chain's borrows ending each iteration), five
+run-time ones in `differential/run/let_chains/` (drop order on success and on each
+failure point, `return`/`break`/`continue` out of a chain, a value-producing chain with
+extended borrows, `else if` chains, a diverging scrutinee, three unwinding programs), UI
+tests for the rejected shapes, scopes and operand types, and a MIR snapshot. The
+generator writes chains in half of its `if let` and a third of its `while let`
+statements. 1200 seeds at each of the bases 8600000 and 62000000 agree with
+rustc except one: seed 8600015, an older borrow-checker gap the shifted random stream
+reached, now #100 (a `match` guard reading the scrutinee while a `ref mut` binding holds
+it is accepted). On the way, the generator stopped writing `&mut (d[i])` as an extended
+borrow of a temporary (a place borrow; seed 279) and stopped binding a bare `&mut` or
+`&mut &mut` local whole inside a loop it was declared outside (a move per iteration; seed
+8600601). Open: `if let` guards in `match` arms, which rustc 1.99 accepts (#98), and a
+constructor pattern against a `!` scrutinee, E0300 in Sabiko in every pattern position
+(#99).
 
 ### Phase 5: Data types
 

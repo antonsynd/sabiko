@@ -1448,7 +1448,7 @@ impl<'a> BodyGen<'a> {
             if self.has_methods() { 14 } else { 0 }, // 16 method call
             if nesting_ok { 8 } else { 0 }, // 17 match statement
             if nesting_ok { 5 } else { 0 }, // 18 let = match
-            if nesting_ok { 6 } else { 0 }, // 19 if let
+            if nesting_ok { 9 } else { 0 }, // 19 if let (half of them let chains)
             if nesting_ok && has_enums { 3 } else { 0 }, // 20 while let
             if self.remaining() > 4 { 4 } else { 0 }, // 21 let-else
             4,                           // 22 destructuring let
