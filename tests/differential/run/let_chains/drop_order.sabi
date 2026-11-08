@@ -1,0 +1,80 @@
+// Let chains (edition 2024): a `let`'s scrutinee temporaries and bindings live through
+// `then`, dropped last first after it; any other operand drops its temporaries before the
+// next one runs; where an operand fails, what the condition holds so far is dropped before
+// `else`. In a `while`, the same happens every iteration and on leaving.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+impl D {
+    fn Get(&self) -> i32 { self.Id }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Pick(id: i32, has: bool) -> Maybe {
+    Print("pick ");
+    PrintLine(id);
+    if has { Maybe::Has(D { Id: id }) } else { Maybe::Empty }
+}
+
+fn Chain(second: bool, test: bool) {
+    if let Maybe::Has(a) = Pick(1, true) && Make(2).Get() > 0 && test && let Maybe::Has(b) = Pick(3, second) && let x = &Make(4) {
+        Print("then ");
+        PrintLine(a.Id + b.Id + x.Id);
+    } else {
+        PrintLine("else");
+    }
+    PrintLine("after");
+}
+
+fn Leading(c: bool) -> i32 {
+    if c && let Maybe::Has(a) = Pick(5, true) {
+        a.Get()
+    } else {
+        -1
+    }
+}
+
+fn Loop() {
+    let mut n = 0;
+    while let Maybe::Has(a) = Pick(10 + n, n < 3) && n != 1 && let Maybe::Has(b) = Pick(20 + n, n < 2) {
+        Print("body ");
+        PrintLine(a.Id + b.Id);
+        n += 1;
+    }
+    PrintLine("after loop");
+}
+
+fn Scrutinee(k: i32) -> i32 {
+    // The bindings of an earlier `let` are in scope for the operands after it.
+    if let Maybe::Has(d) = Pick(k, true) && let Maybe::Has(e) = Pick(d.Id + 1, d.Id > 6) && e.Id > d.Id {
+        d.Id * 100 + e.Id
+    } else if let Maybe::Has(d) = Pick(k + 50, true) && d.Id > 0 {
+        d.Id
+    } else {
+        0
+    }
+}
+
+fn Main() {
+    Chain(true, true);
+    Chain(false, true);
+    Chain(true, false);
+    PrintLine(Leading(true));
+    PrintLine(Leading(false));
+    Loop();
+    PrintLine(Scrutinee(7));
+    PrintLine(Scrutinee(3));
+}

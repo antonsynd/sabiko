@@ -95,6 +95,12 @@ pub(crate) struct Parser<'s, 'd> {
     assignee_only: Vec<(NodeId, AssigneeOnly)>,
     /// How many assignment left sides are being parsed around the current position.
     lhs_depth: u32,
+    /// Set while an `if`/`while` condition is parsed outside any brackets or block: `let`
+    /// is an expression there ([`Self::parse_cond`] checks that each one is on the
+    /// condition's `&&` chain).
+    let_allowed: bool,
+    /// The `let` expressions parsed in the conditions being parsed, innermost last.
+    cond_lets: Vec<(NodeId, Span)>,
 }
 
 /// A form [`Parser::assignee_only`] tracks, with the span to report it at.
@@ -121,6 +127,8 @@ impl<'s, 'd> Parser<'s, 'd> {
             depth: 0,
             assignee_only: Vec::new(),
             lhs_depth: 0,
+            let_allowed: false,
+            cond_lets: Vec::new(),
         }
     }
 

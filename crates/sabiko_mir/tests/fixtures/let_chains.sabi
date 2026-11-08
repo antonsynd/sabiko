@@ -1,0 +1,32 @@
+// Let chains: the condition is one scope holding each `let`'s scrutinee temporary and
+// bindings; another operand is branched on in a scope of its own; each failure drops what
+// the condition holds before `else` (or before leaving the `while`).
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+enum Pair { Both(D, i32), Neither }
+
+fn Make(v: i32) -> Pair { Pair::Both(D { V: v }, v) }
+
+fn IfChain(k: i32) -> i32 {
+    if let Pair::Both(d, n) = Make(k) && n > 0 && let Pair::Both(e, _) = Make(n) {
+        d.V + e.V
+    } else {
+        0
+    }
+}
+
+fn WhileChain() {
+    let mut k = 3;
+    while k > 0 && let Pair::Both(d, _) = Make(k) {
+        k -= d.V;
+    }
+}
+
+fn Main() {
+    IfChain(1);
+    WhileChain();
+}

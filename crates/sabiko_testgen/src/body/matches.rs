@@ -374,7 +374,10 @@ impl BodyGen<'_> {
             if let (true, Ty::Ref { mutable: m, .. }) =
                 (e.text == self.vars[root].name, self.vars[root].ty)
             {
-                if m != mutable || root < self.sig.params.len() || self.rng.chance(50) {
+                // A bare `&mut` is moved by a binding of the whole: kept bare only where
+                // it may be moved (as for a double reference, seed 8600601).
+                let movable = !m || self.ref_movable(root);
+                if m != mutable || root < self.sig.params.len() || !movable || self.rng.chance(50) {
                     e.text = format!("&{}*{}", if mutable { "mut " } else { "" }, e.text);
                 } else {
                     place_root = Some(root);
@@ -1505,15 +1508,34 @@ impl BodyGen<'_> {
 
     /// `if let p = s { .. } [else { .. }]`.
     pub(super) fn stmt_if_let(&mut self, depth: u32) -> bool {
+        // A let chain (edition 2024, #86) half of the time: `if c && let p = s && d && let
+        // q = t {`, its later operands made where the earlier `let`s have bound.
+        let chain = self.rng.chance(50);
+        let before = self.snapshot_moved();
+        let lines = self.lines.len();
+        let mut operands = Vec::new();
+        if chain && self.rng.chance(30) {
+            operands.push(self.prim_expr(Prim::Bool, depth.saturating_sub(1)).text);
+        }
         let ty = self.matchable_ty();
         let s = self.scrutinee(ty, depth.saturating_sub(1));
         let mut cx = Self::pat_cx(&s);
         // An irrefutable pattern makes the `else` (or the fall-through) unreachable (#47).
         let pat = self.refutable(ty, &mut cx, false, 0);
-        let before = self.snapshot_moved();
-        self.line(&format!("if let {pat} = {} {{", s.text));
+        operands.push(format!("let {pat} = {}", s.text));
         self.open_block();
-        let binds = self.bind_all(&s, &cx);
+        let mut binds = self.bind_all(&s, &cx);
+        if chain {
+            self.chain_rest(&mut operands, &mut binds, depth);
+        }
+        // `else` runs where any operand failed, after some may have moved: what the whole
+        // condition moved counts as moved there.
+        let after_cond = self.snapshot_moved();
+        // Generating expressions writes no lines, so the header still comes first.
+        debug_assert_eq!(self.lines.len(), lines);
+        self.indent -= 1;
+        self.line(&format!("if {} {{", operands.join(" && ")));
+        self.indent += 1;
         if let Some(text) = self.binding_use(&binds) {
             if self.rng.chance(60) {
                 self.line(&text);
@@ -1528,16 +1550,41 @@ impl BodyGen<'_> {
         }
         self.close_block();
         let after_then = self.snapshot_moved();
+        let at_else = if chain { &after_cond } else { &before };
         if self.rng.chance(60) {
-            self.restore_moved(&before);
+            self.restore_moved(at_else);
             self.line("} else {");
             self.strictly(|gen| gen.block_body(2));
             self.join_moved(&after_then);
         } else {
-            self.join_moved(&before);
+            self.join_moved(at_else);
         }
         self.line("}");
         true
+    }
+
+    /// The operands of a let chain after its first `let`, generated where the bindings so
+    /// far are in scope (the block they bind in is open): one or two of a `bool` that
+    /// prefers reading a binding, and another `let` whose bindings join `binds`.
+    fn chain_rest(&mut self, operands: &mut Vec<String>, binds: &mut Vec<usize>, depth: u32) {
+        for _ in 0..self.rng.range(1, 2) {
+            if self.rng.chance(50) {
+                let saved = self.prefer_root;
+                if !binds.is_empty() {
+                    self.prefer_root = Some(binds[self.rng.index(binds.len())]);
+                }
+                let c = self.prim_expr(Prim::Bool, depth.saturating_sub(1));
+                self.prefer_root = saved;
+                operands.push(c.text);
+            } else {
+                let ty = self.matchable_ty();
+                let s = self.scrutinee(ty, depth.saturating_sub(1));
+                let mut cx = Self::pat_cx(&s);
+                let pat = self.refutable(ty, &mut cx, false, 0);
+                operands.push(format!("let {pat} = {}", s.text));
+                binds.extend(self.bind_all(&s, &cx));
+            }
+        }
     }
 
     /// `while let p = st { k += 1; if k > n { break; } ..; st = e; }` over a fresh state
@@ -1594,9 +1641,16 @@ impl BodyGen<'_> {
         let bound = self.rng.range(1, 4);
         let before = self.snapshot_moved();
         self.loops.push(LoopKind::Stmt);
-        self.line(&format!("while let {pat} = {} {{", s.text));
         self.open_block();
-        self.bind_all(&s, &cx);
+        let mut binds = self.bind_all(&s, &cx);
+        // A let chain a third of the time (#86): `while let p = st && c && let q = t {`.
+        let mut operands = vec![format!("let {pat} = {}", s.text)];
+        if self.rng.chance(35) {
+            self.chain_rest(&mut operands, &mut binds, depth);
+        }
+        self.indent -= 1;
+        self.line(&format!("while {} {{", operands.join(" && ")));
+        self.indent += 1;
         self.line(&format!("{k} += 1i32;"));
         self.line(&format!("if {k} > {bound}i32 {{ break; }}"));
         let n = self.rng.range(1, 2);

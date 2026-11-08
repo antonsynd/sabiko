@@ -1,0 +1,13 @@
+// A failed chain may have moved its scrutinee already: `else` may not use it.
+struct S { V: i32 }
+enum Holder { Full(S), Empty }
+
+fn F(h: Holder, c: bool) -> i32 {
+    if let Holder::Full(s) = h && c {
+        s.V
+    } else {
+        match h { Holder::Full(_) => 1, Holder::Empty => 2 }
+    }
+}
+
+fn Main() {}

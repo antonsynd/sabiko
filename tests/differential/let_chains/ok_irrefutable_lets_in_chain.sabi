@@ -1,0 +1,10 @@
+// Irrefutable patterns are allowed anywhere in a let chain.
+fn F(p: (i32, i32), c: bool) -> i32 {
+    if let (a, b) = p && c && let s = a + b {
+        s
+    } else {
+        0
+    }
+}
+
+fn Main() { F((1, 2), true); }

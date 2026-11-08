@@ -1,0 +1,13 @@
+// A `mut` binding of a chain may be assigned in later operands and in `then`.
+enum Opt { No, Some(i32) }
+
+fn F(a: Opt) -> i32 {
+    if let Opt::Some(mut x) = a && { x += 1; x > 2 } {
+        x += 10;
+        x
+    } else {
+        0
+    }
+}
+
+fn Main() { F(Opt::Some(4)); }

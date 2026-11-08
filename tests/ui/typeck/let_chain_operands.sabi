@@ -1,0 +1,23 @@
+// The other operands of a let chain are `bool`s, a `let` of a chain is checked like any
+// other pattern (E0170 included), and a `match` in any operand is checked for
+// exhaustiveness.
+enum Opt { No, Some(i32) }
+enum Mode { On, Off }
+
+fn NotBool(a: Opt) -> i32 {
+    if let Opt::Some(x) = a && x { 1 } else { 0 } //~ ERROR E0300 mismatched types
+}
+
+fn LikeVariant(m: Mode, c: bool) -> i32 {
+    if c && let On = m { 1 } else { 0 } //~ ERROR E0325 pattern binding `On` is named the same as one of the variants of the type `Mode`
+}
+
+fn InScrutinee(m: Mode, a: Opt) -> i32 {
+    if let Opt::Some(x) = (match m { Mode::On => a }) && x > 0 { x } else { 0 } //~ ERROR E0328 non-exhaustive patterns: `Mode::Off` not covered
+}
+
+fn InOperand(m: Mode, a: Opt) -> i32 {
+    if let Opt::Some(x) = a && match m { Mode::Off => true } { x } else { 0 } //~ ERROR E0328 non-exhaustive patterns: `Mode::On` not covered
+}
+
+fn Main() {}

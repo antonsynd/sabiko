@@ -1,0 +1,342 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/let_chains.sabi
+---
+fn D::drop(_1: &mut D) {
+    let mut _0: ();
+
+    bb0: {
+        _0 = const ();
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Make(_1: i32) -> Pair {
+    let mut _0: Pair;
+    let mut _2: D;
+    let mut _3: i32;
+    let mut _4: i32;
+    cleanup c0: _2 => nothing;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = D { V: copy _1 };
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c0): {
+        _0 = Pair::Both { 0: move _2, 1: copy _1 };
+        goto -> bb2;
+    }
+
+    bb2: {
+        StorageDead(_2);
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn IfChain(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: Pair;
+    let mut _3: i32;
+    let _4: D;                           // d
+    let _5: i32;                         // n
+    let mut _6: isize;
+    let mut _7: bool;
+    let mut _8: i32;
+    let mut _9: Pair;
+    let mut _10: i32;
+    let _11: D;                          // e
+    let mut _12: isize;
+    let mut _13: i32;
+    let mut _14: i32;
+    cleanup c0: _2 => nothing;
+    cleanup c1 in c0: _4 => drop(_4);
+    cleanup c2 in c1: _9 => nothing;
+    cleanup c3 in c2: _11 => drop(_11);
+
+    bb0: {
+        StorageLive(_2);
+        _2 = Make(copy _1) -> bb2;
+    }
+
+    bb1: {
+        _0 = const 0_i32;
+        goto -> bb22;
+    }
+
+    bb2 (cleanup c0): {
+        PlaceMention(_2);
+        StorageLive(_6);
+        _6 = discriminant(_2);
+        switchInt(copy _6) -> [0: bb5, otherwise: bb4];
+    }
+
+    bb3 (cleanup c1): {
+        StorageLive(_7);
+        _7 = Gt(copy _5, const 0_i32);
+        switchInt(copy _7) -> [0: bb8, otherwise: bb7];
+    }
+
+    bb4: {
+        StorageDead(_6);
+        goto -> bb23;
+    }
+
+    bb5 (cleanup c0): {
+        StorageLive(_4);
+        _4 = move (_2 as Both).0;
+        StorageLive(_5);
+        _5 = copy (_2 as Both).1;
+        goto -> bb3;
+    }
+
+    bb6: {
+        StorageDead(_2);
+        goto -> bb1;
+    }
+
+    bb7 (cleanup c1): {
+        StorageDead(_7);
+        StorageLive(_9);
+        _9 = Make(copy _5) -> bb11;
+    }
+
+    bb8 (cleanup c0): {
+        StorageDead(_7);
+        StorageDead(_5);
+        goto -> bb24;
+    }
+
+    bb9: {
+        StorageDead(_4);
+        StorageDead(_6);
+        goto -> bb10;
+    }
+
+    bb10: {
+        StorageDead(_2);
+        goto -> bb1;
+    }
+
+    bb11 (cleanup c2): {
+        PlaceMention(_9);
+        StorageLive(_12);
+        _12 = discriminant(_9);
+        switchInt(copy _12) -> [0: bb14, otherwise: bb13];
+    }
+
+    bb12 (cleanup c3): {
+        _0 = Add(copy _4.V, copy _11.V);
+        goto -> bb27;
+    }
+
+    bb13 (cleanup c1): {
+        StorageDead(_12);
+        goto -> bb25;
+    }
+
+    bb14 (cleanup c2): {
+        StorageLive(_11);
+        _11 = move (_9 as Both).0;
+        goto -> bb12;
+    }
+
+    bb15 (cleanup c0): {
+        StorageDead(_9);
+        StorageDead(_5);
+        goto -> bb26;
+    }
+
+    bb16: {
+        StorageDead(_4);
+        StorageDead(_6);
+        goto -> bb17;
+    }
+
+    bb17: {
+        StorageDead(_2);
+        goto -> bb1;
+    }
+
+    bb18 (cleanup c1): {
+        StorageDead(_11);
+        StorageDead(_12);
+        goto -> bb19;
+    }
+
+    bb19 (cleanup c0): {
+        StorageDead(_9);
+        StorageDead(_5);
+        goto -> bb28;
+    }
+
+    bb20: {
+        StorageDead(_4);
+        StorageDead(_6);
+        goto -> bb21;
+    }
+
+    bb21: {
+        StorageDead(_2);
+        goto -> bb22;
+    }
+
+    bb22: {
+        return;
+    }
+
+    bb23: {
+        drop(_2) -> bb6;
+    }
+
+    bb24 (cleanup c0): {
+        drop(_4) -> bb9;
+    }
+
+    bb25 (cleanup c1): {
+        drop(_9) -> bb15;
+    }
+
+    bb26 (cleanup c0): {
+        drop(_4) -> bb16;
+    }
+
+    bb27 (cleanup c2): {
+        drop(_11) -> bb18;
+    }
+
+    bb28 (cleanup c0): {
+        drop(_4) -> bb20;
+    }
+}
+
+fn WhileChain() {
+    let mut _0: ();
+    let mut _1: i32;                     // k
+    let mut _2: bool;
+    let mut _3: i32;
+    let mut _4: Pair;
+    let mut _5: i32;
+    let _6: D;                           // d
+    let mut _7: isize;
+    let mut _8: i32;
+    cleanup c0: _4 => nothing;
+    cleanup c1 in c0: _6 => drop(_6);
+
+    bb0: {
+        StorageLive(_1);
+        _1 = const 3_i32;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = Gt(copy _1, const 0_i32);
+        switchInt(copy _2) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageDead(_2);
+        StorageLive(_4);
+        _4 = Make(copy _1) -> bb5;
+    }
+
+    bb3: {
+        StorageDead(_2);
+        goto -> bb4;
+    }
+
+    bb4: {
+        _0 = const ();
+        StorageDead(_1);
+        goto -> bb12;
+    }
+
+    bb5 (cleanup c0): {
+        PlaceMention(_4);
+        StorageLive(_7);
+        _7 = discriminant(_4);
+        switchInt(copy _7) -> [0: bb8, otherwise: bb7];
+    }
+
+    bb6 (cleanup c1): {
+        _1 = Sub(copy _1, copy _6.V);
+        goto -> bb14;
+    }
+
+    bb7: {
+        StorageDead(_7);
+        goto -> bb13;
+    }
+
+    bb8 (cleanup c0): {
+        StorageLive(_6);
+        _6 = move (_4 as Both).0;
+        goto -> bb6;
+    }
+
+    bb9: {
+        StorageDead(_4);
+        goto -> bb4;
+    }
+
+    bb10: {
+        StorageDead(_6);
+        StorageDead(_7);
+        goto -> bb11;
+    }
+
+    bb11: {
+        StorageDead(_4);
+        goto -> bb1;
+    }
+
+    bb12: {
+        return;
+    }
+
+    bb13: {
+        drop(_4) -> bb9;
+    }
+
+    bb14 (cleanup c0): {
+        drop(_6) -> bb10;
+    }
+}
+
+fn Main() {
+    let mut _0: ();
+    let mut _1: i32;
+    let mut _2: ();
+
+    bb0: {
+        StorageLive(_1);
+        _1 = IfChain(const 1_i32) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_1);
+        StorageLive(_2);
+        _2 = WhileChain() -> bb2;
+    }
+
+    bb2: {
+        StorageDead(_2);
+        _0 = const ();
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+}

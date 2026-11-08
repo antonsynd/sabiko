@@ -1,0 +1,8 @@
+// A binding of a chain is immutable unless declared `mut`.
+enum Opt { No, Some(i32) }
+
+fn F(a: Opt) -> i32 {
+    if let Opt::Some(x) = a && { x = 1; true } { x } else { 0 }
+}
+
+fn Main() {}

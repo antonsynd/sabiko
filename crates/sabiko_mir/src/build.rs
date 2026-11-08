@@ -588,6 +588,13 @@ impl<'a> Builder<'a> {
     /// jumps to `target`. The scopes stay open: the code that follows is unreachable but
     /// is still lowered in the scopes it is written in, under the cleanup scopes it had.
     fn exit_to(&mut self, depth: usize, target: BasicBlock, span: Span) {
+        self.leave_to(depth, target, span);
+        let next = self.new_block();
+        self.enter(next);
+    }
+
+    /// [`Self::exit_to`] without a block to continue in: the caller enters one.
+    fn leave_to(&mut self, depth: usize, target: BasicBlock, span: Span) {
         let saved = (self.chain.clone(), self.pending.clone());
         let locals: Vec<Local> = self.scopes[depth..]
             .iter()
@@ -599,8 +606,6 @@ impl<'a> Builder<'a> {
         }
         self.terminate(TerminatorKind::Goto { target }, span);
         (self.chain, self.pending) = saved;
-        let next = self.new_block();
-        self.enter(next);
     }
 
     // ----- locals and scopes -----
@@ -2265,6 +2270,10 @@ impl<'a> Builder<'a> {
         els: Option<&Expr>,
         span: Span,
     ) {
+        if let Some(operands) = cond.let_chain() {
+            self.lower_if_chain(dest, &operands, then, els, span);
+            return;
+        }
         if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
             self.lower_if_let(dest, pat, scrutinee, then, els, span);
             return;
@@ -2301,6 +2310,10 @@ impl<'a> Builder<'a> {
     /// `while cond { body }`. The condition's temporaries die at the start of both
     /// successors, so each iteration starts from the same storage state.
     fn lower_while(&mut self, cond: &Expr, body: &Block, span: Span) {
+        if let Some(operands) = cond.let_chain() {
+            self.lower_while_chain(&operands, body, span);
+            return;
+        }
         if let ExprKind::Let(pat, scrutinee) = &strip_parens(cond).kind {
             self.lower_while_let(pat, scrutinee, body, span);
             return;

@@ -1,0 +1,11 @@
+// A by-value binding moves out of its scrutinee; a later operand may not use it.
+struct S { V: i32 }
+enum Holder { Full(S), Empty }
+
+fn Take(h: Holder) -> bool { match h { Holder::Full(_) => true, Holder::Empty => false } }
+
+fn F(h: Holder) -> i32 {
+    if let Holder::Full(s) = h && Take(h) { s.V } else { 0 }
+}
+
+fn Main() {}

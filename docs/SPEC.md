@@ -54,9 +54,13 @@ names which phase owns which section.
   reference patterns `&p`, half-open ranges `a..` and `..=b`, slice patterns
 - `match e { p if guard => body, .. }`; the scrutinee may not be a bare struct literal
   (E0108). A block-like arm body needs no comma. `if let p = e { .. } else { .. }`, `while
-  let p = e { .. }` and `let p = e else { .. };`; let chains (`if let p = e && c`) are
-  valid edition 2024 but not supported yet (E0100, #86), and the initialiser of a `let`-`else` may not end with
-  `}` or be a lazy boolean (E0100)
+  let p = e { .. }` and `let p = e else { .. };`. Let chains (edition 2024, #86): the
+  condition of an `if` or `while` may join `let p = e` operands and other operands with
+  `&&` (`if let Some(x) = a && x > 0 && let Ok(y) = F(x) { .. }`); a `let`'s scrutinee
+  binds tighter than `&&` and `||`. A `let` anywhere else (under `||`, `!`, parentheses or
+  a comparison, nested in another `let`, or outside a condition) is E0102 "expected an
+  expression, found `let` statement", as in rustc. The initialiser of a `let`-`else` may
+  not end with `}` or be a lazy boolean (E0100)
 - Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays
   `[T; N]`, slices `[T]`, named types, generics
 - Arrays and slices (Phase 5, #9): array literals `[a, b, c]` and `[]` (a trailing comma
@@ -181,7 +185,12 @@ dropped as rustc drops them (edition 2024, decision 74):
   binding, for its initialiser's value (`let S { ref mut a, .. } = Make();`, rustc's
   extending patterns); a failing `let`-`else` drops its initialiser's temporaries before
   the `else` block runs; an `if let` scrutinee's temporaries live through the `then` block
-  and are dropped after it, and before the `else` block on the other path; a block's tail
+  and are dropped after it, and before the `else` block on the other path; in a let
+  chain, each `let`'s scrutinee temporaries and then its bindings join the condition's
+  scope, which lives through `then` and is dropped after it, the last first, while each
+  other operand's temporaries are dropped before the next operand runs; where an operand
+  fails, what the condition holds so far is dropped, the last first, before `else` (in a
+  `while`, before the loop is left); a block's tail
   expression's temporaries are dropped when its value is complete, before the block's
   locals (a function body's too, before its locals and parameters); a call, struct
   literal, tuple or assignment that is the tail drops its already evaluated operands with
@@ -601,7 +610,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   path to a variant is E0203; `V(..)` with a lone name is E0202 with a note naming `E::V`;
   an unknown `E::X` is E0212 (rustc's E0599).
 - Patterns bind per pattern: `match` arms, `if let` and `while let` bind for their arm,
-  `then` block or body; `let`-`else` binds in the enclosing block after the statement (the
+  `then` block or body (a `let` of a let chain also for the operands after it, which may
+  shadow its bindings; not for those before it or for `else`); `let`-`else` binds in the enclosing block after the statement (the
   `else` block does not see the bindings). Every alternative of an or-pattern binds the
   same names to the same locals (E0218, rustc's E0408) with the same binding mode (`ref`,
   `mut`: E0219, rustc's E0409).
@@ -739,8 +749,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - `match` (#8). The arms' bodies are checked against the expected type, or against the
   first one that does not diverge (E0300 "`match` arms have incompatible types"); a guard
   is `bool`. The match diverges when its scrutinee does or every arm does; without arms
-  it is `!`. `if let` and `while let` type like `if` and `while`; a `let`-`else` block must
-  diverge (E0300).
+  it is `!`. `if let` and `while let` type like `if` and `while`; the other operands of a
+  let chain are `bool`; a `let`-`else` block must diverge (E0300).
 - Exhaustiveness and reachability (#8, decision 58), as rustc's usefulness algorithm
   decides them: a `match` must cover every value of its scrutinee (E0328, rustc's E0004,
   listing up to three missing patterns as rustc does: "`A`, `B` and `C(_)` not covered",
@@ -755,7 +765,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   uninhabited variants must be matched, as in rustc. A `let` or parameter pattern must be
   irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
   single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
-  pattern always matches (E0331).
+  pattern always matches (E0331); a `let` of a let chain may be refutable or not, without
+  a warning either way (as rustc 1.99).
 - Coercions: `!` to any type, and `&mut T` to `&T`. Nothing else: no `&T` to `&mut T`, no
   numeric widening, no autoref outside method receivers.
 - Method calls `e.Name(args)` (#7, decision 53). The receiver is checked first. Only
