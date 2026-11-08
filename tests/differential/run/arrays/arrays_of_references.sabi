@@ -1,0 +1,18 @@
+// Arrays of references, of `&str` and of `&mut` (#43, decision 77): a `[&i32; 2]` is a
+// `ref struct` inline array of `Ref<int32>` wrappers, a `[&str; 2]` one of
+// `ReadOnlySpan<char>`, and an element written through `*muts[1] += 10` is reached through
+// its `RefMut<int32>`.
+fn Main() {
+    let x = 1;
+    let y = 2;
+    let refs = [&x, &y];
+    PrintLine(*refs[0] + *refs[1]);
+    let names = ["ada", "grace"];
+    PrintLine(names[1]);
+    PrintLine(names.len());
+    let mut p = 5;
+    let mut q = 6;
+    let muts = [&mut p, &mut q];
+    *muts[1] += 10;
+    PrintLine(q);
+}

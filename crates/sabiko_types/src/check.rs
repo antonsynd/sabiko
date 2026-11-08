@@ -2201,7 +2201,14 @@ impl<'a> FnCtxt<'a> {
         };
         if let Some(out) = &n.out {
             let result = if ok { n.lhs.clone() } else { Ty::Error };
-            let _ = self.infer.unify(out, &result);
+            if self.infer.unify(out, &result).is_err() {
+                // The result was used as another type before the operands were decided
+                // (`let r = y + 1; let _: i64 = y;` with `r` returned as an `i32`): rustc
+                // reports it where the result is used, Sabiko at the operation (fuzz,
+                // nightly run 23).
+                let (out, result) = (self.infer.resolve(out), self.infer.resolve(&result));
+                self.mismatch(n.span, &out, &result);
+            }
         }
     }
 

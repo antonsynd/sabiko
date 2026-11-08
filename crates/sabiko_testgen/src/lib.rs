@@ -65,10 +65,13 @@
 //! "lit";`) followed by reads of the retargeted local, `match` through both references,
 //! comparisons of `&&str` and `&&p` operands, and `&&T`, `&&mut T`, `&mut &mut T` and
 //! `&&str` parameters passed `&r`, `&mut r`, a double reference local or `&&x` (see
-//! [`body`]'s `refs` module). Not generated: slice patterns, ranges as values, array
-//! comparison, arrays of references, generics, closures, returned double references and
+//! [`body`]'s `refs` module). Elements of temporary arrays of references, `&str` or
+//! shared (`["a", s][i]`, `[&x, r][i]`), now and then through a range (`[a, b, c][1..][k]`,
+//! a slice of references; #43, see [`body`]'s `arrays` module). Not generated: slice
+//! patterns, ranges as values, array comparison, arrays of references as locals and
+//! parameters (TODO(#92)), generics, closures, returned double references and
 //! three levels of references, `&mut str`, comparisons of `str` places, non-ASCII text,
-//! references (`&str` and `&&T` included, #43) in struct fields, tuples, arrays or enum
+//! references (`&str` and `&&T` included, #92) in struct fields, tuples, arrays or enum
 //! payloads, `()` values, comparisons of tuples or enums, `&` patterns, half-open range
 //! patterns, float patterns, recursion, shadowing, unbounded loops, and reads of
 //! uninitialised locals.

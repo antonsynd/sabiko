@@ -1265,7 +1265,8 @@ impl<'a> BodyGen<'a> {
     }
 
     /// An expression of type `&inner` / `&mut inner`: a borrow of a place, a reference
-    /// local, or a call returning such a reference. `None` when nothing in scope fits. For
+    /// local, a call returning such a reference, or (shared) an element of an array of
+    /// them (`[&a, r][i]`, #43). `None` when nothing in scope fits. For
     /// a slice `inner`, the expression may have a reference to an array type instead, which
     /// coerces where the expected type is known: every caller writes it there (a call
     /// argument, an annotated `let`).
@@ -1281,6 +1282,25 @@ impl<'a> BodyGen<'a> {
         });
         // A slice may also be a range of an array or slice (`&a[1..]`, `&mut s[..2]`).
         let slice = prog.array_of(inner).is_some_and(|(_, len)| len.is_none());
+        // An element of an array of references (#43): `[&a, &*r][i]`. Never of slices,
+        // whose elements could be references to arrays of different lengths, nor of
+        // mutable references, which cannot be moved out of an array. A shared reference
+        // wanted may be given as a `&mut` local (`r`) or a call returning one, so every
+        // element but a fresh shared borrow is reborrowed shared, giving the elements one
+        // type (seed 7000161: `[tmp, &*tmp]` mixed `&mut f64` and `&f64`).
+        if !mutable && !slice && depth > 0 && self.range_depth == 0 && self.rng.chance(6) {
+            let element = |g: &mut Self| {
+                g.ref_expr(false, inner, depth - 1).map(|mut e| {
+                    if !e.text.starts_with('&') {
+                        e.text = format!("&*{}", e.text);
+                    }
+                    e
+                })
+            };
+            if let Some(e) = self.ref_array_element(element) {
+                return Some(e);
+            }
+        }
         let order = match self.rng.weighted(&[
             55,
             25,

@@ -1,0 +1,71 @@
+// Slices of references (#43, decision 77): `&[&T]` and `&mut [&mut T]` as parameters,
+// built from arrays by coercion and by range slicing, read, written through, sub-sliced
+// and measured.
+fn Sum(s: &[&i32]) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < s.len() {
+        total += *s[i];
+        i += 1;
+    }
+    total
+}
+
+fn Bump(s: &mut [&mut i32], by: i32) {
+    let mut i = 0;
+    while i < s.len() {
+        *s[i] += by;
+        i += 1;
+    }
+}
+
+fn Longest(names: &[&str]) -> usize {
+    let mut best = 0;
+    let mut i = 1;
+    while i < names.len() {
+        if names[i].len() > names[best].len() {
+            best = i;
+        }
+        i += 1;
+    }
+    best
+}
+
+fn Main() {
+    let a = 1;
+    let b = 20;
+    let c = 300;
+    let refs = [&a, &b, &c];
+    PrintLine(Sum(&refs));
+    PrintLine(Sum(&refs[1..]));
+    PrintLine(Sum(&refs[..1]));
+    PrintLine(Sum(&refs[1..=1]));
+    PrintLine(refs[1..].len());
+    let s: &[&i32] = &refs;
+    PrintLine(*s[2] - *s[0]);
+    let t = &s[..2];
+    PrintLine(Sum(t));
+
+    let mut x = 1;
+    let mut y = 2;
+    let mut z = 3;
+    let mut muts = [&mut x, &mut y, &mut z];
+    Bump(&mut muts, 10);
+    Bump(&mut muts[1..], 100);
+    *muts[0] *= 2;
+    PrintLine(x);
+    PrintLine(y);
+    PrintLine(z);
+
+    let names = ["ada", "grace", "barbara", "joan"];
+    PrintLine(names[Longest(&names)]);
+    PrintLine(names[Longest(&names[..2])]);
+    let mut words = ["x", "y"];
+    words[1] = names[3];
+    let w: &mut [&str] = &mut words;
+    w[0] = "linus";
+    PrintLine(w[0]);
+    PrintLine(w[1]);
+    let shared: &[&str] = w;
+    PrintLine(shared.len());
+}

@@ -896,3 +896,30 @@ fn programs_use_references_to_references() {
     eprintln!("of {SEEDS} programs: {}", report.join(", "));
     assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
 }
+
+/// Whether a line indexes an array literal of references (#43): `["a", s][i]`,
+/// `[&x, r][..2][k]`.
+fn ref_array_element(line: &str) -> bool {
+    (line.contains("[&") || line.contains("[\"")) && line.contains("][")
+}
+
+/// The generator indexes temporary arrays of references (#43, decision 77), and some of
+/// them through a range (a slice of references). Counted in 500 programs: 132 and 24.
+#[test]
+fn programs_use_arrays_of_references() {
+    let knobs = Knobs::default();
+    let (mut any, mut ranged) = (0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        any += usize::from(src.lines().any(ref_array_element));
+        ranged += usize::from(
+            src.lines()
+                .any(|l| ref_array_element(l) && l.contains("..][")),
+        );
+    }
+    eprintln!("of {SEEDS} programs: {any} index an array of references, {ranged} a range of one");
+    assert!(
+        any >= 100 && ranged >= 15,
+        "of {SEEDS} programs: {any} index an array of references (expected 100), {ranged} a range of one (expected 15)"
+    );
+}

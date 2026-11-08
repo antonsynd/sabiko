@@ -107,6 +107,7 @@ pub fn emit_il(
         inline_arrays: Vec::new(),
         drop_glues: Vec::new(),
         ref_wrappers: [false; 2],
+        slices: [false; 2],
     };
 
     let mut out = String::new();
@@ -153,6 +154,7 @@ pub fn emit_il(
     cx.byref_tuple_structs(&mut out);
     cx.inline_array_structs(&mut out);
     cx.ref_wrapper_structs(&mut out);
+    cx.slice_structs(&mut out);
     if cx.had_error {
         None
     } else {
@@ -182,6 +184,9 @@ pub(crate) struct Cx<'a> {
     /// Whether the module uses the ``Ref`1`` (index 0) and ``RefMut`1`` (index 1) wrappers
     /// (decision 64).
     ref_wrappers: [bool; 2],
+    /// Whether the module uses the ``Slice`1`` (index 0) and ``SliceMut`1`` (index 1)
+    /// views over elements that hold references (decision 77).
+    slices: [bool; 2],
 }
 
 impl Cx<'_> {
@@ -261,8 +266,7 @@ impl Cx<'_> {
     /// The name of the generated value type for `ty`, an array type (decision 61): the
     /// array type as Sabiko writes it (`[i32; 3]`), which no user type can be called.
     /// Registers the type for [`Cx::inline_array_structs`]. `None`, after reporting, for
-    /// an array the backend cannot lower: one holding references (an inline array cannot
-    /// hold managed pointers), or longer than an `int32` can count.
+    /// an array longer than an `int32` can count.
     pub(crate) fn inline_array(&mut self, ty: &Ty, span: Span) -> Option<String> {
         if let Some((_, name)) = self.inline_arrays.iter().find(|(t, _)| t == ty) {
             return Some(name.clone());
@@ -270,17 +274,13 @@ impl Cx<'_> {
         let Ty::Array(elem, n) = ty else {
             unreachable!("an inline array of a non-array type")
         };
-        if elem.has_ref() {
-            self.unsupported("an array holding references", span);
-            return None;
-        }
         if i32::try_from(*n).is_err() {
             self.unsupported("an array of more than 2147483647 elements", span);
             return None;
         }
         let name = ty.display(self.resolve);
         self.inline_arrays.push((ty.clone(), name.clone()));
-        types::cil_type(self, elem, span);
+        types::stored_type(self, elem, span);
         Some(name)
     }
 
@@ -288,7 +288,9 @@ impl Cx<'_> {
     /// a `sequential` struct with one field of type `T`, `Element`, and
     /// `[InlineArray(N)]`, which makes the runtime lay out `N` of them (C# 12's inline
     /// arrays); `[T; 0]` is an empty struct, since the runtime rejects an inline array of
-    /// length 0. An element type may register another array, emitted in turn.
+    /// length 0. An element that holds a reference makes the array a `ref struct`, whose
+    /// element is a reference's `Ref<T>` wrapper, a span or another `ref struct`
+    /// (decision 77). An element type may register another array, emitted in turn.
     fn inline_array_structs(&mut self, out: &mut String) {
         if self.had_error {
             return;
@@ -305,6 +307,9 @@ impl Cx<'_> {
                 "\n.class public sequential ansi sealed beforefieldinit {} extends [System.Runtime]System.ValueType\n{{",
                 types::quote(&name)
             );
+            if elem.has_ref() {
+                let _ = writeln!(out, "  {}", types::IS_BYREF_LIKE_ATTR);
+            }
             if *n == 0 {
                 out.push_str("  .pack 0\n  .size 1\n}\n");
                 continue;
@@ -320,7 +325,7 @@ impl Cx<'_> {
                 "  .custom instance void [System.Runtime]System.Runtime.CompilerServices.InlineArrayAttribute::.ctor(int32) = ( 01 00 {} 00 00 )",
                 bytes.join(" ")
             );
-            let cil = types::cil_type(self, elem, Span::dummy());
+            let cil = types::stored_type(self, elem, Span::dummy());
             let _ = writeln!(
                 out,
                 "  .field public {cil} {}\n}}",
@@ -540,4 +545,169 @@ impl Cx<'_> {
             );
         }
     }
+
+    /// The generated view over elements that hold references (decision 77): ``Slice`1``
+    /// for a shared one, ``SliceMut`1`` for a mutable one, generic over the element's
+    /// storage type. `Span<T>` cannot be one: its parameter does not allow `ref struct`s,
+    /// and every element that holds a reference is stored as one (a `Ref<T>`, a span, a
+    /// tuple or array with references). Registers it for [`Cx::slice_structs`].
+    pub(crate) fn slice_view(&mut self, mutable: bool) -> &'static str {
+        self.slices[usize::from(mutable)] = true;
+        if mutable {
+            types::SLICE_MUT_CLASS
+        } else {
+            types::SLICE_CLASS
+        }
+    }
+
+    /// Emits the views [`Cx::slice_view`] registered: a `ref struct` with a managed
+    /// pointer to the first element and a length, and the members of `Span<T>` that code
+    /// generation calls, with the same signatures, so a slice of references is used
+    /// exactly as any other span: `get_Length`, `get_Item` (bounds-checked, like the
+    /// span's, though every index is checked against rustc's message first), `Slice`,
+    /// `Fill`, and the conversion from the mutable view to the shared one. The elements
+    /// are reached with `Unsafe.Add`, whose parameter allows `ref struct`s. ``SliceMut`1``
+    /// is emitted with the conversion even when only it is used, so ``Slice`1`` is
+    /// registered with it.
+    fn slice_structs(&mut self, out: &mut String) {
+        if self.had_error {
+            return;
+        }
+        if self.slices[1] {
+            self.slices[0] = true;
+        }
+        for (mutable, class) in [(false, types::SLICE_CLASS), (true, types::SLICE_MUT_CLASS)] {
+            if self.slices[usize::from(mutable)] {
+                out.push_str(&slice_view_class(class, mutable));
+            }
+        }
+    }
+}
+
+/// The IL of a view of decision 77 ([`Cx::slice_structs`]): the shared ``Slice`1`` or,
+/// `mutable`, ``SliceMut`1`` with [`slice_mut_members`].
+fn slice_view_class(class: &str, mutable: bool) -> String {
+    let item_ret = if mutable {
+        "!T&".to_owned()
+    } else {
+        format!("!T& {}", types::IN_MODREQ)
+    };
+    let this = format!("valuetype {class}<!T>");
+    let extra = if mutable {
+        slice_mut_members(&this)
+    } else {
+        String::new()
+    };
+    format!(
+        "
+.class public sequential ansi sealed beforefieldinit {class}<byreflike T> extends [System.Runtime]System.ValueType
+{{
+  {byref_like}
+  .field private initonly !T& 'start'
+  .field private initonly int32 'length'
+  .method public hidebysig specialname rtspecialname instance void .ctor(!T& 'start', int32 'length') cil managed
+  {{
+    .maxstack 2
+    ldarg.0
+    ldarg.1
+    stfld !0& {this}::'start'
+    ldarg.0
+    ldarg.2
+    stfld int32 {this}::'length'
+    ret
+  }}
+  .method public hidebysig specialname instance int32 'get_Length'() cil managed
+  {{
+    .maxstack 1
+    ldarg.0
+    ldfld int32 {this}::'length'
+    ret
+  }}
+  .method public hidebysig specialname instance {item_ret} 'get_Item'(int32 'index') cil managed
+  {{
+    .maxstack 2
+    ldarg.1
+    ldarg.0
+    ldfld int32 {this}::'length'
+    blt.un OK
+    newobj instance void [System.Runtime]System.IndexOutOfRangeException::.ctor()
+    throw
+  OK:
+    ldarg.0
+    ldfld !0& {this}::'start'
+    ldarg.1
+    call !!0& {unsafe_class}::Add<!T>(!!0&, int32)
+    ret
+  }}
+  .method public hidebysig instance valuetype {class}<!T> 'Slice'(int32 'start', int32 'length') cil managed
+  {{
+    .maxstack 3
+    ldarg.1
+    conv.u8
+    ldarg.2
+    conv.u8
+    add
+    ldarg.0
+    ldfld int32 {this}::'length'
+    conv.u8
+    ble.un OK
+    newobj instance void [System.Runtime]System.ArgumentOutOfRangeException::.ctor()
+    throw
+  OK:
+    ldarg.0
+    ldfld !0& {this}::'start'
+    ldarg.1
+    call !!0& {unsafe_class}::Add<!T>(!!0&, int32)
+    ldarg.2
+    newobj instance void {this}::.ctor(!0&, int32)
+    ret
+  }}{extra}
+}}
+",
+        byref_like = types::IS_BYREF_LIKE_ATTR,
+        unsafe_class = types::UNSAFE,
+    )
+}
+
+/// The members only the mutable view has: `Fill(value)`, and the conversion to the shared
+/// view (`Span<T>`'s implicit one to `ReadOnlySpan<T>`). `this` is the view's own type.
+fn slice_mut_members(this: &str) -> String {
+    format!(
+        "
+  .method public hidebysig instance void 'Fill'(!T 'value') cil managed
+  {{
+    .maxstack 3
+    .locals init ([0] int32 'i')
+    br COND
+  LOOP:
+    ldarg.0
+    ldfld !0& {this}::'start'
+    ldloc.0
+    call !!0& {unsafe_class}::Add<!T>(!!0&, int32)
+    ldarg.1
+    stobj !T
+    ldloc.0
+    ldc.i4.1
+    add
+    stloc.0
+  COND:
+    ldloc.0
+    ldarg.0
+    ldfld int32 {this}::'length'
+    blt LOOP
+    ret
+  }}
+  .method public hidebysig specialname static valuetype {shared}<!T> 'op_Implicit'({this} 'span') cil managed
+  {{
+    .maxstack 2
+    ldarga.s 0
+    ldfld !0& {this}::'start'
+    ldarga.s 0
+    ldfld int32 {this}::'length'
+    newobj instance void valuetype {shared}<!T>::.ctor(!0&, int32)
+    ret
+  }}",
+        shared = types::SLICE_CLASS,
+        unsafe_class = types::UNSAFE,
+    )
 }

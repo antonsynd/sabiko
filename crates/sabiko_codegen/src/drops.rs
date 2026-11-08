@@ -140,8 +140,9 @@ impl Cx<'_> {
     /// element's `drop` panics.
     fn array_glue(&mut self, elem: &Ty, n: u64, name: &str, cil: &str, out: &mut String) {
         let span = Span::dummy();
-        let elem_cil = types::cil_type(self, elem, span);
+        let elem_cil = types::stored_type(self, elem, span);
         let span_ty = types::span_type(self, elem, true, span);
+        let create = types::span_over(self, elem, true, span);
         let class = types::span_class(self, elem, true, span);
         let array_name = cil.trim_start_matches("valuetype ");
         let drop_elem = self.drop_glue_call(elem, span);
@@ -154,7 +155,7 @@ impl Cx<'_> {
     ldarg.0
     ldflda {elem_cil} {array_name}::{field}
     ldc.i4 {n}
-    call valuetype {span_class}<!!0> {marshal}::CreateSpan<{elem_cil}>(!!0&, int32)
+    {create}
     stloc.0
     ldc.i4.0
     stloc.1
@@ -205,8 +206,6 @@ impl Cx<'_> {
 ",
             types::quote(name),
             field = types::ARRAY_ELEMENT_FIELD,
-            span_class = types::SPAN_CLASS,
-            marshal = types::MEMORY_MARSHAL,
         );
     }
 

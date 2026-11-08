@@ -327,9 +327,8 @@ builds a new wrapper (`newobj`) and stores it whole over the old one (`stloc`, `
 `stobj`), so nothing writes `Value` after construction. Other reference locals and
 parameters stay plain managed pointers. `&str` and `&[T]` are span values, not pointers, so
 `&&str` is a managed pointer to a `ReadOnlySpan<char>` and needs no wrapper (a wrapper
-appears at `&&&str`). Not lowered yet (E0500): arrays and slices of references (`[&T; N]`,
-`&[&T]`, `&[&str]`, #43), since an inline array can hold neither a managed pointer nor a
-`ref struct`.
+appears at `&&&str`). An array or slice element of reference type is held in its wrapper
+too (decision 77, below).
 
 Arrays and slices (#9, decision 61). An array type `[T; N]` is a value type generated into
 the module and named after the Sabiko type (`'[i32; 3]'`): for `N > 0` a `sequential`
@@ -353,9 +352,27 @@ elements with `Span<T>.Fill`, or is `initobj` for a zero constant. Unsizing (`&[
 `&[T]` is `Span<T>`'s implicit conversion. `.len()` of an array is the constant `N`, of a
 slice the span's `Length`. An array with drop glue gets glue that drops its elements first
 to last, each in a protected region whose `fault` handler drops the remaining ones. Not
-lowered yet (E0500): arrays and slices holding references (`[&T; N]`, `&[&str]`): an
-inline array cannot hold a managed pointer or a `ref struct`; arrays longer than
-`int32::MAX`.
+lowered yet (E0500): arrays longer than `int32::MAX`.
+
+Arrays and slices of references (#43, decision 77). An element type that holds a reference
+(a reference, `&str`, `&[T]`, a tuple or array with references) is stored as a reference
+place is: a reference lowered to a managed pointer in its `Ref<T>`/`RefMut<T>` wrapper
+(decision 64), a span or a generated `ref struct` as it is. An array of such elements is
+the same inline array marked `IsByRefLike`, a `ref struct` (`'[&i32; 2]'` has an `Element`
+of type `Ref<int32>`, `'[&str; 2]'` one of `ReadOnlySpan<char>`). `Span<T>` and
+`ReadOnlySpan<T>` cannot hold a `ref struct`, so a slice of such elements, `&[&T]` or
+`&mut [&mut T]`, is a generated view instead: ``'Slice`1'<byreflike T>`` (shared) or
+``'SliceMut`1'<byreflike T>`` (mutable), a `ref struct` with a managed pointer to the first
+element and an `int32` length, whose members mirror the span's (`get_Length`, `get_Item`
+returning `ref readonly T` or `ref T`, `Slice(start, length)`, `Fill`, and the mutable
+view's conversion to the shared one), reaching the elements through `Unsafe.Add`, whose
+parameter allows `ref struct`s. Elements are read and written as wrapper places: loading
+`a[i]` of type `&i32` loads the element's address and the wrapper's `Value`, storing one
+builds a new wrapper over the old, and `&a[i]` is a pointer to the wrapper (a `&&i32`). A
+dereference of an element (`*a[i]`) checks the index first at the element's own span, where
+rustc locates the panic, then reads through the wrapper.
+Unsizing builds the view from the array's first element and length; everything else
+(bounds checks and their panics, sub-slicing, `.len()`) is the span path unchanged.
 
 Strings and range slicing (#10, decision 62). A `str` place is reached like a `[char]`
 one, through its `ReadOnlySpan<char>`; `.len()` is the span's `Length`. MIR lowers `e[a..b]`

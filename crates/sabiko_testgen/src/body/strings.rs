@@ -24,9 +24,10 @@
 //! guarded, which makes later arms unreachable (borrow-checked all the same, #47).
 //!
 //! Not generated: string patterns on a `&&str` scrutinee (`match ss { "a" => .. }`), a
-//! `&str` in a reference parameter's referent other than `&&str`. TODO(#43)
-//! `&str` in structs, enums and arrays (and so in their patterns), and in the generator's
-//! tuple types. TODO(E0208) comparisons of `str` places (`*s == *t`): only `&str`
+//! `&str` in a reference parameter's referent other than `&&str`. TODO(#92)
+//! `&str` in the arrays and tuple types of locals and parameters (and so in their
+//! patterns): only temporaries `["a", s][i]` hold strings (#43); structs and enums wait
+//! for lifetimes. TODO(E0208) comparisons of `str` places (`*s == *t`): only `&str`
 //! operands are compared. Ranges as values (E0107 outside an index), `&mut str`, and
 //! non-ASCII text (see `STR_LITERALS` and decision 62).
 
@@ -156,8 +157,9 @@ impl BodyGen<'_> {
     }
 
     /// An expression of type `&str`: a literal, a `&str` local, a range slice
-    /// (`&s[1..k]`), a call returning a `&str` or an `if` choosing between two. Its roots
-    /// are the loans it may carry. Without calls in `simple` mode.
+    /// (`&s[1..k]`), a call returning a `&str`, an `if` choosing between two, or an
+    /// element of an array of strings (`["a", s][i]`, #43). Its roots are the loans it may
+    /// carry. Without calls in `simple` mode.
     pub(super) fn str_expr(&mut self, depth: u32) -> Expr {
         let fns = self.str_fns();
         let full = depth > 0 && self.simple == 0;
@@ -167,8 +169,12 @@ impl BodyGen<'_> {
             34,
             if full && !fns.is_empty() { 10 } else { 0 },
             if full { 6 } else { 0 },
+            if full && self.range_depth == 0 { 5 } else { 0 },
         ]) {
             0 => self.str_lit(),
+            5 => self
+                .ref_array_element(|g| Some(g.str_expr(depth - 1)))
+                .unwrap_or_else(|| self.str_lit()),
             1 => self
                 .ref_var(false, ValTy::Str)
                 .unwrap_or_else(|| self.str_lit()),

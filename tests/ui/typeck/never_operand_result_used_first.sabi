@@ -1,0 +1,12 @@
+// An operation on a diverging variable decided later (#87) must give its result the
+// decided type: `y` is an `i64` by the `let` after `y + 1`, so `r` is an `i64` too, and
+// returning it as an `i32` is rustc's E0308 (reported at `r` by rustc, at the operation by
+// Sabiko). It was accepted and built ill-typed MIR (fuzz, nightly run 23).
+fn Re() -> i32 {
+    let y = return 2;
+    let r = y + 1; //~ ERROR E0300 mismatched types
+    let z: i64 = y;
+    r
+}
+
+fn Main() {}

@@ -1,0 +1,58 @@
+// Arrays of references (#43, decision 77): repeats, nested arrays, references to
+// elements, arrays of references returned and passed by value, arrays of tuples holding
+// references, of slices, and of `&&T`, and element assignment.
+fn Pick(a: [&i32; 3], i: usize) -> &i32 {
+    a[i]
+}
+
+fn Pair(x: &i32) -> [&i32; 2] {
+    [x, x]
+}
+
+fn Main() {
+    let v = 7;
+    let w = 8;
+    let rep = [&v; 3];
+    PrintLine(*rep[0] + *rep[2]);
+    let mut grid = [[&v, &w], [&w, &v]];
+    PrintLine(*grid[0][1] * 10 + *grid[1][1]);
+    grid[1][1] = &w;
+    PrintLine(*grid[1][1]);
+    PrintLine(*Pick([&v, &w, &v], 1));
+    let p = Pair(&w);
+    PrintLine(*p[0]);
+
+    // A reference to an element is a `&&i32`.
+    let first = &p[1];
+    PrintLine(**first);
+    let mut q = [&v, &w];
+    q[0] = q[1];
+    PrintLine(*q[0] + *q[1]);
+
+    // Tuples holding references, as elements.
+    let pairs = [(&v, 1), (&w, 2)];
+    PrintLine(*pairs[1].0 + pairs[0].1);
+    // Slices as elements.
+    let nums = [1, 2, 3, 4];
+    let parts: [&[i32]; 2] = [&nums[..1], &nums[1..]];
+    PrintLine(parts[1].len());
+    PrintLine(parts[1][2]);
+    // References to references.
+    let r = &v;
+    let rr = [&r, &r];
+    PrintLine(**rr[1]);
+    // Empty.
+    let none: [&i32; 0] = [];
+    PrintLine(none.len());
+    let empty: &[&i32] = &none;
+    PrintLine(empty.len());
+
+    // Mutable references, reborrowed out of the array.
+    let mut m = 1;
+    let mut n = 2;
+    let mut ms = [&mut m, &mut n];
+    let inner = &mut *ms[1];
+    *inner += 40;
+    *ms[0] += 1;
+    PrintLine(m + n);
+}

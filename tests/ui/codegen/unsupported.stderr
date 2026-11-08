@@ -1,14 +1,7 @@
-[E0500] Error: an array holding references is not yet supported by code generation
-   ╭─[ tests/ui/codegen/unsupported.sabi:7:10 ]
+[E0500] Error: an array of more than 2147483647 elements is not yet supported by code generation
+   ╭─[ tests/ui/codegen/unsupported.sabi:8:9 ]
    │
- 7 │ fn First(_refs: [&i32; 2]) {} //~ ERROR E0500 an array holding references is not yet supported by code generation
-   │          ────────┬───────  
-   │                  ╰───────── cannot be compiled yet
-───╯
-[E0500] Error: a slice of references is not yet supported by code generation
-   ╭─[ tests/ui/codegen/unsupported.sabi:9:11 ]
-   │
- 9 │ fn Second(_view: &[&i32]) {} //~ ERROR E0500 a slice of references is not yet supported by code generation
-   │           ───────┬──────  
-   │                  ╰──────── cannot be compiled yet
+ 8 │ fn Huge(_bytes: &[u8; 3000000000]) {} //~ ERROR E0500 an array of more than 2147483647 elements is not yet supported by code generation
+   │         ────────────┬────────────  
+   │                     ╰────────────── cannot be compiled yet
 ───╯

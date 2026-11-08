@@ -29,6 +29,12 @@
 //! in rustc, unlike the built-in `a[a.len() - 1] = v`): see [`Ranges`]. For the same
 //! reason a `&mut self` method call on an element of a range place is not two-phase
 //! (`a[1..][0].Bump(a[0].X)` is E0503), see `BodyGen::receiver_ref`.
+//!
+//! Arrays of references (#43) only appear as temporaries indexed in place: a `&str` or a
+//! shared reference may be an element of an array literal of them (`["a", s][i]`, `[&x,
+//! r][i]`, now and then `[a, b, c][1..][k]`, through a slice of references), see
+//! `BodyGen::ref_array_element`. TODO(#92): such arrays and slices as locals and
+//! parameters.
 
 use super::{Access, BodyGen, Expr, LoopKind, Place};
 use crate::program::{int_literal, ConstValue, RetTy};
@@ -623,6 +629,46 @@ impl BodyGen<'_> {
             self.line(&format!("{name}[{index}] = {};", rhs.text));
         }
         true
+    }
+
+    /// An element of an array literal of references (#43, decision 77): `[a, b][i]`, or
+    /// now and then an element of a range of one (`[a, b, c][1..][k]`, a slice of
+    /// references), where `elem` gives each element with the type the caller wants (a
+    /// `&str`, or a shared reference to a value type) and the array is a temporary of the
+    /// statement. Each element's loans are held while the next is generated, and all of
+    /// them while the index is (it is evaluated after them); the expression carries all
+    /// of them, as rustc gives the elements one lifetime. `None` when an element cannot
+    /// be generated.
+    pub(super) fn ref_array_element(
+        &mut self,
+        mut elem: impl FnMut(&mut Self) -> Option<Expr>,
+    ) -> Option<Expr> {
+        let n = 1 + self.rng.index(3);
+        let mut texts = Vec::with_capacity(n);
+        let mut roots = Vec::new();
+        for _ in 0..n {
+            let Some(e) = elem(self) else {
+                self.unlock(&roots);
+                return None;
+            };
+            self.lock(&e.roots);
+            roots.extend(e.roots);
+            texts.push(e.text);
+        }
+        let base = format!("[{}]", texts.join(", "));
+        self.range_depth += 1;
+        let text = if n > 1 && self.rng.chance(30) {
+            let range = self.range_index(&base, Some(n), false);
+            let ranged = format!("{base}[{range}]");
+            let index = self.index_expr(&ranged, None, false);
+            format!("{ranged}[{index}]")
+        } else {
+            let index = self.index_expr(&base, Some(n), false);
+            format!("{base}[{index}]")
+        };
+        self.range_depth -= 1;
+        self.unlock(&roots);
+        Some(Expr { text, roots })
     }
 
     fn index_operand(&mut self) -> String {
