@@ -1,0 +1,26 @@
+// A panic in a later operand of an `if let` guard drops what the guard holds so far, last
+// first, then the scrutinee and the function's locals (#98).
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Boom(v: i32) -> bool {
+    if v > 0 {
+        Panic("boom");
+    }
+    true
+}
+
+fn Main() {
+    let _g = D { V: 0 };
+    match Maybe::Has(D { V: 1 }) {
+        Maybe::Has(ref p) if let Maybe::Has(a) = Maybe::Has(D { V: 2 }) && let t = (D { V: 3 }) && Boom(p.V + a.V + t.V) => PrintLine("arm"),
+        _ => PrintLine("other"),
+    }
+}

@@ -1130,6 +1130,21 @@ lowered, so validation and codegen see the value as before. Constant promotion (
 fallback rows went to #85 and #87 earlier, and `(&return 1).X`'s message already names
 `&!`. New: `run/strings/print_through_references`.
 
+`if let` guards (#98, decision 81), the last open piece of the edition 2024 pivot (#81):
+`p if let q = e && c =>`, which rustc 1.99 accepts, was E0102. A guard is now parsed as a
+condition and lowered by the let-chain lowering in a scope of its own; where it holds,
+what it holds is handed to the arm and lives to the arm's end, dropped after the arm's
+locals and before the pattern's bindings; where it fails, it is dropped before the next
+candidate. New: eight compile-time programs in `differential/let_chains/` (the arm's
+bindings seen through references, `ref mut` bindings, moves only when the arm is taken),
+three run-time ones in `differential/run/matches/` (drop order on every path, or-pattern
+alternatives, two unwinding programs) and a MIR snapshot. The generator writes `if let
+<literal> = <place>` guards, sometimes followed by `&&` and a comparison. 1200 seeds at
+base 66000000 found a generator regression from #86: `stmt_if_let` took its snapshot of
+moved locals before generating the scrutinee, so a scrutinee that moved something (an
+inline `match sum { .., d => .. }`) left it usable in `else` (seed 66000512); the snapshot
+is taken after the scrutinee again.
+
 ### Phase 5: Data types
 
 Work

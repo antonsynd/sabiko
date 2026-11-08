@@ -1,0 +1,8 @@
+// A guard `let` may not mutably borrow the scrutinee the match tested (rustc E0502).
+struct S { V: i32 }
+enum H { Full(S), Empty }
+enum M { Has(i32), No }
+fn F(mut h: H, mut m: M, c: bool) -> i32 {
+    match m { M::Has(x) if let r = &mut m => 1, _ => 0 }
+}
+fn Main() { F(H::Full(S { V: 1 }), M::Has(2), true); }

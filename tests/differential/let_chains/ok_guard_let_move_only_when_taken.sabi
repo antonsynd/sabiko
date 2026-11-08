@@ -1,0 +1,8 @@
+// A guard `let` that moves out of a place moves it only when the arm is taken.
+struct S { V: i32 }
+enum H { Full(S), Empty }
+enum M { Has(i32), No }
+fn F(mut h: H, mut m: M, c: bool) -> i32 {
+    match c { true if let H::Full(s) = h => s.V, _ => { match h { H::Full(t) => t.V, H::Empty => 0 } } }
+}
+fn Main() { F(H::Full(S { V: 1 }), M::Has(2), true); }

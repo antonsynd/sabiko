@@ -564,7 +564,8 @@ impl Exhaustive<'_, '_> {
                 self.expr(scrutinee);
                 for arm in arms {
                     if let Some(g) = &arm.guard {
-                        self.expr(g);
+                        // A guard's `let`s are checked as a let chain's (#98).
+                        self.chain(&g.let_chain().unwrap_or_else(|| vec![g]));
                     }
                     self.expr(&arm.body);
                 }

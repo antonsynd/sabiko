@@ -57,9 +57,11 @@ names which phase owns which section.
   let p = e { .. }` and `let p = e else { .. };`. Let chains (edition 2024, #86): the
   condition of an `if` or `while` may join `let p = e` operands and other operands with
   `&&` (`if let Some(x) = a && x > 0 && let Ok(y) = F(x) { .. }`); a `let`'s scrutinee
-  binds tighter than `&&` and `||`. A `let` anywhere else (under `||`, `!`, parentheses or
-  a comparison, nested in another `let`, or outside a condition) is E0102 "expected an
-  expression, found `let` statement", as in rustc. The initialiser of a `let`-`else` may
+  binds tighter than `&&` and `||`. A match guard may be one too (`p if let q = e && c =>`,
+  #98), whose `let`s bind for the rest of the guard and the arm. A `let` anywhere else
+  (under `||`, `!`, parentheses or a comparison, nested in another `let`, or outside a
+  condition or guard) is E0102 "expected an expression, found `let` statement", as in
+  rustc. The initialiser of a `let`-`else` may
   not end with `}` or be a lazy boolean (E0100)
 - Types: primitives, references, tuples (`(A,)`, `(A, B)`, ...; `(A)` is `A`), arrays
   `[T; N]`, slices `[T]`, named types, generics
@@ -190,7 +192,10 @@ dropped as rustc drops them (edition 2024, decision 74):
   scope, which lives through `then` and is dropped after it, the last first, while each
   other operand's temporaries are dropped before the next operand runs; where an operand
   fails, what the condition holds so far is dropped, the last first, before `else` (in a
-  `while`, before the loop is left); a block's tail
+  `while`, before the loop is left); a match guard with `let`s keeps what they hold (their
+  scrutinee temporaries and bindings) to the end of its arm, where it is dropped after the
+  arm's locals and before the pattern's bindings, and drops it before the next arm is
+  tried where it fails; a block's tail
   expression's temporaries are dropped when its value is complete, before the block's
   locals (a function body's too, before its locals and parameters); a call, struct
   literal, tuple or assignment that is the tail drops its already evaluated operands with

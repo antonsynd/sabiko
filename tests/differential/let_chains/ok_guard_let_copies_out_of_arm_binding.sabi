@@ -1,0 +1,8 @@
+// A guard `let` may copy out of the arm's binding; its own bindings are the arm's.
+struct S { V: i32 }
+enum H { Full(S), Empty }
+enum M { Has(i32), No }
+fn F(mut h: H, mut m: M, c: bool) -> i32 {
+    match h { H::Full(s) if let S { V } = s => V, _ => 0 }
+}
+fn Main() { F(H::Full(S { V: 1 }), M::Has(2), true); }

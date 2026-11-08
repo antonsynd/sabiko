@@ -115,9 +115,13 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   declared and locking what they borrow, as statements there are; generating an
   expression writes no lines, so the condition is still written first. `else` starts from
   the state after the whole condition (what any operand moved is moved there, as the
-  borrow checker sees a failure after it). `programs_use_let_chains` pins 60 programs of
-  500 with a chain, 18 led by a `bool`, 35 with two `let`s and 45 with a `bool` after a
-  `let`.
+  borrow checker sees a failure after it), and what the scrutinee itself moved (an inline
+  `match` binding the whole of a place) is moved on every path (seed 66000512).
+  `programs_use_let_chains` pins 60 programs of 500 with a chain, 18 led by a `bool`, 35
+  with two `let`s and 45 with a `bool` after a `let`. Match guards are `if let <literal> =
+  <place>` a sixth of the time (#98, `guard_let`), on a primitive place a guard may read,
+  bindings preferred, sometimes followed by `&&` and a comparison;
+  `programs_use_if_let_guards` pins 30 programs of 500 with one and 9 with `&&`.
 
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,

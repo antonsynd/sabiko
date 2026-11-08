@@ -1,0 +1,26 @@
+// `if let` guards (#98): the guard is a let chain in a scope of its own; where it fails,
+// what it holds is dropped before the next candidate; where it holds, its scrutinee
+// temporaries and bindings are handed to the arm, whose body scope drops them, after the
+// arm's locals and before the pattern's bindings. Both alternatives of `1 | 2` bind the
+// guard's `d` to the same local.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Pick(v: i32) -> Maybe { if v > 0 { Maybe::Has(D { V: v }) } else { Maybe::Empty } }
+
+fn Guard(k: i32) -> i32 {
+    match k {
+        1 | 2 if let Maybe::Has(d) = Pick(k) && d.V > 1 => d.V,
+        x if let 3 = x => 3,
+        _ => 0,
+    }
+}
+
+fn Main() {
+    Guard(1);
+}

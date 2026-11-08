@@ -791,9 +791,20 @@ impl Parser<'_, '_> {
     /// = a && x > 0 && let Ok(y) = F(x)`. A `let` under `||`, `!`, parentheses or any other
     /// operator is an error, as in rustc.
     fn parse_cond(&mut self) -> PResult<Expr> {
+        self.parse_cond_with(true)
+    }
+
+    /// [`Self::parse_cond`], where a struct literal may be bare unless `no_struct`: in a
+    /// match guard (`p if let q = e && c => ..`, #98) the `=>` that follows makes one
+    /// unambiguous, as in rustc.
+    fn parse_cond_with(&mut self, no_struct: bool) -> PResult<Expr> {
         let saved = std::mem::replace(&mut self.let_allowed, true);
         let mark = self.cond_lets.len();
-        let cond = self.parse_expr_no_struct();
+        let cond = if no_struct {
+            self.parse_expr_no_struct()
+        } else {
+            self.parse_expr()
+        };
         self.let_allowed = saved;
         let lets = self.cond_lets.split_off(mark);
         let cond = cond?;
@@ -843,7 +854,7 @@ impl Parser<'_, '_> {
         )
         .with_label(span, "`let` is not allowed here")
         .with_note(
-            "`let` is only allowed directly in the condition of an `if` or `while`, joined to the rest of it by `&&` (a let chain)",
+            "`let` is only allowed directly in the condition of an `if` or `while` or in a match guard, joined to the rest of it by `&&` (a let chain)",
         );
         if or {
             d = d.with_note("`||` operators are not supported in let chain conditions");
@@ -864,7 +875,7 @@ impl Parser<'_, '_> {
                 let id = p.new_id();
                 let pat = p.parse_pat_or()?;
                 let guard = if p.eat(TokenKind::If).is_some() {
-                    Some(p.parse_expr()?)
+                    Some(p.parse_cond_with(false)?)
                 } else {
                     None
                 };

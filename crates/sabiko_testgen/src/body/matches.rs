@@ -1149,19 +1149,55 @@ impl BodyGen<'_> {
         if !binds.is_empty() {
             self.prefer_root = Some(binds[self.rng.index(binds.len())]);
         }
-        let text = match self.rng.weighted(&[60, 20, 20]) {
+        let text = match self.rng.weighted(&[60, 20, 20, 18]) {
             0 => self.guard_compare(),
             1 => self.prim_leaf(Prim::Bool).text,
-            _ => {
+            2 => {
                 let a = self.guard_compare();
                 let b = self.guard_compare();
                 let op = *self.rng.pick(&["&&", "||"]);
                 format!("({a} {op} {b})")
             }
+            _ => self.guard_let(),
         };
         self.prefer_root = saved;
         self.unlock(&s.guard_lock);
         format!(" if {text}")
+    }
+
+    /// An `if let` guard (#98): `let <literal> = <place>`, sometimes followed by `&&` and a
+    /// comparison, matching a primitive place other than a float (bindings preferred) as
+    /// `guard_compare` reads one.
+    fn guard_let(&mut self) -> String {
+        let prims: Vec<Place> = self
+            .candidates()
+            .into_iter()
+            .filter(|p| {
+                matches!(p.ty, ValTy::Prim(Prim::Int(_) | Prim::Bool | Prim::Char))
+                    && self.permitted(p, Access::Read)
+            })
+            .collect();
+        if prims.is_empty() {
+            return self.guard_compare();
+        }
+        let mut pool = prims;
+        if let Some(root) = self.prefer_root {
+            if pool.iter().any(|p| p.root == root) && self.rng.chance(70) {
+                pool.retain(|p| p.root == root);
+            }
+        }
+        let mut place = self.rng.pick(&pool).clone();
+        self.simply(|gen| gen.finish_place(&mut place, Ranges::Shared));
+        let ValTy::Prim(p) = place.ty else {
+            unreachable!()
+        };
+        let pat = self.literal(p).text;
+        if self.rng.chance(40) {
+            let more = self.guard_compare();
+            format!("let {pat} = {} && {more}", place.text)
+        } else {
+            format!("let {pat} = {}", place.text)
+        }
     }
 
     fn guard_compare(&mut self) -> String {
@@ -1511,7 +1547,6 @@ impl BodyGen<'_> {
         // A let chain (edition 2024, #86) half of the time: `if c && let p = s && d && let
         // q = t {`, its later operands made where the earlier `let`s have bound.
         let chain = self.rng.chance(50);
-        let before = self.snapshot_moved();
         let lines = self.lines.len();
         let mut operands = Vec::new();
         if chain && self.rng.chance(30) {
@@ -1523,6 +1558,9 @@ impl BodyGen<'_> {
         // An irrefutable pattern makes the `else` (or the fall-through) unreachable (#47).
         let pat = self.refutable(ty, &mut cx, false, 0);
         operands.push(format!("let {pat} = {}", s.text));
+        // What evaluating the scrutinee moved (`match sum { .., d => .. }` moves `sum`) is
+        // moved on every path, `else` included (seed 66000512).
+        let before = self.snapshot_moved();
         self.open_block();
         let mut binds = self.bind_all(&s, &cx);
         if chain {

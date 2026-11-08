@@ -1,0 +1,8 @@
+// A guard `let`'s own `ref mut` binding of another place is the arm's to write through.
+struct S { V: i32 }
+enum H { Full(S), Empty }
+enum M { Has(i32), No }
+fn F(mut h: H, mut m: M, c: bool) -> i32 {
+    match c { true if let M::Has(ref mut y) = m => { *y = 1; 1 } _ => 0 }
+}
+fn Main() { F(H::Full(S { V: 1 }), M::Has(2), true); }

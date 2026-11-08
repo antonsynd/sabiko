@@ -184,6 +184,13 @@ struct Builder<'a> {
     /// lowered, bound before the guard (rustc's `RefWithinGuard`): binding the candidate
     /// for its arm leaves them as they are.
     bound_for_guard: Vec<Local>,
+    /// While a `match` arm's candidates are lowered: what their `let` guards hold when they
+    /// hold (#98), the scrutinee temporaries and bindings of the guard's `let`s, which the
+    /// arm's body scope takes over.
+    guard_held: Vec<Local>,
+    /// The locals of each guard `let`'s bindings, by the `let`'s node: made once per arm,
+    /// so that every candidate of the arm binds the same locals.
+    prepared_lets: HashMap<NodeId, Vec<Local>>,
     /// How the place being lowered by `as_place` is used: `Mut` where it is written,
     /// borrowed `&mut` or bound `ref mut`. A sub-slice inside it (`&mut a[1..][0]`)
     /// borrows its base the same way, as rustc picks `IndexMut` over `Index`. Values
@@ -298,6 +305,8 @@ impl<'a> Builder<'a> {
             coercing: std::collections::HashSet::new(),
             guard_places: HashMap::new(),
             bound_for_guard: Vec::new(),
+            guard_held: Vec::new(),
+            prepared_lets: HashMap::new(),
             place_mutability: Mutability::Not,
             binding_scrutinee: None,
             tests: matches::TestCache::default(),

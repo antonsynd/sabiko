@@ -1,0 +1,371 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/if_let_guards.sabi
+---
+fn D::drop(_1: &mut D) {
+    let mut _0: ();
+
+    bb0: {
+        _0 = const ();
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Pick(_1: i32) -> Maybe {
+    let mut _0: Maybe;
+    let mut _2: bool;
+    let mut _3: i32;
+    let mut _4: D;
+    let mut _5: i32;
+    cleanup c0: _4 => drop(_4);
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        _2 = Gt(copy _3, const 0_i32);
+        switchInt(copy _2) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = copy _1;
+        _4 = D { V: copy _5 };
+        goto -> bb3;
+    }
+
+    bb2: {
+        StorageDead(_3);
+        StorageDead(_2);
+        _0 = Maybe::Empty;
+        goto -> bb6;
+    }
+
+    bb3 (cleanup c0): {
+        _0 = Maybe::Has { 0: move _4 };
+        goto -> bb4;
+    }
+
+    bb4: {
+        drop(_4) -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_4);
+        StorageDead(_5);
+        goto -> bb6;
+    }
+
+    bb6: {
+        return;
+    }
+}
+
+fn Guard(_1: i32) -> i32 {
+    let mut _0: i32;
+    let _2: D;                           // d
+    let mut _3: i32;
+    let mut _4: bool;
+    let mut _5: &i32;
+    let mut _6: Maybe;
+    let mut _7: i32;
+    let mut _8: isize;
+    let mut _9: bool;
+    let mut _10: i32;
+    let mut _11: bool;
+    let mut _12: &i32;
+    let mut _13: Maybe;
+    let mut _14: i32;
+    let mut _15: isize;
+    let mut _16: bool;
+    let mut _17: i32;
+    let _18: i32;                        // x
+    let mut _19: &i32;
+    let mut _20: &i32;
+    let mut _21: bool;
+    cleanup c0: _6 => drop(_6);
+    cleanup c1 in c0: _2 => drop(_2);
+    cleanup c2: _13 => drop(_13);
+    cleanup c3 in c2: _2 => drop(_2);
+    cleanup c4: _6 => drop(_6);
+    cleanup c5 in c4: _2 => drop(_2);
+    cleanup c6 in c5: _13 => drop(_13);
+
+    bb0: {
+        PlaceMention(_1);
+        StorageLive(_3);
+        _3 = copy _1;
+        StorageLive(_4);
+        _4 = Eq(copy _3, const 1_i32);
+        switchInt(copy _4) -> [1: bb3, otherwise: bb2];
+    }
+
+    bb1 (cleanup c6): {
+        _0 = copy _2.V;
+        StorageDead(_15);
+        goto -> bb35;
+    }
+
+    bb2: {
+        StorageLive(_11);
+        _11 = Eq(copy _3, const 2_i32);
+        switchInt(copy _11) -> [1: bb16, otherwise: bb15];
+    }
+
+    bb3: {
+        falseEdge -> [real: bb4, imaginary: bb2];
+    }
+
+    bb4: {
+        StorageLive(_5);
+        _5 = &fake _1;
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = copy _1;
+        _6 = Pick(copy _7) -> bb5;
+    }
+
+    bb5 (cleanup c0): {
+        PlaceMention(_6);
+        StorageLive(_8);
+        _8 = discriminant(_6);
+        switchInt(copy _8) -> [0: bb8, otherwise: bb7];
+    }
+
+    bb6 (cleanup c1): {
+        StorageLive(_9);
+        StorageLive(_10);
+        _10 = copy _2.V;
+        _9 = Gt(copy _10, const 1_i32);
+        switchInt(copy _9) -> [0: bb12, otherwise: bb11];
+    }
+
+    bb7: {
+        StorageDead(_8);
+        drop(_6) -> bb10;
+    }
+
+    bb8 (cleanup c0): {
+        falseEdge -> [real: bb9, imaginary: bb7];
+    }
+
+    bb9 (cleanup c0): {
+        StorageLive(_2);
+        _2 = move (_6 as Has).0;
+        goto -> bb6;
+    }
+
+    bb10: {
+        StorageDead(_6);
+        StorageDead(_7);
+        goto -> bb2;
+    }
+
+    bb11: {
+        StorageDead(_10);
+        StorageDead(_9);
+        PlaceMention(_5);
+        goto -> bb1;
+    }
+
+    bb12 (cleanup c0): {
+        StorageDead(_10);
+        StorageDead(_9);
+        drop(_2) -> bb13;
+    }
+
+    bb13: {
+        StorageDead(_2);
+        StorageDead(_8);
+        drop(_6) -> bb14;
+    }
+
+    bb14: {
+        StorageDead(_6);
+        StorageDead(_7);
+        goto -> bb2;
+    }
+
+    bb15: {
+        falseEdge -> [real: bb29, imaginary: bb33];
+    }
+
+    bb16: {
+        falseEdge -> [real: bb17, imaginary: bb15];
+    }
+
+    bb17: {
+        StorageLive(_12);
+        _12 = &fake _1;
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = copy _1;
+        _13 = Pick(copy _14) -> bb18;
+    }
+
+    bb18 (cleanup c2): {
+        PlaceMention(_13);
+        StorageLive(_15);
+        _15 = discriminant(_13);
+        switchInt(copy _15) -> [0: bb21, otherwise: bb20];
+    }
+
+    bb19 (cleanup c3): {
+        StorageLive(_16);
+        StorageLive(_17);
+        _17 = copy _2.V;
+        _16 = Gt(copy _17, const 1_i32);
+        switchInt(copy _16) -> [0: bb25, otherwise: bb24];
+    }
+
+    bb20: {
+        StorageDead(_15);
+        drop(_13) -> bb23;
+    }
+
+    bb21 (cleanup c2): {
+        falseEdge -> [real: bb22, imaginary: bb20];
+    }
+
+    bb22 (cleanup c2): {
+        StorageLive(_2);
+        _2 = move (_13 as Has).0;
+        goto -> bb19;
+    }
+
+    bb23: {
+        StorageDead(_13);
+        StorageDead(_14);
+        goto -> bb15;
+    }
+
+    bb24: {
+        StorageDead(_17);
+        StorageDead(_16);
+        PlaceMention(_12);
+        goto -> bb1;
+    }
+
+    bb25 (cleanup c2): {
+        StorageDead(_17);
+        StorageDead(_16);
+        drop(_2) -> bb26;
+    }
+
+    bb26: {
+        StorageDead(_2);
+        StorageDead(_15);
+        drop(_13) -> bb27;
+    }
+
+    bb27: {
+        StorageDead(_13);
+        StorageDead(_14);
+        goto -> bb15;
+    }
+
+    bb28: {
+        _0 = const 3_i32;
+        StorageDead(_21);
+        StorageDead(_18);
+        goto -> bb34;
+    }
+
+    bb29: {
+        StorageLive(_19);
+        _19 = &_1;
+        StorageLive(_20);
+        _20 = &fake _1;
+        PlaceMention((*_19));
+        StorageLive(_21);
+        _21 = Eq(copy (*_19), const 3_i32);
+        switchInt(copy _21) -> [1: bb32, otherwise: bb31];
+    }
+
+    bb30: {
+        PlaceMention(_20);
+        PlaceMention(_19);
+        StorageLive(_18);
+        _18 = copy _1;
+        goto -> bb28;
+    }
+
+    bb31: {
+        StorageDead(_21);
+        goto -> bb33;
+    }
+
+    bb32: {
+        falseEdge -> [real: bb30, imaginary: bb31];
+    }
+
+    bb33: {
+        _0 = const 0_i32;
+        goto -> bb34;
+    }
+
+    bb34: {
+        StorageDead(_20);
+        StorageDead(_19);
+        StorageDead(_12);
+        StorageDead(_11);
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_3);
+        goto -> bb39;
+    }
+
+    bb35 (cleanup c5): {
+        drop(_13) -> bb36;
+    }
+
+    bb36 (cleanup c4): {
+        StorageDead(_13);
+        StorageDead(_14);
+        drop(_2) -> bb37;
+    }
+
+    bb37: {
+        StorageDead(_2);
+        StorageDead(_8);
+        drop(_6) -> bb38;
+    }
+
+    bb38: {
+        StorageDead(_6);
+        StorageDead(_7);
+        goto -> bb34;
+    }
+
+    bb39: {
+        return;
+    }
+}
+
+fn Main() {
+    let mut _0: ();
+    let mut _1: i32;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = Guard(const 1_i32) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_1);
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}

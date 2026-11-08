@@ -1,0 +1,8 @@
+// A guard `let` may not write through the arm's `ref mut` binding (rustc E0594).
+struct S { V: i32 }
+enum H { Full(S), Empty }
+enum M { Has(i32), No }
+fn F(mut h: H, mut m: M, c: bool) -> i32 {
+    match h { H::Full(ref mut s) if let v = { s.V = 3; 1 } => v, _ => 0 }
+}
+fn Main() { F(H::Full(S { V: 1 }), M::Has(2), true); }

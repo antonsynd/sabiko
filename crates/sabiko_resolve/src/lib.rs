@@ -1875,7 +1875,8 @@ impl Resolver<'_> {
                     self.scopes.push(Vec::new());
                     self.bind_let_pat(&arm.pat);
                     if let Some(g) = &arm.guard {
-                        self.resolve_expr(g);
+                        // A `let` in the guard binds for the rest of it and the arm (#98).
+                        self.resolve_cond(g);
                     }
                     self.resolve_expr(&arm.body);
                     self.scopes.pop();

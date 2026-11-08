@@ -1,0 +1,103 @@
+// `if let` guards and let chains in match guards (#98): a guard's `let`s bind for the rest
+// of the guard and the arm; their scrutinee temporaries and bindings live to the end of
+// the arm and are dropped first there, before the pattern's own bindings; where the guard
+// fails, what it holds is dropped before the next arm is tried. Each alternative of an
+// or-pattern runs the guard again.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Maybe { Has(D), Empty }
+
+fn Make(id: i32) -> D {
+    Print("make ");
+    PrintLine(id);
+    D { Id: id }
+}
+
+fn Pick(id: i32, has: bool) -> Maybe {
+    Print("pick ");
+    PrintLine(id);
+    if has { Maybe::Has(D { Id: id }) } else { Maybe::Empty }
+}
+
+fn LenOf(d: &D, ok: bool) -> i32 {
+    if ok { d.Id * 10 } else { -1 }
+}
+
+fn Chain(k: i32) {
+    Print("-- chain ");
+    PrintLine(k);
+    match k {
+        1 | 2 if let Maybe::Has(d) = Pick(10, k == 1) && Make(11).Id > 0 && let Maybe::Has(e) = Pick(12, true) => {
+            Print("arm1 ");
+            PrintLine(d.Id + e.Id);
+        }
+        x if let Maybe::Has(d) = Pick(20, x == 3) => {
+            Print("arm2 ");
+            PrintLine(d.Id);
+        }
+        _ => PrintLine("other"),
+    }
+    PrintLine("after");
+}
+
+fn Temporaries(k: i32) {
+    Print("-- temporaries ");
+    PrintLine(k);
+    match k {
+        1 | 2 if let 10 = LenOf(&Make(1), k == 1) && let 20 = LenOf(&Make(2), true) => PrintLine("arm1"),
+        3 if let ref r = Make(3) => {
+            Print("arm3 ");
+            PrintLine(r.Id);
+        }
+        _ => PrintLine("other"),
+    }
+    PrintLine("after");
+}
+
+fn Order(k: bool, f: bool) -> i32 {
+    Print("-- order ");
+    PrintLine(f);
+    let r = match Maybe::Has(Make(30)) {
+        Maybe::Has(p) if let Maybe::Has(g) = Pick(31, k) && let t = Make(32) && f => {
+            let _body = Make(33);
+            p.Id + g.Id + t.Id
+        }
+        Maybe::Has(p) => p.Id,
+        Maybe::Empty => 0,
+    };
+    PrintLine("after");
+    r
+}
+
+fn Bindings(v: (i32, i32)) -> i32 {
+    // The guard sees the arm's bindings; its own bind for the arm.
+    match v {
+        (a, b) if let 5 = a + b && let c = a * b && c > 4 => c,
+        (a, _) if let 0 = a => 100,
+        _ => -1,
+    }
+}
+
+fn Main() {
+    Chain(1);
+    Chain(2);
+    Chain(3);
+    Chain(4);
+    Temporaries(1);
+    Temporaries(2);
+    Temporaries(3);
+    PrintLine(Order(true, true));
+    PrintLine(Order(true, false));
+    PrintLine(Order(false, true));
+    PrintLine(Bindings((2, 3)));
+    PrintLine(Bindings((1, 4)));
+    PrintLine(Bindings((0, 7)));
+    PrintLine(Bindings((6, 6)));
+}
