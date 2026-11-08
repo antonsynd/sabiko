@@ -1,0 +1,8 @@
+// A shared borrow of the scrutinee in a guard conflicts with a `ref mut` binding the arm uses.
+fn Main() {
+    let mut t = (1, 2);
+    match t {
+        ref mut x if { let r = &t; r.0 > 0 } => { x.0 = 3; }
+        _ => {}
+    }
+}

@@ -1,6 +1,9 @@
 // Guard fake borrows (rustc's set): every guard of a match fake-borrows each place a test
 // of any arm reads and the places before a `Deref` in those and in the bindings' places;
-// none when the patterns read nothing and bind nothing behind a reference.
+// none when the patterns read nothing and bind nothing behind a reference. The bindings come
+// first (#100): a `ref`/`ref mut` one takes its arm's reference before the guard (the
+// guard sees a `ref mut` one through `&&mut`), and a by-value one's reference is mentioned
+// with the fake borrows when the guard holds.
 struct P { A: i32, B: i32 }
 
 fn Unread(p: P, g: bool) -> i32 {
@@ -28,6 +31,17 @@ fn Behind(v: &P, g: bool) -> i32 {
 fn FullRange(n: u8, g: bool) -> i32 {
     match n {
         0..=255 if g => 1,
+        _ => 2,
+    }
+}
+
+fn RefMut(mut p: P, g: bool) -> i32 {
+    match p {
+        P { A: 1, .. } => 0,
+        P { ref mut A, B } if *A > B => {
+            *A = 0;
+            B
+        }
         _ => 2,
     }
 }

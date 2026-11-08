@@ -1058,12 +1058,16 @@ leaves its memory as it was; decision 60). Each place is tested once along a pat
 rustc's decision tree (decision 72): an arm after a failed guard that moved the scrutinee
 out reuses what earlier arms read on every path to it and reads nothing more of a place
 they all tested, while reading a place some path to it has not tested yet is a use of the
-moved value (E0406); the arm's bindings denote shared
-references to their parts, so a guard cannot move out of them, cannot assign a
-binding (`mut n`) or write through one (`ref mut n`), both E0403 (rustc's E0594), and an
-assignment to the scrutinee also conflicts with a binding's borrow (E0410, E0506). Once
-the guard holds, the by-value bindings move or copy, so an arm that is not taken moves
-nothing. Code that the patterns make unreachable (an arm or or-pattern alternative after
+moved value (E0406); in the guard the arm's bindings denote shared references to their
+parts, so a guard cannot move out of them, cannot assign a binding (`mut n`) or write
+through one (`ref mut n`), both E0403 (rustc's E0594). The bindings are made before the
+fake borrows, as in rustc (#100): a `ref`/`ref mut` binding takes the reference its arm
+uses before the guard runs, so while the arm uses it the guard may not read or borrow a
+place a `ref mut` binding borrows (E0411, E0408; rustc's E0503, E0502) or write or
+mutably borrow one a `ref` binding borrows (E0410, E0408; rustc's E0506, E0502); a
+by-value binding's place is borrowed to the end of the guard (rustc's fake read), so the
+guard may not assign it (E0410, E0506). Once the guard holds, the by-value bindings move
+or copy, so an arm that is not taken moves nothing. Code that the patterns make unreachable (an arm or or-pattern alternative after
 an irrefutable one, the `else` of an irrefutable `if let` or `let`-`else`, the exit of an
 irrefutable `while let`) is borrow-checked as if it could run, from the state after the
 earlier pattern's tests, as rustc's false edges make it (decision 72): assigning an

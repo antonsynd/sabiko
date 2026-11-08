@@ -1,0 +1,9 @@
+// A guard may assign a place no binding of the arm covers.
+fn Main() {
+    let mut t = (1, 2);
+    match t {
+        (_, b) if { t.0 = 5; true } => { PrintLine(b); }
+        _ => {}
+    }
+    PrintLine(t.0);
+}

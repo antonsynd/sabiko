@@ -1,0 +1,9 @@
+// A `ref mut` binding the arm never uses holds no loan in the guard.
+fn Main() {
+    let mut t = (1, 2);
+    let n = match t {
+        ref mut x if t.0 > 0 => 1,
+        _ => 2,
+    };
+    PrintLine(n);
+}

@@ -1,0 +1,9 @@
+// A `ref mut` binding the arm uses borrows its place before the guard runs (#100): the guard may not read it.
+fn Main() {
+    let mut t = (1, 2);
+    match t {
+        (ref mut a, b) if t.0 > b => { *a = 3; }
+        _ => {}
+    }
+    PrintLine(t.0);
+}

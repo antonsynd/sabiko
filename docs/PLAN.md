@@ -1074,6 +1074,20 @@ borrow of a temporary (a place borrow; seed 279) and stopped binding a bare `&mu
 constructor pattern against a `!` scrutinee, E0300 in Sabiko in every pattern position
 (#99).
 
+Match guards bind as rustc does (#100, decision 80): seed 8600015 showed Sabiko accepting
+a guard that reads the scrutinee while a `ref mut` binding the arm uses holds it (rustc's
+E0503). A matrix of 26 guard shapes found two more of the kind: a guard writing a place a
+`ref` binding covers, or a place a by-value binding will copy (E0506). The bindings are
+now made before the guard's fake borrows; a `ref`/`ref mut` one takes its arm's reference
+then (the guard sees a `ref mut` one through `&&mut`), and a by-value one's reference
+lives to the guard's end. All 26 shapes now agree with rustc. New programs: eleven in
+`differential/loans/` and a run-time one (`run/matches/guard_ref_bindings`, a failed guard
+on one or-pattern alternative before the next binds the same names); a `RefMut` case in
+the `guard_fake_borrows` MIR snapshot. 1200 generated seeds at each of the bases 8600000
+and 63000000 agree with rustc except one constant-propagation lint, seed 63000676, an older
+divergence of #95's kind (a condition that is itself an `if` lets the lint visit a dead
+branch), added to #95.
+
 ### Phase 5: Data types
 
 Work

@@ -30,16 +30,15 @@ fn Area(_1: &Shape) -> i32 {
     let _3: &i32;                        // w
     let mut _4: &Shape;
     let mut _5: &&Shape;
-    let mut _6: &i32;
-    let mut _7: bool;
-    let mut _8: i32;
-    let _9: &i32;                        // w
-    let _10: &i32;                       // W
-    let _11: &i32;                       // H
+    let mut _6: bool;
+    let mut _7: i32;
+    let _8: &i32;                        // w
+    let _9: &i32;                        // W
+    let _10: &i32;                       // H
+    let mut _11: i32;
     let mut _12: i32;
     let mut _13: i32;
     let mut _14: i32;
-    let mut _15: i32;
 
     bb0: {
         PlaceMention(_1);
@@ -68,34 +67,33 @@ fn Area(_1: &Shape) -> i32 {
     }
 
     bb5: {
+        StorageLive(_3);
+        _3 = &((*_1) as Square).0;
         StorageLive(_4);
         _4 = &fake (*_1);
         StorageLive(_5);
         _5 = &fake _1;
         StorageLive(_6);
-        _6 = &((*_1) as Square).0;
-        StorageLive(_7);
-        _7 = Gt(copy (*_6), const 10_i32);
-        switchInt(copy _7) -> [0: bb7, otherwise: bb6];
+        _6 = Gt(copy (*_3), const 10_i32);
+        switchInt(copy _6) -> [0: bb7, otherwise: bb6];
     }
 
     bb6: {
-        StorageDead(_7);
+        StorageDead(_6);
         PlaceMention(_4);
         PlaceMention(_5);
-        StorageLive(_3);
-        _3 = &((*_1) as Square).0;
         goto -> bb3;
     }
 
     bb7: {
-        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_3);
         goto -> bb4;
     }
 
     bb8: {
-        _0 = Mul(copy (*_9), copy (*_9));
-        StorageDead(_9);
+        _0 = Mul(copy (*_8), copy (*_8));
+        StorageDead(_8);
         goto -> bb14;
     }
 
@@ -104,15 +102,15 @@ fn Area(_1: &Shape) -> i32 {
     }
 
     bb10: {
-        StorageLive(_9);
-        _9 = &((*_1) as Square).0;
+        StorageLive(_8);
+        _8 = &((*_1) as Square).0;
         goto -> bb8;
     }
 
     bb11: {
-        _0 = Mul(copy (*_10), copy (*_11));
-        StorageDead(_11);
+        _0 = Mul(copy (*_9), copy (*_10));
         StorageDead(_10);
+        StorageDead(_9);
         goto -> bb14;
     }
 
@@ -121,15 +119,14 @@ fn Area(_1: &Shape) -> i32 {
     }
 
     bb13: {
+        StorageLive(_9);
+        _9 = &((*_1) as Rect).W;
         StorageLive(_10);
-        _10 = &((*_1) as Rect).W;
-        StorageLive(_11);
-        _11 = &((*_1) as Rect).H;
+        _10 = &((*_1) as Rect).H;
         goto -> bb11;
     }
 
     bb14: {
-        StorageDead(_6);
         StorageDead(_5);
         StorageDead(_4);
         StorageDead(_2);

@@ -1,0 +1,9 @@
+// A guard may read through a `ref mut` binding; the arm then writes through it.
+enum E { A(i32, i32), B }
+fn Main() {
+    let mut o = E::A(1, 2);
+    match o {
+        E::A(ref mut a, _) if *a > 0 => { *a = 5; }
+        _ => {}
+    }
+}
