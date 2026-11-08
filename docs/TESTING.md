@@ -97,6 +97,14 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   Arrays and slices of references as locals and parameters, and tuples with references,
   are not generated yet (TODO(#92)).
 
+  Temporary lifetime extension (#88, decision 78, `BodyGen::stmt_let_extended`): `let r =
+  { &e };` (now and then in two blocks), `let r = if c { &a } else { &b };` and `let r =
+  match n { 0 => &a, _ => { &b } };`, shared or `&mut`, of values of any sized type; a
+  value that may be a place is borrowed as `&{ e }`, never `&(e)`, so the borrow is always
+  of a temporary. The reference holds no loan of the scope model. About half of the
+  programs have one (`programs_extend_temporaries_through_blocks_and_branches` pins 90
+  blocks, 80 `if`s and 45 `match`es of 500).
+
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
   not `s`; one carrying the loan of a `&mut self` method's result gets a region),

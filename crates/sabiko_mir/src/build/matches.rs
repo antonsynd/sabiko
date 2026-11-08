@@ -50,7 +50,7 @@ use sabiko_resolve::{DefKind, LocalId, Res};
 use sabiko_span::Span;
 use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 
-use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope};
+use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope, ValueDest};
 use crate::{
     BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, Local, LocalDecl, LocalKind, Operand,
     Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
@@ -892,7 +892,7 @@ impl Builder<'_> {
     /// `match scrutinee { arms }`, writing the arms' values into `dest`.
     pub(super) fn lower_match(
         &mut self,
-        dest: Option<&Place>,
+        dest: Option<ValueDest>,
         scrutinee: &Expr,
         arms: &[Arm],
         span: Span,
@@ -924,7 +924,7 @@ impl Builder<'_> {
             let arm_span = arm.body.span;
             self.with_bindings(&locals, arm_span, |this| {
                 this.in_temp_scope(arm_span, |this| match dest {
-                    Some(dest) => this.expr_into_dest(dest, &arm.body),
+                    Some(dest) => this.value_into(dest.place, &arm.body, dest.extending),
                     None => this.lower_expr_discard(&arm.body),
                 });
             });
@@ -938,7 +938,7 @@ impl Builder<'_> {
     /// through `then` and are dropped after it, and on the other path before `else` runs.
     pub(super) fn lower_if_let(
         &mut self,
-        dest: Option<&Place>,
+        dest: Option<ValueDest>,
         pat: &Pat,
         scrutinee: &Expr,
         then: &Block,
@@ -967,10 +967,14 @@ impl Builder<'_> {
         }
         match (els, dest) {
             (Some(els), Some(dest)) => {
-                self.in_temp_scope(els.span, |this| this.expr_into_dest(dest, els));
+                self.in_temp_scope(els.span, |this| {
+                    this.value_into(dest.place, els, dest.extending);
+                });
             }
             (Some(els), None) => self.in_temp_scope(els.span, |this| this.lower_expr_discard(els)),
-            (None, Some(dest)) => self.assign(dest.clone(), Self::unit_rvalue(span), span),
+            (None, Some(dest)) => {
+                self.assign(dest.place.clone(), Self::unit_rvalue(span), span);
+            }
             (None, None) => {}
         }
         self.terminate(TerminatorKind::Goto { target: join }, span);
@@ -979,7 +983,7 @@ impl Builder<'_> {
         self.enter(then_block);
         self.with_bindings(&locals, then.span, |this| {
             this.in_temp_scope(then.span, |this| match dest {
-                Some(dest) => this.lower_block_into(dest, then),
+                Some(dest) => this.lower_block_into(dest.place, then, dest.extending),
                 None => this.lower_block_discard(then),
             });
         });

@@ -1,0 +1,25 @@
+// Temporary lifetime extension through a block's tail and an `if`'s branches (#88): the
+// temporaries are declared, and their cleanup scopes opened, before the block or `if`, so
+// each cleanup scope has one entry and nests outside the block's locals; the one written
+// on a single path gets a drop flag in elaboration.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32) -> D {
+    D { Id: id }
+}
+
+fn Tail() {
+    let r = { let _x = Make(1); &Make(2) };
+    PrintLine(r.Id);
+}
+
+fn Branches(c: bool) {
+    let r = if c { &Make(1) } else { &Make(2) };
+    PrintLine(r.Id);
+}

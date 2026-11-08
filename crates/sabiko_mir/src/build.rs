@@ -93,6 +93,31 @@ pub fn build_bodies(
     bodies
 }
 
+/// Where an `if`, `if let` or `match` writes its value, and whether that value is in an
+/// extending position of a `let` initialiser ([`Builder::extending_into`]), as are then
+/// its branches' or arms' values.
+#[derive(Clone, Copy)]
+struct ValueDest<'p> {
+    place: &'p Place,
+    extending: bool,
+}
+
+impl<'p> ValueDest<'p> {
+    fn plain(place: &'p Place) -> Self {
+        ValueDest {
+            place,
+            extending: false,
+        }
+    }
+
+    fn extending(place: &'p Place) -> Self {
+        ValueDest {
+            place,
+            extending: true,
+        }
+    }
+}
+
 /// A loop being lowered: where `continue` and `break` go, and where `break value`
 /// writes.
 struct LoopScope {
@@ -135,6 +160,10 @@ struct Builder<'a> {
     /// in it where temporaries extended to the block go, before the binding (rustc drops
     /// the binding first).
     extend_at: Option<(usize, usize)>,
+    /// The temporaries, declared ahead ([`Self::declare_extended`]), that hold the
+    /// operands of `&` in an extending position under a block, `if` or `match`, keyed by
+    /// the operand.
+    extended: HashMap<NodeId, Local>,
     loops: Vec<LoopScope>,
     /// The block holding the single `return`, created on first use.
     return_block: Option<BasicBlock>,
@@ -256,6 +285,7 @@ impl<'a> Builder<'a> {
             pending: HashSet::new(),
             chain: Vec::new(),
             extend_at: None,
+            extended: HashMap::new(),
             loops: Vec::new(),
             return_block: None,
             current: BasicBlock::START,
@@ -300,7 +330,7 @@ impl<'a> Builder<'a> {
         // The body's own temporary scope, around its block (whose tail has a scope of its
         // own inside it).
         self.push_temp_scope();
-        self.lower_block_into(&Place::local(Local::RETURN), &f.body);
+        self.lower_block_into(&Place::local(Local::RETURN), &f.body, false);
         while !self.scopes.is_empty() {
             self.pop_scope(span);
         }
@@ -1345,9 +1375,15 @@ impl<'a> Builder<'a> {
                 let operand = self.as_operand(inner);
                 self.assign(dest.clone(), Rvalue::Cast(operand, target), span);
             }
-            ExprKind::Block(block) => self.lower_block_into(dest, block),
+            ExprKind::Block(block) => self.lower_block_into(dest, block, false),
             ExprKind::If { cond, then, els } => {
-                self.lower_if(Some(dest), cond, then, els.as_deref(), span);
+                self.lower_if(
+                    Some(ValueDest::plain(dest)),
+                    cond,
+                    then,
+                    els.as_deref(),
+                    span,
+                );
             }
             ExprKind::While { cond, body } => {
                 self.lower_while(cond, body, span);
@@ -1358,7 +1394,7 @@ impl<'a> Builder<'a> {
             ExprKind::Continue => self.lower_continue(span),
             ExprKind::Return(value) => self.lower_return(value.as_deref(), span),
             ExprKind::Match { scrutinee, arms } => {
-                self.lower_match(Some(dest), scrutinee, arms, span);
+                self.lower_match(Some(ValueDest::plain(dest)), scrutinee, arms, span);
             }
             ExprKind::Let(..) => unreachable!("`let` is only lowered as an `if`/`while` condition"),
             ExprKind::Range(..) => unreachable!("a range is only lowered as the index of `e[..]`"),
@@ -1582,6 +1618,198 @@ impl<'a> Builder<'a> {
         Some(rvalue)
     }
 
+    /// Lowers `expr` into `dest`, in an extending position ([`Self::extending_into`]) or
+    /// not.
+    fn value_into(&mut self, dest: &Place, expr: &Expr, extending: bool) {
+        if extending {
+            self.extending_into(dest, expr);
+        } else {
+            self.expr_into_dest(dest, expr);
+        }
+    }
+
+    /// Lowers `expr`, an *extending expression* of a `let` initialiser, into `dest`:
+    /// rustc's temporary lifetime extension. The initialiser itself is one, and so are the
+    /// elements of an extending tuple, the tail of an extending block, both branches of an
+    /// extending `if`/`else` and the arms of an extending `match`. The operand of `&` at
+    /// one of these positions lives as long as the `let`'s bindings, not to the end of its
+    /// statement or its block (`let r = { &Make(1) };`, `let r = if c { &F() } else {
+    /// &G() };`).
+    fn extending_into(&mut self, dest: &Place, expr: &Expr) {
+        let span = self.span_of(expr);
+        if let Some((mutable, inner)) = self
+            .ref_of_temporary(expr)
+            .filter(|(_, inner)| !self.ty(inner).is_never())
+        {
+            self.extended_borrow_into(dest, expr, mutable, inner);
+            return;
+        }
+        match &expr.kind {
+            // `let p = (&<rvalue>, ..);` extends the rvalue too.
+            ExprKind::Tuple(_) => self.tuple_into(dest, expr, true),
+            // A coerced value (`let s: &[i32] = { &[1, 2] };` unsizes the block's value)
+            // is not extended: lowered as usual, rustc's extension of it is rejected
+            // (E0413), never miscompiled.
+            _ if self.has_pending_coercion(expr) => self.expr_into_dest(dest, expr),
+            // `let a = [&F(), &G()];`
+            ExprKind::Array(elems) => self.extending_array_into(dest, expr, elems),
+            ExprKind::Paren(inner) => {
+                let inner = self.enter_paren(expr, inner);
+                self.extending_into(dest, inner);
+            }
+            ExprKind::Block(block) => {
+                self.declare_extended(expr);
+                self.lower_block_into(dest, block, true);
+            }
+            ExprKind::If { cond, then, els } => {
+                self.declare_extended(expr);
+                self.lower_if(
+                    Some(ValueDest::extending(dest)),
+                    cond,
+                    then,
+                    els.as_deref(),
+                    span,
+                );
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                self.declare_extended(expr);
+                self.lower_match(Some(ValueDest::extending(dest)), scrutinee, arms, span);
+            }
+            _ => self.expr_into_dest(dest, expr),
+        }
+    }
+
+    /// Evaluates `inner`, the operand of `&` in an extending position, into the temporary
+    /// that lives as long as the `let`'s bindings, and returns it: the one declared ahead
+    /// for it, or a new one.
+    fn extended_referent(&mut self, inner: &Expr) -> Local {
+        if let Some(referent) = self.extended.remove(&inner.id) {
+            self.extending_into(&Place::local(referent), inner);
+            return referent;
+        }
+        let ty = self.ty(inner).clone();
+        let referent = self.new_temp_in_block_scope(ty, inner.span);
+        if !writes_once(inner) {
+            self.open_pending(referent);
+        }
+        // The operand of an extending borrow is in an extending position itself:
+        // `let d = &&&x;` keeps both temporaries.
+        self.extending_into(&Place::local(referent), inner);
+        self.temp_complete(referent);
+        referent
+    }
+
+    /// Declares, before a block, `if` or `match` in an extending position, the temporaries
+    /// of the borrows in extending positions under it, in source order, with their cleanup
+    /// scopes open from here (as for `let d; if c { d = A(); }`). A borrow under a branch
+    /// writes its temporary on that path only, and one in a block's tail outlives the
+    /// block's locals, whose cleanup scopes open later: a cleanup scope opened at the
+    /// write would have several entries, or not nest.
+    fn declare_extended(&mut self, expr: &Expr) {
+        let mut operands = Vec::new();
+        self.extended_borrows(expr, &mut operands);
+        for inner in operands {
+            if self.extended.contains_key(&inner.id) {
+                continue;
+            }
+            let ty = self.ty(inner).clone();
+            let referent = self.new_temp_in_block_scope(ty, inner.span);
+            self.open_pending(referent);
+            self.extended.insert(inner.id, referent);
+        }
+    }
+
+    /// Whether a borrow of a temporary is in an extending position of `expr`.
+    fn has_extended_borrow(&self, expr: &Expr) -> bool {
+        let mut operands = Vec::new();
+        self.extended_borrows(expr, &mut operands);
+        !operands.is_empty()
+    }
+
+    /// The operands of the borrows of temporaries in extending positions of `expr`, in
+    /// source order: the positions [`Self::extending_into`] extends.
+    fn extended_borrows<'e>(&self, expr: &'e Expr, out: &mut Vec<&'e Expr>) {
+        if let Some((_, inner)) = self.ref_of_temporary(expr) {
+            if !self.ty(inner).is_never() {
+                out.push(inner);
+                self.extended_borrows(inner, out);
+            }
+            return;
+        }
+        if !matches!(expr.kind, ExprKind::Tuple(_)) && self.has_pending_coercion(expr) {
+            return;
+        }
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.extended_borrows(inner, out),
+            ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
+                for e in elems {
+                    self.extended_borrows(e, out);
+                }
+            }
+            ExprKind::Block(block) => {
+                if let Some(tail) = &block.tail {
+                    self.extended_borrows(tail, out);
+                }
+            }
+            ExprKind::If { then, els, .. } => {
+                if let Some(tail) = &then.tail {
+                    self.extended_borrows(tail, out);
+                }
+                if let Some(els) = els {
+                    self.extended_borrows(els, out);
+                }
+            }
+            ExprKind::Match { arms, .. } => {
+                for arm in arms {
+                    self.extended_borrows(&arm.body, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `&<rvalue>` in an extending position, into `dest`: the rvalue goes into a temporary
+    /// that lives as long as the `let`'s bindings (see [`Self::new_temp_in_block_scope`]).
+    fn extended_borrow_into(&mut self, dest: &Place, expr: &Expr, mutable: bool, inner: &Expr) {
+        let ty = self.ty(inner).clone();
+        let temp = self.extended_referent(inner);
+        let mutability = Mutability::from_bool(mutable);
+        let borrow = Rvalue::Ref(BorrowKind::new(mutability), Place::local(temp));
+        if let Some(target) = self.types.coercions.get(&expr.id).cloned() {
+            // `let s: &[i32] = &[1, 2];`: the borrow is unsized.
+            let r = self.new_temp(Ty::Ref(mutability, Box::new(ty)), expr.span);
+            self.assign(Place::local(r), borrow, expr.span);
+            let op = self.place_operand(Place::local(r));
+            self.assign(dest.clone(), Rvalue::PointerCoercion(op, target), expr.span);
+        } else {
+            self.assign(dest.clone(), borrow, expr.span);
+        }
+    }
+
+    /// `[a, b, ...]` in an extending position, into `dest`: as for an array anywhere else
+    /// (each element is a coercion site), but each element is in an extending position.
+    fn extending_array_into(&mut self, dest: &Place, expr: &Expr, elems: &[Expr]) {
+        let Ty::Array(elem, _) = self.ty(expr).clone() else {
+            unreachable!("an array expression has an array type")
+        };
+        let span = self.span_of(expr);
+        self.in_operand_scope(Some(expr), span, |this| {
+            let mut operands = Vec::with_capacity(elems.len());
+            for e in elems {
+                let op = match this.extended_operand(e) {
+                    Some(op) => op,
+                    None => this.coerced_operand(e, Some(&elem), false),
+                };
+                operands.push(op);
+            }
+            this.assign(
+                dest.clone(),
+                Rvalue::Aggregate(AggregateKind::Array(*elem), operands),
+                span,
+            );
+        });
+    }
+
     /// `(a, b, ...)` into `dest`. See [`Self::tuple_operands`].
     fn tuple_into(&mut self, dest: &Place, expr: &Expr, extending: bool) {
         let span = self.span_of(expr);
@@ -1633,10 +1861,19 @@ impl<'a> Builder<'a> {
         if let Some(temp) = self.extended_ref(e) {
             return Some(self.place_operand(Place::local(temp)));
         }
-        if let ExprKind::Tuple(_) = strip_parens(e).kind {
+        let nested = match strip_parens(e).kind {
+            ExprKind::Tuple(_) => true,
+            ExprKind::Array(_)
+            | ExprKind::Block(_)
+            | ExprKind::If { .. }
+            | ExprKind::Match { .. } => self.has_extended_borrow(e),
+            _ => false,
+        };
+        if nested {
+            // `let p = ((&F(), 1), { &G() });`
             let ty = self.ty(e).clone();
             let temp = self.new_operand_temp(ty, e.span);
-            self.tuple_into(&Place::local(temp), e, true);
+            self.extending_into(&Place::local(temp), e);
             self.temp_complete(temp);
             return Some(self.place_operand(Place::local(temp)));
         }
@@ -1651,13 +1888,7 @@ impl<'a> Builder<'a> {
         let (mutable, inner) = self
             .ref_of_temporary(e)
             .filter(|(_, inner)| !self.ty(inner).is_never())?;
-        let ty = self.ty(inner).clone();
-        let referent = self.new_temp_in_block_scope(ty, inner.span);
-        if !writes_once(inner) {
-            self.open_pending(referent);
-        }
-        self.expr_into_dest(&Place::local(referent), inner);
-        self.temp_complete(referent);
+        let referent = self.extended_referent(inner);
         let ref_ty = self.ty(e).clone();
         let temp = self.new_temp(ref_ty, e.span);
         self.assign(
@@ -2028,7 +2259,7 @@ impl<'a> Builder<'a> {
     /// branch. Without `else`, the value is `()`.
     fn lower_if(
         &mut self,
-        dest: Option<&Place>,
+        dest: Option<ValueDest>,
         cond: &Expr,
         then: &Block,
         els: Option<&Expr>,
@@ -2043,17 +2274,21 @@ impl<'a> Builder<'a> {
         let (then_block, else_block) = self.branch_on(cond, span);
         self.enter(then_block);
         self.in_temp_scope(then.span, |this| match dest {
-            Some(dest) => this.lower_block_into(dest, then),
+            Some(dest) => this.lower_block_into(dest.place, then, dest.extending),
             None => this.lower_block_discard(then),
         });
         let then_end = self.current;
         self.enter(else_block);
         match (els, dest) {
             (Some(els), Some(dest)) => {
-                self.in_temp_scope(els.span, |this| this.expr_into_dest(dest, els));
+                self.in_temp_scope(els.span, |this| {
+                    this.value_into(dest.place, els, dest.extending);
+                });
             }
             (Some(els), None) => self.in_temp_scope(els.span, |this| this.lower_expr_discard(els)),
-            (None, Some(dest)) => self.assign(dest.clone(), Self::unit_rvalue(span), span),
+            (None, Some(dest)) => {
+                self.assign(dest.place.clone(), Self::unit_rvalue(span), span);
+            }
             (None, None) => {}
         }
         let else_end = self.current;
@@ -2156,14 +2391,17 @@ impl<'a> Builder<'a> {
     // ----- blocks and statements -----
 
     /// Lowers a block, writing its tail into `dest`. A block without a tail yields `()`
-    /// when the destination is a unit place; a diverging one yields nothing.
-    fn lower_block_into(&mut self, dest: &Place, block: &Block) {
+    /// when the destination is a unit place; a diverging one yields nothing. The tail of
+    /// a block in an extending position is in one too ([`Self::extending_into`]).
+    fn lower_block_into(&mut self, dest: &Place, block: &Block, extending: bool) {
         self.push_scope();
         for stmt in &block.stmts {
             self.lower_stmt(stmt);
         }
         match &block.tail {
-            Some(tail) => self.in_tail_scope(tail, |this| this.expr_into_dest(dest, tail)),
+            Some(tail) => {
+                self.in_tail_scope(tail, |this| this.value_into(dest, tail, extending));
+            }
             None => {
                 if dest.ty(&self.body).is_unit() {
                     self.assign(dest.clone(), Self::unit_rvalue(block.span), block.span);
@@ -2200,6 +2438,9 @@ impl<'a> Builder<'a> {
             return;
         };
         let extending = is_extending_pattern(pat);
+        // Extended temporaries go before the bindings, in the order they are made.
+        let block_scope = self.temp_scope - 1;
+        self.extend_at = Some((block_scope, self.scopes[block_scope].len()));
         let place = if is_place_expr(self.resolve, init) {
             let place = self.as_place_mut(init, Mutability::from_bool(matches::binds_ref_mut(pat)));
             if place.has_index() {
@@ -2213,14 +2454,17 @@ impl<'a> Builder<'a> {
             place
         } else if let Some(temp) = self.extended_ref(init) {
             Place::local(temp)
-        } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
+        } else if matches!(strip_parens(init).kind, ExprKind::Tuple(_))
+            || self.has_extended_borrow(init)
+        {
+            // `let (a, b) = (&F(), 1);`, `let (a, b) = { (&F(), 1) };`
             let ty = self.ty(init).clone();
             let temp = if extending {
                 self.new_temp_in_block_scope(ty, init.span)
             } else {
                 self.new_temp(ty, init.span)
             };
-            self.tuple_into(&Place::local(temp), init, true);
+            self.extending_into(&Place::local(temp), init);
             self.temp_complete(temp);
             Place::local(temp)
         } else if extending {
@@ -2235,6 +2479,7 @@ impl<'a> Builder<'a> {
         } else {
             Place::local(self.as_temp(init))
         };
+        self.extend_at = None;
         if self.ty(init).is_uninhabited() {
             // `let (a, b) = return;`: nothing to bind; the code after it is unreachable.
             self.declare_pattern_locals(pat);
@@ -2276,37 +2521,8 @@ impl<'a> Builder<'a> {
                             let target = Place::local(local).ty(&self.body);
                             let op = self.coerced_operand(init, Some(&target), false);
                             self.assign(Place::local(local), Rvalue::Use(op), init.span);
-                        } else if let Some((mutable, inner)) = self
-                            .ref_of_temporary(init)
-                            .filter(|(_, inner)| !self.ty(inner).is_never())
-                        {
-                            // Temporary lifetime extension: in `let r = &<rvalue>;` the
-                            // temporary lives as long as `r`'s block, as in Rust.
-                            let ty = self.ty(inner).clone();
-                            let temp = self.new_temp_in_block_scope(ty.clone(), inner.span);
-                            self.expr_into_dest(&Place::local(temp), inner);
-                            self.temp_complete(temp);
-                            let mutability = Mutability::from_bool(mutable);
-                            let borrow =
-                                Rvalue::Ref(BorrowKind::new(mutability), Place::local(temp));
-                            if let Some(target) = self.types.coercions.get(&init.id).cloned() {
-                                // `let s: &[i32] = &[1, 2];`: the borrow is unsized.
-                                let r = self.new_temp(Ty::Ref(mutability, Box::new(ty)), init.span);
-                                self.assign(Place::local(r), borrow, init.span);
-                                let op = self.place_operand(Place::local(r));
-                                self.assign(
-                                    Place::local(local),
-                                    Rvalue::PointerCoercion(op, target),
-                                    init.span,
-                                );
-                            } else {
-                                self.assign(Place::local(local), borrow, init.span);
-                            }
-                        } else if let ExprKind::Tuple(_) = strip_parens(init).kind {
-                            // `let p = (&<rvalue>, ..);` extends the rvalue too.
-                            self.tuple_into(&Place::local(local), init, true);
                         } else {
-                            self.expr_into_dest(&Place::local(local), init);
+                            self.extending_into(&Place::local(local), init);
                         }
                     }
                     self.extend_at = None;

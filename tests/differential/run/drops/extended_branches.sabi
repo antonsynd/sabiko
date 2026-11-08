@@ -1,0 +1,45 @@
+// Temporary lifetime extension through `if`/`else` branches and `match` arms (#88): the
+// branches of an `if` and the arms of a `match` in an extending position are extending,
+// so the temporary borrowed on the path taken lives as long as the binding (only that
+// one is made, and dropped, at the end of the block).
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+enum E { A, B(i32), C }
+
+fn Pick(c: bool) {
+    let r = if c { &Make(1) } else { &Make(2) };
+    PrintLine(r.V + 10);
+    let q = if !c { &Make(3) } else if c { { &Make(4) } } else { &Make(5) };
+    PrintLine(q.V + 10);
+    PrintLine(0);
+}
+
+fn Go(e: E) {
+    let r = match e {
+        E::A => &Make(1),
+        E::B(n) => { &Make(n) }
+        E::C => if true { &Make(3) } else { &Make(4) },
+    };
+    PrintLine(r.V + 10);
+    let p = if let E::B(n) = e { &Make(n + 1) } else { &Make(0) };
+    PrintLine(p.V + 10);
+    PrintLine(0);
+}
+
+fn Main() {
+    Pick(true);
+    Pick(false);
+    Go(E::A);
+    Go(E::B(2));
+    Go(E::C);
+}

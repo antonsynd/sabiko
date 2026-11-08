@@ -1,0 +1,38 @@
+// Temporary lifetime extension through arrays and nested borrows (#88): the elements of
+// an array (or tuple) in an extending position are extending, and so is the operand of
+// an extending `&`, so `[&Make(1), &Make(2)]`, `&&Make(3)` and `&{ &Make(4) }` keep their
+// temporaries to the end of the block. An array of values is not a borrow: its elements
+// are moved into it and dropped with it.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+fn Sum(s: &[&D]) -> i32 {
+    s[0].V + s[s.len() - 1].V
+}
+
+fn Main() {
+    let a = [&Make(1), &Make(2)];
+    PrintLine(a[0].V + a[1].V);
+    let b = &&Make(3);
+    let c = &{ &Make(4) };
+    let d = &(&Make(5), Make(6));
+    PrintLine(b.V + c.V + d.0.V + d.1.V);
+    let e = ([&Make(7)], { [&Make(8), &Make(9)] });
+    PrintLine(e.0[0].V + e.1[1].V);
+    let f = if a[0].V == 1 { [&mut Make(10)] } else { [&mut Make(11)] };
+    f[0].V += 10;
+    PrintLine(Sum(&[&Make(12), f[0]]));
+    let g = [Make(13), Make(14)];
+    let h = [&[Make(15)]];
+    PrintLine(g[1].V + h[0][0].V);
+    PrintLine(0);
+}

@@ -854,8 +854,7 @@ through `m`'s shared deref lived (`let d = &*m; let a = &mut m;`, accepted by ru
 because a loan behind a shared reference does not conflict with `m` itself; #56, decision
 69), and a guard fake-borrowed a scrutinee no pattern reads (`match p { _ if g => .., _
 => .. }` while `p` is mutably borrowed; older than #11; #57, decision 65). Known gaps (#58 unless noted): deref
-coercion (`&&i32` to `&i32`, E0300), temporary lifetime extension below the second level
-(`let d = &&&x;`, E0413), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
+coercion (`&&i32` to `&i32`, E0300), `'static` promotion of `&7` retargeted through `&mut &i32` (#26), explicit lifetimes on double
 references (Phase 9), and arrays and slices of references (since #43, decision 77). Mutation testing of the
 changed codegen lines (docs/TESTING.md) caught 91 of 98 viable mutants before the new tests and 94 after them;
 the 4 survivors are equivalent, and the killing tests found no bug.
@@ -958,8 +957,8 @@ Edition 2024 (#81, decision 74): the language and every rustc oracle moved from 
 by-reference default binding mode are E0337 (#84), and the never type falls back to `!`
 (#85). Two differential programs that tested 2021's by-value `mut` binding were removed
 (now UI tests), and new ones pin 2024's drop order and the tail temporary that can no
-longer escape its block. Open: let chains (#86), temporary lifetime extension through a
-block's tail (#88, both editions).
+longer escape its block. Open: let chains (#86). Temporary lifetime extension through a
+block's tail (#88, both editions) landed later (decision 78, below).
 
 Operands of type `!` (#87, decision 75): `1 == return true` was accepted, because the type
 checker coerced a `!` operand to the other operand's type; rustc rejects it in every
@@ -1002,6 +1001,27 @@ reference was wanted mixed the element types, seed 7000161). Nightly run 23's fu
 a type checker bug from #87: an operation on a diverging variable decided after its result
 was used (`let r = y + 1; let _: i64 = y;` with `r` returned as `i32`) was accepted and
 built ill-typed MIR; it is E0300 now (`typeck/never_operand_result_used_first`).
+
+Temporary lifetime extension (#88, decision 78): the operand of `&` in any of rustc's
+extending positions of a `let` initialiser now lives as long as the bindings: the tail of
+a block (`let r = { &Make(1) };`), the branches of an `if`/`else` or `if let`, the arms of
+a `match`, the elements of a tuple or array, and the operand of an extending `&` (`let d =
+&&&x;`, #58's second item; its staged program moved to `differential/run/refs/`). Before,
+only `let r = &<rvalue>;` and tuples of such borrows were extended, and every other case was
+E0413. A temporary extended under a block, `if` or `match` is declared, with its cleanup
+scope, before that expression, so cleanup scopes still nest with one entry; one written on
+a single branch gets a drop flag. New programs: ten compile-time `ok_`/`err_` ones in
+`differential/loans/` (including the non-extending positions: a `break` value, a call
+argument, an assignment, a block's local), six run-time ones on drop order and unwinding
+in `differential/run/drops/`, `refs/` and `arrays/`, and a MIR snapshot; the generator
+writes `let r = { &e };`, `if c { &a } else { &b }` and `match` forms in about half of its
+programs. 1000 seeds at each of the bases 1, 8800000 and 61000000 found a reordering-analysis
+bug (an extended temporary with drop glue swapped past a panicking statement, seed 8800445;
+a borrow of a value with drop glue now counts as an effect) and two older lint
+divergences, now #95 (a `match` arm a known variant rules out is still visited when a
+pattern has `..`, seeds 8800051 and 8800299); everything else agrees with rustc. Two older
+coercion gaps found on the way are #94 (an unsized block element of a coerced tuple fails MIR validation, and
+`&[&[1, 2], &[3]]` as `&[&[i32]]` is E0300).
 
 ### Phase 5: Data types
 

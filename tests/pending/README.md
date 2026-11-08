@@ -596,12 +596,13 @@ Two the generator found are fixed: a guard fake-borrowing a scrutinee no pattern
 `tests/differential/loans/ok_guard_wildcard_scrutinee_mutably_borrowed.sabi`, and `&mut m`
 while a reborrow through `m`'s shared deref lives (seed 5001324, #56, decision 69), now
 `tests/differential/loans/ok_mut_borrow_of_ref_while_reborrow_lives.sabi` and
-`tests/differential/run/refs/mut_borrow_of_ref_while_reborrow_lives.sabi`.
+`tests/differential/run/refs/mut_borrow_of_ref_while_reborrow_lives.sabi`. A third,
+`nested_borrow_extension.sabi` (`let d = &&&x;`, E0413), was fixed with temporary
+lifetime extension (#88, decision 78) and moved to `tests/differential/run/refs/`.
 All run under rustc (`.expected`).
 
 | file | gap | Sabiko today |
 | --- | --- | --- |
-| `nested_borrow_extension.sabi` | `let d = &&&x;`: rustc extends every nested temporary, Sabiko only the one the outermost `&` borrows (`&&x` is fine) | E0413 |
 | `deref_coercion.sabi` | `&&i32` to `&i32`, `&mut &mut i32` to `&mut i32`, `&&str` to `&str` at arguments and annotated `let`s | E0300 |
 | `static_promotion_through_mut_ref.sabi` | `*m = &7;` in `fn F(m: &mut &i32)`: rustc promotes `&7` to `&'static i32` | E0413 |
 | `explicit_lifetimes_double_ref.sabi` | `fn Inner<'a>(rr: &'a &'a i32) -> &'a i32`, `&'a &'b i32`, returning `&&T` (Phase 9) | E0107 |

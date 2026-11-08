@@ -1,0 +1,24 @@
+// A panic while temporaries extended through a block's tail and an `if` branch are alive
+// (#88) drops them on the way out, with the bindings, in rustc's order: `q`'s, then
+// `r`'s, then `_g`; the block's own local `_x` was dropped when the block ended.
+struct D { V: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.V);
+    }
+}
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+fn Main() {
+    let _g = Make(0);
+    let r = { let _x = Make(1); &Make(2) };
+    let q = if r.V == 2 { &Make(3) } else { &Make(4) };
+    PrintLine(q.V + r.V);
+    if q.V == 3 {
+        Panic("boom");
+    }
+}

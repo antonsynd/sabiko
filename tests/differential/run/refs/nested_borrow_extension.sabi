@@ -1,0 +1,15 @@
+// Temporary lifetime extension below the second level: in `let d = &&&x;` every `&e` of
+// an extending `&` is extending too, so each temporary the nested borrows create lives to
+// the end of the block and `***d` is fine afterwards (#58 item 2, fixed with #88).
+fn Read(rrr: &&&i32) -> i32 { ***rrr }
+
+fn Main() {
+    let x = 4;
+    let d3 = &&&x;
+    PrintLine(***d3);
+    let d5 = &&&&&x;
+    PrintLine(*****d5 + Read(&&&x));
+    let m = &mut &mut &mut 0;
+    ***m += 7;
+    PrintLine(***m);
+}

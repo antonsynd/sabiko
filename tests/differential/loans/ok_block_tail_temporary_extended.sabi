@@ -1,0 +1,12 @@
+// `let r = { &Make(1) };` extends the temporary through the block's tail (#88).
+struct D { V: i32 }
+
+fn Make(v: i32) -> D {
+    D { V: v }
+}
+
+
+fn Main() {
+    let r = { let _x = 1; &Make(1) };
+    PrintLine(r.V);
+}

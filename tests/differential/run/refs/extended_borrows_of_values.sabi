@@ -1,0 +1,10 @@
+// Borrows of Copy values extended through a block tail, `if` branches and `match` arms
+// (#88): `{ &(a + 1) }`, `if .. { &[1, 2, 3] } else { .. }`, `match a { 3 => &mut 7, .. }`.
+fn Main() {
+    let a = 3;
+    let r = { &(a + 1) };
+    let s = if a > 2 { &[1, 2, 3] } else { &[4, 5, 6] };
+    let n = match a { 3 => &mut 7, _ => &mut 8 };
+    *n += 1;
+    PrintLine(*r + s[1] + *n);
+}
