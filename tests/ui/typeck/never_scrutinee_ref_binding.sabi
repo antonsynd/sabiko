@@ -1,0 +1,22 @@
+// A diverging scrutinee coerces to the type its patterns decide (#99), unless a pattern
+// has an explicit `ref`/`ref mut` binding: then, as in rustc, the scrutinee's own type `!`
+// is matched, and a constructor pattern is a mismatch (rustc's E0308).
+enum E { A(i32), B }
+
+fn Match() -> i32 {
+    match return 1 {
+        E::A(ref b) => *b, //~ ERROR E0300 mismatched types
+        E::B => 2, //~ ERROR E0300 mismatched types
+    }
+}
+
+fn IfLet() -> i32 {
+    if let E::A(ref b) = return 1 { *b } else { 2 } //~ ERROR E0300 mismatched types
+}
+
+fn LetElse() -> i32 {
+    let E::A(ref b) = return 1 else { return 2 }; //~ ERROR E0300 mismatched types
+    *b
+}
+
+fn Main() {}

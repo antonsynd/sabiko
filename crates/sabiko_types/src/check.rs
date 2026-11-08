@@ -521,8 +521,9 @@ impl<'a> FnCtxt<'a> {
                     (Some(a), _) => a,
                     (None, Some(i)) => {
                         // `let x = return;` gives `x: !`; keep it as a fresh variable so
-                        // uses of `x` are not all typed `!`.
-                        if self.shallow(&i).is_never() {
+                        // uses of `x` are not all typed `!`. An explicit `ref` binding
+                        // takes the initialiser's own type, as in rustc (#99).
+                        if self.shallow(&i).is_never() && !has_explicit_ref_binding(&l.pat) {
                             let v = self.infer.new_var(VarKind::General);
                             self.diverging_vars.push(v.clone());
                             v
@@ -863,8 +864,9 @@ impl<'a> FnCtxt<'a> {
                 self.check_match(expr, scrutinee, arms, expected)
             }
             ExprKind::Let(pat, scrutinee) => {
-                // Only as the condition of an `if` or `while`, where it is a `bool`.
+                // Only in the condition of an `if` or `while`, where it is a `bool`.
                 let ty = self.check_expr(scrutinee, None);
+                let ty = self.scrutinee_ty(ty, [&**pat]);
                 self.check_pat(pat, &ty, Some(scrutinee.span));
                 Ty::BOOL
             }
@@ -1639,6 +1641,22 @@ impl<'a> FnCtxt<'a> {
         self.check_expr(e, Some(ty));
     }
 
+    /// The type a `match` (with arms) or `let` pattern is checked against for a scrutinee of
+    /// type `ty`: rustc's `demand_scrutinee_type`. A diverging scrutinee coerces to a fresh
+    /// variable the patterns decide (`match return 1 { E::A(b) => b, E::B => 2 }`), which
+    /// falls back to `!` when they do not; with an explicit `ref`/`ref mut` binding in a
+    /// pattern the scrutinee's own type is used, as rustc needs the precise type there
+    /// (#99).
+    fn scrutinee_ty<'p>(&mut self, ty: Ty, pats: impl IntoIterator<Item = &'p Pat>) -> Ty {
+        let mut pats = pats.into_iter();
+        if !self.shallow(&ty).is_never() || pats.any(has_explicit_ref_binding) {
+            return ty;
+        }
+        let v = self.infer.new_var(VarKind::General);
+        self.diverging_vars.push(v.clone());
+        v
+    }
+
     /// `match scrutinee { arms }`. The arms' bodies are checked against the expectation,
     /// or else against each other (the first that does not diverge decides); guards are
     /// `bool`. The match diverges when its scrutinee does or every arm's body does; a
@@ -1651,6 +1669,11 @@ impl<'a> FnCtxt<'a> {
         expected: Option<&Ty>,
     ) -> Ty {
         let scrut_ty = self.check_expr(scrutinee, None);
+        let scrut_ty = if arms.is_empty() {
+            scrut_ty
+        } else {
+            self.scrutinee_ty(scrut_ty, arms.iter().map(|a| &a.pat))
+        };
         let scrut_diverges = self.diverges;
         let mut result: Option<Ty> = expected.cloned();
         let mut first_ty: Option<(Ty, Span)> = None;
@@ -3490,4 +3513,16 @@ pub(crate) fn int_suffix_prim(s: sabiko_ast::IntSuffix) -> PrimTy {
         S::U128 => PrimTy::U128,
         S::Usize => PrimTy::Usize,
     }
+}
+
+/// Whether `pat` binds a name with an explicit `ref` or `ref mut` (rustc's
+/// `contains_explicit_ref_binding`; not a by-reference default binding mode).
+fn has_explicit_ref_binding(pat: &Pat) -> bool {
+    let mut found = false;
+    pat.walk_idents(&mut |p| {
+        if let PatKind::Ident { by_ref: true, .. } = p.kind {
+            found = true;
+        }
+    });
+    found
 }

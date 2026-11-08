@@ -754,7 +754,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   first one that does not diverge (E0300 "`match` arms have incompatible types"); a guard
   is `bool`. The match diverges when its scrutinee does or every arm does; without arms
   it is `!`. `if let` and `while let` type like `if` and `while`; the other operands of a
-  let chain are `bool`; a `let`-`else` block must diverge (E0300).
+  let chain are `bool`; a `let`-`else` block must diverge (E0300). A diverging scrutinee
+  (`match return 1 { E::A(b) => b, E::B => 2 }`, also of `if let`, `while let` and a
+  `let`) coerces to a fresh type its patterns decide, falling back to `!`, unless a
+  pattern has an explicit `ref`/`ref mut` binding: then it is matched as `!` (rustc's
+  `demand_scrutinee_type`; E0300 for a constructor pattern there, #99).
 - Exhaustiveness and reachability (#8, decision 58), as rustc's usefulness algorithm
   decides them: a `match` must cover every value of its scrutinee (E0328, rustc's E0004,
   listing up to three missing patterns as rustc does: "`A`, `B` and `C(_)` not covered",
