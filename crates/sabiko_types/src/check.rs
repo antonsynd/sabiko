@@ -480,7 +480,17 @@ impl<'a> FnCtxt<'a> {
             // The tail's type even when an earlier statement diverges, as in rustc:
             // `{ return; 2i32 }` is `i32`, so `if c { 1u8 } else { return; 2i32 }` is a
             // mismatch, and the `else` of `if c { &a } else { &return 1 }` is `&!`.
-            Some(tail) => self.check_expr(tail, expected),
+            // A tail coerced to the expectation gives the block the expectation's type,
+            // as a `match` has (rustc's coercion at the tail): `({ &a }, 1)` as `(&[i32],
+            // i32)` is a `&[i32]` block, not a `&[i32; 2]` one (#94). A diverging tail
+            // keeps `!`.
+            Some(tail) => {
+                let ty = self.check_expr(tail, expected);
+                match expected {
+                    Some(exp) if !self.shallow(&ty).is_never() && !ty.is_error() => exp.clone(),
+                    _ => ty,
+                }
+            }
             None if self.diverges => Ty::Never,
             None => {
                 if let Some(exp) = expected {
@@ -699,6 +709,16 @@ impl<'a> FnCtxt<'a> {
                     {
                         Some(*t)
                     }
+                    // An array literal under a `&[T]` expectation has `T` elements (rustc's
+                    // rvalue hint for an unsized referent), so each element is a coercion
+                    // site: `let c: &[&[i32]] = &[&[1, 2], &[3]];` (#94).
+                    Some(Ty::Ref(_, t)) => match (self.shallow(&t), &strip_parens(inner).kind) {
+                        (Ty::Slice(elem), ExprKind::Array(elems)) => Some(Ty::Array(
+                            elem,
+                            u64::try_from(elems.len()).expect("fewer than 2^64 elements"),
+                        )),
+                        _ => None,
+                    },
                     _ => None,
                 };
                 let errors_before = self.sink.error_count();
