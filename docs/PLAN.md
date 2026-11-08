@@ -1015,8 +1015,12 @@ a single branch gets a drop flag. New programs: ten compile-time `ok_`/`err_` on
 argument, an assignment, a block's local), six run-time ones on drop order and unwinding
 in `differential/run/drops/`, `refs/` and `arrays/`, and a MIR snapshot; the generator
 writes `let r = { &e };`, `if c { &a } else { &b }` and `match` forms in about half of its
-programs, and 1000 seeds at three bases agree with rustc. Two older coercion gaps found on
-the way are #94 (an unsized block element of a coerced tuple fails MIR validation, and
+programs. 1000 seeds at each of the bases 1, 8800000 and 61000000 found a reordering-analysis
+bug (an extended temporary with drop glue swapped past a panicking statement, seed 8800445;
+a borrow of a value with drop glue now counts as an effect) and two older lint
+divergences, now #95 (a `match` arm a known variant rules out is still visited when a
+pattern has `..`, seeds 8800051 and 8800299); everything else agrees with rustc. Two older
+coercion gaps found on the way are #94 (an unsized block element of a coerced tuple fails MIR validation, and
 `&[&[1, 2], &[3]]` as `&[&[i32]]` is E0300).
 
 ### Phase 5: Data types
