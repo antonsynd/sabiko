@@ -728,7 +728,10 @@ fn bounded_params() -> impl Strategy<Value = Vec<GenericParam>> {
 
 /// A `where` clause of zero to two predicates, each with at least one bound.
 fn where_clause() -> impl Strategy<Value = Vec<WherePredicate>> {
-    prop::collection::vec((ty(), name(), bounds()), 0..3).prop_map(|preds| {
+    // A path type, not `ty()`: a full type here deepens every function's strategy enough
+    // to overflow a test thread's stack on macOS.
+    let path_ty = name().prop_map(|n| leaf_ty(TypeKind::Path(path(&n))));
+    prop::collection::vec((path_ty, name(), bounds()), 0..3).prop_map(|preds| {
         preds
             .into_iter()
             .map(|(ty, first, mut rest)| {
@@ -1074,21 +1077,43 @@ fn strip_parens_item(item: &mut Item) {
     }
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
-
-    #[test]
-    fn pretty_then_parse_is_identity(mut file in source_file()) {
-        strip_parens_file(&mut file);
-        let src = pretty(&file);
-        let mut sink = DiagnosticSink::new();
-        let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
-        prop_assert!(!sink.has_errors(), "diagnostics on printed source:\n{src}\n{:#?}", sink.diagnostics());
-        strip_parens_file(&mut parsed);
-        prop_assert_eq!(dump(&parsed), dump(&file), "source:\n{}", src);
-        // Fixpoint: printing the parsed tree reproduces the text.
-        prop_assert_eq!(pretty(&parsed), src);
-    }
+/// Prints a generated file, parses it back, and checks that the trees agree and that the
+/// printed text is a fixpoint. Run on a thread with a stack of its own: the generated
+/// trees and the strategies building them are deep enough to overflow a default 2 MiB test
+/// thread now and then (debug builds on macOS have the largest frames).
+#[test]
+fn pretty_then_parse_is_identity() {
+    let run = || {
+        let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+            cases: 256,
+            ..ProptestConfig::default()
+        });
+        let result = runner.run(&source_file(), |mut file| {
+            strip_parens_file(&mut file);
+            let src = pretty(&file);
+            let mut sink = DiagnosticSink::new();
+            let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
+            prop_assert!(
+                !sink.has_errors(),
+                "diagnostics on printed source:\n{src}\n{:#?}",
+                sink.diagnostics()
+            );
+            strip_parens_file(&mut parsed);
+            prop_assert_eq!(dump(&parsed), dump(&file), "source:\n{}", src);
+            // Fixpoint: printing the parsed tree reproduces the text.
+            prop_assert_eq!(pretty(&parsed), src);
+            Ok(())
+        });
+        if let Err(e) = result {
+            panic!("{e}");
+        }
+    };
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(run)
+        .expect("spawn the property test thread")
+        .join()
+        .expect("the property test passes");
 }
 
 /// Parses `src` (which must have no errors), prints it, and checks that the printed text
