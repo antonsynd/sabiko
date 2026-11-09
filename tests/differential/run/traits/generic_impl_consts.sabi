@@ -1,0 +1,20 @@
+// Constants of a generic struct's `impl` block (decision 85) are evaluated at the
+// type's arguments, so they may read a bounded parameter's trait constants, through
+// `W::<T>::M`, `Self::M` and in patterns.
+trait Shape { const SIDES: u32; }
+struct Sq;
+impl Shape for Sq { const SIDES: u32 = 4; }
+impl Shape for u8 { const SIDES: u32 = 1; }
+struct W<T> { x: T }
+impl<T: Shape> W<T> {
+    const M: u32 = T::SIDES * 3;
+    fn Get(&self) -> u32 { Self::M + W::<T>::M }
+}
+impl<T> W<T> { const Plain: i32 = 3; }
+fn G<T: Shape>(w: &W<T>) -> u32 { W::<T>::M + w.Get() }
+fn Main() {
+    PrintLine(W::<Sq>::M);
+    PrintLine(G(&W { x: 1u8 }));
+    PrintLine(W::<bool>::Plain);
+    match 12u32 { W::<Sq>::M => PrintLine("twelve"), _ => {} }
+}

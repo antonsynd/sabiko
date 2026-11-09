@@ -64,7 +64,17 @@ fn lower_resolved(
         return None;
     }
     let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
-    assert!(sink.diagnostics().is_empty(), "lowering never reports");
+    // Lowering itself never reports; evaluating the trait constants a body uses may
+    // (decision 85).
+    if !sink.diagnostics().is_empty() {
+        assert!(
+            sink.diagnostics()
+                .iter()
+                .all(|d| d.code == sabiko_diagnostics::ErrorCode::CONST_EVAL_FAILED),
+            "lowering never reports"
+        );
+        return None;
+    }
     Some((bodies, typeck, resolve))
 }
 

@@ -1,0 +1,27 @@
+[E0100] Error: free constant item without body
+   ╭─[ tests/ui/parse/const_without_value.sabi:8:16 ]
+   │
+ 8 │ const FREE: i32; //~ ERROR E0100 free constant item without body
+   │                ┬  
+   │                ╰── a constant needs a value: `= <expr>;`
+   │ 
+   │ Note: only the required constants of a trait have no value
+───╯
+[E0100] Error: associated constant in `impl` without body
+    ╭─[ tests/ui/parse/const_without_value.sabi:13:23 ]
+    │
+ 13 │     const INHERENT: u8; //~ ERROR E0100 associated constant in `impl` without body
+    │                       ┬  
+    │                       ╰── a constant needs a value: `= <expr>;`
+    │ 
+    │ Note: only the required constants of a trait have no value
+────╯
+[E0100] Error: associated constant in `impl` without body
+    ╭─[ tests/ui/parse/const_without_value.sabi:17:21 ]
+    │
+ 17 │     const SIDES: u32; //~ ERROR E0100 associated constant in `impl` without body
+    │                     ┬  
+    │                     ╰── a constant needs a value: `= <expr>;`
+    │ 
+    │ Note: only the required constants of a trait have no value
+────╯

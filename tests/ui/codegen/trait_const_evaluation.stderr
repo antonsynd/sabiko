@@ -1,0 +1,18 @@
+[E0503] Error: attempt to multiply with overflow
+   ╭─[ tests/ui/codegen/trait_const_evaluation.sabi:8:24 ]
+   │
+ 8 │     const DOUBLE: u8 = Self::SIDES * 2; //~ ERROR E0503 attempt to multiply with overflow
+   │                        ───────┬───────  
+   │                               ╰───────── in this constant
+   │ 
+   │ Note: while evaluating `<Big as Shape>::DOUBLE`
+───╯
+[E0503] Error: attempt to divide by zero
+   ╭─[ tests/ui/codegen/trait_const_evaluation.sabi:9:22 ]
+   │
+ 9 │     const HALF: u8 = 100 / Self::SIDES; //~ ERROR E0503 attempt to divide by zero
+   │                      ────────┬────────  
+   │                              ╰────────── in this constant
+   │ 
+   │ Note: while evaluating `<Empty as Shape>::HALF`
+───╯

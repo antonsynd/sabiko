@@ -68,13 +68,14 @@ use crate::{
 /// order. Constants have no bodies. A function that refers to a constant whose evaluation
 /// failed is skipped as well: its errors were reported with the constant.
 ///
-/// `_sink` is unused for now: lowering never reports; the validator does.
+/// `sink` receives the failures of evaluating the trait constants a body names at a
+/// type (#116); lowering itself never reports, the validator does.
 #[must_use]
 pub fn build_bodies(
     file: &SourceFile,
     resolve: &ResolveResults,
     typeck: &TypeckResults,
-    _sink: &mut DiagnosticSink,
+    sink: &mut DiagnosticSink,
 ) -> Vec<Body> {
     let mut bodies = Vec::new();
     for item in file.all_items() {
@@ -90,7 +91,8 @@ pub fn build_bodies(
         if types.has_errors {
             continue;
         }
-        if let Some(body) = Builder::new(resolve, typeck, types, def, item, f).build(f) {
+        if let Some(mut body) = Builder::new(resolve, typeck, types, def, item, f).build(f) {
+            crate::mono::eval_assoc_consts(&mut body, resolve, typeck, false, sink);
             bodies.push(body);
         }
     }
@@ -1009,7 +1011,24 @@ impl<'a> Builder<'a> {
 
     /// The value of a `const` item. One that failed to evaluate (its errors were reported
     /// with the item) poisons this body.
-    fn const_constant(&mut self, def: DefId, ty: &Ty, span: Span) -> Constant {
+    /// The constant the path expression `node` names (`def`, as the resolver found it). A
+    /// trait's constant is left for `mono::eval_assoc_consts` to evaluate at its `Self`
+    /// (#116).
+    fn const_constant(&mut self, node: NodeId, def: DefId, ty: &Ty, span: Span) -> Constant {
+        let def = self.types.path_defs.get(&node).copied().unwrap_or(def);
+        if sabiko_types::consts::is_assoc_const(self.resolve, def) {
+            let args = self
+                .types
+                .generic_args
+                .get(&node)
+                .cloned()
+                .unwrap_or_default();
+            return Constant {
+                ty: ty.clone(),
+                value: ConstValue::Unevaluated(def, args),
+                span,
+            };
+        }
         let value = if let Some(v) = self.typeck.const_value(def) {
             v.clone()
         } else {
@@ -1121,7 +1140,7 @@ impl<'a> Builder<'a> {
                     unreachable!()
                 };
                 let ty = self.ty(expr).clone();
-                Operand::Constant(self.const_constant(def, &ty, expr.span))
+                Operand::Constant(self.const_constant(expr.id, def, &ty, expr.span))
             }
             ExprKind::Unary(UnOp::Neg, _) if self.negated_literal(expr).is_some() => {
                 Operand::Constant(self.negated_literal(expr).expect("checked above"))

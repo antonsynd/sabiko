@@ -15,6 +15,7 @@ pub mod traits;
 pub mod ty;
 pub mod usefulness;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 pub use check::{rest_positions, BodyTypes, FieldAccess, MethodCallee, PatConst};
@@ -35,9 +36,37 @@ pub struct TypeckResults {
     pub items: ItemTypes,
     bodies: HashMap<DefId, BodyTypes>,
     consts: HashMap<DefId, ConstValue>,
+    /// The values of the constants of traits and trait `impl` blocks (#116), evaluated
+    /// at each instance a use names.
+    assoc_exprs: HashMap<DefId, sabiko_ast::Expr>,
+    assoc_values: RefCell<consts::InstanceCache>,
 }
 
 impl TypeckResults {
+    /// The value of the trait constant `def` at the generic arguments `args` (its
+    /// `Self`), which hold no type parameter: the implementing block's constant, or the
+    /// trait's default (#116). `None` when evaluation failed, which is reported once.
+    pub fn eval_assoc_const(
+        &self,
+        resolve: &ResolveResults,
+        def: DefId,
+        args: Vec<Ty>,
+        sink: &mut DiagnosticSink,
+    ) -> Option<ConstValue> {
+        let bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = self
+            .assoc_exprs
+            .iter()
+            .map(|(&d, e)| (d, (e, &self.bodies[&d])))
+            .collect();
+        let cx = consts::ConstCx {
+            resolve,
+            items: &self.items,
+            bodies: &bodies,
+            values: &self.consts,
+        };
+        consts::eval_instance(&cx, def, args, &mut self.assoc_values.borrow_mut(), sink)
+    }
+
     /// The body table of a function or constant.
     #[must_use]
     pub fn body(&self, def: DefId) -> &BodyTypes {
@@ -67,46 +96,23 @@ pub fn typeck(
 ) -> TypeckResults {
     let no_lens = collect::ArrayLens::new();
     let items0 = collect::collect(file, resolve, &no_lens, &mut DiagnosticSink::new());
-    let mut bodies = HashMap::new();
-    for item in file.all_items() {
-        let def = match &item.kind {
-            ItemKind::Const(_) | ItemKind::Enum(_) => resolve.def_of_item(item.id),
-            _ => continue,
-        };
-        match &item.kind {
-            ItemKind::Const(c) => {
-                let ty = items0.const_ty(def).clone();
-                let cx = check::FnCtxt::new(resolve, &items0, sink, ty);
-                bodies.insert(def, cx.check_const(&c.value));
-            }
-            ItemKind::Enum(e) => {
-                // An explicit discriminant is an `isize` constant of its own.
-                for v in &e.variants {
-                    let Some(d) = &v.discriminant else {
-                        continue;
-                    };
-                    if let Some(vdef) = variant_def(resolve, def, v) {
-                        let cx =
-                            check::FnCtxt::new(resolve, &items0, sink, Ty::Prim(PrimTy::Isize));
-                        bodies.insert(vdef, cx.check_const(d));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
+    // The bodies of the constants, kept apart from the functions' while the constants of
+    // traits and trait `impl` blocks are evaluated from them (#116).
+    let const_types = check_const_bodies(file, resolve, &items0, sink);
     let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::new();
     for item in file.all_items() {
         match &item.kind {
             ItemKind::Const(c) => {
                 let def = resolve.def_of_item(item.id);
-                const_bodies.insert(def, (&c.value, &bodies[&def]));
+                if let (Some(value), Some(b)) = (&c.value, const_types.get(&def)) {
+                    const_bodies.insert(def, (value, b));
+                }
             }
             ItemKind::Enum(e) => {
                 let def = resolve.def_of_item(item.id);
                 for v in &e.variants {
                     if let (Some(d), Some(vdef)) = (&v.discriminant, variant_def(resolve, def, v)) {
-                        if let Some(b) = bodies.get(&vdef) {
+                        if let Some(b) = const_types.get(&vdef) {
                             const_bodies.insert(vdef, (d, b));
                         }
                     }
@@ -115,36 +121,117 @@ pub fn typeck(
             _ => {}
         }
     }
-    let consts = consts::eval_all(resolve, &const_bodies, sink);
-    let lens = signature_lens(file, resolve, &items0, &consts, sink);
+    let no_values = HashMap::new();
+    let consts = consts::eval_all(
+        &consts::ConstCx {
+            resolve,
+            items: &items0,
+            bodies: &const_bodies,
+            values: &no_values,
+        },
+        sink,
+    );
+    // From here on, only the constants of traits and trait `impl` blocks are evaluated,
+    // at the instances their uses name.
+    const_bodies.retain(|&def, _| consts::is_assoc_const(resolve, def));
+    let lens = signature_lens(
+        file,
+        &consts::ConstCx {
+            resolve,
+            items: &items0,
+            bodies: &const_bodies,
+            values: &consts,
+        },
+        sink,
+    );
     let mut items = collect::collect(file, resolve, &lens, sink);
-    for item in file.all_items() {
-        if let ItemKind::Fn(f) = &item.kind {
-            let def = resolve.def_of_item(item.id);
-            let ret = items.fn_sig(def).output.clone();
-            let cx = check::FnCtxt::new(resolve, &items, sink, ret).with_consts(&consts);
-            bodies.insert(def, cx.check_fn(f, def));
+    let mut bodies = HashMap::new();
+    {
+        let cx = consts::ConstCx {
+            resolve,
+            items: &items,
+            bodies: &const_bodies,
+            values: &consts,
+        };
+        for item in file.all_items() {
+            if let ItemKind::Fn(f) = &item.kind {
+                let def = resolve.def_of_item(item.id);
+                let ret = items.fn_sig(def).output.clone();
+                let fcx = check::FnCtxt::new(resolve, &items, sink, ret).with_consts(&cx);
+                bodies.insert(def, fcx.check_fn(f, def));
+            }
         }
+        patterns::pattern_values(file, &cx, &mut bodies, sink);
     }
     patterns::discriminants(file, resolve, &consts, &mut items, sink);
-    patterns::pattern_values(file, resolve, &consts, &mut bodies, sink);
     patterns::exhaustiveness(file, resolve, &items, &mut bodies, sink);
+    let assoc_exprs = const_bodies
+        .iter()
+        .map(|(&def, &(expr, _))| (def, expr.clone()))
+        .collect();
+    bodies.extend(const_types);
     TypeckResults {
         items,
         bodies,
         consts,
+        assoc_exprs,
+        assoc_values: RefCell::default(),
     }
+}
+
+/// Type-checks the value of every constant and explicit discriminant.
+fn check_const_bodies(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    items0: &ItemTypes,
+    sink: &mut DiagnosticSink,
+) -> HashMap<DefId, BodyTypes> {
+    let mut const_types: HashMap<DefId, BodyTypes> = HashMap::new();
+    for item in file.all_items() {
+        let def = match &item.kind {
+            ItemKind::Const(_) | ItemKind::Enum(_) => resolve.def_of_item(item.id),
+            _ => continue,
+        };
+        match &item.kind {
+            ItemKind::Const(c) => {
+                let Some(value) = &c.value else {
+                    continue;
+                };
+                let ty = items0.const_ty(def).clone();
+                let cx = check::FnCtxt::new(resolve, items0, sink, ty);
+                let body = if consts::is_assoc_const(resolve, def) {
+                    cx.check_assoc_const(value, def)
+                } else {
+                    cx.check_const(value)
+                };
+                const_types.insert(def, body);
+            }
+            ItemKind::Enum(e) => {
+                // An explicit discriminant is an `isize` constant of its own.
+                for v in &e.variants {
+                    let Some(d) = &v.discriminant else {
+                        continue;
+                    };
+                    if let Some(vdef) = variant_def(resolve, def, v) {
+                        let cx = check::FnCtxt::new(resolve, items0, sink, Ty::Prim(PrimTy::Isize));
+                        const_types.insert(vdef, cx.check_const(d));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    const_types
 }
 
 /// Checks and evaluates every array length written in an item signature (parameter and
 /// return types, fields, constant types, the types of `impl` blocks), in source order.
 fn signature_lens(
     file: &SourceFile,
-    resolve: &ResolveResults,
-    items0: &ItemTypes,
-    consts: &HashMap<DefId, ConstValue>,
+    consts: &consts::ConstCx,
     sink: &mut DiagnosticSink,
 ) -> collect::ArrayLens {
+    let (resolve, items0) = (consts.resolve, consts.items);
     let mut types: Vec<&sabiko_ast::Type> = Vec::new();
     for item in file.all_items() {
         match &item.kind {
@@ -182,7 +269,7 @@ fn signature_lens(
                     .with_consts(consts);
                 let body = cx.check_const(len);
                 if !body.has_errors {
-                    if let Some(n) = consts::eval_len(resolve, consts, len, &body, sink) {
+                    if let Some(n) = consts::eval_len(consts, len, &body, sink) {
                         lens.insert(len.id, n);
                     }
                 }
@@ -490,6 +577,7 @@ const M: i32 = { 1 };
                 let parts: Vec<String> = vs.iter().map(plain).collect();
                 format!("({})", parts.join(", "))
             }
+            ConstValue::Unevaluated(..) => "unevaluated".to_owned(),
         }
     }
 

@@ -1365,7 +1365,8 @@ impl<'a> Lints<'a> {
 
 fn constant(value: &ConstValue) -> Option<Value> {
     match value {
-        ConstValue::Str(_) | ConstValue::Tuple(_) => None,
+        // A generic function's trait constant has a value only in its instances.
+        ConstValue::Str(_) | ConstValue::Tuple(_) | ConstValue::Unevaluated(..) => None,
         v => Some(Value::Scalar(v.clone())),
     }
 }

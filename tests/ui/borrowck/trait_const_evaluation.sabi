@@ -1,0 +1,22 @@
+// A trait's constant a function that is not generic uses is evaluated with its MIR
+// (#116); a failure is reported once, naming the instance.
+trait Shape {
+    const SIDES: u8;
+    const DOUBLE: u8 = Self::SIDES * 2; //~ ERROR E0316 attempt to multiply with overflow
+}
+
+struct Big;
+
+impl Shape for Big {
+    const SIDES: u8 = 200;
+}
+
+impl Shape for u8 {
+    const SIDES: u8 = 1;
+    const DOUBLE: u8 = Self::SIDES - 2; //~ ERROR E0316 attempt to subtract with overflow
+}
+
+fn Main() {
+    PrintLine(Big::DOUBLE);
+    PrintLine(Big::DOUBLE + u8::DOUBLE);
+}

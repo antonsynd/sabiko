@@ -894,8 +894,8 @@ impl<'a> BodyGen<'a> {
 
     /// A value of type `ty` through a trait helper (#116): `(e).Keep()`, `GenKeep::Keep(e)`
     /// or `GenKept(e)`, the identity through a blanket implementation; for an integer, now
-    /// and then `(e).Sign()` or `GenSigns(a, b)` of `i32` or `bool` values instead, cast
-    /// to its type.
+    /// and then `(e).Sign()`, `GenSigns(a, b)` of `i32` or `bool` values or a trait
+    /// constant such as `i32::UNIT` or `bool::BIAS` instead, cast to its type.
     fn trait_value(&mut self, ty: ValTy, depth: u32) -> Expr {
         if let ValTy::Prim(p @ Prim::Int(_)) = ty {
             if self.rng.chance(70) {
@@ -904,10 +904,20 @@ impl<'a> BodyGen<'a> {
                 } else {
                     ValTy::Prim(Prim::Bool)
                 };
-                let a = self.val_expr(arg, depth);
-                let (text, roots) = if self.rng.chance(50) {
+                let (text, roots) = if self.rng.chance(20) {
+                    // A trait's associated constant at a type (#116).
+                    let ty = if arg == ValTy::Prim(Prim::Bool) {
+                        "bool"
+                    } else {
+                        "i32"
+                    };
+                    let name = if self.rng.chance(50) { "UNIT" } else { "BIAS" };
+                    (format!("{ty}::{name}"), Vec::new())
+                } else if self.rng.chance(50) {
+                    let a = self.val_expr(arg, depth);
                     (format!("({}).Sign()", a.text), a.roots)
                 } else {
+                    let a = self.val_expr(arg, depth);
                     let b = self.val_expr(arg, depth);
                     let mut roots = a.roots;
                     roots.extend(b.roots);

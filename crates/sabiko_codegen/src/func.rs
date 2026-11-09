@@ -1691,6 +1691,12 @@ impl FnCx<'_, '_> {
                     .collect();
                 self.tuple(&c.ty, &operands, c.span);
             }
+            ConstValue::Unevaluated(..) => self.cx.error(
+                ErrorCode::INTERNAL_ERROR,
+                "internal error: an unevaluated trait constant reached code generation",
+                c.span,
+                "monomorphisation evaluates every trait constant of an instance",
+            ),
         }
     }
 

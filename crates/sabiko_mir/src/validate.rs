@@ -66,6 +66,7 @@ fn constant_matches(c: &Constant) -> bool {
         (ConstValue::Uint(_), Ty::Prim(p)) => p.is_unsigned_int(),
         (ConstValue::Float(_), Ty::Prim(p)) => p.is_float(),
         (_, Ty::Error)
+        | (ConstValue::Unevaluated(..), _)
         | (ConstValue::Bool(_), Ty::Prim(PrimTy::Bool))
         | (ConstValue::Char(_), Ty::Prim(PrimTy::Char))
         | (ConstValue::Unit, Ty::Unit) => true,

@@ -17,7 +17,7 @@ use sabiko_span::Span;
 
 use crate::check::{BodyTypes, PatConst};
 use crate::collect::{ItemTypes, VariantKind};
-use crate::consts::ConstValue;
+use crate::consts::{ConstCx, ConstValue};
 use crate::ty::Ty;
 use crate::usefulness;
 
@@ -120,11 +120,12 @@ fn enum_discriminants(
 /// reversed ranges (E0332, rustc's E0030 and E0579).
 pub(crate) fn pattern_values(
     file: &SourceFile,
-    resolve: &ResolveResults,
-    consts: &HashMap<DefId, ConstValue>,
+    consts: &ConstCx,
     bodies: &mut HashMap<DefId, BodyTypes>,
     sink: &mut DiagnosticSink,
 ) {
+    let resolve = consts.resolve;
+    let mut cache = HashMap::new();
     for item in file.all_items() {
         let ItemKind::Fn(f) = &item.kind else {
             continue;
@@ -139,6 +140,7 @@ pub(crate) fn pattern_values(
         let mut cx = PatValues {
             resolve,
             consts,
+            cache: &mut cache,
             body,
             sink,
             failed: false,
@@ -157,7 +159,9 @@ pub(crate) fn pattern_values(
 
 struct PatValues<'a, 'b> {
     resolve: &'a ResolveResults,
-    consts: &'a HashMap<DefId, ConstValue>,
+    consts: &'a ConstCx<'a, 'a>,
+    /// The trait constants evaluated so far (#116).
+    cache: &'b mut crate::consts::InstanceCache,
     body: &'b mut BodyTypes,
     sink: &'a mut DiagnosticSink,
     failed: bool,
@@ -278,17 +282,57 @@ impl PatValues<'_, '_> {
     fn const_pat(&mut self, pat: &Pat) {
         if let Some(Res::Def(def)) = self.resolve.pat_res(pat.id) {
             if self.resolve.def(def).kind == DefKind::Const {
-                match self.consts.get(&def) {
+                let value = if crate::consts::is_assoc_const(self.resolve, def) {
+                    self.trait_const(pat.id, pat.span, def)
+                } else {
+                    self.consts.values.get(&def).cloned()
+                };
+                match value {
                     Some(v) => {
-                        self.body
-                            .pat_consts
-                            .insert(pat.id, PatConst::Value(v.clone()));
+                        self.body.pat_consts.insert(pat.id, PatConst::Value(v));
                     }
                     // Reported with the constant.
                     None => self.failed = true,
                 }
             }
         }
+    }
+
+    /// The value of the trait constant `def` a pattern names at `node` (#116), at the
+    /// type the type checker chose; a type parameter there is E0346 (rustc's E0158).
+    fn trait_const(
+        &mut self,
+        node: sabiko_ast::NodeId,
+        span: Span,
+        def: DefId,
+    ) -> Option<ConstValue> {
+        let def = self.body.path_defs.get(&node).copied().unwrap_or(def);
+        let args = self
+            .body
+            .generic_args
+            .get(&node)
+            .cloned()
+            .unwrap_or_default();
+        if args.iter().any(crate::Ty::is_error) {
+            self.failed = true;
+            return None;
+        }
+        if args.iter().any(crate::Ty::has_param) {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::GENERIC_CONST_PATTERN,
+                    "constant pattern cannot depend on generic parameters",
+                )
+                .with_label(span, "`const` depends on a generic parameter"),
+            );
+            self.failed = true;
+            return None;
+        }
+        let v = crate::consts::eval_instance(self.consts, def, args, self.cache, self.sink);
+        if v.is_none() {
+            self.failed = true;
+        }
+        v
     }
 
     fn value(&mut self, e: &Expr) -> Option<ConstValue> {
@@ -300,8 +344,11 @@ impl PatValues<'_, '_> {
                 _ => None,
             },
             ExprKind::Path(_) => match self.resolve.res(e.id) {
+                Res::Def(def) if crate::consts::is_assoc_const(self.resolve, def) => {
+                    self.trait_const(e.id, e.span, def)
+                }
                 Res::Def(def) if self.resolve.def(def).kind == DefKind::Const => {
-                    let v = self.consts.get(&def).cloned();
+                    let v = self.consts.values.get(&def).cloned();
                     if v.is_none() {
                         self.failed = true;
                     }
