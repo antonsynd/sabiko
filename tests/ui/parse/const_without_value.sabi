@@ -1,0 +1,20 @@
+// Only a trait's constant may leave out its value (rustc: "free constant item without
+// body", "associated constant in `impl` without body").
+trait Shape {
+    const SIDES: u32;
+    const SCALE: i32 = 1;
+}
+
+const FREE: i32; //~ ERROR E0100 free constant item without body
+
+struct S;
+
+impl S {
+    const INHERENT: u8; //~ ERROR E0100 associated constant in `impl` without body
+}
+
+impl Shape for S {
+    const SIDES: u32; //~ ERROR E0100 associated constant in `impl` without body
+}
+
+fn Main() {}

@@ -86,13 +86,7 @@ impl Parser<'_, '_> {
         let id = self.new_id();
         let kind = match self.peek_kind() {
             TokenKind::Fn => ItemKind::Fn(self.parse_fn(members)?),
-            TokenKind::Const if members == Members::Trait => {
-                return Err(self.unsupported_item(
-                    "associated constants in traits",
-                    "planned for Phase 6 (#116)",
-                ))
-            }
-            TokenKind::Const if in_impl => ItemKind::Const(self.parse_const()?),
+            TokenKind::Const => ItemKind::Const(self.parse_const(members)?),
             TokenKind::Type if in_impl => {
                 return Err(self.unsupported_item("associated types", "planned for Phase 6"))
             }
@@ -113,7 +107,6 @@ impl Parser<'_, '_> {
                 return Err(self.emit(d));
             }
             TokenKind::Struct => ItemKind::Struct(self.parse_struct()?),
-            TokenKind::Const => ItemKind::Const(self.parse_const()?),
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()?),
             TokenKind::Impl => ItemKind::Impl(self.parse_impl()?),
             TokenKind::Trait => ItemKind::Trait(self.parse_trait()?),
@@ -875,18 +868,44 @@ impl Parser<'_, '_> {
         })
     }
 
-    fn parse_const(&mut self) -> PResult<ConstDecl> {
+    /// A constant: an item, a member of an `impl` block, or a trait's (#116), which alone
+    /// may leave out its value (a required constant).
+    fn parse_const(&mut self, members: Members) -> PResult<ConstDecl> {
         self.expect(TokenKind::Const)?;
         let name = self.parse_ident()?;
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type()?;
+        if self.at(TokenKind::Semi) {
+            let span = self.peek().span;
+            if members != Members::Trait {
+                let what = if members == Members::Impl {
+                    "associated constant in `impl` without body"
+                } else {
+                    "free constant item without body"
+                };
+                let d = Diagnostic::error(ErrorCode::UNEXPECTED_TOKEN, what)
+                    .with_label(span, "a constant needs a value: `= <expr>;`")
+                    .with_note("only the required constants of a trait have no value");
+                return Err(self.emit(d));
+            }
+            self.bump();
+            return Ok(ConstDecl {
+                name,
+                ty,
+                value: None,
+            });
+        }
         self.expect(TokenKind::Eq)?;
         let value = self.parse_expr()?;
         if !self.at(TokenKind::Semi) {
             return Err(self.error_expected_after_prev("`;`"));
         }
         self.bump();
-        Ok(ConstDecl { name, ty, value })
+        Ok(ConstDecl {
+            name,
+            ty,
+            value: Some(value),
+        })
     }
 
     // ---- types ----------------------------------------------------------------------------

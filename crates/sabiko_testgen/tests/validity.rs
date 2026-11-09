@@ -1061,6 +1061,7 @@ fn programs_use_aggregates_of_references() {
 fn programs_use_trait_helpers() {
     let knobs = Knobs::default();
     let (mut keeps, mut paths, mut kept, mut refs, mut signs, mut sums) = (0, 0, 0, 0, 0, 0);
+    let mut consts = 0;
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
         // After the helpers' last line.
@@ -1075,13 +1076,20 @@ fn programs_use_trait_helpers() {
         refs += usize::from(body.contains(").KeepRef()") && body.contains("(&*"));
         signs += usize::from(body.contains(").Sign()"));
         sums += usize::from(body.contains("GenSigns("));
+        consts += usize::from(body.contains("::UNIT") || body.contains("::BIAS"));
     }
     eprintln!(
-        "of {SEEDS} programs: {keeps} call `.Keep()`, {paths} `GenKeep::Keep`, {kept} `GenKept`, {refs} `.KeepRef()`, {signs} `.Sign()`, {sums} `GenSigns`"
+        "of {SEEDS} programs: {keeps} call `.Keep()`, {paths} `GenKeep::Keep`, {kept} `GenKept`, {refs} `.KeepRef()`, {signs} `.Sign()`, {sums} `GenSigns`, {consts} a trait constant"
     );
     assert!(
-        keeps >= 40 && paths >= 30 && kept >= 30 && refs >= 20 && signs >= 20 && sums >= 20,
-        "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20)"
+        keeps >= 40
+            && paths >= 30
+            && kept >= 30
+            && refs >= 20
+            && signs >= 20
+            && sums >= 20
+            && consts >= 10,
+        "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20), {consts} a trait constant (expected 10)"
     );
 }
 

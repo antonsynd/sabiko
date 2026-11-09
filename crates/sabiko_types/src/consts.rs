@@ -20,6 +20,7 @@ use sabiko_resolve::{DefId, DefKind, PrimConst, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::check::BodyTypes;
+use crate::collect::ItemTypes;
 use crate::ty::Ty;
 
 /// A compile-time value. Signed integers use `Int`, unsigned `Uint`; the type is carried
@@ -35,6 +36,10 @@ pub enum ConstValue {
     Unit,
     /// A tuple of constants (#50), lowered to a tuple aggregate where it is used.
     Tuple(Vec<ConstValue>),
+    /// A trait's associated constant at generic arguments (its `Self`) that hold a type
+    /// parameter: MIR of a generic function only; monomorphisation evaluates it at each
+    /// instance (#116).
+    Unevaluated(DefId, Vec<Ty>),
 }
 
 impl ConstValue {
@@ -55,6 +60,14 @@ impl ConstValue {
             ConstValue::Char(c) => format!("{c:?}"),
             ConstValue::Str(s) => format!("{s:?}"),
             ConstValue::Unit => "()".to_owned(),
+            ConstValue::Unevaluated(def, args) => {
+                let tr = resolve
+                    .def(*def)
+                    .parent
+                    .map_or(String::new(), |t| resolve.def(t).name.clone());
+                let self_ty = args.first().map_or(String::new(), |t| t.display(resolve));
+                format!("<{self_ty} as {tr}>::{}", resolve.def(*def).name)
+            }
             ConstValue::Tuple(elems) => {
                 let tys: &[Ty] = match ty {
                     Ty::Tuple(tys) => tys,
@@ -101,53 +114,87 @@ fn failed(span: Span, message: impl Into<String>) -> ConstError {
     }
 }
 
-/// Evaluates every constant in `bodies` (keyed by the `const` item's `DefId`), in
-/// dependency order, reporting failures once per constant.
-pub(crate) fn eval_all<'a>(
-    resolve: &ResolveResults,
-    bodies: &HashMap<DefId, (&'a Expr, &'a BodyTypes)>,
-    sink: &mut DiagnosticSink,
-) -> HashMap<DefId, ConstValue> {
-    let done = resolve
-        .prim_consts()
-        .map(|(def, c)| (def, prim_const(c).1))
+/// The values of the instance constants evaluated so far, `None` for one that failed.
+pub(crate) type InstanceCache = HashMap<(DefId, Vec<Ty>), Option<ConstValue>>;
+
+/// What evaluating a constant may read: the initialisers of the constants not yet
+/// evaluated (every `const` item's while `eval_all` runs; afterwards, those of the traits
+/// and trait `impl` blocks, evaluated at each instance a use names, #116), the values
+/// evaluated before, and the trait `impl` blocks that select an associated constant.
+pub(crate) struct ConstCx<'a, 'b> {
+    pub resolve: &'a ResolveResults,
+    pub items: &'a ItemTypes,
+    pub bodies: &'a HashMap<DefId, (&'b Expr, &'b BodyTypes)>,
+    pub values: &'a HashMap<DefId, ConstValue>,
+}
+
+/// Whether `def` is a constant evaluated at the instance a use names rather than once
+/// (decision 85): one of a trait, of a trait `impl` block, or of a generic struct's or
+/// enum's `impl` block.
+#[must_use]
+pub fn is_assoc_const(resolve: &ResolveResults, def: DefId) -> bool {
+    resolve.def(def).kind == DefKind::Const
+        && (matches!(
+            resolve.parent_kind(def),
+            Some(DefKind::Trait | DefKind::Impl)
+        ) || !resolve.generics(def).is_empty())
+}
+
+/// Evaluates every constant in `cx.bodies` but those of traits and trait `impl` blocks
+/// (keyed by the `const` item's `DefId`), in dependency order, reporting failures once
+/// per constant.
+pub(crate) fn eval_all(cx: &ConstCx, sink: &mut DiagnosticSink) -> HashMap<DefId, ConstValue> {
+    let mut ev = Evaluator::new(cx, false, sink);
+    for (def, c) in cx.resolve.prim_consts() {
+        ev.done.insert((def, Vec::new()), prim_const(c).1);
+    }
+    let mut defs: Vec<DefId> = cx
+        .bodies
+        .keys()
+        .copied()
+        .filter(|&d| !is_assoc_const(cx.resolve, d))
         .collect();
-    let mut ev = Evaluator {
-        resolve,
-        bodies,
-        done,
-        visiting: HashSet::new(),
-        failed: HashSet::new(),
-        sink,
-    };
-    let mut defs: Vec<DefId> = bodies.keys().copied().collect();
     defs.sort();
     for def in defs {
-        ev.eval_const(def, None);
+        ev.eval_const(def, Vec::new(), None);
     }
     ev.done
+        .into_iter()
+        .filter(|((def, _), _)| !is_assoc_const(cx.resolve, *def))
+        .map(|((def, _), v)| (def, v))
+        .collect()
+}
+
+/// The value of the trait constant `def` at the type `args[0]` (#116): the implementing
+/// block's constant, or the trait's default. `None` when evaluation failed, which was
+/// reported (once: `failed` remembers it).
+pub(crate) fn eval_instance(
+    cx: &ConstCx,
+    def: DefId,
+    args: Vec<Ty>,
+    cache: &mut InstanceCache,
+    sink: &mut DiagnosticSink,
+) -> Option<ConstValue> {
+    if let Some(v) = cache.get(&(def, args.clone())) {
+        return v.clone();
+    }
+    let mut ev = Evaluator::new(cx, true, sink);
+    let v = ev.eval_instance(def, &args, None).ok();
+    cache.insert((def, args), v.clone());
+    v
 }
 
 /// Evaluates an array length (or repeat count), type-checked as a `usize` constant into
-/// `body`, once every `const` item has been evaluated (`values`). A constant that failed
-/// was reported with its item and fails this silently. Reports overflow and the like at
-/// the length.
+/// `body`, once every `const` item has been evaluated (`cx.values`). A constant that
+/// failed was reported with its item and fails this silently. Reports overflow and the
+/// like at the length, and a length that depends on a type parameter (E0345).
 pub(crate) fn eval_len(
-    resolve: &ResolveResults,
-    values: &HashMap<DefId, ConstValue>,
+    cx: &ConstCx,
     expr: &Expr,
     body: &BodyTypes,
     sink: &mut DiagnosticSink,
 ) -> Option<u64> {
-    let bodies = HashMap::new();
-    let mut ev = Evaluator {
-        resolve,
-        bodies: &bodies,
-        done: values.clone(),
-        visiting: HashSet::new(),
-        failed: HashSet::new(),
-        sink,
-    };
+    let mut ev = Evaluator::new(cx, true, sink);
     match ev.eval(expr, body) {
         Ok(ConstValue::Uint(v)) => u64::try_from(v).ok(),
         Ok(_) => None,
@@ -162,31 +209,107 @@ pub(crate) fn eval_len(
     }
 }
 
-struct Evaluator<'a, 'b> {
-    resolve: &'a ResolveResults,
-    bodies: &'a HashMap<DefId, (&'b Expr, &'b BodyTypes)>,
-    done: HashMap<DefId, ConstValue>,
-    visiting: HashSet<DefId>,
-    failed: HashSet<DefId>,
-    sink: &'a mut DiagnosticSink,
+/// A constant, keyed by its definition and, for one of a trait or a trait `impl` block,
+/// the generic arguments it is evaluated at (none for any other).
+type Instance = (DefId, Vec<Ty>);
+
+struct Evaluator<'a, 'b, 'c> {
+    cx: &'a ConstCx<'a, 'b>,
+    /// Every `const` item was evaluated (`cx.values`); one missing there failed.
+    after: bool,
+    done: HashMap<Instance, ConstValue>,
+    visiting: HashSet<Instance>,
+    failed: HashSet<Instance>,
+    /// The type parameters of the constant being evaluated and the types they stand for.
+    subst: (Vec<DefId>, Vec<Ty>),
+    sink: &'c mut DiagnosticSink,
 }
 
-impl Evaluator<'_, '_> {
+fn silent(span: Span) -> ConstError {
+    ConstError {
+        span,
+        code: ErrorCode::CONST_EVAL_FAILED,
+        message: String::new(),
+        silent: true,
+    }
+}
+
+impl<'a, 'b, 'c> Evaluator<'a, 'b, 'c> {
+    fn new(cx: &'a ConstCx<'a, 'b>, after: bool, sink: &'c mut DiagnosticSink) -> Self {
+        Evaluator {
+            cx,
+            after,
+            done: HashMap::new(),
+            visiting: HashSet::new(),
+            failed: HashSet::new(),
+            subst: (Vec::new(), Vec::new()),
+            sink,
+        }
+    }
+
+    /// The value of the use of the trait constant `def` at `args` (`Self` first): the
+    /// constant of the `impl` block for that type, at the block's arguments, or the
+    /// trait's default at `args`.
+    fn eval_instance(
+        &mut self,
+        def: DefId,
+        args: &[Ty],
+        use_span: Option<Span>,
+    ) -> Result<ConstValue, ConstError> {
+        let span = use_span.unwrap_or_else(|| self.cx.resolve.def(def).span);
+        let resolve = self.cx.resolve;
+        let mut target = (def, args.to_vec());
+        if resolve.parent_kind(def) == Some(DefKind::Trait) {
+            let tr = resolve.def(def).parent.expect("a trait member");
+            let Some((imp, impl_args)) = args
+                .first()
+                .and_then(|self_ty| self.cx.items.select_impl(tr, self_ty))
+            else {
+                // Type checking reported the unsatisfied bound.
+                return Err(silent(span));
+            };
+            if let Some(c) = resolve
+                .impl_item(imp.def, &resolve.def(def).name)
+                .filter(|&c| resolve.def(c).kind == DefKind::Const)
+            {
+                target = (c, impl_args);
+            }
+        }
+        self.eval_const(target.0, target.1, use_span)
+            .ok_or_else(|| silent(span))
+    }
+
     /// `use_span`: where this constant is referenced from, for cycle errors.
-    fn eval_const(&mut self, def: DefId, use_span: Option<Span>) -> Option<ConstValue> {
-        if let Some(v) = self.done.get(&def) {
+    fn eval_const(
+        &mut self,
+        def: DefId,
+        args: Vec<Ty>,
+        use_span: Option<Span>,
+    ) -> Option<ConstValue> {
+        if args.is_empty() {
+            if let Some(v) = self.cx.values.get(&def) {
+                return Some(v.clone());
+            }
+        }
+        let key = (def, args);
+        if let Some(v) = self.done.get(&key) {
             return Some(v.clone());
         }
-        if self.failed.contains(&def) {
+        if self.failed.contains(&key) {
             return None;
         }
-        let (expr, body) = self.bodies[&def];
+        let assoc = is_assoc_const(self.cx.resolve, def);
+        if self.after && !assoc {
+            // Evaluated with every `const` item: this one failed, and was reported.
+            return None;
+        }
+        let &(expr, body) = self.cx.bodies.get(&def)?;
         if body.has_errors {
-            self.failed.insert(def);
+            self.failed.insert(key);
             return None;
         }
-        if self.visiting.contains(&def) {
-            let name = self.resolve.def(def).name.clone();
+        if self.visiting.contains(&key) {
+            let name = self.cx.resolve.def(def).name.clone();
             let span = use_span.unwrap_or(expr.span);
             self.sink.emit(
                 Diagnostic::error(
@@ -194,42 +317,120 @@ impl Evaluator<'_, '_> {
                     format!("cycle detected when evaluating constant `{name}`"),
                 )
                 .with_label(span, "cyclic reference")
-                .with_label(self.resolve.def(def).span, format!("`{name}` defined here")),
+                .with_label(
+                    self.cx.resolve.def(def).span,
+                    format!("`{name}` defined here"),
+                ),
             );
-            self.failed.insert(def);
+            self.failed.insert(key);
             return None;
         }
-        self.visiting.insert(def);
+        self.visiting.insert(key.clone());
+        let generics = if assoc {
+            self.cx.resolve.generics(def).to_vec()
+        } else {
+            Vec::new()
+        };
+        let outer = std::mem::replace(&mut self.subst, (generics, key.1.clone()));
         let result = self.eval(expr, body);
-        self.visiting.remove(&def);
+        self.subst = outer;
+        self.visiting.remove(&key);
         match result {
             Ok(v) => {
-                self.done.insert(def, v.clone());
+                self.done.insert(key, v.clone());
                 Some(v)
             }
             Err(e) => {
                 if !e.silent {
-                    self.sink.emit(
-                        Diagnostic::error(e.code, e.message).with_label(e.span, "in this constant"),
-                    );
+                    let mut d =
+                        Diagnostic::error(e.code, e.message).with_label(e.span, "in this constant");
+                    if assoc {
+                        d = d.with_note(format!(
+                            "while evaluating `{}`",
+                            self.instance_name(def, &key.1)
+                        ));
+                    }
+                    self.sink.emit(d);
                 }
-                self.failed.insert(def);
+                self.failed.insert(key);
                 None
             }
         }
     }
 
+    /// `<S as Trait>::N`: the constant `def` of a trait or a trait `impl` block at `args`.
+    fn instance_name(&self, def: DefId, args: &[Ty]) -> String {
+        let resolve = self.cx.resolve;
+        let name = &resolve.def(def).name;
+        let Some(parent) = resolve.def(def).parent else {
+            return name.clone();
+        };
+        let (self_ty, tr) = if resolve.def(parent).kind == DefKind::Trait {
+            (args.first().cloned().unwrap_or(Ty::Error), Some(parent))
+        } else {
+            let ty = self
+                .cx
+                .items
+                .impl_self_ty(parent)
+                .subst(resolve.generics(parent), args);
+            (ty, resolve.impl_trait(parent))
+        };
+        let tr = tr.map_or(String::new(), |t| resolve.def(t).name.clone());
+        format!("<{} as {tr}>::{name}", self_ty.display(resolve))
+    }
+
+    /// The path `expr` naming the constant `def`.
+    fn eval_path_const(
+        &mut self,
+        expr: &Expr,
+        def: DefId,
+        body: &BodyTypes,
+    ) -> Result<ConstValue, ConstError> {
+        let def = body.path_defs.get(&expr.id).copied().unwrap_or(def);
+        if is_assoc_const(self.cx.resolve, def) {
+            let args: Vec<Ty> = body
+                .generic_args
+                .get(&expr.id)
+                .map(|args| {
+                    args.iter()
+                        .map(|t| t.subst(&self.subst.0, &self.subst.1))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if args.iter().any(Ty::is_error) {
+                return Err(silent(expr.span));
+            }
+            if args.iter().any(|t| t.has_param() || t.has_infer()) {
+                return Err(ConstError {
+                    span: expr.span,
+                    code: ErrorCode::GENERIC_CONST_EXPR,
+                    message: "constant expression depends on a generic parameter".to_owned(),
+                    silent: false,
+                });
+            }
+            return self.eval_instance(def, &args, Some(expr.span));
+        }
+        if let Some(v) = self.done.get(&(def, Vec::new())) {
+            return Ok(v.clone());
+        }
+        if self.after && !self.cx.values.contains_key(&def) && !self.cx.bodies.contains_key(&def) {
+            // Evaluated with every `const` item: this one failed, and was reported.
+            return Err(silent(expr.span));
+        }
+        if !self.cx.values.contains_key(&def) && !self.cx.bodies.contains_key(&def) {
+            return Err(failed(expr.span, "referenced constant has errors"));
+        }
+        self.eval_const(def, Vec::new(), Some(expr.span))
+            .ok_or_else(|| silent(expr.span))
+    }
+
     fn eval(&mut self, expr: &Expr, body: &BodyTypes) -> Result<ConstValue, ConstError> {
-        let ty = body.expr_ty(expr.id).clone();
+        // A trait's constant has `Self`'s type where it is evaluated.
+        let ty = body.expr_ty(expr.id).subst(&self.subst.0, &self.subst.1);
         // An error type comes from a mistake reported elsewhere, such as an unresolved
         // declared type on a constant this one reads: fail without a second diagnostic.
         if ty.is_error() {
-            return Err(ConstError {
-                span: expr.span,
-                code: ErrorCode::CONST_EVAL_FAILED,
-                message: String::new(),
-                silent: true,
-            });
+            return Err(silent(expr.span));
         }
         let v = self.eval_kind(expr, &ty, body)?;
         // Floats are computed in f64; an `f32` result must hold exactly what an f32 can.
@@ -262,32 +463,11 @@ impl Evaluator<'_, '_> {
             }),
             ExprKind::Unit => Ok(ConstValue::Unit),
             ExprKind::Paren(inner) => self.eval(inner, body),
-            ExprKind::Path(_) => match self.resolve.res(expr.id) {
-                Res::Def(d) if self.resolve.def(d).kind == DefKind::Const => {
-                    if let Some(v) = self.done.get(&d) {
-                        return Ok(v.clone());
-                    }
-                    if self.bodies.is_empty() {
-                        // An array length, evaluated after every constant: this one
-                        // failed, and was reported with its item.
-                        return Err(ConstError {
-                            span: expr.span,
-                            code: ErrorCode::CONST_EVAL_FAILED,
-                            message: String::new(),
-                            silent: true,
-                        });
-                    }
-                    if !self.bodies.contains_key(&d) {
-                        return Err(failed(expr.span, "referenced constant has errors"));
-                    }
-                    self.eval_const(d, Some(expr.span)).ok_or(ConstError {
-                        span: expr.span,
-                        code: ErrorCode::CONST_EVAL_FAILED,
-                        message: String::new(),
-                        silent: true,
-                    })
+            ExprKind::Path(_) => match self.cx.resolve.res(expr.id) {
+                Res::Def(d) if self.cx.resolve.def(d).kind == DefKind::Const => {
+                    self.eval_path_const(expr, d, body)
                 }
-                Res::Def(d) if self.resolve.def(d).kind == DefKind::Variant => {
+                Res::Def(d) if self.cx.resolve.def(d).kind == DefKind::Variant => {
                     Err(non_const(expr.span, "enum values"))
                 }
                 Res::Def(_) => Err(non_const(expr.span, "struct values")),
@@ -697,7 +877,10 @@ pub fn cast(v: &ConstValue, from: Option<PrimTy>, to: PrimTy) -> Option<ConstVal
         ConstValue::Bool(b) => Src::Bits(u128::from(*b)),
         ConstValue::Char(c) => Src::Bits(u128::from(u32::from(*c))),
         ConstValue::Float(f) => Src::Float(*f),
-        ConstValue::Str(_) | ConstValue::Unit | ConstValue::Tuple(_) => return None,
+        ConstValue::Str(_)
+        | ConstValue::Unit
+        | ConstValue::Tuple(_)
+        | ConstValue::Unevaluated(..) => return None,
     };
     Some(match (src, to) {
         (Src::Bits(b), p) if p.is_integer() => {

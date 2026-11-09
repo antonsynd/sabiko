@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, ResolveResults};
 use sabiko_span::Span;
-use sabiko_types::{ItemTypes, Ty, TypeckResults};
+use sabiko_types::{ConstValue, ItemTypes, Ty, TypeckResults};
 
 use crate::{
     AggregateKind, Body, CleanupScope, Operand, Place, PlaceElem, Rvalue, StatementKind,
@@ -154,7 +154,7 @@ pub fn monomorphize(
                 continue;
             };
             let params = &typeck.items.fn_sig(def).generics;
-            let instance = instantiate(template, params, &args, resolve, typeck);
+            let instance = instantiate(template, params, &args, resolve, typeck, sink);
             enqueue(&instance, depth, &mut queue, &mut seen);
             out.push(instance);
         }
@@ -270,6 +270,7 @@ fn instantiate(
     args: &[Ty],
     resolve: &ResolveResults,
     typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
 ) -> Body {
     let mut body = template.clone();
     let s = |ty: &mut Ty| *ty = ty.subst(params, args);
@@ -342,6 +343,7 @@ fn instantiate(
     prune_cleanups(&mut body, typeck);
     copy_copy_operands(&mut body, typeck);
     resolve_trait_calls(&mut body, resolve, typeck);
+    eval_assoc_consts(&mut body, resolve, typeck, true, sink);
     body.name = instance_name(resolve, &typeck.items, template.def, args);
     body.instance = args.to_vec();
     body
@@ -422,7 +424,7 @@ fn copy_copy_operands(body: &mut Body, typeck: &TypeckResults) {
     }
 }
 
-fn rvalue_operands_mut(rvalue: &mut Rvalue, f: &impl Fn(&mut Operand)) {
+fn rvalue_operands_mut(rvalue: &mut Rvalue, mut f: impl FnMut(&mut Operand)) {
     match rvalue {
         Rvalue::Use(op)
         | Rvalue::UnaryOp(_, op)
@@ -467,7 +469,68 @@ fn subst_place(place: &mut Place, s: &impl Fn(&mut Ty)) {
 fn subst_operand(op: &mut Operand, s: &impl Fn(&mut Ty)) {
     match op {
         Operand::Copy(place) | Operand::Move(place) => subst_place(place, s),
-        Operand::Constant(c) => s(&mut c.ty),
+        Operand::Constant(c) => {
+            s(&mut c.ty);
+            if let ConstValue::Unevaluated(_, args) = &mut c.value {
+                args.iter_mut().for_each(s);
+            }
+        }
+    }
+}
+
+/// Evaluates each trait constant `body` names at generic arguments without a type
+/// parameter (#116): every one of an instance, or of a function that is not generic. A
+/// failure is reported (once per constant and type) and leaves the constant unevaluated;
+/// in an instance (`instance`), as E0503, since only code generation finds it.
+pub fn eval_assoc_consts(
+    body: &mut Body,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    instance: bool,
+    sink: &mut DiagnosticSink,
+) {
+    let mut own = DiagnosticSink::new();
+    eval_body_consts(body, resolve, typeck, &mut own);
+    for mut d in own.into_vec() {
+        if instance && d.code == ErrorCode::CONST_EVAL_FAILED {
+            d.code = ErrorCode::INSTANCE_CONST_EVAL_FAILED;
+        }
+        sink.emit(d);
+    }
+}
+
+fn eval_body_consts(
+    body: &mut Body,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
+    let mut eval = |op: &mut Operand| {
+        let Operand::Constant(c) = op else {
+            return;
+        };
+        let ConstValue::Unevaluated(def, args) = &c.value else {
+            return;
+        };
+        if args.iter().any(|t| t.has_param() || t.is_error()) {
+            return;
+        }
+        if let Some(v) = typeck.eval_assoc_const(resolve, *def, args.clone(), sink) {
+            c.value = v;
+        }
+    };
+    for data in &mut body.blocks {
+        for stmt in &mut data.statements {
+            if let StatementKind::Assign(_, rvalue) = &mut stmt.kind {
+                rvalue_operands_mut(rvalue, &mut eval);
+            }
+        }
+        let term = data.terminator.as_mut().expect("block has a terminator");
+        match &mut term.kind {
+            TerminatorKind::SwitchInt { discr, .. } => eval(discr),
+            TerminatorKind::Call { args, .. } => args.iter_mut().for_each(&mut eval),
+            _ => {}
+        }
     }
 }
 

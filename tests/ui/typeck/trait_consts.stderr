@@ -1,0 +1,83 @@
+[E0321] Error: implemented const `SCALE` has an incompatible type for trait
+    ╭─[ tests/ui/typeck/trait_consts.sabi:18:11 ]
+    │
+ 10 │     const SCALE: i32 = 1;
+    │           ──┬──  
+    │             ╰──── type in trait `Shape`
+    │ 
+ 18 │     const SCALE: u8 = 2; //~ ERROR E0321 implemented const `SCALE` has an incompatible type for trait
+    │           ──┬──  
+    │             ╰──── expected `i32`, found `u8`
+────╯
+[E0216] Error: not all trait items implemented, missing: `SIDES`
+    ╭─[ tests/ui/typeck/trait_consts.sabi:26:1 ]
+    │
+  8 │ trait Shape {
+    │       ──┬──  
+    │         ╰──── trait `Shape` declared here
+    │ 
+ 26 │ impl Shape for Triangle { //~ ERROR E0216 not all trait items implemented, missing: `SIDES`
+    │ ───────────┬───────────  
+    │            ╰───────────── missing `SIDES` in implementation
+────╯
+[E0217] Error: item `SIDES` is an associated method, which doesn't match its trait `Shape`
+    ╭─[ tests/ui/typeck/trait_consts.sabi:35:8 ]
+    │
+  9 │     const SIDES: u32;
+    │           ──┬──  
+    │             ╰──── item in trait is an associated const
+    │ 
+ 35 │     fn SIDES(&self) {} //~ ERROR E0217 item `SIDES` is an associated method, which doesn't match its trait `Shape`
+    │        ──┬──  
+    │          ╰──── does not match trait
+────╯
+[E0217] Error: item `Area` is an associated const, which doesn't match its trait `Shape`
+    ╭─[ tests/ui/typeck/trait_consts.sabi:36:11 ]
+    │
+ 11 │     fn Area(&self) -> i32;
+    │        ──┬─  
+    │          ╰─── item in trait is an associated method
+    │ 
+ 36 │     const Area: i32 = 0; //~ ERROR E0217 item `Area` is an associated const, which doesn't match its trait `Shape`
+    │           ──┬─  
+    │             ╰─── does not match trait
+────╯
+[E0347] Error: cannot refer to the associated constant on trait without specifying the corresponding `impl` type
+    ╭─[ tests/ui/typeck/trait_consts.sabi:40:5 ]
+    │
+ 40 │     Shape::SIDES //~ ERROR E0347 cannot refer to the associated constant on trait without specifying the corresponding `impl` type
+    │     ──────┬─────  
+    │           ╰─────── cannot refer to the associated constant of trait
+    │ 
+    │ Note: name the type that implements `Shape`: `Type::SIDES`
+────╯
+[E0212] Error: no function or associated item named `SIDES` found for type `T`
+    ╭─[ tests/ui/typeck/trait_consts.sabi:44:8 ]
+    │
+ 44 │     T::SIDES //~ ERROR E0212 no function or associated item named `SIDES` found for type `T`
+    │        ──┬──  
+    │          ╰──── function or associated item not found in `T`
+    │ 
+    │ Note: the trait `Shape` defines an item `SIDES`, but `T` does not implement it
+────╯
+[E0345] Error: constant expression depends on a generic parameter
+    ╭─[ tests/ui/typeck/trait_consts.sabi:48:19 ]
+    │
+ 48 │     let a = [0u8; T::SIDES as usize]; //~ ERROR E0345 constant expression depends on a generic parameter
+    │                   ────┬───  
+    │                       ╰───── in this array length
+────╯
+[E0346] Error: constant pattern cannot depend on generic parameters
+    ╭─[ tests/ui/typeck/trait_consts.sabi:54:9 ]
+    │
+ 54 │         T::SIDES => true, //~ ERROR E0346 constant pattern cannot depend on generic parameters
+    │         ────┬───  
+    │             ╰───── `const` depends on a generic parameter
+────╯
+[E0341] Error: the trait bound `bool: Shape` is not satisfied
+    ╭─[ tests/ui/typeck/trait_consts.sabi:68:5 ]
+    │
+ 68 │     W::<bool>::M //~ ERROR E0341 the trait bound `bool: Shape` is not satisfied
+    │     ──────┬─────  
+    │           ╰─────── the trait `Shape` is not implemented for `bool`
+────╯

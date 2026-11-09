@@ -849,13 +849,15 @@ impl Resolver<'_> {
     fn collect_trait_members(&mut self, tr: DefId, index: usize, t: &sabiko_ast::TraitDecl) {
         let mut members: Vec<DefId> = Vec::new();
         for (member_index, member) in t.items.iter().enumerate() {
-            let ItemKind::Fn(f) = &member.kind else {
-                continue;
+            let (kind, name, required) = match &member.kind {
+                ItemKind::Fn(f) => (DefKind::Fn, &f.name, f.body.is_none()),
+                ItemKind::Const(c) => (DefKind::Const, &c.name, c.value.is_none()),
+                _ => continue,
             };
             let id = self.new_def(DefInfo {
-                kind: DefKind::Fn,
-                name: f.name.name.clone(),
-                span: f.name.span,
+                kind,
+                name: name.name.clone(),
+                span: name.span,
                 node: member.id,
                 item_index: index,
                 member_index: Some(member_index),
@@ -863,23 +865,23 @@ impl Resolver<'_> {
                 builtin: None,
             });
             self.results.item_defs.insert(member.id, id);
-            if f.body.is_none() {
+            if required {
                 self.results.required.insert(id);
             }
             if let Some(&prev) = members
                 .iter()
-                .find(|&&m| self.results.def(m).name == f.name.name)
+                .find(|&&m| self.results.def(m).name == name.name)
             {
                 let prev_span = self.results.def(prev).span;
                 self.sink.emit(
                     Diagnostic::error(
                         ErrorCode::DUPLICATE_DEFINITION,
-                        format!("the name `{}` is defined multiple times", f.name.name),
+                        format!("the name `{}` is defined multiple times", name.name),
                     )
-                    .with_label(f.name.span, format!("`{}` redefined here", f.name.name))
+                    .with_label(name.span, format!("`{}` redefined here", name.name))
                     .with_label(
                         prev_span,
-                        format!("previous definition of `{}` here", f.name.name),
+                        format!("previous definition of `{}` here", name.name),
                     )
                     .with_note("a trait's members must have distinct names"),
                 );
@@ -966,11 +968,15 @@ impl Resolver<'_> {
                     });
                     self.results.generics.insert(tr, vec![self_param]);
                     for member in &t.items {
-                        if let ItemKind::Fn(f) = &member.kind {
-                            self.collect_params(member.id, index, &f.generics);
-                            let def = self.results.def_of_item(member.id);
-                            self.inherit_generics_of(def, tr);
+                        match &member.kind {
+                            ItemKind::Fn(f) => {
+                                self.collect_params(member.id, index, &f.generics);
+                            }
+                            ItemKind::Const(_) => {}
+                            _ => continue,
                         }
+                        let def = self.results.def_of_item(member.id);
+                        self.inherit_generics_of(def, tr);
                     }
                 }
                 ItemKind::Const(_) => {}
@@ -1192,23 +1198,7 @@ impl Resolver<'_> {
             let Some(t) = trait_ else {
                 continue;
             };
-            let declared = self.results.trait_item(t, &ident.name);
-            let what = match &member.kind {
-                ItemKind::Const(_) => "const",
-                _ => "method",
-            };
-            if declared.is_none() || what == "const" {
-                self.sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::NOT_A_TRAIT_MEMBER,
-                        format!(
-                            "{what} `{}` is not a member of trait `{trait_name}`",
-                            ident.name
-                        ),
-                    )
-                    .with_label(ident.span, format!("not a member of trait `{trait_name}`")),
-                );
-            }
+            self.check_trait_impl_member(t, member, ident, &trait_name);
         }
         let Some(t) = trait_ else {
             return;
@@ -1237,6 +1227,55 @@ impl Resolver<'_> {
                     self.results.def(t).span,
                     format!("trait `{trait_name}` declared here"),
                 ),
+            );
+        }
+    }
+
+    /// A member `member` (named `ident`) of a trait `impl` block of the trait `t`: one the
+    /// trait does not declare is E0217 (rustc's E0407), and so is a method where the trait
+    /// has a constant or the reverse (rustc's E0323/E0324).
+    fn check_trait_impl_member(
+        &mut self,
+        t: DefId,
+        member: &Item,
+        ident: &sabiko_ast::Ident,
+        trait_name: &str,
+    ) {
+        let declared = self.results.trait_item(t, &ident.name);
+        let (what, kind) = match &member.kind {
+            ItemKind::Const(_) => ("const", DefKind::Const),
+            _ => ("method", DefKind::Fn),
+        };
+        if let Some(d) = declared.filter(|&d| self.results.def(d).kind != kind) {
+            // rustc's E0323/E0324.
+            let (is, trait_has) = match kind {
+                DefKind::Const => ("an associated const", "an associated method"),
+                _ => ("an associated method", "an associated const"),
+            };
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::NOT_A_TRAIT_MEMBER,
+                    format!(
+                        "item `{}` is {is}, which doesn't match its trait `{trait_name}`",
+                        ident.name
+                    ),
+                )
+                .with_label(ident.span, "does not match trait")
+                .with_label(
+                    self.results.def(d).span,
+                    format!("item in trait is {trait_has}"),
+                ),
+            );
+        } else if declared.is_none() {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::NOT_A_TRAIT_MEMBER,
+                    format!(
+                        "{what} `{}` is not a member of trait `{trait_name}`",
+                        ident.name
+                    ),
+                )
+                .with_label(ident.span, format!("not a member of trait `{trait_name}`")),
             );
         }
     }
@@ -1335,9 +1374,17 @@ impl Resolver<'_> {
                         block
                     };
                     for member in &imp.items {
-                        if let ItemKind::Fn(f) = &member.kind {
-                            let def = self.results.def_of_item(member.id);
-                            self.fn_bounds(def, f, &params, inherited.clone());
+                        let def = self.results.def_of_item(member.id);
+                        match &member.kind {
+                            ItemKind::Fn(f) => {
+                                self.fn_bounds(def, f, &params, inherited.clone());
+                            }
+                            // A constant of a generic struct's or enum's block has the
+                            // block's bounds (decision 85).
+                            ItemKind::Const(_) if !inherited.is_empty() => {
+                                self.results.predicates.insert(def, inherited.clone());
+                            }
+                            _ => {}
                         }
                     }
                     self.impl_scope = ImplScope::Outside;
@@ -1598,9 +1645,10 @@ impl Resolver<'_> {
         }
     }
 
-    /// Puts the type parameters of `adt` before those of its associated function `def`.
+    /// Puts the type parameters of `adt` (a struct, an enum, a trait or a trait `impl`
+    /// block) before those of its associated function or constant `def` (decision 85).
     fn inherit_generics_of(&mut self, def: DefId, adt: DefId) {
-        if self.results.def(def).kind != DefKind::Fn {
+        if !matches!(self.results.def(def).kind, DefKind::Fn | DefKind::Const) {
             return;
         }
         let parent = self.results.generics(adt).to_vec();
@@ -1767,9 +1815,11 @@ impl Resolver<'_> {
             let tr = self.results.def_of_item(item.id);
             self.impl_scope = ImplScope::Trait(tr);
             for member in &t.items {
-                if let ItemKind::Fn(f) = &member.kind {
-                    let def = self.results.def_of_item(member.id);
-                    self.resolve_fn(def, f);
+                let def = self.results.def_of_item(member.id);
+                match &member.kind {
+                    ItemKind::Fn(f) => self.resolve_fn(def, f),
+                    ItemKind::Const(c) => self.resolve_const_item(def, c),
+                    _ => {}
                 }
             }
             self.impl_scope = ImplScope::Outside;
@@ -1844,12 +1894,15 @@ impl Resolver<'_> {
         self.ty_params.clear();
     }
 
-    /// A `const` item, at the top level or in an `impl` block.
+    /// A `const` item, at the top level, in an `impl` block or in a trait.
     fn resolve_const_item(&mut self, def: DefId, c: &sabiko_ast::ConstDecl) {
         self.resolve_type(&c.ty, true);
+        let Some(value) = &c.value else {
+            return;
+        };
         self.current_fn = Some(def);
         self.scopes.push(Vec::new());
-        self.resolve_expr(&c.value);
+        self.resolve_expr(value);
         self.scopes.pop();
         self.current_fn = None;
     }
@@ -2033,8 +2086,13 @@ impl Resolver<'_> {
                 }
             }
             PatKind::Path(path) => {
+                self.assoc_self = None;
                 let res = self.resolve_value_path(path);
                 self.results.pat_res.insert(pat.id, res);
+                // `S::N` naming a trait's constant (#116).
+                if let Some(ty_res) = self.assoc_self.take() {
+                    self.results.assoc_self.insert(pat.id, ty_res);
+                }
             }
             PatKind::TupleStruct(path, elems) => {
                 let res = if path.is_single() {

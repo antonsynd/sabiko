@@ -352,7 +352,8 @@ impl VariantData {
 pub struct ConstDecl {
     pub name: Ident,
     pub ty: Type,
-    pub value: Expr,
+    /// `None` only for a trait's required constant (`const N: i32;`).
+    pub value: Option<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

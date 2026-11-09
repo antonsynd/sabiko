@@ -188,8 +188,10 @@ impl Printer {
             ItemKind::Const(c) => {
                 let _ = write!(self.out, "const {}: ", c.name.name);
                 self.ty(&c.ty);
-                self.out.push_str(" = ");
-                self.expr(&c.value, 0);
+                if let Some(value) = &c.value {
+                    self.out.push_str(" = ");
+                    self.expr(value, 0);
+                }
                 self.out.push_str(";\n");
             }
             ItemKind::Enum(e) => {

@@ -234,7 +234,7 @@ pub(crate) struct FnCtxt<'a> {
     never_operands: Vec<NeverOperand>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
-    consts: Option<&'a HashMap<DefId, crate::ConstValue>>,
+    consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
     index_derefs: HashMap<NodeId, usize>,
     len_calls: HashMap<NodeId, usize>,
     coercions: HashMap<NodeId, Ty>,
@@ -308,7 +308,7 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// Gives the checker the evaluated constants, so array lengths can be evaluated.
-    pub(crate) fn with_consts(mut self, consts: &'a HashMap<DefId, crate::ConstValue>) -> Self {
+    pub(crate) fn with_consts(mut self, consts: &'a crate::consts::ConstCx<'a, 'a>) -> Self {
         self.consts = Some(consts);
         self
     }
@@ -327,13 +327,17 @@ impl<'a> FnCtxt<'a> {
             );
             return None;
         };
-        let body = FnCtxt::new(self.resolve, self.items, self.sink, Ty::Prim(PrimTy::Usize))
-            .with_consts(consts)
-            .check_const(len);
+        // The bounds of the function hold in it: `[0; T::N]` is reported as depending on
+        // `T` (E0345), not as `T` lacking the bound.
+        let mut cx = FnCtxt::new(self.resolve, self.items, self.sink, Ty::Prim(PrimTy::Usize))
+            .with_consts(consts);
+        cx.env.clone_from(&self.env);
+        cx.self_ty.clone_from(&self.self_ty);
+        let body = cx.check_const(len);
         if body.has_errors {
             return None;
         }
-        crate::consts::eval_len(self.resolve, consts, len, &body, self.sink)
+        crate::consts::eval_len(consts, len, &body, self.sink)
     }
 
     pub(crate) fn check_fn(mut self, f: &FnDecl, def: DefId) -> BodyTypes {
@@ -366,6 +370,17 @@ impl<'a> FnCtxt<'a> {
             self.check_self_sized(def, f);
         }
         self.finish()
+    }
+
+    /// The value of the constant `def` of a trait or of a trait `impl` block (#116),
+    /// checked where the bounds of its trait (`Self: Trait`) or block hold.
+    pub(crate) fn check_assoc_const(mut self, value: &Expr, def: DefId) -> BodyTypes {
+        self.env = self.items.param_env(def).to_vec();
+        if self.resolve.parent_kind(def) == Some(DefKind::Impl) {
+            let imp = self.resolve.def(def).parent.expect("a parent");
+            self.self_ty = Some(self.items.impl_self_ty(imp));
+        }
+        self.check_const(value)
     }
 
     pub(crate) fn check_const(mut self, value: &Expr) -> BodyTypes {
@@ -1636,7 +1651,15 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             DefKind::Const => {
-                let cty = self.items.const_ty(def).clone();
+                let cty = match pat_path(pat) {
+                    Some(path) if self.resolve.parent_kind(def) == Some(DefKind::Trait) => {
+                        self.check_trait_const_path(pat.id, pat.span, path, def)
+                    }
+                    Some(path) if !self.resolve.generics(def).is_empty() => {
+                        self.check_generic_const_path(pat.id, pat.span, path, def)
+                    }
+                    _ => self.items.const_ty(def).clone(),
+                };
                 if self.try_coerce(&cty, ty).is_err() {
                     self.pat_type_mismatch(pat.span, ty, &cty, init_span);
                 }
@@ -1970,6 +1993,12 @@ impl<'a> FnCtxt<'a> {
                         );
                         Ty::Error
                     }
+                    DefKind::Const if self.resolve.parent_kind(d) == Some(DefKind::Trait) => {
+                        self.check_trait_const_path(expr.id, expr.span, path, d)
+                    }
+                    DefKind::Const if !self.resolve.generics(d).is_empty() => {
+                        self.check_generic_const_path(expr.id, expr.span, path, d)
+                    }
                     DefKind::Const => self.items.const_ty(d).clone(),
                     DefKind::Variant => {
                         let (adt, index) = self.variant_of(d);
@@ -2068,7 +2097,7 @@ impl<'a> FnCtxt<'a> {
         let mut def = def;
         let mut self_ty = None;
         if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
-            let Some((chosen, ty)) = self.select_trait_item(expr, path, def) else {
+            let Some((chosen, ty)) = self.select_trait_item(expr.id, path, def) else {
                 return Ty::Error;
             };
             if chosen != def {
@@ -2079,6 +2108,90 @@ impl<'a> FnCtxt<'a> {
         }
         self.instantiate(expr.id, def, path, expr.span, self_ty);
         Ty::FnDef(def)
+    }
+
+    /// `T::N`, `Self::N` or `S::N` naming a trait's associated constant (#116): the
+    /// constant of the trait among those with one of that name that the type implements,
+    /// at that type, which must implement it. `Trait::N` names no type to take it from
+    /// (E0347, rustc's E0790).
+    fn check_trait_const_path(
+        &mut self,
+        node: NodeId,
+        span: Span,
+        path: &sabiko_ast::Path,
+        def: DefId,
+    ) -> Ty {
+        let by_trait = matches!(
+            self.resolve.assoc_self(node),
+            Some(Res::Def(d)) if self.resolve.def(d).kind == DefKind::Trait
+        );
+        if by_trait {
+            let name = self.resolve.def(def).name.clone();
+            let tr = self.resolve.def(def).parent.expect("a trait member");
+            let trait_name = self.resolve.def(tr).name.clone();
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::TRAIT_CONST_WITHOUT_TYPE,
+                    "cannot refer to the associated constant on trait without specifying the corresponding `impl` type",
+                )
+                .with_label(path.span, "cannot refer to the associated constant of trait")
+                .with_note(format!(
+                    "name the type that implements `{trait_name}`: `Type::{name}`"
+                )),
+            );
+            return Ty::Error;
+        }
+        let Some((chosen, self_ty)) = self.select_trait_item(node, path, def) else {
+            return Ty::Error;
+        };
+        if chosen != def {
+            self.path_defs.insert(node, chosen);
+        }
+        let tr = self.resolve.def(chosen).parent.expect("a trait member");
+        self.obligations.push(Obligation {
+            ty: self_ty.clone(),
+            trait_: tr,
+            span,
+        });
+        self.generic_args
+            .insert(node, (vec![self_ty.clone()], chosen, span));
+        self.items
+            .const_ty(chosen)
+            .subst(&[self.resolve.trait_self(tr)], &[self_ty])
+    }
+
+    /// `W::<i32>::N` or `Self::N` naming a constant of a generic struct's or enum's
+    /// `impl` block (decision 85): at the type's generic arguments, which must satisfy
+    /// the block's bounds.
+    fn check_generic_const_path(
+        &mut self,
+        node: NodeId,
+        span: Span,
+        path: &sabiko_ast::Path,
+        def: DefId,
+    ) -> Ty {
+        let adt = self
+            .resolve
+            .def(def)
+            .parent
+            .expect("an associated constant");
+        let mut type_path = path.clone();
+        type_path.segments.truncate(1);
+        type_path.generic_args.retain(|a| a.segment == 0);
+        let generics = self.resolve.generics(def).to_vec();
+        let mut args = self.adt_args(adt, &type_path);
+        if args.len() != generics.len() {
+            args = vec![Ty::Error; generics.len()];
+        }
+        for pred in self.items.param_env(def) {
+            self.obligations.push(Obligation {
+                ty: Ty::Param(pred.param).subst(&generics, &args),
+                trait_: pred.trait_,
+                span,
+            });
+        }
+        self.generic_args.insert(node, (args.clone(), def, span));
+        self.items.const_ty(def).subst(&generics, &args)
     }
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
@@ -2660,8 +2773,8 @@ impl<'a> FnCtxt<'a> {
 
     /// What `Self` is for the path expression `expr` naming a trait's member: the type
     /// its first segment names, or an inference variable for `Trait::Name`.
-    fn assoc_self_ty(&mut self, expr: &Expr, path: &sabiko_ast::Path) -> Ty {
-        match self.resolve.assoc_self(expr.id) {
+    fn assoc_self_ty(&mut self, node: NodeId, path: &sabiko_ast::Path) -> Ty {
+        match self.resolve.assoc_self(node) {
             Some(Res::Def(d)) => match self.resolve.def(d).kind {
                 DefKind::Trait => self.infer.new_var(VarKind::General),
                 DefKind::TyParam => Ty::Param(d),
@@ -2686,13 +2799,13 @@ impl<'a> FnCtxt<'a> {
     /// E0034, when several do).
     fn select_trait_item(
         &mut self,
-        expr: &Expr,
+        node: NodeId,
         path: &sabiko_ast::Path,
         def: DefId,
     ) -> Option<(DefId, Ty)> {
-        let self_ty = self.assoc_self_ty(expr, path);
+        let self_ty = self.assoc_self_ty(node, path);
         let by_trait = matches!(
-            self.resolve.assoc_self(expr.id),
+            self.resolve.assoc_self(node),
             Some(Res::Def(d)) if self.resolve.def(d).kind == DefKind::Trait
         );
         if by_trait || self_ty.is_error() {
@@ -3808,7 +3921,7 @@ impl<'a> FnCtxt<'a> {
             for (i, arg) in args.iter().enumerate() {
                 let mut t = self.infer.resolve_with_defaults(arg);
                 if t.has_infer() {
-                    let param = self.items.fn_sig(def).generics[i];
+                    let param = self.resolve.generics(def)[i];
                     let param_name = self.resolve.def(param).name.clone();
                     let fn_name = self.resolve.def(def).name.clone();
                     self.error(
@@ -3828,7 +3941,7 @@ impl<'a> FnCtxt<'a> {
                 // Every type parameter but a trait's `Self` is `Sized` (rustc's E0277).
                 let trait_self = i == 0 && self.resolve.parent_kind(def) == Some(DefKind::Trait);
                 if crate::traits::is_unsized(&t) && !trait_self {
-                    let param = self.items.fn_sig(def).generics[i];
+                    let param = self.resolve.generics(def)[i];
                     let param_name = self.resolve.def(param).name.clone();
                     let shown = self.ty_str(&t);
                     self.error(

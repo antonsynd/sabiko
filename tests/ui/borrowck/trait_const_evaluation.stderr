@@ -1,0 +1,18 @@
+[E0316] Error: attempt to multiply with overflow
+   ╭─[ tests/ui/borrowck/trait_const_evaluation.sabi:5:24 ]
+   │
+ 5 │     const DOUBLE: u8 = Self::SIDES * 2; //~ ERROR E0316 attempt to multiply with overflow
+   │                        ───────┬───────  
+   │                               ╰───────── in this constant
+   │ 
+   │ Note: while evaluating `<Big as Shape>::DOUBLE`
+───╯
+[E0316] Error: attempt to subtract with overflow
+    ╭─[ tests/ui/borrowck/trait_const_evaluation.sabi:16:24 ]
+    │
+ 16 │     const DOUBLE: u8 = Self::SIDES - 2; //~ ERROR E0316 attempt to subtract with overflow
+    │                        ───────┬───────  
+    │                               ╰───────── in this constant
+    │ 
+    │ Note: while evaluating `<u8 as Shape>::DOUBLE`
+────╯

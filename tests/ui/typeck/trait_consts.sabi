@@ -1,0 +1,71 @@
+// Associated constants of traits (#116): an `impl` block's constant of another type than
+// its trait's (rustc's E0326), a method or constant where the trait has the other kind
+// (E0323, E0324), a missing required constant (E0046), `Trait::N` without a type
+// (E0790), a constant of a type that does not implement the trait (E0599), and an array
+// length or a constant pattern that depends on a type parameter (uncoded, E0158), and a
+// constant of a generic `impl` block at a type that does not satisfy its bounds (E0277).
+
+trait Shape {
+    const SIDES: u32;
+    const SCALE: i32 = 1;
+    fn Area(&self) -> i32;
+}
+
+struct Square;
+
+impl Shape for Square {
+    const SIDES: u32 = 4;
+    const SCALE: u8 = 2; //~ ERROR E0321 implemented const `SCALE` has an incompatible type for trait
+    fn Area(&self) -> i32 {
+        1
+    }
+}
+
+struct Triangle;
+
+impl Shape for Triangle { //~ ERROR E0216 not all trait items implemented, missing: `SIDES`
+    fn Area(&self) -> i32 {
+        0
+    }
+}
+
+struct Circle;
+
+impl Shape for Circle {
+    fn SIDES(&self) {} //~ ERROR E0217 item `SIDES` is an associated method, which doesn't match its trait `Shape`
+    const Area: i32 = 0; //~ ERROR E0217 item `Area` is an associated const, which doesn't match its trait `Shape`
+}
+
+fn ByTrait() -> u32 {
+    Shape::SIDES //~ ERROR E0347 cannot refer to the associated constant on trait without specifying the corresponding `impl` type
+}
+
+fn Unbounded<T>() -> u32 {
+    T::SIDES //~ ERROR E0212 no function or associated item named `SIDES` found for type `T`
+}
+
+fn Length<T: Shape>() -> usize {
+    let a = [0u8; T::SIDES as usize]; //~ ERROR E0345 constant expression depends on a generic parameter
+    a.len()
+}
+
+fn Pattern<T: Shape>(n: u32) -> bool {
+    match n {
+        T::SIDES => true, //~ ERROR E0346 constant pattern cannot depend on generic parameters
+        _ => false,
+    }
+}
+
+struct W<T> {
+    inner: T,
+}
+
+impl<T: Shape> W<T> {
+    const M: u32 = T::SIDES;
+}
+
+fn Unimplemented() -> u32 {
+    W::<bool>::M //~ ERROR E0341 the trait bound `bool: Shape` is not satisfied
+}
+
+fn Main() {}

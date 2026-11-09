@@ -1251,7 +1251,8 @@ Tracking issue #118. Order (decision 82 for the design):
    Trait` and `where`, supertraits, method resolution through bounds, `Copy`/`Clone`, and
    `Drop` as an ordinary trait (retiring decision 46's special case). Monomorphisation
    resolves each trait call to its impl's method. First part done (decision 84; see the
-   status below); associated constants and `Copy`/`Clone`/`Drop` as traits are next.
+   status below), associated constants too (decision 85); `Copy`/`Clone`/`Drop` as traits
+   are next.
 4. `core` prelude written in Sabiko (#13, decision 47): `Option`, `Result`, `?`, `unwrap`,
    `expect`, and `.get(i) -> Option<&T>` on slices. `?` converts errors through `From`.
 5. Operator traits, comparisons and derives (#117): `Add`, `Sub`, ..., their `*Assign`
@@ -1340,9 +1341,31 @@ by-value receivers, bounds), UI tests `resolve/traits`, `typeck/trait_bounds` an
 `typeck/trait_impls` and `typeck/trait_self_sized`, a MIR and an IL fixture (`traits`), and the generator's
 `TRAIT_HELPERS` (a blanket `GenKeep` with a provided method returning `&Self`, `GenSign`
 for `i32` and `bool`, bounded `GenKept` and `GenSigns`), whose seeds found an older
-borrow-checker gap, fixed here: a `match` on a field of a moved struct was not a use. Not yet: associated constants
-in traits and `Copy`/`Clone`/`Drop` as traits (#116's second part; until then `impl
-Drop` is decision 46's language item and `Copy`/`Clone`/`Drop` in a bound are E0107),
+borrow-checker gap, fixed here: a `match` on a field of a moved struct was not a use.
+
+Status (2026-11-09): associated constants of traits (#116, decision 85). Traits declare
+required and provided constants, trait `impl` blocks define and override them (E0216
+missing, E0217 for a method where the trait has a constant or the reverse, E0321 for
+another type), and `T::N`, `Self::N` and `Type::N` name them (`Trait::N` is E0347). A
+constant is evaluated at the type a use names, as rustc does: at a concrete type in any
+constant context or when a body's MIR is built, at a type parameter by monomorphisation
+for each instance (`ConstValue::Unevaluated` in generic MIR); a failure is reported once
+per constant and type with the instance named (E0316; E0503 at monomorphisation, like
+E0502 only reported when code is generated), and a length or pattern depending on a
+type parameter is E0345/E0346. Tests: the run-time programs
+`differential/run/traits/associated_consts.sabi` and `generic_impl_consts.sabi`,
+compile-time ones in
+`differential/traits/` (`ok_trait_const_*`), UI tests `parse/const_without_value`,
+`typeck/trait_consts`, `borrowck/trait_const_evaluation` and
+`codegen/trait_const_evaluation`, MIR and IL fixtures (`trait_consts`), and the
+generator's `GenSign`, which gained a required and a provided constant read as
+`T::BIAS` in `GenSigns` and as `i32::UNIT`/`bool::BIAS` in bodies. The constants of a
+generic struct's or enum's `impl` block are evaluated per instance the same way, so they
+may read a bounded parameter's constants (`impl<T: Shape> W<T> { const M: u32 =
+T::SIDES; }`; `differential/run/traits/generic_impl_consts.sabi`). Not yet: `<T as
+Trait>::N` (a parse error) and `Copy`/`Clone`/`Drop` as traits (#116's last part; until
+then `impl Drop` is decision 46's language item and `Copy`/`Clone`/`Drop` in a bound are
+E0107),
 generic traits (#117), associated types, blocks for types holding references or unsized
 types, `where` clauses on types other than parameters, `where Self: Sized`, bounds on
 struct and enum parameters, `<T as Trait>::` paths.

@@ -1,0 +1,37 @@
+// A trait's constant is evaluated at each type it is used at (#116), as rustc evaluates
+// it: in an instance of a generic function, a failure is reported by monomorphisation
+// (E0503, rustc's E0080 when it generates code) once per constant and type, naming the
+// instance. (`borrowck/trait_const_evaluation.sabi` has a function that
+// is not generic.)
+trait Shape {
+    const SIDES: u8;
+    const DOUBLE: u8 = Self::SIDES * 2; //~ ERROR E0503 attempt to multiply with overflow
+    const HALF: u8 = 100 / Self::SIDES; //~ ERROR E0503 attempt to divide by zero
+}
+
+struct Big;
+struct Empty;
+
+impl Shape for Big {
+    const SIDES: u8 = 200;
+}
+
+impl Shape for Empty {
+    const SIDES: u8 = 0;
+}
+
+fn Double<T: Shape>() -> u8 {
+    T::DOUBLE
+}
+
+fn Half<T: Shape>() -> u8 {
+    T::HALF + T::HALF
+}
+
+fn Main() {
+    PrintLine(Big::HALF);
+    PrintLine(Double::<Big>());
+    PrintLine(Double::<Empty>());
+    PrintLine(Half::<Big>());
+    PrintLine(Half::<Empty>());
+}

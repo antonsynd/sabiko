@@ -121,7 +121,9 @@ impl Dumper {
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
                     d.ty(&c.ty);
-                    d.expr(&c.value);
+                    if let Some(value) = &c.value {
+                        d.expr(value);
+                    }
                 });
             }
             ItemKind::Enum(e) => {

@@ -1,0 +1,112 @@
+// Associated constants of traits: required and provided ones, overridden by an `impl`,
+// named as `T::N` in generic functions, as `Self::N` in trait and impl items and as
+// `S::N` for a type, in array lengths, repeat counts and patterns, in other constants,
+// and at the type of a generic `impl` block.
+trait Shape {
+    const SIDES: u32;
+    const CODE: char;
+    const SCALE: i64 = 10;
+    const DOUBLE: u32 = Self::SIDES * 2;
+    const PAIR: (u32, bool) = (Self::SIDES, Self::SIDES > 3);
+
+    fn Perimeter(&self, side: u32) -> u32 {
+        side * Self::SIDES
+    }
+}
+
+struct Square;
+struct Triangle;
+
+impl Shape for Square {
+    const SIDES: u32 = 4;
+    const CODE: char = 's';
+}
+
+impl Shape for Triangle {
+    const SIDES: u32 = 3;
+    const CODE: char = 't';
+    const SCALE: i64 = -7;
+
+    fn Perimeter(&self, side: u32) -> u32 {
+        side * Self::SIDES + Self::DOUBLE
+    }
+}
+
+impl Shape for u8 {
+    const SIDES: u32 = 0;
+    const CODE: char = 'b';
+}
+
+// A block for every `W<T>` whose `T` has the trait: its constants read `T`'s.
+struct W<T> {
+    inner: T,
+}
+
+impl<T: Shape> Shape for W<T> {
+    const SIDES: u32 = T::SIDES + 1;
+    const CODE: char = T::CODE;
+    const SCALE: i64 = T::SCALE * 2;
+}
+
+// A constant of type `Self`.
+trait Zero {
+    const ZERO: Self;
+    const ONE: Self;
+}
+
+impl Zero for i32 {
+    const ZERO: i32 = 0;
+    const ONE: i32 = 1;
+}
+
+impl Zero for u16 {
+    const ZERO: u16 = 0;
+    const ONE: u16 = 1;
+}
+
+fn Describe<T: Shape>(shape: &T) {
+    Print(T::CODE);
+    Print(" ");
+    Print(T::SIDES);
+    Print(" ");
+    Print(T::DOUBLE);
+    Print(" ");
+    Print(T::SCALE);
+    Print(" ");
+    Print(T::PAIR.0);
+    Print(" ");
+    Print(T::PAIR.1);
+    Print(" ");
+    PrintLine(shape.Perimeter(5));
+}
+
+fn Count<T: Zero>(n: i32) -> T {
+    if n > 0 { T::ONE } else { T::ZERO }
+}
+
+fn Classify(sides: u32) -> i32 {
+    match sides {
+        Triangle::SIDES => 3,
+        Square::SIDES => 4,
+        _ => -1,
+    }
+}
+
+const TOTAL: u32 = Square::SIDES + Triangle::DOUBLE + W::<Square>::SIDES;
+
+fn Main() {
+    Describe(&Square);
+    Describe(&Triangle);
+    Describe(&7u8);
+    Describe(&W { inner: Triangle });
+    Describe(&W { inner: W { inner: Square } });
+    PrintLine(Count::<i32>(3));
+    PrintLine(Count::<u16>(0));
+    PrintLine(TOTAL);
+    let a = [1u8; Square::SIDES as usize];
+    let b: [i32; Triangle::DOUBLE as usize] = [2; Triangle::DOUBLE as usize];
+    PrintLine(a.len() + b.len());
+    PrintLine(Classify(3));
+    PrintLine(Classify(Square::SIDES));
+    PrintLine(Classify(W::<u8>::SIDES));
+}

@@ -1,0 +1,26 @@
+// A bound on a subtrait gives the supertrait's constants, and a provided constant reads
+// the others through `Self`.
+trait Base {
+    const N: u32;
+    const TWICE: u32 = Self::N * 2;
+}
+
+trait Derived: Base {
+    fn Get(&self) -> u32 {
+        Self::TWICE + 1
+    }
+}
+
+impl Base for u8 {
+    const N: u32 = 5;
+}
+
+impl Derived for u8 {}
+
+fn Read<T: Derived>(x: &T) -> u32 {
+    T::N + T::TWICE + x.Get()
+}
+
+fn Main() {
+    PrintLine(Read(&1u8));
+}

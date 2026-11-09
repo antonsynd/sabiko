@@ -1,0 +1,24 @@
+// At a type, a trait's constant is known: it can be an array length, a repeat count and
+// a pattern.
+trait Shape {
+    const SIDES: usize;
+    const DOUBLE: usize = Self::SIDES * 2;
+}
+
+struct Square;
+
+impl Shape for Square {
+    const SIDES: usize = 4;
+}
+
+fn Corners(a: [i32; Square::SIDES]) -> usize {
+    a.len()
+}
+
+fn Main() {
+    let b = [7; Square::DOUBLE];
+    match b.len() {
+        Square::DOUBLE => PrintLine(Corners([1, 2, 3, 4])),
+        _ => {}
+    }
+}

@@ -184,6 +184,16 @@ impl ErrorCode {
     /// A method of a trait impl whose generic parameters have bounds its trait's do not
     /// (rustc's E0276).
     pub const IMPL_STRICTER_BOUNDS: Self = Self(344);
+    /// An array length or repeat count that depends on a type parameter, through a trait's
+    /// associated constant (rustc's uncoded "generic parameters may not be used in const
+    /// operations").
+    pub const GENERIC_CONST_EXPR: Self = Self(345);
+    /// A constant pattern that depends on a type parameter, through a trait's associated
+    /// constant (rustc's E0158).
+    pub const GENERIC_CONST_PATTERN: Self = Self(346);
+    /// `Trait::N` naming a trait's associated constant without the type implementing it
+    /// (rustc's E0790).
+    pub const TRAIT_CONST_WITHOUT_TYPE: Self = Self(347);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);
@@ -219,6 +229,10 @@ impl ErrorCode {
     /// Monomorphisation instantiated a generic function at ever deeper types (rustc's
     /// "reached the recursion limit while instantiating").
     pub const INSTANTIATION_RECURSION_LIMIT: Self = Self(502);
+    /// Evaluating a trait's constant failed at the type an instance of a generic function
+    /// uses it at (rustc's E0080, reported when rustc generates code): E0316, found by
+    /// monomorphisation (decision 85).
+    pub const INSTANCE_CONST_EVAL_FAILED: Self = Self(503);
 
     // Lints on MIR (E06xx): rustc's deny-by-default constant-propagation lints, errors here
     // since Sabiko has no `#[allow]` (decision 73); `sabikoc -A <lint>` turns them off.

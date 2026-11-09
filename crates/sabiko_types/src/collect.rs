@@ -896,7 +896,10 @@ fn collect_traits(
             span: resolve.def(def).span,
         });
     }
-    for def in resolve.defs_of_kind(DefKind::Fn) {
+    let consts = resolve
+        .defs_of_kind(DefKind::Const)
+        .filter(|&d| crate::consts::is_assoc_const(resolve, d));
+    for def in resolve.defs_of_kind(DefKind::Fn).chain(consts) {
         if resolve.builtin(def).is_some() {
             continue;
         }
@@ -1019,16 +1022,65 @@ fn check_impl_methods(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Di
     for imp in &items.impls {
         let trait_name = items.traits[&imp.trait_].name.clone();
         for (i, info) in resolve.defs.iter().enumerate() {
-            if info.parent != Some(imp.def) || info.kind != DefKind::Fn {
+            if info.parent != Some(imp.def) {
                 continue;
             }
             let def = DefId(u32::try_from(i).expect("fewer than 2^32 items"));
             let Some(decl) = resolve.trait_item(imp.trait_, &info.name) else {
                 continue;
             };
-            check_impl_method(resolve, items, imp, &trait_name, decl, def, sink);
+            match (info.kind, resolve.def(decl).kind) {
+                (DefKind::Fn, DefKind::Fn) => {
+                    check_impl_method(resolve, items, imp, &trait_name, decl, def, sink);
+                }
+                (DefKind::Const, DefKind::Const) => {
+                    check_impl_const(resolve, items, imp, &trait_name, decl, def, sink);
+                }
+                // The resolver reported the mismatch.
+                _ => {}
+            }
         }
     }
+}
+
+/// A trait `impl` block's constant `def` has the type of its trait's `decl`, at the
+/// block's type (E0321, rustc's E0326).
+fn check_impl_const(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    imp: &ImplDef,
+    trait_name: &str,
+    decl: DefId,
+    def: DefId,
+    sink: &mut DiagnosticSink,
+) {
+    let want = items.const_ty(decl).subst(
+        &[items.traits[&imp.trait_].self_param],
+        std::slice::from_ref(&imp.self_ty),
+    );
+    let have = items.const_ty(def);
+    if want == *have || want.is_error() || have.is_error() {
+        return;
+    }
+    let name = &resolve.def(def).name;
+    sink.emit(
+        Diagnostic::error(
+            ErrorCode::IMPL_SIGNATURE_MISMATCH,
+            format!("implemented const `{name}` has an incompatible type for trait"),
+        )
+        .with_label(
+            resolve.def(def).span,
+            format!(
+                "expected `{}`, found `{}`",
+                want.display(resolve),
+                have.display(resolve)
+            ),
+        )
+        .with_label(
+            resolve.def(decl).span,
+            format!("type in trait `{trait_name}`"),
+        ),
+    );
 }
 
 fn check_impl_method(

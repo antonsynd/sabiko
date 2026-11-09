@@ -25,8 +25,11 @@ names which phase owns which section.
   -> T; fn Provided(&self) { .. } }`, whose members are methods and associated
   functions, required (no body, `;`) or provided (a body), each with any receiver and
   generic parameters of its own; and `impl<T: B> Name for Type where T: C { .. }`, whose
-  members are the trait's methods. A trait is not generic (E0107, #117) and has no
-  associated constants or types (E0107); `?Sized` and lifetime bounds are E0107. `impl
+  members are the trait's methods and constants. A trait may declare associated constants
+  (#116, decision 85), required (`const N: u32;`) or provided (`const N: u32 = 4;`); a
+  constant elsewhere needs its value (E0100, rustc's "free constant item without body").
+  A trait is not generic (E0107, #117) and has no associated types (E0107); `?Sized` and
+  lifetime bounds are E0107. `impl
   Drop for Type` stays a language item (§7) unless the file defines an item `Drop`
 - Bounds: `T: A + B` on the type parameters of functions and `impl` blocks, and `where
   T: A` clauses on functions and `impl` blocks whose types are type parameters (any
@@ -700,6 +703,30 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   rustc's E0277). As in rustc, a bound on a type with inference variables that only one
   block's type could match makes it that type: with only `impl Show for i64`, `5.Show()`
   is an `i64`; with two integer blocks the literal falls back to `i32`.
+- Associated constants of traits (#116, decision 85): a trait `impl` block defines each
+  required constant (E0216, rustc's E0046) and may override a provided one, with the
+  trait's type at the block's type (E0321, rustc's E0326); a constant where the trait
+  has a method, or the other way round, is E0217 (rustc's E0323/E0324). `T::N`,
+  `Self::N` and `Type::N` name the constant of the trait among those with one of that
+  name that the type implements (E0212 when none does, E0342 when several do), whose
+  type is its declared type at that `Self`; `Trait::N` names no type to take it from
+  (E0347, rustc's E0790). A provided constant may read the others as `Self::M`, a
+  block's constant its type parameters' (`impl<T: Shape> Shape for W<T> { const N: u32 =
+  T::N + 1; }`). The value is the implementing block's constant, or the trait's default,
+  evaluated at that type when it is used, as rustc does: a use at a type, in any
+  constant context (array lengths, repeat counts, patterns, other constants), is
+  evaluated with the code using it; a use at a type parameter in a generic function
+  (`T::N`) is evaluated for each instance at monomorphisation. Evaluation failures are
+  reported once per constant and type, naming the instance (`<Big as Shape>::DOUBLE`):
+  E0316 (rustc's E0080), or E0503 when only an instance of a generic function finds it,
+  which happens when code is generated, as in rustc.
+  An array length, repeat count or constant pattern that depends on a type parameter is
+  E0345 (rustc's uncoded "generic parameters may not be used in const operations") and
+  E0346 (E0158). An unused constant is never evaluated, as in rustc. The constants of a
+  generic struct's or enum's `impl` block are evaluated the same way, at the type's
+  generic arguments (`W::<Sq>::M`, `Self::M`), which must satisfy the block's bounds
+  (E0341), so they may read a bounded parameter's constants. `<T as Trait>::N` is not
+  supported yet (E0102).
 - Type parameters (#114, decision 82): inside a generic function, `T` is a type of its
   own, equal only to itself. Without bounds a `T` value can only be moved, borrowed,
   stored, returned and matched by a binding or `_`: it is not `Copy` (using it twice is a

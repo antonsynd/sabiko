@@ -754,19 +754,31 @@ fn where_clause() -> impl Strategy<Value = Vec<WherePredicate>> {
 
 /// A member of an `impl` block (`trait_items` false) or a trait: a function, which in a
 /// trait may have no body.
+/// A member of an `impl` block or a trait: a function or a constant, which only a trait
+/// may leave without a body or value.
 fn member(in_trait: bool) -> impl Strategy<Value = Item> {
-    (meta(), fn_decl(true), any::<bool>()).prop_map(move |((attrs, docs, vis), mut f, bodyless)| {
-        if in_trait && bodyless {
-            f.body = None;
-        }
-        Item {
-            id: ID,
-            attrs,
-            docs,
-            vis,
-            kind: ItemKind::Fn(f),
-            span: SP,
-        }
+    let kind = prop_oneof![
+        (fn_decl(true), any::<bool>()).prop_map(move |(mut f, bodyless)| {
+            if in_trait && bodyless {
+                f.body = None;
+            }
+            ItemKind::Fn(f)
+        }),
+        (name(), ty(), expr(), any::<bool>()).prop_map(move |(n, ty, value, valueless)| {
+            ItemKind::Const(ConstDecl {
+                name: ident(&n),
+                ty,
+                value: (!(in_trait && valueless)).then_some(value),
+            })
+        }),
+    ];
+    (meta(), kind).prop_map(|((attrs, docs, vis), kind)| Item {
+        id: ID,
+        attrs,
+        docs,
+        vis,
+        kind,
+        span: SP,
     })
 }
 
@@ -843,7 +855,7 @@ fn item() -> impl Strategy<Value = Item> {
         (name(), ty(), expr()).prop_map(|(n, ty, value)| ItemKind::Const(ConstDecl {
             name: ident(&n),
             ty,
-            value
+            value: Some(value),
         })),
     ];
     (attrs(), docs(), vis, kind).prop_map(|(attrs, docs, vis, kind)| Item {
@@ -1065,7 +1077,11 @@ fn strip_parens_item(item: &mut Item) {
                 strip_parens_block(body);
             }
         }
-        ItemKind::Const(c) => strip_parens_expr(&mut c.value),
+        ItemKind::Const(c) => {
+            if let Some(value) = &mut c.value {
+                strip_parens_expr(value);
+            }
+        }
         ItemKind::Impl(imp) => imp.items.iter_mut().for_each(strip_parens_item),
         ItemKind::Trait(t) => t.items.iter_mut().for_each(strip_parens_item),
         ItemKind::Enum(e) => e
