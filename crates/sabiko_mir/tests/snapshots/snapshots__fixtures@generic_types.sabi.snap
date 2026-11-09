@@ -47,7 +47,7 @@ fn Pair::Swap<A, B>(_1: Pair<A, B>) -> Pair<B, A> {
     }
 }
 
-fn Guard::drop<T>(_1: &mut Guard<T>) {
+fn <Guard<T> as Drop>::drop<T>(_1: &mut Guard<T>) {
     let mut _0: ();
 
     bb0: {

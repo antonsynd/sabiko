@@ -14,7 +14,8 @@ names which phase owns which section.
 - Items: `fn`, `struct`, `enum`, `trait`, `impl`, `const`, `mod`, `use`, `extern "dotnet"`
 - Outer attributes as in Rust: `#[path]`, `#[path(tokens)]` (or `[...]`, `{...}`) and
   `#[path = tokens]`, with delimiters that nest and match (E0100 otherwise); only
-  `derive(Copy, Clone)` is interpreted so far
+  `derive(Copy, Clone)` is interpreted so far (as `Copy` and `Clone` for the type,
+  decision 86)
 - Inherent `impl` blocks (Phase 5, #7): `impl Type { fn ... }`, any number per type,
   before or after the struct. The members are functions and constants (`const N: i32 =
   4;`, #48), with attributes, doc comments and `pub` as on items; a function member may
@@ -29,8 +30,8 @@ names which phase owns which section.
   (#116, decision 85), required (`const N: u32;`) or provided (`const N: u32 = 4;`); a
   constant elsewhere needs its value (E0100, rustc's "free constant item without body").
   A trait is not generic (E0107, #117) and has no associated types (E0107); `?Sized` and
-  lifetime bounds are E0107. `impl
-  Drop for Type` stays a language item (§7) unless the file defines an item `Drop`
+  lifetime bounds are E0107. `Clone`, `Copy` and `Drop` are traits the compiler
+  defines (§11.2)
 - Bounds: `T: A + B` on the type parameters of functions and `impl` blocks, and `where
   T: A` clauses on functions and `impl` blocks whose types are type parameters (any
   other type is E0107). Bounds on the parameters of a struct or an enum are E0107
@@ -172,9 +173,9 @@ written before the panic is kept.
 Release builds (`--release`) wrap integer arithmetic instead of panicking; division, shift
 and explicit panics behave the same in both.
 
-Drop (#12, decisions 46 and 55). A struct of the file may implement `Drop`, the one trait
-impl so far: `impl Drop for S { fn drop(&mut self) { .. } }`, defining `drop` with exactly
-that signature and nothing else (§11.1, §11.2). The method keeps Rust's lowercase name. A
+Drop (#12, decisions 55 and 86). A struct or enum of the file may implement `Drop`, an
+ordinary trait the compiler defines (§11.2): `impl Drop for S { fn drop(&mut self) { .. }
+}`, defining `drop` with exactly that signature and nothing else (§11.1, §11.2). The method keeps Rust's lowercase name. A
 type has *drop glue* when it is such a struct, or a struct or tuple with a field (element)
 that has drop glue; such a type is never `Copy` (E0324, E0417). Values with drop glue are
 dropped as rustc drops them (edition 2024, decision 74):
@@ -627,14 +628,15 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   tuple or `()`; E0201/E0203 for an unknown name or a non-type). Its functions are
   resolved like free functions, with `Self` naming the struct and, in a method, `self`
   bound as the first parameter (mutable for `mut self`).
-- `impl Drop for T` (§7): `T` must be a struct of the file (E0214 for a primitive, a
-  tuple, a reference or `()`, rustc's E0117/E0120; E0201 for an unknown name), with one
-  such impl (E0215 at the second, rustc's E0119), which defines `drop` (E0216, E0046) and
-  nothing else (E0217, E0407 or E0438 for a constant; `fn Drop` gets a note that the name
-  is lowercase). Its
-  members are not associated functions: `T::drop` and `t.drop()` find an inherent `drop`
-  first and the destructor otherwise (then E0323). An item of the file named `Drop`
-  shadows the trait: `impl Drop for T` is then E0203 (rustc's E0404).
+- `impl Drop for T` (§7, decision 86): `T` must be a struct or enum of the file (E0214
+  for a primitive, a tuple, a reference or `()`, rustc's E0117/E0120; E0201 for an
+  unknown name), with one such impl (E0215 at the second, rustc's E0119), which defines
+  `drop` (E0216, E0046) and nothing else (E0217, E0407; `fn Drop` gets a note that the
+  name is lowercase). A generic type's `impl Drop` is for its own parameters, in order
+  (`impl<T> Drop for Guard<T>`; E0348 otherwise, rustc's E0366, which allows any order),
+  without bounds (E0349, E0367). `T::drop`, `Drop::drop` and `t.drop()` find an inherent
+  `drop` first and the destructor otherwise (then E0323). An item of the file named
+  `Drop` shadows the trait: `impl Drop for T` is then E0203 (rustc's E0404).
 - Enums (#8) are items like structs (`impl` blocks, `impl Drop`). Their variants are not in
   the item namespace: `E::V` and `Self::V` name them, before an associated function of the
   same name; a variant name is unique within its enum (E0200, rustc's E0428), and so is a
@@ -672,8 +674,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   and has a size (E0107 otherwise): a struct or enum of the file, an instance of one
   (`impl Show for Pair<i32, bool>`), a primitive, a tuple, an array, or a type parameter
   of the block (`impl<T: Show> Loud for T`); its parameters are its own. It must name a
-  trait of the file (E0201 when none has the name, E0203 for another item; `Copy`,
-  `Clone` and `Drop` in a bound are E0107 until they become traits), implement each
+  trait of the file or a language trait (E0201 when none has the name, E0203 for another
+  item), implement each
   required method (E0216, rustc's E0046), define nothing the trait does not declare
   (E0217, E0407) and nothing twice (E0210). Each method's signature must be its trait's
   with `Self` replaced by the block's type and the trait method's type parameters by its
@@ -727,6 +729,25 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   generic arguments (`W::<Sq>::M`, `Self::M`), which must satisfy the block's bounds
   (E0341), so they may read a bounded parameter's constants. `<T as Trait>::N` is not
   supported yet (E0102).
+- `Clone`, `Copy` and `Drop` (#116, decision 86) are traits the compiler defines,
+  `trait Clone { fn clone(&self) -> Self; }`, `trait Copy: Clone {}` and `trait Drop {
+  fn drop(&mut self); }`, with Rust's lowercase method names; a user item of the same
+  name shadows one, as it shadows a builtin. As in rustc, every primitive but `str`, `()`,
+  `!`, shared references, and tuples and arrays of `Copy` (`Clone`) elements are `Copy`
+  and `Clone` already; `&mut T`, slices and `str` are neither. A struct or enum is `Copy`
+  or `Clone` through `#[derive(Copy)]`/`#[derive(Clone)]` (when its type arguments are,
+  as rustc's derive bounds each parameter) or a block of its own, `impl Clone for S {
+  fn clone(&self) -> S { .. } }` or `impl Copy for S {}`; a block of either for another
+  type is E0214 (rustc's E0117), a derive and a block of one trait for one type E0215
+  (E0119), a derived `Copy` without `Clone` E0341 (E0277), and a `Copy` type needs `Copy`
+  fields (E0417, E0204) and no `impl Drop` (E0324, E0184). `T: Copy` makes `T` copied in
+  generic code, `T: Clone` gives `x.clone()`, and a trait with `Clone` or `Copy` among
+  its supertraits has a `Sized` `Self`, as in rustc (a provided method may return `Self`
+  by value). `x.clone()` runs the type's `impl Clone`, or, for the built-in and derived
+  `Clone`, copies `*x`; the built-in or derived `clone` of a type that is not `Copy` (a
+  derived struct with a field that is not `Copy`, a tuple holding one) needs a body that
+  clones field by field, which arrives with derives (#117): E0500 where an instance
+  clones one.
 - Type parameters (#114, decision 82): inside a generic function, `T` is a type of its
   own, equal only to itself. Without bounds a `T` value can only be moved, borrowed,
   stored, returned and matched by a binding or `_`: it is not `Copy` (using it twice is a
@@ -986,8 +1007,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - The `drop` of an `impl Drop` must be exactly `fn drop(&mut self)`: another receiver, a
   missing receiver or a return type is E0321 (rustc's E0053/E0186), another parameter
   count E0322 (E0050). Calling it, `d.drop()` or `D::drop(&mut d)`, is E0323 (E0040).
-  `#[derive(Copy)]` on a struct with `impl Drop` is E0324 (E0184); on a struct with a
-  field that has drop glue it is E0417, as for any non-`Copy` field.
+  `#[derive(Copy)]` or `impl Copy` on a struct with `impl Drop` is E0324 (E0184); on a
+  struct with a field that has drop glue it is E0417, as for any non-`Copy` field.
 - A `const` initialiser is evaluated at compile time. Allowed: literals, arithmetic,
   comparisons, logical operators, casts, references to other constants, tuples of these
   and tuple fields of constants (`const Q: (i32, bool) = (P.1 * 2, true);`, #50). A tuple
@@ -1034,10 +1055,9 @@ initialisation rules of §11.3. Every rule below is also a rule of Rust, and
 
 Moves (E0406, E0407):
 
-- Primitives, `&T`, `()`, structs with `#[derive(Copy)]` and tuples whose elements are
-  all `Copy` are `Copy`: using them copies.
-  `#[derive(Copy)]` requires every field to be `Copy` (E0417); `Clone` may be named
-  alongside it. Every other struct and `&mut T` is a move type: a by-value use (a `let`
+- Primitives, `&T`, `()`, structs and enums that implement `Copy` (§11.2), tuples and
+  arrays whose elements are all `Copy`, and a type parameter with a `Copy` bound (or a
+  bound on a trait with `Copy` as supertrait) are `Copy`: using them copies. Every other struct and `&mut T` is a move type: a by-value use (a `let`
   initialiser, assignment right-hand side, call argument, struct literal field, return
   value) moves the place, and any later read, borrow or move of it, or of a place that
   contains or is contained in it, is a use of a moved value (E0406). A move in one branch

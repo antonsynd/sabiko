@@ -3,7 +3,7 @@ source: crates/sabiko_mir/tests/snapshots.rs
 expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/drops.sabi
 ---
-fn D::drop(_1: &mut D) {
+fn <D as Drop>::drop(_1: &mut D) {
     let mut _0: ();
     let mut _2: ();
     let mut _3: i32;

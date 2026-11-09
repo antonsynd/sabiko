@@ -434,18 +434,24 @@ impl Validator<'_> {
         Some(ty)
     }
 
+    /// Whether values of `ty` are copied where the body's bounds hold (decision 86).
+    fn is_copy(&self, ty: &Ty) -> bool {
+        let env = self.typeck.items.param_env(self.body.def);
+        self.typeck.items.is_copy_in(ty, env)
+    }
+
     fn operand_ty(&mut self, bb: BasicBlock, operand: &Operand) -> Option<Ty> {
         match operand {
             Operand::Copy(place) => {
                 let ty = self.place_ty(bb, place)?;
-                if !self.typeck.items.is_copy(&ty) {
+                if !self.is_copy(&ty) {
                     self.err(bb, format!("copy of non-Copy type {ty:?}"));
                 }
                 Some(ty)
             }
             Operand::Move(place) => {
                 let ty = self.place_ty(bb, place)?;
-                if self.typeck.items.is_copy(&ty) {
+                if self.is_copy(&ty) {
                     self.err(bb, format!("move of Copy type {ty:?}"));
                 }
                 Some(ty)

@@ -9,10 +9,10 @@
 
 use std::collections::HashMap;
 
-use sabiko_resolve::{DefId, Predicate, ResolveResults};
+use sabiko_resolve::{DefId, LangItem, Predicate, PrimTy, ResolveResults};
 
 use crate::collect::{ImplDef, ItemTypes};
-use crate::ty::Ty;
+use crate::ty::{Mutability, Ty};
 
 /// The answer to "does this type implement that trait?".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +87,9 @@ impl ItemTypes {
         if ty.has_infer() {
             return Solution::Ambiguous;
         }
+        if let Some(solution) = self.builtin_impl(ty, tr, env, depth) {
+            return solution;
+        }
         let Some((imp, args)) = self.select_impl(tr, ty) else {
             return Solution::No;
         };
@@ -100,6 +103,73 @@ impl ItemTypes {
             }
         }
         result
+    }
+
+    /// rustc's built-in implementations of `Copy` and `Clone` (decision 86): every
+    /// primitive but `str`, `()`, `!`, shared references and function items have both;
+    /// `&mut T`, slices and `str` have neither; a tuple or an array has them when its
+    /// elements do; a struct or enum that derives one has it when its type arguments do,
+    /// as rustc's derive bounds each parameter. `None` for any other trait or type: the
+    /// `impl` blocks decide (a struct's or enum's own `impl Copy`).
+    fn builtin_impl(
+        &self,
+        ty: &Ty,
+        tr: DefId,
+        env: &[Predicate],
+        depth: usize,
+    ) -> Option<Solution> {
+        let lang = self.lang_of(tr)?;
+        if !matches!(lang, LangItem::Copy | LangItem::Clone) {
+            return None;
+        }
+        let all = |tys: &mut dyn Iterator<Item = &Ty>| {
+            let mut result = Solution::Yes;
+            for t in tys {
+                match self.implements_at(t, tr, env, depth + 1) {
+                    Solution::Yes => {}
+                    Solution::No => return Solution::No,
+                    Solution::Ambiguous => result = Solution::Ambiguous,
+                }
+            }
+            result
+        };
+        Some(match ty {
+            Ty::Prim(PrimTy::Str) | Ty::Slice(_) | Ty::Ref(Mutability::Mut, _) => Solution::No,
+            Ty::Prim(_) | Ty::Unit | Ty::Never | Ty::FnDef(_) | Ty::Ref(..) | Ty::Error => {
+                Solution::Yes
+            }
+            Ty::Tuple(elems) => all(&mut elems.iter()),
+            Ty::Array(elem, _) => all(&mut std::iter::once(&**elem)),
+            Ty::Adt(def, args) => {
+                let adt = self.adt_def(*def)?;
+                let derived = match lang {
+                    LangItem::Copy => adt.derives_copy,
+                    _ => adt.derives_clone,
+                };
+                if !derived {
+                    return None;
+                }
+                all(&mut args.iter())
+            }
+            Ty::Param(_) | Ty::Infer(_) => return None,
+        })
+    }
+
+    /// Whether values of `ty` are copied rather than moved where the bounds `env` hold
+    /// (a type parameter with a `Copy` bound is, decision 86).
+    #[must_use]
+    pub fn is_copy_in(&self, ty: &Ty, env: &[Predicate]) -> bool {
+        match self.lang_item(LangItem::Copy) {
+            Some(copy) => self.implements(ty, copy, env) == Solution::Yes,
+            None => ty.is_copy(),
+        }
+    }
+
+    /// Whether values of `ty`, which holds no type parameter, are copied rather than
+    /// moved.
+    #[must_use]
+    pub fn is_copy(&self, ty: &Ty) -> bool {
+        self.is_copy_in(ty, &[])
     }
 
     /// The function a call of the trait method `def` at the generic arguments `args`

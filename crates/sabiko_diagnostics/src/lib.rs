@@ -194,6 +194,11 @@ impl ErrorCode {
     /// `Trait::N` naming a trait's associated constant without the type implementing it
     /// (rustc's E0790).
     pub const TRAIT_CONST_WITHOUT_TYPE: Self = Self(347);
+    /// An `impl Drop` block for a type other than its struct's or enum's own parameters
+    /// in order (rustc's E0366, which allows any order).
+    pub const DROP_IMPL_SPECIALIZED: Self = Self(348);
+    /// An `impl Drop` block with bounds (rustc's E0367).
+    pub const DROP_IMPL_BOUNDS: Self = Self(349);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);
@@ -309,6 +314,11 @@ impl Diagnostic {
 
     #[must_use]
     pub fn with_label(mut self, span: Span, message: impl Into<String>) -> Self {
+        // A secondary label at a definition without source text (a builtin, a language
+        // trait or its method, decision 86) points nowhere: leave it out.
+        if span.is_dummy() && !self.labels.is_empty() {
+            return self;
+        }
         let primary = self.labels.is_empty();
         self.labels.push(Label {
             span,

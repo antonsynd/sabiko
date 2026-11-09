@@ -1,0 +1,29 @@
+// A derived `Clone` of a type that is not `Copy`, and the built-in `clone` of a tuple
+// holding one, need a body that clones field by field, which arrives with derives (#117):
+// E0500, reported where an instance clones one (decision 86).
+struct Token {
+    id: i32,
+}
+
+impl Clone for Token {
+    fn clone(&self) -> Token {
+        Token { id: self.id }
+    }
+}
+
+#[derive(Clone)]
+struct Pair {
+    left: Token,
+    right: i32,
+}
+
+fn Dup<T: Clone>(x: &T) -> T {
+    x.clone() //~ ERROR E0500 not yet supported: the built-in or derived `clone` of `Pair`, which is not `Copy`
+}
+
+fn Main() {
+    let p = Pair { left: Token { id: 1 }, right: 2 };
+    let q = Dup(&p);
+    let t = (Token { id: 3 }, 4).clone(); //~ ERROR E0500 not yet supported: the built-in or derived `clone` of `(Token, i32)`, which is not `Copy`
+    PrintLine(q.right + t.1);
+}

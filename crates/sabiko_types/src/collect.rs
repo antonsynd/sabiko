@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{ItemKind, NodeId, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{Builtin, DefId, DefKind, Predicate, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, LangItem, Predicate, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::ty::{Mutability, Ty};
@@ -121,8 +121,11 @@ pub struct AdtDef {
     pub fields: Vec<FieldDef>,
     /// `struct S;`
     pub is_unit: bool,
-    /// `#[derive(Copy)]`: values are copied, not moved.
-    pub is_copy: bool,
+    /// `#[derive(Copy)]`: values are copied, not moved, when the type arguments are
+    /// `Copy` (decision 86).
+    pub derives_copy: bool,
+    /// `#[derive(Clone)]`: the type is `Clone` when its type arguments are.
+    pub derives_clone: bool,
     pub span: Span,
     /// The variants of an enum, in declaration order; `None` for a struct.
     pub variants: Option<Vec<VariantDef>>,
@@ -245,7 +248,7 @@ pub struct ItemTypes {
     /// The builtins that were not shadowed by a user item (see
     /// [`sabiko_resolve::ResolveResults::builtin`]).
     builtins: HashMap<DefId, Builtin>,
-    /// The `drop` function of each struct with an `impl Drop` (decision 46).
+    /// The `drop` method of the `impl Drop` block of each struct or enum (decision 86).
     drop_impls: HashMap<DefId, DefId>,
     /// The structs with drop glue: an `impl Drop` of their own or a field that has drop
     /// glue (decision 55).
@@ -253,6 +256,8 @@ pub struct ItemTypes {
     traits: HashMap<DefId, TraitDef>,
     /// The trait `impl` blocks, in source order.
     impls: Vec<ImplDef>,
+    /// The language traits (decision 86).
+    lang: HashMap<LangItem, DefId>,
     /// The bounds that hold in each function's signature and body: its own, its block's,
     /// and for a trait's member `Self: Trait`. Absent when there are none.
     param_envs: HashMap<DefId, Vec<Predicate>>,
@@ -393,28 +398,30 @@ impl ItemTypes {
         }
     }
 
-    /// Whether values of `ty` are copied rather than moved. Like [`Ty::is_copy`] but
-    /// aware of `#[derive(Copy)]` on structs and enums.
+    /// The struct or enum `def`, if it is one.
+    pub(crate) fn adt_def(&self, def: DefId) -> Option<&AdtDef> {
+        self.adts.get(&def)
+    }
+
+    /// The definition of a language trait (decision 86).
     #[must_use]
-    pub fn is_copy(&self, ty: &Ty) -> bool {
-        match ty {
-            // A derived `Copy` of a generic type requires its arguments to be `Copy`, as
-            // rustc's derive does.
-            Ty::Adt(def, args) => {
-                self.adts.get(def).is_some_and(|a| a.is_copy)
-                    && args.iter().all(|a| self.is_copy(a))
-            }
-            Ty::Tuple(elems) => elems.iter().all(|e| self.is_copy(e)),
-            Ty::Array(elem, _) => self.is_copy(elem),
-            _ => ty.is_copy(),
-        }
+    pub fn lang_item(&self, item: LangItem) -> Option<DefId> {
+        self.lang.get(&item).copied()
+    }
+
+    /// Which language trait `def` is, if any.
+    #[must_use]
+    pub fn lang_of(&self, def: DefId) -> Option<LangItem> {
+        self.lang
+            .iter()
+            .find_map(|(&item, &d)| (d == def).then_some(item))
     }
 }
 
-/// Reads `#[derive(...)]` attributes. `Copy` is understood, `Clone` is accepted as its
-/// companion (every `Copy` type clones trivially); everything else waits for traits.
-fn derives_copy(item: &sabiko_ast::Item, sink: &mut DiagnosticSink) -> bool {
-    let mut is_copy = false;
+/// Reads `#[derive(...)]` attributes: whether the item derives `Copy` and `Clone`
+/// (decision 86). Every other trait waits for #117 (E0107).
+fn derives(item: &sabiko_ast::Item, sink: &mut DiagnosticSink) -> (bool, bool) {
+    let (mut copy, mut clone) = (false, false);
     for attr in &item.attrs {
         if !attr.path.is_single() || attr.path.segments[0].name != "derive" {
             continue;
@@ -426,20 +433,20 @@ fn derives_copy(item: &sabiko_ast::Item, sink: &mut DiagnosticSink) -> bool {
             .trim_end_matches(')');
         for name in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             match name {
-                "Copy" => is_copy = true,
-                "Clone" => {}
+                "Copy" => copy = true,
+                "Clone" => clone = true,
                 other => sink.emit(
                     Diagnostic::error(
                         ErrorCode::UNSUPPORTED_SYNTAX,
                         format!("not yet supported: `#[derive({other})]`"),
                     )
                     .with_label(attr.span, "only `Copy` and `Clone` can be derived for now")
-                    .with_note("derived traits arrive with traits in Phase 5; see docs/PLAN.md"),
+                    .with_note("the comparison traits and their derives arrive with #117; see docs/PLAN.md"),
                 ),
             }
         }
     }
-    is_copy
+    (copy, clone)
 }
 
 /// References inside struct fields (also inside a tuple-typed field) need lifetime
@@ -718,7 +725,7 @@ pub(crate) fn collect(
                     StructKind::Named(fields) => (lower_fields(fields, resolve, lens, sink), false),
                     StructKind::Unit => (Vec::new(), true),
                 };
-                let is_copy = derives_copy(item, sink);
+                let (derives_copy, derives_clone) = derives(item, sink);
                 items.adts.insert(
                     def,
                     AdtDef {
@@ -726,7 +733,8 @@ pub(crate) fn collect(
                         generics: resolve.generics(def).to_vec(),
                         fields,
                         is_unit,
-                        is_copy,
+                        derives_copy,
+                        derives_clone,
                         span: s.name.span,
                         variants: None,
                     },
@@ -784,7 +792,7 @@ pub(crate) fn collect(
                         span: v.name.span,
                     });
                 }
-                let is_copy = derives_copy(item, sink);
+                let (derives_copy, derives_clone) = derives(item, sink);
                 items.adts.insert(
                     def,
                     AdtDef {
@@ -792,7 +800,8 @@ pub(crate) fn collect(
                         generics: resolve.generics(def).to_vec(),
                         fields: Vec::new(),
                         is_unit: false,
-                        is_copy,
+                        derives_copy,
+                        derives_clone,
                         span: e.name.span,
                         variants: Some(variants),
                     },
@@ -824,6 +833,35 @@ pub(crate) fn collect(
             }
         }
     }
+    for item in LangItem::ALL {
+        let Some(tr) = resolve.lang_item(item) else {
+            continue;
+        };
+        items.lang.insert(item, tr);
+        let Some((_, mutable)) = item.method() else {
+            continue;
+        };
+        // `fn clone(&self) -> Self`, `fn drop(&mut self)`.
+        let self_param = resolve.trait_self(tr);
+        let method = resolve.trait_members(tr)[0];
+        let self_ty = Ty::Param(self_param);
+        let (output, receiver) = if mutable {
+            (Ty::Unit, Ty::mut_ref(self_ty))
+        } else {
+            (self_ty.clone(), Ty::shared_ref(self_ty))
+        };
+        items.fn_sigs.insert(
+            method,
+            FnSig {
+                generics: vec![self_param],
+                inputs: vec![receiver],
+                output,
+                self_kind: Some(SelfKind::Ref { mutable }),
+                name_span: Span::dummy(),
+                param_spans: vec![Span::dummy()],
+            },
+        );
+    }
     for adt in adt_defs(resolve) {
         if let Some(def) = resolve.drop_impl(adt) {
             items.drop_impls.insert(adt, def);
@@ -846,7 +884,7 @@ pub(crate) fn collect(
     check_recursive_structs(resolve, &items, sink);
     items.needs_drop = structs_needing_drop(resolve, &items);
     check_unused_params(resolve, &items, sink);
-    check_copy_derives(resolve, &items, sink);
+    check_lang_impls(resolve, &items, sink);
     items
 }
 
@@ -884,6 +922,10 @@ fn collect_traits(
             continue;
         };
         let self_ty = lens.impl_self.get(&def).cloned().unwrap_or(Ty::Error);
+        if resolve.lang_of(trait_).is_some() && !matches!(self_ty, Ty::Adt(..)) {
+            // The resolver reported a language trait's block for another type (E0214).
+            continue;
+        }
         if !check_impl_type(&self_ty, imp.self_ty.span, resolve, sink) {
             continue;
         }
@@ -1030,6 +1072,8 @@ fn check_impl_methods(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Di
                 continue;
             };
             match (info.kind, resolve.def(decl).kind) {
+                // `check_drop_signature` judged it, with `Drop`'s own messages.
+                (DefKind::Fn, DefKind::Fn) if resolve.is_lang_method(decl, LangItem::Drop) => {}
                 (DefKind::Fn, DefKind::Fn) => {
                     check_impl_method(resolve, items, imp, &trait_name, decl, def, sink);
                 }
@@ -1382,52 +1426,205 @@ fn check_unused_params(resolve: &ResolveResults, items: &ItemTypes, sink: &mut D
     }
 }
 
-/// `#[derive(Copy)]` requires every field to be `Copy` (E0417) and no `impl Drop` (E0324):
-/// a copy would be dropped twice.
-fn check_copy_derives(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+/// The blocks and derives of the language traits (decision 86). A `Copy` type, derived or
+/// implemented, needs every field `Copy` (E0417, rustc's E0204) and no `impl Drop`
+/// (E0324, E0184): a copy would be dropped twice. A derived `Copy` needs `Clone` (E0341,
+/// rustc's E0277), as a block's does (`check_supertraits`). A derive and a block of one
+/// trait for one type conflict (E0215, E0119). An `impl Drop` block is for its type's
+/// own parameters, in order (E0348, rustc's E0366), with no bounds of its own (E0349,
+/// E0367).
+fn check_lang_impls(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    let lang = |item| items.lang_item(item);
     for def in adt_defs(resolve) {
         let adt = items.adt(def);
-        if !adt.is_copy {
-            continue;
-        }
-        if items.drop_impl(def).is_some() {
-            sink.emit(
-                Diagnostic::error(
-                    ErrorCode::COPY_WITH_DESTRUCTOR,
-                    "the trait `Copy` cannot be implemented for this type; the type has a destructor",
-                )
-                .with_label(adt.span, "`Copy` not allowed on types with destructors")
-                .with_note(format!(
-                    "`{}` implements `Drop`; a copy would be dropped twice",
-                    adt.name
-                )),
-            );
-        }
-        let variant_fields = adt.variants().iter().flat_map(|v| v.fields.iter());
-        for field in adt.fields.iter().chain(variant_fields) {
-            // The derive requires `T: Copy` of each parameter, so a parameter is `Copy`
-            // here (any `Copy` type stands for it).
-            let assumed = field.ty.map_params(&mut |_| Some(Ty::Unit));
-            if !items.is_copy(&assumed) {
+        let own = Ty::Adt(def, adt.generics.iter().map(|&p| Ty::Param(p)).collect());
+        let block = |item| {
+            lang(item).and_then(|tr| {
+                items
+                    .impls_of(tr)
+                    .find(|i| matches!(&i.self_ty, Ty::Adt(d, _) if *d == def))
+            })
+        };
+        for (item, derived) in [
+            (LangItem::Copy, adt.derives_copy),
+            (LangItem::Clone, adt.derives_clone),
+        ] {
+            if let (true, Some(imp)) = (derived, block(item)) {
+                let name = item.name();
                 sink.emit(
                     Diagnostic::error(
-                        ErrorCode::COPY_NOT_IMPLEMENTABLE,
+                        ErrorCode::CONFLICTING_IMPLS,
                         format!(
-                            "the trait `Copy` cannot be implemented for type `{}`",
+                            "conflicting implementations of trait `{name}` for type `{}`",
                             adt.name
                         ),
                     )
                     .with_label(
-                        field.span,
-                        format!(
-                            "this field does not implement `Copy`: `{}`",
-                            field.ty.display(resolve)
-                        ),
+                        imp.span,
+                        format!("conflicting implementation for `{}`", adt.name),
                     )
-                    .with_label(adt.span, "`Copy` derived here"),
+                    .with_label(
+                        adt.span,
+                        format!("first implementation here, by `#[derive({name})]`"),
+                    ),
                 );
             }
         }
+        if !adt.derives_copy {
+            continue;
+        }
+        // The derive requires `T: Copy` of each parameter.
+        let env: Vec<Predicate> = lang(LangItem::Copy)
+            .map(|copy| {
+                adt.generics
+                    .iter()
+                    .map(|&param| Predicate {
+                        param,
+                        trait_: copy,
+                        span: adt.span,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        check_copy_type(
+            resolve,
+            items,
+            def,
+            &own,
+            &env,
+            adt.span,
+            "`Copy` derived here",
+            sink,
+        );
+        if let Some(clone) = lang(LangItem::Clone) {
+            if items.implements(&own, clone, &env) == crate::traits::Solution::No {
+                sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::UNSATISFIED_BOUND,
+                        format!(
+                            "the trait bound `{}: Clone` is not satisfied",
+                            own.display(resolve)
+                        ),
+                    )
+                    .with_label(adt.span, "`Copy` derived here")
+                    .with_note(
+                        "`Clone` is a supertrait of `Copy`: derive both, `#[derive(Clone, Copy)]`",
+                    ),
+                );
+            }
+        }
+    }
+    for imp in &items.impls {
+        let Ty::Adt(def, args) = &imp.self_ty else {
+            continue;
+        };
+        match items.lang_of(imp.trait_) {
+            Some(LangItem::Copy) => check_copy_type(
+                resolve,
+                items,
+                *def,
+                &imp.self_ty,
+                &imp.preds,
+                imp.span,
+                "`Copy` implemented here",
+                sink,
+            ),
+            Some(LangItem::Drop) => check_drop_impl(resolve, imp, args, sink),
+            _ => {}
+        }
+    }
+}
+
+/// The struct or enum `def` at the type `ty` (its own parameters, or a block's type) is
+/// `Copy` where `env` holds: no `impl Drop` (E0324) and only `Copy` fields (E0417).
+#[allow(clippy::too_many_arguments)]
+fn check_copy_type(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    def: DefId,
+    ty: &Ty,
+    env: &[Predicate],
+    span: Span,
+    what: &str,
+    sink: &mut DiagnosticSink,
+) {
+    let adt = items.adt(def);
+    if items.drop_impl(def).is_some() {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::COPY_WITH_DESTRUCTOR,
+                "the trait `Copy` cannot be implemented for this type; the type has a destructor",
+            )
+            .with_label(span, "`Copy` not allowed on types with destructors")
+            .with_note(format!(
+                "`{}` implements `Drop`; a copy would be dropped twice",
+                adt.name
+            )),
+        );
+    }
+    let Ty::Adt(_, args) = ty else {
+        return;
+    };
+    let variant_fields = adt.variants().iter().flat_map(|v| v.fields.iter());
+    for field in adt.fields.iter().chain(variant_fields) {
+        let field_ty = adt.field_ty(&field.ty, args);
+        if !items.is_copy_in(&field_ty, env) {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::COPY_NOT_IMPLEMENTABLE,
+                    format!(
+                        "the trait `Copy` cannot be implemented for type `{}`",
+                        adt.name
+                    ),
+                )
+                .with_label(
+                    field.span,
+                    format!(
+                        "this field does not implement `Copy`: `{}`",
+                        field_ty.display(resolve)
+                    ),
+                )
+                .with_label(span, what),
+            );
+        }
+    }
+}
+
+/// An `impl Drop` block is for its type's own parameters, each once and in order (E0348,
+/// rustc's E0366, which allows any order), and has no bounds (E0349, E0367): drop glue
+/// runs it for every instance.
+fn check_drop_impl(
+    resolve: &ResolveResults,
+    imp: &ImplDef,
+    args: &[Ty],
+    sink: &mut DiagnosticSink,
+) {
+    let own = args.len() == imp.generics.len()
+        && args
+            .iter()
+            .zip(&imp.generics)
+            .all(|(a, p)| *a == Ty::Param(*p));
+    if !own {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::DROP_IMPL_SPECIALIZED,
+                "`Drop` impls cannot be specialized",
+            )
+            .with_label(
+                imp.span,
+                format!("`{}` is not the type's own parameters", imp.self_ty.display(resolve)),
+            )
+            .with_note("an `impl Drop` is for every instance: `impl<A, B> Drop for Pair<A, B>`, its parameters in order"),
+        );
+    } else if let Some(pred) = imp.preds.first() {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::DROP_IMPL_BOUNDS,
+                "`Drop` impl requires bounds the type does not require",
+            )
+            .with_label(pred.span, "a bound the struct or enum does not have")
+            .with_note("an `impl Drop` is for every instance; bounds on struct and enum parameters are not supported yet"),
+        );
     }
 }
 

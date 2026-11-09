@@ -1,0 +1,8 @@
+// `T: Clone` does not make `T` `Copy`: using it after a move is a use of a moved value
+// (rustc's E0382), and cloning first is the fix.
+fn Twice<T: Clone>(x: T) -> (T, T) {
+    let a = x;
+    (a, x)
+}
+
+fn Main() {}

@@ -34,7 +34,7 @@ impl Area for S {} //~ ERROR E0216 not all trait items implemented, missing: `Ar
 
 fn AsType(x: Show) {} //~ ERROR E0203 expected type, found trait `Show`
 
-fn Copies<T: Copy>(x: T) {} //~ ERROR E0107 not yet supported: the `Copy` trait in a bound
+fn Copies<T: Copy>(x: T) {}
 
 fn Where<T>(x: T)
 where

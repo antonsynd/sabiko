@@ -932,10 +932,22 @@ impl<'a> BodyGen<'a> {
             }
         }
         let e = self.val_expr(ty, depth);
-        let text = match self.rng.weighted(&[40, 30, 30]) {
+        // A `Copy` value also through a `T: Copy` or `T: Clone` bound, or `.clone()`
+        // (decision 86); cloning anything else needs derives (#117).
+        let copy = if self.prog.is_copy(Ty::Val(ty)) {
+            30
+        } else {
+            0
+        };
+        let text = match self.rng.weighted(&[40, 30, 30, copy]) {
             0 => format!("({}).Keep()", e.text),
             1 => format!("GenKeep::Keep({})", e.text),
-            _ => format!("GenKept({})", e.text),
+            2 => format!("GenKept({})", e.text),
+            _ => match self.rng.weighted(&[1, 1, 1]) {
+                0 => format!("GenCopied({})", e.text),
+                1 => format!("({}).clone()", e.text),
+                _ => format!("GenCloned(&({}))", e.text),
+            },
         };
         Expr {
             text,

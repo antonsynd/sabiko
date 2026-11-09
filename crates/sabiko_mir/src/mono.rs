@@ -109,7 +109,7 @@ pub fn monomorphize(
         if is_generic(body.def) {
             generic.insert(body.def, body);
         } else {
-            resolve_trait_calls(&mut body, resolve, typeck);
+            resolve_trait_calls(&mut body, resolve, typeck, sink);
             out.push(body);
         }
     }
@@ -182,7 +182,12 @@ pub fn monomorphize(
 /// Points each call of a trait's method in `body`, whose generic arguments are concrete,
 /// at the method that runs: the implementing block's, or the trait's provided one
 /// (decision 84). A call of a block's method that is not generic then names no instance.
-fn resolve_trait_calls(body: &mut Body, resolve: &ResolveResults, typeck: &TypeckResults) {
+fn resolve_trait_calls(
+    body: &mut Body,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
     for data in &mut body.blocks {
         let term = data.terminator.as_mut().expect("block has a terminator");
         if let TerminatorKind::Call {
@@ -198,7 +203,65 @@ fn resolve_trait_calls(body: &mut Body, resolve: &ResolveResults, typeck: &Typec
             *func = f;
             *generic_args = args;
         }
+        if let Some(copy) = builtin_clone(term, resolve, typeck, sink) {
+            data.statements.push(copy.0);
+            term.kind = TerminatorKind::Goto { target: copy.1 };
+        }
     }
+}
+
+/// `Clone::clone(r)` at a `Self` that no `impl Clone` block implements (decision 86):
+/// rustc's built-in or derived `clone`, which for a `Copy` type is a copy of `*r`, the
+/// statement returned with the block to go to. A derived or tuple's `clone` that has to
+/// clone fields of a type that is not `Copy` needs a generated body (#117): E0500.
+fn builtin_clone(
+    term: &crate::Terminator,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) -> Option<(crate::Statement, crate::BasicBlock)> {
+    let TerminatorKind::Call {
+        func,
+        generic_args,
+        args,
+        destination,
+        target,
+    } = &term.kind
+    else {
+        return None;
+    };
+    if !resolve.is_lang_method(*func, sabiko_resolve::LangItem::Clone) {
+        return None;
+    }
+    let self_ty = generic_args.first()?;
+    if self_ty.has_param() {
+        return None;
+    }
+    if !typeck.items.is_copy(self_ty) {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNSUPPORTED_CODEGEN,
+                format!(
+                    "not yet supported: the built-in or derived `clone` of `{}`, which is not `Copy`",
+                    self_ty.display(resolve)
+                ),
+            )
+            .with_label(term.span, "cloned here")
+            .with_note("cloning a derived type or a tuple or array field by field arrives with derives (#117); implement `Clone` by hand for now"),
+        );
+        return None;
+    }
+    let (Some(target), Some(Operand::Copy(r) | Operand::Move(r))) = (target, args.first()) else {
+        return None;
+    };
+    let copy = crate::Statement {
+        kind: StatementKind::Assign(
+            destination.clone(),
+            Rvalue::Use(Operand::Copy(r.clone().deref())),
+        ),
+        span: term.span,
+    };
+    Some((copy, *target))
 }
 
 /// Queues the instances of generic functions `body` calls that are not made yet.
@@ -342,7 +405,7 @@ fn instantiate(
     }
     prune_cleanups(&mut body, typeck);
     copy_copy_operands(&mut body, typeck);
-    resolve_trait_calls(&mut body, resolve, typeck);
+    resolve_trait_calls(&mut body, resolve, typeck, sink);
     eval_assoc_consts(&mut body, resolve, typeck, true, sink);
     body.name = instance_name(resolve, &typeck.items, template.def, args);
     body.instance = args.to_vec();

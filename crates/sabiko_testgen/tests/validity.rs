@@ -1061,7 +1061,7 @@ fn programs_use_aggregates_of_references() {
 fn programs_use_trait_helpers() {
     let knobs = Knobs::default();
     let (mut keeps, mut paths, mut kept, mut refs, mut signs, mut sums) = (0, 0, 0, 0, 0, 0);
-    let mut consts = 0;
+    let (mut consts, mut copies) = (0, 0);
     for seed in 1..=SEEDS {
         let src = generate(seed, &knobs);
         // After the helpers' last line.
@@ -1077,9 +1077,14 @@ fn programs_use_trait_helpers() {
         signs += usize::from(body.contains(").Sign()"));
         sums += usize::from(body.contains("GenSigns("));
         consts += usize::from(body.contains("::UNIT") || body.contains("::BIAS"));
+        copies += usize::from(
+            body.contains("GenCopied(")
+                || body.contains(").clone()")
+                || body.contains("GenCloned("),
+        );
     }
     eprintln!(
-        "of {SEEDS} programs: {keeps} call `.Keep()`, {paths} `GenKeep::Keep`, {kept} `GenKept`, {refs} `.KeepRef()`, {signs} `.Sign()`, {sums} `GenSigns`, {consts} a trait constant"
+        "of {SEEDS} programs: {keeps} call `.Keep()`, {paths} `GenKeep::Keep`, {kept} `GenKept`, {refs} `.KeepRef()`, {signs} `.Sign()`, {sums} `GenSigns`, {consts} a trait constant, {copies} `Copy`/`Clone` through a bound"
     );
     assert!(
         keeps >= 40
@@ -1088,8 +1093,9 @@ fn programs_use_trait_helpers() {
             && refs >= 20
             && signs >= 20
             && sums >= 20
-            && consts >= 10,
-        "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20), {consts} a trait constant (expected 10)"
+            && consts >= 10
+            && copies >= 20,
+        "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20), {consts} a trait constant (expected 10), {copies} `Copy`/`Clone` (expected 20)"
     );
 }
 

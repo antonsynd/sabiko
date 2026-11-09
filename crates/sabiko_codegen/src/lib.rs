@@ -485,7 +485,7 @@ impl Cx<'_> {
         out: &mut String,
     ) {
         for body in bodies {
-            if self.resolve.def(body.def).parent == Some(def)
+            if self.resolve.inherent_parent(body.def) == Some(def)
                 && body.instance.get(..args.len()) == Some(args)
             {
                 func::emit_body(self, body, out);

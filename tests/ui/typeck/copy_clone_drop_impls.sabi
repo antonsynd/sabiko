@@ -1,0 +1,81 @@
+// `Copy`, `Clone` and `Drop` as traits (decision 86): a derived `Copy` without `Clone`
+// (rustc's E0277), an `impl Copy` with a field that is not `Copy` (E0204), a derive and
+// a block of one trait (E0119), a block of a language trait for a primitive (E0117), an
+// `impl Drop` for one instance or with bounds (E0366, E0367), a `Copy` bound a type does
+// not meet (E0277), and `Drop::drop` called by path (E0040).
+
+trait Show {
+    fn Show(&self) -> i32;
+}
+
+#[derive(Copy)]
+struct OnlyCopy { //~ ERROR E0341 the trait bound `OnlyCopy: Clone` is not satisfied
+    x: i32,
+}
+
+struct Token {
+    id: i32,
+}
+
+struct Holder {
+    token: Token, //~ ERROR E0417 the trait `Copy` cannot be implemented for type `Holder`
+}
+
+impl Clone for Holder {
+    fn clone(&self) -> Holder {
+        Holder { token: Token { id: self.token.id } }
+    }
+}
+
+impl Copy for Holder {}
+
+#[derive(Clone)]
+struct Twice {
+    x: i32,
+}
+
+impl Clone for Twice { //~ ERROR E0215 conflicting implementations of trait `Clone` for type `Twice`
+    fn clone(&self) -> Twice {
+        Twice { x: self.x }
+    }
+}
+
+impl Clone for i32 { //~ ERROR E0214 the `Clone` trait may only be implemented for structs and enums of this file
+    fn clone(&self) -> i32 {
+        *self
+    }
+}
+
+struct Cell<T> {
+    value: T,
+}
+
+impl Drop for Cell<i32> { //~ ERROR E0348 `Drop` impls cannot be specialized
+    fn drop(&mut self) {}
+}
+
+struct Shown<T> {
+    value: T,
+}
+
+impl<T: Show> Drop for Shown<T> { //~ ERROR E0349 `Drop` impl requires bounds the type does not require
+    fn drop(&mut self) {}
+}
+
+struct D {
+    id: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+fn Both<T: Copy>(x: T) -> (T, T) {
+    (x, x)
+}
+
+fn Main() {
+    let pair = Both(Token { id: 1 }); //~ ERROR E0341 the trait bound `Token: Copy` is not satisfied
+    let mut d = D { id: 2 };
+    Drop::drop(&mut d); //~ ERROR E0323 explicit use of destructor method
+}

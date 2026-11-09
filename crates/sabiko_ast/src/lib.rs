@@ -195,9 +195,8 @@ pub struct ImplDecl {
     /// (`impl<T> Pair<T, T>` is not supported: each must be one of the type's own,
     /// decision 83). Empty for a block that is not generic.
     pub generics: Vec<GenericParam>,
-    /// The trait of a trait impl (`impl Show for i32`); `None` for an inherent impl.
-    /// `Drop` is still a language item (decision 46) unless the file defines a trait of
-    /// that name.
+    /// The trait of a trait impl (`impl Show for i32`, `impl Drop for S`); `None` for an
+    /// inherent impl.
     pub trait_ref: Option<TraitRef>,
     /// The implemented type as written: a path naming a struct (or `Self`) in a valid
     /// program.
