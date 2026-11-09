@@ -1,0 +1,25 @@
+// A reference a trait method returns borrows its receiver.
+trait Cell {
+    fn Get(&self) -> &i32;
+    fn Set(&mut self, v: i32);
+}
+
+struct Slot {
+    V: i32,
+}
+
+impl Cell for Slot {
+    fn Get(&self) -> &i32 {
+        &self.V
+    }
+    fn Set(&mut self, v: i32) {
+        self.V = v;
+    }
+}
+
+fn Main() {
+    let mut s = Slot { V: 1 };
+    let r = s.Get();
+    s.Set(2);
+    PrintLine(*r);
+}

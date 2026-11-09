@@ -11,6 +11,7 @@ pub mod collect;
 pub mod consts;
 pub mod infer;
 mod patterns;
+pub mod traits;
 pub mod ty;
 pub mod usefulness;
 
@@ -18,13 +19,15 @@ use std::collections::HashMap;
 
 pub use check::{rest_positions, BodyTypes, FieldAccess, MethodCallee, PatConst};
 pub use collect::{
-    is_printable, print_derefs, AdtDef, FieldDef, FnSig, ItemTypes, VariantDef, VariantKind,
+    is_printable, print_derefs, AdtDef, FieldDef, FnSig, ImplDef, ItemTypes, TraitDef, VariantDef,
+    VariantKind,
 };
 pub use consts::ConstValue;
 pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{DefId, PrimTy, ResolveResults};
+pub use traits::Solution;
 pub use ty::{Mutability, Ty, TyVid};
 
 #[derive(Clone, Debug, Default)]
@@ -134,7 +137,7 @@ pub fn typeck(
 }
 
 /// Checks and evaluates every array length written in an item signature (parameter and
-/// return types, fields, constant types), in source order.
+/// return types, fields, constant types, the types of `impl` blocks), in source order.
 fn signature_lens(
     file: &SourceFile,
     resolve: &ResolveResults,
@@ -166,7 +169,8 @@ fn signature_lens(
                 }
             }
             ItemKind::Const(c) => types.push(&c.ty),
-            ItemKind::Impl(_) => {}
+            ItemKind::Impl(imp) => types.push(&imp.self_ty),
+            ItemKind::Trait(_) => {}
         }
     }
     let mut lens = collect::ArrayLens::new();

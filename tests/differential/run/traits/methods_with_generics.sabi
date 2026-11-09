@@ -1,0 +1,48 @@
+// Trait methods with type parameters of their own, and `Self` in signatures.
+trait Merge {
+    fn Merge(&self, other: &Self) -> Self;
+    fn With<T: Merge>(&self, x: &T, y: &T) -> T {
+        x.Merge(y)
+    }
+    fn Copied(&self) -> Self;
+}
+
+#[derive(Clone, Copy)]
+struct Pt {
+    X: i32,
+    Y: i32,
+}
+
+impl Merge for Pt {
+    fn Merge(&self, other: &Pt) -> Pt {
+        Pt { X: self.X + other.X, Y: self.Y + other.Y }
+    }
+    fn Copied(&self) -> Self {
+        *self
+    }
+}
+
+impl Merge for i32 {
+    fn Merge(&self, other: &Self) -> Self {
+        *self * 100 + *other
+    }
+    fn Copied(&self) -> i32 {
+        *self
+    }
+}
+
+fn Fold<T: Merge>(a: &T, b: &T, c: &T) -> T {
+    a.Merge(b).Merge(c)
+}
+
+fn Main() {
+    let p = Fold(&Pt { X: 1, Y: 2 }, &Pt { X: 3, Y: 4 }, &Pt { X: 5, Y: 6 });
+    Print(p.X);
+    Print(" ");
+    PrintLine(p.Y);
+    PrintLine(Fold(&1, &2, &3));
+    PrintLine(p.With(&4, &5));
+    let q = p.Copied();
+    PrintLine(q.X);
+    PrintLine(7.Copied());
+}

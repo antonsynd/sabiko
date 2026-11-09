@@ -685,7 +685,7 @@ fn variant() -> impl Strategy<Value = Variant> {
     )
 }
 
-/// Zero to two generic parameters.
+/// Zero to two generic parameters, without bounds (a struct's or an enum's).
 fn generic_params() -> impl Strategy<Value = Vec<GenericParam>> {
     prop::collection::vec(name(), 0..3).prop_map(|names| {
         names
@@ -693,8 +693,80 @@ fn generic_params() -> impl Strategy<Value = Vec<GenericParam>> {
             .map(|n| GenericParam {
                 id: ID,
                 name: ident(n),
+                bounds: vec![],
             })
             .collect()
+    })
+}
+
+/// Zero to two traits of a bound.
+fn bounds() -> impl Strategy<Value = Vec<TraitRef>> {
+    prop::collection::vec(name(), 0..3).prop_map(|names| {
+        names
+            .iter()
+            .map(|n| TraitRef {
+                id: ID,
+                path: path(n),
+            })
+            .collect()
+    })
+}
+
+/// Zero to two generic parameters, each with zero to two bounds.
+fn bounded_params() -> impl Strategy<Value = Vec<GenericParam>> {
+    prop::collection::vec((name(), bounds()), 0..3).prop_map(|params| {
+        params
+            .into_iter()
+            .map(|(n, bounds)| GenericParam {
+                id: ID,
+                name: ident(&n),
+                bounds,
+            })
+            .collect()
+    })
+}
+
+/// A `where` clause of zero to two predicates, each with at least one bound.
+fn where_clause() -> impl Strategy<Value = Vec<WherePredicate>> {
+    // A path type, not `ty()`: a full type here deepens every function's strategy enough
+    // to overflow a test thread's stack on macOS.
+    let path_ty = name().prop_map(|n| leaf_ty(TypeKind::Path(path(&n))));
+    prop::collection::vec((path_ty, name(), bounds()), 0..3).prop_map(|preds| {
+        preds
+            .into_iter()
+            .map(|(ty, first, mut rest)| {
+                rest.insert(
+                    0,
+                    TraitRef {
+                        id: ID,
+                        path: path(&first),
+                    },
+                );
+                WherePredicate {
+                    ty,
+                    bounds: rest,
+                    span: SP,
+                }
+            })
+            .collect()
+    })
+}
+
+/// A member of an `impl` block (`trait_items` false) or a trait: a function, which in a
+/// trait may have no body.
+fn member(in_trait: bool) -> impl Strategy<Value = Item> {
+    (meta(), fn_decl(true), any::<bool>()).prop_map(move |((attrs, docs, vis), mut f, bodyless)| {
+        if in_trait && bodyless {
+            f.body = None;
+        }
+        Item {
+            id: ID,
+            attrs,
+            docs,
+            vis,
+            kind: ItemKind::Fn(f),
+            span: SP,
+        }
     })
 }
 
@@ -715,30 +787,31 @@ fn item() -> impl Strategy<Value = Item> {
             }),
         fn_decl(false).prop_map(ItemKind::Fn),
         (
-            any::<bool>(),
-            generic_params(),
+            prop::option::of(name()),
+            bounded_params(),
             ty(),
-            prop::collection::vec((meta(), fn_decl(true)), 0..3)
+            where_clause(),
+            prop::collection::vec(member(false), 0..3)
         )
-            .prop_map(
-                |(is_drop, generics, self_ty, members)| ItemKind::Impl(ImplDecl {
+            .prop_map(|(trait_name, generics, self_ty, where_clause, items)| {
+                ItemKind::Impl(ImplDecl {
                     generics,
-                    // `impl Drop for T`, the one trait impl (decision 46).
-                    trait_ref: is_drop.then(|| ident("Drop")),
+                    trait_ref: trait_name.map(|n| TraitRef {
+                        id: ID,
+                        path: path(&n),
+                    }),
                     self_ty,
-                    items: members
-                        .into_iter()
-                        .map(|((attrs, docs, vis), f)| Item {
-                            id: ID,
-                            attrs,
-                            docs,
-                            vis,
-                            kind: ItemKind::Fn(f),
-                            span: SP,
-                        })
-                        .collect(),
+                    where_clause,
+                    items,
                 })
-            ),
+            }),
+        (name(), bounds(), prop::collection::vec(member(true), 0..3)).prop_map(
+            |(n, supertraits, items)| ItemKind::Trait(TraitDecl {
+                name: ident(&n),
+                supertraits,
+                items,
+            })
+        ),
         (
             name(),
             generic_params(),
@@ -814,38 +887,35 @@ fn fn_decl(methods: bool) -> impl Strategy<Value = FnDecl> {
         Just(None).boxed()
     };
     (
-        (name(), prop::collection::vec(name(), 0..3)),
+        (name(), bounded_params()),
         self_param,
         prop::collection::vec((pat(), ty()), 0..3),
-        prop::option::of(ty()),
+        (prop::option::of(ty()), where_clause()),
         block_with(expr().boxed()),
     )
-        .prop_map(|((n, generics), self_kind, params, ret, body)| FnDecl {
-            name: ident(&n),
-            generics: generics
-                .iter()
-                .map(|g| GenericParam {
+        .prop_map(
+            |((n, generics), self_kind, params, (ret, where_clause), body)| FnDecl {
+                name: ident(&n),
+                generics,
+                self_param: self_kind.map(|kind| SelfParam {
                     id: ID,
-                    name: ident(g),
-                })
-                .collect(),
-            self_param: self_kind.map(|kind| SelfParam {
-                id: ID,
-                kind,
-                span: SP,
-            }),
-            params: params
-                .into_iter()
-                .map(|(pat, ty)| Param {
-                    id: ID,
-                    pat,
-                    ty,
+                    kind,
                     span: SP,
-                })
-                .collect(),
-            ret,
-            body,
-        })
+                }),
+                params: params
+                    .into_iter()
+                    .map(|(pat, ty)| Param {
+                        id: ID,
+                        pat,
+                        ty,
+                        span: SP,
+                    })
+                    .collect(),
+                ret,
+                where_clause,
+                body: Some(body),
+            },
+        )
 }
 
 fn source_file() -> impl Strategy<Value = SourceFile> {
@@ -990,9 +1060,14 @@ fn strip_parens_file(f: &mut SourceFile) {
 
 fn strip_parens_item(item: &mut Item) {
     match &mut item.kind {
-        ItemKind::Fn(func) => strip_parens_block(&mut func.body),
+        ItemKind::Fn(func) => {
+            if let Some(body) = &mut func.body {
+                strip_parens_block(body);
+            }
+        }
         ItemKind::Const(c) => strip_parens_expr(&mut c.value),
         ItemKind::Impl(imp) => imp.items.iter_mut().for_each(strip_parens_item),
+        ItemKind::Trait(t) => t.items.iter_mut().for_each(strip_parens_item),
         ItemKind::Enum(e) => e
             .variants
             .iter_mut()
@@ -1002,21 +1077,43 @@ fn strip_parens_item(item: &mut Item) {
     }
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
-
-    #[test]
-    fn pretty_then_parse_is_identity(mut file in source_file()) {
-        strip_parens_file(&mut file);
-        let src = pretty(&file);
-        let mut sink = DiagnosticSink::new();
-        let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
-        prop_assert!(!sink.has_errors(), "diagnostics on printed source:\n{src}\n{:#?}", sink.diagnostics());
-        strip_parens_file(&mut parsed);
-        prop_assert_eq!(dump(&parsed), dump(&file), "source:\n{}", src);
-        // Fixpoint: printing the parsed tree reproduces the text.
-        prop_assert_eq!(pretty(&parsed), src);
-    }
+/// Prints a generated file, parses it back, and checks that the trees agree and that the
+/// printed text is a fixpoint. Run on a thread with a stack of its own: the generated
+/// trees and the strategies building them are deep enough to overflow a default 2 MiB test
+/// thread now and then (debug builds on macOS have the largest frames).
+#[test]
+fn pretty_then_parse_is_identity() {
+    let run = || {
+        let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+            cases: 256,
+            ..ProptestConfig::default()
+        });
+        let result = runner.run(&source_file(), |mut file| {
+            strip_parens_file(&mut file);
+            let src = pretty(&file);
+            let mut sink = DiagnosticSink::new();
+            let mut parsed = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
+            prop_assert!(
+                !sink.has_errors(),
+                "diagnostics on printed source:\n{src}\n{:#?}",
+                sink.diagnostics()
+            );
+            strip_parens_file(&mut parsed);
+            prop_assert_eq!(dump(&parsed), dump(&file), "source:\n{}", src);
+            // Fixpoint: printing the parsed tree reproduces the text.
+            prop_assert_eq!(pretty(&parsed), src);
+            Ok(())
+        });
+        if let Err(e) = result {
+            panic!("{e}");
+        }
+    };
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(run)
+        .expect("spawn the property test thread")
+        .join()
+        .expect("the property test passes");
 }
 
 /// Parses `src` (which must have no errors), prints it, and checks that the printed text
@@ -1138,12 +1235,13 @@ fn assert_tail_roundtrips(tail: Expr) {
                 self_param: None,
                 params: vec![],
                 ret: None,
-                body: Block {
+                where_clause: vec![],
+                body: Some(Block {
                     id: ID,
                     stmts: vec![],
                     tail: Some(Box::new(tail)),
                     span: SP,
-                },
+                }),
             }),
             span: SP,
         }],

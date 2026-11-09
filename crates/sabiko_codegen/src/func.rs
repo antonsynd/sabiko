@@ -3041,7 +3041,12 @@ impl FnCx<'_, '_> {
                 let mut sig = self.cx.typeck.items.fn_sig(func).clone();
                 sig.inputs = sig.inputs_with(generic_args);
                 sig.output = sig.output_with(generic_args);
-                let name = sabiko_mir::mono::instance_name(self.cx.resolve, func, generic_args);
+                let name = sabiko_mir::mono::instance_name(
+                    self.cx.resolve,
+                    &self.cx.typeck.items,
+                    func,
+                    generic_args,
+                );
                 let ret = types::ret_type(self.cx, &sig.output, span);
                 let params: Vec<String> = sig
                     .inputs

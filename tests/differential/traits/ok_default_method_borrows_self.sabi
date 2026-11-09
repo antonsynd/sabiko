@@ -1,0 +1,30 @@
+// A provided method borrows `self` only for the call.
+trait Counter {
+    fn Count(&self) -> i32;
+    fn Bump(&mut self);
+    fn BumpTwice(&mut self) -> i32 {
+        self.Bump();
+        self.Bump();
+        self.Count()
+    }
+}
+
+struct C {
+    N: i32,
+}
+
+impl Counter for C {
+    fn Count(&self) -> i32 {
+        self.N
+    }
+    fn Bump(&mut self) {
+        self.N += 1;
+    }
+}
+
+fn Main() {
+    let mut c = C { N: 0 };
+    let a = c.BumpTwice();
+    let b = c.BumpTwice();
+    PrintLine(a + b);
+}

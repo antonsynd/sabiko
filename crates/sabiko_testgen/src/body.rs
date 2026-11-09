@@ -827,6 +827,9 @@ impl<'a> BodyGen<'a> {
         if self.prog.generics && depth > 0 && self.rng.chance(8) {
             return self.generic_value(ty, depth - 1);
         }
+        if self.prog.traits && depth > 0 && self.rng.chance(4) {
+            return self.trait_value(ty, depth - 1);
+        }
         if !matches!(ty, ValTy::Prim(_)) && depth >= 2 && self.rng.chance(4) {
             return self.inline_match(ty, depth);
         }
@@ -887,6 +890,59 @@ impl<'a> BodyGen<'a> {
                 Expr { text, roots }
             }
         }
+    }
+
+    /// A value of type `ty` through a trait helper (#116): `(e).Keep()`, `GenKeep::Keep(e)`
+    /// or `GenKept(e)`, the identity through a blanket implementation; for an integer, now
+    /// and then `(e).Sign()` or `GenSigns(a, b)` of `i32` or `bool` values instead, cast
+    /// to its type.
+    fn trait_value(&mut self, ty: ValTy, depth: u32) -> Expr {
+        if let ValTy::Prim(p @ Prim::Int(_)) = ty {
+            if self.rng.chance(70) {
+                let arg = if self.rng.chance(50) {
+                    ValTy::Prim(Prim::Int(IntTy::I32))
+                } else {
+                    ValTy::Prim(Prim::Bool)
+                };
+                let a = self.val_expr(arg, depth);
+                let (text, roots) = if self.rng.chance(50) {
+                    (format!("({}).Sign()", a.text), a.roots)
+                } else {
+                    let b = self.val_expr(arg, depth);
+                    let mut roots = a.roots;
+                    roots.extend(b.roots);
+                    (format!("GenSigns({}, {})", a.text, b.text), roots)
+                };
+                let text = if p == Prim::Int(IntTy::I32) {
+                    text
+                } else {
+                    format!("({text} as {})", p.name())
+                };
+                return Expr { text, roots };
+            }
+        }
+        let e = self.val_expr(ty, depth);
+        let text = match self.rng.weighted(&[40, 30, 30]) {
+            0 => format!("({}).Keep()", e.text),
+            1 => format!("GenKeep::Keep({})", e.text),
+            _ => format!("GenKept({})", e.text),
+        };
+        Expr {
+            text,
+            roots: e.roots,
+        }
+    }
+
+    /// `(&*r).KeepRef()` (#116): the shared reference `r` to an `inner` through a provided
+    /// trait method, with its loans. Reborrowed first: `r` may be a `&mut` that coerces
+    /// where a `&` is expected, but a receiver is no coercion site, and `(m).KeepRef()`
+    /// would autoref to a `&&mut T` (which rustc then deref-coerces and Sabiko does not).
+    fn kept_ref(&mut self, inner: ValTy, depth: u32) -> Option<Expr> {
+        let r = self.ref_expr(false, inner, depth)?;
+        Some(Expr {
+            text: format!("(&*{}).KeepRef()", r.text),
+            roots: r.roots,
+        })
     }
 
     fn literal(&mut self, p: Prim) -> Expr {
@@ -1119,6 +1175,9 @@ impl<'a> BodyGen<'a> {
         if depth >= 2 && self.rng.chance(2) {
             return self.str_inline_match(ValTy::Prim(p), depth);
         }
+        if self.prog.traits && matches!(p, Prim::Int(_)) && self.rng.chance(2) {
+            return self.trait_value(ValTy::Prim(p), depth - 1);
+        }
         let has_calls = !self
             .callables(|r| r == RetTy::Val(ValTy::Prim(p)))
             .is_empty();
@@ -1349,6 +1408,16 @@ impl<'a> BodyGen<'a> {
                 text,
                 roots: r.roots,
             });
+        }
+        // `(r).KeepRef()` (#116): not for strings and arrays either.
+        if prog.traits
+            && !mutable
+            && inner != ValTy::Str
+            && prog.array_of(inner).is_none()
+            && depth > 0
+            && self.rng.chance(20)
+        {
+            return self.kept_ref(inner, depth - 1);
         }
         if inner == ValTy::Str {
             // Strings are never borrowed mutably in the subset.

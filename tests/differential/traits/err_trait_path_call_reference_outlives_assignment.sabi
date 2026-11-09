@@ -1,0 +1,17 @@
+// `Trait::Method(&x)` borrows `x` like the method call does.
+trait Peek {
+    fn Peek(&self) -> &Self;
+}
+
+impl Peek for i32 {
+    fn Peek(&self) -> &Self {
+        self
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let r = Peek::Peek(&x);
+    x = 3;
+    PrintLine(*r);
+}

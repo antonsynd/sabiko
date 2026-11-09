@@ -1,0 +1,48 @@
+// Traits and trait `impl` blocks: unknown traits, names that are not traits, members a
+// trait does not declare or that are missing, and traits used as types or values.
+
+trait Show {
+    fn Show(&self) -> i32;
+    fn Twice(&self) -> i32 {
+        self.Show() * 2
+    }
+    fn Show(&self) -> bool; //~ ERROR E0200 the name `Show` is defined multiple times
+}
+
+trait Area {
+    fn Area(&self) -> i32;
+    fn Perimeter(&self) -> i32;
+}
+
+struct S;
+
+impl Missing for S {} //~ ERROR E0201 cannot find trait `Missing` in this scope
+
+impl S for i32 {} //~ ERROR E0203 expected trait, found struct `S`
+
+impl Show for S {
+    fn Show(&self) -> i32 {
+        1
+    }
+    fn Extra(&self) {} //~ ERROR E0217 method `Extra` is not a member of trait `Show`
+    fn Show(&self) -> i32 { //~ ERROR E0210 duplicate definitions with name `Show`
+        2
+    }
+}
+
+impl Area for S {} //~ ERROR E0216 not all trait items implemented, missing: `Area`, `Perimeter`
+
+fn AsType(x: Show) {} //~ ERROR E0203 expected type, found trait `Show`
+
+fn Copies<T: Copy>(x: T) {} //~ ERROR E0107 not yet supported: the `Copy` trait in a bound
+
+fn Where<T>(x: T)
+where
+    i32: Show, //~ ERROR E0107 not yet supported: a `where` clause on a type other than a type parameter
+{
+}
+
+fn Main() {
+    let v = Show; //~ ERROR E0203 expected value, found trait `Show`
+    let n = Show::Size(&S); //~ ERROR E0212 cannot find method or associated constant `Size` in trait `Show`
+}

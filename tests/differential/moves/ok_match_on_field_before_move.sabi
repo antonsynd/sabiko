@@ -1,0 +1,20 @@
+// Matching on a field before the struct moves reads it while it holds a value.
+#[derive(Copy, Clone)]
+enum Shape {
+    Ready,
+    Busy,
+}
+
+struct R {
+    F: Shape,
+}
+
+fn Main() {
+    let acc = R { F: Shape::Ready };
+    let k = match acc.F {
+        Shape::Busy => 1,
+        _ => 2,
+    };
+    let d = acc;
+    PrintLine(k);
+}

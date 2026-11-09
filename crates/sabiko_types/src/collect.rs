@@ -5,14 +5,34 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{ItemKind, NodeId, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{Builtin, DefId, DefKind, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, Predicate, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
 use crate::ty::{Mutability, Ty};
 
-/// The evaluated lengths of the array types in item signatures, keyed by the length
-/// expression's node. A length missing here failed to evaluate (and was reported).
-pub(crate) type ArrayLens = HashMap<NodeId, u64>;
+/// What lowering a type written in a signature needs besides the resolver's tables: the
+/// evaluated lengths of its array types, keyed by the length expression's node (a length
+/// missing here failed to evaluate, and was reported), and the type each trait `impl`
+/// block is for, which `Self` names in it.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ArrayLens {
+    lens: HashMap<NodeId, u64>,
+    impl_self: HashMap<DefId, Ty>,
+}
+
+impl ArrayLens {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn get(&self, len: NodeId) -> Option<&u64> {
+        self.lens.get(&len)
+    }
+
+    pub(crate) fn insert(&mut self, len: NodeId, n: u64) {
+        self.lens.insert(len, n);
+    }
+}
 
 /// Whether `Print`/`PrintLine` accept a value of type `ty`: every integer and float
 /// primitive, `bool`, `char` and `&str` (either mutability). The runtime library has one
@@ -170,6 +190,33 @@ pub enum VariantKind {
     Named,
 }
 
+/// A trait of the file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitDef {
+    pub name: String,
+    /// Its `Self` type parameter, which its members' signatures mention.
+    pub self_param: DefId,
+    /// The supertraits, as written.
+    pub supertraits: Vec<DefId>,
+    pub span: Span,
+}
+
+/// A trait `impl` block whose trait resolved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImplDef {
+    /// The block's definition (`DefKind::Impl`), its members' parent.
+    pub def: DefId,
+    pub trait_: DefId,
+    /// Its own type parameters, which `self_ty` and `preds` mention.
+    pub generics: Vec<DefId>,
+    /// The type it implements the trait for.
+    pub self_ty: Ty,
+    /// Its bounds.
+    pub preds: Vec<Predicate>,
+    /// From `impl` to the end of its type.
+    pub span: Span,
+}
+
 /// One variant of an enum.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VariantDef {
@@ -203,6 +250,14 @@ pub struct ItemTypes {
     /// The structs with drop glue: an `impl Drop` of their own or a field that has drop
     /// glue (decision 55).
     needs_drop: HashSet<DefId>,
+    traits: HashMap<DefId, TraitDef>,
+    /// The trait `impl` blocks, in source order.
+    impls: Vec<ImplDef>,
+    /// The bounds that hold in each function's signature and body: its own, its block's,
+    /// and for a trait's member `Self: Trait`. Absent when there are none.
+    param_envs: HashMap<DefId, Vec<Predicate>>,
+    /// The lengths and `impl` types to lower the types written in bodies with.
+    pub(crate) sig_cx: ArrayLens,
 }
 
 impl ItemTypes {
@@ -275,6 +330,40 @@ impl ItemTypes {
     #[must_use]
     pub fn drop_impl(&self, adt: DefId) -> Option<DefId> {
         self.drop_impls.get(&adt).copied()
+    }
+
+    /// The trait `def`, if it is one.
+    #[must_use]
+    pub fn trait_def(&self, def: DefId) -> Option<&TraitDef> {
+        self.traits.get(&def)
+    }
+
+    /// The trait `impl` blocks of the trait `tr`, in source order.
+    pub fn impls_of(&self, tr: DefId) -> impl Iterator<Item = &ImplDef> {
+        self.impls.iter().filter(move |i| i.trait_ == tr)
+    }
+
+    /// The trait `impl` block `def`, if its trait resolved.
+    #[must_use]
+    pub fn impl_def(&self, def: DefId) -> Option<&ImplDef> {
+        self.impls.iter().find(|i| i.def == def)
+    }
+
+    /// The type `Self` names in the trait `impl` block `def` (an error type when its trait
+    /// did not resolve, or it is not one).
+    #[must_use]
+    pub fn impl_self_ty(&self, def: DefId) -> Ty {
+        self.sig_cx
+            .impl_self
+            .get(&def)
+            .cloned()
+            .unwrap_or(Ty::Error)
+    }
+
+    /// The bounds that hold in the signature and body of the function `def`.
+    #[must_use]
+    pub fn param_env(&self, def: DefId) -> &[Predicate] {
+        self.param_envs.get(&def).map_or(&[], Vec::as_slice)
     }
 
     /// Whether a value of `ty` has drop glue: a struct or enum with an `impl Drop`, or a
@@ -423,6 +512,10 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLe
         TypeKind::Path(path) => match resolve.res(ty.id) {
             Res::Prim(p) => Ty::Prim(p),
             Res::Def(d) if resolve.def(d).kind == DefKind::TyParam => Ty::Param(d),
+            // `Self` in a trait `impl` block.
+            Res::Def(d) if resolve.def(d).kind == DefKind::Impl => {
+                lens.impl_self.get(&d).cloned().unwrap_or(Ty::Error)
+            }
             Res::Def(d) => adt_type(d, path, resolve, &mut |t| lower_sig_type(t, resolve, lens)),
             Res::Local(_) => unreachable!("locals never resolve in type position"),
             Res::Err => Ty::Error,
@@ -441,7 +534,7 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLe
         ),
         TypeKind::Array(elem, len) => {
             let elem = lower_sig_type(elem, resolve, lens);
-            match lens.get(&len.id) {
+            match lens.get(len.id) {
                 Some(&n) if !elem.is_error() => Ty::Array(Box::new(elem), n),
                 _ => Ty::Error,
             }
@@ -538,18 +631,25 @@ fn fn_sig(
     let mut inputs = Vec::new();
     let mut param_spans = Vec::new();
     if let Some(sp) = &f.self_param {
-        // `Self` is the struct of the `impl` block; an error type when that failed to
-        // resolve (reported with the block).
-        let self_ty = resolve.def(def).parent.map_or(Ty::Error, |adt| {
-            Ty::Adt(
-                adt,
-                resolve
-                    .generics(adt)
-                    .iter()
-                    .map(|&p| Ty::Param(p))
-                    .collect(),
-            )
-        });
+        // `Self` is the struct of an inherent `impl` block, the type of a trait `impl`
+        // block, a trait's `Self` parameter; an error type when that failed to resolve
+        // (reported with the block).
+        let self_ty =
+            resolve
+                .def(def)
+                .parent
+                .map_or(Ty::Error, |parent| match resolve.def(parent).kind {
+                    DefKind::Trait => Ty::Param(resolve.trait_self(parent)),
+                    DefKind::Impl => lens.impl_self.get(&parent).cloned().unwrap_or(Ty::Error),
+                    _ => Ty::Adt(
+                        parent,
+                        resolve
+                            .generics(parent)
+                            .iter()
+                            .map(|&p| Ty::Param(p))
+                            .collect(),
+                    ),
+                });
         inputs.push(match sp.kind {
             SelfKind::Value { .. } => self_ty,
             SelfKind::Ref { mutable } => Ty::Ref(Mutability::from_bool(mutable), Box::new(self_ty)),
@@ -588,13 +688,26 @@ pub(crate) fn collect(
     sink: &mut DiagnosticSink,
 ) -> ItemTypes {
     let mut items = ItemTypes::default();
+    // The types of the trait `impl` blocks first: `Self` names them in signatures.
+    let mut lens = lens.clone();
+    for item in &file.items {
+        if let ItemKind::Impl(imp) = &item.kind {
+            if imp.trait_ref.is_some() {
+                if let Some(def) = resolve.item_def(item.id) {
+                    let ty = lower_sig_type(&imp.self_ty, resolve, &lens);
+                    lens.impl_self.insert(def, ty);
+                }
+            }
+        }
+    }
+    let lens = &lens;
     for item in file.all_items() {
-        if let ItemKind::Impl(_) = item.kind {
+        if let ItemKind::Impl(_) | ItemKind::Trait(_) = item.kind {
             continue;
         }
         let def = resolve.def_of_item(item.id);
         match &item.kind {
-            ItemKind::Impl(_) => unreachable!("skipped above"),
+            ItemKind::Impl(_) | ItemKind::Trait(_) => unreachable!("skipped above"),
             ItemKind::Fn(f) => {
                 items
                     .fn_sigs
@@ -725,11 +838,373 @@ pub(crate) fn collect(
     for (def, c) in resolve.prim_consts() {
         items.const_tys.insert(def, crate::consts::prim_const(c).0);
     }
+    collect_traits(file, resolve, lens, &mut items, sink);
+    items.sig_cx = ArrayLens {
+        lens: HashMap::new(),
+        impl_self: lens.impl_self.clone(),
+    };
     check_recursive_structs(resolve, &items, sink);
     items.needs_drop = structs_needing_drop(resolve, &items);
     check_unused_params(resolve, &items, sink);
     check_copy_derives(resolve, &items, sink);
     items
+}
+
+/// The traits, the trait `impl` blocks and the bounds of each function, then the checks
+/// that need them all: each block's type (E0107 for one with references or unsized), its
+/// methods' signatures against its trait's (E0053, E0050, E0049, E0185/E0186, E0276), its
+/// supertraits (E0277), and that no two blocks of one trait overlap (E0215, E0119).
+fn collect_traits(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    lens: &ArrayLens,
+    items: &mut ItemTypes,
+    sink: &mut DiagnosticSink,
+) {
+    for tr in resolve.defs_of_kind(DefKind::Trait) {
+        let info = resolve.def(tr);
+        items.traits.insert(
+            tr,
+            TraitDef {
+                name: info.name.clone(),
+                self_param: resolve.trait_self(tr),
+                supertraits: resolve.supertraits(tr).to_vec(),
+                span: info.span,
+            },
+        );
+    }
+    for item in &file.items {
+        let ItemKind::Impl(imp) = &item.kind else {
+            continue;
+        };
+        let Some(def) = resolve.item_def(item.id) else {
+            continue;
+        };
+        let Some(trait_) = resolve.impl_trait(def) else {
+            continue;
+        };
+        let self_ty = lens.impl_self.get(&def).cloned().unwrap_or(Ty::Error);
+        if !check_impl_type(&self_ty, imp.self_ty.span, resolve, sink) {
+            continue;
+        }
+        items.impls.push(ImplDef {
+            def,
+            trait_,
+            generics: resolve.generics(def).to_vec(),
+            self_ty,
+            preds: resolve.predicates(def).to_vec(),
+            span: resolve.def(def).span,
+        });
+    }
+    for def in resolve.defs_of_kind(DefKind::Fn) {
+        if resolve.builtin(def).is_some() {
+            continue;
+        }
+        let mut env = resolve.predicates(def).to_vec();
+        if let Some(parent) = resolve.def(def).parent {
+            match resolve.def(parent).kind {
+                DefKind::Impl => env.extend_from_slice(resolve.predicates(parent)),
+                DefKind::Trait => env.push(Predicate {
+                    param: resolve.trait_self(parent),
+                    trait_: parent,
+                    span: resolve.def(parent).span,
+                }),
+                _ => {}
+            }
+        }
+        if !env.is_empty() {
+            items.param_envs.insert(def, env);
+        }
+    }
+    check_overlap(resolve, items, sink);
+    check_supertraits(resolve, items, sink);
+    check_impl_methods(resolve, items, sink);
+}
+
+/// A trait `impl` block's type may not hold a reference or be unsized, for now (E0107).
+fn check_impl_type(
+    ty: &Ty,
+    span: Span,
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> bool {
+    let what = if ty.has_ref() {
+        "a type that holds a reference"
+    } else if matches!(ty, Ty::Prim(PrimTy::Str) | Ty::Slice(_)) {
+        "an unsized type"
+    } else {
+        return !ty.is_error();
+    };
+    sink.emit(
+        Diagnostic::error(
+            ErrorCode::UNSUPPORTED_SYNTAX,
+            format!("not yet supported: implementing a trait for {what}"),
+        )
+        .with_label(span, format!("`{}`", ty.display(resolve)))
+        .with_note("see docs/PLAN.md"),
+    );
+    false
+}
+
+/// Two `impl` blocks of one trait whose types some type matches both (E0215, rustc's
+/// E0119), reported at the later one.
+fn check_overlap(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    for (j, later) in items.impls.iter().enumerate() {
+        for earlier in &items.impls[..j] {
+            if earlier.trait_ != later.trait_ {
+                continue;
+            }
+            let mut vars = earlier.generics.clone();
+            vars.extend(later.generics.iter().copied());
+            if !crate::traits::unify_patterns(&earlier.self_ty, &later.self_ty, &vars) {
+                continue;
+            }
+            let name = &items.traits[&later.trait_].name;
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::CONFLICTING_IMPLS,
+                    format!(
+                        "conflicting implementations of trait `{name}` for type `{}`",
+                        later.self_ty.display(resolve)
+                    ),
+                )
+                .with_label(
+                    later.span,
+                    format!(
+                        "conflicting implementation for `{}`",
+                        later.self_ty.display(resolve)
+                    ),
+                )
+                .with_label(earlier.span, "first implementation here"),
+            );
+            break;
+        }
+    }
+}
+
+/// The type of an `impl` block of a trait with supertraits must implement them (E0341,
+/// rustc's E0277), where the block's bounds hold.
+fn check_supertraits(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    for imp in &items.impls {
+        let name = &items.traits[&imp.trait_].name;
+        for &sup in &items.traits[&imp.trait_].supertraits {
+            if items.implements(&imp.self_ty, sup, &imp.preds) == crate::traits::Solution::Yes {
+                continue;
+            }
+            let ty = imp.self_ty.display(resolve);
+            let sup_name = &resolve.def(sup).name;
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNSATISFIED_BOUND,
+                    format!("the trait bound `{ty}: {sup_name}` is not satisfied"),
+                )
+                .with_label(
+                    imp.span,
+                    format!("the trait `{sup_name}` is not implemented for `{ty}`"),
+                )
+                .with_note(format!(
+                    "required by a bound in `{name}`: `trait {name}: {sup_name}`"
+                )),
+            );
+        }
+    }
+}
+
+/// Each method of a trait `impl` block must have its trait's signature, with `Self` the
+/// block's type and the trait method's type parameters the block method's: the same
+/// receiver (E0321, rustc's E0185/E0186), parameter count (E0322, E0050), number of type
+/// parameters (E0343, E0049), types (E0321, E0053), and no bound on its type parameters
+/// the trait's do not imply (E0344, E0276).
+fn check_impl_methods(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    for imp in &items.impls {
+        let trait_name = items.traits[&imp.trait_].name.clone();
+        for (i, info) in resolve.defs.iter().enumerate() {
+            if info.parent != Some(imp.def) || info.kind != DefKind::Fn {
+                continue;
+            }
+            let def = DefId(u32::try_from(i).expect("fewer than 2^32 items"));
+            let Some(decl) = resolve.trait_item(imp.trait_, &info.name) else {
+                continue;
+            };
+            check_impl_method(resolve, items, imp, &trait_name, decl, def, sink);
+        }
+    }
+}
+
+fn check_impl_method(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    imp: &ImplDef,
+    trait_name: &str,
+    decl: DefId,
+    def: DefId,
+    sink: &mut DiagnosticSink,
+) {
+    if check_impl_shape(resolve, trait_name, decl, def, items, sink) {
+        check_impl_types(resolve, items, imp, decl, def, sink);
+    }
+}
+
+/// The receiver, parameter count and number of type parameters of a trait block's method
+/// `def` against its trait's `decl`; `false` after a mismatch, which was reported.
+fn check_impl_shape(
+    resolve: &ResolveResults,
+    trait_name: &str,
+    decl: DefId,
+    def: DefId,
+    items: &ItemTypes,
+    sink: &mut DiagnosticSink,
+) -> bool {
+    let name = &resolve.def(def).name;
+    let (want, have) = (items.fn_sig(decl), items.fn_sig(def));
+    match (want.self_kind, have.self_kind) {
+        (Some(k), None) => {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::IMPL_SIGNATURE_MISMATCH,
+                    format!(
+                        "method `{name}` has a `{}` declaration in the trait, but not in the impl",
+                        k.as_str()
+                    ),
+                )
+                .with_label(have.name_span, format!("expected `{}` in impl", k.as_str()))
+                .with_label(want.name_span, format!("`{}` used in trait", k.as_str())),
+            );
+            return false;
+        }
+        (None, Some(k)) => {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::IMPL_SIGNATURE_MISMATCH,
+                    format!(
+                        "method `{name}` has a `{}` declaration in the impl, but not in the trait",
+                        k.as_str()
+                    ),
+                )
+                .with_label(
+                    have.param_spans[0],
+                    format!("`{}` used in impl", k.as_str()),
+                )
+                .with_label(want.name_span, "trait method declared without `self`"),
+            );
+            return false;
+        }
+        _ => {}
+    }
+    if want.inputs.len() != have.inputs.len() {
+        let (w, h) = (want.inputs.len(), have.inputs.len());
+        let plural = |n: usize| if n == 1 { "parameter" } else { "parameters" };
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::IMPL_PARAM_COUNT,
+                format!(
+                    "method `{name}` has {h} {} but the declaration in trait `{trait_name}::{name}` has {w}",
+                    plural(h)
+                ),
+            )
+            .with_label(have.name_span, format!("expected {w} {}, found {h}", plural(w)))
+            .with_label(want.name_span, format!("trait requires {w} {}", plural(w))),
+        );
+        return false;
+    }
+    let (w, h) = (
+        resolve.own_generics(decl).len(),
+        resolve.own_generics(def).len(),
+    );
+    if w != h {
+        let plural = |n: usize| {
+            if n == 1 {
+                "type parameter"
+            } else {
+                "type parameters"
+            }
+        };
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::IMPL_GENERIC_COUNT,
+                format!(
+                    "method `{name}` has {h} {} but its trait declaration has {w} {}",
+                    plural(h),
+                    plural(w)
+                ),
+            )
+            .with_label(have.name_span, format!("found {h} {}", plural(h)))
+            .with_label(want.name_span, format!("expected {w} {}", plural(w))),
+        );
+        return false;
+    }
+    true
+}
+
+/// The parameter and return types of a trait block's method `def` against its trait's
+/// `decl` at `Self` the block's type, and its own type parameters' bounds.
+fn check_impl_types(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    imp: &ImplDef,
+    decl: DefId,
+    def: DefId,
+    sink: &mut DiagnosticSink,
+) {
+    let name = &resolve.def(def).name;
+    let (want, have) = (items.fn_sig(decl), items.fn_sig(def));
+    let want_own = resolve.own_generics(decl);
+    let have_own = resolve.own_generics(def);
+    let mut args = vec![imp.self_ty.clone()];
+    args.extend(have_own.iter().map(|&p| Ty::Param(p)));
+    let mismatch = |span: Span, label: String, want_span: Span| {
+        Diagnostic::error(
+            ErrorCode::IMPL_SIGNATURE_MISMATCH,
+            format!("method `{name}` has an incompatible type for trait"),
+        )
+        .with_label(span, label)
+        .with_label(want_span, "type in trait")
+    };
+    for (k, (e, h)) in want.inputs_with(&args).iter().zip(&have.inputs).enumerate() {
+        if e != h && !e.is_error() && !h.is_error() {
+            let label = format!(
+                "expected `{}`, found `{}`",
+                e.display(resolve),
+                h.display(resolve)
+            );
+            sink.emit(mismatch(have.param_spans[k], label, want.param_spans[k]));
+            return;
+        }
+    }
+    let out = want.output_with(&args);
+    if out != have.output && !out.is_error() && !have.output.is_error() {
+        let label = format!(
+            "expected return type `{}`, found `{}`",
+            out.display(resolve),
+            have.output.display(resolve)
+        );
+        sink.emit(mismatch(have.name_span, label, want.name_span));
+        return;
+    }
+    // A bound of the method's own parameters must follow from the trait method's.
+    for pred in resolve.predicates(def) {
+        let Some(k) = have_own.iter().position(|&p| p == pred.param) else {
+            continue;
+        };
+        let implied = resolve.predicates(decl).iter().any(|w| {
+            w.param == want_own[k] && items.trait_closure(w.trait_).contains(&pred.trait_)
+        });
+        if !implied {
+            let bound = &resolve.def(pred.trait_).name;
+            let param = &resolve.def(pred.param).name;
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::IMPL_STRICTER_BOUNDS,
+                    "impl has stricter requirements than trait",
+                )
+                .with_label(
+                    pred.span,
+                    format!("impl has extra requirement `{param}: {bound}`"),
+                )
+                .with_label(want.name_span, "definition of the method in the trait"),
+            );
+        }
+    }
 }
 
 /// `drop` must be declared exactly `fn drop(&mut self)`: E0321 for another receiver or a
@@ -744,7 +1219,7 @@ fn check_drop_signature(
     let name = &resolve.def(adt).name;
     let incompatible = |span: Span, label: String| {
         Diagnostic::error(
-            ErrorCode::DROP_SIGNATURE_MISMATCH,
+            ErrorCode::IMPL_SIGNATURE_MISMATCH,
             "method `drop` has an incompatible type for trait `Drop`",
         )
         .with_label(span, label)
@@ -762,7 +1237,7 @@ fn check_drop_signature(
         )),
         None => sink.emit(
             Diagnostic::error(
-                ErrorCode::DROP_SIGNATURE_MISMATCH,
+                ErrorCode::IMPL_SIGNATURE_MISMATCH,
                 "method `drop` has a `&mut self` declaration in the trait, but not in the impl",
             )
             .with_label(f.name.span, "expected `&mut self` in impl"),
@@ -783,7 +1258,7 @@ fn check_drop_signature(
         let end = f.params[f.params.len() - 1].span;
         sink.emit(
             Diagnostic::error(
-                ErrorCode::DROP_PARAM_COUNT,
+                ErrorCode::IMPL_PARAM_COUNT,
                 format!(
                     "method `drop` has {found} parameters but the declaration in trait `Drop::drop` has 1"
                 ),

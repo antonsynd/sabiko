@@ -81,6 +81,10 @@ pub fn build_bodies(
         let ItemKind::Fn(f) = &item.kind else {
             continue;
         };
+        if f.body.is_none() {
+            // A required method of a trait: calls of it run an implementation's.
+            continue;
+        }
         let def = resolve.def_of_item(item.id);
         let types = typeck.body(def);
         if types.has_errors {
@@ -276,7 +280,7 @@ impl<'a> Builder<'a> {
         }
         let body = Body {
             def,
-            name: f.name.name.clone(),
+            name: crate::mono::instance_name(resolve, &typeck.items, def, &[]),
             instance: Vec::new(),
             locals,
             arg_count: f.params.len() + usize::from(f.self_param.is_some()),
@@ -315,7 +319,11 @@ impl<'a> Builder<'a> {
     }
 
     fn build(mut self, f: &FnDecl) -> Option<Body> {
-        let span = f.body.span;
+        let block = f
+            .body
+            .as_ref()
+            .expect("only functions with a body are built");
+        let span = block.span;
         // Each argument has a scope of its own, the first outermost, holding the argument
         // and the bindings of its pattern, which live for the whole body: rustc drops the
         // bindings, then the argument, the last argument first.
@@ -345,7 +353,7 @@ impl<'a> Builder<'a> {
         // The body's own temporary scope, around its block (whose tail has a scope of its
         // own inside it).
         self.push_temp_scope();
-        self.lower_block_into(&Place::local(Local::RETURN), &f.body, false);
+        self.lower_block_into(&Place::local(Local::RETURN), block, false);
         while !self.scopes.is_empty() {
             self.pop_scope(span);
         }
@@ -1041,7 +1049,13 @@ impl<'a> Builder<'a> {
 
     fn path_res(&self, expr: &Expr) -> Option<Res> {
         match &expr.kind {
-            ExprKind::Path(_) => Some(self.resolve.res(expr.id)),
+            // A trait's method the type checker chose for `Type::Name`.
+            ExprKind::Path(_) => Some(
+                self.types
+                    .path_defs
+                    .get(&expr.id)
+                    .map_or_else(|| self.resolve.res(expr.id), |&d| Res::Def(d)),
+            ),
             ExprKind::Paren(inner) => self.path_res(inner),
             _ => None,
         }
@@ -1321,7 +1335,11 @@ impl<'a> Builder<'a> {
                     DefKind::Struct | DefKind::Variant => {
                         unreachable!("a unit struct or variant is lowered by `aggregate_rvalue`")
                     }
-                    DefKind::Fn | DefKind::Enum | DefKind::TyParam => {
+                    DefKind::Fn
+                    | DefKind::Enum
+                    | DefKind::TyParam
+                    | DefKind::Trait
+                    | DefKind::Impl => {
                         unreachable!("functions, enums and type parameters as values are rejected")
                     }
                 },

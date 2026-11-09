@@ -1,0 +1,55 @@
+// Values with drop glue pass through trait methods and bounded generics, and are
+// dropped where Rust drops them.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+trait Consume {
+    fn Consume(self) -> i32;
+    fn Peek(&self) -> i32;
+}
+
+impl Consume for Noisy {
+    fn Consume(self) -> i32 {
+        PrintLine("consuming");
+        self.Id
+    }
+    fn Peek(&self) -> i32 {
+        self.Id * 10
+    }
+}
+
+struct Pair<T> {
+    A: T,
+    B: T,
+}
+
+impl<T: Consume> Consume for Pair<T> {
+    fn Consume(self) -> i32 {
+        let first = self.A.Consume();
+        first + self.B.Peek()
+    }
+    fn Peek(&self) -> i32 {
+        self.A.Peek() + self.B.Peek()
+    }
+}
+
+fn UseIt<T: Consume>(x: T) -> i32 {
+    let p = x.Peek();
+    p + x.Consume()
+}
+
+fn Main() {
+    PrintLine(UseIt(Noisy { Id: 1 }));
+    let pair = Pair { A: Noisy { Id: 2 }, B: Noisy { Id: 3 } };
+    PrintLine(pair.Peek());
+    PrintLine(UseIt(pair));
+    PrintLine("end");
+}

@@ -1,0 +1,11 @@
+// Through a bound, a method's returned reference may be read before the mutation.
+trait Cell {
+    fn Get(&self) -> &i32;
+    fn Set(&mut self, v: i32);
+}
+
+fn Bump<T: Cell>(t: &mut T) -> i32 {
+    let v = *t.Get();
+    t.Set(v + 1);
+    *t.Get()
+}

@@ -1,0 +1,72 @@
+// Generic functions call trait methods through their bounds, in `where` clauses too.
+trait Show {
+    fn Show(&self);
+}
+
+trait Count {
+    fn Count(&self) -> i32;
+    fn Zero() -> i32 {
+        0
+    }
+}
+
+impl Show for i32 {
+    fn Show(&self) {
+        Print("i32 ");
+        PrintLine(*self);
+    }
+}
+
+impl Count for i32 {
+    fn Count(&self) -> i32 {
+        *self
+    }
+}
+
+impl Show for bool {
+    fn Show(&self) {
+        Print("bool ");
+        PrintLine(*self);
+    }
+}
+
+impl Count for bool {
+    fn Count(&self) -> i32 {
+        if *self { 1 } else { 0 }
+    }
+    fn Zero() -> i32 {
+        -1
+    }
+}
+
+fn ShowTwice<T: Show>(x: &T) {
+    x.Show();
+    T::Show(x);
+}
+
+fn Total<T>(items: &[T; 3]) -> i32
+where
+    T: Count + Show,
+{
+    let mut sum = T::Zero();
+    let mut i = 0;
+    while i < 3 {
+        items[i].Show();
+        sum = sum + items[i].Count();
+        i += 1;
+    }
+    sum
+}
+
+fn Pick<A: Count, B: Count>(a: A, b: B) -> i32 {
+    Count::Count(&a) * 10 + b.Count()
+}
+
+fn Main() {
+    ShowTwice(&3);
+    ShowTwice(&true);
+    PrintLine(Total(&[1, 2, 3]));
+    PrintLine(Total(&[true, false, true]));
+    PrintLine(Pick(4, true));
+    PrintLine(Pick(false, 9));
+}

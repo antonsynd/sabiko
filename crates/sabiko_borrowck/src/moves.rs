@@ -173,7 +173,12 @@ fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
             match &statement.kind {
                 StatementKind::Assign(dest, rvalue) => {
                     f(dest);
-                    if let Rvalue::Ref(_, place) | Rvalue::Len(place) = rvalue {
+                    // A match's discriminant read is a use too: its place needs a path, or
+                    // the use of a moved value there goes unseen.
+                    if let Rvalue::Ref(_, place)
+                    | Rvalue::Len(place)
+                    | Rvalue::Discriminant(place) = rvalue
+                    {
                         f(place);
                     }
                     for_each_rvalue_operand(rvalue, |op| {

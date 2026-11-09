@@ -1,0 +1,35 @@
+// Traits (decision 84): a call of a trait's method names the trait's declaration with
+// `Self` as its first generic argument; monomorphisation points it at the implementing
+// block's method, or at the trait's provided method instantiated at `Self`.
+trait Show {
+    fn Show(&self) -> i32;
+    fn Twice(&self) -> i32 {
+        self.Show() * 2
+    }
+}
+
+impl Show for i32 {
+    fn Show(&self) -> i32 {
+        *self
+    }
+}
+
+struct Wrap<T> {
+    Inner: T,
+}
+
+impl<T: Show> Show for Wrap<T> {
+    fn Show(&self) -> i32 {
+        self.Inner.Show() + 1
+    }
+}
+
+fn Total<T: Show>(x: &T) -> i32 {
+    x.Twice() + T::Show(x)
+}
+
+fn Main() {
+    let w = Wrap { Inner: 3 };
+    let a = Total(&w);
+    let b = 4.Twice();
+}

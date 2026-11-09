@@ -1,0 +1,59 @@
+// Traits implemented for primitives, tuples and arrays; a literal takes the type of the
+// only implementation that fits it.
+trait Score {
+    fn Score(&self) -> i64;
+}
+
+impl Score for i64 {
+    fn Score(&self) -> i64 {
+        *self * 10
+    }
+}
+
+impl Score for bool {
+    fn Score(&self) -> i64 {
+        if *self { 1 } else { 0 }
+    }
+}
+
+impl Score for char {
+    fn Score(&self) -> i64 {
+        *self as i64
+    }
+}
+
+impl Score for (i64, bool) {
+    fn Score(&self) -> i64 {
+        self.0.Score() + self.1.Score()
+    }
+}
+
+impl Score for [i64; 3] {
+    fn Score(&self) -> i64 {
+        self[0] + self[1] + self[2]
+    }
+}
+
+trait Half {
+    fn Half(self) -> f64;
+}
+
+impl Half for f64 {
+    fn Half(self) -> f64 {
+        self / 2.0
+    }
+}
+
+fn Main() {
+    PrintLine(5.Score());
+    let n = 4;
+    PrintLine(n.Score());
+    PrintLine(true.Score());
+    PrintLine('A'.Score());
+    PrintLine((3, false).Score());
+    PrintLine([1, 2, 3].Score());
+    PrintLine(3.0.Half());
+    let r = &&7i64;
+    PrintLine(r.Score());
+    PrintLine(i64::Score(&2));
+}

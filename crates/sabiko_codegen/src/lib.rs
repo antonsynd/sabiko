@@ -121,7 +121,7 @@ pub fn emit_il(
     let mut module = String::new();
     let mut main: Option<&Body> = None;
     for body in bodies {
-        if resolve.def(body.def).parent.is_some() {
+        if resolve.inherent_parent(body.def).is_some() {
             // Emitted with its struct.
             continue;
         }
@@ -566,9 +566,10 @@ impl Cx<'_> {
         def: sabiko_resolve::DefId,
         generic_args: &[Ty],
     ) -> String {
-        match self.resolve.def(def).parent {
+        match self.resolve.inherent_parent(def) {
             // A function of a generic type's `impl` block takes the type's arguments first
-            // (decision 83): it lives in that instance's class.
+            // (decision 83): it lives in that instance's class. A trait's or a trait `impl`
+            // block's lives in the module class (decision 84).
             Some(adt) => {
                 let n = self
                     .resolve

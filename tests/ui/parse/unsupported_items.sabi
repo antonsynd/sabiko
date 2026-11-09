@@ -1,6 +1,6 @@
 enum Shape { Circle, Square }
 
-impl Clone for Shape { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
+trait Shaped<T> { } //~ ERROR E0107 not yet supported: generic traits
 
 fn Main() {
     PrintLine("still parsed");

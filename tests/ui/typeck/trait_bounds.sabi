@@ -1,0 +1,69 @@
+// Bounds at uses: an argument without the trait (rustc's E0277), a method a bare type
+// parameter does not have, two traits' methods that both apply (E0034), a `Self` nothing
+// decides, a supertrait the implementing type lacks, and an unsized type for a type
+// parameter, which is implicitly `Sized`.
+
+trait Show {
+    fn Show(&self) -> i32;
+}
+
+trait Name {
+    fn Name(&self) -> i32;
+}
+
+trait Label {
+    fn Name(&self) -> i32;
+}
+
+trait Make {
+    fn Make() -> Self;
+}
+
+trait Loud: Show {}
+
+impl Show for i32 {
+    fn Show(&self) -> i32 {
+        *self
+    }
+}
+
+impl Name for i32 {
+    fn Name(&self) -> i32 {
+        1
+    }
+}
+
+impl Label for i32 {
+    fn Name(&self) -> i32 {
+        2
+    }
+}
+
+impl Make for i32 {
+    fn Make() -> i32 {
+        0
+    }
+}
+
+impl Loud for bool {} //~ ERROR E0341 the trait bound `bool: Show` is not satisfied
+
+fn Need<T: Show>(x: T) -> i32 {
+    x.Show()
+}
+
+fn Bare<T>(x: &T) -> i32 {
+    x.Show() //~ ERROR E0319 no method named `Show` found for reference `&T`
+}
+
+fn ByRef<T>(x: &T) -> i32 {
+    0
+}
+
+fn Main() {
+    let f = ByRef("text"); //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    let a = Need(true); //~ ERROR E0341 the trait bound `bool: Show` is not satisfied
+    let b = 5i32.Name(); //~ ERROR E0342 multiple applicable items in scope
+    let c = bool::Show(&true); //~ ERROR E0212 no function or associated item named `Show` found for type `bool`
+    let d = Make::Make(); //~ ERROR E0313 type annotations needed
+    let e: i32 = Make::Make();
+}

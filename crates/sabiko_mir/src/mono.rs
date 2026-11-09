@@ -11,9 +11,9 @@
 use std::collections::{HashMap, HashSet};
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{DefId, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, ResolveResults};
 use sabiko_span::Span;
-use sabiko_types::{Ty, TypeckResults};
+use sabiko_types::{ItemTypes, Ty, TypeckResults};
 
 use crate::{
     AggregateKind, Body, CleanupScope, Operand, Place, PlaceElem, Rvalue, StatementKind,
@@ -42,16 +42,50 @@ fn type_length(ty: &Ty) -> usize {
 /// The name of an instance's method: the function's name, with the generic arguments
 /// (`Id<i32>`, `Swap<&str, (i32, bool)>`) when there are any. A function of a generic
 /// type's `impl` block lives in that instance's class, so only its own arguments are
-/// named (decision 83).
+/// named (decision 83). A method of a trait `impl` block, or a trait's provided method at
+/// a `Self`, is named after the type and the trait, as rustc's paths name them:
+/// `<i32 as Show>::Show` (decision 84); a provided method's generic body is `Show::Name`.
 #[must_use]
-pub fn instance_name(resolve: &ResolveResults, def: DefId, args: &[Ty]) -> String {
-    let name = &resolve.def(def).name;
-    let args = &args[resolve.parent_generic_count(def).min(args.len())..];
-    if args.is_empty() {
-        return name.clone();
+pub fn instance_name(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    def: DefId,
+    args: &[Ty],
+) -> String {
+    let info = resolve.def(def);
+    let parent_count = resolve.parent_generic_count(def).min(args.len());
+    let own = &args[parent_count..];
+    let mut name = match info.parent.map(|p| (p, resolve.def(p).kind)) {
+        Some((imp, DefKind::Impl)) => {
+            // A generic block's body before monomorphisation names its parameters.
+            let self_ty = if parent_count == resolve.generics(imp).len() {
+                items
+                    .impl_self_ty(imp)
+                    .subst(resolve.generics(imp), &args[..parent_count])
+            } else {
+                items.impl_self_ty(imp)
+            };
+            let tr = resolve
+                .impl_trait(imp)
+                .map_or("?", |t| resolve.def(t).name.as_str());
+            format!("<{} as {tr}>::{}", self_ty.display(resolve), info.name)
+        }
+        Some((tr, DefKind::Trait)) => match args.first() {
+            Some(self_ty) => format!(
+                "<{} as {}>::{}",
+                self_ty.display(resolve),
+                resolve.def(tr).name,
+                info.name
+            ),
+            None => format!("{}::{}", resolve.def(tr).name, info.name),
+        },
+        _ => info.name.clone(),
+    };
+    if !own.is_empty() {
+        let own: Vec<String> = own.iter().map(|t| t.display(resolve)).collect();
+        name = format!("{name}<{}>", own.join(", "));
     }
-    let args: Vec<String> = args.iter().map(|t| t.display(resolve)).collect();
-    format!("{name}<{}>", args.join(", "))
+    name
 }
 
 /// Replaces the generic functions' bodies with their instances. Bodies of functions that
@@ -71,10 +105,11 @@ pub fn monomorphize(
     };
     let mut generic: HashMap<DefId, Body> = HashMap::new();
     let mut out = Vec::new();
-    for body in bodies {
+    for mut body in bodies {
         if is_generic(body.def) {
             generic.insert(body.def, body);
         } else {
+            resolve_trait_calls(&mut body, resolve, typeck);
             out.push(body);
         }
     }
@@ -94,7 +129,10 @@ pub fn monomorphize(
             let length: usize = args.iter().map(type_length).sum();
             if depth > RECURSION_LIMIT || length > TYPE_LENGTH_LIMIT {
                 let (limit, shown) = if depth > RECURSION_LIMIT {
-                    ("recursion", instance_name(resolve, def, &args))
+                    (
+                        "recursion",
+                        instance_name(resolve, &typeck.items, def, &args),
+                    )
                 } else {
                     // Too long to print.
                     ("type-length", resolve.def(def).name.clone())
@@ -137,6 +175,28 @@ pub fn monomorphize(
         }
         if queue.len() == before {
             return out;
+        }
+    }
+}
+
+/// Points each call of a trait's method in `body`, whose generic arguments are concrete,
+/// at the method that runs: the implementing block's, or the trait's provided one
+/// (decision 84). A call of a block's method that is not generic then names no instance.
+fn resolve_trait_calls(body: &mut Body, resolve: &ResolveResults, typeck: &TypeckResults) {
+    for data in &mut body.blocks {
+        let term = data.terminator.as_mut().expect("block has a terminator");
+        if let TerminatorKind::Call {
+            func, generic_args, ..
+        } = &mut term.kind
+        {
+            if generic_args.is_empty() || generic_args.iter().any(Ty::has_param) {
+                continue;
+            }
+            let (f, args) = typeck
+                .items
+                .resolve_trait_call(resolve, *func, generic_args);
+            *func = f;
+            *generic_args = args;
         }
     }
 }
@@ -281,7 +341,8 @@ fn instantiate(
     }
     prune_cleanups(&mut body, typeck);
     copy_copy_operands(&mut body, typeck);
-    body.name = instance_name(resolve, template.def, args);
+    resolve_trait_calls(&mut body, resolve, typeck);
+    body.name = instance_name(resolve, &typeck.items, template.def, args);
     body.instance = args.to_vec();
     body
 }

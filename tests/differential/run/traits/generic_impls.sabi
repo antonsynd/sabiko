@@ -1,0 +1,64 @@
+// Implementations for generic types, bounded by the parameters' implementations, and a
+// blanket implementation for every type with a bound.
+trait Weight {
+    fn Weight(&self) -> i32;
+}
+
+trait Heavy {
+    fn IsHeavy(&self) -> bool;
+}
+
+struct Boxed<T> {
+    Inner: T,
+}
+
+enum Maybe<T> {
+    Nothing,
+    Just(T),
+}
+
+impl Weight for i32 {
+    fn Weight(&self) -> i32 {
+        *self
+    }
+}
+
+impl<T: Weight> Weight for Boxed<T> {
+    fn Weight(&self) -> i32 {
+        self.Inner.Weight() + 1
+    }
+}
+
+impl<T: Weight> Weight for Maybe<T> {
+    fn Weight(&self) -> i32 {
+        match self {
+            Maybe::Nothing => 0,
+            Maybe::Just(x) => x.Weight(),
+        }
+    }
+}
+
+impl<A: Weight, B: Weight> Weight for (A, B) {
+    fn Weight(&self) -> i32 {
+        self.0.Weight() * self.1.Weight()
+    }
+}
+
+impl<T: Weight> Heavy for T {
+    fn IsHeavy(&self) -> bool {
+        self.Weight() > 10
+    }
+}
+
+fn Main() {
+    let b = Boxed { Inner: Boxed { Inner: 5 } };
+    PrintLine(b.Weight());
+    PrintLine(b.IsHeavy());
+    let m: Maybe<Boxed<i32>> = Maybe::Just(Boxed { Inner: 20 });
+    PrintLine(m.Weight());
+    PrintLine(m.IsHeavy());
+    let n: Maybe<i32> = Maybe::Nothing;
+    PrintLine(n.Weight());
+    PrintLine((3, Boxed { Inner: 4 }).Weight());
+    PrintLine(30.IsHeavy());
+}

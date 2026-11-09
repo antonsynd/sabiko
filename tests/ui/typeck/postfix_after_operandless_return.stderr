@@ -5,7 +5,7 @@
     │            ─┬─  
     │             ╰─── method not found
     │ 
-    │ Note: only structs have methods (inherent `impl` blocks)
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ────╯
 [E0301] Error: no field `Len` on type `!`
     ╭─[ tests/ui/typeck/postfix_after_operandless_return.sabi:15:23 ]

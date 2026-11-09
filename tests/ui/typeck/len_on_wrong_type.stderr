@@ -5,7 +5,7 @@
     │               ─┬─  
     │                ╰─── method not found
     │ 
-    │ Note: only structs have methods (inherent `impl` blocks)
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ────╯
 [E0319] Error: no method named `len` found for struct `P`
     ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:13:15 ]

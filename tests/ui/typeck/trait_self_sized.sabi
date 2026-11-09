@@ -1,0 +1,22 @@
+// In a trait's provided method `Self` may be unsized, as in rustc: it is taken and
+// returned behind a reference. A required method may take or return it by value.
+
+trait Make {
+    fn Make() -> Self;
+    fn Id(self) -> Self; // required: fine
+    fn Twice(self) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        2
+    }
+    fn Again() -> Self { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        Self::Make()
+    }
+    fn Pair() -> i32 {
+        let both = (Self::Make(), 1); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        both.1
+    }
+    fn Peek(&self) -> &Self {
+        self
+    }
+}
+
+fn Main() {}

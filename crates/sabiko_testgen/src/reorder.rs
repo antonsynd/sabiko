@@ -95,8 +95,11 @@ pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
             lines: &lines,
             pairs: &mut pairs,
         };
-        cx.collect_address_taken_block(&f.body);
-        cx.visit_block(&f.body);
+        let Some(body) = &f.body else {
+            continue;
+        };
+        cx.collect_address_taken_block(body);
+        cx.visit_block(body);
     }
     pairs.sort_unstable();
     pairs.dedup();

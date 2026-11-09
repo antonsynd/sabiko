@@ -170,8 +170,14 @@ pub enum DefKind {
     /// named `E::V` (or `Self::V`).
     Variant,
     /// A generic type parameter; its `parent` is the function that declares it. Only in
-    /// scope in that function's signature and body.
+    /// scope in that function's signature and body. A trait's `Self` is one too, with the
+    /// trait as parent.
     TyParam,
+    /// `trait Name { .. }`, in the item namespace. Its members have it as parent.
+    Trait,
+    /// A trait `impl` block (`impl Show for i32`), not in any namespace: its members have
+    /// it as parent, and its type parameters are its own (`impl<T> Show for Wrap<T>`).
+    Impl,
 }
 
 impl DefKind {
@@ -184,6 +190,8 @@ impl DefKind {
             Self::Enum => "enum",
             Self::Variant => "variant",
             Self::TyParam => "type parameter",
+            Self::Trait => "trait",
+            Self::Impl => "implementation",
         }
     }
 
@@ -319,6 +327,16 @@ pub struct LocalInfo {
     pub is_param: bool,
 }
 
+/// A bound on a type parameter, `param: trait_`: written after the parameter (`T: Show`),
+/// in a `where` clause, or implied (a trait's `Self` implements the trait).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Predicate {
+    pub param: DefId,
+    pub trait_: DefId,
+    /// The trait's path in the bound.
+    pub span: Span,
+}
+
 /// What a path resolved to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Res {
@@ -357,6 +375,24 @@ pub struct ResolveResults {
     drop_impls: HashMap<DefId, DefId>,
     /// The variants of each enum, in declaration order.
     variants: HashMap<DefId, Vec<DefId>>,
+    /// The members of each trait, in declaration order.
+    trait_members: HashMap<DefId, Vec<DefId>>,
+    /// The required methods of the traits (declared without a body).
+    required: std::collections::HashSet<DefId>,
+    /// The supertraits of each trait, as written.
+    supertraits: HashMap<DefId, Vec<DefId>>,
+    /// The trait each trait `impl` block implements (by the block's definition); absent
+    /// when it did not resolve.
+    impl_traits: HashMap<DefId, DefId>,
+    /// The members of each trait `impl` block, by name.
+    impl_items: HashMap<(DefId, String), DefId>,
+    /// The bounds of each function (with those of its inherent `impl` block), trait
+    /// `impl` block and trait method, as written.
+    predicates: HashMap<DefId, Vec<Predicate>>,
+    /// For a path expression `A::Name` that names a trait's member: what `A` names in a
+    /// type (a struct, a primitive, a type parameter, a trait `impl` block for `Self`), or
+    /// the trait itself for `Trait::Name`. The type checker takes `Self` from it.
+    assoc_self: HashMap<NodeId, Res>,
     /// Identifier patterns that name a constant or a unit struct instead of binding
     /// (`LIMIT => ..`), and the path of every path, tuple-struct and struct pattern, keyed
     /// by the `Pat` node.
@@ -374,6 +410,13 @@ impl ResolveResults {
     #[must_use]
     pub fn def_of_item(&self, item: NodeId) -> DefId {
         self.item_defs[&item]
+    }
+
+    /// The definition an item node introduced, if any: `None` for an inherent `impl`
+    /// block or `impl Drop` (a trait `impl` block has one).
+    #[must_use]
+    pub fn item_def(&self, item: NodeId) -> Option<DefId> {
+        self.item_defs.get(&item).copied()
     }
 
     /// The AST item of a user definition (a member of an `impl` block for an associated
@@ -463,6 +506,91 @@ impl ResolveResults {
         self.drop_impls.values().any(|&d| d == def)
     }
 
+    /// The members of the trait `def`, in declaration order.
+    #[must_use]
+    pub fn trait_members(&self, def: DefId) -> &[DefId] {
+        self.trait_members.get(&def).map_or(&[], Vec::as_slice)
+    }
+
+    /// The member `name` of the trait `def`.
+    #[must_use]
+    pub fn trait_item(&self, def: DefId, name: &str) -> Option<DefId> {
+        self.trait_members(def)
+            .iter()
+            .copied()
+            .find(|&m| self.def(m).name == name)
+    }
+
+    /// Every trait member named `name`, in source order: the candidates of `Type::Name`.
+    #[must_use]
+    pub fn trait_items_named(&self, name: &str) -> Vec<DefId> {
+        let mut out: Vec<DefId> = self
+            .trait_members
+            .values()
+            .flatten()
+            .copied()
+            .filter(|&m| self.def(m).name == name)
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Whether `def` is a method a trait declares without a body.
+    #[must_use]
+    pub fn is_required(&self, def: DefId) -> bool {
+        self.required.contains(&def)
+    }
+
+    /// The `Self` type parameter of the trait `def`.
+    #[must_use]
+    pub fn trait_self(&self, def: DefId) -> DefId {
+        self.generics(def)[0]
+    }
+
+    /// The supertraits of the trait `def`, as written.
+    #[must_use]
+    pub fn supertraits(&self, def: DefId) -> &[DefId] {
+        self.supertraits.get(&def).map_or(&[], Vec::as_slice)
+    }
+
+    /// The trait the trait `impl` block `def` implements.
+    #[must_use]
+    pub fn impl_trait(&self, def: DefId) -> Option<DefId> {
+        self.impl_traits.get(&def).copied()
+    }
+
+    /// The member `name` of the trait `impl` block `def`.
+    #[must_use]
+    pub fn impl_item(&self, def: DefId, name: &str) -> Option<DefId> {
+        self.impl_items.get(&(def, name.to_owned())).copied()
+    }
+
+    /// The bounds written on a function (and its inherent `impl` block), a trait `impl`
+    /// block or a trait method; not the implied `Self: Trait` of a trait's members.
+    #[must_use]
+    pub fn predicates(&self, def: DefId) -> &[Predicate] {
+        self.predicates.get(&def).map_or(&[], Vec::as_slice)
+    }
+
+    /// What the first segment of the path expression `expr` names, when the path names a
+    /// trait's member (see the field).
+    #[must_use]
+    pub fn assoc_self(&self, expr: NodeId) -> Option<Res> {
+        self.assoc_self.get(&expr).copied()
+    }
+
+    /// The kind of the definition `def`'s parent, if it has one.
+    #[must_use]
+    pub fn parent_kind(&self, def: DefId) -> Option<DefKind> {
+        self.def(def).parent.map(|p| self.def(p).kind)
+    }
+
+    /// The struct or enum whose inherent `impl` block `def` is a member of.
+    #[must_use]
+    pub fn inherent_parent(&self, def: DefId) -> Option<DefId> {
+        self.def(def).parent.filter(|&p| self.def(p).kind.is_type())
+    }
+
     /// The variants of the enum `def`, in declaration order (empty for anything else).
     #[must_use]
     pub fn variants(&self, def: DefId) -> &[DefId] {
@@ -550,10 +678,14 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
         impl_params: HashMap::new(),
         impl_scope: ImplScope::Outside,
         const_floor: None,
+        impl_adts: HashMap::new(),
+        assoc_self: None,
     };
     r.collect_items(file);
+    r.collect_impl_defs(file);
     r.collect_generics(file);
     r.collect_impls(file);
+    r.collect_bounds(file);
     for (index, item) in file.items.iter().enumerate() {
         r.resolve_item(item, index);
     }
@@ -590,6 +722,12 @@ struct Resolver<'d> {
     /// Inside an array length or repeat count (a constant of its own, rustc's anonymous
     /// constant): the number of scopes outside it, whose locals cannot be used there.
     const_floor: Option<usize>,
+    /// The struct or enum each trait `impl` block's type names, if it names one: what
+    /// `Self::Variant` and `Self { .. }` mean in it.
+    impl_adts: HashMap<DefId, Option<DefId>>,
+    /// Set by `resolve_assoc_path` when the path names a trait's member: what its first
+    /// segment names (see `ResolveResults::assoc_self`).
+    assoc_self: Option<Res>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -598,6 +736,10 @@ enum ImplScope {
     /// An `impl` block whose type did not resolve (already reported).
     Unresolved,
     Struct(DefId),
+    /// A trait's members: `Self` is the trait's `Self` parameter.
+    Trait(DefId),
+    /// A trait `impl` block: `Self` is its type.
+    TraitImpl(DefId),
 }
 
 impl Resolver<'_> {
@@ -614,6 +756,7 @@ impl Resolver<'_> {
                 ItemKind::Struct(_) => DefKind::Struct,
                 ItemKind::Const(_) => DefKind::Const,
                 ItemKind::Enum(_) => DefKind::Enum,
+                ItemKind::Trait(_) => DefKind::Trait,
                 ItemKind::Impl(imp) => {
                     // The members are definitions of their own, in source order, but not in
                     // the item namespace: they are reached as `Type::Name` or as methods.
@@ -652,6 +795,9 @@ impl Resolver<'_> {
             self.results.item_defs.insert(item.id, id);
             if let ItemKind::Enum(e) = &item.kind {
                 self.collect_variants(id, index, e);
+            }
+            if let ItemKind::Trait(t) = &item.kind {
+                self.collect_trait_members(id, index, t);
             }
             if let ItemKind::Struct(sabiko_ast::StructDecl {
                 kind: StructKind::Unit,
@@ -698,6 +844,93 @@ impl Resolver<'_> {
         }
     }
 
+    /// The members of the trait `tr`, each a definition with the trait as parent. A second
+    /// member of one name is E0210 (rustc's E0428) and gets no entry among its members.
+    fn collect_trait_members(&mut self, tr: DefId, index: usize, t: &sabiko_ast::TraitDecl) {
+        let mut members: Vec<DefId> = Vec::new();
+        for (member_index, member) in t.items.iter().enumerate() {
+            let ItemKind::Fn(f) = &member.kind else {
+                continue;
+            };
+            let id = self.new_def(DefInfo {
+                kind: DefKind::Fn,
+                name: f.name.name.clone(),
+                span: f.name.span,
+                node: member.id,
+                item_index: index,
+                member_index: Some(member_index),
+                parent: Some(tr),
+                builtin: None,
+            });
+            self.results.item_defs.insert(member.id, id);
+            if f.body.is_none() {
+                self.results.required.insert(id);
+            }
+            if let Some(&prev) = members
+                .iter()
+                .find(|&&m| self.results.def(m).name == f.name.name)
+            {
+                let prev_span = self.results.def(prev).span;
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_DEFINITION,
+                        format!("the name `{}` is defined multiple times", f.name.name),
+                    )
+                    .with_label(f.name.span, format!("`{}` redefined here", f.name.name))
+                    .with_label(
+                        prev_span,
+                        format!("previous definition of `{}` here", f.name.name),
+                    )
+                    .with_note("a trait's members must have distinct names"),
+                );
+                continue;
+            }
+            members.push(id);
+        }
+        self.results.trait_members.insert(tr, members);
+    }
+
+    /// Whether the trait of an `impl` header is the `Drop` language item (decision 46):
+    /// `Drop`, when the file defines no item of that name.
+    fn is_lang_drop(&self, tr: &sabiko_ast::TraitRef) -> bool {
+        tr.path.is_single()
+            && tr.path.generic_args.is_empty()
+            && tr.path.segments[0].name == "Drop"
+            && !self.items.contains_key("Drop")
+    }
+
+    /// A definition for every trait `impl` block, made after every item so the items keep
+    /// their `DefId`s. `impl Drop` is not one (decision 46).
+    fn collect_impl_defs(&mut self, file: &SourceFile) {
+        for (index, item) in file.items.iter().enumerate() {
+            let ItemKind::Impl(imp) = &item.kind else {
+                continue;
+            };
+            let Some(tr) = &imp.trait_ref else {
+                continue;
+            };
+            if self.is_lang_drop(tr) {
+                continue;
+            }
+            let name = format!(
+                "<{} as {}>",
+                sabiko_ast::pretty::type_str(&imp.self_ty),
+                sabiko_ast::dump::path_text(&tr.path, "")
+            );
+            let id = self.new_def(DefInfo {
+                kind: DefKind::Impl,
+                name,
+                span: Span::new(item.span.file, item.span.start, imp.self_ty.span.end),
+                node: item.id,
+                item_index: index,
+                member_index: None,
+                parent: None,
+                builtin: None,
+            });
+            self.results.item_defs.insert(item.id, id);
+        }
+    }
+
     /// The type parameters of every generic function, each a definition with its function
     /// as parent. They are made after every item (and builtin), so the items keep their
     /// `DefId`s. A second parameter of one name is E0221 (rustc's E0403) and gets no
@@ -709,9 +942,34 @@ impl Resolver<'_> {
                 ItemKind::Struct(st) => self.collect_params(item.id, index, &st.generics),
                 ItemKind::Enum(e) => self.collect_params(item.id, index, &e.generics),
                 ItemKind::Impl(imp) => {
+                    if self.results.item_defs.contains_key(&item.id) {
+                        // A trait impl's parameters are its own.
+                        self.collect_params(item.id, index, &imp.generics);
+                    }
                     for member in &imp.items {
                         if let ItemKind::Fn(f) = &member.kind {
                             self.collect_params(member.id, index, &f.generics);
+                        }
+                    }
+                }
+                ItemKind::Trait(t) => {
+                    let tr = self.results.def_of_item(item.id);
+                    let self_param = self.new_def(DefInfo {
+                        kind: DefKind::TyParam,
+                        name: "Self".to_owned(),
+                        span: t.name.span,
+                        node: NodeId::DUMMY,
+                        item_index: index,
+                        member_index: None,
+                        parent: Some(tr),
+                        builtin: None,
+                    });
+                    self.results.generics.insert(tr, vec![self_param]);
+                    for member in &t.items {
+                        if let ItemKind::Fn(f) = &member.kind {
+                            self.collect_params(member.id, index, &f.generics);
+                            let def = self.results.def_of_item(member.id);
+                            self.inherit_generics_of(def, tr);
                         }
                     }
                 }
@@ -820,6 +1078,12 @@ impl Resolver<'_> {
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
+            if let Some(tr) = &imp.trait_ref {
+                if !self.is_lang_drop(tr) {
+                    self.collect_trait_impl(item, index, imp, tr);
+                    continue;
+                }
+            }
             let params = self.impl_param_map(imp);
             self.ty_params.clone_from(&params);
             self.impl_params.insert(index, params);
@@ -864,6 +1128,346 @@ impl Resolver<'_> {
                 );
             }
         }
+    }
+
+    /// A trait `impl` block: its trait (reported when it is no trait of the file), its type,
+    /// and its members, which get the block as parent and must be the trait's (E0217,
+    /// rustc's E0407) and include each of its required methods (E0216, E0046). Two members
+    /// of one name are E0210.
+    fn collect_trait_impl(
+        &mut self,
+        item: &Item,
+        index: usize,
+        imp: &ImplDecl,
+        tr: &sabiko_ast::TraitRef,
+    ) {
+        let imp_def = self.results.def_of_item(item.id);
+        let params: Vec<(String, DefId)> = self
+            .results
+            .generics(imp_def)
+            .iter()
+            .map(|&p| (self.results.def(p).name.clone(), p))
+            .collect();
+        self.impl_params.insert(index, params.clone());
+        self.ty_params = params;
+        let trait_ = self.resolve_trait_ref(tr);
+        self.impl_scope = ImplScope::TraitImpl(imp_def);
+        self.resolve_type(&imp.self_ty, true);
+        self.impl_scope = ImplScope::Outside;
+        self.ty_params.clear();
+        let adt = match &imp.self_ty.kind {
+            TypeKind::Path(_) => match self.results.res(imp.self_ty.id) {
+                Res::Def(d) if self.results.def(d).kind.is_type() => Some(d),
+                _ => None,
+            },
+            _ => None,
+        };
+        self.impl_adts.insert(imp_def, adt);
+        if let Some(t) = trait_ {
+            self.results.impl_traits.insert(imp_def, t);
+        }
+        let trait_name = sabiko_ast::dump::path_text(&tr.path, "");
+        for member in &imp.items {
+            let Some(ident) = member.name() else {
+                continue;
+            };
+            let def = self.results.def_of_item(member.id);
+            self.results.defs[def.0 as usize].parent = Some(imp_def);
+            self.inherit_generics_of(def, imp_def);
+            let key = (imp_def, ident.name.clone());
+            if let Some(&prev) = self.results.impl_items.get(&key) {
+                let prev_span = self.results.def(prev).span;
+                let name = &ident.name;
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::DUPLICATE_ASSOC_ITEM,
+                        format!("duplicate definitions with name `{name}`"),
+                    )
+                    .with_label(ident.span, format!("duplicate definitions for `{name}`"))
+                    .with_label(prev_span, format!("previous definition of `{name}` here")),
+                );
+                continue;
+            }
+            self.results.impl_items.insert(key, def);
+            let Some(t) = trait_ else {
+                continue;
+            };
+            let declared = self.results.trait_item(t, &ident.name);
+            let what = match &member.kind {
+                ItemKind::Const(_) => "const",
+                _ => "method",
+            };
+            if declared.is_none() || what == "const" {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::NOT_A_TRAIT_MEMBER,
+                        format!(
+                            "{what} `{}` is not a member of trait `{trait_name}`",
+                            ident.name
+                        ),
+                    )
+                    .with_label(ident.span, format!("not a member of trait `{trait_name}`")),
+                );
+            }
+        }
+        let Some(t) = trait_ else {
+            return;
+        };
+        let missing: Vec<String> = self
+            .results
+            .trait_members(t)
+            .iter()
+            .filter(|&&m| self.results.is_required(m))
+            .map(|&m| self.results.def(m).name.clone())
+            .filter(|name| self.results.impl_item(imp_def, name).is_none())
+            .collect();
+        if !missing.is_empty() {
+            let list: Vec<String> = missing.iter().map(|n| format!("`{n}`")).collect();
+            let list = list.join(", ");
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::MISSING_TRAIT_ITEMS,
+                    format!("not all trait items implemented, missing: {list}"),
+                )
+                .with_label(
+                    self.results.def(imp_def).span,
+                    format!("missing {list} in implementation"),
+                )
+                .with_label(
+                    self.results.def(t).span,
+                    format!("trait `{trait_name}` declared here"),
+                ),
+            );
+        }
+    }
+
+    /// The trait a bound, a supertrait or an `impl` header names, recorded under the
+    /// reference's node. Reports a name that is no trait of the file.
+    fn resolve_trait_ref(&mut self, tr: &sabiko_ast::TraitRef) -> Option<DefId> {
+        self.resolve_generic_args(&tr.path, true);
+        let res = if tr.path.is_single() {
+            let name = &tr.path.segments[0];
+            match self.items.get(&name.name) {
+                Some(&d) if self.results.def(d).kind == DefKind::Trait => Res::Def(d),
+                Some(&d) => {
+                    let info = self.results.def(d);
+                    let d = Diagnostic::error(
+                        ErrorCode::WRONG_NAMESPACE,
+                        format!(
+                            "expected trait, found {} `{}`",
+                            info.kind.describe(),
+                            name.name
+                        ),
+                    )
+                    .with_label(name.span, "not a trait");
+                    let d = Self::with_definition_label(d, info, &name.name);
+                    self.sink.emit(d);
+                    Res::Err
+                }
+                None if matches!(name.name.as_str(), "Copy" | "Clone" | "Drop" | "Sized") => {
+                    let note = if name.name == "Sized" {
+                        "every type parameter but a trait's `Self` is `Sized` already; see docs/PLAN.md"
+                    } else {
+                        "`Copy`, `Clone` and `Drop` become ordinary traits in Phase 6 (#116); see docs/PLAN.md"
+                    };
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::UNSUPPORTED_SYNTAX,
+                            format!(
+                                "not yet supported: the `{}` trait in a bound or an `impl` header",
+                                name.name
+                            ),
+                        )
+                        .with_label(name.span, "a language trait")
+                        .with_note(note),
+                    );
+                    Res::Err
+                }
+                None => {
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::UNRESOLVED_TYPE,
+                            format!("cannot find trait `{}` in this scope", name.name),
+                        )
+                        .with_label(name.span, "not found in this scope"),
+                    );
+                    Res::Err
+                }
+            }
+        } else {
+            self.unsupported_path(&tr.path)
+        };
+        self.check_generic_args(&tr.path, res, true);
+        self.results.res.insert(tr.id, res);
+        match res {
+            Res::Def(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    /// The bounds of every function, trait `impl` block and trait: on their type
+    /// parameters (`T: Show`), in `where` clauses (`where T: Show`), and a trait's
+    /// supertraits. An inherent `impl` block's bounds become each of its functions'.
+    fn collect_bounds(&mut self, file: &SourceFile) {
+        for (index, item) in file.items.iter().enumerate() {
+            match &item.kind {
+                ItemKind::Fn(f) => {
+                    let def = self.results.def_of_item(item.id);
+                    self.fn_bounds(def, f, &[], Vec::new());
+                }
+                ItemKind::Impl(imp) => {
+                    let params = self.impl_params.get(&index).cloned().unwrap_or_default();
+                    let trait_impl =
+                        imp.trait_ref.is_some() && self.results.item_defs.contains_key(&item.id);
+                    self.impl_scope = if trait_impl {
+                        ImplScope::TraitImpl(self.results.def_of_item(item.id))
+                    } else {
+                        ImplScope::Unresolved
+                    };
+                    self.ty_params.clone_from(&params);
+                    let mut block = self.param_bounds(&imp.generics, &params);
+                    block.extend(self.where_bounds(&imp.where_clause));
+                    let inherited = if trait_impl {
+                        let def = self.results.def_of_item(item.id);
+                        self.results.predicates.insert(def, block);
+                        Vec::new()
+                    } else {
+                        block
+                    };
+                    for member in &imp.items {
+                        if let ItemKind::Fn(f) = &member.kind {
+                            let def = self.results.def_of_item(member.id);
+                            self.fn_bounds(def, f, &params, inherited.clone());
+                        }
+                    }
+                    self.impl_scope = ImplScope::Outside;
+                }
+                ItemKind::Trait(t) => {
+                    let tr = self.results.def_of_item(item.id);
+                    let supers: Vec<DefId> = t
+                        .supertraits
+                        .iter()
+                        .filter_map(|s| self.resolve_trait_ref(s))
+                        .collect();
+                    self.results.supertraits.insert(tr, supers);
+                    self.impl_scope = ImplScope::Trait(tr);
+                    for member in &t.items {
+                        if let ItemKind::Fn(f) = &member.kind {
+                            let def = self.results.def_of_item(member.id);
+                            self.fn_bounds(def, f, &[], Vec::new());
+                        }
+                    }
+                    self.impl_scope = ImplScope::Outside;
+                }
+                ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Const(_) => {}
+            }
+        }
+        self.ty_params.clear();
+    }
+
+    /// The bounds of the function `def`: those of its block (`inherited`), of its own
+    /// type parameters and of its `where` clause, which see the block's parameters
+    /// `outer` and its own.
+    fn fn_bounds(
+        &mut self,
+        def: DefId,
+        f: &FnDecl,
+        outer: &[(String, DefId)],
+        inherited: Vec<Predicate>,
+    ) {
+        let mut params = outer.to_vec();
+        params.extend(
+            self.results
+                .own_generics(def)
+                .iter()
+                .map(|&p| (self.results.def(p).name.clone(), p)),
+        );
+        self.ty_params = params;
+        let mut preds = inherited;
+        let own: Vec<(String, DefId)> = self
+            .results
+            .own_generics(def)
+            .iter()
+            .map(|&p| (self.results.def(p).name.clone(), p))
+            .collect();
+        preds.extend(self.param_bounds(&f.generics, &own));
+        preds.extend(self.where_bounds(&f.where_clause));
+        if !preds.is_empty() {
+            self.results.predicates.insert(def, preds);
+        }
+        self.ty_params.clear();
+    }
+
+    /// The bounds written on the type parameters `generics`, whose definitions `params`
+    /// names (by name: an inherent block's parameters are its type's, decision 83).
+    fn param_bounds(
+        &mut self,
+        generics: &[sabiko_ast::GenericParam],
+        params: &[(String, DefId)],
+    ) -> Vec<Predicate> {
+        let mut preds = Vec::new();
+        for g in generics {
+            let param = params
+                .iter()
+                .find(|(n, _)| *n == g.name.name)
+                .map(|&(_, p)| p);
+            for b in &g.bounds {
+                let trait_ = self.resolve_trait_ref(b);
+                if let (Some(param), Some(trait_)) = (param, trait_) {
+                    preds.push(Predicate {
+                        param,
+                        trait_,
+                        span: b.path.span,
+                    });
+                }
+            }
+        }
+        preds
+    }
+
+    /// The bounds of a `where` clause. Its types must be type parameters for now (E0107).
+    fn where_bounds(&mut self, clause: &[sabiko_ast::WherePredicate]) -> Vec<Predicate> {
+        let mut preds = Vec::new();
+        for p in clause {
+            self.resolve_type(&p.ty, true);
+            let res = match &p.ty.kind {
+                TypeKind::Path(_) => self.results.res(p.ty.id),
+                _ => Res::Local(LocalId(u32::MAX)),
+            };
+            let param = match res {
+                Res::Def(d) if self.results.def(d).kind == DefKind::TyParam => Some(d),
+                Res::Err => None,
+                _ => {
+                    self.unsupported_where(p.ty.span);
+                    None
+                }
+            };
+            for b in &p.bounds {
+                let trait_ = self.resolve_trait_ref(b);
+                if let (Some(param), Some(trait_)) = (param, trait_) {
+                    preds.push(Predicate {
+                        param,
+                        trait_,
+                        span: b.path.span,
+                    });
+                }
+            }
+        }
+        preds
+    }
+
+    fn unsupported_where(&mut self, span: Span) {
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNSUPPORTED_SYNTAX,
+                "not yet supported: a `where` clause on a type other than a type parameter",
+            )
+            .with_label(
+                span,
+                "bound a type parameter here, or write the bound on it: `T: Show`",
+            )
+            .with_note("see docs/PLAN.md"),
+        );
     }
 
     /// The names a generic `impl` block gives its type's parameters (decision 83): its type
@@ -1022,24 +1626,7 @@ impl Resolver<'_> {
         drop_headers: &mut HashMap<DefId, Span>,
     ) {
         let header = Span::new(item.span.file, item.span.start, imp.self_ty.span.end);
-        if let Some(trait_name) = &imp.trait_ref {
-            if let Some(&def) = self.items.get(&trait_name.name) {
-                if self.results.def(def).builtin.is_none() {
-                    let kind = self.results.def(def).kind.describe();
-                    self.sink.emit(
-                        Diagnostic::error(
-                            ErrorCode::WRONG_NAMESPACE,
-                            format!("expected trait, found {kind} `{}`", trait_name.name),
-                        )
-                        .with_label(trait_name.span, "not a trait")
-                        .with_note("`Drop` is the only trait that can be implemented for now; an item of this file shadows it"),
-                    );
-                    // The members are still resolved, against whatever the type names.
-                    self.resolve_type(&imp.self_ty, true);
-                    return;
-                }
-            }
-        }
+        // Only reached when no item of the file is named `Drop` (`is_lang_drop`).
         let Some(adt) = self.resolve_drop_target(&imp.self_ty) else {
             return;
         };
@@ -1047,7 +1634,7 @@ impl Resolver<'_> {
         if let Some(&first) = drop_headers.get(&adt) {
             self.sink.emit(
                 Diagnostic::error(
-                    ErrorCode::CONFLICTING_DROP_IMPLS,
+                    ErrorCode::CONFLICTING_IMPLS,
                     format!("conflicting implementations of trait `Drop` for type `{name}`"),
                 )
                 .with_label(header, format!("conflicting implementation for `{name}`"))
@@ -1065,7 +1652,7 @@ impl Resolver<'_> {
                     self.results.defs[def.0 as usize].parent = Some(adt);
                     self.sink.emit(
                         Diagnostic::error(
-                            ErrorCode::NOT_A_DROP_MEMBER,
+                            ErrorCode::NOT_A_TRAIT_MEMBER,
                             format!("const `{}` is not a member of trait `Drop`", c.name.name),
                         )
                         .with_label(c.name.span, "not a member of trait `Drop`"),
@@ -1078,7 +1665,7 @@ impl Resolver<'_> {
             self.results.defs[def.0 as usize].parent = Some(adt);
             if f.name.name != "drop" {
                 let mut d = Diagnostic::error(
-                    ErrorCode::NOT_A_DROP_MEMBER,
+                    ErrorCode::NOT_A_TRAIT_MEMBER,
                     format!("method `{}` is not a member of trait `Drop`", f.name.name),
                 )
                 .with_label(f.name.span, "not a member of trait `Drop`");
@@ -1106,7 +1693,7 @@ impl Resolver<'_> {
         if !has_drop {
             self.sink.emit(
                 Diagnostic::error(
-                    ErrorCode::MISSING_DROP_FN,
+                    ErrorCode::MISSING_TRAIT_ITEMS,
                     "not all trait items implemented, missing: `drop`",
                 )
                 .with_label(header, "missing `drop` in implementation")
@@ -1170,12 +1757,24 @@ impl Resolver<'_> {
             )
             .with_label(span, "not a struct of this file")
             .with_note(
-                "an inherent `impl` block is only allowed for a struct defined in the same file",
+                "an inherent `impl` block is only allowed for a struct defined in the same file; implement a trait for other types: `impl Show for i32`",
             ),
         );
     }
 
     fn resolve_item(&mut self, item: &Item, index: usize) {
+        if let ItemKind::Trait(t) = &item.kind {
+            let tr = self.results.def_of_item(item.id);
+            self.impl_scope = ImplScope::Trait(tr);
+            for member in &t.items {
+                if let ItemKind::Fn(f) = &member.kind {
+                    let def = self.results.def_of_item(member.id);
+                    self.resolve_fn(def, f);
+                }
+            }
+            self.impl_scope = ImplScope::Outside;
+            return;
+        }
         if let ItemKind::Impl(imp) = &item.kind {
             let target = match imp.self_ty.kind {
                 TypeKind::Path(_) => match self.results.res(imp.self_ty.id) {
@@ -1184,7 +1783,10 @@ impl Resolver<'_> {
                 },
                 _ => None,
             };
-            self.impl_scope = target.map_or(ImplScope::Unresolved, ImplScope::Struct);
+            self.impl_scope = match self.results.item_defs.get(&item.id) {
+                Some(&imp_def) => ImplScope::TraitImpl(imp_def),
+                None => target.map_or(ImplScope::Unresolved, ImplScope::Struct),
+            };
             for member in &imp.items {
                 let def = self.results.def_of_item(member.id);
                 match &member.kind {
@@ -1210,7 +1812,7 @@ impl Resolver<'_> {
             .map(|&p| (self.results.def(p).name.clone(), p))
             .collect();
         match &item.kind {
-            ItemKind::Impl(_) => unreachable!("handled above"),
+            ItemKind::Impl(_) | ItemKind::Trait(_) => unreachable!("handled above"),
             ItemKind::Fn(f) => self.resolve_fn(def, f),
             ItemKind::Struct(s) => {
                 if let StructKind::Named(fields) = &s.kind {
@@ -1340,7 +1942,9 @@ impl Resolver<'_> {
             self.resolve_type(ret, true);
         }
         // The body block shares the parameter scope, as in Rust.
-        self.resolve_block_in_current_scope(&f.body);
+        if let Some(body) = &f.body {
+            self.resolve_block_in_current_scope(body);
+        }
         self.scopes.pop();
         self.current_fn = None;
         self.ty_params.clear();
@@ -1665,11 +2269,13 @@ impl Resolver<'_> {
         Res::Err
     }
 
-    /// `Self` inside an `impl` block: its struct, or `Res::Err` (silently) when the block's
-    /// type did not resolve. Outside one it is an error, reported here.
+    /// `Self` as a type inside an `impl` block or a trait: an inherent block's struct, a
+    /// trait `impl` block (its type), a trait's `Self` parameter, or `Res::Err` (silently)
+    /// when the block's type did not resolve. Outside one it is an error, reported here.
     fn resolve_self_type(&mut self, span: Span) -> Res {
         match self.impl_scope {
-            ImplScope::Struct(def) => Res::Def(def),
+            ImplScope::Struct(def) | ImplScope::TraitImpl(def) => Res::Def(def),
+            ImplScope::Trait(tr) => Res::Def(self.results.trait_self(tr)),
             ImplScope::Unresolved => Res::Err,
             ImplScope::Outside => {
                 self.sink.emit(
@@ -1681,6 +2287,28 @@ impl Resolver<'_> {
                 );
                 Res::Err
             }
+        }
+    }
+
+    /// `Self` as a value, a struct literal's path or the type of `Self::Name`: the struct
+    /// or enum a trait `impl` block is for (when its type is one), or what `Self` names as
+    /// a type.
+    fn resolve_self_adt(&mut self, span: Span) -> Res {
+        let res = self.resolve_self_type(span);
+        self.impl_adt(res)
+    }
+
+    /// For a trait `impl` block, the struct or enum its type names (or the block when it
+    /// names none); anything else as it is.
+    fn impl_adt(&self, res: Res) -> Res {
+        match res {
+            Res::Def(imp) if self.results.def(imp).kind == DefKind::Impl => self
+                .impl_adts
+                .get(&imp)
+                .copied()
+                .flatten()
+                .map_or(Res::Def(imp), Res::Def),
+            res => res,
         }
     }
 
@@ -1837,11 +2465,17 @@ impl Resolver<'_> {
             return match info.kind {
                 DefKind::Struct | DefKind::Enum => Res::Def(def),
                 kind => {
-                    let d = Diagnostic::error(
+                    let mut d = Diagnostic::error(
                         ErrorCode::WRONG_NAMESPACE,
                         format!("expected type, found {} `{}`", kind.describe(), name.name),
                     )
                     .with_label(name.span, "not a type");
+                    if kind == DefKind::Trait {
+                        d = d.with_note(format!(
+                            "trait objects (`dyn {}`) are planned for Phase 7; a type parameter takes any type that implements it: `fn F<T: {}>(x: T)`",
+                            name.name, name.name
+                        ));
+                    }
                     self.sink
                         .emit(Self::with_definition_label(d, info, &name.name));
                     Res::Err
@@ -1928,7 +2562,7 @@ impl Resolver<'_> {
         }
         if name.name == "Self" {
             // A unit struct as a value; the type checker rejects any other struct.
-            return self.resolve_self_type(name.span);
+            return self.resolve_self_adt(name.span);
         }
         if self.type_param_as_value(name) {
             return Res::Err;
@@ -1939,23 +2573,141 @@ impl Resolver<'_> {
                 // Unit structs are values; the type checker rejects named structs used
                 // as values, since it knows the struct's shape.
                 DefKind::Fn | DefKind::Const | DefKind::Struct => Res::Def(def),
-                kind @ (DefKind::Enum | DefKind::Variant) => {
-                    let d = Diagnostic::error(
+                kind @ (DefKind::Enum | DefKind::Variant | DefKind::Trait) => {
+                    let mut d = Diagnostic::error(
                         ErrorCode::WRONG_NAMESPACE,
                         format!("expected value, found {} `{}`", kind.describe(), name.name),
                     )
-                    .with_label(name.span, "not a value")
-                    .with_note(format!(
-                        "a variant is named through its enum: `{}::Variant`",
-                        name.name
-                    ));
+                    .with_label(name.span, "not a value");
+                    if kind != DefKind::Trait {
+                        d = d.with_note(format!(
+                            "a variant is named through its enum: `{}::Variant`",
+                            name.name
+                        ));
+                    }
                     self.sink
                         .emit(Self::with_definition_label(d, info, &name.name));
                     Res::Err
                 }
-                DefKind::TyParam => unreachable!("type parameters are not items"),
+                DefKind::TyParam | DefKind::Impl => {
+                    unreachable!("type parameters and `impl` blocks are not items")
+                }
             };
         }
+        self.unresolved_value(name);
+        Res::Err
+    }
+
+    /// `Type::Name`: a variant, or an associated function or constant of a struct or enum
+    /// (`Self` inside an `impl` block).
+    /// The first segment is looked up as a type: a local, a function or a constant of
+    /// that name does not count, as in rustc.
+    fn resolve_assoc_path(&mut self, path: &Path) -> Res {
+        let (ty, item) = (&path.segments[0], &path.segments[1]);
+        self.assoc_self = None;
+        if matches!(ty.name.as_str(), "self" | "crate" | "super") {
+            return self.unsupported_path(path);
+        }
+        if let Some(res) = self.resolve_trait_member_path(ty, item) {
+            return res;
+        }
+        let known = ty.name == "Self"
+            || self.items.contains_key(&ty.name)
+            || PrimTy::from_name(&ty.name).is_some()
+            || self.ty_params.iter().any(|(n, _)| *n == ty.name);
+        if !known {
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNRESOLVED_TYPE,
+                    format!("cannot find type `{}` in this scope", ty.name),
+                )
+                .with_label(ty.span, "not found in this scope")
+                .with_note("`A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9"),
+            );
+            return Res::Err;
+        }
+        // The type segment's own generic arguments are checked with the whole path. What
+        // it names as a type is `Self` for a trait's member; its struct or enum (for
+        // `Self` in a trait `impl` block, the one its type names) has the variants and
+        // inherent items.
+        let (ty_res, owner) = if ty.name == "Self" {
+            let res = self.resolve_self_type(ty.span);
+            (res, self.impl_adt(res))
+        } else {
+            let res = self.resolve_type_path_inner(&Path::single(ty.clone()));
+            (res, res)
+        };
+        let trait_member = self.results.trait_items_named(&item.name).first().copied();
+        let from_trait = |r: &mut Self| {
+            r.assoc_self = Some(ty_res);
+            trait_member.map(Res::Def)
+        };
+        match owner {
+            Res::Def(def) if self.results.def(def).kind.is_type() => {
+                if let Some(v) = self.variant(def, &item.name) {
+                    return Res::Def(v);
+                }
+                if let Some(d) = self.results.assoc_item(def, &item.name) {
+                    return Res::Def(d);
+                }
+                if item.name == "drop" {
+                    // `D::drop(&mut d)`: the type checker reports the explicit destructor
+                    // call.
+                    if let Some(d) = self.results.drop_impl(def) {
+                        return Res::Def(d);
+                    }
+                }
+                if let Some(res) = from_trait(self) {
+                    return res;
+                }
+                let info = self.results.def(def);
+                let what = format!("{} `{}`", info.kind.describe(), info.name);
+                if info.kind == DefKind::Enum {
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::UNKNOWN_ASSOC_ITEM,
+                            format!(
+                                "no variant or associated item named `{}` found for {what}",
+                                item.name
+                            ),
+                        )
+                        .with_label(
+                            item.span,
+                            format!("variant or associated item not found in `{}`", info.name),
+                        ),
+                    );
+                } else {
+                    self.unknown_assoc_item(item, &what);
+                }
+                Res::Err
+            }
+            Res::Prim(prim) => {
+                if PrimConst::lookup(prim, &item.name).is_none() {
+                    if let Some(res) = from_trait(self) {
+                        return res;
+                    }
+                }
+                self.resolve_prim_const(prim, item)
+            }
+            Res::Def(def) => {
+                // A type parameter, a trait's `Self`, or the type of a trait `impl` block
+                // that is not a struct or an enum: only traits have its members.
+                if let Some(res) = from_trait(self) {
+                    return res;
+                }
+                let what = match self.results.def(def).kind {
+                    DefKind::TyParam => format!("type parameter `{}`", ty.name),
+                    _ => format!("type `{}`", ty.name),
+                };
+                self.unknown_assoc_item(item, &what);
+                Res::Err
+            }
+            Res::Local(_) | Res::Err => Res::Err,
+        }
+    }
+
+    /// E0202: `name` names no value, with a note on an associated item of that name.
+    fn unresolved_value(&mut self, name: &sabiko_ast::Ident) {
         let mut d = Diagnostic::error(
             ErrorCode::UNRESOLVED_VALUE,
             format!("cannot find value `{}` in this scope", name.name),
@@ -1987,70 +2739,34 @@ impl Resolver<'_> {
             });
         }
         self.sink.emit(d);
-        Res::Err
     }
 
-    /// `Type::Name`: a variant, or an associated function or constant of a struct or enum
-    /// (`Self` inside an `impl` block).
-    /// The first segment is looked up as a type: a local, a function or a constant of
-    /// that name does not count, as in rustc.
-    fn resolve_assoc_path(&mut self, path: &Path) -> Res {
-        let (ty, item) = (&path.segments[0], &path.segments[1]);
-        if matches!(ty.name.as_str(), "self" | "crate" | "super") {
-            return self.unsupported_path(path);
+    /// `Trait::Name`: the trait's member, at a `Self` inference finds; `None` when `ty`
+    /// names no trait.
+    fn resolve_trait_member_path(
+        &mut self,
+        ty: &sabiko_ast::Ident,
+        item: &sabiko_ast::Ident,
+    ) -> Option<Res> {
+        let tr = *self.items.get(&ty.name)?;
+        if self.results.def(tr).kind != DefKind::Trait {
+            return None;
         }
-        let known = ty.name == "Self"
-            || self.items.contains_key(&ty.name)
-            || PrimTy::from_name(&ty.name).is_some();
-        if !known {
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::UNRESOLVED_TYPE,
-                    format!("cannot find type `{}` in this scope", ty.name),
-                )
-                .with_label(ty.span, "not found in this scope")
-                .with_note("`A::B` names the associated item `B` of the type `A`; module paths are planned for Phase 9"),
-            );
-            return Res::Err;
+        if let Some(def) = self.results.trait_item(tr, &item.name) {
+            self.assoc_self = Some(Res::Def(tr));
+            return Some(Res::Def(def));
         }
-        // The type segment's own generic arguments are checked with the whole path.
-        let adt = match self.resolve_type_path_inner(&Path::single(ty.clone())) {
-            Res::Def(def) => def,
-            Res::Prim(prim) => return self.resolve_prim_const(prim, item),
-            Res::Local(_) | Res::Err => return Res::Err,
-        };
-        if let Some(def) = self.variant(adt, &item.name) {
-            return Res::Def(def);
-        }
-        if let Some(def) = self.results.assoc_item(adt, &item.name) {
-            return Res::Def(def);
-        }
-        if item.name == "drop" {
-            // `D::drop(&mut d)`: the type checker reports the explicit destructor call.
-            if let Some(def) = self.results.drop_impl(adt) {
-                return Res::Def(def);
-            }
-        }
-        let info = self.results.def(adt);
-        let what = format!("{} `{}`", info.kind.describe(), info.name);
-        if info.kind == DefKind::Enum {
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::UNKNOWN_ASSOC_ITEM,
-                    format!(
-                        "no variant or associated item named `{}` found for {what}",
-                        item.name
-                    ),
-                )
-                .with_label(
-                    item.span,
-                    format!("variant or associated item not found in `{}`", info.name),
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNKNOWN_ASSOC_ITEM,
+                format!(
+                    "cannot find method or associated constant `{}` in trait `{}`",
+                    item.name, ty.name
                 ),
-            );
-        } else {
-            self.unknown_assoc_item(item, &what);
-        }
-        Res::Err
+            )
+            .with_label(item.span, format!("not found in `{}`", ty.name)),
+        );
+        Some(Res::Err)
     }
 
     /// `i32::MAX`: a primitive associated constant, with a definition of its own (one per
@@ -2146,7 +2862,19 @@ impl Resolver<'_> {
         }
         let name = &path.segments[0];
         if name.name == "Self" {
-            return match self.resolve_self_type(name.span) {
+            return match self.resolve_self_adt(name.span) {
+                Res::Def(def)
+                    if matches!(self.results.def(def).kind, DefKind::TyParam | DefKind::Impl) =>
+                {
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::WRONG_NAMESPACE,
+                            "expected struct, found `Self`",
+                        )
+                        .with_label(name.span, "`Self` is not a struct here"),
+                    );
+                    Res::Err
+                }
                 Res::Def(def) if self.results.def(def).kind == DefKind::Enum => {
                     self.sink.emit(
                         Diagnostic::error(
@@ -2261,8 +2989,12 @@ impl Resolver<'_> {
                 }
             }
             ExprKind::Path(path) => {
+                self.assoc_self = None;
                 let res = self.resolve_value_path(path);
                 self.results.res.insert(expr.id, res);
+                if let Some(ty_res) = self.assoc_self.take() {
+                    self.results.assoc_self.insert(expr.id, ty_res);
+                }
             }
             ExprKind::Paren(e)
             | ExprKind::Unary(_, e)
@@ -2442,8 +3174,8 @@ mod tests {
         let mut out = Vec::new();
         let body = Expr {
             id: NodeId::DUMMY,
-            kind: ExprKind::Block(f.body.clone()),
-            span: f.body.span,
+            kind: ExprKind::Block(f.body.clone().expect("a body")),
+            span: f.body.as_ref().expect("a body").span,
         };
         path_exprs(&body, &mut out);
         out

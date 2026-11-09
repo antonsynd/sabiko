@@ -20,8 +20,17 @@ names which phase owns which section.
   4;`, #48), with attributes, doc comments and `pub` as on items; a function member may
   take `self`, `mut self`, `&self` or `&mut self` as its first parameter (a method). A
   `self` parameter outside an `impl` block, or not first, is E0110. Not yet supported
-  (E0107): generic impls, trait impls (`impl Trait for Type`) other than `impl Drop for
-  Type` (§7), associated types, `self: Type`, `&'a self`
+  (E0107): associated types, `self: Type`, `&'a self`
+- Traits (Phase 6, #116, decision 84): `trait Name: Super1 + Super2 { fn Required(&self)
+  -> T; fn Provided(&self) { .. } }`, whose members are methods and associated
+  functions, required (no body, `;`) or provided (a body), each with any receiver and
+  generic parameters of its own; and `impl<T: B> Name for Type where T: C { .. }`, whose
+  members are the trait's methods. A trait is not generic (E0107, #117) and has no
+  associated constants or types (E0107); `?Sized` and lifetime bounds are E0107. `impl
+  Drop for Type` stays a language item (§7) unless the file defines an item `Drop`
+- Bounds: `T: A + B` on the type parameters of functions and `impl` blocks, and `where
+  T: A` clauses on functions and `impl` blocks whose types are type parameters (any
+  other type is E0107). Bounds on the parameters of a struct or an enum are E0107
 - Paths: `Type::Name` (exactly two segments) names an associated function or constant,
   or a primitive type's associated constant (`i32::MAX`); `Self` (in a
   type, a struct literal, a path or as a unit-struct value) and `self` (a value) begin a
@@ -33,8 +42,8 @@ names which phase owns which section.
   (`x as W<T>`; as in rustc, a `<` there always starts generic arguments), and
   `e.M::<T>(..)` on method calls; a `>>` closes two lists. Generic arguments anywhere
   else are E0223 (rustc's E0109); the wrong number is E0222 (rustc's E0107). Not yet
-  supported (E0107): bounds `T: Trait` and `where` clauses (#116), lifetime parameters
-  (Phase 9), `const` parameters and parameter defaults
+  supported (E0107): lifetime parameters (Phase 9), `const` parameters and parameter
+  defaults
 - Generic structs and enums (#115, decision 83): `struct Pair<A, B> { .. }`, `enum
   Opt<T> { .. }`, and `impl<A, B> Pair<A, B> { .. }`, whose parameters must be the
   type's, in order, each once (E0107 otherwise: `impl<T> Pair<T, T>`, `impl Pair<i32,
@@ -652,6 +661,45 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
   while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
   (rustc's `!: PartialEq + Display`); the code after one is unreachable.
+- Traits (#116, decision 84). A trait is in the item namespace; naming it as a type or a
+  value is E0203 (`dyn Trait` is Phase 7). Inside a trait, `Self` is a type parameter
+  that implements the trait (and its supertraits); inside a trait `impl` block, `Self` is
+  the block's type, and `Self::V`/`Self { .. }` name its variants and fields when it is
+  an enum or a struct. A trait `impl` block may be for any type that holds no reference
+  and has a size (E0107 otherwise): a struct or enum of the file, an instance of one
+  (`impl Show for Pair<i32, bool>`), a primitive, a tuple, an array, or a type parameter
+  of the block (`impl<T: Show> Loud for T`); its parameters are its own. It must name a
+  trait of the file (E0201 when none has the name, E0203 for another item; `Copy`,
+  `Clone` and `Drop` in a bound are E0107 until they become traits), implement each
+  required method (E0216, rustc's E0046), define nothing the trait does not declare
+  (E0217, E0407) and nothing twice (E0210). Each method's signature must be its trait's
+  with `Self` replaced by the block's type and the trait method's type parameters by its
+  own: the same receiver (E0321, rustc's E0185/E0186), number of parameters (E0322,
+  E0050) and of type parameters (E0343, E0049), the same types (E0321, E0053), and no
+  bound on its own type parameters the trait's do not imply (E0344, E0276). Two blocks of
+  one trait whose types some type matches both are E0215 (rustc's E0119); bounds do not
+  keep them apart. The type of a block of a trait with supertraits must implement them,
+  where the block's bounds hold (E0341, rustc's E0277). A type implements a trait when a
+  block's type matches it and the block's bounds hold there, or, for a type parameter,
+  when a bound in scope names the trait or a subtrait of it. Every type parameter but a
+  trait's `Self` is implicitly `Sized`: `str` or a slice as a generic argument is E0208
+  (rustc's E0277). A trait's `Self` is not, as in rustc: a provided method whose
+  parameters, return type or locals hold a `Self` by value is E0208 (a required method may
+  take and return `Self`); `where Self: Sized`, rustc's way out, is E0107 for now.
+- Method calls through traits: the receiver is dereferenced step by step, and at each
+  step its type is tried by value, then behind `&`, then behind `&mut`, against the
+  inherent method of the innermost struct or enum first and then every trait method of
+  that name whose `Self` the step's type implements (rustc's probe). Two traits at one
+  step are E0342 (rustc's E0034); none at any step is E0319, with a note naming a trait
+  that has the method (and, for a type parameter, the bound to add). `Type::Name` and
+  `Self::Name` name an inherent item first, then the method of the trait among those with
+  a member `Name` that the type implements (E0212 when none does, E0342 when several do);
+  `Trait::Name(..)` names the trait's member and infers `Self` from the arguments and the
+  expected type (E0313 when nothing decides it). Each use of a function with bounds
+  requires its generic arguments to implement them, judged when the body is done (E0341,
+  rustc's E0277). As in rustc, a bound on a type with inference variables that only one
+  block's type could match makes it that type: with only `impl Show for i64`, `5.Show()`
+  is an `i64`; with two integer blocks the literal falls back to `i32`.
 - Type parameters (#114, decision 82): inside a generic function, `T` is a type of its
   own, equal only to itself. Without bounds a `T` value can only be moved, borrowed,
   stored, returned and matched by a binding or `_`: it is not `Copy` (using it twice is a

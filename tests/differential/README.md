@@ -45,8 +45,9 @@ prelude's. Tuples (#6), inherent `impl` blocks with methods and associated funct
 `Type::Name` paths and `Self` (#7), associated constants, also of primitive types (#48),
 enums, `match`, `if let`, `while let`, `let`-`else`
 and patterns (#8), arrays and slices (`[T; N]`, `&[T]`, indexing, `.len()`, #9) and `&str`
-with range slicing (#10) are in the subset too. No traits, generics, closures, modules,
-macros, explicit lifetimes or references in struct fields, and no
+with range slicing (#10) are in the subset too, and so are generic functions and types
+(#114, #115) and traits with bounds (#116, `traits/`). No associated types, closures,
+modules, macros, explicit lifetimes or references in struct fields, and no
 `char` literal above U+FFFF (a Sabiko `char` is one UTF-16 code unit, so those are E0318). Function names are PascalCase, locals camelCase. A
 function returning a reference must have exactly one reference parameter, or be a method
 taking `&self` or `&mut self` (the elision rules both compilers share).

@@ -1,9 +1,9 @@
-[E0107] Error: not yet supported: trait implementations other than `impl Drop`
-   ╭─[ tests/ui/parse/unsupported_items.sabi:3:12 ]
+[E0107] Error: not yet supported: generic traits
+   ╭─[ tests/ui/parse/unsupported_items.sabi:3:13 ]
    │
- 3 │ impl Clone for Shape { } //~ ERROR E0107 not yet supported: trait implementations other than `impl Drop`
-   │            ─┬─  
-   │             ╰─── not supported in this version of Sabiko
+ 3 │ trait Shaped<T> { } //~ ERROR E0107 not yet supported: generic traits
+   │             ┬  
+   │             ╰── not supported in this version of Sabiko
    │ 
-   │ Note: planned for Phase 6; see docs/PLAN.md
+   │ Note: planned for Phase 6 (#117); see docs/PLAN.md
 ───╯

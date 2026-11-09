@@ -5,7 +5,7 @@
    │      ─┬─  
    │       ╰─── not a struct of this file
    │ 
-   │ Note: an inherent `impl` block is only allowed for a struct defined in the same file
+   │ Note: an inherent `impl` block is only allowed for a struct defined in the same file; implement a trait for other types: `impl Show for i32`
 ───╯
 [E0319] Error: no method named `Triple` found for type `i32`
     ╭─[ tests/ui/typeck/method_on_primitive.sabi:10:15 ]
@@ -14,7 +14,7 @@
     │               ───┬──  
     │                  ╰──── method not found
     │ 
-    │ Note: only structs have methods (inherent `impl` blocks)
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ────╯
 [E0319] Error: no method named `Triple` found for type `{integer}`
     ╭─[ tests/ui/typeck/method_on_primitive.sabi:11:15 ]
@@ -23,7 +23,7 @@
     │               ───┬──  
     │                  ╰──── method not found
     │ 
-    │ Note: only structs have methods (inherent `impl` blocks)
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ────╯
 [E0319] Error: no method named `Not` found for type `bool`
     ╭─[ tests/ui/typeck/method_on_primitive.sabi:12:18 ]
@@ -32,7 +32,7 @@
     │                  ─┬─  
     │                   ╰─── method not found
     │ 
-    │ Note: only structs have methods (inherent `impl` blocks)
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ────╯
 [E0319] Error: no method named `Half` found for type `f64`
     ╭─[ tests/ui/typeck/method_on_primitive.sabi:13:20 ]
@@ -41,5 +41,5 @@
     │                    ──┬─  
     │                      ╰─── method not found
     │ 
-    │ Note: only structs have methods (inherent `impl` blocks)
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
 ────╯
