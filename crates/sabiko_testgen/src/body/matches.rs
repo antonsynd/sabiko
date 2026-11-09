@@ -1119,7 +1119,14 @@ impl BodyGen<'_> {
         for b in &cx.binds {
             let v = match b.ty {
                 Ty::Ref { mutable, .. } | Ty::RefRef { outer: mutable, .. } => {
-                    let roots = s.roots.iter().map(|&r| (r, mutable)).collect();
+                    // A binding through a shared reborrow of a mutable loan (`&*x.Nudge()`,
+                    // whose `&mut self` borrow lasts as long) keeps that loan mutable
+                    // (seed 92000102).
+                    let roots = s
+                        .roots
+                        .iter()
+                        .map(|&r| (r, mutable || s.guard_lock.contains(&(r, true))))
+                        .collect();
                     let e = Expr {
                         text: String::new(),
                         roots,
