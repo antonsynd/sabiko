@@ -1072,7 +1072,7 @@ fn programs_use_trait_helpers() {
         keeps += usize::from(body.contains(").Keep()"));
         paths += usize::from(body.contains("GenKeep::Keep("));
         kept += usize::from(body.contains("GenKept("));
-        refs += usize::from(body.contains(").KeepRef()"));
+        refs += usize::from(body.contains(").KeepRef()") && body.contains("(&*"));
         signs += usize::from(body.contains(").Sign()"));
         sums += usize::from(body.contains("GenSigns("));
     }

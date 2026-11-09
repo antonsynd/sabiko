@@ -1,0 +1,20 @@
+// Matching on a field of a moved struct reads its discriminant: a use of a moved value
+// (found by generated seed 89001756).
+#[derive(Copy, Clone)]
+enum Shape {
+    Ready,
+    Busy,
+}
+
+struct R {
+    F: Shape,
+}
+
+fn Main() {
+    let acc = R { F: Shape::Ready };
+    let d = acc;
+    let k = match acc.F {
+        Shape::Busy => 1,
+        _ => 2,
+    };
+}

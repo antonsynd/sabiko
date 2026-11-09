@@ -933,12 +933,14 @@ impl<'a> BodyGen<'a> {
         }
     }
 
-    /// `(r).KeepRef()` (#116): the shared reference `r` to an `inner` through a provided
-    /// trait method, with its loans.
+    /// `(&*r).KeepRef()` (#116): the shared reference `r` to an `inner` through a provided
+    /// trait method, with its loans. Reborrowed first: `r` may be a `&mut` that coerces
+    /// where a `&` is expected, but a receiver is no coercion site, and `(m).KeepRef()`
+    /// would autoref to a `&&mut T` (which rustc then deref-coerces and Sabiko does not).
     fn kept_ref(&mut self, inner: ValTy, depth: u32) -> Option<Expr> {
         let r = self.ref_expr(false, inner, depth)?;
         Some(Expr {
-            text: format!("({}).KeepRef()", r.text),
+            text: format!("(&*{}).KeepRef()", r.text),
             roots: r.roots,
         })
     }

@@ -1,0 +1,45 @@
+// A panic inside a trait method unwinds through a provided method and a bounded generic
+// function, dropping what each holds, in Rust's order.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+trait Step {
+    fn Step(&self, n: i32) -> i32;
+    fn Run(&self, n: i32) -> i32 {
+        let _guard = Noisy { Id: 100 + n };
+        self.Step(n) + 1
+    }
+}
+
+impl Step for Noisy {
+    fn Step(&self, n: i32) -> i32 {
+        let _inner = Noisy { Id: self.Id * 10 };
+        if n > 2 {
+            Panic("too far");
+        }
+        n
+    }
+}
+
+fn Drive<T: Step>(t: T, steps: i32) -> i32 {
+    let mut total = 0;
+    let mut i = 0;
+    while i < steps {
+        total += t.Run(i);
+        i += 1;
+    }
+    total
+}
+
+fn Main() {
+    PrintLine(Drive(Noisy { Id: 1 }, 2));
+    PrintLine(Drive(Noisy { Id: 2 }, 5));
+}

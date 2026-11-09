@@ -1,0 +1,90 @@
+// Inherent methods come before trait methods; provided methods with their own type
+// parameters, a generic enum's block through `Self::V`, recursion through a bound, and an
+// overflow panic inside a provided method.
+trait Show {
+    fn Show(&self) -> i32;
+    fn Map<U: Show>(&self, u: &U) -> i32 {
+        self.Show() * 10 + u.Show()
+    }
+    fn Bump(&mut self);
+}
+
+struct P {
+    V: i32,
+}
+
+impl P {
+    fn Show(&self) -> i32 {
+        -1
+    }
+}
+
+impl Show for P {
+    fn Show(&self) -> i32 {
+        self.V
+    }
+    fn Bump(&mut self) {
+        self.V += 1;
+    }
+}
+
+impl Show for i32 {
+    fn Show(&self) -> i32 {
+        *self
+    }
+    fn Bump(&mut self) {
+        *self += 100;
+    }
+}
+
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+impl<T: Show> Show for Opt<T> {
+    fn Show(&self) -> i32 {
+        match self {
+            Self::No => 0,
+            Self::Yes(x) => x.Show() + T::Map(x, &5),
+        }
+    }
+    fn Bump(&mut self) {
+        if let Self::Yes(x) = self {
+            x.Bump();
+        }
+    }
+}
+
+fn Deep<T: Show>(t: &mut T, n: i32) -> i32 {
+    if n == 0 {
+        t.Bump();
+        return t.Show();
+    }
+    Deep(t, n - 1) + 1
+}
+
+fn Main() {
+    let mut p = P { V: 3 };
+    PrintLine(p.Show());
+    PrintLine(Show::Show(&p));
+    PrintLine(p.Map::<i32>(&4));
+    let r = &mut p;
+    r.Bump();
+    PrintLine(Show::Show(r));
+    let mut o = Opt::Yes(7);
+    o.Bump();
+    PrintLine(o.Show());
+    PrintLine(Show::Map(&o, &P { V: 2 }));
+    let mut n = Opt::Yes(Opt::Yes(1));
+    PrintLine(Deep(&mut n, 3));
+    let none: Opt<i32> = Opt::No;
+    PrintLine(none.Show());
+    let mut x = 10;
+    x.Bump();
+    PrintLine(x);
+    if x > 5 {
+        let z: i32 = 2147483600;
+        PrintLine(z.Map(&100));
+    }
+}

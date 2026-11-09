@@ -1334,12 +1334,13 @@ provided methods, `Self` behind references (E0208, as rustc without `where Self:
 Sized`).
 Monomorphisation resolves every trait call at concrete types to the block's method or the
 provided method at `Self`; code generation emits them in the module class as
-`'<i32 as Show>::Show'`. Tests: eight run-time programs in `differential/run/traits/`,
+`'<i32 as Show>::Show'`. Tests: ten run-time programs in `differential/run/traits/`,
 eight compile-time ones in `differential/traits/` (references returned by trait methods,
 by-value receivers, bounds), UI tests `resolve/traits`, `typeck/trait_bounds` and
 `typeck/trait_impls` and `typeck/trait_self_sized`, a MIR and an IL fixture (`traits`), and the generator's
 `TRAIT_HELPERS` (a blanket `GenKeep` with a provided method returning `&Self`, `GenSign`
-for `i32` and `bool`, bounded `GenKept` and `GenSigns`). Not yet: associated constants
+for `i32` and `bool`, bounded `GenKept` and `GenSigns`), whose seeds found an older
+borrow-checker gap, fixed here: a `match` on a field of a moved struct was not a use. Not yet: associated constants
 in traits and `Copy`/`Clone`/`Drop` as traits (#116's second part; until then `impl
 Drop` is decision 46's language item and `Copy`/`Clone`/`Drop` in a bound are E0107),
 generic traits (#117), associated types, blocks for types holding references or unsized

@@ -325,7 +325,7 @@ fn GenOr<T>(o: GenOpt<T>, d: T) -> T { match o { GenOpt::Yes(v) => v, GenOpt::No
 /// Traits, implementations and bounded generic functions (#116) that the bodies of a
 /// program with [`Program::traits`] wrap expressions in. Each is transparent to the scope
 /// model: `GenKeep` is implemented for every type, `(e).Keep()`, `GenKeep::Keep(e)` and
-/// `GenKept(e)` are `e`, and `(r).KeepRef()` (a provided method) returns the shared
+/// `GenKept(e)` are `e`, and `(&*r).KeepRef()` (a provided method) returns the shared
 /// reference `r`, with its loans; `GenSign` is implemented for `i32` and `bool`, and
 /// `(e).Sign()` and `GenSigns(a, b)` evaluate their values and return an `i32` in
 /// `-2..=2`. One line each, at column 0, so no statement is ever inserted into them.
