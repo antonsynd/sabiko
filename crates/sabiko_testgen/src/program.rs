@@ -335,7 +335,9 @@ fn GenKept<T: GenKeep>(x: T) -> T { x.Keep() }\n\
 trait GenSign { const UNIT: i32; const BIAS: i32 = Self::UNIT * 3; fn Sign(&self) -> i32; fn Twice(&self) -> i32 { self.Sign() * 2 } }\n\
 impl GenSign for i32 { const UNIT: i32 = 1; fn Sign(&self) -> i32 { if *self < 0 { -1 } else if *self > 0 { 1 } else { 0 } } }\n\
 impl GenSign for bool { const UNIT: i32 = 2; const BIAS: i32 = -5; fn Sign(&self) -> i32 { if *self { 1 } else { 0 } } fn Twice(&self) -> i32 { -self.Sign() } }\n\
-fn GenSigns<T>(a: T, b: T) -> i32 where T: GenSign + GenKeep { a.Keep().Sign() + GenSign::Twice(&b) / 2 + T::BIAS - T::UNIT }\n";
+fn GenSigns<T>(a: T, b: T) -> i32 where T: GenSign + GenKeep { a.Keep().Sign() + GenSign::Twice(&b) / 2 + T::BIAS - T::UNIT }\n\
+fn GenCopied<T: Copy>(x: T) -> T { let y = x; let _z = x; y }\n\
+fn GenCloned<T: Clone>(x: &T) -> T { x.clone() }\n";
 
 impl Program {
     pub fn is_copy(&self, ty: Ty) -> bool {

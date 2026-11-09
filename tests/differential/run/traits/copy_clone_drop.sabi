@@ -1,0 +1,142 @@
+// `Copy`, `Clone` and `Drop` as traits (#116, decision 86): a `T: Copy` value is copied
+// in generic code, `.clone()` runs a hand-written `impl Clone` or the built-in clone of a
+// `Copy` type (primitives, shared references, tuples, arrays and derived types),
+// `Clone` and `Copy` bound generic functions and blanket `impl` blocks, a trait with
+// `Copy` as supertrait returns `Self` by value, and `impl Drop` blocks run as before,
+// generic ones too.
+#[derive(Clone, Copy)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+#[derive(Clone, Copy)]
+enum Dir {
+    Left,
+    Right(u8),
+}
+
+#[derive(Clone, Copy)]
+struct Wrap<T> {
+    inner: T,
+}
+
+struct Noisy {
+    id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.id);
+    }
+}
+
+impl Clone for Noisy {
+    fn clone(&self) -> Noisy {
+        Print("clone ");
+        PrintLine(self.id);
+        Noisy { id: self.id + 100 }
+    }
+}
+
+struct Guard<T> {
+    value: T,
+    tag: i32,
+}
+
+impl<T> Drop for Guard<T> {
+    fn drop(&mut self) {
+        Print("guard ");
+        PrintLine(self.tag);
+    }
+}
+
+trait Scaled: Copy {
+    fn Scale(&self) -> i32;
+    fn Twice(&self) -> (Self, Self) {
+        (*self, *self)
+    }
+}
+
+impl Scaled for Point {
+    fn Scale(&self) -> i32 {
+        self.x * 10 + self.y
+    }
+}
+
+impl Scaled for i32 {
+    fn Scale(&self) -> i32 {
+        *self * 2
+    }
+}
+
+trait Describe {
+    fn Describe(&self) -> i32;
+}
+
+impl<T: Clone + Scaled> Describe for T {
+    fn Describe(&self) -> i32 {
+        let copy = self.clone();
+        copy.Scale() + 1
+    }
+}
+
+fn Both<T: Copy>(x: T) -> (T, T) {
+    let a = x;
+    (a, x)
+}
+
+fn Dup<T: Clone>(x: &T) -> T {
+    x.clone()
+}
+
+fn First<T: Copy>(items: &[T; 3]) -> T {
+    let all = *items;
+    all[0]
+}
+
+fn Sum<T: Scaled>(a: T, b: T) -> i32 {
+    let (c, d) = a.Twice();
+    c.Scale() + d.Scale() + b.Scale() + a.Scale()
+}
+
+fn Main() {
+    let p = Point { x: 1, y: 2 };
+    let (a, b) = Both(p);
+    PrintLine(a.x + b.y + p.x);
+    PrintLine(First(&[7u16, 8, 9]));
+    PrintLine(Sum(p, Point { x: 3, y: 4 }));
+    PrintLine(Sum(5, 6));
+    PrintLine(p.Describe() + 4.Describe());
+    let w = Wrap { inner: Dir::Right(3) };
+    let w2 = w.clone();
+    let w3 = Dup(&w2);
+    match w3.inner {
+        Dir::Left => PrintLine("left"),
+        Dir::Right(n) => PrintLine(n + 1),
+    }
+    let q = &p;
+    let r = q.clone();
+    let s = Clone::clone(q);
+    PrintLine(r.y + s.x);
+    let t = (1, true, 'c').clone();
+    PrintLine(t.2);
+    let arr = [Dir::Left, Dir::Right(9)].clone();
+    if let Dir::Right(n) = arr[1] {
+        PrintLine(n);
+    }
+    PrintLine(5.clone() + Dup(&6i64) as i32);
+    {
+        let n = Noisy { id: 1 };
+        let m = n.clone();
+        let o = Dup(&m);
+        PrintLine(o.id - m.id);
+    }
+    {
+        let g = Guard { value: Point { x: 0, y: 0 }, tag: 5 };
+        let h = Guard { value: Noisy { id: 9 }, tag: 6 };
+        PrintLine(g.value.x + h.value.id);
+    }
+    PrintLine("end");
+}

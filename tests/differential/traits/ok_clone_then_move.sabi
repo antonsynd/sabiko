@@ -1,0 +1,28 @@
+// Cloning through a shared reference leaves the original usable, and a clone of a
+// reference is a reference.
+struct Token {
+    id: i32,
+}
+
+impl Clone for Token {
+    fn clone(&self) -> Token {
+        Token { id: self.id + 1 }
+    }
+}
+
+fn Dup<T: Clone>(x: &T) -> (T, T) {
+    (x.clone(), Clone::clone(x))
+}
+
+fn Take(t: Token) -> i32 {
+    t.id
+}
+
+fn Main() {
+    let t = Token { id: 1 };
+    let (a, b) = Dup(&t);
+    let r = &t;
+    let r2 = r.clone();
+    PrintLine(Take(a) + Take(b) + r2.id);
+    PrintLine(Take(t));
+}

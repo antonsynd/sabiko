@@ -1,0 +1,20 @@
+// A `T: Copy` value is copied, not moved: it can be used after being passed on, through
+// a subtrait bound too.
+trait Small: Copy {}
+
+impl Small for i32 {}
+
+fn Twice<T: Copy>(x: T) -> (T, T) {
+    let a = x;
+    (a, x)
+}
+
+fn Thrice<T: Small>(x: T) -> [T; 3] {
+    [x, x, x]
+}
+
+fn Main() {
+    let (a, b) = Twice(4u8);
+    PrintLine(a + b);
+    PrintLine(Thrice(7)[2]);
+}

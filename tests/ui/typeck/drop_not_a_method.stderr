@@ -4,6 +4,8 @@
  16 │     p.drop(); //~ ERROR E0319 no method named `drop` found for struct `P`
     │       ──┬─  
     │         ╰─── method not found
+    │ 
+    │ Note: the trait `Drop` defines an item `drop`, but `P` does not implement it
 ────╯
 [E0319] Error: no method named `Close` found for struct `D`
     ╭─[ tests/ui/typeck/drop_not_a_method.sabi:17:7 ]

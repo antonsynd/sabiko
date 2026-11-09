@@ -4,14 +4,14 @@
 // Checked against rustc: E0117, E0120 (the Sabiko codes are annotated).
 struct D { Id: i32 }
 
-impl Drop for i32 { //~ ERROR E0214 the `Drop` trait may only be implemented for structs of this file
+impl Drop for i32 { //~ ERROR E0214 the `Drop` trait may only be implemented for structs and enums of this file
     fn drop(&mut self) {}
 }
 
-impl Drop for (D, D) { //~ ERROR E0214 the `Drop` trait may only be implemented for structs of this file
+impl Drop for (D, D) { //~ ERROR E0214 the `Drop` trait may only be implemented for structs and enums of this file
     fn drop(&mut self) {}
 }
 
-impl Drop for &D { //~ ERROR E0214 the `Drop` trait may only be implemented for structs of this file
+impl Drop for &D { //~ ERROR E0214 the `Drop` trait may only be implemented for structs and enums of this file
     fn drop(&mut self) {}
 }

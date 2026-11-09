@@ -228,6 +228,44 @@ impl Builtin {
     }
 }
 
+/// A trait the compiler knows (#116, decision 86): `Clone`, `Copy` and `Drop`, defined by
+/// the compiler as ordinary traits of the file with no source item, after the builtins.
+/// A user item of the same name shadows one, as it shadows a builtin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LangItem {
+    /// `trait Clone { fn clone(&self) -> Self; }`
+    Clone,
+    /// `trait Copy: Clone {}`
+    Copy,
+    /// `trait Drop { fn drop(&mut self); }`
+    Drop,
+}
+
+impl LangItem {
+    pub const ALL: [LangItem; 3] = [Self::Clone, Self::Copy, Self::Drop];
+
+    /// The trait's name.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Clone => "Clone",
+            Self::Copy => "Copy",
+            Self::Drop => "Drop",
+        }
+    }
+
+    /// The trait's one method, which keeps Rust's lowercase name, and whether its
+    /// receiver is `&mut self` (else `&self`).
+    #[must_use]
+    pub fn method(self) -> Option<(&'static str, bool)> {
+        match self {
+            Self::Clone => Some(("clone", false)),
+            Self::Copy => None,
+            Self::Drop => Some(("drop", true)),
+        }
+    }
+}
+
 /// An associated constant of a primitive type (`i32::MAX`, `f64::EPSILON`, #48). Each one
 /// used gets a [`DefKind::Const`] definition of its own, with no source item: the type
 /// checker supplies its type and value.
@@ -369,10 +407,10 @@ pub struct ResolveResults {
     prim_consts: HashMap<DefId, PrimConst>,
     /// The `self` binding of each method, keyed by its function's definition.
     self_locals: HashMap<DefId, LocalId>,
-    /// The `drop` function of each struct with an `impl Drop` (decision 46). It is not an
-    /// associated function: method calls and `Type::Name` paths do not find it, except to
-    /// report an explicit destructor call.
+    /// The `drop` method of the `impl Drop` block of each struct or enum (decision 86).
     drop_impls: HashMap<DefId, DefId>,
+    /// The language traits (decision 86).
+    lang_items: HashMap<LangItem, DefId>,
     /// The variants of each enum, in declaration order.
     variants: HashMap<DefId, Vec<DefId>>,
     /// The members of each trait, in declaration order.
@@ -494,16 +532,39 @@ impl ResolveResults {
             .filter(|&def| self.def(def).kind == DefKind::Fn)
     }
 
-    /// The `drop` function of the struct `adt`'s `impl Drop`, if it has one.
+    /// The `drop` method of the `impl Drop` block of the struct or enum `adt`, if it has
+    /// one.
     #[must_use]
     pub fn drop_impl(&self, adt: DefId) -> Option<DefId> {
         self.drop_impls.get(&adt).copied()
     }
 
-    /// Whether `def` is the `drop` function of an `impl Drop`.
+    /// Whether `def` is the `drop` method of an `impl Drop` block.
     #[must_use]
     pub fn is_drop_fn(&self, def: DefId) -> bool {
         self.drop_impls.values().any(|&d| d == def)
+    }
+
+    /// The definition of a language trait (decision 86).
+    #[must_use]
+    pub fn lang_item(&self, item: LangItem) -> Option<DefId> {
+        self.lang_items.get(&item).copied()
+    }
+
+    /// Which language trait `def` is, if any.
+    #[must_use]
+    pub fn lang_of(&self, def: DefId) -> Option<LangItem> {
+        self.lang_items
+            .iter()
+            .find_map(|(&item, &d)| (d == def).then_some(item))
+    }
+
+    /// Whether `def` is the method of the language trait `item` (`Clone::clone`,
+    /// `Drop::drop`).
+    #[must_use]
+    pub fn is_lang_method(&self, def: DefId, item: LangItem) -> bool {
+        self.lang_item(item)
+            .is_some_and(|tr| self.def(def).parent == Some(tr))
     }
 
     /// The members of the trait `def`, in declaration order.
@@ -585,10 +646,19 @@ impl ResolveResults {
         self.def(def).parent.map(|p| self.def(p).kind)
     }
 
-    /// The struct or enum whose inherent `impl` block `def` is a member of.
+    /// The struct or enum whose inherent `impl` block `def` is a member of, or whose
+    /// `impl Drop` block's `drop` it is: code generation makes that a method of the
+    /// type's class (decision 55).
     #[must_use]
     pub fn inherent_parent(&self, def: DefId) -> Option<DefId> {
-        self.def(def).parent.filter(|&p| self.def(p).kind.is_type())
+        self.def(def)
+            .parent
+            .filter(|&p| self.def(p).kind.is_type())
+            .or_else(|| {
+                self.drop_impls
+                    .iter()
+                    .find_map(|(&adt, &d)| (d == def).then_some(adt))
+            })
     }
 
     /// The variants of the enum `def`, in declaration order (empty for anything else).
@@ -842,6 +912,62 @@ impl Resolver<'_> {
             });
             self.items.insert(builtin.name().to_owned(), id);
         }
+        self.collect_lang_items();
+    }
+
+    /// The language traits (decision 86), each with its `Self` parameter and its method,
+    /// both definitions without a source item; `Copy` has `Clone` as supertrait. A user
+    /// item of the same name shadows one without a diagnostic.
+    fn collect_lang_items(&mut self) {
+        for item in LangItem::ALL {
+            let tr = self.new_def(DefInfo {
+                kind: DefKind::Trait,
+                name: item.name().to_owned(),
+                span: Span::dummy(),
+                node: NodeId::DUMMY,
+                item_index: usize::MAX,
+                member_index: None,
+                parent: None,
+                builtin: None,
+            });
+            let self_param = self.new_def(DefInfo {
+                kind: DefKind::TyParam,
+                name: "Self".to_owned(),
+                span: Span::dummy(),
+                node: NodeId::DUMMY,
+                item_index: usize::MAX,
+                member_index: None,
+                parent: Some(tr),
+                builtin: None,
+            });
+            self.results.generics.insert(tr, vec![self_param]);
+            let mut members = Vec::new();
+            if let Some((name, _)) = item.method() {
+                let m = self.new_def(DefInfo {
+                    kind: DefKind::Fn,
+                    name: name.to_owned(),
+                    span: Span::dummy(),
+                    node: NodeId::DUMMY,
+                    item_index: usize::MAX,
+                    member_index: None,
+                    parent: Some(tr),
+                    builtin: None,
+                });
+                self.results.required.insert(m);
+                self.results.generics.insert(m, vec![self_param]);
+                self.results.parent_generics.insert(m, 1);
+                members.push(m);
+            }
+            self.results.trait_members.insert(tr, members);
+            self.results.supertraits.insert(tr, Vec::new());
+            self.results.lang_items.insert(item, tr);
+            if !self.items.contains_key(item.name()) {
+                self.items.insert(item.name().to_owned(), tr);
+            }
+        }
+        let clone = self.results.lang_items[&LangItem::Clone];
+        let copy = self.results.lang_items[&LangItem::Copy];
+        self.results.supertraits.insert(copy, vec![clone]);
     }
 
     /// The members of the trait `tr`, each a definition with the trait as parent. A second
@@ -892,17 +1018,8 @@ impl Resolver<'_> {
         self.results.trait_members.insert(tr, members);
     }
 
-    /// Whether the trait of an `impl` header is the `Drop` language item (decision 46):
-    /// `Drop`, when the file defines no item of that name.
-    fn is_lang_drop(&self, tr: &sabiko_ast::TraitRef) -> bool {
-        tr.path.is_single()
-            && tr.path.generic_args.is_empty()
-            && tr.path.segments[0].name == "Drop"
-            && !self.items.contains_key("Drop")
-    }
-
     /// A definition for every trait `impl` block, made after every item so the items keep
-    /// their `DefId`s. `impl Drop` is not one (decision 46).
+    /// their `DefId`s.
     fn collect_impl_defs(&mut self, file: &SourceFile) {
         for (index, item) in file.items.iter().enumerate() {
             let ItemKind::Impl(imp) = &item.kind else {
@@ -911,9 +1028,6 @@ impl Resolver<'_> {
             let Some(tr) = &imp.trait_ref else {
                 continue;
             };
-            if self.is_lang_drop(tr) {
-                continue;
-            }
             let name = format!(
                 "<{} as {}>",
                 sabiko_ast::pretty::type_str(&imp.self_ty),
@@ -1078,27 +1192,17 @@ impl Resolver<'_> {
     fn collect_impls(&mut self, file: &SourceFile) {
         // The first definition of each `(struct, name)`, with the index of its block.
         let mut first: HashMap<(DefId, String), (DefId, usize)> = HashMap::new();
-        // The span of the first `impl Drop` header of each struct.
-        let mut drop_headers: HashMap<DefId, Span> = HashMap::new();
         for (index, item) in file.items.iter().enumerate() {
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
             if let Some(tr) = &imp.trait_ref {
-                if !self.is_lang_drop(tr) {
-                    self.collect_trait_impl(item, index, imp, tr);
-                    continue;
-                }
+                self.collect_trait_impl(item, index, imp, tr);
+                continue;
             }
             let params = self.impl_param_map(imp);
             self.ty_params.clone_from(&params);
             self.impl_params.insert(index, params);
-            if imp.trait_ref.is_some() {
-                self.collect_drop_impl(item, imp, &mut drop_headers);
-                self.inherit_generics(imp);
-                self.ty_params.clear();
-                continue;
-            }
             let target = self.resolve_impl_target(&imp.self_ty);
             self.ty_params.clear();
             let Some(adt) = target else {
@@ -1171,6 +1275,14 @@ impl Resolver<'_> {
         self.impl_adts.insert(imp_def, adt);
         if let Some(t) = trait_ {
             self.results.impl_traits.insert(imp_def, t);
+            if let Some(lang) = self.results.lang_of(t) {
+                // An unknown type name was reported already.
+                let unknown = matches!(imp.self_ty.kind, TypeKind::Path(_))
+                    && self.results.res(imp.self_ty.id) == Res::Err;
+                if adt.is_none() && !unknown {
+                    self.invalid_lang_impl(lang, &imp.self_ty);
+                }
+            }
         }
         let trait_name = sabiko_ast::dump::path_text(&tr.path, "");
         for member in &imp.items {
@@ -1200,9 +1312,24 @@ impl Resolver<'_> {
             };
             self.check_trait_impl_member(t, member, ident, &trait_name);
         }
+        if let (Some(t), Some(adt)) = (trait_, adt) {
+            if self.results.lang_of(t) == Some(LangItem::Drop) {
+                if let Some(f) = self.results.impl_item(imp_def, "drop") {
+                    if self.results.def(f).kind == DefKind::Fn {
+                        self.results.drop_impls.entry(adt).or_insert(f);
+                    }
+                }
+            }
+        }
         let Some(t) = trait_ else {
             return;
         };
+        self.report_missing_items(imp_def, t, &trait_name);
+    }
+
+    /// The required members of the trait `t` the trait `impl` block `imp_def` does not
+    /// define (E0216, rustc's E0046).
+    fn report_missing_items(&mut self, imp_def: DefId, t: DefId, trait_name: &str) {
         let missing: Vec<String> = self
             .results
             .trait_members(t)
@@ -1214,20 +1341,29 @@ impl Resolver<'_> {
         if !missing.is_empty() {
             let list: Vec<String> = missing.iter().map(|n| format!("`{n}`")).collect();
             let list = list.join(", ");
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::MISSING_TRAIT_ITEMS,
-                    format!("not all trait items implemented, missing: {list}"),
-                )
-                .with_label(
-                    self.results.def(imp_def).span,
-                    format!("missing {list} in implementation"),
-                )
-                .with_label(
-                    self.results.def(t).span,
-                    format!("trait `{trait_name}` declared here"),
-                ),
+            let mut d = Diagnostic::error(
+                ErrorCode::MISSING_TRAIT_ITEMS,
+                format!("not all trait items implemented, missing: {list}"),
+            )
+            .with_label(
+                self.results.def(imp_def).span,
+                format!("missing {list} in implementation"),
+            )
+            .with_label(
+                self.results.def(t).span,
+                format!("trait `{trait_name}` declared here"),
             );
+            // A language trait has no source to point at (decision 86).
+            if let Some(lang) = self.results.lang_of(t) {
+                if let Some((name, mutable)) = lang.method() {
+                    let receiver = if mutable { "&mut self" } else { "&self" };
+                    let ret = if mutable { "" } else { " -> Self" };
+                    d = d.with_note(format!(
+                        "`impl {trait_name}` must define `fn {name}({receiver}){ret}`"
+                    ));
+                }
+            }
+            self.sink.emit(d);
         }
     }
 
@@ -1267,17 +1403,39 @@ impl Resolver<'_> {
                 ),
             );
         } else if declared.is_none() {
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::NOT_A_TRAIT_MEMBER,
-                    format!(
-                        "{what} `{}` is not a member of trait `{trait_name}`",
-                        ident.name
-                    ),
-                )
-                .with_label(ident.span, format!("not a member of trait `{trait_name}`")),
-            );
+            let mut d = Diagnostic::error(
+                ErrorCode::NOT_A_TRAIT_MEMBER,
+                format!(
+                    "{what} `{}` is not a member of trait `{trait_name}`",
+                    ident.name
+                ),
+            )
+            .with_label(ident.span, format!("not a member of trait `{trait_name}`"));
+            let lang_method = self.results.lang_of(t).and_then(LangItem::method);
+            if let Some((name, _)) = lang_method.filter(|(n, _)| ident.name.eq_ignore_ascii_case(n))
+            {
+                d = d.with_note(format!(
+                    "the trait's method is `{name}`, lowercase: it keeps Rust's name, unlike Sabiko's PascalCase methods"
+                ));
+            }
+            self.sink.emit(d);
         }
+    }
+
+    /// A block of a language trait for a type that is no struct or enum of the file
+    /// (E0214, rustc's E0120 for `Drop`, E0117 and E0206 for `Copy` and `Clone`): only
+    /// those have `impl Drop`, and every other type has its `Copy` and `Clone` built in.
+    fn invalid_lang_impl(&mut self, lang: LangItem, ty: &Type) {
+        let name = lang.name();
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::INVALID_DROP_TARGET,
+                format!(
+                    "the `{name}` trait may only be implemented for structs and enums of this file"
+                ),
+            )
+            .with_label(ty.span, "must be a struct or an enum defined in this file"),
+        );
     }
 
     /// The trait a bound, a supertrait or an `impl` header names, recorded under the
@@ -1303,12 +1461,9 @@ impl Resolver<'_> {
                     self.sink.emit(d);
                     Res::Err
                 }
-                None if matches!(name.name.as_str(), "Copy" | "Clone" | "Drop" | "Sized") => {
-                    let note = if name.name == "Sized" {
-                        "every type parameter but a trait's `Self` is `Sized` already; see docs/PLAN.md"
-                    } else {
-                        "`Copy`, `Clone` and `Drop` become ordinary traits in Phase 6 (#116); see docs/PLAN.md"
-                    };
+                None if name.name == "Sized" => {
+                    let note =
+                        "every type parameter but a trait's `Self` is `Sized` already; see docs/PLAN.md";
                     self.sink.emit(
                         Diagnostic::error(
                             ErrorCode::UNSUPPORTED_SYNTAX,
@@ -1632,19 +1787,6 @@ impl Resolver<'_> {
         );
     }
 
-    /// Gives every function of the `impl Drop` block `imp` its type's parameters first.
-    fn inherit_generics(&mut self, imp: &ImplDecl) {
-        for member in &imp.items {
-            if member.name().is_none() {
-                continue;
-            }
-            let def = self.results.def_of_item(member.id);
-            if let Some(adt) = self.results.def(def).parent {
-                self.inherit_generics_of(def, adt);
-            }
-        }
-    }
-
     /// Puts the type parameters of `adt` (a struct, an enum, a trait or a trait `impl`
     /// block) before those of its associated function or constant `def` (decision 85).
     fn inherit_generics_of(&mut self, def: DefId, adt: DefId) {
@@ -1660,122 +1802,6 @@ impl Resolver<'_> {
         let mut all = parent;
         all.extend(own);
         self.results.generics.insert(def, all);
-    }
-
-    /// `impl Drop for S { fn drop(&mut self) { .. } }` (decision 46): `S` must be a struct
-    /// of the file (E0214, rustc's E0120/E0117), with one `impl Drop` (E0215, E0119), which
-    /// defines `drop` (E0216, E0046) and nothing else (E0217, E0407). The signature of
-    /// `drop` is the type checker's business. Members get the struct as their parent, so
-    /// `Self` and `self` work in them, but none becomes an associated function.
-    fn collect_drop_impl(
-        &mut self,
-        item: &Item,
-        imp: &ImplDecl,
-        drop_headers: &mut HashMap<DefId, Span>,
-    ) {
-        let header = Span::new(item.span.file, item.span.start, imp.self_ty.span.end);
-        // Only reached when no item of the file is named `Drop` (`is_lang_drop`).
-        let Some(adt) = self.resolve_drop_target(&imp.self_ty) else {
-            return;
-        };
-        let name = self.results.def(adt).name.clone();
-        if let Some(&first) = drop_headers.get(&adt) {
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::CONFLICTING_IMPLS,
-                    format!("conflicting implementations of trait `Drop` for type `{name}`"),
-                )
-                .with_label(header, format!("conflicting implementation for `{name}`"))
-                .with_label(first, "first implementation here"),
-            );
-            return;
-        }
-        drop_headers.insert(adt, header);
-        let mut has_drop = false;
-        for member in &imp.items {
-            let f = match &member.kind {
-                ItemKind::Fn(f) => f,
-                ItemKind::Const(c) => {
-                    let def = self.results.def_of_item(member.id);
-                    self.results.defs[def.0 as usize].parent = Some(adt);
-                    self.sink.emit(
-                        Diagnostic::error(
-                            ErrorCode::NOT_A_TRAIT_MEMBER,
-                            format!("const `{}` is not a member of trait `Drop`", c.name.name),
-                        )
-                        .with_label(c.name.span, "not a member of trait `Drop`"),
-                    );
-                    continue;
-                }
-                _ => continue,
-            };
-            let def = self.results.def_of_item(member.id);
-            self.results.defs[def.0 as usize].parent = Some(adt);
-            if f.name.name != "drop" {
-                let mut d = Diagnostic::error(
-                    ErrorCode::NOT_A_TRAIT_MEMBER,
-                    format!("method `{}` is not a member of trait `Drop`", f.name.name),
-                )
-                .with_label(f.name.span, "not a member of trait `Drop`");
-                if f.name.name.eq_ignore_ascii_case("drop") {
-                    d = d.with_note(
-                        "the trait's method is `drop`, lowercase: it keeps Rust's name, unlike Sabiko's PascalCase methods",
-                    );
-                }
-                self.sink.emit(d);
-                continue;
-            }
-            if has_drop {
-                self.sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::DUPLICATE_ASSOC_ITEM,
-                        "duplicate definitions with name `drop`",
-                    )
-                    .with_label(f.name.span, "duplicate definitions for `drop`"),
-                );
-                continue;
-            }
-            has_drop = true;
-            self.results.drop_impls.insert(adt, def);
-        }
-        if !has_drop {
-            self.sink.emit(
-                Diagnostic::error(
-                    ErrorCode::MISSING_TRAIT_ITEMS,
-                    "not all trait items implemented, missing: `drop`",
-                )
-                .with_label(header, "missing `drop` in implementation")
-                .with_note("`impl Drop` must define `fn drop(&mut self)`"),
-            );
-        }
-    }
-
-    /// The struct an `impl Drop` is for, reporting anything else: a primitive, a tuple, a
-    /// reference or `()` (E0214). An unknown name is reported by type resolution.
-    fn resolve_drop_target(&mut self, ty: &Type) -> Option<DefId> {
-        // `None` for a tuple, a reference or `()`.
-        let res = if let TypeKind::Path(path) = &ty.kind {
-            let res = self.resolve_type_path(path, true);
-            self.results.res.insert(ty.id, res);
-            Some(res)
-        } else {
-            self.resolve_type(ty, true);
-            None
-        };
-        match res {
-            Some(Res::Def(def)) => Some(def),
-            None | Some(Res::Prim(_)) => {
-                self.sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::INVALID_DROP_TARGET,
-                        "the `Drop` trait may only be implemented for structs of this file",
-                    )
-                    .with_label(ty.span, "must be a struct defined in this file"),
-                );
-                None
-            }
-            Some(Res::Local(_) | Res::Err) => None,
-        }
     }
 
     /// The struct an `impl` block is for, reporting anything else.
@@ -2708,13 +2734,6 @@ impl Resolver<'_> {
                 if let Some(d) = self.results.assoc_item(def, &item.name) {
                     return Res::Def(d);
                 }
-                if item.name == "drop" {
-                    // `D::drop(&mut d)`: the type checker reports the explicit destructor
-                    // call.
-                    if let Some(d) = self.results.drop_impl(def) {
-                        return Res::Def(d);
-                    }
-                }
                 if let Some(res) = from_trait(self) {
                     return res;
                 }
@@ -3289,9 +3308,27 @@ mod tests {
             "fn PrintLine(x: i32) {}\nfn F() { PrintLine(1); Print(2); Panic(\"x\"); }\nfn G() -> Print {}",
         );
         assert_eq!(msgs, ["E0203 expected type, found function `Print`"]);
-        // User items first, then the builtins the user did not define.
+        // User items first, then the builtins the user did not define, then the language
+        // traits with their `Self` parameters and methods (decision 86).
         let names: Vec<&str> = r.defs.iter().map(|d| d.name.as_str()).collect();
-        assert_eq!(names, ["PrintLine", "F", "G", "Print", "Panic"]);
+        assert_eq!(
+            names,
+            [
+                "PrintLine",
+                "F",
+                "G",
+                "Print",
+                "Panic",
+                "Clone",
+                "Self",
+                "clone",
+                "Copy",
+                "Self",
+                "Drop",
+                "Self",
+                "drop"
+            ]
+        );
         assert_eq!(r.builtin(DefId(0)), None);
         assert_eq!(r.builtin(DefId(3)), Some(Builtin::Print));
         assert_eq!(r.builtin(DefId(4)), Some(Builtin::Panic));
@@ -3302,7 +3339,11 @@ mod tests {
             res,
             [Res::Def(DefId(0)), Res::Def(DefId(3)), Res::Def(DefId(4))]
         );
-        assert_eq!(r.defs_of_kind(DefKind::Fn).count(), 5);
+        assert_eq!(
+            r.defs_of_kind(DefKind::Fn).count(),
+            7,
+            "with `clone` and `drop`"
+        );
     }
 
     #[test]

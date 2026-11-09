@@ -1,0 +1,20 @@
+// Hand-written generic `impl Clone` and `impl Copy` blocks make a generic struct `Copy`
+// at `Copy` arguments, an inherent `drop` method is an ordinary method, and `m.clone()`
+// on a `&mut i32` clones the `i32` (a `&mut` is never `Clone`), as rustc's probe finds.
+struct S<T> { v: T }
+impl<T: Clone> Clone for S<T> { fn clone(&self) -> S<T> { S { v: self.v.clone() } } }
+impl<T: Copy> Copy for S<T> {}
+fn Two<T: Copy>(x: T) -> (T, T) { (x, x) }
+struct D { id: i32 }
+impl D { fn drop(&self) -> i32 { self.id } }
+fn Main() {
+    let s = S { v: 3u8 };
+    let (a, b) = Two(s);
+    let c = s.clone();
+    PrintLine(a.v + b.v + c.v);
+    let d = D { id: 4 };
+    PrintLine(d.drop());
+    let m = &mut 5;
+    let n = m.clone();
+    PrintLine(n);
+}

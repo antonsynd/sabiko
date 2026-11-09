@@ -1251,8 +1251,8 @@ Tracking issue #118. Order (decision 82 for the design):
    Trait` and `where`, supertraits, method resolution through bounds, `Copy`/`Clone`, and
    `Drop` as an ordinary trait (retiring decision 46's special case). Monomorphisation
    resolves each trait call to its impl's method. First part done (decision 84; see the
-   status below), associated constants too (decision 85); `Copy`/`Clone`/`Drop` as traits
-   are next.
+   status below), associated constants too (decision 85), and `Copy`/`Clone`/`Drop` as
+   traits (decision 86). Done.
 4. `core` prelude written in Sabiko (#13, decision 47): `Option`, `Result`, `?`, `unwrap`,
    `expect`, and `.get(i) -> Option<&T>` on slices. `?` converts errors through `From`.
 5. Operator traits, comparisons and derives (#117): `Add`, `Sub`, ..., their `*Assign`
@@ -1363,12 +1363,32 @@ generator's `GenSign`, which gained a required and a provided constant read as
 generic struct's or enum's `impl` block are evaluated per instance the same way, so they
 may read a bounded parameter's constants (`impl<T: Shape> W<T> { const M: u32 =
 T::SIDES; }`; `differential/run/traits/generic_impl_consts.sabi`). Not yet: `<T as
-Trait>::N` (a parse error) and `Copy`/`Clone`/`Drop` as traits (#116's last part; until
-then `impl Drop` is decision 46's language item and `Copy`/`Clone`/`Drop` in a bound are
-E0107),
-generic traits (#117), associated types, blocks for types holding references or unsized
-types, `where` clauses on types other than parameters, `where Self: Sized`, bounds on
-struct and enum parameters, `<T as Trait>::` paths.
+Trait>::N` (a parse error).
+
+Status (2026-11-09): `Clone`, `Copy` and `Drop` are traits (#116's last part, decision 86,
+retiring decision 46; #116 is done). The resolver defines them as language traits after
+the builtins (a user item of the same name shadows one); `impl Drop` is an ordinary
+trait `impl` block whose `drop` code generation still emits in the type's class, for the
+type's own parameters in order (E0348) and without bounds (E0349). The solver knows
+rustc's built-in `Copy` and `Clone` (primitives, `()`, `!`, `&T`, tuples and arrays) and
+reads `#[derive(Copy, Clone)]` as impls bounded on every parameter; user `impl Clone` and
+`impl Copy` blocks for structs and enums of the file are checked (E0214 for other types,
+E0215 with a derive, E0341 for `Copy` without `Clone`, E0417, E0324). Copy decisions
+take the body's bounds, so `T: Copy` copies and a trait with `Copy` as supertrait has a
+`Sized` `Self`. `.clone()` calls the type's `impl Clone`, and monomorphisation turns the
+built-in or derived `clone` of a `Copy` type into a copy; that of a type that is not
+`Copy` is E0500 until #117's derives generate field-by-field bodies. Tests:
+`differential/run/traits/copy_clone_drop.sabi` and `copy_impls_and_clone_probe.sabi`,
+compile-time programs
+`traits/ok_copy_bound_parameter_used_twice`, `ok_clone_then_move` and
+`err_clone_bound_parameter_moved_twice`, UI tests `typeck/copy_clone_drop_impls` and
+`codegen/clone_not_copy` (the `Drop` UI tests now go through the trait machinery;
+`drop_duplicate_impl` moved to `typeck/`), and the generator's `GenCopied<T: Copy>`,
+`GenCloned<T: Clone>` and `.clone()` of `Copy` values. Not yet, after #116: generic traits
+(#117), associated types, blocks for types holding references or unsized types, `where`
+clauses on types other than parameters, `where Self: Sized`, bounds on struct and enum
+parameters, `<T as Trait>::` paths, the derived or built-in `clone` of a type that is not
+`Copy` (#117).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

@@ -760,7 +760,10 @@ impl MoveChecker<'_> {
         };
         let ty = place.ty(self.body);
         debug_assert!(
-            !self.typeck.items.is_copy(&ty),
+            !self
+                .typeck
+                .items
+                .is_copy_in(&ty, self.typeck.items.param_env(self.body.def)),
             "the MIR builder moves out of a Copy place {place:?}"
         );
         let kind = match reference.ty(self.body) {

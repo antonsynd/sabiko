@@ -853,7 +853,8 @@ impl<'a> Builder<'a> {
 
     /// `copy` for `Copy` types, `move` otherwise.
     fn place_operand(&self, place: Place) -> Operand {
-        if self.typeck.items.is_copy(&place.ty(&self.body)) {
+        let env = self.typeck.items.param_env(self.body.def);
+        if self.typeck.items.is_copy_in(&place.ty(&self.body), env) {
             Operand::Copy(place)
         } else {
             Operand::Move(place)

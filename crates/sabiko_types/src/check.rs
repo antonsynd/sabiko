@@ -12,7 +12,9 @@ use sabiko_ast::{
     TypeKind, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, Predicate, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{
+    Builtin, DefId, DefKind, LangItem, LocalId, Predicate, PrimTy, Res, ResolveResults,
+};
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
@@ -2854,9 +2856,29 @@ impl<'a> FnCtxt<'a> {
             Solution::Yes => true,
             Solution::No => false,
             Solution::Ambiguous => {
-                self.impl_candidates(&ty, tr) > 0
+                // The built-in `Copy` and `Clone` hold of every integer and float type,
+                // and of tuples and arrays of them, never of `&mut T` (decision 86).
+                let builtin = matches!(
+                    self.items.lang_of(tr),
+                    Some(LangItem::Copy | LangItem::Clone)
+                );
+                (builtin && self.may_be_copy_like(&ty, tr))
+                    || self.impl_candidates(&ty, tr) > 0
                     || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
             }
+        }
+    }
+
+    /// Whether `ty`, with inference variables, may implement the built-in `Copy` or
+    /// `Clone` `tr`: a variable may be any type, `&mut T`, `str` and slices never do, and
+    /// a tuple or array does when its elements may.
+    fn may_be_copy_like(&mut self, ty: &Ty, tr: DefId) -> bool {
+        match ty {
+            Ty::Infer(_) => true,
+            Ty::Ref(Mutability::Mut, _) | Ty::Slice(_) | Ty::Prim(PrimTy::Str) => false,
+            Ty::Tuple(elems) => elems.iter().all(|e| self.may_be_copy_like(e, tr)),
+            Ty::Array(elem, _) => self.may_be_copy_like(elem, tr),
+            _ => self.items.implements(ty, tr, &self.env) != Solution::No,
         }
     }
 
@@ -3078,8 +3100,11 @@ impl<'a> FnCtxt<'a> {
             self.variant_exprs.insert(id, (adt, index));
             return Ty::Adt(adt, generic.into());
         }
-        if self.resolve.is_drop_fn(def) {
-            // `D::drop(&mut d)`.
+        if self.is_destructor(def) {
+            // `D::drop(&mut d)`, `Drop::drop(&mut d)`: nothing infers `Self` then.
+            for arg in self.args_of_use(target.id) {
+                self.infer.bind_error(&arg);
+            }
             self.explicit_drop_call(callee.span);
             for a in args {
                 self.check_expr(a, None);
@@ -3135,6 +3160,14 @@ impl<'a> FnCtxt<'a> {
             }
             return Ty::Error;
         };
+        if self.is_destructor(callee.def) {
+            // `d.drop()`.
+            self.explicit_drop_call(method.span);
+            for a in args {
+                self.check_expr(a, None);
+            }
+            return Ty::Error;
+        }
         let mut sig = self.items.fn_sig(callee.def).clone();
         // The arguments of the method's type (decision 83) are the receiver's own, a trait
         // method's is its `Self` (decision 84); a turbofish gives the method's.
@@ -3354,6 +3387,12 @@ impl<'a> FnCtxt<'a> {
         } else {
             self.unknown_method(recv_ty, name, None, "method not found", trait_methods);
         }
+    }
+
+    /// Whether `def` is `Drop::drop` or an `impl Drop` block's `drop`, which no code may
+    /// call (E0323).
+    fn is_destructor(&self, def: DefId) -> bool {
+        self.resolve.is_drop_fn(def) || self.resolve.is_lang_method(def, LangItem::Drop)
     }
 
     /// E0323: `d.drop()` or `D::drop(&mut d)` (rustc's E0040). Sabiko has no
@@ -3779,7 +3818,8 @@ impl<'a> FnCtxt<'a> {
                 generics: e.generics.clone(),
                 fields: v.fields.clone(),
                 is_unit: false,
-                is_copy: false,
+                derives_copy: false,
+                derives_clone: false,
                 span: v.span,
                 variants: None,
             };
@@ -4012,6 +4052,14 @@ impl<'a> FnCtxt<'a> {
     /// accepts them under `where Self: Sized`, which is not supported yet.
     fn check_self_sized(&mut self, def: DefId, f: &FnDecl) {
         let tr = self.resolve.def(def).parent.expect("a trait member");
+        // `Clone` (and so `Copy`) is `Sized`, as in rustc: a subtrait's `Self` has a size.
+        let sized = self
+            .items
+            .lang_item(LangItem::Clone)
+            .is_some_and(|clone| self.items.trait_closure(tr).contains(&clone));
+        if sized {
+            return;
+        }
         let self_param = self.resolve.trait_self(tr);
         let sig = self.items.fn_sig(def).clone();
         let mut spans: Vec<Span> = Vec::new();
@@ -4188,7 +4236,7 @@ impl<'a> FnCtxt<'a> {
     fn check_pending_repeats(&mut self) {
         for (span, ty) in std::mem::take(&mut self.pending_repeats) {
             let t = self.infer.resolve_with_defaults(&ty);
-            if !t.has_infer() && !self.items.is_copy(&t) {
+            if !t.has_infer() && !self.items.is_copy_in(&t, &self.env) {
                 let s = self.ty_str(&t);
                 self.error(
                     Diagnostic::error(

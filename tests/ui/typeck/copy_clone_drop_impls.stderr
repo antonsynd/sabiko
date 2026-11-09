@@ -1,0 +1,72 @@
+[E0341] Error: the trait bound `OnlyCopy: Clone` is not satisfied
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:12:8 ]
+    │
+ 12 │ struct OnlyCopy { //~ ERROR E0341 the trait bound `OnlyCopy: Clone` is not satisfied
+    │        ────┬───  
+    │            ╰───── `Copy` derived here
+    │ 
+    │ Note: `Clone` is a supertrait of `Copy`: derive both, `#[derive(Clone, Copy)]`
+────╯
+[E0417] Error: the trait `Copy` cannot be implemented for type `Holder`
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:21:5 ]
+    │
+ 21 │     token: Token, //~ ERROR E0417 the trait `Copy` cannot be implemented for type `Holder`
+    │     ──────┬─────  
+    │           ╰─────── this field does not implement `Copy`: `Token`
+    │ 
+ 30 │ impl Copy for Holder {}
+    │ ──────────┬─────────  
+    │           ╰─────────── `Copy` implemented here
+────╯
+[E0215] Error: conflicting implementations of trait `Clone` for type `Twice`
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:37:1 ]
+    │
+ 33 │ struct Twice {
+    │        ──┬──  
+    │          ╰──── first implementation here, by `#[derive(Clone)]`
+    │ 
+ 37 │ impl Clone for Twice { //~ ERROR E0215 conflicting implementations of trait `Clone` for type `Twice`
+    │ ──────────┬─────────  
+    │           ╰─────────── conflicting implementation for `Twice`
+────╯
+[E0214] Error: the `Clone` trait may only be implemented for structs and enums of this file
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:43:16 ]
+    │
+ 43 │ impl Clone for i32 { //~ ERROR E0214 the `Clone` trait may only be implemented for structs and enums of this file
+    │                ─┬─  
+    │                 ╰─── must be a struct or an enum defined in this file
+────╯
+[E0348] Error: `Drop` impls cannot be specialized
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:53:1 ]
+    │
+ 53 │ impl Drop for Cell<i32> { //~ ERROR E0348 `Drop` impls cannot be specialized
+    │ ───────────┬───────────  
+    │            ╰───────────── `Cell<i32>` is not the type's own parameters
+    │ 
+    │ Note: an `impl Drop` is for every instance: `impl<A, B> Drop for Pair<A, B>`, its parameters in order
+────╯
+[E0349] Error: `Drop` impl requires bounds the type does not require
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:61:9 ]
+    │
+ 61 │ impl<T: Show> Drop for Shown<T> { //~ ERROR E0349 `Drop` impl requires bounds the type does not require
+    │         ──┬─  
+    │           ╰─── a bound the struct or enum does not have
+    │ 
+    │ Note: an `impl Drop` is for every instance; bounds on struct and enum parameters are not supported yet
+────╯
+[E0341] Error: the trait bound `Token: Copy` is not satisfied
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:78:16 ]
+    │
+ 78 │     let pair = Both(Token { id: 1 }); //~ ERROR E0341 the trait bound `Token: Copy` is not satisfied
+    │                ──┬─  
+    │                  ╰─── the trait `Copy` is not implemented for `Token`
+────╯
+[E0323] Error: explicit use of destructor method
+    ╭─[ tests/ui/typeck/copy_clone_drop_impls.sabi:80:5 ]
+    │
+ 80 │     Drop::drop(&mut d); //~ ERROR E0323 explicit use of destructor method
+    │     ─────┬────  
+    │          ╰────── explicit destructor calls not allowed
+    │ 
+    │ Note: a value is dropped at the end of its scope; to drop it earlier, pass it by value to a function
+────╯

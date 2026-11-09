@@ -161,7 +161,7 @@ fn Pair::Swap<u8, bool>(_1: Pair<u8, bool>) -> Pair<bool, u8> {
     }
 }
 
-fn Guard::drop<(Pair<bool, u8>, Opt<&i32>)>(_1: &mut Guard<(Pair<bool, u8>, Opt<&i32>)>) {
+fn <Guard<T> as Drop>::drop<(Pair<bool, u8>, Opt<&i32>)>(_1: &mut Guard<(Pair<bool, u8>, Opt<&i32>)>) {
     let mut _0: ();
 
     bb0: {

@@ -71,15 +71,6 @@
     │ 
     │ Note: trait objects (`dyn Show`) are planned for Phase 7; a type parameter takes any type that implements it: `fn F<T: Show>(x: T)`
 ────╯
-[E0107] Error: not yet supported: the `Copy` trait in a bound or an `impl` header
-    ╭─[ tests/ui/resolve/traits.sabi:37:14 ]
-    │
- 37 │ fn Copies<T: Copy>(x: T) {} //~ ERROR E0107 not yet supported: the `Copy` trait in a bound
-    │              ──┬─  
-    │                ╰─── a language trait
-    │ 
-    │ Note: `Copy`, `Clone` and `Drop` become ordinary traits in Phase 6 (#116); see docs/PLAN.md
-────╯
 [E0107] Error: not yet supported: a `where` clause on a type other than a type parameter
     ╭─[ tests/ui/resolve/traits.sabi:41:5 ]
     │
