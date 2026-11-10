@@ -348,12 +348,6 @@ impl ItemTypes {
         self.impls.iter().filter(move |i| i.trait_ == tr)
     }
 
-    /// The trait `impl` block `def`, if its trait resolved.
-    #[must_use]
-    pub fn impl_def(&self, def: DefId) -> Option<&ImplDef> {
-        self.impls.iter().find(|i| i.def == def)
-    }
-
     /// The type `Self` names in the trait `impl` block `def` (an error type when its trait
     /// did not resolve, or it is not one).
     #[must_use]

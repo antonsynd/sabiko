@@ -404,11 +404,13 @@ seconds). The 44 codegen "timeouts" of run 18 were mutants that the fast tests d
 kill: 37 were cut off in `generated`, before `interop` and `run_pass` ran, and 7 hung in
 `layout`. A timeout counts as caught, so a real survivor among them would have been
 counted as killed. Applied by hand, the one checked (`||` as `&&` in `payload_type_name`)
-is killed by `interop`. The nightly workflow runs each crate as four round-robin shards
-(`scripts/mutants.sh --shard k/4 <crate>`, one runner each, no verdict per shard). A
-`mutants-score` job then judges each crate on the counts of all four `mutants.out`
-directories (`scripts/mutants.sh --score <crate> --shards 4 <dir>...`) and fails when a
-shard's results are missing. The longer timeout let three codegen mutants exhaust a
+is killed by `interop`. The nightly workflow runs each crate as round-robin shards
+(`scripts/mutants.sh --shard k/n <crate>`, one runner each, no verdict per shard): four
+for `sabiko_borrowck` and `sabiko_codegen`, eight for `sabiko_types` since run 25
+(2026-11-10), when its 1786 mutants took up to 2h18m per shard of four and one shard ran
+into the 150-minute job limit (#125). A `mutants-score` job then judges each crate on the
+counts of all its shards' `mutants.out` directories (`scripts/mutants.sh --score <crate>
+--shards n <dir>...`) and fails when a shard's results are missing. The longer timeout let three codegen mutants exhaust a
 runner's memory (run 19): `next += 1` as `next *= 1` in the worklist loops of
 `drop_glues`, `inline_array_structs` and `byref_tuple_structs` never advances, so the
 backend emits the first entry forever. `.cargo/mutants.toml` excludes those three; they

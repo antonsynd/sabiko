@@ -182,19 +182,31 @@ jobs:
           done
           exit 1
 
-  # Each crate's mutants run as four round-robin shards on separate runners (one in-place
+  # Each crate's mutants run as round-robin shards on separate runners (one in-place
   # cargo-mutants run per runner tests one mutant at a time); `mutants-score` then judges
   # each crate on its shards' combined counts. Run 18 (2026-11-06) took 137 minutes for
-  # sabiko_codegen unsharded and ran sabiko_types into the 180-minute limit.
+  # sabiko_codegen unsharded and ran sabiko_types into the 180-minute limit. sabiko_types
+  # runs as eight shards since run 25 (2026-11-10), when its 1786 mutants took up to 2h18m
+  # per shard of four and ran one into the 150-minute limit (#125); the other crates as
+  # four. Keep `shards` here and in mutants-score in step.
   mutants:
-    name: mutation testing (${{ matrix.crate }}, shard ${{ matrix.shard }}/4)
+    name: mutation testing (${{ matrix.crate }}, shard ${{ matrix.shard }}/${{ matrix.crate == 'sabiko_types' && 8 || 4 }})
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         crate: [sabiko_borrowck, sabiko_codegen, sabiko_types]
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        exclude:
+          - { crate: sabiko_borrowck, shard: 4 }
+          - { crate: sabiko_borrowck, shard: 5 }
+          - { crate: sabiko_borrowck, shard: 6 }
+          - { crate: sabiko_borrowck, shard: 7 }
+          - { crate: sabiko_codegen, shard: 4 }
+          - { crate: sabiko_codegen, shard: 5 }
+          - { crate: sabiko_codegen, shard: 6 }
+          - { crate: sabiko_codegen, shard: 7 }
     env:
       CARGO_TERM_COLOR: always
       # The run-pass and run-time differential tests must run, not skip, so a missing
@@ -206,7 +218,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
-          # One cache per crate, shared by its four shards, which build the same tree.
+          # One cache per crate, shared by its shards, which build the same tree.
           key: mutants-${{ matrix.crate }}
       - uses: actions/setup-dotnet@v4
         with:
@@ -216,7 +228,7 @@ jobs:
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked
       - name: Mutation testing (one shard; mutants-score judges the crate)
-        run: scripts/mutants.sh --shard ${{ matrix.shard }}/4 ${{ matrix.crate }}
+        run: scripts/mutants.sh --shard ${{ matrix.shard }}/${{ matrix.crate == 'sabiko_types' && 8 || 4 }} ${{ matrix.crate }}
       - name: Upload mutants.out
         if: always()
         uses: actions/upload-artifact@v4
@@ -242,4 +254,4 @@ jobs:
           pattern: mutants-${{ matrix.crate }}-*
           path: shards
       - name: Score (scripts/mutants.sh enforces the per-crate minimum score)
-        run: scripts/mutants.sh --score ${{ matrix.crate }} --shards 4 shards/mutants-${{ matrix.crate }}-*
+        run: scripts/mutants.sh --score ${{ matrix.crate }} --shards ${{ matrix.crate == 'sabiko_types' && 8 || 4 }} shards/mutants-${{ matrix.crate }}-*

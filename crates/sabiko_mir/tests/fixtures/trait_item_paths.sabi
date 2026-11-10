@@ -1,0 +1,29 @@
+// Paths to trait items when two traits share the names: `i64::Make()` calls `B`'s item and
+// `bool::Make()` `A`'s, whichever the resolver met first; `A::M(&x)` names `A`'s method.
+trait A {
+    const C: i32;
+    fn M(&self) -> i32;
+    fn Make() -> i32;
+}
+
+trait B {
+    const C: i32;
+    fn M(&self) -> i32;
+    fn Make() -> i32;
+}
+
+impl A for bool {
+    const C: i32 = 10;
+    fn M(&self) -> i32 { 1 }
+    fn Make() -> i32 { 100 }
+}
+
+impl B for i64 {
+    const C: i32 = 20;
+    fn M(&self) -> i32 { 2 }
+    fn Make() -> i32 { 200 }
+}
+
+fn Paths() -> i32 {
+    i64::Make() + bool::Make() + i64::C + A::M(&true)
+}

@@ -1,0 +1,44 @@
+[E0319] Error: no method named `Nope` found for type parameter `T`
+    ╭─[ tests/ui/typeck/turbofish_and_unknown_methods.sabi:33:7 ]
+    │
+ 33 │     x.Nope(); //~ ERROR E0319 no method named `Nope` found for type parameter `T`
+    │       ──┬─  
+    │         ╰─── method not found
+    │ 
+    │ Note: methods come from inherent `impl` blocks of structs and enums, and from traits
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/turbofish_and_unknown_methods.sabi:37:23 ]
+    │
+ 37 │     let o: Opt<i32> = Opt::<u8>::Some(5); //~ ERROR E0300 mismatched types
+    │                       ─────────┬────────  
+    │                                ╰────────── expected `Opt<i32>`, found `Opt<u8>`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/turbofish_and_unknown_methods.sabi:38:29 ]
+    │
+ 38 │     let p: Pair<i32, i32> = Pair::<u8, u8>::New(1, 2); //~ ERROR E0300 mismatched types
+    │                             ────────────┬────────────  
+    │                                         ╰────────────── expected `Pair<i32, i32>`, found `Pair<u8, u8>`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/turbofish_and_unknown_methods.sabi:40:18 ]
+    │
+ 40 │     let r: i32 = w.Id::<u8>(5); //~ ERROR E0300 mismatched types
+    │                  ──────┬──────  
+    │                        ╰──────── expected `i32`, found `u8`
+────╯
+[E0319] Error: no method named `Nope` found for enum `Opt<i32>`
+    ╭─[ tests/ui/typeck/turbofish_and_unknown_methods.sabi:42:7 ]
+    │
+ 42 │     e.Nope(); //~ ERROR E0319 no method named `Nope` found for enum `Opt<i32>`
+    │       ──┬─  
+    │         ╰─── method not found
+────╯
+[E0319] Error: no method named `Nope` found for struct `W`
+    ╭─[ tests/ui/typeck/turbofish_and_unknown_methods.sabi:43:7 ]
+    │
+ 43 │     w.Nope(); //~ ERROR E0319 no method named `Nope` found for struct `W`
+    │       ──┬─  
+    │         ╰─── method not found
+────╯

@@ -1,0 +1,57 @@
+[E0215] Error: conflicting implementations of trait `Show` for type `[i32; 2]`
+    ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:31:1 ]
+    │
+ 25 │ impl<T> Show for [T; 2] {
+    │ ───────────┬───────────  
+    │            ╰───────────── first implementation here
+    │ 
+ 31 │ impl Show for [i32; 2] { //~ ERROR E0215 conflicting implementations of trait `Show` for type `[i32; 2]`
+    │ ───────────┬──────────  
+    │            ╰──────────── conflicting implementation for `[i32; 2]`
+────╯
+[E0215] Error: conflicting implementations of trait `Show` for type `Wrap<i32>`
+    ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:49:1 ]
+    │
+ 43 │ impl<T> Show for Wrap<T> {
+    │ ────────────┬───────────  
+    │             ╰───────────── first implementation here
+    │ 
+ 49 │ impl Show for Wrap<i32> { //~ ERROR E0215 conflicting implementations of trait `Show` for type `Wrap<i32>`
+    │ ───────────┬───────────  
+    │            ╰───────────── conflicting implementation for `Wrap<i32>`
+────╯
+[E0341] Error: the trait bound `[i32; 4]: Show` is not satisfied
+    ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:97:13 ]
+    │
+ 97 │     let b = Need([1, 2, 3, 4]); //~ ERROR E0341 the trait bound `[i32; 4]: Show` is not satisfied
+    │             ──┬─  
+    │               ╰─── the trait `Show` is not implemented for `[i32; 4]`
+────╯
+[E0341] Error: the trait bound `Other<bool>: Show` is not satisfied
+    ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:98:13 ]
+    │
+ 98 │     let c = Need(Other { X: true }); //~ ERROR E0341 the trait bound `Other<bool>: Show` is not satisfied
+    │             ──┬─  
+    │               ╰─── the trait `Show` is not implemented for `Other<bool>`
+────╯
+[E0341] Error: the trait bound `(u8, bool): Pairs` is not satisfied
+     ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:100:13 ]
+     │
+ 100 │     let e = NeedPairs((1u8, true)); //~ ERROR E0341 the trait bound `(u8, bool): Pairs` is not satisfied
+     │             ────┬────  
+     │                 ╰────── the trait `Pairs` is not implemented for `(u8, bool)`
+─────╯
+[E0301] Error: no field `X` on type `bool`
+     ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:101:19 ]
+     │
+ 101 │     let t = (true.X, 2); //~ ERROR E0301
+     │                   ┬  
+     │                   ╰── unknown field
+─────╯
+[E0301] Error: no field `X` on type `bool`
+     ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:103:34 ]
+     │
+ 103 │     let g = Need(Other { X: true.X }); //~ ERROR E0301
+     │                                  ┬  
+     │                                  ╰── unknown field
+─────╯

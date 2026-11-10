@@ -432,6 +432,26 @@ mod tests {
         assert!(!cx.is_cyclic(&tuple(vec![v.clone()]), &tuple(vec![Ty::BOOL])));
     }
 
+    /// The occurs check and the cycle test look inside the arguments of a generic struct
+    /// or enum instance, pairing them only between instances of one type and arity.
+    #[test]
+    fn occurs_check_looks_inside_instances() {
+        use sabiko_resolve::DefId;
+        let mut cx = InferCtxt::new();
+        let v = cx.new_var(VarKind::General);
+        let adt = |def: u32, args: Vec<Ty>| Ty::Adt(DefId(def), args.into());
+        assert!(cx.unify(&v, &adt(7, vec![v.clone()])).is_err());
+        assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
+        assert!(cx.is_cyclic(&v, &adt(7, vec![Ty::BOOL, v.clone()])));
+
+        let cyclic = adt(7, vec![Ty::shared_ref(v.clone())]);
+        assert!(cx.is_cyclic(&adt(7, vec![v.clone()]), &cyclic));
+        // Another type, or another number of arguments, fails to unify for that alone.
+        assert!(!cx.is_cyclic(&adt(8, vec![v.clone()]), &cyclic));
+        assert!(!cx.is_cyclic(&adt(7, vec![v.clone(), Ty::BOOL]), &cyclic));
+        assert!(!cx.is_cyclic(&adt(7, vec![v.clone()]), &adt(7, vec![Ty::BOOL])));
+    }
+
     /// `bind_error` reaches the variables inside references and tuples.
     #[test]
     fn bind_error_reaches_tuple_elements() {
