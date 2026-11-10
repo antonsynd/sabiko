@@ -1,0 +1,13 @@
+// Printing a `&mut` moves it (the prelude's `PrintLine<T>` takes `T`); a reborrow keeps it.
+fn Show(m: &mut i32) {
+    PrintLine(&mut *m);
+    *m += 1;
+    PrintLine(&*m);
+    PrintLine(m);
+}
+
+fn Nested(mm: &mut &mut i32) {
+    PrintLine(&**mm);
+    PrintLine(&mut **mm);
+    PrintLine(mm);
+}

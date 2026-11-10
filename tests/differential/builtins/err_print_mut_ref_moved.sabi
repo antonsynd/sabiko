@@ -1,0 +1,5 @@
+// Printing a `&mut` moves it, so a later use through it is a use of a moved value.
+fn Show(m: &mut i32) {
+    PrintLine(m);
+    *m += 1;
+}

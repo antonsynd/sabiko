@@ -766,7 +766,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - `Print(x)` and `PrintLine(x)` take one argument of a printable type (integers, floats,
   `bool`, `char`, `&str`) or a reference to one through any number of references (`&5`,
   `&&s`, `&mut f`), printed as what it points to (rustc's `Display` for `&T` and `&mut T`,
-  #26); anything else is E0300.
+  #26); anything else is E0300. The argument is passed by value, as to the differential
+  harness's `PrintLine<T: Display>(x: T)`: a `&mut` argument is moved, not reborrowed
+  (`PrintLine(m); *m += 1;` is E0406, `PrintLine(*mm)` E0407; `PrintLine(&mut *m)` keeps
+  `m`, #124).
 - Inference runs per function body and per constant initialiser, by unification; nothing
   is inferred across item signatures. Expected types flow down from `let` annotations,
   parameter types, return types, struct field types and assignment targets; the types of

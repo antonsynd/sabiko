@@ -1,0 +1,6 @@
+// Printing a `&mut` moves it, which a live shared reborrow of its referent forbids.
+fn Show(m: &mut i32) {
+    let r = &*m;
+    PrintLine(m);
+    PrintLine(r);
+}

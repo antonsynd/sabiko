@@ -826,13 +826,17 @@ impl<'a> Builder<'a> {
     // ----- helpers -----
 
     /// A `Print`/`PrintLine` argument dereferenced down to the value it prints: `&x`,
-    /// `&&s` (rustc's `Display` for references, #26). The printed value is `Copy`.
+    /// `&&s` (rustc's `Display` for references, #26). The printed value is `Copy`. The
+    /// argument itself is passed by value, as to the harness's `PrintLine<T: Display>(x:
+    /// T)`: a `&mut` is moved, not reborrowed (rustc reborrows at a coercion site only, and
+    /// a generic parameter is none), so it is moved into a temporary before the reads
+    /// through it (#124).
     fn printed_value(&mut self, mut op: Operand, span: Span) -> Operand {
         let derefs = sabiko_types::print_derefs(&op.ty(&self.body)).unwrap_or(0);
         for _ in 0..derefs {
             let place = match op {
-                Operand::Copy(p) | Operand::Move(p) => p,
-                Operand::Constant(_) => {
+                Operand::Copy(p) => p,
+                Operand::Move(_) | Operand::Constant(_) => {
                     let temp = self.new_temp(op.ty(&self.body), span);
                     self.assign(Place::local(temp), Rvalue::Use(op), span);
                     Place::local(temp)
@@ -863,10 +867,10 @@ impl<'a> Builder<'a> {
 
     /// An operand for a coercion site: a call argument, struct field initialiser, assignment
     /// right-hand side, annotated `let` initialiser or return value, whose expected type is
-    /// `target` (`None` when there is none, as for `Print`'s argument). Like rustc, a
-    /// `&mut T` place is reborrowed instead of moved there, so passing a mutable reference
-    /// to a function does not consume it: `&mut *p`, or `&*p` when `target` is `&T` (the
-    /// `&mut T` to `&T` coercion), which leaves other shared borrows of `*p` usable. A
+    /// `target` (`None` when there is none). Like rustc, a `&mut T` place is reborrowed
+    /// instead of moved there, so passing a mutable reference to a function does not
+    /// consume it: `&mut *p`, or `&*p` when `target` is `&T` (the `&mut T` to `&T`
+    /// coercion), which leaves other shared borrows of `*p` usable. A
     /// call argument (`call_arg`) is reborrowed two-phase, as rustc does at that coercion
     /// site only: `Use(m, m.X)` reads `*m` after the reborrow, before the call.
     fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>, call_arg: bool) -> Operand {
@@ -1425,11 +1429,11 @@ impl<'a> Builder<'a> {
                         .iter()
                         .enumerate()
                         .map(|(i, a)| {
-                            let op = this.coerced_operand(a, inputs.get(i), true);
                             if print {
+                                let op = this.as_operand(a);
                                 this.printed_value(op, a.span)
                             } else {
-                                op
+                                this.coerced_operand(a, inputs.get(i), true)
                             }
                         })
                         .collect();
