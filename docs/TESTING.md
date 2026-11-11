@@ -3,8 +3,9 @@
 How the compiler is tested, layer by layer, and how to update each kind of expectation.
 `cargo test --workspace` runs everything below except the libFuzzer targets and mutation
 testing, which have their own entry points and run nightly. CI (`.github/workflows/ci.yml`)
-runs the suite on Linux, macOS and Windows with the .NET toolchain installed and
-`SABIKO_REQUIRE_DOTNET=1`, so nothing that needs the toolchain may silently skip there.
+runs the suite on Linux, macOS and Windows with the .NET 10 toolchain installed and
+`SABIKO_REQUIRE_DOTNET=1`, so nothing that needs the toolchain may silently skip there, and
+again on Linux with .NET 11, whose ILVerify is stricter (decision 88).
 
 ## Goldens
 

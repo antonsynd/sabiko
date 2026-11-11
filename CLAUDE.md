@@ -9,7 +9,7 @@ make one) and `docs/SPEC.md` (the language as implemented).
 ## Commands
 
 ```sh
-scripts/setup-env.sh [--dotnet 10|11] [--check]  # fresh machine: rustup + pinned toolchain, cargo-deny, then setup-dotnet.sh
+scripts/setup-env.sh [--dotnet 10|11] [--check]  # fresh machine: rustup + pinned toolchain, cargo-deny, then setup-dotnet.sh (.NET 11 by default)
 scripts/setup-dotnet.sh && source tools/env.sh   # ilasm, ILVerify, ref assemblies, csc, builds Sabiko.Runtime.dll
 cargo build --workspace
 cargo fmt --all --check
@@ -25,8 +25,9 @@ python3 benchmarks/run_benchmarks.py [--smoke] [name...]   # Sabiko vs C# runtim
 ```
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy, build and test on Linux, macOS and Windows
-with the .NET toolchain installed and `SABIKO_REQUIRE_DOTNET=1`, so the run-pass and
-run-time differential tests must run there, not skip. Run all four checks before pushing.
+with the .NET 10 toolchain installed and `SABIKO_REQUIRE_DOTNET=1`, so the run-pass and
+run-time differential tests must run there, not skip; a Linux job builds and tests again on
+.NET 11, whose ILVerify is stricter. Run all four checks before pushing.
 A separate Linux job runs `cargo deny check licenses bans sources`; run it when you add or
 update a dependency (a new licence must be added to `deny.toml`'s allow list on purpose).
 

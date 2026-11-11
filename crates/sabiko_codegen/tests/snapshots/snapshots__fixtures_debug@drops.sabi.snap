@@ -59,7 +59,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     )
   BB0:
     ldloca.s 0
-    initobj valuetype 'D'
+    initobj 'D'
     ldloca.s 0
     ldarg.0
     stfld int32 'D'::'Id'
@@ -237,7 +237,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     stloc.2
   BB2:
     ldloca.s 0
-    initobj valuetype 'Outer'
+    initobj 'Outer'
     ldloca.s 0
     ldloc.1
     stfld valuetype 'D' 'Outer'::'First'
@@ -270,7 +270,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/drops.sabi
     stloc.s 5
   BB5:
     ldloca.s 3
-    initobj valuetype 'Pair'
+    initobj 'Pair'
     ldloca.s 3
     ldloc.s 4
     stfld valuetype 'D' 'Pair'::'A'

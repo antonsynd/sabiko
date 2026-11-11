@@ -67,6 +67,36 @@ jobs:
           python3 benchmarks/run_benchmarks.py --smoke fibonacci --json target/bench-smoke/results.json --markdown target/bench-smoke/report.md
           python3 benchmarks/allocation_gate.py check --results target/bench-smoke/results.json
 
+  # The same suite on the .NET 11 toolchain, which `scripts/setup-env.sh` installs by
+  # default (decision 88). ILVerify 11 is stricter than 10 (it rejects TypeSpecs that
+  # ECMA-335 II.23.2.14 does not allow), so this job catches IL the main matrix would pass.
+  # fmt and clippy do not depend on .NET and run in the matrix above.
+  dotnet11:
+    name: rust (ubuntu-latest, .NET 11)
+    runs-on: ubuntu-latest
+    env:
+      SABIKO_REQUIRE_DOTNET: 1
+      # Exact version of the runtime, ilasm, ILVerify and reference-assembly packages.
+      SABIKO_DOTNET_VERSION: 11.0.0
+      # sabikoc emits net10.0 programs; run them on the newest runtime (11), not on the
+      # runner image's .NET 10, as tools/env.sh does (the tests do not source it).
+      DOTNET_ROLL_FORWARD: LatestMajor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.x
+      - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
+        run: scripts/setup-dotnet.sh
+      - name: Assemble, verify and run the IL spike and the runtime probes
+        run: |
+          scripts/check-spike.sh
+          scripts/check-runtime.sh
+      - run: cargo build --workspace
+      - run: cargo test --workspace
+
   # Dependency licences, banned or duplicated crates and crate sources (`deny.toml`). The
   # dependency graph is the same on every OS, so one runner checks it. Advisories run in
   # the nightly workflow instead, so a new RUSTSEC entry cannot turn a pull request red

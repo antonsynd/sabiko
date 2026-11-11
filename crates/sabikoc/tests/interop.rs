@@ -96,6 +96,10 @@ fn csc(
                 "-langversion:latest",
                 "-nullable:enable",
                 "-warnaserror",
+                // `lib.dll` references the `net10.0` framework (sabikoc's target), which on a
+                // .NET 11 toolchain is older than the reference assemblies: CS1701 says csc
+                // unifies the two, as the runtime does. MSBuild disables it by default too.
+                "-nowarn:1701,1702",
             ])
             .arg(format!("-out:{}", out.display()))
             .arg(format!("@{}", rsp_path.display())),

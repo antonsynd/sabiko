@@ -163,11 +163,11 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     ldloc.s 10
     stloc.0
     ldloca.s 12
-    initobj valuetype '[u8; 4]'
+    initobj '[u8; 4]'
     ldloc.s 12
     stloc.1
     ldloca.s 13
-    initobj valuetype '[i32; 0]'
+    initobj '[i32; 0]'
     ldloc.s 13
     stloc.2
     ldloca.s 0
@@ -579,7 +579,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     ldc.i4.0
     stloc.s 4
     ldloca.s 0
-    initobj valuetype 'D'
+    initobj 'D'
     ldloca.s 0
     ldc.i4.3
     stfld int32 'D'::'Id'
@@ -635,7 +635,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     ldloc.1
     conv.i4
     call instance !0& valuetype [System.Runtime]System.Span`1<valuetype 'D'>::get_Item(int32)
-    ldobj valuetype 'D'
+    ldobj 'D'
     stloc.s 5
     ldarg.0
     ldflda valuetype 'D' '[D; 2]'::'Element'
@@ -659,7 +659,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     conv.i4
     call instance !0& valuetype [System.Runtime]System.Span`1<valuetype 'D'>::get_Item(int32)
     ldloc.0
-    stobj valuetype 'D'
+    stobj 'D'
   BB6:
     ldloca.s 5
     call void 'D'::'Drop.drop'(valuetype 'D'&)
@@ -679,7 +679,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     ldc.i4.0
     stloc.s 4
     ldloca.s 3
-    initobj valuetype 'D'
+    initobj 'D'
     ldloca.s 3
     ldc.i4.4
     stfld int32 'D'::'Id'
@@ -688,7 +688,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays.sabi
     call void 'D'::'Drop.drop'(valuetype 'D'&)
   BB3:
     ldloca.s 7
-    initobj valuetype '[D; 0]'
+    initobj '[D; 0]'
     ldloc.s 7
     stloc.2
   BB4:

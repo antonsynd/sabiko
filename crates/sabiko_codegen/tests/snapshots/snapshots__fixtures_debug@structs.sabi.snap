@@ -70,7 +70,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     stloc.2
   BB2:
     ldloca.s 0
-    initobj valuetype 'Point'
+    initobj 'Point'
     ldloca.s 0
     ldloc.2
     stfld int32 'Point'::'X'
@@ -283,7 +283,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     ldind.i4
     stind.i4
     ldloca.s 6
-    initobj valuetype 'Marker'
+    initobj 'Marker'
     ldloc.0
     stloc.s 8
     ldloc.2
@@ -292,7 +292,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/structs.sabi
     stloc.s 9
   BB3:
     ldloca.s 7
-    initobj valuetype 'Line'
+    initobj 'Line'
     ldloca.s 7
     ldloc.s 8
     stfld valuetype 'Point' 'Line'::'A'

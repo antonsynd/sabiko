@@ -54,8 +54,8 @@ Still to come: `Option`/`Result`, `Box`/`Gc`/`Cell`, and C# interop (Phases 6–
 
 You need the pinned Rust toolchain and a .NET 10 or 11 runtime, but no .NET SDK.
 `scripts/setup-env.sh` sets up a fresh Linux/macOS machine: rustup and the toolchain from
-`rust-toolchain.toml`, cargo-deny, and the newest .NET 10 runtime (`--dotnet 11` for .NET 11,
-where the ILVerify gate does not pass yet; `--check` builds and tests afterwards). It calls
+`rust-toolchain.toml`, cargo-deny, and the newest .NET 11 runtime (`--dotnet 10` for the
+.NET 10 toolchain the main CI matrix uses; `--check` builds and tests afterwards). It calls
 `scripts/setup-dotnet.sh` (`.ps1` on Windows), which fetches `ilasm`, ILVerify, the
 reference assemblies and `csc` into `./tools` and builds the runtime library.
 

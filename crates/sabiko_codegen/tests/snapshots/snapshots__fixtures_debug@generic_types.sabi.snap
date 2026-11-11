@@ -47,7 +47,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/generic_types.sabi
     stloc.2
   BB2:
     ldloca.s 0
-    initobj valuetype 'Pair<bool, u8>'
+    initobj 'Pair<bool, u8>'
     ldloca.s 0
     ldloc.1
     stfld bool 'Pair<bool, u8>'::'First'
@@ -136,7 +136,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/generic_types.sabi
     )
   BB0:
     ldloca.s 0
-    initobj valuetype 'Pair<u8, bool>'
+    initobj 'Pair<u8, bool>'
     ldloca.s 0
     ldc.i4.1
     stfld uint8 'Pair<u8, bool>'::'First'
@@ -151,7 +151,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/generic_types.sabi
     ldloca.s 1
     stloc.3
     ldloca.s 2
-    initobj valuetype 'Opt<&i32>'
+    initobj 'Opt<&i32>'
     ldloca.s 2
     ldc.i4.1
     stfld int32 'Opt<&i32>'::'Tag'
@@ -161,7 +161,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/generic_types.sabi
     newobj instance void valuetype 'Ref`1'<int32>::.ctor(!0&)
     stfld valuetype 'Ref`1'<int32> 'Opt<&i32>'/'SomePayload'::'Item1'
     ldloca.s 5
-    initobj valuetype 'Opt<i32>'
+    initobj 'Opt<i32>'
     ldloca.s 5
     ldc.i4.1
     stfld int32 'Opt<i32>'::'Tag'
@@ -177,7 +177,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/generic_types.sabi
     newobj instance void '(Pair<bool, u8>, Opt<&i32>)'::.ctor(valuetype 'Pair<bool, u8>', valuetype 'Opt<&i32>')
     stloc.s 7
     ldloca.s 6
-    initobj valuetype 'Guard<(Pair<bool, u8>, Opt<&i32>)>'
+    initobj 'Guard<(Pair<bool, u8>, Opt<&i32>)>'
     ldloca.s 6
     ldloc.s 7
     stfld valuetype '(Pair<bool, u8>, Opt<&i32>)' 'Guard<(Pair<bool, u8>, Opt<&i32>)>'::'Value'

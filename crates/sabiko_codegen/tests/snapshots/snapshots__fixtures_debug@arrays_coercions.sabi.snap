@@ -49,23 +49,23 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays_coercions.sabi
     )
   BB0:
     ldloca.s 14
-    initobj valuetype '[u16; 3]'
+    initobj '[u16; 3]'
     ldloc.s 14
     stloc.0
     ldloca.s 15
-    initobj valuetype '[bool; 2]'
+    initobj '[bool; 2]'
     ldloc.s 15
     stloc.1
     ldloca.s 16
-    initobj valuetype '[(); 4]'
+    initobj '[(); 4]'
     ldloc.s 16
     stloc.2
     ldloca.s 17
-    initobj valuetype '[char; 2]'
+    initobj '[char; 2]'
     ldloc.s 17
     stloc.3
     ldloca.s 18
-    initobj valuetype '[f64; 2]'
+    initobj '[f64; 2]'
     ldloc.s 18
     stloc.s 4
     ldc.i4.s 120
@@ -755,7 +755,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays_coercions.sabi
     ldloc.s 8
     stloc.1
     ldloca.s 10
-    initobj valuetype '[(); 2]'
+    initobj '[(); 2]'
     ldloc.s 10
     stloc.2
     ldloca.s 2
@@ -768,12 +768,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/arrays_coercions.sabi
     ldc.i4.0
     call instance !0& valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>::get_Item(int32)
     ldloc.s 12
-    stobj valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit
+    stobj [Sabiko.Runtime]Sabiko.Runtime.Unit
     ldloca.s 11
     ldc.i4.1
     call instance !0& valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>::get_Item(int32)
     ldloc.s 12
-    stobj valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit
+    stobj [Sabiko.Runtime]Sabiko.Runtime.Unit
     ldloc.s 10
     stloc.3
     ldloca.s 3

@@ -20,7 +20,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/methods.sabi
     )
   BB0:
     ldloca.s 0
-    initobj valuetype 'P'
+    initobj 'P'
     ldloca.s 0
     ldarg.0
     stfld int32 'P'::'X'
