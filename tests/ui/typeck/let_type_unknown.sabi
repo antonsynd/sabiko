@@ -1,0 +1,37 @@
+// Sabiko codes for rustc's: E0313 for E0282.
+// A `let` whose type nothing determines needs an annotation even when its pattern binds
+// nothing that would report it, as in rustc: at the pattern, or at the annotation that
+// leaves a part unknown. A local whose type is unknown is reported once, for itself.
+struct W<T> {
+    V: T,
+}
+
+fn A() {
+    let _; //~ ERROR E0313 type annotations needed
+}
+
+fn B() {
+    let (_, _); //~ ERROR E0313 type annotations needed
+}
+
+fn C() {
+    let _: W<_>; //~ ERROR E0313 type annotations needed
+}
+
+fn D() {
+    let (_, x): (_, i32); //~ ERROR E0313 type annotations needed
+    x = 1;
+}
+
+fn E() {
+    let (a, _); //~ ERROR E0313 type annotations needed
+}
+
+fn Fine() {
+    let _ = W { V: 1 };
+    let (_, y) = (1, 2);
+    let _: (i32, _) = (1, 2u8);
+    let _: i32;
+}
+
+fn Main() {}

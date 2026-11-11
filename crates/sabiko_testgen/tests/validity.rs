@@ -1116,9 +1116,10 @@ fn programs_use_the_prelude() {
         ("Err::<", 4),
         ("Some(&", 7),
         // A type written as a generic argument in an annotation (#137).
-        ("({ let ", 9),
+        (": Option<", 1),
+        (": Result<", 1),
     ];
-    let mut counts = [0usize; 8];
+    let mut counts = [0usize; 9];
     for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         for (count, (pattern, _)) in counts.iter_mut().zip(patterns) {

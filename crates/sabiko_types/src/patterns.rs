@@ -751,12 +751,17 @@ impl Exhaustive<'_, '_> {
 
     /// rustc's deny-by-default E0170: a binding named like a unit variant of the enum it
     /// matches binds everything, which is almost never meant. A lint in rustc, so it does
-    /// not stop the other checks of the match.
+    /// not stop the other checks of the match. Only a plain binding is linted, as in
+    /// rustc: `mut A`, `ref A` and `A @ p` are written to bind (and when the variant is
+    /// in scope, they are the resolver's E0225 already).
     fn bindings_named_like_variants(&mut self, pat: &Pat) {
         let mut found = Vec::new();
         walk_all_idents(pat, &mut |p| {
             let PatKind::Ident {
-                name, sub: None, ..
+                name,
+                sub: None,
+                by_ref: false,
+                mutable: false,
             } = &p.kind
             else {
                 return;
@@ -1180,7 +1185,7 @@ enum ConditionalKind {
 }
 
 /// Calls `f` for every identifier pattern in `pat`, in every alternative.
-fn walk_all_idents<'p>(pat: &'p Pat, f: &mut impl FnMut(&'p Pat)) {
+pub(crate) fn walk_all_idents<'p>(pat: &'p Pat, f: &mut impl FnMut(&'p Pat)) {
     match &pat.kind {
         PatKind::Ident { sub, .. } => {
             f(pat);

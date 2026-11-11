@@ -202,39 +202,39 @@ fn check_no_unreported_errors(
             continue;
         }
         let def = resolve.def_of_item(item.id);
-        let mut tys: Vec<&Ty> = Vec::new();
-        match &item.kind {
+        let signature: Box<dyn Iterator<Item = &Ty>> = match &item.kind {
             ItemKind::Fn(_) => {
                 let sig = results.items.fn_sig(def);
-                tys.extend(&sig.inputs);
-                tys.push(&sig.output);
+                Box::new(sig.inputs.iter().chain(std::iter::once(&sig.output)))
             }
-            ItemKind::Const(_) => tys.push(results.items.const_ty(def)),
-            ItemKind::Struct(_) | ItemKind::Enum(_) => {
+            ItemKind::Const(_) => Box::new(std::iter::once(results.items.const_ty(def))),
+            _ => {
                 let adt = results.items.adt(def);
                 let variant_fields = adt.variants().iter().flat_map(|v| &v.fields);
-                tys.extend(adt.fields.iter().chain(variant_fields).map(|f| &f.ty));
+                Box::new(adt.fields.iter().chain(variant_fields).map(|f| &f.ty))
             }
-            _ => {}
-        }
-        let mut bodies: Vec<&BodyTypes> = results.bodies.get(&def).into_iter().collect();
-        if let ItemKind::Enum(e) = &item.kind {
-            // The bodies of explicit discriminants.
-            bodies.extend(
-                e.variants
-                    .iter()
-                    .filter_map(|v| variant_def(resolve, def, v))
-                    .filter_map(|v| results.bodies.get(&v)),
-            );
-        }
-        for body in bodies {
-            tys.extend(body.expr_types.values());
-            tys.extend(body.local_types.values());
-            tys.extend(body.pat_types.values());
-            tys.extend(body.coercions.values());
-            tys.extend(body.generic_args.values().flatten());
-        }
-        if let Some(ty) = tys.into_iter().find(|t| t.references_error()) {
+        };
+        // The item's body, and an enum's explicit discriminants.
+        let discriminants = match &item.kind {
+            ItemKind::Enum(e) => &e.variants[..],
+            _ => &[],
+        };
+        let bodies = results.bodies.get(&def).into_iter().chain(
+            discriminants
+                .iter()
+                .filter_map(|v| variant_def(resolve, def, v))
+                .filter_map(|v| results.bodies.get(&v)),
+        );
+        let body_tys = bodies.flat_map(|body| {
+            body.expr_types
+                .values()
+                .chain(body.local_types.values())
+                .chain(body.pat_types.values())
+                .chain(body.coercions.values())
+                .chain(body.generic_args.values().flatten())
+        });
+        let mut tys = signature.chain(body_tys);
+        if let Some(ty) = tys.find(|t| t.references_error()) {
             sink.emit(
                 Diagnostic::error(
                     ErrorCode::INTERNAL_ERROR,

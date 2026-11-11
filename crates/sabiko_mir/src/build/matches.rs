@@ -83,9 +83,10 @@ pub(super) struct TestCache {
     /// Where a discriminant read is located: the scrutinee, as rustc reports a use of it
     /// (an uninitialised, moved or mutably borrowed scrutinee, #138), at any depth.
     discr_span: Option<Span>,
-    /// Where a comparison's read is located in a `match`: from `match` to the end of the
-    /// scrutinee, rustc's `match_start_span`. `None` elsewhere (`if let`, `while let`,
-    /// let-else), where rustc reports it at the pattern.
+    /// Where an equality test of an integer, `char` or `bool` reads in a `match`: from
+    /// `match` to the end of the scrutinee, rustc's `match_start_span`. `None` elsewhere
+    /// (`if let`, `while let`, let-else), where rustc reports it at the pattern, as it
+    /// does range, float and string tests everywhere.
     value_span: Option<Span>,
 }
 
@@ -312,7 +313,7 @@ impl Builder<'_> {
     /// The test of a literal, range or constant pattern: comparisons of the value at
     /// `place` with the pattern's constants.
     fn test_value(&mut self, pat: &Pat, place: &Place, fail: BasicBlock) {
-        let span = self.tests.value_span.unwrap_or(pat.span);
+        let span = pat.span;
         let ty = place.ty(&self.body);
         let pat_const = self.types.pat_consts.get(&pat.id).cloned();
         match pat_const.clone() {
@@ -349,7 +350,10 @@ impl Builder<'_> {
 
     /// The test of a constant `value` in a pattern against `place`, jumping to `fail` when
     /// they differ. A tuple constant is tested element by element, left to right, as
-    /// rustc expands it into a tuple pattern of constants (#50).
+    /// rustc expands it into a tuple pattern of constants (#50). An equality test of an
+    /// integer, `char` or `bool` is located at [`TestCache::value_span`] when there is one
+    /// (rustc's switch on the value); a float or string one stays at the pattern, as do
+    /// range tests.
     fn test_const(
         &mut self,
         place: &Place,
@@ -358,8 +362,10 @@ impl Builder<'_> {
         fail: BasicBlock,
         span: Span,
     ) {
+        let switch_span = self.tests.value_span.unwrap_or(span);
         match value {
             ConstValue::Bool(b) => {
+                let span = switch_span;
                 let value = self.tested_value(place, span);
                 let ok = self.new_block();
                 self.note_fail();
@@ -383,7 +389,14 @@ impl Builder<'_> {
                     self.test_const(&field, ty, value, fail, span);
                 }
             }
-            value => self.compare(BinOp::Eq, place, ty, value, fail, span),
+            value => {
+                let span = if ty.is_integer() || *ty == Ty::CHAR {
+                    switch_span
+                } else {
+                    span
+                };
+                self.compare(BinOp::Eq, place, ty, value, fail, span);
+            }
         }
     }
 

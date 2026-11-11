@@ -1,12 +1,31 @@
 // Sabiko codes for rustc's: E0208 for E0277, E0207 for E0121, E0313 for E0282.
 // Every type parameter is `Sized`, so a slice or `str` is not a generic argument, in a
-// signature or in a body (#137); `_` is one in a body only.
+// signature, an `impl` block's type or a body, at any depth and behind references too
+// (#137); `_` is one in a body only. A reference's own referent may be unsized (`&[u8]`).
 enum Opt<T> {
     No,
     Yes(T),
 }
 
+struct W<T> {
+    V: T,
+}
+
+trait Tr {
+    fn M(&self) -> i32;
+}
+
+impl Tr for W<[i32]> { //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    fn M(&self) -> i32 {
+        0
+    }
+}
+
 fn Take(o: Opt<[i32]>) {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+
+fn Borrow(o: &W<[i32]>) {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+
+fn Deep(r: &Opt<&[Opt<str>]>) {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
 
 fn Give() -> Opt<_> { //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
     Opt::No //~ ERROR E0313 type annotations needed
@@ -17,4 +36,7 @@ fn Main() {
     let b: Opt<(i32, [u8])> = Opt::No; //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
     let c: Opt<&[u8]> = Opt::No;
     let d: Opt<_> = Opt::Yes([1u8; 2]);
+    let e: &Opt<str> = &Opt::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    let f: (i32, &W<[u8]>); //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
+    let g = Opt::<&W<str>>::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
 }

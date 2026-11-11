@@ -1,163 +1,291 @@
 [E0405] Error: used binding `o` isn't initialized
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:17:11 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:19:11 ]
     │
- 16 │     let o: Opt;
+ 18 │     let o: Opt;
     │         ┬  
     │         ╰── binding declared here but left uninitialized
- 17 │     match o { //~ ERROR E0405 used binding `o` isn't initialized
+ 19 │     match o { //~ ERROR E0405 used binding `o` isn't initialized
     │           ┬  
     │           ╰── `o` used here but it isn't initialized
 ────╯
 [E0405] Error: used binding `o` isn't initialized
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:25:22 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:27:22 ]
     │
- 24 │     let o: Opt;
+ 26 │     let o: Opt;
     │         ┬  
     │         ╰── binding declared here but left uninitialized
- 25 │     if let Opt::No = o {} //~ ERROR E0405 used binding `o` isn't initialized
+ 27 │     if let Opt::No = o {} //~ ERROR E0405 used binding `o` isn't initialized
     │                      ┬  
     │                      ╰── `o` used here but it isn't initialized
 ────╯
 [E0405] Error: used binding `o` isn't initialized
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:30:29 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:32:29 ]
     │
- 29 │     let o: Opt;
+ 31 │     let o: Opt;
     │         ┬  
     │         ╰── binding declared here but left uninitialized
- 30 │     while let Opt::Yes(_) = o {} //~ ERROR E0405 used binding `o` isn't initialized
+ 32 │     while let Opt::Yes(_) = o {} //~ ERROR E0405 used binding `o` isn't initialized
     │                             ┬  
     │                             ╰── `o` used here but it isn't initialized
 ────╯
 [E0405] Error: used binding `o` isn't initialized
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:35:23 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:37:23 ]
     │
- 34 │     let o: Opt;
+ 36 │     let o: Opt;
     │         ┬  
     │         ╰── binding declared here but left uninitialized
- 35 │     let Opt::Yes(x) = o else { //~ ERROR E0405 used binding `o` isn't initialized
+ 37 │     let Opt::Yes(x) = o else { //~ ERROR E0405 used binding `o` isn't initialized
     │                       ┬  
     │                       ╰── `o` used here but it isn't initialized
 ────╯
 [E0406] Error: use of moved value: `o`
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:43:11 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:45:11 ]
     │
- 42 │     let p = o;
+ 44 │     let p = o;
     │             ┬  
     │             ╰── value moved here
- 43 │     match o { //~ ERROR E0406 use of moved value: `o`
+ 45 │     match o { //~ ERROR E0406 use of moved value: `o`
     │           ┬  
     │           ╰── value used here after move
     │ 
     │ Note: move occurs because `o` has type `Option<D>`, which does not implement the `Copy` trait
 ────╯
 [E0406] Error: use of moved value: `o`
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:52:22 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:54:22 ]
     │
- 51 │     let p = o;
+ 53 │     let p = o;
     │             ┬  
     │             ╰── value moved here
- 52 │     if let Some(_) = o {} //~ ERROR E0406 use of moved value: `o`
+ 54 │     if let Some(_) = o {} //~ ERROR E0406 use of moved value: `o`
     │                      ┬  
     │                      ╰── value used here after move
     │ 
     │ Note: move occurs because `o` has type `Option<D>`, which does not implement the `Copy` trait
 ────╯
 [E0411] Error: cannot use `o` because it was mutably borrowed
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:58:11 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:60:11 ]
     │
- 57 │     let r = &mut o;
+ 59 │     let r = &mut o;
     │             ───┬──  
     │                ╰──── `o` is borrowed here
- 58 │     match o { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
+ 60 │     match o { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
     │           ┬  
     │           ╰── use of borrowed `o`
     │ 
- 62 │     let s = r;
+ 64 │     let s = r;
     │             ┬  
     │             ╰── borrow later used here
 ────╯
 [E0411] Error: cannot use `o` because it was mutably borrowed
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:68:23 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:70:23 ]
     │
- 67 │     let r = &mut o;
+ 69 │     let r = &mut o;
     │             ───┬──  
     │                ╰──── `o` is borrowed here
- 68 │     let Opt::Yes(_) = o else { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
+ 70 │     let Opt::Yes(_) = o else { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
     │                       ┬  
     │                       ╰── use of borrowed `o`
     │ 
- 71 │     let s = r;
+ 73 │     let s = r;
     │             ┬  
     │             ╰── borrow later used here
 ────╯
 [E0411] Error: cannot use `t.1` because it was mutably borrowed
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:77:11 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:79:11 ]
     │
- 76 │     let r = &mut t.1;
+ 78 │     let r = &mut t.1;
     │             ────┬───  
     │                 ╰───── `t.1` is borrowed here
- 77 │     match t { //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
+ 79 │     match t { //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
     │           ┬  
     │           ╰── use of borrowed `t.1`
     │ 
- 81 │     let s = r;
+ 83 │     let s = r;
     │             ┬  
     │             ╰── borrow later used here
 ────╯
 [E0411] Error: cannot use `t.1` because it was mutably borrowed
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:87:27 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:89:27 ]
     │
- 86 │     let r = &mut t.1;
+ 88 │     let r = &mut t.1;
     │             ────┬───  
     │                 ╰───── `t.1` is borrowed here
- 87 │     if let (_, Opt::No) = t {} //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
+ 89 │     if let (_, Opt::No) = t {} //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
     │                           ┬  
     │                           ╰── use of borrowed `t.1`
- 88 │     let s = r;
+ 90 │     let s = r;
     │             ┬  
     │             ╰── borrow later used here
 ────╯
 [E0405] Error: used binding `a` isn't initialized
-    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:93:5 ]
+    ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:95:5 ]
     │
- 92 │     let a: i32;
+ 94 │     let a: i32;
     │         ┬  
     │         ╰── binding declared here but left uninitialized
- 93 │     match a { //~ ERROR E0405 used binding `a` isn't initialized
+ 95 │     match a { //~ ERROR E0405 used binding `a` isn't initialized
     │     ───┬───  
     │        ╰───── `a` used here but it isn't initialized
 ────╯
 [E0411] Error: cannot use `t.1` because it was mutably borrowed
-     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:102:5 ]
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:104:5 ]
      │
- 101 │     let r = &mut t.1;
+ 103 │     let r = &mut t.1;
      │             ────┬───  
      │                 ╰───── `t.1` is borrowed here
- 102 │     match t { //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
+ 104 │     match t { //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
      │     ───┬───  
      │        ╰───── use of borrowed `t.1`
      │ 
- 106 │     let s = r;
+ 108 │     let s = r;
      │             ┬  
      │             ╰── borrow later used here
 ─────╯
 [E0405] Error: used binding `a` isn't initialized
-     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:111:12 ]
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:113:12 ]
      │
- 110 │     let a: i32;
+ 112 │     let a: i32;
      │         ┬  
      │         ╰── binding declared here but left uninitialized
- 111 │     if let 1 = a {} //~ ERROR E0405 used binding `a` isn't initialized
+ 113 │     if let 1 = a {} //~ ERROR E0405 used binding `a` isn't initialized
      │            ┬  
      │            ╰── `a` used here but it isn't initialized
 ─────╯
 [E0405] Error: used binding `a` isn't initialized
-     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:116:9 ]
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:118:9 ]
      │
- 115 │     let a: i32;
+ 117 │     let a: i32;
      │         ┬  
      │         ╰── binding declared here but left uninitialized
- 116 │     let 1 = a else { //~ ERROR E0405 used binding `a` isn't initialized
+ 118 │     let 1 = a else { //~ ERROR E0405 used binding `a` isn't initialized
      │         ┬  
      │         ╰── `a` used here but it isn't initialized
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:127:9 ]
+     │
+ 125 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 127 │         1..=5 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ──┬──  
+     │           ╰──── use of borrowed `x`
+     │ 
+ 130 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:137:9 ]
+     │
+ 135 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 137 │         ..5 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ─┬─  
+     │          ╰─── use of borrowed `x`
+     │ 
+ 140 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `c` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:147:9 ]
+     │
+ 145 │     let q = &mut c;
+     │             ───┬──  
+     │                ╰──── `c` is borrowed here
+     │ 
+ 147 │         'a'..='z' => {} //~ ERROR E0411 cannot use `c` because it was mutably borrowed
+     │         ────┬────  
+     │             ╰────── use of borrowed `c`
+     │ 
+ 150 │     *q = 'c';
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0411] Error: cannot use `f` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:157:9 ]
+     │
+ 155 │     let q = &mut f;
+     │             ───┬──  
+     │                ╰──── `f` is borrowed here
+     │ 
+ 157 │         1.0 => {} //~ ERROR E0411 cannot use `f` because it was mutably borrowed
+     │         ─┬─  
+     │          ╰─── use of borrowed `f`
+     │ 
+ 160 │     *q = 2.0;
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0405] Error: used binding `x` isn't initialized
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:166:9 ]
+     │
+ 164 │     let x: i32;
+     │         ┬  
+     │         ╰── binding declared here but left uninitialized
+     │ 
+ 166 │         1..=5 => {} //~ ERROR E0405 used binding `x` isn't initialized
+     │         ──┬──  
+     │           ╰──── `x` used here but it isn't initialized
+─────╯
+[E0411] Error: cannot use `o` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:174:11 ]
+     │
+ 173 │     let q = &mut o;
+     │             ───┬──  
+     │                ╰──── `o` is borrowed here
+ 174 │     match o { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
+     │           ┬  
+     │           ╰── use of borrowed `o`
+     │ 
+ 178 │     *q = None;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯
+[E0411] Error: cannot use `o.0` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:175:14 ]
+     │
+ 173 │     let q = &mut o;
+     │             ───┬──  
+     │                ╰──── `o` is borrowed here
+     │ 
+ 175 │         Some(1..=5) => {} //~ ERROR E0411 cannot use `o.0` because it was mutably borrowed
+     │              ──┬──  
+     │                ╰──── use of borrowed `o.0`
+     │ 
+ 178 │     *q = None;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯
+[E0411] Error: cannot use `c` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:184:5 ]
+     │
+ 183 │     let q = &mut c;
+     │             ───┬──  
+     │                ╰──── `c` is borrowed here
+ 184 │     match c { //~ ERROR E0411 cannot use `c` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `c`
+     │ 
+ 188 │     *q = 'c';
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0411] Error: cannot use `b` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/scrutinee_use_spans.sabi:194:5 ]
+     │
+ 193 │     let q = &mut b;
+     │             ───┬──  
+     │                ╰──── `b` is borrowed here
+ 194 │     match b { //~ ERROR E0411 cannot use `b` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `b`
+     │ 
+ 198 │     *q = false;
+     │     ─────┬────  
+     │          ╰────── borrow later used here
 ─────╯

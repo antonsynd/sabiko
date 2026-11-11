@@ -225,6 +225,10 @@ pub(crate) struct FnCtxt<'a> {
     local_types: HashMap<LocalId, Ty>,
     /// Pattern spans of locals, for "type annotations needed".
     local_spans: HashMap<LocalId, Span>,
+    /// Each `let`'s declared type, with where to report it if it stays unknown (the
+    /// annotation, else the pattern) and the locals its pattern binds: `let _;` binds none
+    /// that could report it.
+    let_decls: Vec<(Ty, Span, bool, Vec<LocalId>)>,
     field_accesses: HashMap<NodeId, FieldAccess>,
     pat_derefs: HashMap<NodeId, usize>,
     ref_bindings: HashMap<NodeId, Mutability>,
@@ -310,6 +314,7 @@ impl<'a> FnCtxt<'a> {
             expr_spans: HashMap::new(),
             local_types: HashMap::new(),
             local_spans: HashMap::new(),
+            let_decls: Vec::new(),
             field_accesses: HashMap::new(),
             pat_derefs: HashMap::new(),
             ref_bindings: HashMap::new(),
@@ -577,15 +582,12 @@ impl<'a> FnCtxt<'a> {
             // A struct or enum's generic arguments are types in the body too: `_` is an
             // inference variable and an array length is evaluated here (#137), as at the
             // top level.
-            TypeKind::Path(path) => match self.resolve.res(ty.id) {
-                Res::Def(d)
-                    if !matches!(self.resolve.def(d).kind, DefKind::TyParam | DefKind::Impl) =>
-                {
-                    let resolve = self.resolve;
-                    collect::adt_type(d, path, resolve, &mut |t| self.lower_type_unchecked(t))
-                }
-                _ => collect::lower_sig_type(ty, self.resolve, &self.items.sig_cx),
-            },
+            TypeKind::Path(path) => {
+                let (resolve, items) = (self.resolve, self.items);
+                collect::lower_path_type(ty, path, resolve, &items.sig_cx, &mut |t| {
+                    self.lower_type_unchecked(t)
+                })
+            }
             TypeKind::Unit => Ty::Unit,
         }
     }
@@ -661,6 +663,12 @@ impl<'a> FnCtxt<'a> {
                     }
                     (None, None) => self.infer.new_var(VarKind::General),
                 };
+                let mut bound = Vec::new();
+                crate::patterns::walk_all_idents(&l.pat, &mut |p| {
+                    bound.extend(self.resolve.local_of_pat(p.id));
+                });
+                let at = l.ty.as_ref().map_or(l.pat.span, |t| t.span);
+                self.let_decls.push((ty.clone(), at, l.ty.is_some(), bound));
                 let init_span = l.init.as_ref().map(|e| e.span);
                 if let Some(els) = &l.els {
                     // The `else` block must diverge: it is checked against `!`, with the
@@ -4473,6 +4481,30 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// A declaration whose type is still unknown and whose locals reported nothing
+    /// (`let _;`, `let (_, x): (_, i32);`), as rustc's E0282; `reported` are the locals
+    /// reported already.
+    fn report_unknown_let_types(&mut self, reported: &HashSet<LocalId>) {
+        for (ty, span, annotated, bound) in std::mem::take(&mut self.let_decls) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if t.has_infer() && !bound.iter().any(|l| reported.contains(l)) {
+                let label = if annotated {
+                    "cannot infer type"
+                } else {
+                    "consider giving this pattern a type"
+                };
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(span, label),
+                );
+                self.infer.bind_error(&t);
+            }
+        }
+    }
+
     fn finish(mut self) -> BodyTypes {
         self.select_obligations();
         self.check_never_operands();
@@ -4490,9 +4522,11 @@ impl<'a> FnCtxt<'a> {
         let mut locals: Vec<(LocalId, Ty)> =
             std::mem::take(&mut self.local_types).into_iter().collect();
         locals.sort_by_key(|(l, _)| *l);
+        let mut reported = HashSet::new();
         for (id, ty) in locals {
             let mut t = self.infer.resolve_with_defaults(&ty);
             if t.has_infer() {
+                reported.insert(id);
                 let name = self.resolve.local(id).name.clone();
                 let span = self.local_spans[&id];
                 self.error(
@@ -4508,14 +4542,14 @@ impl<'a> FnCtxt<'a> {
             }
             local_types.insert(id, t);
         }
+        self.report_unknown_let_types(&reported);
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let t = self.infer.resolve_with_defaults(&ty);
-            // A pattern of a type nothing constrains binds nothing (`let _;`, whose
-            // locals would have been reported): it keeps no type, rather than an error
-            // type no error explains (decision 94).
+            // A pattern of a type nothing constrains was reported above, with its local
+            // or its `let` (`let _;`); it keeps no type rather than an error type.
             if !t.has_infer() {
                 pat_types.insert(id, t);
             }

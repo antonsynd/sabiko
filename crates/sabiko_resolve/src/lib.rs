@@ -2565,14 +2565,15 @@ impl Resolver<'_> {
                 name,
                 sub,
             } => {
-                if let Some((def, what)) = self.ident_pat_item(&name.name) {
-                    if !by_ref && !mutable && sub.is_none() && what != "tuple variant" {
+                if let Some(def) = self.ident_pat_item(&name.name) {
+                    let tuple = self.ctors.get(&def) == Some(&CtorKind::Tuple);
+                    if !by_ref && !mutable && sub.is_none() && !tuple {
                         // A path pattern (`None`, `LIMIT`).
                         self.results.pat_res.insert(pat.id, Res::Def(def));
                         return;
                     }
                     // Reported, then bound as written, as rustc does.
-                    self.binding_shadows_item(name, def, what, source);
+                    self.binding_shadows_item(name, def, source);
                 }
                 let existing = reuse.and_then(|r| r.iter().find(|b| b.name == name.name));
                 let local = if let Some(b) = existing {
@@ -2766,32 +2767,32 @@ impl Resolver<'_> {
     /// The item a lone identifier in a pattern names that a binding may not shadow, unless
     /// a local of that name shadows it (rustc looks the name up the same way): a constant,
     /// a unit struct, or a unit or tuple variant (only in the namespace when a `use`
-    /// imported it: the prelude's `None` and `Some`), with how rustc calls it.
-    fn ident_pat_item(&self, name: &str) -> Option<(DefId, &'static str)> {
+    /// imported it: the prelude's `None` and `Some`).
+    fn ident_pat_item(&self, name: &str) -> Option<DefId> {
         if self.lookup_local(name).is_some() {
             return None;
         }
         let &def = self.items.get(name)?;
-        let what = match (self.results.def(def).kind, self.ctors.get(&def)) {
-            (DefKind::Const, _) => "constant",
-            (DefKind::Struct, Some(CtorKind::Unit)) => "unit struct",
+        let kind = self.results.def(def).kind;
+        (kind == DefKind::Const || self.ctors.contains_key(&def)).then_some(def)
+    }
+
+    /// How rustc calls an item [`Resolver::ident_pat_item`] returns.
+    fn shadowed_item_kind(&self, def: DefId) -> &'static str {
+        match (self.results.def(def).kind, self.ctors.get(&def)) {
+            (DefKind::Struct, _) => "unit struct",
             (DefKind::Variant, Some(CtorKind::Unit)) => "unit variant",
-            (DefKind::Variant, Some(CtorKind::Tuple)) => "tuple variant",
-            _ => return None,
-        };
-        Some((def, what))
+            (DefKind::Variant, _) => "tuple variant",
+            _ => "constant",
+        }
     }
 
     /// E0225 (rustc's E0530): a binding named like an item it may not shadow (see
     /// [`Resolver::ident_pat_item`]): with `mut`, `ref` or `@`, which make the identifier a
     /// binding whatever it names, or a tuple variant's name, which is no pattern alone.
-    fn binding_shadows_item(
-        &mut self,
-        name: &sabiko_ast::Ident,
-        def: DefId,
-        what: &str,
-        source: PatSource,
-    ) {
+    fn binding_shadows_item(&mut self, name: &sabiko_ast::Ident, def: DefId, source: PatSource) {
+        let what = self.shadowed_item_kind(def);
+        let tuple = self.ctors.get(&def) == Some(&CtorKind::Tuple);
         let info = self.results.def(def);
         let bindings = match source {
             PatSource::Let => "let bindings",
@@ -2809,7 +2810,7 @@ impl Resolver<'_> {
                 format!("the {what} `{}` is defined here", name.name),
             );
         }
-        if what == "tuple variant" {
+        if tuple {
             d = d.with_note(format!(
                 "try specifying the pattern arguments: `{}(..)`",
                 name.name

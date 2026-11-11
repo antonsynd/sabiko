@@ -13,3 +13,15 @@ fn F(l: Light) -> i32 {
         //~^ WARN E0330 unreachable pattern
     }
 }
+
+// Only a plain by-value binding is linted, as in rustc: `mut`, `ref` and `@` bind on purpose.
+fn G() {
+    let mut Red = Light::Red;
+    if let mut Green = Light::Green {} //~ WARN E0331 irrefutable `if let` pattern
+    match Light::Red {
+        ref Red => {}
+    }
+    match Light::Red {
+        Green @ _ => {}
+    }
+}
