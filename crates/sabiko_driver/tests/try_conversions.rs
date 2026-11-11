@@ -245,21 +245,29 @@ fn the_table_is_rustcs() {
         .unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let mut rejected = BTreeSet::new();
-    for l in stderr.lines() {
-        let mut parts = l.splitn(3, ':');
-        if let (Some(_), Some(line)) = (parts.next(), parts.next()) {
-            if let Ok(line) = line.parse::<usize>() {
-                assert!(l.contains("E0277"), "unexpected rustc error: {l}");
-                rejected.insert(line);
-            }
-        }
-    }
+    let rejected = rejected_lines(&stderr);
+    // An environment problem (no output directory, a crash) must fail the test, never
+    // read as "rustc accepts everything".
+    assert_eq!(
+        output.status.success(),
+        rejected.is_empty(),
+        "rustc's exit status disagrees with its diagnostics:\n{stderr}"
+    );
+    assert!(
+        rejected.len() < lines.len() && rejected.keys().all(|l| lines.contains_key(l)),
+        "rustc's errors are not one per pair:\n{stderr}"
+    );
     let accepted: BTreeSet<(&str, &str)> = lines
         .iter()
-        .filter(|(line, _)| !rejected.contains(line))
+        .filter(|(line, _)| !rejected.contains_key(line))
         .map(|(_, &pair)| pair)
         .collect();
+    assert!(
+        !accepted.is_empty() && !rejected.is_empty(),
+        "rustc accepted {} and rejected {} pairs: not a real run:\n{stderr}",
+        accepted.len(),
+        rejected.len()
+    );
     let table: BTreeSet<(&str, &str)> = ACCEPTED.iter().copied().collect();
     assert_eq!(
         accepted,
@@ -271,4 +279,61 @@ fn the_table_is_rustcs() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+/// The lines rustc reported an error on (`--error-format=short`: `PATH:LINE:COL: error[CODE]:
+/// ..`), each of which must be E0277. The path is whatever the platform makes it (a
+/// drive letter's `:` included), so the line and column are read from the end of the
+/// part before `: error`. Every error rustc reports must be such a line, and their
+/// number must be the one rustc's summary gives.
+fn rejected_lines(stderr: &str) -> BTreeMap<usize, String> {
+    let mut rejected = BTreeMap::new();
+    let mut count = 0;
+    let mut summary = None;
+    for l in stderr.lines().map(str::trim_end) {
+        if let Some(rest) = l.strip_prefix("error: aborting due to ") {
+            let n = rest.split_whitespace().next().unwrap_or("");
+            summary = Some(if n == "previous" {
+                1
+            } else {
+                n.parse::<usize>().unwrap()
+            });
+            continue;
+        }
+        let Some(at) = l.find(": error") else {
+            assert!(!l.starts_with("error"), "unexpected rustc output: {l}");
+            continue;
+        };
+        let mut place = l[..at].rsplitn(3, ':');
+        let (_col, line) = (place.next(), place.next());
+        let line: usize = line
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("an error without a line: {l}"));
+        assert!(
+            l[at..].starts_with(": error[E0277]"),
+            "unexpected rustc error: {l}"
+        );
+        count += 1;
+        rejected.insert(line, l.to_owned());
+    }
+    assert_eq!(
+        summary.unwrap_or(0),
+        count,
+        "rustc's summary disagrees with the errors read:\n{stderr}"
+    );
+    rejected
+}
+
+#[test]
+fn rustc_errors_are_read_on_every_platform() {
+    let unix = "/tmp/x/pairs.rs:7:52: error[E0277]: `?` couldn't convert the error to `u8`\n\
+                error: aborting due to 1 previous error\n";
+    let windows = "C:\\Users\\x\\AppData\\Local\\Temp\\pairs.rs:7:52: error[E0277]: `?` couldn't convert the error to `u8`\r\n\
+                   error: aborting due to 1 previous error\r\n\r\n\
+                   For more information about this error, try `rustc --explain E0277`.\r\n";
+    for stderr in [unix, windows] {
+        let lines: Vec<usize> = rejected_lines(stderr).into_keys().collect();
+        assert_eq!(lines, [7]);
+    }
+    assert!(rejected_lines("").is_empty());
 }
