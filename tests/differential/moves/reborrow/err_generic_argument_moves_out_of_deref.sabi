@@ -1,0 +1,10 @@
+// `*r` of type `&mut u8` passed to a type parameter is a move out of a reference
+// (rustc's E0507), where a `&mut u8` parameter would reborrow it.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(r: &mut &mut u8) {
+    Id(*r);
+    **r += 1;
+}

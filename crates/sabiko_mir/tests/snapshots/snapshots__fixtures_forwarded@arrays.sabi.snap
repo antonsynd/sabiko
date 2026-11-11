@@ -305,7 +305,7 @@ fn Coerce(_1: &mut [i32; 3]) -> &[i32] {
     let mut _3: &mut [i32; 3];
     let mut _4: &mut [i32];
     let mut _5: usize;
-    let mut _6: &mut [i32];
+    let mut _6: &[i32];
 
     bb0: {
         StorageLive(_2);
@@ -320,7 +320,10 @@ fn Coerce(_1: &mut [i32; 3]) -> &[i32] {
         _5 = const 0_usize;
         (*_2)[_5] = const 1_i32;
         StorageDead(_5);
-        _0 = move _2 as &[i32] (pointer coercion);
+        StorageLive(_6);
+        _6 = &(*_2);
+        _0 = copy _6;
+        StorageDead(_6);
         StorageDead(_2);
         goto -> bb1;
     }

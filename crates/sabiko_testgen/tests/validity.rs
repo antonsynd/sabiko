@@ -1134,6 +1134,44 @@ fn programs_use_generic_helpers() {
     );
 }
 
+/// `let q = GenId(r);` or `let q = GenBox { Value: r }.Value;` of a local `r`: for a
+/// reference local, a move of a `&mut` one into a type parameter (#132; the count also
+/// takes in value locals), or, annotated as a reference, a reborrow.
+#[test]
+fn programs_pass_reference_locals_to_type_parameters() {
+    let knobs = Knobs::default();
+    let bare = |arg: &str| !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphabetic());
+    let (mut plain, mut annotated) = (0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        for line in src.lines().map(str::trim) {
+            let Some((lhs, rhs)) = line.strip_prefix("let ").and_then(|l| l.split_once(" = "))
+            else {
+                continue;
+            };
+            let arg = rhs
+                .strip_prefix("GenId(")
+                .and_then(|r| r.strip_suffix(");"))
+                .or_else(|| {
+                    rhs.strip_prefix("GenBox { Value: ")
+                        .and_then(|r| r.strip_suffix(" }.Value;"))
+                });
+            if arg.is_some_and(bare) {
+                if lhs.contains(": &") {
+                    annotated += 1;
+                } else {
+                    plain += 1;
+                }
+            }
+        }
+    }
+    eprintln!("of {SEEDS} programs: {plain} unannotated, {annotated} annotated");
+    assert!(
+        plain >= 12 && annotated >= 8,
+        "of {SEEDS} programs: {plain} `let q = GenId(r);` (expected 12), {annotated} `let q: &T = GenId(r);` (expected 8)"
+    );
+}
+
 /// The patterns of a program's `let`s, `if let`s and `while let`s (from the `let` on),
 /// and roughly those of its `match` arms, inline ones included (what precedes each ` => `
 /// back to a `{ ` or `, `).

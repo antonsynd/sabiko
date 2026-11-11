@@ -40,13 +40,71 @@ fn Bump(_1: &mut i32) {
 
 fn View(_1: &mut i32) -> &i32 {
     let mut _0: &i32;
+    let mut _2: &i32;
 
     bb0: {
+        StorageLive(_2);
+        _2 = &(*_1);
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Id<T>(_1: T) -> T {
+    let mut _0: T;
+    cleanup c0: _1 => drop(_1);
+
+    bb0 (cleanup c0): {
         _0 = move _1;
         goto -> bb1;
     }
 
     bb1: {
+        drop(_1) -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Generic(_1: &mut i32) -> i32 {
+    let mut _0: i32;
+    let _2: &mut i32;                    // a
+    let mut _3: &mut i32;
+    let _4: &mut i32;                    // b
+    let mut _5: &mut i32;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = &two_phase mut (*_1);
+        _2 = Id::<&mut i32>(move _3) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_3);
+        (*_2) = Add(copy (*_2), const 1_i32);
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = move _1;
+        _4 = Id::<&mut i32>(move _5) -> bb2;
+    }
+
+    bb2: {
+        StorageDead(_5);
+        _0 = copy (*_4);
+        StorageDead(_4);
+        StorageDead(_2);
+        goto -> bb3;
+    }
+
+    bb3: {
         return;
     }
 }

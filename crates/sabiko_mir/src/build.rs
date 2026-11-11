@@ -868,26 +868,27 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// An operand for a coercion site: a call argument, struct field initialiser, assignment
-    /// right-hand side, annotated `let` initialiser or return value, whose expected type is
-    /// `target` (`None` when there is none). Like rustc, a `&mut T` place is reborrowed
-    /// instead of moved there, so passing a mutable reference to a function does not
-    /// consume it: `&mut *p`, or `&*p` when `target` is `&T` (the `&mut T` to `&T`
-    /// coercion), which leaves other shared borrows of `*p` usable. A
-    /// call argument (`call_arg`) is reborrowed two-phase, as rustc does at that coercion
-    /// site only: `Use(m, m.X)` reads `*m` after the reborrow, before the call.
-    fn coerced_operand(&mut self, expr: &Expr, target: Option<&Ty>, call_arg: bool) -> Operand {
-        let is_place_expr = matches!(
-            strip_parens(expr).kind,
-            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..)
-        );
-        if is_place_expr {
+    /// How the place expression `expr` of type `&mut T` is reborrowed where it is coerced
+    /// (`&mut *p`, or `&*p` where a `&T` is expected, which leaves other shared borrows of
+    /// `*p` usable), as the type checker decided (`BodyTypes::reborrows`, #132); `None`
+    /// when it is moved, or is not such a place.
+    fn reborrow(&self, expr: &Expr) -> Option<Mutability> {
+        if !is_place_expr(self.resolve, expr) {
+            return None;
+        }
+        self.types.reborrows.get(&strip_parens(expr).id).copied()
+    }
+
+    /// `expr`'s value as an operand, as [`Self::as_operand`] gives it: a `&mut T` place the
+    /// type checker reborrows at this coercion site is reborrowed instead of moved
+    /// ([`Self::reborrow`]), so passing a mutable reference to `fn F(x: &mut u8)` does not
+    /// consume it, while passing it to `fn Id<T>(x: T)` does. A call argument
+    /// (`call_arg`) is reborrowed two-phase, as rustc does at that coercion site only:
+    /// `Use(m, m.X)` reads `*m` after the reborrow, before the call.
+    fn coerced_operand(&mut self, expr: &Expr, call_arg: bool) -> Operand {
+        if let Some(mutability) = self.reborrow(expr) {
             if let Ty::Ref(Mutability::Mut, referent) = self.ty(expr) {
                 let referent = (**referent).clone();
-                let mutability = match target {
-                    Some(Ty::Ref(Mutability::Not, _)) => Mutability::Not,
-                    _ => Mutability::Mut,
-                };
                 let place = self.as_place(expr);
                 if place.local != Local::RETURN || !place.projection.is_empty() {
                     let temp = self.new_temp(Ty::Ref(mutability, Box::new(referent)), expr.span);
@@ -910,7 +911,7 @@ impl<'a> Builder<'a> {
                 }
             }
         }
-        self.as_operand(expr)
+        self.as_operand_moved(expr)
     }
 
     /// Applies the pointer coercion the type checker recorded for `expr` (unsizing, or
@@ -1066,14 +1067,6 @@ impl<'a> Builder<'a> {
         None
     }
 
-    /// A place expression of type `&mut T`, which coercion sites reborrow.
-    fn is_mut_ref_place_expr(&self, expr: &Expr) -> bool {
-        matches!(
-            strip_parens(expr).kind,
-            ExprKind::Path(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Index(..)
-        ) && matches!(self.ty(expr), Ty::Ref(Mutability::Mut, _))
-    }
-
     fn path_res(&self, expr: &Expr) -> Option<Res> {
         match &expr.kind {
             // A trait's method the type checker chose for `Type::Name`.
@@ -1118,9 +1111,17 @@ impl<'a> Builder<'a> {
     /// in `*Weigh(&mut n) + n.W` must die once its referent is copied, so the sibling
     /// operand can read `n`.
     fn as_operand(&mut self, expr: &Expr) -> Operand {
+        if self.reborrow(expr).is_some() {
+            return self.coerced_operand(expr, false);
+        }
+        self.as_operand_moved(expr)
+    }
+
+    /// [`Self::as_operand`] without the reborrow of a coerced `&mut` place.
+    fn as_operand_moved(&mut self, expr: &Expr) -> Operand {
         if self.place_mutability.is_mut() {
             let saved = std::mem::replace(&mut self.place_mutability, Mutability::Not);
-            let op = self.as_operand(expr);
+            let op = self.as_operand_moved(expr);
             self.place_mutability = saved;
             return op;
         }
@@ -1295,6 +1296,13 @@ impl<'a> Builder<'a> {
     #[allow(clippy::too_many_lines)]
     fn expr_into_dest(&mut self, dest: &Place, expr: &Expr) {
         let span = self.span_of(expr);
+        if self.reborrow(expr).is_some() {
+            // A coerced `&mut` place: a block's tail, an arm, a `break` value, an
+            // annotated `let` initialiser or a returned value.
+            let op = self.coerced_operand(expr, false);
+            self.assign(dest.clone(), Rvalue::Use(op), span);
+            return;
+        }
         if self.has_pending_coercion(expr) {
             let op = self.uncoerced_operand(expr);
             let target = self.types.coercions[&expr.id].clone();
@@ -1418,11 +1426,6 @@ impl<'a> Builder<'a> {
                     .get(&strip_parens(callee).id)
                     .cloned()
                     .unwrap_or_default();
-                // `Print` and `PrintLine` are overloaded and have no signature.
-                let inputs = match self.typeck.items.builtin(func) {
-                    Some(Builtin::Print | Builtin::PrintLine) => Vec::new(),
-                    _ => self.typeck.items.fn_sig(func).inputs_with(&generic_args),
-                };
                 let print = matches!(
                     self.typeck.items.builtin(func),
                     Some(Builtin::Print | Builtin::PrintLine)
@@ -1430,13 +1433,12 @@ impl<'a> Builder<'a> {
                 self.in_operand_scope(Some(expr), span, |this| {
                     let args: Vec<Operand> = args
                         .iter()
-                        .enumerate()
-                        .map(|(i, a)| {
+                        .map(|a| {
                             if print {
                                 let op = this.as_operand(a);
                                 this.printed_value(op, a.span)
                             } else {
-                                this.coerced_operand(a, inputs.get(i), true)
+                                this.coerced_operand(a, true)
                             }
                         })
                         .collect();
@@ -1582,11 +1584,6 @@ impl<'a> Builder<'a> {
             .get(&expr.id)
             .cloned()
             .unwrap_or_default();
-        let inputs = self
-            .typeck
-            .items
-            .fn_sig(callee.def)
-            .inputs_with(&generic_args);
         let recv = match callee.autoref {
             Some(m) => {
                 let mut place = self.as_place_mut(receiver, m);
@@ -1615,8 +1612,8 @@ impl<'a> Builder<'a> {
             }
         };
         let mut operands = vec![recv];
-        for (i, a) in args.iter().enumerate() {
-            operands.push(self.coerced_operand(a, inputs.get(i + 1), true));
+        for a in args {
+            operands.push(self.coerced_operand(a, true));
         }
         self.call_into(dest, expr, callee.def, generic_args, operands, span);
     }
@@ -1664,8 +1661,7 @@ impl<'a> Builder<'a> {
             })
             .collect();
         for (field, index) in fields.iter().zip(indices) {
-            let field_ty = field_defs[index].ty.clone();
-            operands[index] = Some(self.coerced_operand(&field.value, Some(&field_ty), false));
+            operands[index] = Some(self.as_operand(&field.value));
         }
         let operands = operands
             .into_iter()
@@ -1692,10 +1688,7 @@ impl<'a> Builder<'a> {
                     unreachable!("an array expression has an array type")
                 };
                 // Each element is a coercion site, evaluated left to right.
-                let operands = elems
-                    .iter()
-                    .map(|e| self.coerced_operand(e, Some(&elem), false))
-                    .collect();
+                let operands = elems.iter().map(|e| self.as_operand(e)).collect();
                 Rvalue::Aggregate(AggregateKind::Array(*elem), operands)
             }
             ExprKind::Repeat(value, _) => {
@@ -1704,10 +1697,7 @@ impl<'a> Builder<'a> {
                     // Lowered by `expr_into_dest`, which drops `value` at once.
                     return None;
                 }
-                let Ty::Array(elem, _) = self.ty(expr).clone() else {
-                    unreachable!("a repeat expression has an array type")
-                };
-                let op = self.coerced_operand(value, Some(&elem), false);
+                let op = self.as_operand(value);
                 Rvalue::Repeat(op, n)
             }
             ExprKind::Tuple(_) => {
@@ -1729,18 +1719,7 @@ impl<'a> Builder<'a> {
                 // `E::V(a, b)`: the variant's fields, in order.
                 let (adt, index) = self.types.variant_exprs[&expr.id];
                 let generic = self.adt_args(expr);
-                let def = self.typeck.items.adt(adt);
-                let tys: Vec<Ty> = def
-                    .variant(index)
-                    .fields
-                    .iter()
-                    .map(|f| def.field_ty(&f.ty, &generic))
-                    .collect();
-                let operands = args
-                    .iter()
-                    .zip(&tys)
-                    .map(|(a, ty)| self.coerced_operand(a, Some(ty), false))
-                    .collect();
+                let operands = args.iter().map(|a| self.as_operand(a)).collect();
                 Rvalue::Aggregate(AggregateKind::Variant(adt, index, generic), operands)
             }
             ExprKind::Struct { fields, .. } => self.struct_literal(expr, fields),
@@ -1929,7 +1908,7 @@ impl<'a> Builder<'a> {
             for e in elems {
                 let op = match this.extended_operand(e) {
                     Some(op) => op,
-                    None => this.coerced_operand(e, Some(&elem), false),
+                    None => this.as_operand(e),
                 };
                 operands.push(op);
             }
@@ -1963,24 +1942,15 @@ impl<'a> Builder<'a> {
         let ExprKind::Tuple(elems) = &strip_parens(expr).kind else {
             unreachable!("not a tuple expression")
         };
-        let Ty::Tuple(elem_tys) = self.ty(expr).clone() else {
-            unreachable!("a tuple expression has a tuple type in a checked body")
-        };
-        let coerced = self.types.coerced_tuples.contains(&strip_parens(expr).id);
         elems
             .iter()
-            .zip(elem_tys.iter())
-            .map(|(e, ty)| {
+            .map(|e| {
                 if extending {
                     if let Some(op) = self.extended_operand(e) {
                         return op;
                     }
                 }
-                if coerced {
-                    self.coerced_operand(e, Some(ty), false)
-                } else {
-                    self.as_operand(e)
-                }
+                self.as_operand(e)
             })
             .collect()
     }
@@ -2223,8 +2193,7 @@ impl<'a> Builder<'a> {
             }
             _ => None,
         };
-        let rhs =
-            rvalue.unwrap_or_else(|| Rvalue::Use(self.coerced_operand(rhs, Some(&target), false)));
+        let rhs = rvalue.unwrap_or_else(|| Rvalue::Use(self.as_operand(rhs)));
         let place = self.as_place_mut(lhs, Mutability::Mut);
         if place.has_index() && rvalue_moves(&rhs) && self.typeck.items.needs_drop(&target) {
             // `a[i] = v`: the index is checked before `v` moves (rustc's bounds check
@@ -2515,11 +2484,6 @@ impl<'a> Builder<'a> {
     fn lower_return(&mut self, value: Option<&Expr>, span: Span) {
         let ret = Place::local(Local::RETURN);
         match value {
-            Some(value) if self.is_mut_ref_place_expr(value) => {
-                let target = ret.ty(&self.body);
-                let op = self.coerced_operand(value, Some(&target), false);
-                self.assign(ret, Rvalue::Use(op), span);
-            }
             Some(value) => self.expr_into_dest(&ret, value),
             None => self.assign(ret, Self::unit_rvalue(span), span),
         }
@@ -2655,14 +2619,7 @@ impl<'a> Builder<'a> {
                         self.open_pending(local);
                     }
                     if let Some(init) = &l.init {
-                        if l.ty.is_some() && self.is_mut_ref_place_expr(init) {
-                            // `let r: &mut T = p;` reborrows; `let r = p;` moves.
-                            let target = Place::local(local).ty(&self.body);
-                            let op = self.coerced_operand(init, Some(&target), false);
-                            self.assign(Place::local(local), Rvalue::Use(op), init.span);
-                        } else {
-                            self.extending_into(&Place::local(local), init);
-                        }
+                        self.extending_into(&Place::local(local), init);
                     }
                     self.extend_at = None;
                 }

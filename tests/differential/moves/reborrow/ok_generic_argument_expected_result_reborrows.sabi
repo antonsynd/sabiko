@@ -1,0 +1,10 @@
+// The annotation on the result decides `T` before the argument is checked (rustc's
+// expected inputs from the expected output): the argument is reborrowed.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(r: &mut u8) {
+    let t: &mut u8 = Id(r);
+    *r += 1;
+}

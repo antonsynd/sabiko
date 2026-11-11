@@ -1415,15 +1415,23 @@ impl<'a> BodyGen<'a> {
             && self.rng.chance(25)
         {
             let r = self.ref_expr(false, inner, depth - 1)?;
-            let arg = if r.text.starts_with('&') {
-                r.text
-            } else {
-                format!("&*{}", r.text)
-            };
             // Through a generic function, or a field of a temporary generic struct.
             let text = if self.rng.chance(70) {
-                format!("GenFirst({arg})")
+                // The parameter is a `&T`: a `&mut` local is reborrowed as shared there, as
+                // at any coercion site whose expected type is known to be a reference.
+                format!("GenFirst({})", r.text)
             } else {
+                // The field is a `T`, which a `&mut` local would be moved into (#132), and
+                // the result a `&mut`: it is reborrowed as shared first. A shared
+                // reference local is copied.
+                let shared_local = matches!(r.roots[..], [(root, _)]
+                    if r.text == self.vars[root].name
+                        && matches!(self.vars[root].ty, Ty::Ref { mutable: false, .. }));
+                let arg = if shared_local || r.text.starts_with('&') {
+                    r.text
+                } else {
+                    format!("&*{}", r.text)
+                };
                 format!("GenBox {{ Value: {arg} }}.Value")
             };
             return Some(Expr {
@@ -1833,6 +1841,24 @@ impl<'a> BodyGen<'a> {
     }
 
     fn stmt_let_ref(&mut self) -> bool {
+        // Now and then of a reference local of the scope's (`let q = r;`), which
+        // `bare_ref_init` copies, moves or reborrows.
+        let locals: Vec<(bool, ValTy)> = self
+            .vars
+            .iter()
+            .filter(|v| !v.hidden && !v.dead && !v.moved && v.ty != Ty::STR)
+            .filter_map(|v| match v.ty {
+                Ty::Ref { mutable, inner } => Some((mutable, inner)),
+                _ => None,
+            })
+            .collect();
+        if !locals.is_empty() && self.rng.chance(45) {
+            let (m, inner) = *self.rng.pick(&locals);
+            let mutable = m && self.rng.chance(75);
+            if let Some(e) = self.ref_var(mutable, inner) {
+                return self.let_ref_of(e, mutable, inner);
+            }
+        }
         let places = self.candidates();
         if places.is_empty() {
             return false;
@@ -1850,21 +1876,25 @@ impl<'a> BodyGen<'a> {
             }
         }
         let mutable = self.rng.chance(50);
-        let Some(mut e) = self.ref_expr(mutable, inner, self.knobs.max_expr_depth) else {
+        let Some(e) = self.ref_expr(mutable, inner, self.knobs.max_expr_depth) else {
             return false;
         };
+        self.let_ref_of(e, mutable, inner)
+    }
+
+    /// `let q = e;` for `e` of type `&inner` (`&mut inner` when `mutable`).
+    fn let_ref_of(&mut self, mut e: Expr, mutable: bool, inner: ValTy) -> bool {
         let name = self.fresh_name();
         let ty = Ty::Ref { mutable, inner };
-        // `let q = r;` with `r: &mut T` moves `r` (only an annotated `let` reborrows), so a
-        // bare reference local is always reborrowed explicitly.
-        if let [(root, _)] = e.roots[..] {
-            if e.text == self.vars[root].name && matches!(self.vars[root].ty, Ty::Ref { .. }) {
-                e.text = format!("&{}*{}", if mutable { "mut " } else { "" }, e.text);
-            }
-        }
         // A slice reference is always annotated: the expression may be a reference to an
         // array, which only the annotation coerces.
-        let annotation = if !self.prog.is_sized(inner) || self.rng.chance(40) {
+        let annotated = !self.prog.is_sized(inner) || self.rng.chance(40);
+        if let [(root, _)] = e.roots[..] {
+            if e.text == self.vars[root].name && matches!(self.vars[root].ty, Ty::Ref { .. }) {
+                self.bare_ref_init(&mut e, root, mutable, inner, annotated);
+            }
+        }
+        let annotation = if annotated {
             format!(": {}", self.prog.ty_name(ty))
         } else {
             String::new()
@@ -1872,6 +1902,70 @@ impl<'a> BodyGen<'a> {
         self.line(&format!("let {name}{annotation} = {};", e.text));
         self.bind_ref(name, ty, &e);
         true
+    }
+
+    /// The initialiser of `let q = r;` (`annotated`: `let q: &T = r;`) where `e` is the
+    /// bare reference local `r` (`root`) and `q` is a `&inner` (`&mut inner` when
+    /// `mutable`). rustc reborrows `r` only where the expected type is known to be a
+    /// reference when `r` is coerced (#132): an annotated `let`, also through a generic
+    /// function whose parameter the annotation decides (`let q: &mut T = GenId(r);`). An
+    /// unannotated `let q = r;`, `let q = GenId(r);` or `let q = GenBox { Value: r
+    /// }.Value;` copies a shared `r` and moves a `&mut` one, which the scope model records
+    /// when it allows the move (or skips the check for a violation). Otherwise `r` is
+    /// reborrowed explicitly (`&*r`, `&mut *r`).
+    fn bare_ref_init(
+        &mut self,
+        e: &mut Expr,
+        root: usize,
+        mutable: bool,
+        inner: ValTy,
+        annotated: bool,
+    ) {
+        let Ty::Ref {
+            mutable: m,
+            inner: t,
+        } = self.vars[root].ty
+        else {
+            unreachable!("a reference local")
+        };
+        // The local's own type, not one it coerces to: it is the binding's type unannotated.
+        let exact = m == mutable && t == inner;
+        let generics = self.prog.generics;
+        if annotated && self.rng.chance(60) {
+            if generics && exact && self.rng.chance(40) {
+                e.text = format!("GenId({})", e.text);
+            }
+            return;
+        }
+        if !annotated && exact && self.rng.chance(70) && (!m || self.may_move_ref(root)) {
+            e.text = match self.rng.weighted(&[40, 35, 25]) {
+                1 if generics => format!("GenId({})", e.text),
+                2 if generics => format!("GenBox {{ Value: {} }}.Value", e.text),
+                _ => e.text.clone(),
+            };
+            if m {
+                self.vars[root].moved = true;
+            }
+            return;
+        }
+        e.text = format!("&{}*{}", if mutable { "mut " } else { "" }, e.text);
+    }
+
+    /// Whether the `&mut` reference local `v` may be moved now: it is not borrowed, the
+    /// moves are not deferred (`no_moves`), it was declared at this loop depth and it is
+    /// not the parameter a reference-returning function's tail returns from. With the
+    /// violation knob the check may be skipped.
+    fn may_move_ref(&mut self, v: usize) -> bool {
+        let var = &self.vars[v];
+        let tail_param = matches!(self.sig.ret, RetTy::Ref { .. })
+            && self.vars.iter().position(|v| v.ty.is_ref()) == Some(v);
+        let permitted = !var.moved
+            && var.shared_locks == 0
+            && var.mut_locks == 0
+            && self.no_moves == 0
+            && var.loop_depth == self.loop_depth()
+            && !tail_param;
+        permitted || self.violate()
     }
 
     fn stmt_assign(&mut self, depth: u32) -> bool {
@@ -2310,7 +2404,7 @@ impl<'a> BodyGen<'a> {
                 let p = self.vars.iter().position(|v| v.ty.is_ref());
                 let free = p.is_some_and(|p| {
                     let v = &self.vars[p];
-                    v.mut_locks == 0 && (!mutable || v.shared_locks == 0)
+                    !v.moved && v.mut_locks == 0 && (!mutable || v.shared_locks == 0)
                 });
                 if !free && !self.violate() {
                     return None;

@@ -142,8 +142,15 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   third of the time), `GenPick(c, a, b)` or `GenOr(GenOpt::Yes(a), b)`, which evaluate
   and move both values as a tuple literal does and drop the one they do not return,
   `GenOr(GenOpt::No, b)`, or `GenBox { Value: e }.Value` (a move out of a temporary
-  instance), and a shared reference to a non-array place in `GenFirst(r)` or `GenBox {
-  Value: r }.Value` (`&*r` for a reference that is not a fresh borrow). Each is transparent
+  instance), and a shared reference to a non-array place in `GenFirst(r)` (whose `&T`
+  parameter reborrows a `&mut` local) or `GenBox { Value: r }.Value` (`&*r` for a `&mut`
+  local or call, which the `T` field would take as a `&mut`). A reference local
+  initialised from another, `let q = r;`, is written plainly, through `GenId(r)` or
+  through `GenBox { Value: r }.Value`: unannotated, that moves a `&mut` `r` (#132, decision
+  92), which the scope model records (only where `r` is free, declared at this loop depth
+  and not the parameter a returned reference comes from; the violation knob skips the
+  check, so some programs use `r` after the move), and annotated (`let q: &mut T =
+  GenId(r);`) it reborrows `r`. Each is transparent
   to the scope model; the type parameter is inferred from the context, as the wrapped
   literals are, and never as a slice (a reference to an array is not wrapped, since it may
   be coerced). The runs found two generator bugs elsewhere, in `stmt_ref_aggregate`: a

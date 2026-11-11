@@ -16,14 +16,14 @@ pub enum VarKind {
     Float,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct VarData {
     parent: TyVid,
     kind: VarKind,
     value: Option<Ty>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct InferCtxt {
     vars: Vec<VarData>,
 }

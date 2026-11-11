@@ -75,7 +75,10 @@
 //! types (#114, #115): values wrapped in the helpers `GenId(e)`/`GenId::<T>(e)`,
 //! `GenPick(c, a, b)`, `GenOr(GenOpt::Yes(a), b)`, `GenOr(GenOpt::No, b)` and `GenBox {
 //! Value: e }.Value`, shared references in `GenFirst(r)` and `GenBox { Value: r }.Value`
-//! ([`program::GENERIC_HELPERS`]). Not generated: slice
+//! ([`program::GENERIC_HELPERS`]), and reference locals initialised from a reference local
+//! `r` by `let q = r;`, `let q = GenId(r);` or `let q = GenBox { Value: r }.Value;`, which
+//! move a `&mut` `r` (#132), or annotated (`let q: &mut T = GenId(r);`), which reborrow
+//! it. Not generated: slice
 //! patterns, ranges as values, array comparison, arrays of references as parameters or
 //! as locals outliving a block of their own (`stmt_ref_aggregate` writes `[&T; N]`,
 //! `&[&T]`, `(&T, U)` and `[&mut T; 2]` locals of primitive referents used in one block;

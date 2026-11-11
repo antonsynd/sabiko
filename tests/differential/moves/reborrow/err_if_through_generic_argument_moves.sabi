@@ -1,0 +1,10 @@
+// An `if` passed to a type parameter: the variable does not reach the branches, so the
+// `else` tail is moved even though the `then` tail decided it.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(c: bool, r: &mut u8, s: &mut u8) {
+    Id(if c { r } else { s });
+    *s += 1;
+}

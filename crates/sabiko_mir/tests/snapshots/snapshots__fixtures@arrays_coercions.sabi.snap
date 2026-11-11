@@ -107,9 +107,13 @@ fn Twice(_1: &[i32]) -> i32 {
 
 fn Head(_1: &mut [i32]) -> &mut [i32] {
     let mut _0: &mut [i32];
+    let mut _2: &mut [i32];
 
     bb0: {
-        _0 = move _1;
+        StorageLive(_2);
+        _2 = &mut (*_1);
+        _0 = move _2;
+        StorageDead(_2);
         goto -> bb1;
     }
 

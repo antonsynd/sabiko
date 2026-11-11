@@ -1,0 +1,81 @@
+// A `&mut` coerced where a reference type is known is reborrowed and stays usable
+// (#132): through a block's tail, `if` branches, a later `match` arm, a `break` value, a
+// generic call whose type argument the annotation or a turbofish decides, an annotated
+// generic variant or struct, and an array's later element. Moved into an unannotated
+// generic, it is still written through by the new owner.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct W<T> {
+    F: T,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Bump(x: &mut i32) {
+    *x += 1;
+}
+
+fn Main() {
+    let mut a = 1;
+    let mut b = 10;
+    let r = &mut a;
+    let s = &mut b;
+    let c = *r > 0;
+    {
+        let x: &mut i32 = { r };
+        *x += 1;
+    }
+    {
+        let x: &mut i32 = if c { r } else { s };
+        *x += 2;
+    }
+    {
+        let x = match c {
+            false => &mut *s,
+            true => r,
+        };
+        *x += 3;
+    }
+    {
+        let x: &mut i32 = loop {
+            break r;
+        };
+        *x += 4;
+    }
+    {
+        let x: &mut i32 = Id(r);
+        *x += 5;
+        let y = Id::<&mut i32>(s);
+        *y += 5;
+    }
+    {
+        let o: Opt<&mut i32> = Opt::Yes(r);
+        if let Opt::Yes(x) = o {
+            *x += 6;
+        }
+        let w: W<&mut i32> = W { F: s };
+        *w.F += 6;
+    }
+    {
+        let arr = [&mut *s, r];
+        *arr[1] += 7;
+        Bump(arr[0]);
+    }
+    PrintLine(*r);
+    PrintLine(*s);
+    let moved = Id(r);
+    *moved += 100;
+    PrintLine(*moved);
+    if let Opt::Yes(m) = Opt::Yes(s) {
+        *m += 100;
+    }
+    let none: Opt<&mut i32> = Opt::No;
+    if let Opt::No = none {
+        PrintLine(a + b);
+    }
+}

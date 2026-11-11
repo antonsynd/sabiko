@@ -1,0 +1,10 @@
+// A scrutinee is no coercion site: the variant built there moves its payload.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn F(r: &mut u8) {
+    if let Opt::Yes(x) = Opt::Yes(r) {}
+    *r += 1;
+}

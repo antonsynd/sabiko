@@ -1457,6 +1457,29 @@ mutants are now excluded in `.cargo/mutants.toml`, and dead `Ref`/`Slice` arms i
 `could_be`, `match_ty` and `unify` are removed (no trait block's type holds a reference
 or a slice). The threshold stays at 98.
 
+Status (2026-11-11): reborrow or move of a `&mut` decided as rustc does (#132, decision
+92). Sabiko reborrowed every `&mut` call or constructor argument, so it accepted `Id(r);
+*r += 1;` for `fn Id<T>(x: T)`, `Opt::Yes(r)` and `W { F: r }` of generic types, which
+rustc rejects with E0382. The type checker now records a reborrow adjustment at a
+coercion site only where the target type is already a reference (`BodyTypes::reborrows`),
+and MIR building applies it instead of deciding by itself, at every value position. With
+rustc's expected inputs for calls, struct literal hints, the coercion of later `match`
+arms to the first and `adjust_for_branches`, the targets are rustc's: of 87 cases checked
+against rustc 1.99, all agree but one that needs `impl Tr for &mut u8` (E0107) (arguments of generic and plain functions, methods and
+associated functions, turbofish and annotated results, variants and struct literals,
+tuples, arrays, `let` with and without annotations, assignments, block tails, `if`,
+`match`, `break` values, field, deref and index places). Also fixed, the converse: an
+annotated `let x: &mut u8 = { r };` (or `if`, `break r`, a later `match` arm), and
+`Take({ r })`, moved `r` where rustc reborrows it. A move into a call's argument now
+suggests `&mut *r`, as rustc's E0382 does. Tests: 41 compile-time programs in
+`differential/moves/reborrow/`, `run/refs/reborrow_coercion_sites.sabi`, the UI test
+`borrowck/mut_ref_moved_into_type_parameter`, the MIR fixture `coercions.sabi`; the
+generator writes `let q = r;`, `let q = GenId(r);` and `let q = GenBox { Value: r
+}.Value;` for reference locals, moving a `&mut` one in its scope model, and `let q: &mut
+T = GenId(r);`, which reborrows, and passes `&mut` locals to `GenFirst(r)` plainly. Left:
+the prelude's `Some(r)` (#13, on its own branch) is the same code path but has no test of
+its own yet.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work

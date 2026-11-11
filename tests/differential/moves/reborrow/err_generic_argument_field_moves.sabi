@@ -1,0 +1,13 @@
+// A `&mut` field passed to a type parameter is moved out of its struct.
+struct W<T> {
+    F: T,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(w: W<&mut u8>) {
+    Id(w.F);
+    *w.F += 1;
+}
