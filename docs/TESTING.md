@@ -879,13 +879,15 @@ applying the mutant by hand, then confirmed by re-running all 97 with `cargo mut
 That leaves 41 of 1215 (96.6%): the 21 equivalent or older survivors listed above for
 run 23, 16 new equivalent mutants, and 4 not yet killed. Equivalent:
 
-- No trait `impl` block is for a type holding a reference (E0107) or for an unsized type,
-  so these arms are unreachable for block types: `unify`'s `Ref` arm (deleted, and its
-  `&&` as `||`) and `Slice` arm; `match_ty`'s `Ref` `&&` as `||`; `could_be`'s `Ref` `&&`
-  as `||`.
+- No trait `impl` block is for a type holding a reference or for an unsized type: such a
+  block is E0107 and `check_impl_type` does not register it. So `unify`'s, `match_ty`'s and
+  `could_be`'s `Ref` and `Slice` arms were dead, and their mutants (`unify`'s `Ref` arm
+  deleted, and its `&&` as `||`, its `Slice` arm deleted, the `Ref` `&&` as `||` of the
+  other two) equivalent. The arms are removed, with a note that they come back with such
+  blocks.
 - The patterns that `unify` and `walk` see hold only the two blocks' own parameters, all
-  in `vars`, and the substitution holds only those. So `unify`'s left-hand
-  `vars.contains(p)` guard and `walk`'s guard as `true` change nothing.
+  in `vars`, and the substitution holds only those. So `unify`'s two `vars.contains`
+  guards (left-hand `p`, right-hand `q`) and `walk`'s guard as `true` change nothing.
 - `may_be_copy_like`'s `Infer` and `Array` arms deleted: the fall-through asks
   `implements`, which answers "ambiguous" for any type with inference variables, the
   same `true`.
@@ -905,8 +907,21 @@ Not killed, and not shown equivalent: `known_nodes`' three `+` as `*` (a variabl
 a blanket block's compound of fresh variables, `(?f, ?f)`, would not count as progress,
 but no program found needs the extra round), and `implements_at`'s `depth > DEPTH_LIMIT`
 as `==` (a bound chain 64 levels deep). With about 1620 viable mutants and 37 equivalent
-ones, 98% is out of reach for `sabiko_types` without excluding the equivalent mutants; the
-threshold is unchanged until the next nightly measures all eight shards (#125).
+ones, 98% was out of reach for `sabiko_types` whatever the tests.
+
+So the equivalent `sabiko_types` mutants are now excluded in `.cargo/mutants.toml`
+instead of counted (#125); the threshold stays at 98. Five of the 37 are gone with the
+dead `Ref`/`Slice` arms above. One more appeared: `unify`'s right-hand guard as `true`,
+whose run-25 result was in the lost shard 0. 32 are excluded. Each pattern names the
+file and the mutation, not the line, so it survives edits elsewhere. Where an equivalent
+mutant read exactly like a killable one, the code tells them apart: `unify`'s
+right-hand binding is `q`, the tuple-struct arm of `check_pat_in_mode` binds `ctor`, and
+`binary`'s `(max << 1) | 1` and `cast`'s float guard are matched by column, unique in
+those functions. `cargo mutants --list -p sabiko_types` with and without the patterns
+differs in exactly those 32; check that again when changing them. A pattern that stops
+matching only brings its mutant back as a survivor. `field_defs`' "delete field ty"
+stays counted: cargo-mutants 27.1 does not apply `exclude_re` to struct-field deletions.
+Shard 0's other survivors are unknown until a nightly scores all eight shards.
 
 ## Interop
 

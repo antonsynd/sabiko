@@ -1397,8 +1397,10 @@ of the 97 survivors, chiefly `sabiko_driver`'s `run_corpus`, which compiles ever
 program to IL in process (the trait programs were only built by `sabikoc`, which this
 crate's mutants do not run). That gives 96.6% on those shards. The 41 left are 37
 equivalent mutants and 4 not yet killed (`docs/TESTING.md`, Mutation testing). At about
-1620 viable mutants, 98% is not reachable with 37 equivalent ones; the threshold stays
-until a full nightly run measures all eight shards.
+1620 viable mutants, 98% was not reachable with 37 equivalent ones. So the equivalent
+mutants are now excluded in `.cargo/mutants.toml`, and dead `Ref`/`Slice` arms in
+`could_be`, `match_ty` and `unify` are removed (no trait block's type holds a reference
+or a slice). The threshold stays at 98.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

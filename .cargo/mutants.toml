@@ -77,10 +77,10 @@ exclude_re = [
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace < with <= in IntRange::intersection$",
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace match guard matches!\\(&\\*self\\.adt\\(\\*def\\), AdtShape::Enum \\{ \\.\\. \\}\\) with true in Checker<'a>::lower$",
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace < with > in Checker<'a>::lower$",
-    # Run 25's list: arms unreachable because no trait block is for a type holding a
-    # reference or an unsized type; guards whose operands always hold; fall-throughs that
-    # give the same answer; `Ty::is_copy`, a fallback for a `Copy` item that always exists;
-    # a fast path; and a wild sub-pattern's type, only checked for errors.
+    # Run 25's list: guards whose operands always hold (`unify` and `walk` see only the
+    # blocks' own parameters); fall-throughs that give the same answer; `Ty::is_copy`, a
+    # fallback for a `Copy` item that always exists; a fast path; a plain constant
+    # evaluated as a trait one.
     "sabiko_types/src/check\\.rs:\\d+:\\d+: replace && with \\|\\| in FnCtxt<'a>::adt_args$",
     "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Ty::Infer\\(_\\) in FnCtxt<'a>::may_be_copy_like$",
     "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Ty::Array\\(elem, _\\) in FnCtxt<'a>::may_be_copy_like$",
@@ -88,7 +88,7 @@ exclude_re = [
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace \\+ with \\* in ItemTypes::builtin_impl$",
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(p\\) with true in walk$",
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(p\\) with true in unify$",
-    "sabiko_types/src/traits\\.rs:\\d+:\\d+: delete match arm \\(Ty::Slice\\(li\\), Ty::Slice\\(ri\\)\\) in unify$",
+    "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(q\\) with true in unify$",
     "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace Ty::is_copy -> bool with false$",
     "sabiko_types/src/ty\\.rs:\\d+:\\d+: delete ! in Ty::is_copy$",
     "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace \\|\\| with && in Ty::subst$",
