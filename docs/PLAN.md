@@ -1501,14 +1501,19 @@ early return through every scope (drops of live locals and of the statement's te
 in rustc's order, moves out of the operand, loans of an `Option<&T>`'s reference). Errors
 with rustc's messages: E0350 (not an `Option`/`Result`, a function returning neither,
 mixing the two, a constant), E0313 (unknown operand or error type), E0351 (no `From` impl
-can convert the error). `From` itself waits for generic traits (#117): only the same error
-type converts, and a conversion Rust's standard library has (`i32` to `i64`) is E0107.
-Slices have `is_empty`, `get`, `get_mut`, `first`, `first_mut`, `last` and `last_mut` from
+can convert the error, every pair rustc rejects). `From` itself waits for generic traits
+(#117): only the same error type converts, and a conversion Rust's standard library has
+(`i32` to `i64`, `T` to `Option<T>`, arrays to tuples) is E0107; an open error type takes
+the one such source it could be before literals default (`Err(5)?` into a `u8` error).
+Slices have `len` (an intrinsic, so a user trait's `len` for an array comes first, as in
+rustc; `str::len` stays built in, and `str::is_empty` does not exist yet), `is_empty`, `get`, `get_mut`, `first`, `first_mut`, `last` and `last_mut` from
 `library/core/slice.sabi`, an inherent `impl<T> [T]` only the prelude may write, found by
 the method probe on slices and (unsized) arrays; `Option` gained `as_ref`, `as_mut`,
 `ok_or`, `and`, `or`, `xor` and `zip`, `Result` `as_ref`, `as_mut`, `and` and `or`. Tests:
 `differential/run/prelude/` (`try_operator`, `try_drops`, `option_result_combinators`,
-`slice_get`, `panic_slice_get_unwrap`), compile-time programs in `differential/prelude/`
+`slice_get`, `panic_slice_get_unwrap`, `try_in_methods`, `try_infers_error_type`,
+`len_trait_method_first`), `crates/sabiko_driver/tests/try_conversions.rs` (every pair of 38
+error types against rustc), a `?` chain in the nesting test, compile-time programs in `differential/prelude/`
 (moves and copies by `?`, a move out of a borrow, `Option<&T>` loans through `?`,
 `get`/`get_mut` loans and two-phase borrows), UI test `typeck/try_operator`, MIR and IL
 fixtures `try_operator`, and the generator (helpers `GenTry`, `GenTryOk`, `GenTryErr`,
@@ -1518,7 +1523,13 @@ lengths). Not yet: `From` conversions and generic traits (#117), `take`/`replace
 `Option<&T>` or `Option<Option<T>>`, decision 83), anything with closures (`map`,
 `and_then`, `is_some_and`, `unwrap_or_else`), `unwrap_or_default` (`Default`), the slice
 methods of #45 beyond these (`swap`, `reverse`, `fill`, `contains`, `split_at_mut`), and
-`?` on other types (`Try` is not a trait).
+`?` on other types (`Try` is not a trait), generation of the loan-returning methods and of
+`?` in generated bodies (#147). Known shortcut: the prelude's `impl<T> [T]` is resolved as a
+trait `impl` block without a trait (`ImplScope::TraitImpl`, `is_slice_impl`), not as an
+inherent block of its own; a `str` block would want its own scope. A valid `?` chain 254
+levels deep (an `Option` nested as deep) compiles but takes seconds in a debug build: type
+queries on such types (`needs_drop`, the lints' layouts, the built-in `Copy`) are quadratic
+in the depth.
 
 Update (2026-11-11), mutation scores after the traits work (#125): nightly run 25 measured
 `sabiko_types` at 92.0% over three of its four shards (the fourth lost its runner, and

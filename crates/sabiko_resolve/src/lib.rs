@@ -288,6 +288,16 @@ impl CoreItem {
             Self::Result => "Result",
         }
     }
+
+    /// The names of the variant `e?` continues with and of the one it returns early
+    /// with.
+    #[must_use]
+    pub fn try_variant_names(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Option => ("Some", "None"),
+            Self::Result => ("Ok", "Err"),
+        }
+    }
 }
 
 /// A function of the `core` prelude that the compiler implements (decision 90): declared
@@ -299,16 +309,22 @@ pub enum Intrinsic {
     /// `fn PanicDebug<T: Debug>(msg: &str, value: &T) -> !`: panics with `"{msg}:
     /// {value:?}"`, as `Result::unwrap` does (rustc's `unwrap_failed`).
     PanicDebug,
+    /// `<[T]>::len(&self) -> usize`, the slice method (decision 93): the method probe
+    /// finds it as any other, after the methods a user trait gives an array; the type
+    /// checker records a call of it as a length read (`BodyTypes::len_calls`), which MIR
+    /// building lowers to `Len`, so no call of it is ever made.
+    SliceLen,
 }
 
 impl Intrinsic {
-    pub const ALL: [Intrinsic; 1] = [Self::PanicDebug];
+    pub const ALL: [Intrinsic; 2] = [Self::PanicDebug, Self::SliceLen];
 
     /// The function's name in the prelude.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::PanicDebug => "PanicDebug",
+            Self::SliceLen => "len",
         }
     }
 }
@@ -490,10 +506,11 @@ pub struct ResolveResults {
     track_caller: std::collections::HashSet<DefId>,
     /// The prelude's intrinsics (`#[intrinsic]`), whose calls code generation lowers
     /// itself; their bodies are never used.
-    #[allow(clippy::zero_sized_map_values)] // One intrinsic so far; more will come.
     intrinsics: HashMap<DefId, Intrinsic>,
     /// The prelude's types the compiler refers to (decision 93).
     core_items: HashMap<CoreItem, DefId>,
+    /// The indices of each one's variants `e?` continues and returns early with.
+    try_variants: HashMap<CoreItem, (usize, usize)>,
     /// The methods of the prelude's `impl<T> [T]` block, by name (decision 93).
     slice_methods: HashMap<String, DefId>,
     /// Identifier patterns that name a constant or a unit struct instead of binding
@@ -610,10 +627,11 @@ impl ResolveResults {
         self.drop_impls.values().any(|&d| d == def)
     }
 
-    /// The prelude's type `item` (decision 93); `None` without a prelude.
+    /// The indices of the variants of the prelude's `item` that `e?` continues with
+    /// (`Some`, `Ok`) and returns early with (`None`, `Err`).
     #[must_use]
-    pub fn core_item(&self, item: CoreItem) -> Option<DefId> {
-        self.core_items.get(&item).copied()
+    pub fn try_variants(&self, item: CoreItem) -> (usize, usize) {
+        self.try_variants[&item]
     }
 
     /// The method `name` of the prelude's `impl<T> [T]` block, if it has one: an
@@ -1203,6 +1221,14 @@ impl Resolver<'_> {
                 let core = CoreItem::ALL.into_iter().find(|c| c.name() == name.name);
                 if let Some(core) = core.filter(|_| index >= self.results.prelude_start) {
                     self.results.core_items.insert(core, id);
+                    let (cont, brk) = core.try_variant_names();
+                    let at = |name: &str| {
+                        e.variants
+                            .iter()
+                            .position(|v| v.name.name == name)
+                            .expect("the prelude's `Option` and `Result` have their variants")
+                    };
+                    self.results.try_variants.insert(core, (at(cont), at(brk)));
                 }
             }
             if let ItemKind::Trait(t) = &item.kind {

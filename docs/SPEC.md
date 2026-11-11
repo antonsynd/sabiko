@@ -168,7 +168,9 @@ Methods, with Rust's names and panic messages (a panic reports the caller's loca
   `Debug` yet. `Option<&T>`, `Option<&mut T>` and `Result<&T, E>` are `ref struct`
   instances (decision 83).
 - Slices (`library/core/slice.sabi`, an inherent `impl<T> [T]` that only the prelude may
-  write, decision 93): `is_empty(&self)`, `get(&self, index: usize) -> Option<&T>` (`None`
+  write, decision 93): `len(&self)` (an intrinsic: a call is a length read, and it is found
+  where rustc's probe finds it, so a user trait's `len` implemented for an array wins on
+  the array), `is_empty(&self)`, `get(&self, index: usize) -> Option<&T>` (`None`
   out of range, never a panic), `get_mut(&mut self, index) -> Option<&mut T>`,
   `first(&self)`, `first_mut(&mut self)`, `last(&self)`, `last_mut(&mut self)`. A method
   call finds them on a slice and through references to one, and on an array, whose borrow
@@ -195,11 +197,17 @@ values that implement `Try`"), in a function returning neither (E0350, also `Mai
 `Option` in a function returning a `Result` or the other way round (E0350), outside a
 function (a constant's value, E0350; rustc's E0572), an operand whose type is not known yet
 (E0313), an error type left unknown (`Ok(1)?`, E0313), and an error type that no `From`
-impl converts (E0351, "`?` couldn't convert the error to `B`"): where the target is a type
-parameter or a struct or enum of the file, the source is one and the target a primitive, a
-tuple, an array or a reference, or both are primitives without a lossless conversion
-(`i64` to `i32`). A conversion Rust's standard library has (`i32` to `i64`, `A` to
-`Option<A>`) is E0107 until generic traits.
+impl converts (E0351, "`?` couldn't convert the error to `B`"). A conversion Rust's standard
+library has is E0107 until generic traits; among Sabiko's types those are exactly the
+lossless ones between primitives (`i32` to `i64`, `u8` to `char`, `bool` to `f64`, ...),
+`T` to `Option<T>`, `&Option<T>` to `Option<&T>` (`&mut` likewise), and an array of `N`
+(up to 12) `T`s to a tuple of `N` `T`s and back (checked against rustc on every pair of a
+table of types, `crates/sabiko_driver/tests/try_conversions.rs`); every other pair is
+E0351. An error type `?` leaves open (a literal, `None`) takes the one source of those
+impls it could be before literals default, as rustc's inference does: `Err(5)?` in a
+function returning `Result<_, u8>` makes the literal a `u8`; with several (`u16` converts
+from `u8` and `u16`) it defaults (`i32`, E0351), and an open `None` facing
+`Option<Option<u8>>` is E0313 (rustc's E0282).
 
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System

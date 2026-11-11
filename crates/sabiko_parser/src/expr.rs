@@ -462,6 +462,7 @@ impl Parser<'_, '_> {
                     }
                 }
                 TokenKind::Question => {
+                    self.descend()?;
                     self.bump();
                     e = self.mk(ExprKind::Try(Box::new(e)), start);
                 }

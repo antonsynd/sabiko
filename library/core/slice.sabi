@@ -1,9 +1,16 @@
 //! Methods of slices, Rust's `core::slice` (decision 93): an inherent `impl<T> [T]`
 //! block, which only the prelude may write. A method call on a slice or a reference to
 //! one finds these methods, and so does one on an array, whose borrow is unsized to a
-//! slice, as in rustc. `len()` is built into the compiler.
+//! slice, as in rustc.
 
 impl<T> [T] {
+    /// The number of elements. The compiler reads the length itself (a call of it is
+    /// lowered to `Len`); the body is never used.
+    #[intrinsic]
+    pub fn len(&self) -> usize {
+        loop {}
+    }
+
     /// Whether the slice has no elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0

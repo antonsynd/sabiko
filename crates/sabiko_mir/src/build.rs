@@ -2560,19 +2560,7 @@ impl<'a> Builder<'a> {
         let Ty::Adt(adt, args) = self.body.local_decl(temp).ty.clone() else {
             unreachable!("the operand of `?` is an `Option` or a `Result`")
         };
-        let (continue_name, break_name) = match kind {
-            CoreItem::Option => ("Some", "None"),
-            CoreItem::Result => ("Ok", "Err"),
-        };
-        let variant = |this: &Self, name: &str| {
-            this.resolve
-                .variants(adt)
-                .iter()
-                .position(|&v| this.resolve.def(v).name == name)
-                .expect("the prelude's `Option` and `Result` have their variants")
-        };
-        let (continue_index, break_index) =
-            (variant(self, continue_name), variant(self, break_name));
+        let (continue_index, break_index) = self.resolve.try_variants(kind);
         let discr = self.new_temp(Ty::Prim(PrimTy::Isize), question);
         self.assign(
             Place::local(discr),

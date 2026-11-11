@@ -13,7 +13,8 @@ use sabiko_ast::{
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{
-    Builtin, CoreItem, DefId, DefKind, LangItem, LocalId, Predicate, PrimTy, Res, ResolveResults,
+    Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, Predicate, PrimTy, Res,
+    ResolveResults,
 };
 use sabiko_span::Span;
 
@@ -2427,18 +2428,65 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// Lets the error conversions of `?` guide inference before literals default, as
+    /// rustc's `To: From<?E>` obligation does: when the error type `?E` of the operand is
+    /// not known yet and exactly one of the standard library's impls `From<S> for To`
+    /// has a source `S` it could be, it is that source. `let x: i32 = Err(5)?;` in a
+    /// function returning `Result<i32, u8>` makes the literal a `u8` (only the reflexive
+    /// impl takes an integer); for an `i64` error, `From<i8>`, `From<i16>`, ... all could
+    /// apply, so the literal defaults to `i32`, which `From<i32> for i64` converts.
+    fn select_try_conversions(&mut self) {
+        let pending: Vec<(Ty, Ty)> = self
+            .pending_tries
+            .iter()
+            .map(|t| (t.from.clone(), t.to.clone()))
+            .collect();
+        for (from, to) in pending {
+            let from = self.infer.resolve(&from);
+            let to = self.infer.resolve(&to);
+            if !from.has_infer() || to.has_infer() {
+                continue;
+            }
+            let candidates: Vec<Ty> = self
+                .from_sources(&to)
+                .into_iter()
+                .filter(|source| self.could_be(source, &[], &from))
+                .collect();
+            if let [source] = candidates.as_slice() {
+                // The candidate was checked to fit.
+                let _ = self.infer.unify(source, &from);
+            }
+        }
+    }
+
     /// The error conversions of `?` on a `Result` (decision 93). rustc returns
     /// `Err(From::from(e))`; `From` is a generic trait, which Sabiko does not have yet
     /// (#117), so only the reflexive `impl<T> From<T> for T` is available: the same error
-    /// type converts. Where neither Rust's standard library nor the program can implement
-    /// `From<E1> for E2` (no program can implement `From` yet), the conversion is E0351
-    /// with rustc's message; anywhere else, where the standard library may have an impl
-    /// (`From<i32> for i64`), it is not yet supported (E0107).
+    /// type converts. A conversion the standard library has (`From<i32> for i64`,
+    /// [`Self::from_sources`]) is not yet supported (E0107); any other is E0351 with
+    /// rustc's message, since no program can implement `From` yet.
     fn check_pending_tries(&mut self) {
         for t in std::mem::take(&mut self.pending_tries) {
             let from = self.infer.resolve_with_defaults(&t.from);
             let to = self.infer.resolve_with_defaults(&t.to);
-            if from == to || has_error(&from) || has_error(&to) {
+            if from == to {
+                continue;
+            }
+            if has_error(&from) || has_error(&to) {
+                if self.sink.error_count() == 0 {
+                    // An error type with nothing reported: a type Sabiko could not lower
+                    // (an array as a generic argument, #137). Never compile the `?`.
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::UNSUPPORTED_SYNTAX,
+                            "not yet supported: the error type of this `?`",
+                        )
+                        .with_label(t.span, "the error type could not be lowered")
+                        .with_note(
+                            "an array as a generic argument in a type is not supported yet (#137)",
+                        ),
+                    );
+                }
                 continue;
             }
             if from.has_infer() || to.has_infer() {
@@ -2457,7 +2505,21 @@ impl<'a> FnCtxt<'a> {
                 continue;
             }
             let (from_s, to_s) = (self.ty_str(&from), self.ty_str(&to));
-            if self.no_from_impl(&from, &to) {
+            if from.is_never() || self.from_sources(&to).contains(&from) {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::UNSUPPORTED_SYNTAX,
+                        format!(
+                            "not yet supported: `?` converting the error from `{from_s}` to `{to_s}`"
+                        ),
+                    )
+                    .with_label(
+                        t.span,
+                        format!("Rust converts it with `From<{from_s}> for {to_s}`"),
+                    )
+                    .with_note("`?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)"),
+                );
+            } else {
                 self.error(
                     Diagnostic::error(
                         ErrorCode::TRY_ERROR_CONVERSION,
@@ -2475,47 +2537,47 @@ impl<'a> FnCtxt<'a> {
                     )
                     .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait"),
                 );
-            } else {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::UNSUPPORTED_SYNTAX,
-                        format!(
-                            "not yet supported: `?` converting the error from `{from_s}` to `{to_s}`"
-                        ),
-                    )
-                    .with_label(
-                        t.span,
-                        format!("Rust converts it with `From<{from_s}> for {to_s}`"),
-                    )
-                    .with_note("`?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)"),
-                );
             }
         }
     }
 
-    /// Whether no `impl From<from> for to` can exist (`from != to`), neither in Rust's
-    /// standard library nor in the program, which cannot implement `From` yet. A type
-    /// parameter or a struct or enum of the user's file is the target of the reflexive
-    /// impl only (and of `From<!>`); as a source, only the standard library's generic
-    /// wrappers (`Option<T>`, `Box<T>`, ...) take it. Between primitives, the standard
-    /// library has exactly the lossless conversions.
-    fn no_from_impl(&self, from: &Ty, to: &Ty) -> bool {
-        let local = |t: &Ty| match t {
-            Ty::Param(_) => true,
-            Ty::Adt(def, _) => !self.resolve.is_prelude(*def),
-            _ => false,
-        };
-        if from.is_never() {
-            return false;
+    /// The sources `S` of Rust's standard library's impls `From<S> for to`, among the
+    /// types Sabiko has: `to` itself (the reflexive impl), the primitives that convert to
+    /// a primitive losslessly, `T` for `Option<T>` and `&Option<T>` for `Option<&T>`
+    /// (`&mut` likewise), and an array of `N` (up to 12) `T`s for a tuple of `N` `T`s and
+    /// the other way round. `From<!> for T` is left out: rustc's inference does not
+    /// consider it either. A program cannot implement `From` yet, so these are all the
+    /// conversions there are (checked against rustc on every pair of a table of types,
+    /// `crates/sabiko_driver/tests/try_conversions.rs`).
+    fn from_sources(&self, to: &Ty) -> Vec<Ty> {
+        let mut sources = vec![to.clone()];
+        match to {
+            Ty::Prim(p) => sources.extend(
+                PrimTy::ALL
+                    .into_iter()
+                    .filter(|&q| q != *p && prim_from(q, *p))
+                    .map(Ty::Prim),
+            ),
+            Ty::Adt(def, args) if self.resolve.core_item_of(*def) == Some(CoreItem::Option) => {
+                sources.push(args[0].clone());
+                if let Ty::Ref(m, inner) = &args[0] {
+                    let option = Ty::Adt(*def, vec![(**inner).clone()].into());
+                    sources.push(Ty::Ref(*m, Box::new(option)));
+                }
+            }
+            Ty::Array(elem, n) if (1..=12).contains(n) => {
+                let n = usize::try_from(*n).expect("at most 12");
+                sources.push(Ty::Tuple(Box::new(vec![(**elem).clone(); n])));
+            }
+            Ty::Tuple(elems)
+                if (1..=12).contains(&elems.len()) && elems.iter().all(|e| *e == elems[0]) =>
+            {
+                let n = u64::try_from(elems.len()).expect("at most 12");
+                sources.push(Ty::Array(Box::new(elems[0].clone()), n));
+            }
+            _ => {}
         }
-        if local(to) {
-            return true;
-        }
-        match (from, to) {
-            (Ty::Prim(a), Ty::Prim(b)) => !prim_from(*a, *b),
-            (_, Ty::Prim(_) | Ty::Unit | Ty::Tuple(_) | Ty::Array(..) | Ty::Ref(..)) => local(from),
-            _ => false,
-        }
+        sources
     }
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
@@ -3235,8 +3297,9 @@ impl<'a> FnCtxt<'a> {
                 VarKind::Float => matches!(pat, Ty::Prim(p) if p.is_float()),
             },
             (_, Ty::Error) => true,
-            // No block's type holds a reference or a slice (`check_impl_type`, E0107), so
-            // `pat` has no `Ref` or `Slice` part: those arms come back with such blocks.
+            // No block's type holds a slice (`check_impl_type`, E0107); a reference comes
+            // from the sources of `?`'s conversions (`&Option<T>` for `Option<&T>`).
+            (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && self.could_be(a, params, b),
             (Ty::Array(a, n), Ty::Array(b, m)) => n == m && self.could_be(a, params, b),
             (Ty::Tuple(a), Ty::Tuple(b)) => {
                 a.len() == b.len()
@@ -3485,6 +3548,19 @@ impl<'a> FnCtxt<'a> {
             }
             return Ty::Error;
         };
+        if self.resolve.intrinsic(callee.def) == Some(Intrinsic::SliceLen) {
+            // `<[T]>::len`, found after the methods a user trait gives an array: a read of
+            // the length, through the references the probe looked through.
+            for a in args {
+                self.check_expr(a, None);
+            }
+            if !args.is_empty() {
+                let d = Self::wrong_arg_count("method", 0, args.len(), expr.span);
+                self.error(d);
+            }
+            self.len_calls.insert(expr.id, callee.autoderefs);
+            return Ty::Prim(PrimTy::Usize);
+        }
         if self.is_destructor(callee.def) {
             // `d.drop()`.
             self.explicit_drop_call(method.span);
@@ -4496,6 +4572,7 @@ impl<'a> FnCtxt<'a> {
 
     fn finish(mut self) -> BodyTypes {
         self.select_obligations();
+        self.select_try_conversions();
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).

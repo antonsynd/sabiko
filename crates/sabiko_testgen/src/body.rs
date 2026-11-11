@@ -951,11 +951,13 @@ impl<'a> BodyGen<'a> {
     /// `GenTryOk(Err::<T, u8>(7)).unwrap_or(b)` are `b`. The forms with two values
     /// evaluate (and move) both like a tuple literal, return one and drop the other inside
     /// a call: `GenTryKeep(Some(a), b).unwrap()` (`b` held by a local while `?` takes
-    /// `a`), `GenTryKeep(None::<T>, b).unwrap_or(a)` (`b` dropped on the early return,
-    /// before `a` is evaluated), `Some(a).or(Some(b)).unwrap()`,
+    /// `a`), `GenTryKeep(None::<T>, a).unwrap_or(b)` (`a` dropped on the early return,
+    /// before `b` is evaluated), `Some(a).or(Some(b)).unwrap()`,
     /// `Some(a).and(Some(b)).unwrap()` (which is `b`); `None::<T>.or(Some(b))`,
     /// `Some(a).xor(None)`, `None::<T>.xor(Some(b))` and `Some(a).ok_or(3u8)`, unwrapped,
-    /// hold one. None of them panics.
+    /// hold one. None of them panics. TODO(#147): the methods returning a loan
+    /// (`get_mut`, `first_mut`, `last_mut`, `as_ref`, `as_mut`), `zip`, and `?` in the
+    /// generated functions' own bodies.
     fn try_value(&mut self, ty: ValTy, name: &str, depth: u32) -> Expr {
         let kind = self
             .rng

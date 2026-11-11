@@ -89,23 +89,61 @@
     │        ──┬──  
     │          ╰──── cannot infer the error type of this `Result`
 ────╯
-[E0350] Error: the `?` operator can only be used in a function
-    ╭─[ tests/ui/typeck/try_operator.sabi:56:6 ]
+[E0351] Error: `?` couldn't convert the error to `u16`
+    ╭─[ tests/ui/typeck/try_operator.sabi:57:24 ]
     │
- 56 │     o? //~ ERROR E0350 the `?` operator can only be used in a function
+ 57 │     let x: i32 = Err(5)?; //~ ERROR E0351 `?` couldn't convert the error to `u16`
+    │                  ───┬──┬  
+    │                     │  ╰── the trait `From<i32>` is not implemented for `u16`
+    │                     │     
+    │                     ╰───── this can't be annotated with `?` because it has type `Result<_, i32>`
+    │ 
+    │ Note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+────╯
+[E0107] Error: not yet supported: `?` converting the error from `i32` to `i64`
+    ╭─[ tests/ui/typeck/try_operator.sabi:62:24 ]
+    │
+ 62 │     let x: i32 = Err(5)?; //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
+    │                        ┬  
+    │                        ╰── Rust converts it with `From<i32> for i64`
+    │ 
+    │ Note: `?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/try_operator.sabi:67:18 ]
+    │
+ 67 │     let x: i32 = Err(None)?; //~ ERROR E0313 type annotations needed
+    │                  ────┬────  
+    │                      ╰────── cannot infer the error type of this `Result`
+────╯
+[E0351] Error: `?` couldn't convert the error to `bool`
+    ╭─[ tests/ui/typeck/try_operator.sabi:72:25 ]
+    │
+ 72 │     let x: i32 = Err(())?; //~ ERROR E0351 `?` couldn't convert the error to `bool`
+    │                  ───┬───┬  
+    │                     │   ╰── the trait `From<()>` is not implemented for `bool`
+    │                     │      
+    │                     ╰────── this can't be annotated with `?` because it has type `Result<_, ()>`
+    │ 
+    │ Note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+────╯
+[E0350] Error: the `?` operator can only be used in a function
+    ╭─[ tests/ui/typeck/try_operator.sabi:78:6 ]
+    │
+ 78 │     o? //~ ERROR E0350 the `?` operator can only be used in a function
     │      ┬  
     │      ╰── cannot use the `?` operator outside a function body
     │ 
     │ Note: `?` returns early from the enclosing function, and a constant has none
 ────╯
 [E0350] Error: the `?` operator can only be used in a function that returns `Result` or `Option`
-    ╭─[ tests/ui/typeck/try_operator.sabi:61:6 ]
+    ╭─[ tests/ui/typeck/try_operator.sabi:83:6 ]
     │
- 59 │ fn Main() {
+ 81 │ fn Main() {
     │    ──┬─  
     │      ╰─── this function should return `Result` or `Option` to accept `?`
     │ 
- 61 │     o?; //~ ERROR E0350 the `?` operator can only be used in a function that returns `Result` or `Option`
+ 83 │     o?; //~ ERROR E0350 the `?` operator can only be used in a function that returns `Result` or `Option`
     │      ┬  
     │      ╰── cannot use the `?` operator in a function that returns `()`
 ────╯

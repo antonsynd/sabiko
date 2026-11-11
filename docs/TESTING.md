@@ -38,6 +38,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   statuses to 134), and the first panic's report must match then too. The
   rustc prelude is appended to the program, its lints passed as `-A` flags, so that line
   numbers agree; `Panic` is `#[track_caller]` there, so it reports its call site.
+- The error conversions of `?` (`crates/sabiko_driver/tests/try_conversions.rs`, decision
+  93): one function per ordered pair of a table of 38 error types, `Ok(r?)` from
+  `Result<i32, FROM>` to `Result<i32, TO>`. rustc accepts exactly the pairs the test's
+  `ACCEPTED` lists (checked when `rustc` runs); Sabiko must report each of those E0107 (no
+  `From` yet) and every other pair E0351.
 - Constant-propagation lints (`crates/sabikoc/tests/const_lints.rs`, decision 73): every
   program under `tests/differential/lints/` and `tests/ui/lints/` is built to MIR by rustc
   with `arithmetic_overflow` and `unconditional_panic` denied and compiled to IL by Sabiko;

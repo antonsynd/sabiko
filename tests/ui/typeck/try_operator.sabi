@@ -51,6 +51,28 @@ fn Unknown() -> Result<i32, i32> {
     Ok(Ok(1)?) //~ ERROR E0313 type annotations needed
 }
 
+// An error type left open takes the one source of a `From` impl it could be: none of
+// several (`u16` converts from `u8` and `u16`), so the literal defaults to `i32`.
+fn LiteralTwoSources() -> Result<i32, u16> {
+    let x: i32 = Err(5)?; //~ ERROR E0351 `?` couldn't convert the error to `u16`
+    Ok(x)
+}
+
+fn LiteralWidened() -> Result<i32, i64> {
+    let x: i32 = Err(5)?; //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
+    Ok(x)
+}
+
+fn NoneTwoSources() -> Result<i32, Option<Option<u8>>> {
+    let x: i32 = Err(None)?; //~ ERROR E0313 type annotations needed
+    Ok(x)
+}
+
+fn NotAConversion() -> Result<i32, bool> {
+    let x: i32 = Err(())?; //~ ERROR E0351 `?` couldn't convert the error to `bool`
+    Ok(x)
+}
+
 const C: i32 = {
     let o: Option<i32> = None;
     o? //~ ERROR E0350 the `?` operator can only be used in a function
