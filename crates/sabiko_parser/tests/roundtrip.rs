@@ -532,6 +532,7 @@ fn expr() -> impl Strategy<Value = Expr> {
                 expr: Box::new(e)
             })),
             inner.clone().prop_map(|e| mk(ExprKind::Deref(Box::new(e)))),
+            inner.clone().prop_map(|e| mk(ExprKind::Try(Box::new(e)))),
             (inner.clone(), ty()).prop_map(|(e, t)| mk(ExprKind::Cast(Box::new(e), t))),
             block.clone().prop_map(|b| mk(ExprKind::Block(b))),
             (cond.clone(), block.clone(), prop::option::of(block.clone())).prop_map(
@@ -977,7 +978,8 @@ fn strip_parens_expr(e: &mut Expr) {
         | ExprKind::Deref(x)
         | ExprKind::Ref { expr: x, .. }
         | ExprKind::Cast(x, _)
-        | ExprKind::Field(x, _) => {
+        | ExprKind::Field(x, _)
+        | ExprKind::Try(x) => {
             strip_parens_expr(x);
         }
         ExprKind::Binary(_, l, r)

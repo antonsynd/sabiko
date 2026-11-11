@@ -676,6 +676,9 @@ impl FnCx<'_, '_> {
                     0,
                 );
             }
+            Some(Intrinsic::SliceLen) => {
+                unreachable!("MIR building lowers a call of `<[T]>::len` to `Len`")
+            }
             None => unreachable!("not an intrinsic"),
         }
     }

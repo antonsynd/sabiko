@@ -446,7 +446,7 @@ by #9. `unconditional_panic.sabi` has since landed (#44, decision 73), and
 | `const_array_items.sabi` | `const PRIMES: [i32; 4]`, `const SECOND: i32 = PRIMES[1]`: constants are scalars (E0315) (#45) | exit 0 |
 | `for_loops.sabi` | `for x in a`, `in &a`, `in s`, `in 0..a.len()`: no `for` until iterators (E0107) (#45) | exit 0 |
 | `arrays_of_references.sabi` | landed with #43 (decision 77): `tests/differential/run/arrays/arrays_of_references.sabi` | exit 0 |
-| `slice_methods.sabi` | `.is_empty()`, `.swap`, `.reverse`, `.contains`, `.split_at_mut`, `.fill`: only `.len()` (E0319) (#45) | exit 0 |
+| `slice_methods.sabi` | `.swap`, `.reverse`, `.contains`, `.split_at_mut`, `.fill`: E0319 (`.len()` and the prelude's `is_empty`, `get`, `first`, `last` and their `_mut` forms exist, decision 93) (#45) | exit 0 |
 | `unconditional_panic.sabi` | landed with #44 (decision 73): `tests/ui/lints/unconditional_panic.sabi`, E0601 | rejected |
 
 ### Rules rustc applies (each confirmed by the program named)

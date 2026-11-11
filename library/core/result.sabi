@@ -102,4 +102,36 @@ impl<T, E> Result<T, E> {
             Err(_) => default,
         }
     }
+
+    /// A result of references to the value or the error.
+    pub fn as_ref(&self) -> Result<&T, &E> {
+        match self {
+            Ok(x) => Ok(x),
+            Err(x) => Err(x),
+        }
+    }
+
+    /// A result of mutable references to the value or the error.
+    pub fn as_mut(&mut self) -> Result<&mut T, &mut E> {
+        match self {
+            Ok(x) => Ok(x),
+            Err(x) => Err(x),
+        }
+    }
+
+    /// `res` if the result is `Ok`, else its error.
+    pub fn and<U>(self, res: Result<U, E>) -> Result<U, E> {
+        match self {
+            Ok(_) => res,
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The result if it is `Ok`, else `res`.
+    pub fn or<F>(self, res: Result<T, F>) -> Result<T, F> {
+        match self {
+            Ok(v) => Ok(v),
+            Err(_) => res,
+        }
+    }
 }

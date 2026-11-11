@@ -1,0 +1,38 @@
+// An error type `?` leaves open takes the one type the conversions allow, before literals
+// default (decision 93): the literal of `Err(200)?` in a function returning
+// `Result<_, u8>` is a `u8`, and `Some(250)` an `Option<u8>`.
+fn ToU8() -> Result<i32, u8> {
+    let x: i32 = Err(200)?;
+    Ok(x)
+}
+
+fn ToI8(n: i32) -> Result<i32, i8> {
+    let x: i32 = if n > 0 { n } else { Err(-100)? };
+    Ok(x)
+}
+
+fn ToF64() -> Result<i32, f64> {
+    let x: i32 = Err(1.25)?;
+    Ok(x)
+}
+
+fn ToOption() -> Result<i32, Option<u8>> {
+    let x: i32 = Err(Some(250))?;
+    Ok(x)
+}
+
+fn ToTuple() -> Result<i32, (u8, bool)> {
+    let x: i32 = Err((255, true))?;
+    Ok(x)
+}
+
+fn Main() {
+    PrintLine(ToU8().unwrap_err());
+    PrintLine(ToI8(3).unwrap());
+    PrintLine(ToI8(-1).unwrap_err());
+    PrintLine(ToF64().err().unwrap());
+    PrintLine(ToOption().err().unwrap().unwrap());
+    let t = ToTuple().err().unwrap();
+    PrintLine(t.0);
+    PrintLine(t.1);
+}

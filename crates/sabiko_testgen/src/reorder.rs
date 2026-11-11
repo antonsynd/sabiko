@@ -640,6 +640,7 @@ impl FnCx<'_, '_> {
             | ExprKind::Break(_)
             | ExprKind::Continue
             | ExprKind::Return(_)
+            | ExprKind::Try(_)
             | ExprKind::Match { .. }
             | ExprKind::Let(..) => s.control = true,
         }
@@ -690,6 +691,7 @@ fn for_each_child<'e>(e: &'e Expr, mut f: impl FnMut(Child<'e>)) {
         | ExprKind::Paren(x)
         | ExprKind::Unary(_, x)
         | ExprKind::Field(x, _)
+        | ExprKind::Try(x)
         | ExprKind::Ref { expr: x, .. }
         | ExprKind::Deref(x)
         | ExprKind::Cast(x, _) => f(Child::Expr(x)),

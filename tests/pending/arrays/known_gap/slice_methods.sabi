@@ -1,7 +1,7 @@
-// KNOWN GAP (not in #9): slice methods other than `.len()`. `.is_empty()`, `.swap(i, j)`,
-// `.reverse()`, `.fill(v)`, `.contains(&v)` and `.split_at_mut(i)` (std's way to get two
-// `&mut` sub-slices, since indexing never gives disjoint borrows). `.get(i)` returns an
-// `Option` and waits for Phase 6 (#13).
+// KNOWN GAP (not in #9, #45): slice methods beyond `.len()` and those of
+// `library/core/slice.sabi` (`.is_empty()`, `.get(i)`, `.first()`, ..., decision 93):
+// `.swap(i, j)`, `.reverse()`, `.fill(v)`, `.contains(&v)` and `.split_at_mut(i)` (std's
+// way to get two `&mut` sub-slices, since indexing never gives disjoint borrows).
 fn Main() {
     let mut a = [3, 1, 2];
     PrintLine(a.is_empty());

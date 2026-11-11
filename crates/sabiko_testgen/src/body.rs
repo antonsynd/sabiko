@@ -830,7 +830,7 @@ impl<'a> BodyGen<'a> {
         if self.prog.traits && depth > 0 && self.rng.chance(4) {
             return self.trait_value(ty, depth - 1);
         }
-        if self.prog.prelude && depth > 0 && self.rng.chance(2) {
+        if self.prog.prelude && depth > 0 && self.rng.chance(4) {
             return self.prelude_value(ty, depth - 1);
         }
         if !matches!(ty, ValTy::Prim(_)) && depth >= 2 && self.rng.chance(4) {
@@ -906,6 +906,9 @@ impl<'a> BodyGen<'a> {
     /// likewise `Result<T, u8>` or `Result<_, u8>` with `Ok(e)`.
     fn prelude_value(&mut self, ty: ValTy, depth: u32) -> Expr {
         let name = self.prog.val_name(ty);
+        if self.rng.chance(50) {
+            return self.try_value(ty, &name, depth);
+        }
         match self.rng.weighted(&[30, 10, 10, 10, 20, 20, 15]) {
             6 => {
                 let e = self.val_expr(ty, depth);
@@ -957,6 +960,59 @@ impl<'a> BodyGen<'a> {
                     roots: e.roots,
                 }
             }
+        }
+    }
+
+    /// A value of type `ty` (named `name`) through `?` (decision 93), in the helpers of
+    /// [`crate::program::PRELUDE_HELPERS`], or through the `Option` combinators, each
+    /// transparent to the scope model: `GenTry(Some(e)).unwrap()`,
+    /// `GenTryOk(Ok::<T, u8>(e)).unwrap()` and `GenTryErr(Err::<u8, T>(e)).unwrap_err()`
+    /// (the error returned early) are `e`; `GenTry(None::<T>).unwrap_or(b)` and
+    /// `GenTryOk(Err::<T, u8>(7)).unwrap_or(b)` are `b`. The forms with two values
+    /// evaluate (and move) both like a tuple literal, return one and drop the other inside
+    /// a call: `GenTryKeep(Some(a), b).unwrap()` (`b` held by a local while `?` takes
+    /// `a`), `GenTryKeep(None::<T>, a).unwrap_or(b)` (`a` dropped on the early return,
+    /// before `b` is evaluated), `Some(a).or(Some(b)).unwrap()`,
+    /// `Some(a).and(Some(b)).unwrap()` (which is `b`); `None::<T>.or(Some(b))`,
+    /// `Some(a).xor(None)`, `None::<T>.xor(Some(b))` and `Some(a).ok_or(3u8)`, unwrapped,
+    /// hold one. None of them panics. TODO(#147): the methods returning a loan
+    /// (`get_mut`, `first_mut`, `last_mut`, `as_ref`, `as_mut`), `zip`, and `?` in the
+    /// generated functions' own bodies.
+    fn try_value(&mut self, ty: ValTy, name: &str, depth: u32) -> Expr {
+        let kind = self
+            .rng
+            .weighted(&[15, 10, 10, 10, 10, 10, 10, 10, 10, 5, 5, 5, 5]);
+        if (5..=8).contains(&kind) {
+            let a = self.val_expr(ty, depth);
+            let b = self.val_expr(ty, depth);
+            let text = match kind {
+                5 => format!("GenTryKeep(Some({}), {}).unwrap()", a.text, b.text),
+                6 => format!(
+                    "GenTryKeep(None::<{name}>, {}).unwrap_or({})",
+                    a.text, b.text
+                ),
+                7 => format!("Some({}).or(Some({})).unwrap()", a.text, b.text),
+                _ => format!("Some({}).and(Some({})).unwrap()", a.text, b.text),
+            };
+            let mut roots = a.roots;
+            roots.extend(b.roots);
+            return Expr { text, roots };
+        }
+        let e = self.val_expr(ty, depth);
+        let text = match kind {
+            0 => format!("GenTry(Some({})).unwrap()", e.text),
+            1 => format!("GenTry(None::<{name}>).unwrap_or({})", e.text),
+            2 => format!("GenTryOk(Ok::<{name}, u8>({})).unwrap()", e.text),
+            3 => format!("GenTryOk(Err::<{name}, u8>(7)).unwrap_or({})", e.text),
+            4 => format!("GenTryErr(Err::<u8, {name}>({})).unwrap_err()", e.text),
+            9 => format!("None::<{name}>.or(Some({})).unwrap()", e.text),
+            10 => format!("Some({}).xor(None).unwrap()", e.text),
+            11 => format!("None::<{name}>.xor(Some({})).unwrap()", e.text),
+            _ => format!("Some({}).ok_or(3u8).unwrap()", e.text),
+        };
+        Expr {
+            text,
+            roots: e.roots,
         }
     }
 

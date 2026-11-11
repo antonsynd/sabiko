@@ -1,0 +1,13 @@
+// Two `get_mut(..)?` loans of one slice in sequence: the first ends before the second.
+fn BumpTwo(v: &mut [i32]) -> Option<i32> {
+    let a = v.get_mut(0)?;
+    *a += 1;
+    let b = v.get_mut(1)?;
+    *b += 1;
+    Some(v[0] + v[1])
+}
+
+fn Main() {
+    let mut a = [1, 2];
+    PrintLine(BumpTwo(&mut a).unwrap_or(0));
+}

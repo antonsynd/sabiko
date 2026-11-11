@@ -1,0 +1,47 @@
+// The slice methods of `library/core/slice.sabi` (decision 93) on slices, mutable
+// slices, arrays (whose borrow is unsized) and references to arrays: `get` (`None` out of
+// range), `get_mut`, `first`, `first_mut`, `last`, `last_mut` and `is_empty`, with `?`.
+fn Sum3(v: &[i32]) -> Option<i32> {
+    Some(*v.get(0)? + *v.get(1)? + *v.get(2)?)
+}
+
+fn Main() {
+    let a = [10, 20, 30];
+    PrintLine(*a.get(1).unwrap());
+    PrintLine(a.get(3).is_none());
+    PrintLine(a.get(100).is_none());
+    let s: &[i32] = &a;
+    PrintLine(*s.get(2).unwrap());
+    PrintLine(*s.first().unwrap());
+    PrintLine(*a.last().unwrap());
+    PrintLine(s.is_empty());
+    let e: &[i32] = &[];
+    PrintLine(e.is_empty());
+    PrintLine(e.first().is_none());
+    PrintLine(e.last().is_none());
+    PrintLine(e.get(0).is_none());
+    let mut m = [1, 2, 3];
+    match m.get_mut(1) {
+        Some(x) => *x += 40,
+        None => {}
+    }
+    *m.first_mut().unwrap() = 7;
+    *m.last_mut().unwrap() *= 3;
+    PrintLine(m[0]);
+    PrintLine(m[1]);
+    PrintLine(m[2]);
+    let ms: &mut [i32] = &mut m;
+    PrintLine(ms.get_mut(5).is_none());
+    *ms.get_mut(0).unwrap() = 0;
+    PrintLine(m[0]);
+    PrintLine(Sum3(&a).unwrap_or(-1));
+    PrintLine(Sum3(&a[1..]).unwrap_or(-1));
+    let r = &a;
+    PrintLine(*r.get(0).unwrap());
+    let nested = [[1, 2], [3, 4]];
+    PrintLine(*nested.get(1).unwrap().get(0).unwrap());
+    let words = ["a", "bc"];
+    PrintLine(*words.last().unwrap());
+    let bools = [true];
+    PrintLine(*bools.first().unwrap());
+}

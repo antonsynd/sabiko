@@ -1,0 +1,53 @@
+// The `?` operator (decision 93) on `Option` and `Result`: in functions and generic
+// functions, nested in expressions, in a loop, with the live locals dropped on the early
+// return in rustc's order.
+struct D {
+    N: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.N);
+    }
+}
+
+fn Half(x: i32) -> Option<i32> {
+    if x % 2 == 0 { Some(x / 2) } else { None }
+}
+
+fn Quarter(x: i32) -> Option<i32> {
+    let _a = D { N: 1 };
+    let h = Half(x)?;
+    let _b = D { N: 2 };
+    Some(Half(h)? + 0)
+}
+
+fn Check(x: i32) -> Result<i32, u8> {
+    if x < 0 { Err(7) } else { Ok(x) }
+}
+
+fn Sum(xs: &[i32]) -> Result<i32, u8> {
+    let mut total = 0;
+    let mut i = 0;
+    while i < xs.len() {
+        let _d = D { N: 10 + i as i32 };
+        total += Check(xs[i])?;
+        i += 1;
+    }
+    Ok(total)
+}
+
+fn First<T: Copy>(o: Option<T>, p: Option<T>) -> Option<(T, T)> {
+    Some((o?, p?))
+}
+
+fn Main() {
+    PrintLine(Quarter(8).unwrap_or(-1));
+    PrintLine(Quarter(6).unwrap_or(-1));
+    PrintLine(Quarter(5).unwrap_or(-1));
+    PrintLine(Sum(&[1, 2, 3]).unwrap_or(99));
+    PrintLine(Sum(&[1, -2, 3]).err().unwrap_or(0));
+    PrintLine(First(Some(1), Some(2)).is_some());
+    PrintLine(First(Some(true), None).is_none());
+}

@@ -57,6 +57,8 @@ names which phase owns which section.
   the variant's (`Opt::None::<i32>`). Every parameter must appear in a field (E0340)
 - Method calls `e.Name(args)`; a struct literal may be a receiver outside `if`/`while`
   conditions (`Math { Base: 3 }.Fact(5)`), and `5.Triple()` lexes as `5`, `.`, `Triple`
+- The postfix `?` operator (`e?`, #13, decision 93), binding as tightly as a call, field
+  access or index (`a.F()?.G`, `*o?` is `*(o?)`)
 - Statements and expressions
 - Nesting is limited to 256 levels (`sabiko_parser::MAX_NESTING`, clang's default bracket
   depth); deeper input is a fatal E0109, where rustc has no fixed limit. A level is a
@@ -147,9 +149,15 @@ Methods, with Rust's names and panic messages (a panic reports the caller's loca
 `#[track_caller]` makes rustc's do):
 - `Option<T>`: `is_some(&self)`, `is_none(&self)`, `unwrap(self)` ("called
   `Option::unwrap()` on a `None` value"), `expect(self, msg: &str)` (`msg`),
-  `unwrap_or(self, default: T)`.
+  `unwrap_or(self, default: T)`, `as_ref(&self) -> Option<&T>`, `as_mut(&mut self) ->
+  Option<&mut T>`, `ok_or<E>(self, err: E) -> Result<T, E>`, `and<U>(self, optb:
+  Option<U>) -> Option<U>`, `or(self, optb)`, `xor(self, optb)`, `zip<U>(self, other:
+  Option<U>) -> Option<(T, U)>` (decision 93; Rust's bodies, so the discarded operand is
+  dropped where rustc drops it).
 - `Result<T, E>`: `is_ok(&self)`, `is_err(&self)`, `ok(self) -> Option<T>`,
-  `err(self) -> Option<E>`, `unwrap_or(self, default: T)`, and, printing the other
+  `err(self) -> Option<E>`, `unwrap_or(self, default: T)`, `as_ref(&self) -> Result<&T,
+  &E>`, `as_mut(&mut self) -> Result<&mut T, &mut E>`, `and<U>(self, res: Result<U, E>) ->
+  Result<U, E>`, `or<F>(self, res: Result<T, F>) -> Result<T, F>`, and, printing the other
   variant's value with `Debug` when they panic, `unwrap(self)` ("called `Result::unwrap()`
   on an `Err` value: {e:?}") and `expect(self, msg)` ("{msg}: {e:?}") where `E: Debug`,
   `unwrap_err(self)` ("called `Result::unwrap_err()` on an `Ok` value: {t:?}") and
@@ -161,6 +169,47 @@ Methods, with Rust's names and panic messages (a panic reports the caller's loca
   #117), and a generic `Result<T, E>` cannot be unwrapped since a bound cannot name
   `Debug` yet. `Option<&T>`, `Option<&mut T>` and `Result<&T, E>` are `ref struct`
   instances (decision 83).
+- Slices (`library/core/slice.sabi`, an inherent `impl<T> [T]` that only the prelude may
+  write, decision 93): `len(&self)` (an intrinsic: a call is a length read, and it is found
+  where rustc's probe finds it, so a user trait's `len` implemented for an array wins on
+  the array), `is_empty(&self)`, `get(&self, index: usize) -> Option<&T>` (`None`
+  out of range, never a panic), `get_mut(&mut self, index) -> Option<&mut T>`,
+  `first(&self)`, `first_mut(&mut self)`, `last(&self)`, `last_mut(&mut self)`. A method
+  call finds them on a slice and through references to one, and on an array, whose borrow
+  is unsized to a slice as rustc's method probe does (after the array's own methods and the
+  traits implemented for it): `a.get(1)` on `a: [i32; 3]` is `<[i32]>::get(&a as &[i32],
+  1)`. That borrow is unsized at once, so it is an ordinary one, not two-phase:
+  `a.get_mut(a.len() - 1)` is E0408 for an array, as in rustc, and fine for a `&mut
+  [T]` (reborrowed two-phase).
+
+The `?` operator (decision 93): `e?` on an `Option<T>` (or `Result<T, E>`) of the prelude
+is the `T` inside `Some` (`Ok`), or returns `None` (`Err(e)`) from the enclosing function at
+once, which must return an `Option` (a `Result`). It works in any function or method,
+generic ones included (`fn F<T>(o: Option<T>) -> Option<T> { Some(o?) }`), nested in
+expressions and in loops. `e` is evaluated into a temporary of the statement, moved (or
+copied) as `match` moves its scrutinee by value: `r?` moves a `Result<Token, E>` out of `r`,
+and `h.F?` through a reference is E0407 unless the field is `Copy`. The early return drops
+the live locals as `return` does, in rustc's order, and so the temporaries of the
+enclosing expression evaluated before the `?` (`F(G(), x?)` drops `G()`'s value). rustc's
+`Err(From::from(e))` converts the error to the function's error type; `From` is a generic
+trait, which Sabiko does not have yet (#117), so only the same error type converts (the
+reflexive `impl<T> From<T> for T`). Errors, with rustc's E0277 messages: `?` on a value
+that is not an `Option` or a `Result` (E0350, "the `?` operator can only be applied to
+values that implement `Try`"), in a function returning neither (E0350, also `Main`), on an
+`Option` in a function returning a `Result` or the other way round (E0350), outside a
+function (a constant's value, E0350; rustc's E0572), an operand whose type is not known yet
+(E0313), an error type left unknown (`Ok(1)?`, E0313), and an error type that no `From`
+impl converts (E0351, "`?` couldn't convert the error to `B`"). A conversion Rust's standard
+library has is E0107 until generic traits; among Sabiko's types those are exactly the
+lossless ones between primitives (`i32` to `i64`, `u8` to `char`, `bool` to `f64`, ...),
+`T` to `Option<T>`, `&Option<T>` to `Option<&T>` (`&mut` likewise), and an array of `N`
+(up to 12) `T`s to a tuple of `N` `T`s and back (checked against rustc on every pair of a
+table of types, `crates/sabiko_driver/tests/try_conversions.rs`); every other pair is
+E0351. An error type `?` leaves open (a literal, `None`) takes the one source of those
+impls it could be before literals default, as rustc's inference does: `Err(5)?` in a
+function returning `Result<_, u8>` makes the literal a `u8`; with several (`u16` converts
+from `u8` and `u16`) it defaults (`i32`, E0351), and an open `None` facing
+`Option<Option<u8>>` is E0313 (rustc's E0282).
 
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System
@@ -861,8 +910,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   references to an array or slice (E0336 for anything else, rustc's E0608) and needs a
   `usize` index (E0335 "the type `[i32]` cannot be indexed by `i32`", rustc's E0277); an
   unsuffixed literal or an integer variable becomes `usize`. It is a place of the element
-  type. `e.len()` on an array or slice (through references) is a `usize`; any other
-  method of one is E0319, `e.len` E0320, an argument E0304. `&[T; N]` coerces to `&[T]`
+  type. `e.len()` on an array or slice (through references) is a `usize`; the methods of
+  `library/core/slice.sabi` are found as section 3 says; any other method of one is E0319, `e.len`
+  E0320, an argument E0304. `&[T; N]` coerces to `&[T]`
   and `&mut [T; N]` to `&mut [T]` or `&[T]` (unsizing) at every coercion site, and
   `&mut [T]` to `&[T]`; `&[T]` never converts back to an array (E0300). A block, `if` or
   `match` whose tail is coerced has the coerced type wherever it stands (`({ &a }, 1)` as

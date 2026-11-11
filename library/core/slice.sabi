@@ -1,0 +1,73 @@
+//! Methods of slices, Rust's `core::slice` (decision 93): an inherent `impl<T> [T]`
+//! block, which only the prelude may write. A method call on a slice or a reference to
+//! one finds these methods, and so does one on an array, whose borrow is unsized to a
+//! slice, as in rustc.
+
+impl<T> [T] {
+    /// The number of elements. The compiler reads the length itself (a call of it is
+    /// lowered to `Len`); the body is never used.
+    #[intrinsic]
+    pub fn len(&self) -> usize {
+        loop {}
+    }
+
+    /// Whether the slice has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// A reference to the element at `index`, or `None` when it is out of bounds.
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if index < self.len() {
+            Some(&self[index])
+        } else {
+            None
+        }
+    }
+
+    /// A mutable reference to the element at `index`, or `None` when it is out of bounds.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if index < self.len() {
+            Some(&mut self[index])
+        } else {
+            None
+        }
+    }
+
+    /// The first element, or `None` when the slice is empty.
+    pub fn first(&self) -> Option<&T> {
+        if self.len() == 0 {
+            None
+        } else {
+            Some(&self[0])
+        }
+    }
+
+    /// A mutable reference to the first element, or `None` when the slice is empty.
+    pub fn first_mut(&mut self) -> Option<&mut T> {
+        if self.len() == 0 {
+            None
+        } else {
+            Some(&mut self[0])
+        }
+    }
+
+    /// The last element, or `None` when the slice is empty.
+    pub fn last(&self) -> Option<&T> {
+        if self.len() == 0 {
+            None
+        } else {
+            Some(&self[self.len() - 1])
+        }
+    }
+
+    /// A mutable reference to the last element, or `None` when the slice is empty.
+    pub fn last_mut(&mut self) -> Option<&mut T> {
+        let len = self.len();
+        if len == 0 {
+            None
+        } else {
+            Some(&mut self[len - 1])
+        }
+    }
+}

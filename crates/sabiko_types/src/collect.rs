@@ -723,17 +723,16 @@ pub(crate) fn collect(
     sink: &mut DiagnosticSink,
 ) -> ItemTypes {
     let mut items = ItemTypes::default();
-    // The types of the trait `impl` blocks first: `Self` names them in signatures.
+    // The types of the trait `impl` blocks (and of the prelude's `impl<T> [T]`) first:
+    // `Self` names them in signatures.
     let mut lens = lens.clone();
     for item in &file.items {
         if let ItemKind::Impl(imp) = &item.kind {
             let ty = lower_sig_type(&imp.self_ty, resolve, &lens);
             // The block's type may be unsized itself, not its arguments: `W<[i32]>`.
             check_well_formed(&ty, imp.self_ty.span, sink);
-            if imp.trait_ref.is_some() {
-                if let Some(def) = resolve.item_def(item.id) {
-                    lens.impl_self.insert(def, ty);
-                }
+            if let Some(def) = resolve.item_def(item.id) {
+                lens.impl_self.insert(def, ty);
             }
         }
     }

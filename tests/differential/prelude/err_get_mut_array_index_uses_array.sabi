@@ -1,0 +1,9 @@
+// `a.get_mut(..)` on an array borrows it mutably before the argument is evaluated, and
+// the unsizing activates the borrow at once: reading `a` in the argument conflicts.
+fn Main() {
+    let mut a = [1, 2, 3];
+    if let Some(x) = a.get_mut(a.len() - 1) {
+        *x = 0;
+    }
+    PrintLine(a[2]);
+}

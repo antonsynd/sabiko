@@ -13,13 +13,14 @@ use sabiko_ast::{
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{
-    Builtin, DefId, DefKind, LangItem, LocalId, Predicate, PrimTy, Res, ResolveResults,
+    Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, Predicate, PrimTy, Res,
+    ResolveResults,
 };
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::Solution;
+use crate::traits::{has_error, Solution};
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -38,6 +39,9 @@ pub struct MethodCallee {
     pub def: DefId,
     pub autoderefs: usize,
     pub autoref: Option<Mutability>,
+    /// The borrowed receiver, an array, is unsized to a slice (`a.get(1)` for `a: [T;
+    /// N]` calls `<[T]>::get(&a as &[T], 1)`); only with `autoref`.
+    pub unsize: bool,
 }
 
 /// A bound a use requires: `ty` (with inference variables until the body is done) must
@@ -113,6 +117,9 @@ pub struct BodyTypes {
     pub(crate) coercions: HashMap<NodeId, Ty>,
     /// The evaluated count of each repeat expression `[v; N]`, keyed by its node.
     pub repeat_counts: HashMap<NodeId, u64>,
+    /// `e?`, keyed by the `ExprKind::Try` node: whether `e` is an `Option` or a `Result`
+    /// (the function returns the same kind, decision 93).
+    pub try_exprs: HashMap<NodeId, CoreItem>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
 }
@@ -182,6 +189,19 @@ struct IntLit {
     value: u128,
     negated: bool,
     ty: Ty,
+}
+
+/// `e?`, judged in `finish` once its types are known: its value type must have lowered,
+/// and on a `Result<_, E1>` in a function returning `Result<_, E2>` (`from`, `to`; both
+/// `()` on an `Option`) `E2` must convert from `E1`.
+struct PendingTry {
+    value: Ty,
+    from: Ty,
+    to: Ty,
+    /// The `?`.
+    span: Span,
+    /// The operand.
+    operand_span: Span,
 }
 
 struct PendingCast {
@@ -295,6 +315,11 @@ pub(crate) struct FnCtxt<'a> {
     self_ty: Option<Ty>,
     obligations: Vec<Obligation>,
     path_defs: HashMap<NodeId, DefId>,
+    try_exprs: HashMap<NodeId, CoreItem>,
+    pending_tries: Vec<PendingTry>,
+    /// The function's signature, from its name to its return type, while a function's
+    /// body is checked; `None` for a constant.
+    fn_span: Option<Span>,
 }
 
 impl<'a> FnCtxt<'a> {
@@ -351,6 +376,9 @@ impl<'a> FnCtxt<'a> {
             self_ty: None,
             obligations: Vec::new(),
             path_defs: HashMap::new(),
+            try_exprs: HashMap::new(),
+            pending_tries: Vec::new(),
+            fn_span: None,
         }
     }
 
@@ -397,6 +425,8 @@ impl<'a> FnCtxt<'a> {
             let imp = self.resolve.def(def).parent.expect("a parent");
             self.self_ty = Some(self.items.impl_self_ty(imp));
         }
+        let end = f.ret.as_ref().map_or(f.name.span.end, |t| t.span.end);
+        self.fn_span = Some(Span::new(f.name.span.file, f.name.span.start, end));
         let sig = self.items.fn_sig(def).clone();
         let mut inputs = sig.inputs.iter();
         if let Some(sp) = &f.self_param {
@@ -993,6 +1023,7 @@ impl<'a> FnCtxt<'a> {
                 let base_ty = self.check_expr(base, None);
                 self.check_field(expr, &base_ty, &name.name, name.span)
             }
+            ExprKind::Try(operand) => self.check_try(expr, operand),
             ExprKind::Index(base, index) => self.check_index(expr, base, index, unsized_place),
             ExprKind::Range(..) => unreachable!("a range is only parsed as the index of `e[..]`"),
             ExprKind::Ref {
@@ -1396,6 +1427,11 @@ impl<'a> FnCtxt<'a> {
             // A trait's method, which the probe finds (or reports).
             return None;
         }
+        let slice_like = !matches!(ty, Ty::Prim(PrimTy::Str));
+        if slice_like && self.resolve.slice_method(&method.name).is_some() {
+            // A method of the prelude's `impl<T> [T]` (decision 93), which the probe finds.
+            return None;
+        }
         for a in args {
             self.check_expr(a, None);
         }
@@ -1407,7 +1443,11 @@ impl<'a> FnCtxt<'a> {
                     format!("no method named `{}` found for `{shown}`", method.name),
                 )
                 .with_label(method.span, "method not found")
-                .with_note("strings, arrays and slices have one method for now, `len()`"),
+                .with_note(if slice_like {
+                    "arrays and slices have `len()` and the methods of `library/core/slice.sabi` for now"
+                } else {
+                    "strings have one method for now, `len()`"
+                }),
             );
             return Some(Ty::Error);
         }
@@ -2500,6 +2540,278 @@ impl<'a> FnCtxt<'a> {
         self.items.const_ty(def).subst(&generics, &args)
     }
 
+    /// `e?` (decision 93): `e` is an `Option<T>` or a `Result<T, E>` of the prelude and
+    /// the function returns the same kind; the expression is the `T`. A `Result`'s error
+    /// converts to the function's error type with `From` (judged in `finish`). Each misuse
+    /// is E0350 with rustc's E0277 message.
+    #[allow(clippy::too_many_lines)]
+    fn check_try(&mut self, expr: &Expr, operand: &Expr) -> Ty {
+        let ty = self.check_expr(operand, None);
+        let question = Span::new(expr.span.file, operand.span.end, expr.span.end);
+        let ty = self.shallow(&ty);
+        let found = match &ty {
+            Ty::Adt(def, args) => self.resolve.core_item_of(*def).map(|k| (k, args.clone())),
+            _ => None,
+        };
+        let Some((kind, args)) = found else {
+            match ty {
+                Ty::Error => {}
+                Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(operand.span, "cannot infer type")
+                        .with_note("the type of the operand of `?` must be known at this point"),
+                    );
+                    self.infer.bind_error(&ty);
+                }
+                other => {
+                    let shown = self.ty_str(&other);
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::INVALID_TRY,
+                            "the `?` operator can only be applied to values that implement `Try`",
+                        )
+                        .with_label(
+                            expr.span,
+                            format!("the `?` operator cannot be applied to type `{shown}`"),
+                        )
+                        .with_note("`?` applies to an `Option` or a `Result`"),
+                    );
+                }
+            }
+            return Ty::Error;
+        };
+        let value = args[0].clone();
+        let Some(fn_span) = self.fn_span else {
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::INVALID_TRY,
+                    "the `?` operator can only be used in a function",
+                )
+                .with_label(
+                    question,
+                    "cannot use the `?` operator outside a function body",
+                )
+                .with_note(
+                    "`?` returns early from the enclosing function, and a constant has none",
+                ),
+            );
+            return Ty::Error;
+        };
+        let ret = self.ret_ty.clone();
+        let ret = self.shallow(&ret);
+        let ret_kind = match &ret {
+            Ty::Adt(def, ret_args) => self
+                .resolve
+                .core_item_of(*def)
+                .map(|k| (k, ret_args.clone())),
+            _ => None,
+        };
+        match ret_kind {
+            Some((ret_kind, ret_args)) if ret_kind == kind => {
+                let (from, to) = match kind {
+                    CoreItem::Result => (args[1].clone(), ret_args[1].clone()),
+                    CoreItem::Option => (Ty::Unit, Ty::Unit),
+                };
+                self.pending_tries.push(PendingTry {
+                    value: value.clone(),
+                    from,
+                    to,
+                    span: question,
+                    operand_span: operand.span,
+                });
+                self.try_exprs.insert(expr.id, kind);
+                value
+            }
+            Some(_) => {
+                let (message, help, returns) = match kind {
+                    CoreItem::Option => (
+                        "the `?` operator can only be used on `Result`s, not `Option`s, in a function that returns `Result`",
+                        format!(
+                            "use `.ok_or(...)?` to provide an error compatible with `{}`",
+                            self.ty_str(&ret)
+                        ),
+                        "this function returns a `Result`",
+                    ),
+                    CoreItem::Result => (
+                        "the `?` operator can only be used on `Option`s, not `Result`s, in a function that returns `Option`",
+                        "use `.ok()?` if you want to discard the error information".to_owned(),
+                        "this function returns an `Option`",
+                    ),
+                };
+                self.error(
+                    Diagnostic::error(ErrorCode::INVALID_TRY, message)
+                        .with_label(question, help)
+                        .with_label(fn_span, returns),
+                );
+                Ty::Error
+            }
+            None if ret.is_error() => Ty::Error,
+            None => {
+                let shown = self.ty_str(&ret);
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::INVALID_TRY,
+                        "the `?` operator can only be used in a function that returns `Result` or `Option`",
+                    )
+                    .with_label(
+                        question,
+                        format!("cannot use the `?` operator in a function that returns `{shown}`"),
+                    )
+                    .with_label(
+                        fn_span,
+                        "this function should return `Result` or `Option` to accept `?`",
+                    ),
+                );
+                Ty::Error
+            }
+        }
+    }
+
+    /// Lets the error conversions of `?` guide inference before literals default, as
+    /// rustc's `To: From<?E>` obligation does: when the error type `?E` of the operand is
+    /// not known yet and exactly one of the standard library's impls `From<S> for To`
+    /// has a source `S` it could be, it is that source. `let x: i32 = Err(5)?;` in a
+    /// function returning `Result<i32, u8>` makes the literal a `u8` (only the reflexive
+    /// impl takes an integer); for an `i64` error, `From<i8>`, `From<i16>`, ... all could
+    /// apply, so the literal defaults to `i32`, which `From<i32> for i64` converts.
+    fn select_try_conversions(&mut self) {
+        let pending: Vec<(Ty, Ty)> = self
+            .pending_tries
+            .iter()
+            .map(|t| (t.from.clone(), t.to.clone()))
+            .collect();
+        for (from, to) in pending {
+            let from = self.infer.resolve(&from);
+            let to = self.infer.resolve(&to);
+            if !from.has_infer() || to.has_infer() {
+                continue;
+            }
+            let candidates: Vec<Ty> = self
+                .conversion_sources(&to)
+                .into_iter()
+                .filter(|source| self.could_be(source, &[], &from))
+                .collect();
+            if let [source] = candidates.as_slice() {
+                // The candidate was checked to fit.
+                let _ = self.infer.unify(source, &from);
+            }
+        }
+    }
+
+    /// The error conversions of `?` on a `Result` (decision 93). rustc returns
+    /// `Err(From::from(e))`; `From` is a generic trait, which Sabiko does not have yet
+    /// (#117), so only the reflexive `impl<T> From<T> for T` is available: the same error
+    /// type converts. A conversion the standard library has (`From<i32> for i64`,
+    /// [`Self::conversion_sources`]) is not yet supported (E0107); any other is E0351 with
+    /// rustc's message, since no program can implement `From` yet.
+    fn check_pending_tries(&mut self) {
+        for t in std::mem::take(&mut self.pending_tries) {
+            let value = self.infer.resolve_with_defaults(&t.value);
+            let from = self.infer.resolve_with_defaults(&t.from);
+            let to = self.infer.resolve_with_defaults(&t.to);
+            if has_error(&value) || has_error(&from) || has_error(&to) {
+                // Reported already: an error type implies a reported error (decision 94),
+                // which `typeck` checks before any `?` is lowered.
+                continue;
+            }
+            if from == to {
+                continue;
+            }
+            if from.has_infer() || to.has_infer() {
+                // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(
+                        t.operand_span,
+                        "cannot infer the error type of this `Result`",
+                    ),
+                );
+                self.infer.bind_error(&from);
+                continue;
+            }
+            let (from_s, to_s) = (self.ty_str(&from), self.ty_str(&to));
+            if from.is_never() || self.conversion_sources(&to).contains(&from) {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::UNSUPPORTED_SYNTAX,
+                        format!(
+                            "not yet supported: `?` converting the error from `{from_s}` to `{to_s}`"
+                        ),
+                    )
+                    .with_label(
+                        t.span,
+                        format!("Rust converts it with `From<{from_s}> for {to_s}`"),
+                    )
+                    .with_note("`?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)"),
+                );
+            } else {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TRY_ERROR_CONVERSION,
+                        format!("`?` couldn't convert the error to `{to_s}`"),
+                    )
+                    .with_label(
+                        t.span,
+                        format!("the trait `From<{from_s}>` is not implemented for `{to_s}`"),
+                    )
+                    .with_label(
+                        t.operand_span,
+                        format!(
+                            "this can't be annotated with `?` because it has type `Result<_, {from_s}>`"
+                        ),
+                    )
+                    .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait"),
+                );
+            }
+        }
+    }
+
+    /// The sources `S` of Rust's standard library's impls `From<S> for to`, among the
+    /// types Sabiko has: `to` itself (the reflexive impl), the primitives that convert to
+    /// a primitive losslessly, `T` for `Option<T>` and `&Option<T>` for `Option<&T>`
+    /// (`&mut` likewise), and an array of `N` (up to 12) `T`s for a tuple of `N` `T`s and
+    /// the other way round. `From<!> for T` is left out: rustc's inference does not
+    /// consider it either. A program cannot implement `From` yet, so these are all the
+    /// conversions there are (checked against rustc on every pair of a table of types,
+    /// `crates/sabiko_driver/tests/try_conversions.rs`).
+    fn conversion_sources(&self, to: &Ty) -> Vec<Ty> {
+        let mut sources = vec![to.clone()];
+        match to {
+            Ty::Prim(p) => sources.extend(
+                PrimTy::ALL
+                    .into_iter()
+                    .filter(|&q| q != *p && prim_from(q, *p))
+                    .map(Ty::Prim),
+            ),
+            Ty::Adt(def, args) if self.resolve.core_item_of(*def) == Some(CoreItem::Option) => {
+                sources.push(args[0].clone());
+                if let Ty::Ref(m, inner) = &args[0] {
+                    let option = Ty::Adt(*def, vec![(**inner).clone()].into());
+                    sources.push(Ty::Ref(*m, Box::new(option)));
+                }
+            }
+            Ty::Array(elem, n) if (1..=12).contains(n) => {
+                let n = usize::try_from(*n).expect("at most 12");
+                sources.push(Ty::Tuple(Box::new(vec![(**elem).clone(); n])));
+            }
+            Ty::Tuple(elems)
+                if (1..=12).contains(&elems.len()) && elems.iter().all(|e| *e == elems[0]) =>
+            {
+                let n = u64::try_from(elems.len()).expect("at most 12");
+                sources.push(Ty::Array(Box::new(elems[0].clone()), n));
+            }
+            _ => {}
+        }
+        sources
+    }
+
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
         if op == UnOp::Neg {
             let inner = std::mem::take(&mut self.double_negation);
@@ -3217,8 +3529,9 @@ impl<'a> FnCtxt<'a> {
                 VarKind::Float => matches!(pat, Ty::Prim(p) if p.is_float()),
             },
             (_, Ty::Error) => true,
-            // No block's type holds a reference or a slice (`check_impl_type`, E0107), so
-            // `pat` has no `Ref` or `Slice` part: those arms come back with such blocks.
+            // No block's type holds a slice (`check_impl_type`, E0107); a reference comes
+            // from the sources of `?`'s conversions (`&Option<T>` for `Option<&T>`).
+            (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && self.could_be(a, params, b),
             (Ty::Array(a, n), Ty::Array(b, m)) => n == m && self.could_be(a, params, b),
             (Ty::Tuple(a), Ty::Tuple(b)) => {
                 a.len() == b.len()
@@ -3451,6 +3764,36 @@ impl<'a> FnCtxt<'a> {
     /// `e.Name(args)`. The receiver is checked first, then the method is found by
     /// [`Self::probe_method`], then the arguments are checked against the parameters
     /// after the receiver, as in a call.
+    /// E0222 (rustc's E0107): a turbofish on a method call with another number of
+    /// generic arguments than the method's `count`.
+    fn wrong_method_generic_count(
+        &mut self,
+        written: &sabiko_ast::GenericArgs,
+        count: usize,
+        defined: Option<Span>,
+        method: &sabiko_ast::Ident,
+    ) {
+        let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+        let got = written.args.len();
+        let mut d = Diagnostic::error(
+            ErrorCode::WRONG_GENERIC_ARG_COUNT,
+            format!(
+                "method takes {count} generic {} but {got} generic {} {} supplied",
+                plural(count),
+                plural(got),
+                if got == 1 { "was" } else { "were" }
+            ),
+        )
+        .with_label(
+            written.span,
+            format!("expected {count} generic {}", plural(count)),
+        );
+        if let Some(span) = defined {
+            d = d.with_label(span, format!("method `{}` defined here", method.name));
+        }
+        self.error(d);
+    }
+
     fn check_method_call(
         &mut self,
         expr: &Expr,
@@ -3465,6 +3808,10 @@ impl<'a> FnCtxt<'a> {
         self.unsized_place = true;
         let recv_ty = self.check_expr(receiver, None);
         if let Some(ty) = self.check_len_call(expr, &recv_ty, method, args) {
+            if let Some(written) = turbofish.filter(|_| !ty.is_error()) {
+                // `str::len` takes no generic arguments.
+                self.wrong_method_generic_count(written, 0, None, method);
+            }
             return ty;
         }
         let Some((callee, parent_args)) = self.probe_method(&recv_ty, method) else {
@@ -3473,6 +3820,23 @@ impl<'a> FnCtxt<'a> {
             }
             return Ty::Error;
         };
+        if self.resolve.intrinsic(callee.def) == Some(Intrinsic::SliceLen) {
+            // `<[T]>::len`, found after the methods a user trait gives an array: a read of
+            // the length, through the references the probe looked through.
+            for a in args {
+                self.check_expr(a, None);
+            }
+            if let Some(written) = turbofish {
+                let defined = self.items.fn_sig(callee.def).name_span;
+                self.wrong_method_generic_count(written, 0, Some(defined), method);
+            }
+            if !args.is_empty() {
+                let d = Self::wrong_arg_count("method", 0, args.len(), expr.span);
+                self.error(d);
+            }
+            self.len_calls.insert(expr.id, callee.autoderefs);
+            return Ty::Prim(PrimTy::Usize);
+        }
         if self.is_destructor(callee.def) {
             // `d.drop()`.
             self.explicit_drop_call(method.span);
@@ -3497,27 +3861,7 @@ impl<'a> FnCtxt<'a> {
             }
             written => {
                 if let Some(written) = written {
-                    let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
-                    let got = written.args.len();
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::WRONG_GENERIC_ARG_COUNT,
-                            format!(
-                                "method takes {count} generic {} but {got} generic {} {} supplied",
-                                plural(count),
-                                plural(got),
-                                if got == 1 { "was" } else { "were" }
-                            ),
-                        )
-                        .with_label(
-                            written.span,
-                            format!("expected {count} generic {}", plural(count)),
-                        )
-                        .with_label(
-                            sig.name_span,
-                            format!("method `{}` defined here", method.name),
-                        ),
-                    );
+                    self.wrong_method_generic_count(written, count, Some(sig.name_span), method);
                 }
                 (0..count)
                     .map(|_| self.infer.new_var(VarKind::General))
@@ -3558,6 +3902,7 @@ impl<'a> FnCtxt<'a> {
     /// one step are E0342 (rustc's E0034). Returns the callee and the generic arguments
     /// of its block or trait: the receiver type's for an inherent method, `Self` for a
     /// trait's. Reports and returns `None` when nothing matches.
+    #[allow(clippy::too_many_lines)]
     fn probe_method(
         &mut self,
         recv_ty: &Ty,
@@ -3593,24 +3938,24 @@ impl<'a> FnCtxt<'a> {
             }
             _ => {}
         }
-        // The inherent method, with its receiver type at the innermost type's arguments.
-        let inherent = match &base {
-            Ty::Adt(adt, base_args) => self
-                .resolve
-                .assoc_fn(*adt, &name.name)
-                .filter(|&def| self.items.fn_sig(def).self_kind.is_some())
-                .map(|def| {
-                    let sig = self.items.fn_sig(def);
-                    let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
-                    (
-                        def,
-                        sig.inputs[0].subst(parent, base_args),
-                        base_args.to_vec(),
-                    )
-                }),
-            _ => None,
-        };
-        for (autoderefs, step) in steps.iter().enumerate() {
+        let inherent = self.inherent_method(&base, &name.name);
+        // An array's last step is its slice, reached by unsizing (rustc's probe does the
+        // same), where the slice methods of the prelude's `impl<T> [T]` are inherent.
+        let mut steps: Vec<(Ty, usize, bool)> = steps
+            .into_iter()
+            .enumerate()
+            .map(|(autoderefs, step)| (step, autoderefs, false))
+            .collect();
+        if let Ty::Array(elem, _) = &base {
+            steps.push((Ty::Slice(elem.clone()), steps.len() - 1, true));
+        }
+        for (step, autoderefs, unsize) in &steps {
+            let (autoderefs, unsize) = (*autoderefs, *unsize);
+            let inherent_here = if unsize {
+                self.inherent_method(step, &name.name)
+            } else {
+                inherent.clone()
+            };
             for autoref in [None, Some(Mutability::Not), Some(Mutability::Mut)] {
                 let adjusted = match autoref {
                     None => step.clone(),
@@ -3623,17 +3968,24 @@ impl<'a> FnCtxt<'a> {
                         def,
                         autoderefs: autoderefs + 1,
                         autoref: Some(*m),
+                        unsize,
                     },
                     _ => MethodCallee {
                         def,
                         autoderefs,
                         autoref,
+                        unsize,
                     },
                 };
-                if let Some((def, self_ty, args)) = &inherent {
+                if let Some((def, self_ty, args)) = &inherent_here {
                     if *self_ty == adjusted {
                         return Some((callee(*def), args.clone()));
                     }
+                }
+                if unsize {
+                    // Only the slice's inherent methods: a trait implemented for slices
+                    // needs a block for an unsized type, which is not supported yet.
+                    continue;
                 }
                 let mut found: Vec<(DefId, Ty)> = Vec::new();
                 for &m in &trait_methods {
@@ -3665,6 +4017,22 @@ impl<'a> FnCtxt<'a> {
         }
         self.method_not_found(recv_ty, &base, name, &trait_methods);
         None
+    }
+
+    /// The inherent method `name` of `base` taking a receiver (`self`, `&self`, ...), with
+    /// its receiver type and the generic arguments of its block: a struct's or enum's at
+    /// the type's arguments, or for a slice the prelude's `impl<T> [T]` at its element
+    /// type (decision 93).
+    fn inherent_method(&self, base: &Ty, name: &str) -> Option<(DefId, Ty, Vec<Ty>)> {
+        let (def, args) = match base {
+            Ty::Adt(adt, base_args) => (self.resolve.assoc_fn(*adt, name)?, base_args.to_vec()),
+            Ty::Slice(elem) => (self.resolve.slice_method(name)?, vec![(**elem).clone()]),
+            _ => return None,
+        };
+        let sig = self.items.fn_sig(def);
+        sig.self_kind?;
+        let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
+        Some((def, sig.inputs[0].subst(parent, &args), args))
     }
 
     /// Reports a method call nothing matched (E0319, rustc's E0599), with what may explain
@@ -4507,6 +4875,7 @@ impl<'a> FnCtxt<'a> {
 
     fn finish(mut self) -> BodyTypes {
         self.select_obligations();
+        self.select_try_conversions();
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).
@@ -4545,6 +4914,7 @@ impl<'a> FnCtxt<'a> {
         self.report_unknown_let_types(&reported);
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
+        self.check_pending_tries();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let t = self.infer.resolve_with_defaults(&ty);
@@ -4604,6 +4974,7 @@ impl<'a> FnCtxt<'a> {
             coercions: Self::resolved_coercions(&mut self.infer, self.coercions),
             repeat_counts: self.repeat_counts,
             path_defs: self.path_defs,
+            try_exprs: self.try_exprs,
             has_errors,
         }
     }
@@ -4874,4 +5245,29 @@ fn has_explicit_ref_binding(pat: &Pat) -> bool {
         }
     });
     found
+}
+
+/// Whether Rust's standard library implements `From<from> for to` for two primitive types
+/// (`from != to`): the lossless conversions between integers, floats, `bool` and `char`.
+fn prim_from(from: PrimTy, to: PrimTy) -> bool {
+    use PrimTy::{
+        Bool, Char, Isize, Usize, F32, F64, I128, I16, I32, I64, I8, U128, U16, U32, U64, U8,
+    };
+    match from {
+        Bool => to.is_integer() || to.is_float(),
+        Char => matches!(to, U32 | U64 | U128),
+        U8 => matches!(
+            to,
+            Char | U16 | U32 | U64 | U128 | Usize | I16 | I32 | I64 | I128 | Isize | F32 | F64
+        ),
+        U16 => matches!(to, U32 | U64 | U128 | Usize | I32 | I64 | I128 | F32 | F64),
+        U32 => matches!(to, U64 | U128 | I64 | I128 | F64),
+        U64 => matches!(to, U128 | I128),
+        I8 => matches!(to, I16 | I32 | I64 | I128 | Isize | F32 | F64),
+        I16 => matches!(to, I32 | I64 | I128 | Isize | F32 | F64),
+        I32 => matches!(to, I64 | I128 | F64),
+        I64 => matches!(to, I128),
+        F32 => matches!(to, F64),
+        _ => false,
+    }
 }

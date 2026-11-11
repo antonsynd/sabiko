@@ -207,6 +207,13 @@ impl ErrorCode {
     pub const DROP_IMPL_SPECIALIZED: Self = Self(348);
     /// An `impl Drop` block with bounds (rustc's E0367).
     pub const DROP_IMPL_BOUNDS: Self = Self(349);
+    /// `e?` where `e` is not an `Option` or a `Result`, in a function that returns
+    /// neither (or outside a function), or on an `Option` in a function returning a
+    /// `Result` or the other way round (rustc's E0277, decision 93).
+    pub const INVALID_TRY: Self = Self(350);
+    /// `e?` on a `Result` whose error type does not convert to the function's (rustc's
+    /// E0277, "`?` couldn't convert the error").
+    pub const TRY_ERROR_CONVERSION: Self = Self(351);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

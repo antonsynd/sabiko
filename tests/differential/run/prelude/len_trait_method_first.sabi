@@ -1,0 +1,26 @@
+// A user trait's method named `len` implemented for an array is found before the slice
+// method `<[T]>::len`, which the array only reaches by unsizing, as rustc's probe does; a
+// slice, a reference to one and an array of another length get the slice's.
+trait Measure {
+    fn len(&self) -> usize;
+}
+
+impl Measure for [i32; 3] {
+    fn len(&self) -> usize {
+        99
+    }
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    PrintLine(a.len());
+    let r = &a;
+    PrintLine(r.len());
+    let s: &[i32] = &a;
+    PrintLine(s.len());
+    let b = [1, 2];
+    PrintLine(b.len());
+    PrintLine([1, 2, 3].len());
+    PrintLine((*s).len());
+    PrintLine(a.is_empty());
+}

@@ -503,6 +503,7 @@ pub(crate) fn for_each_child<'a>(e: &'a Expr, f: &mut impl FnMut(Child<'a>)) {
         | ExprKind::Unary(_, x)
         | ExprKind::Deref(x)
         | ExprKind::Field(x, _)
+        | ExprKind::Try(x)
         | ExprKind::Cast(x, _)
         | ExprKind::Ref { expr: x, .. } => expr(x),
         ExprKind::Binary(_, a, b)

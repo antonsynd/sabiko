@@ -1,0 +1,70 @@
+// `?` in methods of a generic type returning `Option<&T>`, on `Result<(), E>` as a
+// statement, in an `if` and a `while` condition, in a trait's provided method (whose
+// implementation calls a slice method on an array `self`), and three times in a row.
+struct W<T> {
+    Items: [T; 2],
+    Maybe: Option<T>,
+}
+
+impl<T> W<T> {
+    fn Second(&self) -> Option<&T> {
+        let s = self.Items.get(1)?;
+        Some(s)
+    }
+
+    fn MaybeRef(&self) -> Option<&T> {
+        let m = self.Maybe.as_ref()?;
+        Some(m)
+    }
+}
+
+fn Check(r: Result<(), u8>) -> Result<i32, u8> {
+    r?;
+    Ok(1)
+}
+
+fn Cond(o: Option<i32>) -> Option<i32> {
+    if o? > 3 {
+        return Some(1);
+    }
+    let mut n = 0;
+    while n < o? {
+        n += 1;
+    }
+    Some(n)
+}
+
+trait Find {
+    fn At(&self, i: usize) -> Option<i32>;
+    fn Pair(&self) -> Option<i32> {
+        Some(self.At(0)? + self.At(1)?)
+    }
+}
+
+impl Find for [i32; 3] {
+    fn At(&self, i: usize) -> Option<i32> {
+        Some(*self.get(i)?)
+    }
+}
+
+fn Deep(o: Option<Option<Option<i32>>>) -> Option<i32> {
+    Some(o???)
+}
+
+fn Main() {
+    let w = W { Items: [1, 2], Maybe: Some(5) };
+    PrintLine(*w.Second().unwrap());
+    PrintLine(*w.MaybeRef().unwrap());
+    let w2: W<bool> = W { Items: [true, false], Maybe: None };
+    PrintLine(w2.MaybeRef().is_none());
+    PrintLine(Check(Ok(())).unwrap_or(0));
+    PrintLine(Check(Err(4)).unwrap_err());
+    PrintLine(Cond(Some(5)).unwrap_or(-1));
+    PrintLine(Cond(Some(2)).unwrap_or(-1));
+    PrintLine(Cond(None).unwrap_or(-1));
+    let a = [7, 8, 9];
+    PrintLine(a.Pair().unwrap_or(0));
+    PrintLine(Deep(Some(Some(Some(3)))).unwrap_or(0));
+    PrintLine(Deep(Some(Some(None))).unwrap_or(0));
+    PrintLine(Deep(Some(None)).unwrap_or(0));
+}

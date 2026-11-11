@@ -1,0 +1,14 @@
+// `r?` takes the result by value: a result of a type that is not `Copy` is moved.
+struct Token {
+    Id: i32,
+}
+
+fn Twice(r: Result<Token, i32>) -> Result<i32, i32> {
+    let a = r?;
+    let b = r?;
+    Ok(a.Id + b.Id)
+}
+
+fn Main() {
+    PrintLine(Twice(Ok(Token { Id: 1 })).is_ok());
+}

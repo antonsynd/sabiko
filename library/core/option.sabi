@@ -54,4 +54,61 @@ impl<T> Option<T> {
             None => default,
         }
     }
+
+    /// A reference to the `Some` value, if any.
+    pub fn as_ref(&self) -> Option<&T> {
+        match self {
+            Some(x) => Some(x),
+            None => None,
+        }
+    }
+
+    /// A mutable reference to the `Some` value, if any.
+    pub fn as_mut(&mut self) -> Option<&mut T> {
+        match self {
+            Some(x) => Some(x),
+            None => None,
+        }
+    }
+
+    /// `Ok` with the `Some` value, or `Err(err)` on `None`.
+    pub fn ok_or<E>(self, err: E) -> Result<T, E> {
+        match self {
+            Some(v) => Ok(v),
+            None => Err(err),
+        }
+    }
+
+    /// `None` on `None`, else `optb`.
+    pub fn and<U>(self, optb: Option<U>) -> Option<U> {
+        match self {
+            Some(_) => optb,
+            None => None,
+        }
+    }
+
+    /// The option if it is `Some`, else `optb`.
+    pub fn or(self, optb: Option<T>) -> Option<T> {
+        match self {
+            Some(x) => Some(x),
+            None => optb,
+        }
+    }
+
+    /// The one of the two options that is `Some`, if exactly one is; else `None`.
+    pub fn xor(self, optb: Option<T>) -> Option<T> {
+        match (self, optb) {
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            _ => None,
+        }
+    }
+
+    /// Both values as a pair, if both options are `Some`.
+    pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)> {
+        match (self, other) {
+            (Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        }
+    }
 }

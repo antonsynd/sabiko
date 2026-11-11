@@ -102,10 +102,11 @@ fn instance_name_as(
             } else {
                 items.impl_self_ty(imp)
             };
-            let tr = resolve
-                .impl_trait(imp)
-                .map_or_else(|| "?".to_owned(), def_name);
-            format!("<{} as {tr}>::{}", ty_name(&self_ty), info.name)
+            // The prelude's `impl<T> [T]` has no trait: `<[i32]>::get`, as rustc names it.
+            match resolve.impl_trait(imp) {
+                Some(tr) => format!("<{} as {}>::{}", ty_name(&self_ty), def_name(tr), info.name),
+                None => format!("<{}>::{}", ty_name(&self_ty), info.name),
+            }
         }
         Some((tr, DefKind::Trait)) => match args.first() {
             Some(self_ty) => format!("<{} as {}>::{}", ty_name(self_ty), def_name(tr), info.name),
