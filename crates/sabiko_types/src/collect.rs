@@ -577,6 +577,8 @@ pub(crate) fn check_sized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> boo
     match ty {
         Ty::Tuple(elems) => elems.iter().all(|e| check_sized(e, span, sink)),
         Ty::Array(elem, _) => check_sized(elem, span, sink),
+        // Every generic parameter is `Sized` (there is no `?Sized`): `Opt<[i32]>`.
+        Ty::Adt(_, args) => args.iter().all(|a| check_sized(a, span, sink)),
         Ty::Ref(_, inner) => match &**inner {
             Ty::Slice(elem) => check_sized(elem, span, sink),
             _ => true,

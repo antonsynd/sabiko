@@ -1,0 +1,99 @@
+// Arrays among the generic arguments of types written in signatures: parameters, return
+// types, fields, variant payloads, trait and `impl` method signatures and an `impl`
+// header (#137: their lengths were never evaluated, so they lowered to an error type).
+#[derive(Copy, Clone)]
+struct S {
+    V: u8,
+}
+
+struct W<T> {
+    Value: T,
+}
+
+trait Total {
+    fn Total(&self) -> i32;
+}
+
+impl Total for W<[i32; 2]> {
+    fn Total(&self) -> i32 {
+        self.Value[0] + self.Value[1]
+    }
+}
+
+struct Holder {
+    Items: Option<[i32; 2]>,
+    Pair: Result<u8, [S; 1]>,
+}
+
+enum Slot {
+    Full(Option<[u8; 2]>),
+    Named { Inner: Option<(i32, [bool; 1])> },
+}
+
+trait Pick {
+    fn Pick(&self, o: Option<[i32; 3]>) -> Option<[i32; 1]>;
+}
+
+impl Pick for S {
+    fn Pick(&self, o: Option<[i32; 3]>) -> Option<[i32; 1]> {
+        match o {
+            Some(a) => Some([a[self.V as usize]]),
+            None => None,
+        }
+    }
+}
+
+fn F(o: Option<[i32; 3]>) -> i32 {
+    match o {
+        Some(a) => a[1],
+        None => 0,
+    }
+}
+
+fn G(o: Option<[i32; 3]>) -> i32 {
+    o.unwrap()[1]
+}
+
+fn H(o: Option<&[i32; 3]>) -> Option<usize> {
+    let r: &[i32] = o.unwrap();
+    Some(r.len())
+}
+
+fn K(r: Result<u8, [u8; 2]>) -> u8 {
+    match r {
+        Ok(v) => v,
+        Err(a) => a[0] + a[1],
+    }
+}
+
+fn L(r: Result<u8, [S; 1]>) -> u8 {
+    match r {
+        Ok(v) => v,
+        Err(a) => a[0].V,
+    }
+}
+
+fn Main() {
+    let arr = [4, 5, 6];
+    PrintLine(F(Some(arr)));
+    PrintLine(G(Some(arr)));
+    PrintLine(H(Some(&arr)).unwrap());
+    PrintLine(K(Err([2, 3])));
+    PrintLine(L(Err([S { V: 9 }])));
+    let h = Holder { Items: Some([7, 8]), Pair: Ok(1) };
+    PrintLine(h.Items.unwrap()[1]);
+    PrintLine(L(h.Pair));
+    let s = Slot::Full(Some([3, 4]));
+    if let Slot::Full(Some(b)) = s {
+        PrintLine(b[0]);
+    }
+    let n = Slot::Named { Inner: Some((10, [true])) };
+    if let Slot::Named { Inner: Some((x, f)) } = n {
+        PrintLine(x);
+        PrintLine(f[0]);
+    }
+    let p = S { V: 2 };
+    PrintLine(p.Pick(Some(arr)).unwrap()[0]);
+    let w = W { Value: [3, 4] };
+    PrintLine(w.Total());
+}

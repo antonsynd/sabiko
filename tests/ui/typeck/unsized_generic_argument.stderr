@@ -1,0 +1,43 @@
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+   ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:9:12 ]
+   │
+ 9 │ fn Take(o: Opt<[i32]>) {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+   │            ─────┬────  
+   │                 ╰────── doesn't have a size known at compile-time
+   │ 
+   │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+───╯
+[E0207] Error: the placeholder `_` is not allowed within types on item signatures
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:11:18 ]
+    │
+ 11 │ fn Give() -> Opt<_> { //~ ERROR E0207 the placeholder `_` is not allowed within types on item signatures
+    │                  ┬  
+    │                  ╰── not allowed in type signatures
+    │ 
+    │ Note: inference only runs inside function bodies
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:12:5 ]
+    │
+ 12 │     Opt::No //~ ERROR E0313 type annotations needed
+    │     ───┬───  
+    │        ╰───── cannot infer the type of this expression
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:16:12 ]
+    │
+ 16 │     let a: Opt<str> = Opt::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │            ────┬───  
+    │                ╰───── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `[u8]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:17:12 ]
+    │
+ 17 │     let b: Opt<(i32, [u8])> = Opt::No; //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
+    │            ────────┬───────  
+    │                    ╰───────── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯

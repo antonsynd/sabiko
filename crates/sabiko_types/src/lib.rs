@@ -26,7 +26,7 @@ pub use collect::{
 pub use consts::ConstValue;
 pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};
-use sabiko_diagnostics::DiagnosticSink;
+use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, PrimTy, ResolveResults};
 pub use traits::Solution;
 pub use ty::{Mutability, Ty, TyVid};
@@ -170,12 +170,81 @@ pub fn typeck(
         .map(|(&def, &(expr, _))| (def, expr.clone()))
         .collect();
     bodies.extend(const_types);
-    TypeckResults {
+    let results = TypeckResults {
         items,
         bodies,
         consts,
         assoc_exprs,
         assoc_values: RefCell::default(),
+    };
+    if !sink.has_errors() {
+        check_no_unreported_errors(file, resolve, &results, sink);
+    }
+    results
+}
+
+/// The type checker's postcondition (decision 94): `Ty::Error` stands for a type an error
+/// was reported for, so when none was, no signature and no type in a body contains it.
+/// The stages after type checking run only without errors and rely on this; a type that
+/// lowered to `Error` silently (#137) is reported here, once per item, as an internal
+/// error instead of failing MIR validation or panicking later.
+fn check_no_unreported_errors(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    results: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
+    for item in file.all_items() {
+        if !matches!(
+            item.kind,
+            ItemKind::Fn(_) | ItemKind::Const(_) | ItemKind::Struct(_) | ItemKind::Enum(_)
+        ) {
+            continue;
+        }
+        let def = resolve.def_of_item(item.id);
+        let mut tys: Vec<&Ty> = Vec::new();
+        match &item.kind {
+            ItemKind::Fn(_) => {
+                let sig = results.items.fn_sig(def);
+                tys.extend(&sig.inputs);
+                tys.push(&sig.output);
+            }
+            ItemKind::Const(_) => tys.push(results.items.const_ty(def)),
+            ItemKind::Struct(_) | ItemKind::Enum(_) => {
+                let adt = results.items.adt(def);
+                let variant_fields = adt.variants().iter().flat_map(|v| &v.fields);
+                tys.extend(adt.fields.iter().chain(variant_fields).map(|f| &f.ty));
+            }
+            _ => {}
+        }
+        let mut bodies: Vec<&BodyTypes> = results.bodies.get(&def).into_iter().collect();
+        if let ItemKind::Enum(e) = &item.kind {
+            // The bodies of explicit discriminants.
+            bodies.extend(
+                e.variants
+                    .iter()
+                    .filter_map(|v| variant_def(resolve, def, v))
+                    .filter_map(|v| results.bodies.get(&v)),
+            );
+        }
+        for body in bodies {
+            tys.extend(body.expr_types.values());
+            tys.extend(body.local_types.values());
+            tys.extend(body.pat_types.values());
+            tys.extend(body.coercions.values());
+            tys.extend(body.generic_args.values().flatten());
+        }
+        if let Some(ty) = tys.into_iter().find(|t| t.references_error()) {
+            sink.emit(
+                Diagnostic::error(
+                    ErrorCode::INTERNAL_ERROR,
+                    "internal compiler error: a type in this item is unknown, but no error was reported",
+                )
+                .with_label(item.span, "in this item")
+                .with_note(format!("the type is `{}`", ty.display(resolve)))
+                .with_note("this is a bug in the Sabiko compiler; please report it"),
+            );
+        }
     }
 }
 
@@ -279,8 +348,16 @@ fn signature_lens(
                 stack.push(inner);
             }
             sabiko_ast::TypeKind::Tuple(elems) => stack.extend(elems.iter().rev()),
-            sabiko_ast::TypeKind::Path(_)
-            | sabiko_ast::TypeKind::Unit
+            // The generic arguments of a struct or enum: `Option<[i32; 3]>` (#137).
+            sabiko_ast::TypeKind::Path(path) => {
+                stack.extend(
+                    path.generic_args
+                        .iter()
+                        .rev()
+                        .flat_map(|a| a.args.iter().rev()),
+                );
+            }
+            sabiko_ast::TypeKind::Unit
             | sabiko_ast::TypeKind::Never
             | sabiko_ast::TypeKind::Infer => {}
         }

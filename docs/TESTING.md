@@ -176,7 +176,10 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   their bodies) wrap a value in `Some(e).unwrap()`, `Some(e).expect("generated")`,
   `Ok::<T, u8>(e).unwrap()` or `Err::<u8, T>(e).unwrap_err()` (all `e`),
   `Some(a).unwrap_or(b)` (both evaluated and moved, `b` dropped inside the call, as
-  `GenOr(GenOpt::Yes(a), b)`) or `None::<T>.unwrap_or(b)`, and a shared reference in
+  `GenOr(GenOpt::Yes(a), b)`) or `None::<T>.unwrap_or(b)`, or a block whose annotation
+  writes the type as a generic argument, `T` (arrays among them) or `_`:
+  `({ let o: Option<T> = Some(e); o }).unwrap()` or the same with `Result<T, u8>` and
+  `Ok(e)` (#137), and a shared reference in
   `Some(&*r).unwrap()`, an `Option<&T>` instance (a `&mut` local passed to `Some` would be
   moved, since `T` is not a reference to reborrow into; Sabiko reborrows it, #132). None
   of them panics. `programs_use_the_prelude` counts the programs

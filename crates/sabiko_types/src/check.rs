@@ -527,7 +527,19 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             TypeKind::Slice(elem) => Ty::Slice(Box::new(self.lower_type_unchecked(elem))),
-            _ => collect::lower_sig_type(ty, self.resolve, &self.items.sig_cx),
+            // A struct or enum's generic arguments are types in the body too: `_` is an
+            // inference variable and an array length is evaluated here (#137), as at the
+            // top level.
+            TypeKind::Path(path) => match self.resolve.res(ty.id) {
+                Res::Def(d)
+                    if !matches!(self.resolve.def(d).kind, DefKind::TyParam | DefKind::Impl) =>
+                {
+                    let resolve = self.resolve;
+                    collect::adt_type(d, path, resolve, &mut |t| self.lower_type_unchecked(t))
+                }
+                _ => collect::lower_sig_type(ty, self.resolve, &self.items.sig_cx),
+            },
+            TypeKind::Unit => Ty::Unit,
         }
     }
 
@@ -1632,13 +1644,12 @@ impl<'a> FnCtxt<'a> {
         by_ref: Option<Mutability>,
         init_span: Option<Span>,
     ) {
+        // `..` (no position) matches no one value, so it has no type: an error type would
+        // break the postcondition that one implies a reported error (decision 94).
         for (p, ty) in pats.iter().zip(rest_positions(pats, tys.len())) {
-            match ty {
-                Some(i) => {
-                    let t = tys.get(i).cloned().unwrap_or(Ty::Error);
-                    self.check_pat_in_mode(p, &t, by_ref, init_span);
-                }
-                None => self.pat_types.insert(p.id, Ty::Error).map_or((), |_| ()),
+            if let Some(i) = ty {
+                let t = tys.get(i).cloned().unwrap_or(Ty::Error);
+                self.check_pat_in_mode(p, &t, by_ref, init_span);
             }
         }
     }
@@ -4253,11 +4264,13 @@ impl<'a> FnCtxt<'a> {
         self.check_obligations();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
-            let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() {
-                t = Ty::Error;
+            let t = self.infer.resolve_with_defaults(&ty);
+            // A pattern of a type nothing constrains binds nothing (`let _;`, whose
+            // locals would have been reported): it keeps no type, rather than an error
+            // type no error explains (decision 94).
+            if !t.has_infer() {
+                pat_types.insert(id, t);
             }
-            pat_types.insert(id, t);
         }
         let expr_types = self.resolve_expr_types();
         self.check_pending_negs();
