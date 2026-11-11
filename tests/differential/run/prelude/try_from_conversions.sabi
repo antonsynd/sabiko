@@ -1,0 +1,137 @@
+// `?` converts the error with `From::from`: user error types (one with `Drop`) from
+// several sources, the primitive conversions, `T` into `Option<T>`, an open error type
+// a literal decides, generic functions bounded on `From`, and the drops of the converted
+// and the unconverted error and of the live locals on the early return.
+struct Noisy {
+    Code: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop Noisy ");
+        PrintLine(self.Code);
+    }
+}
+
+struct Guard {
+    N: i32,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        Print("drop Guard ");
+        PrintLine(self.N);
+    }
+}
+
+enum AppError {
+    Io(i32),
+    Parse(Noisy),
+}
+
+impl Drop for AppError {
+    fn drop(&mut self) {
+        PrintLine("drop AppError");
+    }
+}
+
+impl From<i32> for AppError {
+    fn from(code: i32) -> AppError {
+        Print("from i32 ");
+        PrintLine(code);
+        AppError::Io(code)
+    }
+}
+
+impl From<Noisy> for AppError {
+    fn from(n: Noisy) -> AppError {
+        Print("from Noisy ");
+        PrintLine(n.Code);
+        AppError::Parse(n)
+    }
+}
+
+fn ReadCode(ok: bool) -> Result<i32, i32> {
+    if ok { Ok(1) } else { Err(404) }
+}
+
+fn ParseNoisy(ok: bool) -> Result<i32, Noisy> {
+    if ok { Ok(2) } else { Err(Noisy { Code: 7 }) }
+}
+
+fn Run(read: bool, parse: bool) -> Result<i32, AppError> {
+    let _g = Guard { N: 1 };
+    let a = ReadCode(read)?;
+    let _h = Guard { N: 2 };
+    let b = ParseNoisy(parse)?;
+    Ok(a + b)
+}
+
+fn Show(r: Result<i32, AppError>) {
+    match &r {
+        Ok(v) => {
+            Print("ok ");
+            PrintLine(*v);
+        }
+        Err(AppError::Io(c)) => {
+            Print("io ");
+            PrintLine(*c);
+        }
+        Err(AppError::Parse(n)) => {
+            Print("parse ");
+            PrintLine(n.Code);
+        }
+    }
+}
+
+fn Widen(r: Result<u8, u8>) -> Result<u64, u64> {
+    let v = r?;
+    Ok(v as u64 + 1)
+}
+
+fn Wrapped(r: Result<i32, i32>) -> Result<i32, Option<i32>> {
+    Ok(r? * 3)
+}
+
+fn Literal(fail: bool) -> Result<i32, u8> {
+    if fail {
+        let _x: i32 = Err(200)?;
+    }
+    Ok(0)
+}
+
+fn Generic<E, F: From<E>>(r: Result<i32, E>) -> Result<i32, F> {
+    let v = r?;
+    Ok(v + 100)
+}
+
+fn Main() {
+    Show(Run(true, true));
+    Show(Run(false, true));
+    Show(Run(true, false));
+    match Widen(Err(250)) {
+        Ok(_) => PrintLine("no"),
+        Err(e) => PrintLine(e),
+    }
+    match Widen(Ok(9)) {
+        Ok(v) => PrintLine(v),
+        Err(_) => PrintLine("no"),
+    }
+    match Wrapped(Err(5)) {
+        Ok(_) => PrintLine("no"),
+        Err(e) => PrintLine(e.unwrap()),
+    }
+    match Literal(true) {
+        Ok(_) => PrintLine("no"),
+        Err(e) => PrintLine(e),
+    }
+    let g: Result<i32, i64> = Generic(Err(-3i32));
+    match g {
+        Ok(_) => PrintLine("no"),
+        Err(e) => PrintLine(e),
+    }
+    let h: Result<i32, AppError> = Generic(Err(Noisy { Code: 8 }));
+    Show(h);
+    let k: Result<i32, AppError> = Generic::<i32, AppError>(Ok(1));
+    Show(k);
+}

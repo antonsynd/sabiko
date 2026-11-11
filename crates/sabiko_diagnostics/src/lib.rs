@@ -47,6 +47,9 @@ impl ErrorCode {
     pub const MISSING_STRUCT_BASE: Self = Self(112);
     /// A second `..` in a tuple or tuple-variant pattern (rustc reports it without a code).
     pub const MULTIPLE_REST_PATTERNS: Self = Self(113);
+    /// A generic parameter without a default after one with a default (rustc's uncoded
+    /// "generic parameters with a default must be trailing").
+    pub const DEFAULT_NOT_TRAILING: Self = Self(114);
 
     // Name resolution (E02xx)
     pub const DUPLICATE_DEFINITION: Self = Self(200);
@@ -103,6 +106,10 @@ impl ErrorCode {
     /// A binding named like a constant, a unit struct or a unit variant with `mut`, `ref`
     /// or `@`, or like a tuple variant (rustc's E0530).
     pub const BINDING_SHADOWS_ITEM: Self = Self(225);
+    /// An `impl` of a trait from outside the file whose type parameter appears uncovered
+    /// before the first type of the file among its type and trait arguments (rustc's
+    /// E0210): `impl<T> From<T> for T`, `impl<T> From<S> for T`.
+    pub const ORPHAN_TYPE_PARAMETER: Self = Self(226);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -214,6 +221,15 @@ impl ErrorCode {
     /// `e?` on a `Result` whose error type does not convert to the function's (rustc's
     /// E0277, "`?` couldn't convert the error").
     pub const TRY_ERROR_CONVERSION: Self = Self(351);
+    /// A type parameter of a trait `impl` block that neither its type nor its trait's
+    /// arguments mention (rustc's E0207).
+    pub const UNCONSTRAINED_TYPE_PARAMETER: Self = Self(352);
+    /// Proving a bound needs a chain of `impl` bounds deeper than the recursion limit
+    /// (rustc's E0275, "overflow evaluating the requirement").
+    pub const OVERFLOW_EVALUATING: Self = Self(353);
+    /// A trait whose supertraits lead back to it, whatever their arguments (`trait A<T>:
+    /// A<(T,)>`; rustc's E0391, "cycle detected when computing the super clauses").
+    pub const SUPERTRAIT_CYCLE: Self = Self(354);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

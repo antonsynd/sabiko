@@ -1,0 +1,62 @@
+// Supertrait graphs without a cycle (decision 95): a generic trait over another at the
+// same argument, a diamond, one supertrait used at two arguments, and a trait reached
+// through two traits at different arguments. Only a trait that leads back to itself is a
+// cycle (rustc's E0391), whatever the arguments.
+trait Base<T> {
+    fn Get(&self) -> i32 {
+        1
+    }
+}
+
+trait Over<T>: Base<T> {}
+
+trait Left: Top {}
+
+trait Right: Top {}
+
+trait Top {
+    fn Name(&self) -> i32 {
+        2
+    }
+}
+
+trait Both: Left + Right {}
+
+trait Twice<T>: Base<T> + Base<(T, i32)> {}
+
+trait Via<T>: Base<T> + Twice<T> {}
+
+struct S;
+
+impl<T> Base<T> for S {}
+
+impl<T> Over<T> for S {}
+
+impl Top for S {}
+
+impl Left for S {}
+
+impl Right for S {}
+
+impl Both for S {}
+
+impl<T> Twice<T> for S {}
+
+impl<T> Via<T> for S {}
+
+fn UseOver<X: Over<i32>>(x: &X) -> i32 {
+    x.Get()
+}
+
+fn UseBoth<X: Both>(x: &X) -> i32 {
+    x.Name()
+}
+
+fn UseVia<X: Via<bool>>(x: &X) -> i32 {
+    Base::<(bool, i32)>::Get(x) + Base::<bool>::Get(x)
+}
+
+fn Main() {
+    let s = S;
+    PrintLine(UseOver(&s) + UseBoth(&s) + UseVia(&s));
+}

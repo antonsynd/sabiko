@@ -254,6 +254,8 @@ pub struct SigRegions {
     pub output: Option<RegionTy>,
     /// How many reference origins the parameters introduce, for the E0416 note.
     pub input_origins: usize,
+    /// The region types of the call's generic arguments.
+    pub generic: Vec<RegionTy>,
 }
 
 impl SigRegions {
@@ -350,6 +352,211 @@ pub fn signature_regions(
         inputs,
         output,
         input_origins: input_origins.len(),
+        generic: args,
+    }
+}
+
+/// How deep the bounds of `impl` blocks are followed for [`bound_region_links`]: exactly
+/// as deep as the type checker proves them, so a proof is never cut short here.
+const LINK_DEPTH: usize = sabiko_types::traits::DEPTH_LIMIT;
+
+/// The region types a call must relate invariantly to prove the callee's bounds, as
+/// rustc's type checking of a call proves each where-clause of the callee instantiated at
+/// the call's generic arguments, regions included (decision 95). `generics` and `env`
+/// are the callee's type parameters and bounds (a trait member's include `Self:
+/// Trait<..>`), `generic_args` and `generic_regions` the call's generic arguments and
+/// their region types; `caller_env` the bounds in scope at the call.
+///
+/// Each bound is proved by the `impl` block selection picks at the call's types (with
+/// the caller's bounds in scope), whose header relates the region types: a type
+/// parameter the header names twice stands for one type, references and all (`impl<T>
+/// From<T> for T` makes `From::from(r)`'s result, or `G(r)`'s for `fn G<T, U: From<T>>`,
+/// hold `r`'s loans; `impl<T> From<T> for Option<T>` puts them in the `Some`). The
+/// region model of a header is rustc's with named lifetimes: one region per lifetime the
+/// header names. Only the prelude writes references in a header, and each of its blocks
+/// that does names one lifetime in all of them (`impl<'a, T> From<&'a Option<T>> for
+/// Option<&'a T>` in std), so every reference a header writes shares one region; a
+/// program's block may not write one (E0107). The block's own bounds are proved the same
+/// way, recursively (`impl<T, U: From<T>> Into<U> for T` relates what `U: From<T>`'s
+/// block relates). A bound proved by a bound of the caller relates nothing, as in rustc,
+/// where a where-clause's types carry no region of the call.
+///
+/// # Errors
+///
+/// When a bound the type checker proved cannot be followed (no block and no bound in
+/// scope proves it here, the proof is deeper than the recursion limit, or the generic
+/// arguments do not fit the callee): an internal error the caller reports (E0900), never
+/// a silent "no relation", which would let a loan go.
+#[allow(clippy::too_many_arguments)]
+pub fn bound_region_links(
+    items: &ItemTypes,
+    generics: &[DefId],
+    env: &[sabiko_types::traits::Predicate],
+    generic_args: &[Ty],
+    generic_regions: &[RegionTy],
+    caller_env: &[sabiko_types::traits::Predicate],
+    supply: &mut OriginSupply,
+) -> Result<Vec<(RegionTy, RegionTy)>, String> {
+    let mut out = Vec::new();
+    if env.is_empty() {
+        return Ok(out);
+    }
+    if generics.len() != generic_args.len() || generic_args.len() != generic_regions.len() {
+        return Err(format!(
+            "the call has {} generic arguments ({} region types) for {} parameters",
+            generic_args.len(),
+            generic_regions.len(),
+            generics.len()
+        ));
+    }
+    let params = Params {
+        defs: generics,
+        args: generic_regions,
+        items,
+    };
+    for pred in env {
+        let (pred_ty, pred_args) =
+            sabiko_types::traits::instantiate_pred(pred, generics, generic_args);
+        let mut tys = vec![pred_ty];
+        tys.extend(pred_args);
+        let mut regions = vec![params.arg(pred.param)];
+        regions.extend(pred.args.iter().map(|a| params.fresh(a, supply)));
+        links_at(
+            items,
+            pred.trait_,
+            &tys,
+            &regions,
+            caller_env,
+            supply,
+            &mut out,
+            0,
+        )?;
+    }
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn links_at(
+    items: &ItemTypes,
+    tr: DefId,
+    tys: &[Ty],
+    regions: &[RegionTy],
+    caller_env: &[sabiko_types::traits::Predicate],
+    supply: &mut OriginSupply,
+    out: &mut Vec<(RegionTy, RegionTy)>,
+    depth: usize,
+) -> Result<(), String> {
+    let Some((self_ty, args)) = tys.split_first() else {
+        return Err("a bound without a type".to_owned());
+    };
+    if depth >= LINK_DEPTH {
+        return Err(format!(
+            "the proof of a bound of `{}` is deeper than the recursion limit",
+            items.trait_def(tr).map_or("?", |t| t.name.as_str())
+        ));
+    }
+    let Some((imp, impl_args)) = items.select_impl(tr, self_ty, args, caller_env) else {
+        // Proved by a bound in scope (a where-clause's types carry no region of the
+        // call), by the built-in `Copy`/`Clone` (which relate nothing), or for a type
+        // that holds an error (reported).
+        if items.proved_without_impl(self_ty, tr, args, caller_env) {
+            return Ok(());
+        }
+        return Err(format!(
+            "no `impl` block proves the bound on `{:?}` of trait `{}` here",
+            self_ty,
+            items.trait_def(tr).map_or("?", |t| t.name.as_str())
+        ));
+    };
+    let mut bound: Vec<Option<RegionTy>> = vec![None; imp.generics.len()];
+    let mut header: Option<Origin> = None;
+    let pats = std::iter::once(&imp.self_ty).chain(&imp.trait_args);
+    for (pat, region) in pats.zip(regions) {
+        link_pattern(pat, region, &imp.generics, &mut bound, &mut header, out);
+    }
+    let bound: Vec<RegionTy> = bound
+        .into_iter()
+        .map(|b| b.unwrap_or(RegionTy::Other))
+        .collect();
+    let params = Params {
+        defs: &imp.generics,
+        args: &bound,
+        items,
+    };
+    for pred in &imp.preds {
+        let (pred_ty, pred_args) =
+            sabiko_types::traits::instantiate_pred(pred, &imp.generics, &impl_args);
+        let mut pred_tys = vec![pred_ty];
+        pred_tys.extend(pred_args);
+        let mut pred_regions = vec![params.arg(pred.param)];
+        pred_regions.extend(pred.args.iter().map(|a| params.fresh(a, supply)));
+        links_at(
+            items,
+            pred.trait_,
+            &pred_tys,
+            &pred_regions,
+            caller_env,
+            supply,
+            out,
+            depth + 1,
+        )?;
+    }
+    Ok(())
+}
+
+/// Matches a block's header pattern `pat` against the region type of the call's type at
+/// its place: a parameter's second occurrence is related to its first, and a written
+/// reference's origin to the header's one origin.
+fn link_pattern(
+    pat: &Ty,
+    region: &RegionTy,
+    params: &[DefId],
+    bound: &mut [Option<RegionTy>],
+    header: &mut Option<Origin>,
+    out: &mut Vec<(RegionTy, RegionTy)>,
+) {
+    let origin_only = |o: Origin| RegionTy::Ref(Mutability::Not, o, Box::new(RegionTy::Other));
+    match (pat, region) {
+        (Ty::Param(p), _) => {
+            if let Some(i) = params.iter().position(|q| q == p) {
+                match &bound[i] {
+                    Some(first) => out.push((first.clone(), region.clone())),
+                    None => bound[i] = Some(region.clone()),
+                }
+            }
+        }
+        (Ty::Ref(_, inner), RegionTy::Ref(_, origin, rinner)) => {
+            match header {
+                Some(h) => out.push((origin_only(*h), origin_only(*origin))),
+                None => *header = Some(*origin),
+            }
+            link_pattern(inner, rinner, params, bound, header, out);
+        }
+        (Ty::Tuple(elems), RegionTy::Tuple(relems)) => {
+            for (e, r) in elems.iter().zip(relems) {
+                link_pattern(e, r, params, bound, header, out);
+            }
+        }
+        (Ty::Array(elem, _) | Ty::Slice(elem), RegionTy::Tuple(relems)) => {
+            if let Some(r) = relems.first() {
+                link_pattern(elem, r, params, bound, header, out);
+            }
+        }
+        (Ty::Adt(_, targs), RegionTy::Adt { args, .. }) => {
+            for (t, r) in targs.iter().zip(args) {
+                link_pattern(t, r, params, bound, header, out);
+            }
+        }
+        // A part without references: the parameters in it hold none either.
+        (pat, RegionTy::Other) => {
+            let _ = pat.map_params(&mut |p| {
+                if let Some(i) = params.iter().position(|&q| q == p) {
+                    bound[i].get_or_insert(RegionTy::Other);
+                }
+                None
+            });
+        }
+        _ => {}
     }
 }
 

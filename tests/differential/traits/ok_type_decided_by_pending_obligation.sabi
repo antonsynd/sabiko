@@ -1,0 +1,49 @@
+// A value whose type only a trait obligation decides is used where its type must be
+// known (printed, a receiver, an operand): the obligation is selected first, as rustc's
+// `structurally_resolve_type` does.
+struct S;
+
+trait Map<U> {
+    fn Map(self) -> U;
+}
+
+impl Map<i64> for S {
+    fn Map(self) -> i64 {
+        5
+    }
+}
+
+trait Twice {
+    fn Twice(&self) -> i64;
+}
+
+impl Twice for i64 {
+    fn Twice(&self) -> i64 {
+        *self * 2
+    }
+}
+
+struct W<T> {
+    V: T,
+}
+
+impl<T: Into<i64>> W<T> {
+    fn Get<U>(self) -> U
+    where
+        T: Into<U>,
+    {
+        self.V.into()
+    }
+}
+
+fn Main() {
+    PrintLine(S.Map());
+    let a = S.Map();
+    PrintLine(a);
+    PrintLine(Map::Map(S) + 1);
+    let b = S.Map();
+    PrintLine(b.Twice());
+    let w = W { V: 3u8 };
+    let c: i64 = w.Get();
+    PrintLine(c);
+}

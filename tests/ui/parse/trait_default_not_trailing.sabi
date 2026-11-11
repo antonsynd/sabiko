@@ -1,0 +1,7 @@
+// A trait parameter without a default after one with a default (rustc's "generic
+// parameters with a default must be trailing").
+trait Tr<A = i32, B> { //~ ERROR E0114 generic parameters with a default must be trailing
+    fn Get(&self, b: B) -> A;
+}
+
+fn Main() {}

@@ -1,0 +1,26 @@
+// The built-in `Clone` of a struct of the file without a derive or a block cannot hold,
+// so a blanket block bounded on it does not overlap a block for that struct (rustc's
+// negative reasoning covers built-in impls as written ones).
+trait Tr {
+    fn T(&self) -> i32;
+}
+
+struct W<U> {
+    U: U,
+}
+
+impl<T: Clone> Tr for T {
+    fn T(&self) -> i32 {
+        1
+    }
+}
+
+impl<U> Tr for W<U> {
+    fn T(&self) -> i32 {
+        2
+    }
+}
+
+fn Main() {
+    PrintLine(W { U: 1 }.T() + 5.T());
+}

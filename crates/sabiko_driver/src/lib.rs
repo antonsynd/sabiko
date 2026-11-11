@@ -169,9 +169,9 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                 let mut bodies = sabiko_mir::build::build_bodies(
                                     &ast, &resolve, &typeck, &mut sink,
                                 );
-                                check_mir(&bodies, &typeck, &mut sink);
+                                check_user_mir(&bodies, &resolve, &typeck, &mut sink);
                                 sabiko_mir::simplify::simplify_all(&mut bodies);
-                                check_mir(&bodies, &typeck, &mut sink);
+                                check_user_mir(&bodies, &resolve, &typeck, &mut sink);
                                 for body in checked_bodies(&bodies, &resolve) {
                                     sabiko_borrowck::check_body(body, &resolve, &typeck, &mut sink);
                                 }
@@ -395,6 +395,27 @@ pub fn assembly_name(file_name: &str) -> String {
     } else {
         stem
     }
+}
+
+/// [`check_mir`] on the program's own bodies: the `core` prelude's are validated by
+/// [`check_core_prelude`] (as they are borrow-checked, [`checked_bodies`]), and the
+/// instances monomorphisation makes of them are validated with every other body.
+fn check_user_mir(
+    bodies: &[sabiko_mir::Body],
+    resolve: &sabiko_resolve::ResolveResults,
+    typeck: &sabiko_types::TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
+    let failures = checked_bodies(bodies, resolve)
+        .flat_map(|body| {
+            sabiko_mir::validate::validate_body(body, typeck)
+                .err()
+                .unwrap_or_default()
+                .into_iter()
+                .map(move |m| format!("{}: {m}", body.name))
+        })
+        .collect();
+    report_invalid_mir(failures, sink);
 }
 
 /// Runs the MIR validator and reports any violation as an internal compiler error. Debug

@@ -1,0 +1,8 @@
+// `Into` through the blanket impl: the loan ends with the last use of the result.
+fn Main() {
+    let mut x = 1;
+    let o: Option<&i32> = (&x).into();
+    PrintLine(*o.unwrap());
+    x = 3;
+    PrintLine(x);
+}

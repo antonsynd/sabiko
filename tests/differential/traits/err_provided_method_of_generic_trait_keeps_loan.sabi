@@ -1,0 +1,22 @@
+// A provided method of a generic trait, called at a type whose block names the
+// parameter twice: its `Self: Wrap<T>` is proved by that block, and the result holds the
+// loan. (`Copy` as supertrait makes `Self` sized.)
+trait Wrap<T>: Copy {
+    fn Make(t: T) -> Self;
+    fn Twice(t: T) -> Self {
+        Self::Make(t)
+    }
+}
+
+impl<T: Copy> Wrap<T> for (T,) {
+    fn Make(t: T) -> (T,) {
+        (t,)
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let w: (&i32,) = Wrap::Twice(&x);
+    x = 2;
+    PrintLine(*w.0);
+}

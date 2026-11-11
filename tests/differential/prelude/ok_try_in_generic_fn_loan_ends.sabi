@@ -1,0 +1,14 @@
+// `?` in a generic function bounded `E2: From<E>`: the converted error's loan ends
+// with its last use.
+fn F<E, E2: From<E>>(r: Result<i32, E>) -> Result<i32, E2> {
+    let v = r?;
+    Ok(v)
+}
+
+fn Main() {
+    let mut x = 7;
+    let r: Result<i32, Option<&i32>> = F(Err(&x));
+    PrintLine(*r.unwrap_err().unwrap());
+    x = 8;
+    PrintLine(x);
+}

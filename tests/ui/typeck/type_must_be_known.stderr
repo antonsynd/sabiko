@@ -1,0 +1,52 @@
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:50:15 ]
+    │
+ 50 │     PrintLine(v + 1u16); //~ ERROR E0313 type annotations needed
+    │               ────┬───  
+    │                   ╰───── cannot infer the operand types of `+`
+    │ 
+    │ Note: the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:52:15 ]
+    │
+ 52 │     PrintLine(w + 1); //~ ERROR E0313 type annotations needed
+    │               ──┬──  
+    │                 ╰──── cannot infer the operand types of `+`
+    │ 
+    │ Note: the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:54:5 ]
+    │
+ 54 │     x += 1; //~ ERROR E0313 type annotations needed
+    │     ───┬──  
+    │        ╰──── cannot infer the operand types of `+=`
+    │ 
+    │ Note: the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:56:15 ]
+    │
+ 56 │     PrintLine(y); //~ ERROR E0313 type annotations needed
+    │               ┬  
+    │               ╰── cannot infer the type of this argument to `PrintLine`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:61:14 ]
+    │
+ 61 │     let n = -u; //~ ERROR E0313 type annotations needed
+    │              ┬  
+    │              ╰── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:67:21 ]
+    │
+ 67 │     let m = (r + 1).Sh(); //~ ERROR E0313 type annotations needed
+    │                     ─┬  
+    │                      ╰── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯

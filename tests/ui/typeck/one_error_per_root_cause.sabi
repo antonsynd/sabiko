@@ -1,0 +1,62 @@
+// One root cause, one error: an overflowing supertrait is the overflow alone; an
+// unsupported `where` clause is the E0107 alone, not the bounds or overlaps it leaves
+// unproved; an overlap with the prelude's `From` is the E0215 alone, not an ambiguity it
+// makes; and, as in rustc, no ambiguity is reported once an error was.
+trait Lp<T> {}
+
+struct V<T> {
+    X: T,
+}
+
+impl<T, U: Lp<V<T>>> Lp<T> for U {} //~ ERROR E0353 overflow evaluating the requirement `U: Lp<V<T>>`
+
+trait Sub: Lp<bool> {}
+
+struct S;
+
+impl Sub for S {}
+
+trait Show<X> {}
+
+trait Tr<X> {}
+
+impl<T> Tr<T> for S where S: Show<T> {} //~ ERROR E0107 not yet supported: a `where` clause on a type other than a type parameter
+
+impl Tr<i32> for S {}
+
+fn Needs<T>(t: T) -> i32 where Option<T>: Tr<T> { //~ ERROR E0107 not yet supported: a `where` clause on a type other than a type parameter
+    Pick(Some(t))
+}
+
+fn Pick<X: Tr<i32>>(x: X) -> i32 {
+    1
+}
+
+struct E;
+
+impl<T> From<T> for E { //~ ERROR E0215 conflicting implementations of trait `From<E>` for type `E`
+    fn from(t: T) -> E {
+        E
+    }
+}
+
+trait Pair<A> {
+    fn P(&self) -> A;
+}
+
+impl Pair<i32> for S {
+    fn P(&self) -> i32 {
+        1
+    }
+}
+
+impl Pair<bool> for S {
+    fn P(&self) -> bool {
+        true
+    }
+}
+
+fn Main() {
+    let x = From::from(5);
+    let y = S.P();
+}

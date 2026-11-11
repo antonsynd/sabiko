@@ -251,6 +251,51 @@ fn Second(_1: [i32; 3]) -> Option<i32> {
     }
 }
 
+fn Widened(_1: Result<i32, u8>) -> Result<i32, i64> {
+    let mut _0: Result<i32, i64>;
+    let mut _2: i32;
+    let mut _3: i32;
+    let mut _4: Result<i32, u8>;
+    let mut _5: isize;
+    let mut _6: i64;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_4);
+        _4 = copy _1;
+        StorageLive(_5);
+        _5 = discriminant(_4);
+        switchInt(copy _5) -> [0: bb1, otherwise: bb2];
+    }
+
+    bb1: {
+        _2 = Add(copy (_4 as Ok).0, const 1_i32);
+        _0 = Result::Ok { 0: copy _2 };
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_2);
+        goto -> bb4;
+    }
+
+    bb2: {
+        StorageLive(_6);
+        _6 = <i64 as From<u8>>::from(copy (_4 as Err).0) -> bb3;
+    }
+
+    bb3: {
+        _0 = Result::Err { 0: copy _6 };
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_2);
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}
+
 fn Main() {
     let mut _0: ();
     let mut _1: ();
@@ -265,6 +310,15 @@ fn Main() {
     let mut _10: i32;
     let mut _11: Option<i32>;
     let mut _12: [i32; 3];
+    let mut _13: ();
+    let mut _14: bool;
+    let mut _15: Result<i32, i64>;
+    let mut _16: Result<i32, u8>;
+    let mut _17: &Result<i32, i64>;
+    let mut _18: ();
+    let mut _19: i32;
+    let mut _20: Result<i32, u8>;
+    let mut _21: Result<i32, u8>;
     cleanup c0: _7 => nothing;
 
     bb0: {
@@ -335,11 +389,113 @@ fn Main() {
         StorageDead(_11);
         StorageDead(_10);
         StorageDead(_9);
-        _0 = const ();
-        goto -> bb11;
+        StorageLive(_13);
+        StorageLive(_14);
+        StorageLive(_15);
+        StorageLive(_16);
+        _16 = Result::Err { 0: const 3_u8 };
+        _15 = Widened(copy _16) -> bb11;
     }
 
     bb11: {
+        StorageLive(_17);
+        _17 = &_15;
+        _14 = Result::is_err::<i32, i64>(copy _17) -> bb12;
+    }
+
+    bb12: {
+        _13 = PrintLine(copy _14) -> bb13;
+    }
+
+    bb13: {
+        StorageDead(_17);
+        StorageDead(_16);
+        StorageDead(_15);
+        StorageDead(_14);
+        StorageDead(_13);
+        StorageLive(_18);
+        StorageLive(_19);
+        StorageLive(_20);
+        StorageLive(_21);
+        _21 = Result::Ok { 0: const 1_i32 };
+        _20 = Same::<u8>(copy _21) -> bb14;
+    }
+
+    bb14: {
+        _19 = Result::unwrap_or::<i32, u8>(copy _20, const 0_i32) -> bb15;
+    }
+
+    bb15: {
+        _18 = PrintLine(copy _19) -> bb16;
+    }
+
+    bb16: {
+        StorageDead(_21);
+        StorageDead(_20);
+        StorageDead(_19);
+        StorageDead(_18);
+        _0 = const ();
+        goto -> bb17;
+    }
+
+    bb17: {
         return;
+    }
+}
+
+fn Same<u8>(_1: Result<i32, u8>) -> Result<i32, u8> {
+    let mut _0: Result<i32, u8>;
+    let mut _2: i32;
+    let mut _3: i32;
+    let mut _4: Result<i32, u8>;
+    let mut _5: isize;
+    let mut _6: u8;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_4);
+        _4 = copy _1;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_5);
+        _5 = discriminant(_4);
+        switchInt(copy _5) -> [0: bb2, otherwise: bb3];
+    }
+
+    bb2: {
+        _2 = Add(copy (_4 as Ok).0, const 2_i32);
+        _0 = Result::Ok { 0: copy _2 };
+        StorageDead(_5);
+        goto -> bb7;
+    }
+
+    bb3: {
+        StorageLive(_6);
+        _6 = <T as From<T>>::from::<u8>(copy (_4 as Err).0) -> bb4;
+    }
+
+    bb4: {
+        _0 = Result::Err { 0: copy _6 };
+        StorageDead(_6);
+        StorageDead(_5);
+        goto -> bb6;
+    }
+
+    bb5: {
+        return;
+    }
+
+    bb6: {
+        StorageDead(_4);
+        StorageDead(_2);
+        goto -> bb5;
+    }
+
+    bb7: {
+        StorageDead(_4);
+        StorageDead(_2);
+        goto -> bb5;
     }
 }

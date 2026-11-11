@@ -29,12 +29,16 @@ names which phase owns which section.
   members are the trait's methods and constants. A trait may declare associated constants
   (#116, decision 85), required (`const N: u32;`) or provided (`const N: u32 = 4;`); a
   constant elsewhere needs its value (E0100, rustc's "free constant item without body").
-  A trait is not generic (E0107, #117) and has no associated types (E0107); `?Sized` and
-  lifetime bounds are E0107. `Clone`, `Copy` and `Drop` are traits the compiler
-  defines (§11.2)
+  A trait may be generic (#117, decision 95): `trait From<T>`, `trait Add<Rhs = Self>`,
+  with defaults only on a trait's parameters (elsewhere E0107), trailing (E0114), and no bounds on them
+  (E0107); it has no associated types (E0107); `?Sized` and lifetime bounds are E0107.
+  `Clone`, `Copy` and `Drop` are traits the compiler defines (§11.2), `From` and `Into`
+  the `core` prelude (§3)
 - Bounds: `T: A + B` on the type parameters of functions and `impl` blocks, and `where
   T: A` clauses on functions and `impl` blocks whose types are type parameters (any
-  other type is E0107). Bounds on the parameters of a struct or an enum are E0107
+  other type is E0107), with a generic trait's arguments (`T: From<U>`; the parameters
+  without a default are required, E0222, rustc's E0107). Bounds on the parameters of a
+  struct or an enum are E0107. `<T as Trait>::Name` paths are E0107
 - Paths: `Type::Name` (exactly two segments) names an associated function or constant,
   or a primitive type's associated constant (`i32::MAX`); `Self` (in a
   type, a struct literal, a path or as a unit-struct value) and `self` (a value) begin a
@@ -191,25 +195,41 @@ copied) as `match` moves its scrutinee by value: `r?` moves a `Result<Token, E>`
 and `h.F?` through a reference is E0407 unless the field is `Copy`. The early return drops
 the live locals as `return` does, in rustc's order, and so the temporaries of the
 enclosing expression evaluated before the `?` (`F(G(), x?)` drops `G()`'s value). rustc's
-`Err(From::from(e))` converts the error to the function's error type; `From` is a generic
-trait, which Sabiko does not have yet (#117), so only the same error type converts (the
-reflexive `impl<T> From<T> for T`). Errors, with rustc's E0277 messages: `?` on a value
+`Err(From::from(e))` converts the error to the function's error type, and so does Sabiko
+(decision 95): the conversion is a call of the prelude's `From::from`, which
+monomorphisation resolves to the `impl From<E> for To`; for the same concrete type it is
+the reflexive `impl<T> From<T> for T`, and the error simply moves. Errors, with rustc's
+E0277 messages: `?` on a value
 that is not an `Option` or a `Result` (E0350, "the `?` operator can only be applied to
 values that implement `Try`"), in a function returning neither (E0350, also `Main`), on an
 `Option` in a function returning a `Result` or the other way round (E0350), outside a
 function (a constant's value, E0350; rustc's E0572), an operand whose type is not known yet
 (E0313), an error type left unknown (`Ok(1)?`, E0313), and an error type that no `From`
-impl converts (E0351, "`?` couldn't convert the error to `B`"). A conversion Rust's standard
-library has is E0107 until generic traits; among Sabiko's types those are exactly the
-lossless ones between primitives (`i32` to `i64`, `u8` to `char`, `bool` to `f64`, ...),
-`T` to `Option<T>`, `&Option<T>` to `Option<&T>` (`&mut` likewise), and an array of `N`
-(up to 12) `T`s to a tuple of `N` `T`s and back (checked against rustc on every pair of a
-table of types, `crates/sabiko_driver/tests/try_conversions.rs`); every other pair is
-E0351. An error type `?` leaves open (a literal, `None`) takes the one source of those
-impls it could be before literals default, as rustc's inference does: `Err(5)?` in a
-function returning `Result<_, u8>` makes the literal a `u8`; with several (`u16` converts
-from `u8` and `u16`) it defaults (`i32`, E0351), and an open `None` facing
-`Option<Option<u8>>` is E0313 (rustc's E0282).
+impl converts (E0351, "`?` couldn't convert the error to `B`"). The prelude's
+`library/core/convert.sabi` has Rust's standard library's impls among Sabiko's types: the
+reflexive one, the lossless conversions between primitives (`i32` to `i64`, `u8` to
+`char`, `bool` to `f64`, ...), `T` to `Option<T>` and `&Option<T>` to `Option<&T>` (`&mut`
+likewise), checked against rustc on every pair of a table of types
+(`crates/sabiko_driver/tests/try_conversions.rs`); a program adds its own (`impl From<u8>
+for MyError`). Arrays of up to 12 `T`s convert to tuples of as many `T`s and back, as
+in std; an array into a tuple needs array patterns, so it type-checks but is E0500 where
+a program reaches it. An error type `?` leaves open (a literal, `None`) is decided by the one
+impl that could convert it, as rustc's selection does: `Err(5)?` in a function returning
+`Result<_, u8>` makes the literal a `u8`; with several (`u16` converts from `u8` and
+`u16`) it defaults (`i32`, E0351), and an open `None` facing `Option<Option<u8>>` is E0313
+(rustc's E0282).
+- `From<T>` and `Into<T>` (decision 95): `pub trait From<T> { fn from(value: T) -> Self; }`
+  and `pub trait Into<T> { fn into(self) -> T; }` in the prelude, with Rust's lowercase
+  method names, `Into` through the blanket `impl<T, U> Into<U> for T where U: From<T>`.
+  `u64::from(1u32)`, `From::from(x)`, `let y: i64 = x.into();`, `T::from(u)` under a bound
+  `T: From<U>`. The orphan rule is rustc's: a program may implement `From` (or `Into`)
+  when one of the types among the block's type and the trait's arguments is a struct or
+  enum of the file and no type parameter of the block appears bare before it (`impl
+  From<MyType> for i32` is fine; `impl From<i32> for i64` is E0214, rustc's E0117; `impl<T>
+  From<MyType> for T` E0226, rustc's E0210), `&T` and `&mut T` counting as `T` (they are
+  fundamental); a block overlapping the prelude's (`impl From<S> for S`) is E0215
+  (rustc's E0119). A reference in a program's `impl` header or in a bound's trait
+  arguments is E0107 until lifetimes.
 
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System
@@ -778,7 +798,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   an enum or a struct. A trait `impl` block may be for any type that holds no reference
   and has a size (E0107 otherwise): a struct or enum of the file, an instance of one
   (`impl Show for Pair<i32, bool>`), a primitive, a tuple, an array, or a type parameter
-  of the block (`impl<T: Show> Loud for T`); its parameters are its own. It must name a
+  of the block (`impl<T: Show> Loud for T`); its parameters are its own, and each must
+  appear in the type or the trait's arguments (E0352, rustc's E0207). A generic trait's
+  arguments may be any such types (`impl Conv<i32> for S` beside `impl Conv<bool> for
+  S`, `impl<T> Conv<T> for W<T>`), defaults filled in (`impl Add for S` is `impl Add<S>
+  for S`). It must name a
   trait of the file or a language trait (E0201 when none has the name, E0203 for another
   item), implement each
   required method (E0216, rustc's E0046), define nothing the trait does not declare
@@ -786,12 +810,31 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   with `Self` replaced by the block's type and the trait method's type parameters by its
   own: the same receiver (E0321, rustc's E0185/E0186), number of parameters (E0322,
   E0050) and of type parameters (E0343, E0049), the same types (E0321, E0053), and no
-  bound on its own type parameters the trait's do not imply (E0344, E0276). Two blocks of
-  one trait whose types some type matches both are E0215 (rustc's E0119); bounds do not
-  keep them apart. The type of a block of a trait with supertraits must implement them,
+  bound on its own type parameters the trait's do not imply (E0344, E0276); the trait's
+  parameters are the block's arguments there. Two blocks of one trait whose types and
+  trait arguments some trait reference matches both are E0215 (rustc's E0119), unless a
+  bound of one of them fails there where only this file could implement it (rustc's
+  negative reasoning in coherence: `impl<T: Show> Loud for T` beside `impl Loud for S`
+  when `S` is not `Show`). The type of a block of a trait with supertraits must implement them,
   where the block's bounds hold (E0341, rustc's E0277). A type implements a trait when a
-  block's type matches it and the block's bounds hold there, or, for a type parameter,
-  when a bound in scope names the trait or a subtrait of it. Every type parameter but a
+  block's type and trait arguments match it and the block's bounds hold there, or, for a
+  type parameter, when a bound in scope implies it (the bound, or one of its supertraits
+  with the arguments substituted: `trait Sub<T>: Sup<T>`). A trait member named through a
+  type or a method call infers the trait's arguments (`c.Conv()` beside two blocks
+  `Conv<i32>` and `Conv<bool>` takes them from the expected type, else E0313, rustc's
+  E0283); `Trait::<A>::Name` gives them. Of the blocks whose header matches, those whose
+  bounds fail are no candidates (rustc's winnowing), so the order of blocks never
+  matters; a chain of bounds 128 deep, rustc's recursion limit, is E0353 (rustc's E0275).
+  The limit counts from the bound a use requires, however late inference decides the
+  innermost type. A trait whose supertraits lead back to it is E0354 (rustc's E0391),
+  whatever the arguments. Where a type must be known (a unary operator's operand, a
+  receiver, a field or index base, the operand of `?`), the obligations that could decide
+  it are selected first; a type still open there is E0313. A binary operator, compound
+  assignment or printed value whose operand type is still open waits for a later use to
+  decide it, and is E0313 when nothing does (rustc's E0283). At a call, the
+  callee's bounds are proved at its generic arguments, and a block proving one that
+  names a parameter twice keeps the loans through it (`fn G<T, U: From<T>>(t: T) -> U`
+  called with `&x` returns a reference borrowing `x`). Every type parameter but a
   trait's `Self` is implicitly `Sized`: `str` or a slice as a generic argument is E0208
   (rustc's E0277). A trait's `Self` is not, as in rustc: a provided method whose
   parameters, return type or locals hold a `Self` by value is E0208 (a required method may

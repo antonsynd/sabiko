@@ -1,0 +1,22 @@
+// A user trait's reflexive blanket impl proves the bound `U: Same<T>` of a generic
+// function: the result holds the argument's loan.
+trait Same<T> {
+    fn Same(t: T) -> Self;
+}
+
+impl<T> Same<T> for T {
+    fn Same(t: T) -> T {
+        t
+    }
+}
+
+fn G<T, U: Same<T>>(t: T) -> U {
+    U::Same(t)
+}
+
+fn Main() {
+    let mut x = 1;
+    let r: &i32 = G(&x);
+    x = 2;
+    PrintLine(*r);
+}

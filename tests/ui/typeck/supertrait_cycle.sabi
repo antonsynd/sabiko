@@ -1,0 +1,30 @@
+// A trait whose supertraits lead back to it is rustc's E0391, by trait whatever the
+// arguments, once per cycle (at its first trait reached in definition order), and its
+// uses are not reported again: `G`'s `x.M()` finds `A`'s method. A trait over a cycle
+// (`G2: D`) is no new error. rustc 1.99 also reports `A` a second time, from another
+// query ("computing the implied clauses").
+trait A<T>: A<(T,)> { //~ ERROR E0354 cycle detected when computing the supertraits of `A`
+    fn M(&self) -> i32 {
+        0
+    }
+}
+
+fn G<X: A<i32>>(x: X) -> i32 {
+    x.M()
+}
+
+trait Own: Own {} //~ ERROR E0354 cycle detected when computing the supertraits of `Own`
+
+trait G2: D {}
+
+trait D: E {} //~ ERROR E0354 cycle detected when computing the supertraits of `D`
+
+trait E: F + D {}
+
+trait F: D {}
+
+trait K<T>: L<T> {} //~ ERROR E0354 cycle detected when computing the supertraits of `K`
+
+trait L<T>: K<i32> {}
+
+fn Main() {}

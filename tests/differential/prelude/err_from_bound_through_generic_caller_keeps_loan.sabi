@@ -1,0 +1,16 @@
+// A generic caller passes its own bound `U: From<T>` on to a generic callee: the loan
+// flows through both calls.
+fn G<T, U: From<T>>(t: T) -> U {
+    U::from(t)
+}
+
+fn A<T, U: From<T>>(t: T) -> U {
+    G(t)
+}
+
+fn Main() {
+    let mut x = 1;
+    let r: Option<&i32> = A(&x);
+    x = 2;
+    PrintLine(*r.unwrap());
+}

@@ -1,0 +1,7 @@
+// `Option::from(&o)` (from `&Option<T>`) borrows `o` for the `Option<&T>` it returns.
+fn Main() {
+    let mut o = Some(1);
+    let r: Option<&i32> = Option::from(&o);
+    o = None;
+    PrintLine(*r.unwrap());
+}

@@ -38,11 +38,12 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   statuses to 134), and the first panic's report must match then too. The
   rustc prelude is appended to the program, its lints passed as `-A` flags, so that line
   numbers agree; `Panic` is `#[track_caller]` there, so it reports its call site.
-- The error conversions of `?` (`crates/sabiko_driver/tests/try_conversions.rs`, decision
-  93): one function per ordered pair of a table of 38 error types, `Ok(r?)` from
+- The error conversions of `?` (`crates/sabiko_driver/tests/try_conversions.rs`, decisions
+  93 and 95): one function per ordered pair of a table of 38 error types, `Ok(r?)` from
   `Result<i32, FROM>` to `Result<i32, TO>`. rustc accepts exactly the pairs the test's
-  `ACCEPTED` lists (checked when `rustc` runs); Sabiko must report each of those E0107 (no
-  `From` yet) and every other pair E0351.
+  `ACCEPTED` lists (checked when `rustc` runs); Sabiko must accept each of those (and a
+  program calling every one of them must compile to IL, but for the two arrays converted
+  into tuples, E0500 until array patterns) and report every other pair E0351.
 - Constant-propagation lints (`crates/sabikoc/tests/const_lints.rs`, decision 73): every
   program under `tests/differential/lints/` and `tests/ui/lints/` is built to MIR by rustc
   with `arithmetic_overflow` and `unconditional_panic` denied and compiled to IL by Sabiko;
@@ -203,7 +204,13 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   (`BodyGen::try_value`); an element of an array of references is now and then read
   through `(*[a, b].get(i).unwrap())`, and a length through a slice method's answer
   (`(x.get(2).is_some() as usize)`, `is_empty`, `first`, `last`).
-  `programs_use_try_and_slice_methods` counts them. Every harness that runs the front end itself (the MIR and IL snapshots, the layout
+  `programs_use_try_and_slice_methods` counts them. With generic traits (decision 95), the
+  trait helpers add `trait GenAs<T>` with blocks `GenAs<i32>` and `GenAs<bool>` for `bool`
+  (an integer made by `GenAs::<i32>::As(&b)` or the bounded `GenAsI32(&b)`), and the
+  prelude helpers `GenTryFrom` (`?` into the user error type `GenErr` through `impl
+  From<u8> for GenErr`) and `GenTryWiden` (into `i64`), used as
+  `GenTryFrom(Ok::<T, u8>(e)).ok().unwrap()`, `GenTryWiden(Ok::<T, u8>(e)).unwrap()` and
+  `GenTryWiden(Err::<T, u8>(9)).unwrap_or(b)`. Every harness that runs the front end itself (the MIR and IL snapshots, the layout
   test, `validate_corpus`, the generator's `reorder` and `validity`) appends the prelude
   as the driver does, through the driver's own front-end step,
   `sabiko_driver::parse_and_resolve` (which returns the user's `FileId` too). Every
@@ -303,153 +310,158 @@ smallest window's count, rounded down, at least 1 (a count that is 0 in some win
 fails the script instead: that construct is barely generated). The margin lets a threshold survive the
 reshuffle any change to the generator's draws makes, since the test only counts one
 window; re-measure and update after a generator change that moves the counts. Measured on
-2026-11-11, after #49, #13's first part and #132:
+2026-11-11, after #49, #13 and #132, and generic traits (decision 95):
 
 | test | count | min | mean | max | threshold |
 | --- | --- | --- | --- | --- | --- |
-| extended_temporaries | extend through a block | 88 | 104.6 | 117 | 66 |
-| extended_temporaries | through an `if` | 80 | 100.7 | 118 | 60 |
-| extended_temporaries | through a `match` | 45 | 53.0 | 62 | 33 |
-| unreachable_patterns | unreachable pattern (default and borrow-clean) | 101 | 120.5 | 152 | 75 |
-| mut_ref_locals_to_type_parameters | moved into a type parameter | 7 | 8.3 | 11 | 5 |
-| mut_ref_locals_to_type_parameters | reborrowed through an annotated `GenId` | 2 | 5.8 | 11 | 1 |
-| 128_bit_integers | i128 | 364 | 377.8 | 389 | 273 |
-| 128_bit_integers | u128 | 363 | 375.4 | 393 | 272 |
-| 128_bit_integers | the `i128::MIN` literal | 7 | 13.0 | 18 | 5 |
-| aggregates_of_references | `[&T; N]` local | 54 | 63.2 | 76 | 40 |
-| aggregates_of_references | `&[&T]` local | 36 | 42.1 | 51 | 27 |
-| aggregates_of_references | `(&T, U)` local | 71 | 77.7 | 89 | 53 |
-| aggregates_of_references | `[&mut T; 2]` local | 117 | 123.8 | 131 | 87 |
-| arrays | array type | 410 | 427.9 | 441 | 307 |
-| arrays | nested array type | 23 | 32.6 | 39 | 17 |
-| arrays | zero-length array | 45 | 58.4 | 67 | 33 |
-| arrays | one-element array | 117 | 129.9 | 140 | 87 |
-| arrays | length from a constant | 83 | 97.1 | 109 | 62 |
-| arrays | slice type | 129 | 139.2 | 150 | 96 |
+| extended_temporaries | extend through a block | 89 | 103.2 | 120 | 66 |
+| extended_temporaries | through an `if` | 89 | 102.6 | 122 | 66 |
+| extended_temporaries | through a `match` | 42 | 53.6 | 62 | 31 |
+| unreachable_patterns | unreachable pattern (default and borrow-clean) | 99 | 115.6 | 134 | 74 |
+| mut_ref_locals_to_type_parameters | moved into a type parameter | 7 | 8.4 | 11 | 5 |
+| mut_ref_locals_to_type_parameters | reborrowed through an annotated `GenId` | 4 | 5.7 | 9 | 3 |
+| 128_bit_integers | i128 | 352 | 375.9 | 387 | 264 |
+| 128_bit_integers | u128 | 360 | 370.3 | 394 | 270 |
+| 128_bit_integers | the `i128::MIN` literal | 11 | 13.7 | 18 | 8 |
+| aggregates_of_references | `[&T; N]` local | 54 | 64.4 | 69 | 40 |
+| aggregates_of_references | `&[&T]` local | 36 | 42.4 | 51 | 27 |
+| aggregates_of_references | `(&T, U)` local | 66 | 75.8 | 87 | 49 |
+| aggregates_of_references | `[&mut T; 2]` local | 115 | 123.4 | 139 | 86 |
+| arrays | array type | 408 | 426.6 | 440 | 306 |
+| arrays | nested array type | 22 | 31.6 | 38 | 16 |
+| arrays | zero-length array | 46 | 57.9 | 68 | 34 |
+| arrays | one-element array | 113 | 128.6 | 137 | 84 |
+| arrays | length from a constant | 85 | 94.8 | 104 | 63 |
+| arrays | slice type | 128 | 138.2 | 150 | 96 |
 | arrays | array field | 157 | 166.7 | 183 | 117 |
-| arrays | array in a tuple | 43 | 56.8 | 66 | 32 |
+| arrays | array in a tuple | 47 | 56.2 | 63 | 35 |
 | arrays | array in an enum payload | 148 | 159.7 | 173 | 111 |
-| arrays | array of an `impl Drop` type | 46 | 62.6 | 77 | 34 |
-| arrays | `.len()` | 362 | 368.0 | 388 | 271 |
-| arrays | `while i < s.len()` | 58 | 66.2 | 75 | 43 |
-| arrays | computed index | 351 | 361.4 | 374 | 263 |
-| arrays | element write | 299 | 320.4 | 339 | 224 |
-| arrays | element compound assignment | 11 | 22.3 | 27 | 8 |
-| arrays | borrow of an element | 205 | 216.9 | 246 | 153 |
-| arrays | repeat expression | 289 | 311.8 | 327 | 216 |
-| arrays | out-of-bounds-prone index | 163 | 179.0 | 194 | 122 |
-| arrays_of_references | index an array of references | 83 | 97.5 | 106 | 62 |
-| arrays_of_references | a range of one | 10 | 16.5 | 25 | 7 |
+| arrays | array of an `impl Drop` type | 46 | 62.7 | 78 | 34 |
+| arrays | `.len()` | 346 | 358.8 | 375 | 259 |
+| arrays | `while i < s.len()` | 44 | 53.9 | 61 | 33 |
+| arrays | computed index | 348 | 361.2 | 380 | 261 |
+| arrays | element write | 298 | 313.7 | 335 | 223 |
+| arrays | element compound assignment | 16 | 22.2 | 27 | 12 |
+| arrays | borrow of an element | 195 | 212.1 | 242 | 146 |
+| arrays | repeat expression | 296 | 311.1 | 324 | 222 |
+| arrays | out-of-bounds-prone index | 151 | 177.2 | 195 | 113 |
+| arrays_of_references | index an array of references | 81 | 96.8 | 117 | 60 |
+| arrays_of_references | a range of one | 10 | 16.4 | 28 | 7 |
 | drop | `impl Drop` | 218 | 233.0 | 253 | 163 |
 | enums_and_match | enum | 420 | 432.2 | 446 | 315 |
 | enums_and_match | Copy enum | 221 | 229.1 | 240 | 165 |
 | enums_and_match | `impl Drop` for an enum | 109 | 117.1 | 131 | 81 |
-| enums_and_match | explicit discriminant | 62 | 69.9 | 88 | 46 |
-| enums_and_match | `match` statement | 290 | 299.7 | 312 | 217 |
-| enums_and_match | `let` = `match` | 30 | 37.4 | 44 | 22 |
-| enums_and_match | inline `match` | 260 | 290.9 | 321 | 195 |
-| enums_and_match | `if let` | 185 | 213.6 | 233 | 138 |
-| enums_and_match | `while let` | 12 | 18.4 | 24 | 9 |
-| enums_and_match | `let`-`else` | 118 | 140.6 | 161 | 88 |
-| enums_and_match | guard | 164 | 174.0 | 187 | 123 |
-| enums_and_match | `ref` binding | 156 | 178.1 | 195 | 117 |
-| enums_and_match | `ref mut` binding | 75 | 88.8 | 106 | 56 |
-| enums_and_match | `@` binding | 61 | 68.4 | 81 | 45 |
-| enums_and_match | range pattern | 329 | 345.9 | 363 | 246 |
-| enums_and_match | or-pattern | 161 | 176.5 | 193 | 120 |
-| enums_and_match | match on a reference | 231 | 247.2 | 261 | 173 |
+| enums_and_match | explicit discriminant | 60 | 68.2 | 86 | 45 |
+| enums_and_match | `match` statement | 265 | 283.5 | 310 | 198 |
+| enums_and_match | `let` = `match` | 25 | 29.3 | 35 | 18 |
+| enums_and_match | inline `match` | 266 | 285.0 | 308 | 199 |
+| enums_and_match | `if let` | 177 | 201.7 | 215 | 132 |
+| enums_and_match | `while let` | 8 | 15.1 | 24 | 6 |
+| enums_and_match | `let`-`else` | 117 | 135.4 | 153 | 87 |
+| enums_and_match | guard | 150 | 161.0 | 176 | 112 |
+| enums_and_match | `ref` binding | 155 | 175.9 | 195 | 116 |
+| enums_and_match | `ref mut` binding | 71 | 88.5 | 110 | 53 |
+| enums_and_match | `@` binding | 50 | 61.5 | 75 | 37 |
+| enums_and_match | range pattern | 324 | 342.0 | 360 | 243 |
+| enums_and_match | or-pattern | 154 | 167.2 | 189 | 115 |
+| enums_and_match | match on a reference | 229 | 243.7 | 263 | 171 |
 | enums_and_match | `impl` block of an enum | 160 | 188.6 | 199 | 120 |
-| generic_helpers | `GenId` | 100 | 124.1 | 141 | 75 |
-| generic_helpers | `GenId::<T>` | 49 | 55.6 | 69 | 36 |
-| generic_helpers | `GenPick` | 102 | 109.2 | 122 | 76 |
-| generic_helpers | `GenFirst` | 25 | 32.0 | 40 | 18 |
-| generic_helpers | `GenOr(GenOpt::Yes(..), ..)` | 65 | 76.3 | 87 | 48 |
-| generic_helpers | `GenOr(GenOpt::No, ..)` | 41 | 53.1 | 64 | 30 |
-| generic_helpers | `GenBox` | 69 | 87.1 | 99 | 51 |
-| if_let_guards | `if let` guard | 25 | 38.0 | 48 | 18 |
-| if_let_guards | one with `&&` | 11 | 17.2 | 24 | 8 |
-| let_chains | let chain | 30 | 39.5 | 51 | 22 |
-| let_chains | led by a `bool` | 10 | 13.9 | 18 | 7 |
-| let_chains | two `let`s | 18 | 27.0 | 35 | 13 |
-| let_chains | a `bool` after a `let` | 20 | 25.7 | 31 | 15 |
-| methods | impl block | 403 | 417.8 | 428 | 302 |
-| methods | method call | 293 | 306.9 | 323 | 219 |
-| methods | argument reading the receiver | 15 | 20.9 | 30 | 11 |
-| patterns | `&` pattern | 23 | 26.6 | 31 | 17 |
-| patterns | `&mut` pattern | 5 | 10.6 | 19 | 3 |
-| patterns | half-open range pattern | 40 | 51.9 | 66 | 30 |
-| patterns | float pattern | 21 | 30.2 | 41 | 15 |
+| generic_helpers | `GenId` | 105 | 124.1 | 147 | 78 |
+| generic_helpers | `GenId::<T>` | 48 | 59.2 | 67 | 36 |
+| generic_helpers | `GenPick` | 88 | 107.9 | 118 | 66 |
+| generic_helpers | `GenFirst` | 24 | 31.7 | 44 | 18 |
+| generic_helpers | `GenOr(GenOpt::Yes(..), ..)` | 65 | 76.5 | 92 | 48 |
+| generic_helpers | `GenOr(GenOpt::No, ..)` | 42 | 52.8 | 66 | 31 |
+| generic_helpers | `GenBox` | 77 | 86.0 | 92 | 57 |
+| if_let_guards | `if let` guard | 27 | 33.5 | 42 | 20 |
+| if_let_guards | one with `&&` | 8 | 15.6 | 24 | 6 |
+| let_chains | let chain | 24 | 29.2 | 38 | 18 |
+| let_chains | led by a `bool` | 7 | 10.0 | 14 | 5 |
+| let_chains | two `let`s | 12 | 19.8 | 25 | 9 |
+| let_chains | a `bool` after a `let` | 14 | 19.6 | 27 | 10 |
+| methods | impl block | 443 | 456.5 | 466 | 332 |
+| methods | method call | 294 | 307.4 | 323 | 220 |
+| methods | argument reading the receiver | 244 | 260.6 | 285 | 183 |
+| patterns | `&` pattern | 22 | 25.2 | 29 | 16 |
+| patterns | `&mut` pattern | 6 | 10.3 | 17 | 4 |
+| patterns | half-open range pattern | 38 | 45.3 | 56 | 28 |
+| patterns | float pattern | 18 | 27.5 | 35 | 13 |
 | references_to_references | `&&T` parameter | 75 | 85.7 | 107 | 56 |
 | references_to_references | `&&mut T` parameter | 15 | 24.1 | 37 | 11 |
 | references_to_references | `&mut &mut T` parameter | 18 | 23.0 | 32 | 13 |
 | references_to_references | `&&str` parameter | 18 | 23.6 | 32 | 13 |
-| references_to_references | annotated double reference local | 105 | 118.2 | 139 | 78 |
-| references_to_references | `&mut` of a reference local | 45 | 58.5 | 79 | 33 |
-| references_to_references | write through `&mut &mut` | 9 | 13.7 | 19 | 6 |
-| references_to_references | retarget through `&mut &T` | 70 | 78.9 | 89 | 52 |
-| references_to_references | `&&x` argument | 9 | 16.1 | 24 | 6 |
-| references_to_references | explicit dereferences of a double reference | 51 | 73.4 | 91 | 38 |
-| references_to_references | `let` of a borrowed borrow | 17 | 24.1 | 34 | 12 |
+| references_to_references | annotated double reference local | 99 | 120.5 | 138 | 74 |
+| references_to_references | `&mut` of a reference local | 43 | 60.5 | 73 | 32 |
+| references_to_references | write through `&mut &mut` | 10 | 14.4 | 20 | 7 |
+| references_to_references | retarget through `&mut &T` | 67 | 78.3 | 88 | 50 |
+| references_to_references | `&&x` argument | 13 | 16.6 | 23 | 9 |
+| references_to_references | explicit dereferences of a double reference | 54 | 72.7 | 85 | 40 |
+| references_to_references | `let` of a borrowed borrow | 13 | 22.4 | 36 | 9 |
 | strings_and_ranges | `&str` parameter | 79 | 89.0 | 108 | 59 |
 | strings_and_ranges | `-> &str` | 25 | 33.3 | 42 | 18 |
-| strings_and_ranges | `&str` local | 217 | 234.1 | 250 | 162 |
-| strings_and_ranges | escape in a string | 182 | 210.9 | 219 | 136 |
-| strings_and_ranges | `a..b` | 243 | 274.2 | 293 | 182 |
-| strings_and_ranges | `a..` | 223 | 238.0 | 264 | 167 |
-| strings_and_ranges | `..b` | 184 | 194.4 | 204 | 138 |
-| strings_and_ranges | `..` | 106 | 124.5 | 143 | 79 |
-| strings_and_ranges | `a..=b` | 194 | 211.3 | 231 | 145 |
-| strings_and_ranges | `..=b` | 148 | 172.0 | 186 | 111 |
-| strings_and_ranges | computed bound | 222 | 240.4 | 255 | 166 |
-| strings_and_ranges | bound measuring the base | 207 | 219.9 | 236 | 155 |
-| strings_and_ranges | slice of a string literal | 389 | 406.5 | 423 | 291 |
-| strings_and_ranges | range of a range | 193 | 208.5 | 232 | 144 |
-| strings_and_ranges | `.len()` of a range place | 242 | 255.5 | 281 | 181 |
-| strings_and_ranges | `&mut` of a range place | 13 | 21.4 | 30 | 9 |
-| strings_and_ranges | element of a range place | 260 | 275.5 | 300 | 195 |
-| strings_and_ranges | write through a range place | 10 | 16.9 | 23 | 7 |
-| strings_and_ranges | `while i < x[..].len()` | 12 | 19.1 | 25 | 9 |
-| strings_and_ranges | string comparison | 109 | 132.1 | 141 | 81 |
-| strings_and_ranges | `match` arm of string literals | 30 | 41.8 | 51 | 22 |
-| strings_and_ranges | string or-pattern | 84 | 94.5 | 103 | 63 |
-| strings_and_ranges | guarded binding of a string | 8 | 14.7 | 21 | 6 |
-| strings_and_ranges | `if let` on a string | 44 | 54.4 | 71 | 33 |
-| strings_and_ranges | `let`-`else` on a string | 45 | 53.2 | 63 | 33 |
-| strings_and_ranges | `while let` on a string | 3 | 6.9 | 10 | 2 |
-| strings_and_ranges | `while i < s.len()` over a string | 20 | 27.0 | 36 | 15 |
-| strings_and_ranges | shrinking a `&str` | 9 | 17.9 | 25 | 6 |
-| prelude | `).unwrap()` | 120 | 135.6 | 155 | 90 |
-| prelude | `).expect("generated")` | 6 | 11.0 | 16 | 4 |
-| prelude | `).unwrap_or(` | 41 | 55.7 | 71 | 30 |
-| prelude | `None::<` | 50 | 61.2 | 77 | 37 |
-| prelude | `Ok::<` | 19 | 23.6 | 28 | 14 |
-| prelude | `Err::<` | 18 | 33.9 | 47 | 13 |
-| prelude | `Some(&` | 13 | 18.0 | 25 | 9 |
-| prelude | `> = Some(` | 6 | 11.0 | 17 | 4 |
-| prelude | `> = Ok(` | 4 | 8.4 | 12 | 3 |
-| trait_helpers | `.Keep()` | 66 | 72.0 | 79 | 49 |
-| trait_helpers | `GenKeep::Keep` | 48 | 55.3 | 61 | 36 |
-| trait_helpers | `GenKept` | 50 | 55.2 | 64 | 37 |
-| trait_helpers | `.KeepRef()` | 21 | 29.4 | 38 | 15 |
-| trait_helpers | `.Sign()` | 47 | 51.9 | 60 | 35 |
-| trait_helpers | `GenSigns` | 48 | 54.4 | 64 | 36 |
-| trait_helpers | a trait constant | 22 | 28.4 | 41 | 16 |
-| trait_helpers | `Copy`/`Clone` through a bound | 33 | 44.6 | 52 | 24 |
-| try | `GenTry(Some(` | 15 | 21.9 | 29 | 11 |
-| try | `GenTry(None::<` | 10 | 14.6 | 23 | 7 |
-| try | `GenTryOk(Ok::<` | 7 | 12.2 | 17 | 5 |
-| try | `GenTryOk(Err::<` | 5 | 11.3 | 20 | 3 |
-| try | `GenTryErr(Err::<` | 8 | 12.9 | 21 | 6 |
-| try | `GenTryKeep(Some(` | 10 | 14.1 | 18 | 7 |
-| try | `GenTryKeep(None::<` | 9 | 14.1 | 22 | 6 |
-| try | `.or(Some(` | 16 | 22.0 | 26 | 12 |
-| try | `.and(Some(` | 6 | 11.5 | 20 | 4 |
-| try | `.xor(` | 8 | 12.7 | 23 | 6 |
-| try | `.ok_or(` | 2 | 6.8 | 11 | 1 |
-| try | `.get(` | 14 | 18.4 | 22 | 10 |
-| try | `.is_empty()` | 6 | 10.0 | 15 | 4 |
-| try | `.first()` | 3 | 7.2 | 13 | 2 |
-| try | `.last()` | 3 | 6.7 | 12 | 2 |
+| strings_and_ranges | `&str` local | 218 | 234.5 | 251 | 163 |
+| strings_and_ranges | escape in a string | 190 | 207.7 | 224 | 142 |
+| strings_and_ranges | `a..b` | 245 | 263.4 | 270 | 183 |
+| strings_and_ranges | `a..` | 222 | 233.3 | 255 | 166 |
+| strings_and_ranges | `..b` | 173 | 191.2 | 215 | 129 |
+| strings_and_ranges | `..` | 111 | 121.6 | 131 | 83 |
+| strings_and_ranges | `a..=b` | 186 | 207.3 | 229 | 139 |
+| strings_and_ranges | `..=b` | 151 | 169.8 | 182 | 113 |
+| strings_and_ranges | computed bound | 225 | 234.8 | 247 | 168 |
+| strings_and_ranges | bound measuring the base | 199 | 212.0 | 230 | 149 |
+| strings_and_ranges | slice of a string literal | 392 | 400.7 | 411 | 294 |
+| strings_and_ranges | range of a range | 190 | 200.4 | 221 | 142 |
+| strings_and_ranges | `.len()` of a range place | 240 | 250.1 | 265 | 180 |
+| strings_and_ranges | `&mut` of a range place | 14 | 21.3 | 28 | 10 |
+| strings_and_ranges | element of a range place | 260 | 268.2 | 284 | 195 |
+| strings_and_ranges | write through a range place | 11 | 14.6 | 17 | 8 |
+| strings_and_ranges | `while i < x[..].len()` | 8 | 15.8 | 18 | 6 |
+| strings_and_ranges | string comparison | 109 | 126.1 | 141 | 81 |
+| strings_and_ranges | `match` arm of string literals | 23 | 31.7 | 44 | 17 |
+| strings_and_ranges | string or-pattern | 79 | 89.0 | 105 | 59 |
+| strings_and_ranges | guarded binding of a string | 6 | 11.1 | 18 | 4 |
+| strings_and_ranges | `if let` on a string | 44 | 52.3 | 69 | 33 |
+| strings_and_ranges | `let`-`else` on a string | 41 | 49.9 | 58 | 30 |
+| strings_and_ranges | `while let` on a string | 1 | 6.0 | 10 | 1 |
+| strings_and_ranges | `while i < s.len()` over a string | 16 | 21.8 | 30 | 12 |
+| strings_and_ranges | shrinking a `&str` | 8 | 15.7 | 20 | 6 |
+| prelude | ).unwrap() | 120 | 133.8 | 157 | 90 |
+| prelude | ).expect("generated") | 8 | 11.9 | 16 | 6 |
+| prelude | ).unwrap_or( | 40 | 57.4 | 71 | 30 |
+| prelude | None::< | 43 | 54.1 | 71 | 32 |
+| prelude | Ok::< | 27 | 33.9 | 43 | 20 |
+| prelude | Err::< | 27 | 37.6 | 46 | 20 |
+| prelude | Some(& | 9 | 17.5 | 25 | 6 |
+| prelude | > = Some( | 5 | 11.5 | 20 | 3 |
+| prelude | > = Ok( | 3 | 9.0 | 13 | 2 |
+| trait_helpers | `.Keep()` | 63 | 70.3 | 80 | 47 |
+| trait_helpers | `GenKeep::Keep` | 45 | 55.8 | 63 | 33 |
+| trait_helpers | `GenKept` | 47 | 54.0 | 65 | 35 |
+| trait_helpers | `.KeepRef()` | 18 | 27.1 | 32 | 13 |
+| trait_helpers | `.Sign()` | 38 | 45.2 | 53 | 28 |
+| trait_helpers | `GenSigns` | 39 | 47.8 | 60 | 29 |
+| trait_helpers | a trait constant | 19 | 26.3 | 34 | 14 |
+| trait_helpers | `Copy`/`Clone` through a bound | 37 | 47.1 | 53 | 27 |
+| trait_helpers | `GenAs::<i32>::As` | 5 | 11.4 | 22 | 3 |
+| trait_helpers | `GenAsI32` | 7 | 10.0 | 16 | 5 |
+| try | GenTry(Some( | 13 | 17.4 | 25 | 9 |
+| try | GenTry(None::< | 8 | 11.9 | 16 | 6 |
+| try | GenTryOk(Ok::< | 7 | 12.6 | 18 | 5 |
+| try | GenTryOk(Err::< | 8 | 11.4 | 16 | 6 |
+| try | GenTryErr(Err::< | 4 | 11.1 | 16 | 3 |
+| try | GenTryKeep(Some( | 8 | 12.3 | 20 | 6 |
+| try | GenTryKeep(None::< | 6 | 10.8 | 17 | 4 |
+| try | .or(Some( | 12 | 15.8 | 20 | 9 |
+| try | .and(Some( | 4 | 11.7 | 21 | 3 |
+| try | .xor( | 7 | 12.0 | 16 | 5 |
+| try | .ok_or( | 4 | 6.4 | 11 | 3 |
+| try | .get( | 12 | 17.4 | 22 | 9 |
+| try | .is_empty() | 5 | 8.9 | 14 | 3 |
+| try | .first() | 3 | 7.2 | 11 | 2 |
+| try | .last() | 2 | 7.3 | 11 | 1 |
+| try | GenTryFrom(Ok::< | 2 | 5.5 | 8 | 1 |
+| try | GenTryWiden(Ok::< | 2 | 5.7 | 9 | 1 |
+| try | GenTryWiden(Err::< | 2 | 5.8 | 13 | 1 |
 
 ## Properties
 
@@ -1252,7 +1264,9 @@ nightlies' lists can be compared.
   hold is accepted where rustc reports E0277 (#155); with the depth stuck at 0 the mutant
   answers correctly. A test reaching the limit would pin the wrong answer, so these wait
   for #155, with `>` as `==`, `known_nodes`' three `+` as `*` and `field_defs`' field
-  deletion from run 25.
+  deletion from run 25. #154 fixed #155 (the limit is an overflow, rustc's E0275, and the
+  condition is now `depth >= DEPTH_LIMIT`): `crates/sabiko_driver/tests/bound_chains.rs`
+  kills both (`depth * 1` and `>` checked by hand: its nesting and overflow tests fail).
 
 Verified with `cargo mutants --in-place --re` on the crates' test packages: for
 `sabiko_codegen`, every mutant of `type_token`, `print_overload`, `entry_point_or_error`,

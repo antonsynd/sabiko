@@ -266,19 +266,22 @@ impl LangItem {
     }
 }
 
-/// A type of the `core` prelude the compiler itself refers to (rustc's `#[lang]` items
-/// `Option` and `Result`): `e?` matches on one and returns one (decision 93). Found by name
-/// among the prelude's items, so a user type of the same name is never one.
+/// An item of the `core` prelude the compiler itself refers to (rustc's `#[lang]` items
+/// `Option`, `Result` and `From`): `e?` matches on one of the types, returns one, and
+/// converts the error with `From::from` (decisions 93, 95). Found by name among the
+/// prelude's items, so a user item of the same name is never one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CoreItem {
     /// `enum Option<T> { None, Some(T) }`
     Option,
     /// `enum Result<T, E> { Ok(T), Err(E) }`
     Result,
+    /// `trait From<T> { fn from(value: T) -> Self; }`
+    From,
 }
 
 impl CoreItem {
-    pub const ALL: [CoreItem; 2] = [Self::Option, Self::Result];
+    pub const ALL: [CoreItem; 3] = [Self::Option, Self::Result, Self::From];
 
     /// The type's name in the prelude.
     #[must_use]
@@ -286,16 +289,18 @@ impl CoreItem {
         match self {
             Self::Option => "Option",
             Self::Result => "Result",
+            Self::From => "From",
         }
     }
 
     /// The names of the variant `e?` continues with and of the one it returns early
     /// with.
     #[must_use]
-    pub fn try_variant_names(self) -> (&'static str, &'static str) {
+    pub fn try_variant_names(self) -> Option<(&'static str, &'static str)> {
         match self {
-            Self::Option => ("Some", "None"),
-            Self::Result => ("Ok", "Err"),
+            Self::Option => Some(("Some", "None")),
+            Self::Result => Some(("Ok", "Err")),
+            Self::From => None,
         }
     }
 }
@@ -314,10 +319,15 @@ pub enum Intrinsic {
     /// checker records a call of it as a length read (`BodyTypes::len_calls`), which MIR
     /// building lowers to `Len`, so no call of it is ever made.
     SliceLen,
+    /// `fn ArrayIntoTuple<A, T>(array: A) -> T`: the body of the prelude's `From<[T; N]>
+    /// for (T, .., T)`, which needs array patterns (not yet supported). Monomorphisation
+    /// reports a use of it as not yet supported (E0500) at the program's call that
+    /// reached it, so the conversion type-checks as in rustc but is never compiled.
+    ArrayIntoTuple,
 }
 
 impl Intrinsic {
-    pub const ALL: [Intrinsic; 2] = [Self::PanicDebug, Self::SliceLen];
+    pub const ALL: [Intrinsic; 3] = [Self::PanicDebug, Self::SliceLen, Self::ArrayIntoTuple];
 
     /// The function's name in the prelude.
     #[must_use]
@@ -325,6 +335,7 @@ impl Intrinsic {
         match self {
             Self::PanicDebug => "PanicDebug",
             Self::SliceLen => "len",
+            Self::ArrayIntoTuple => "ArrayIntoTuple",
         }
     }
 }
@@ -428,14 +439,18 @@ pub struct LocalInfo {
     pub is_param: bool,
 }
 
-/// A bound on a type parameter, `param: trait_`: written after the parameter (`T: Show`),
-/// in a `where` clause, or implied (a trait's `Self` implements the trait).
+/// A bound on a type parameter, `param: trait_`, as written after the parameter (`T:
+/// Show`) or in a `where` clause. The resolver decides which parameter and which trait it
+/// names; the trait's arguments (`T: From<U>`) are types, which the type checker lowers
+/// from the bound's [`sabiko_ast::TraitRef`], found by `trait_ref` (decision 95).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Predicate {
     pub param: DefId,
     pub trait_: DefId,
     /// The trait's path in the bound.
     pub span: Span,
+    /// The node of the bound's trait reference.
+    pub trait_ref: NodeId,
 }
 
 /// What a path resolved to.
@@ -482,6 +497,12 @@ pub struct ResolveResults {
     required: std::collections::HashSet<DefId>,
     /// The supertraits of each trait, as written.
     supertraits: HashMap<DefId, Vec<DefId>>,
+    /// The functions and trait `impl` blocks a bound of which was dropped as not supported
+    /// (E0107): what fails for lack of it is not reported again.
+    incomplete_bounds: std::collections::HashSet<DefId>,
+    /// How many of each generic trait's own parameters (after `Self`) have no default:
+    /// a bound or `impl` header must give at least these.
+    trait_required_params: HashMap<DefId, usize>,
     /// The trait each trait `impl` block implements (by the block's definition); absent
     /// when it did not resolve.
     impl_traits: HashMap<DefId, DefId>,
@@ -641,7 +662,13 @@ impl ResolveResults {
         self.slice_methods.get(name).copied()
     }
 
-    /// Which of the prelude's types the compiler refers to `def` is, if any.
+    /// The prelude's item `item`, if the prelude defines it.
+    #[must_use]
+    pub fn core_item(&self, item: CoreItem) -> Option<DefId> {
+        self.core_items.get(&item).copied()
+    }
+
+    /// Which of the prelude's items the compiler refers to `def` is, if any.
     #[must_use]
     pub fn core_item_of(&self, def: DefId) -> Option<CoreItem> {
         CoreItem::ALL
@@ -710,6 +737,25 @@ impl ResolveResults {
     #[must_use]
     pub fn trait_self(&self, def: DefId) -> DefId {
         self.generics(def)[0]
+    }
+
+    /// Whether a bound of the function or trait `impl` block `def` was dropped as not
+    /// supported (E0107).
+    #[must_use]
+    pub fn has_incomplete_bounds(&self, def: DefId) -> bool {
+        self.incomplete_bounds.contains(&def)
+    }
+
+    /// The trait `def`'s own type parameters, after `Self` (`T` of `trait From<T>`).
+    #[must_use]
+    pub fn trait_params(&self, def: DefId) -> &[DefId] {
+        self.generics(def).get(1..).unwrap_or(&[])
+    }
+
+    /// How many of the trait `def`'s own parameters have no default.
+    #[must_use]
+    pub fn trait_required_params(&self, def: DefId) -> usize {
+        self.trait_required_params.get(&def).copied().unwrap_or(0)
     }
 
     /// The supertraits of the trait `def`, as written.
@@ -917,6 +963,7 @@ pub fn resolve_program(
         sink,
         current_fn: None,
         ty_params: Vec::new(),
+        dropped_bound: false,
         impl_params: HashMap::new(),
         impl_scope: ImplScope::Outside,
         const_floor: None,
@@ -1034,6 +1081,8 @@ struct Resolver<'d> {
     current_fn: Option<DefId>,
     /// The type parameters in scope: those of the item being resolved.
     ty_params: Vec<(String, DefId)>,
+    /// Set by `where_bounds` when it dropped a bound it does not support (E0107).
+    dropped_bound: bool,
     /// The names an `impl` block (by item index) gives its type's parameters
     /// (`impl<U> S<U>` names `S`'s first parameter `U`), decision 83.
     impl_params: HashMap<usize, Vec<(String, DefId)>>,
@@ -1238,9 +1287,12 @@ impl Resolver<'_> {
             if let ItemKind::Enum(e) = &item.kind {
                 self.collect_variants(id, index, e);
                 let core = CoreItem::ALL.into_iter().find(|c| c.name() == name.name);
-                if let Some(core) = core.filter(|_| index >= self.results.prelude_start) {
+                let variants = core.and_then(CoreItem::try_variant_names);
+                if let (Some(core), Some((cont, brk))) = (
+                    core.filter(|_| index >= self.results.prelude_start),
+                    variants,
+                ) {
                     self.results.core_items.insert(core, id);
-                    let (cont, brk) = core.try_variant_names();
                     let at = |name: &str| {
                         e.variants
                             .iter()
@@ -1482,6 +1534,10 @@ impl Resolver<'_> {
     /// The members of the trait `tr`, each a definition with the trait as parent. A second
     /// member of one name is E0210 (rustc's E0428) and gets no entry among its members.
     fn collect_trait_members(&mut self, tr: DefId, index: usize, t: &sabiko_ast::TraitDecl) {
+        // The prelude's `From`, which `?` converts errors with (decision 95).
+        if t.name.name == CoreItem::From.name() && index >= self.results.prelude_start {
+            self.results.core_items.insert(CoreItem::From, tr);
+        }
         let mut members: Vec<DefId> = Vec::new();
         for (member_index, member) in t.items.iter().enumerate() {
             let (kind, name, required) = match &member.kind {
@@ -1592,7 +1648,20 @@ impl Resolver<'_> {
                         parent: Some(tr),
                         builtin: None,
                     });
-                    self.results.generics.insert(tr, vec![self_param]);
+                    // `Self`, then the trait's own parameters (`trait From<T>`), which its
+                    // members' signatures and bodies see by name.
+                    self.collect_params(item.id, index, &t.generics);
+                    let own = self.results.generics.remove(&tr).unwrap_or_default();
+                    let names: Vec<(String, DefId)> = own
+                        .iter()
+                        .map(|&p| (self.results.def(p).name.clone(), p))
+                        .collect();
+                    self.impl_params.insert(index, names);
+                    let required = t.generics.iter().filter(|g| g.default.is_none()).count();
+                    self.results.trait_required_params.insert(tr, required);
+                    let mut all = vec![self_param];
+                    all.extend(own);
+                    self.results.generics.insert(tr, all);
                     for member in &t.items {
                         match &member.kind {
                             ItemKind::Fn(f) => {
@@ -1852,7 +1921,12 @@ impl Resolver<'_> {
         // trait, or one of the prelude's) only for a type of the file. Such a block is
         // left without its trait, so nothing else is checked against it.
         let trait_ = trait_.filter(|&t| {
-            let foreign_trait = self.results.lang_of(t).is_some() || self.is_foreign(t);
+            if self.results.lang_of(t).is_none() && self.is_foreign(t) {
+                // A trait of the prelude (`From`): rustc's orphan rule over the type and
+                // the trait's arguments.
+                return self.orphan_check(imp_def, imp, tr);
+            }
+            let foreign_trait = self.results.lang_of(t).is_some();
             match adt {
                 Some(adt) if foreign_trait && self.is_foreign(adt) => {
                     self.foreign_trait_impl(t, adt, &imp.self_ty);
@@ -2016,6 +2090,124 @@ impl Resolver<'_> {
         !self.in_prelude && self.results.is_prelude(def)
     }
 
+    /// rustc's orphan rule for a trait `impl` block `imp` (definition `imp_def`) of a
+    /// trait from outside the file (`tr`, one of the prelude's): among its type and its
+    /// trait's arguments, in that order (`impl ForeignTrait<T1, .., Tn> for T0`), some
+    /// type must be a struct or enum of the file (E0214, rustc's E0117), and no type
+    /// parameter of the block may appear bare before the first one (E0226, E0210). A
+    /// rejected block is left without its trait.
+    fn orphan_check(&mut self, imp_def: DefId, imp: &ImplDecl, tr: &sabiko_ast::TraitRef) -> bool {
+        let mut tys: Vec<&Type> = vec![&imp.self_ty];
+        if let Some(args) = tr.path.args_of(tr.path.segments.len() - 1) {
+            tys.extend(&args.args);
+        }
+        let res_of = |this: &Self, ty: &Type| this.orphan_res(ty);
+        // The first type parameter of the block that appears bare, and its declaration.
+        let mut uncovered: Option<(&Type, Span)> = None;
+        for &ty in &tys {
+            match res_of(self, ty) {
+                Some(Res::Err) => return false,
+                Some(Res::Def(d)) if self.results.def(d).kind.is_type() && !self.is_foreign(d) => {
+                    let Some((param, declared)) = uncovered else {
+                        return true;
+                    };
+                    let (name, local) = (
+                        sabiko_ast::pretty::type_str(param),
+                        sabiko_ast::pretty::type_str(ty),
+                    );
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::ORPHAN_TYPE_PARAMETER,
+                            format!("type parameter `{name}` must be covered by another type when it appears before the first local type (`{local}`)"),
+                        )
+                        .with_label(declared, format!("type parameter `{name}` must be covered by another type when it appears before the first local type (`{local}`)"))
+                        .with_note("implementing a foreign trait is only possible if at least one of the types for which it is implemented is local, and no uncovered type parameters appear before that first local type")
+                        .with_note("in this case, 'before' refers to the following order: `impl<..> ForeignTrait<T1, ..., Tn> for T0`, where `T0` is the first and `Tn` is the last"),
+                    );
+                    return false;
+                }
+                Some(Res::Def(d))
+                    if self.results.def(d).kind == DefKind::TyParam
+                        && self.results.def(d).parent == Some(imp_def) =>
+                {
+                    uncovered = uncovered.or(Some((ty, self.results.def(d).span)));
+                }
+                _ => {}
+            }
+        }
+        if let Some((param, declared)) = uncovered {
+            let name = sabiko_ast::pretty::type_str(param);
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::ORPHAN_TYPE_PARAMETER,
+                    format!("type parameter `{name}` must be used as the type parameter for some local type (e.g., `MyStruct<{name}>`)"),
+                )
+                .with_label(declared, format!("type parameter `{name}` must be used as the type parameter for some local type"))
+                .with_note("implementing a foreign trait is only possible if at least one of the types for which it is implemented is local")
+                .with_note("only traits defined in the current crate can be implemented for a type parameter"),
+            );
+            return false;
+        }
+        let what = match res_of(self, &imp.self_ty) {
+            Some(Res::Prim(_)) => "primitive types",
+            Some(Res::Def(d)) if self.results.def(d).kind.is_type() => {
+                self.results.orphan_targets.insert(d);
+                "types defined outside of the crate"
+            }
+            _ => "arbitrary types",
+        };
+        let header = Span::new(
+            imp.self_ty.span.file,
+            tr.path.span.start.min(imp.self_ty.span.start),
+            imp.self_ty.span.end,
+        );
+        let mut d = Diagnostic::error(
+            ErrorCode::INVALID_DROP_TARGET,
+            format!("only traits defined in the current crate can be implemented for {what}"),
+        )
+        .with_label(
+            header,
+            "impl doesn't use only types from inside the current crate",
+        );
+        let mut sorted = tys.clone();
+        sorted.sort_by_key(|t| t.span.start);
+        for ty in sorted {
+            let label = match &ty.kind {
+                TypeKind::Tuple(_) => {
+                    "this is not defined in the current crate because tuples are always foreign"
+                        .to_owned()
+                }
+                TypeKind::Array(..) => {
+                    "this is not defined in the current crate because arrays are always foreign"
+                        .to_owned()
+                }
+                _ => format!(
+                    "`{}` is not defined in the current crate",
+                    sabiko_ast::pretty::type_str(ty)
+                ),
+            };
+            d = d.with_label(ty.span, label);
+        }
+        self.sink.emit(
+            d.with_note("impl doesn't have any local type before any uncovered type parameters")
+                .with_note("define and implement a trait or new type instead"),
+        );
+        false
+    }
+
+    /// What a type of an `impl` header names for the orphan rule. `&T` and `&mut T` are
+    /// fundamental, as in rustc: `&S` is local when `S` is, and `&T` leaves `T` uncovered.
+    fn orphan_res(&self, ty: &Type) -> Option<Res> {
+        let mut ty = ty;
+        while let TypeKind::Ref { inner, .. } = &ty.kind {
+            ty = inner;
+        }
+        match &ty.kind {
+            TypeKind::Path(_) => Some(self.results.res(ty.id)),
+            _ => None,
+        }
+    }
+
     /// E0211 (rustc's E0116): an inherent `impl` block for a type of the prelude. Its
     /// members are not the type's, and calls of them are not reported again.
     fn foreign_inherent_impl(&mut self, adt: DefId, ty: &Type) {
@@ -2151,7 +2343,20 @@ impl Resolver<'_> {
                     };
                     self.ty_params.clone_from(&params);
                     let mut block = self.param_bounds(&imp.generics, &params);
+                    self.dropped_bound = false;
                     block.extend(self.where_bounds(&imp.where_clause));
+                    let block_dropped = std::mem::take(&mut self.dropped_bound);
+                    if block_dropped {
+                        if trait_impl {
+                            self.results
+                                .incomplete_bounds
+                                .insert(self.results.def_of_item(item.id));
+                        }
+                        for member in &imp.items {
+                            let def = self.results.def_of_item(member.id);
+                            self.results.incomplete_bounds.insert(def);
+                        }
+                    }
                     let inherited = if trait_impl {
                         let def = self.results.def_of_item(item.id);
                         self.results.predicates.insert(def, block);
@@ -2177,17 +2382,27 @@ impl Resolver<'_> {
                 }
                 ItemKind::Trait(t) => {
                     let tr = self.results.def_of_item(item.id);
+                    let params = self.impl_params.get(&index).cloned().unwrap_or_default();
+                    self.impl_scope = ImplScope::Trait(tr);
+                    // A default sees `Self` and the parameters before it, as in rustc.
+                    self.ty_params.clear();
+                    for (g, param) in t.generics.iter().zip(&params) {
+                        if let Some(default) = &g.default {
+                            self.resolve_type(default, true);
+                        }
+                        self.ty_params.push(param.clone());
+                    }
+                    self.ty_params.clone_from(&params);
                     let supers: Vec<DefId> = t
                         .supertraits
                         .iter()
                         .filter_map(|s| self.resolve_trait_ref(s))
                         .collect();
                     self.results.supertraits.insert(tr, supers);
-                    self.impl_scope = ImplScope::Trait(tr);
                     for member in &t.items {
                         if let ItemKind::Fn(f) = &member.kind {
                             let def = self.results.def_of_item(member.id);
-                            self.fn_bounds(def, f, &[], Vec::new());
+                            self.fn_bounds(def, f, &params, Vec::new());
                         }
                     }
                     self.impl_scope = ImplScope::Outside;
@@ -2225,7 +2440,11 @@ impl Resolver<'_> {
             .map(|&p| (self.results.def(p).name.clone(), p))
             .collect();
         preds.extend(self.param_bounds(&f.generics, &own));
+        self.dropped_bound = false;
         preds.extend(self.where_bounds(&f.where_clause));
+        if std::mem::take(&mut self.dropped_bound) {
+            self.results.incomplete_bounds.insert(def);
+        }
         if !preds.is_empty() {
             self.results.predicates.insert(def, preds);
         }
@@ -2252,6 +2471,7 @@ impl Resolver<'_> {
                         param,
                         trait_,
                         span: b.path.span,
+                        trait_ref: b.id,
                     });
                 }
             }
@@ -2273,6 +2493,7 @@ impl Resolver<'_> {
                 Res::Err => None,
                 _ => {
                     self.unsupported_where(p.ty.span);
+                    self.dropped_bound = true;
                     None
                 }
             };
@@ -2283,6 +2504,7 @@ impl Resolver<'_> {
                         param,
                         trait_,
                         span: b.path.span,
+                        trait_ref: b.id,
                     });
                 }
             }
@@ -3122,12 +3344,16 @@ impl Resolver<'_> {
                 // `Self` already has its block's arguments.
                 None
             } else {
-                self.items
-                    .get(&seg.name)
-                    .copied()
-                    .filter(|&d| self.results.def(d).kind.is_type())
+                self.items.get(&seg.name).copied().filter(|&d| {
+                    let kind = self.results.def(d).kind;
+                    kind.is_type() || kind == DefKind::Trait
+                })
             };
             let kind = def.map(|d| self.results.def(d).kind);
+            if let (Some(DefKind::Trait), Some(d)) = (kind, def) {
+                self.check_trait_args(seg, written, d, in_type && index == last);
+                continue;
+            }
             // What the segment takes, and whether leaving them out is allowed.
             let takes = match (kind, def) {
                 (Some(DefKind::Fn), Some(d)) => Some((self.results.own_generics(d).len(), true)),
@@ -3193,6 +3419,62 @@ impl Resolver<'_> {
                 }
             }
         }
+    }
+
+    /// The generic arguments written after the segment `seg` naming the trait `tr`: at
+    /// most its own parameters, and, in a bound or an `impl` header (`required`), at least
+    /// those without a default (E0222, rustc's E0107). In an expression (`From::from`,
+    /// `From::<u8>::from`) any may be left out, and inference finds them.
+    fn check_trait_args(
+        &mut self,
+        seg: &sabiko_ast::Ident,
+        written: Option<&sabiko_ast::GenericArgs>,
+        tr: DefId,
+        required: bool,
+    ) {
+        let max = self.results.trait_params(tr).len();
+        let min = if required {
+            self.results.trait_required_params(tr)
+        } else {
+            0
+        };
+        let got = written.map_or(0, |a| a.args.len());
+        if (min..=max).contains(&got) {
+            return;
+        }
+        let info = self.results.def(tr);
+        let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+        let mut d = match written {
+            None => Diagnostic::error(
+                ErrorCode::WRONG_GENERIC_ARG_COUNT,
+                format!("missing generics for trait `{}`", seg.name),
+            )
+            .with_label(seg.span, format!("expected {min} generic {}", plural(min))),
+            Some(args) => {
+                let (bound, want) = match (min == max, got > max) {
+                    (true, _) => ("", max),
+                    (false, true) => ("at most ", max),
+                    (false, false) => ("at least ", min),
+                };
+                Diagnostic::error(
+                    ErrorCode::WRONG_GENERIC_ARG_COUNT,
+                    format!(
+                        "trait takes {bound}{want} generic {} but {got} generic {} {} supplied",
+                        plural(want),
+                        plural(got),
+                        if got == 1 { "was" } else { "were" }
+                    ),
+                )
+                .with_label(
+                    args.span,
+                    format!("expected {bound}{want} generic {}", plural(want)),
+                )
+            }
+        };
+        if !info.span.is_dummy() {
+            d = d.with_label(info.span, format!("trait `{}` defined here", info.name));
+        }
+        self.sink.emit(d);
     }
 
     /// E0223: generic arguments `args` after the segment `seg`, which takes none (`kind`

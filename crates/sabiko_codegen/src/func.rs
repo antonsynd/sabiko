@@ -674,6 +674,11 @@ impl FnCx<'_, '_> {
             Some(Intrinsic::SliceLen) => {
                 unreachable!("MIR building lowers a call of `<[T]>::len` to `Len`")
             }
+            // Monomorphisation reported it (E0500).
+            Some(Intrinsic::ArrayIntoTuple) => {
+                self.cx
+                    .unsupported("converting an array into a tuple", span);
+            }
             None => unreachable!("not an intrinsic"),
         }
     }

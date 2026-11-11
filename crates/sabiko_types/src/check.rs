@@ -13,14 +13,15 @@ use sabiko_ast::{
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{
-    Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, Predicate, PrimTy, Res,
-    ResolveResults,
+    Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, PrimTy, Res, ResolveResults,
 };
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::Solution;
+use crate::traits::{
+    instantiate_pred, overflow_error, trait_ref_str, Predicate, Solution, DEPTH_LIMIT,
+};
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -45,11 +46,34 @@ pub struct MethodCallee {
 }
 
 /// A bound a use requires: `ty` (with inference variables until the body is done) must
-/// implement `trait_`. Judged in `finish`.
+/// implement `trait_<args>`. Judged in `finish`.
+#[derive(Clone)]
 struct Obligation {
     ty: Ty,
     trait_: DefId,
+    /// The trait's arguments after `Self`.
+    args: Vec<Ty>,
     span: Span,
+    cause: Cause,
+    /// For a bound of an `impl` block selected for another obligation, that obligation:
+    /// rustc's "required for `u8` to implement `Into<i8>`".
+    required_for: Option<String>,
+    /// How many confirmations led to it from the bound a use required
+    /// (`select_obligations`): the recursion limit ([`DEPTH_LIMIT`]) counts from there,
+    /// while inference confirms and when the obligation is judged, so the proof is as deep
+    /// as the one the borrow checker replays from the bound.
+    depth: usize,
+}
+
+/// Why an obligation must hold, for its diagnostic: the root of rustc's obligation cause
+/// chain (the nested obligations keep it, with what they are required for).
+#[derive(Clone, Copy)]
+enum Cause {
+    /// A bound of a function, method or constant the body uses, or the trait of a trait
+    /// member it names.
+    Bound,
+    /// The error conversion of `?`, `To: From<E>` (decision 95), with the operand's span.
+    Try { operand: Span },
 }
 
 /// A use of a generic function in a body: its generic arguments (inference variables
@@ -120,6 +144,10 @@ pub struct BodyTypes {
     /// `e?`, keyed by the `ExprKind::Try` node: whether `e` is an `Option` or a `Result`
     /// (the function returns the same kind, decision 93).
     pub try_exprs: HashMap<NodeId, CoreItem>,
+    /// The error conversion of each `e?` on a `Result`, keyed by the `ExprKind::Try`
+    /// node: `From::from` and its generic arguments, the function's error type and the
+    /// operand's (decision 95).
+    pub try_conversions: HashMap<NodeId, (DefId, Vec<Ty>)>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
 }
@@ -193,8 +221,10 @@ struct IntLit {
 
 /// `e?`, judged in `finish` once its types are known: its value type must have lowered,
 /// and on a `Result<_, E1>` in a function returning `Result<_, E2>` (`from`, `to`; both
-/// `()` on an `Option`) `E2` must convert from `E1`.
+/// `()` on an `Option`) `E2: From<E1>` is an obligation (decision 95).
 struct PendingTry {
+    /// The `ExprKind::Try` node.
+    node: NodeId,
     value: Ty,
     from: Ty,
     to: Ty,
@@ -210,16 +240,18 @@ struct PendingCast {
     to: Ty,
 }
 
-/// A binary operation with an operand of type `!` (#87), or typed by a diverging variable
-/// nothing has decided yet (`let y = return; y + 1`), judged in `finish` before the
-/// never-type fallback. rustc types an operator's right operand against a fresh variable
+/// A binary operation (or compound assignment) whose impl its operand types do not select
+/// where it is checked, judged later: one with an operand still a general variable (see
+/// [`FnCtxt::open_operation`]), and one with an operand of type `!` (#87), or typed by a
+/// diverging variable nothing has decided yet (`let y = return; y + 1`), judged in
+/// `finish` before the never-type fallback. rustc types an operator's right operand against a fresh variable
 /// that only the operator trait's impl for the left type decides, so `!` reaches the
 /// trait instead of coercing: no arithmetic, bitwise or shift trait has an impl for `!`
 /// (`i32` has `Add<i32>` and `Add<&i32>`, so nothing decides the variable), and a
 /// comparison takes one only when the left type is known before the literal defaults
 /// and has a single impl. A variable decided by `finish` (`let _: i32 = y;`) makes the
 /// operation an ordinary one, checked then.
-struct NeverOperand {
+struct DeferredOperation {
     op: BinOp,
     /// `a op= b`.
     compound: bool,
@@ -291,12 +323,16 @@ pub(crate) struct FnCtxt<'a> {
     pending_negs: Vec<(Span, Ty)>,
     /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `!`.
     diverging_vars: Vec<Ty>,
-    /// `Print`/`PrintLine` arguments typed by such a variable (`let v = return;
-    /// PrintLine(v);`), checked once the fallback decided them.
+    /// `Print`/`PrintLine` arguments whose type was still an unknown variable (`let v =
+    /// return; PrintLine(v);`, or one a later use decides), checked once it is known, or
+    /// reported in `finish` (rustc's `T: Display` obligation of the call).
     pending_prints: Vec<(Builtin, Span, Ty)>,
     /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
     pending_comparisons: Vec<(BinOp, Ty, Span)>,
-    never_operands: Vec<NeverOperand>,
+    never_operands: Vec<DeferredOperation>,
+    /// Operations with an operand of a type still unknown where they were checked (see
+    /// [`FnCtxt::open_operation`]).
+    open_operations: Vec<DeferredOperation>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
@@ -308,6 +344,10 @@ pub(crate) struct FnCtxt<'a> {
     /// (unless it names a `const` item): judged in `finish`, once the type is known.
     pending_repeats: Vec<(Span, Ty)>,
     errors_before: usize,
+    /// The ambiguities `finish` reported (E0313 for open operations, printed values and
+    /// obligations): rustc reports a body's ambiguities together, so one does not taint
+    /// the body for the others.
+    ambiguities_reported: usize,
     /// The bounds that hold in the function being checked (`ItemTypes::param_env`).
     env: Vec<Predicate>,
     /// What `Self` names in a trait `impl` block's function: its `Self::V`, `Self { .. }`
@@ -317,6 +357,12 @@ pub(crate) struct FnCtxt<'a> {
     path_defs: HashMap<NodeId, DefId>,
     try_exprs: HashMap<NodeId, CoreItem>,
     pending_tries: Vec<PendingTry>,
+    /// The operand's error type of each `?` on a `Result`, keyed by the `?`'s span: what
+    /// an error about a nested bound of its conversion shows.
+    try_roots: HashMap<Span, Ty>,
+    /// Whether a bound of the function being checked was dropped as not supported
+    /// (E0107): an unsatisfied bound in its body is not reported again.
+    incomplete_bounds: bool,
     /// The function's signature, from its name to its return type, while a function's
     /// body is checked; `None` for a constant.
     fn_span: Option<Span>,
@@ -365,6 +411,7 @@ impl<'a> FnCtxt<'a> {
             pending_prints: Vec::new(),
             pending_comparisons: Vec::new(),
             never_operands: Vec::new(),
+            open_operations: Vec::new(),
             consts: None,
             index_derefs: HashMap::new(),
             len_calls: HashMap::new(),
@@ -372,12 +419,15 @@ impl<'a> FnCtxt<'a> {
             repeat_counts: HashMap::new(),
             pending_repeats: Vec::new(),
             errors_before,
+            ambiguities_reported: 0,
             env: Vec::new(),
             self_ty: None,
             obligations: Vec::new(),
             path_defs: HashMap::new(),
             try_exprs: HashMap::new(),
             pending_tries: Vec::new(),
+            try_roots: HashMap::new(),
+            incomplete_bounds: false,
             fn_span: None,
         }
     }
@@ -421,6 +471,7 @@ impl<'a> FnCtxt<'a> {
             return self.finish();
         };
         self.env = self.items.param_env(def).to_vec();
+        self.incomplete_bounds = self.resolve.has_incomplete_bounds(def);
         if self.resolve.parent_kind(def) == Some(DefKind::Impl) {
             let imp = self.resolve.def(def).parent.expect("a parent");
             self.self_ty = Some(self.items.impl_self_ty(imp));
@@ -915,20 +966,39 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// Checks an operand of an operator as [`Self::check_expr`] does, also saying whether
-    /// its type is `!` or a diverging variable still open (see [`NeverOperand`]). Such an
+    /// its type is `!` or a diverging variable still open (see [`DeferredOperation`]). Such an
     /// operand is not coerced to `expected`, which then only guides the checking: the
     /// operator decides what it becomes.
     fn check_operand(&mut self, expr: &Expr, expected: Option<&Ty>) -> (Ty, bool) {
+        self.check_operand_with(expr, expected, false)
+    }
+
+    /// [`Self::check_operand`], also leaving an operand whose type is a general variable
+    /// uncoerced when `open` (see [`Self::check_open_operand`]).
+    fn check_operand_with(&mut self, expr: &Expr, expected: Option<&Ty>, open: bool) -> (Ty, bool) {
         if let ExprKind::Paren(inner) = &expr.kind {
-            let (ty, never) = self.check_operand(inner, expected);
+            let (ty, never) = self.check_operand_with(inner, expected, open);
             return (self.record(expr, ty), never);
         }
         let ty = self.check_expr_kind(expr, expected);
         let never = self.is_never_like(&ty);
-        if !never {
+        let leave_open = open && self.is_open(&ty);
+        if !never && !leave_open {
             self.coerce_to_expected(expr, &ty, expected);
         }
         (self.record(expr, ty), never)
+    }
+
+    /// [`Self::check_operand`] for an operand of a built-in operator: an operand whose type
+    /// is still a general variable is not coerced to `expected` (the operator's impl,
+    /// which its types select, decides it, see [`Self::open_operation`]).
+    fn check_open_operand(&mut self, expr: &Expr, expected: Option<&Ty>) -> (Ty, bool) {
+        self.check_operand_with(expr, expected, true)
+    }
+
+    /// Whether `ty` is still a general inference variable (not one of a literal).
+    fn is_open(&mut self, ty: &Ty) -> bool {
+        matches!(self.shallow(ty), Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
     }
 
     /// Whether `ty` is `!` or a diverging variable nothing has decided yet.
@@ -985,14 +1055,25 @@ impl<'a> FnCtxt<'a> {
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let lhs_ty = self.check_place(lhs);
                 let lhs_never = self.is_never_like(&lhs_ty);
-                let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) || lhs_never {
+                let lhs_open = self.is_open(&lhs_ty);
+                let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) || lhs_never || lhs_open
+                {
                     None
                 } else {
                     Some(&lhs_ty)
                 };
-                let (rhs_ty, rhs_never) = self.check_operand(rhs, rhs_expected);
-                if lhs_never || rhs_never {
-                    self.never_operands.push(NeverOperand {
+                let (rhs_ty, rhs_never) = self.check_open_operand(rhs, rhs_expected);
+                if !lhs_never && !rhs_never && (lhs_open || self.is_open(&rhs_ty)) {
+                    self.open_operations.push(DeferredOperation {
+                        op: *op,
+                        compound: true,
+                        lhs: lhs_ty,
+                        rhs: rhs_ty,
+                        span: expr.span,
+                        out: None,
+                    });
+                } else if lhs_never || rhs_never {
+                    self.never_operands.push(DeferredOperation {
                         op: *op,
                         compound: true,
                         lhs: lhs_ty,
@@ -1021,7 +1102,7 @@ impl<'a> FnCtxt<'a> {
             }
             ExprKind::Field(base, name) => {
                 let base_ty = self.check_expr(base, None);
-                self.check_field(expr, &base_ty, &name.name, name.span)
+                self.check_field(expr, base.span, &base_ty, &name.name, name.span)
             }
             ExprKind::Try(operand) => self.check_try(expr, operand),
             ExprKind::Index(base, index) => self.check_index(expr, base, index, unsized_place),
@@ -1289,6 +1370,7 @@ impl<'a> FnCtxt<'a> {
     fn check_index(&mut self, expr: &Expr, base: &Expr, index: &Expr, unsized_ok: bool) -> Ty {
         self.unsized_place = true;
         let base_ty = self.check_expr(base, None);
+        let base_ty = self.structurally_resolve(&base_ty, base.span);
         if let ExprKind::Range(lo, hi, _) = &index.kind {
             return self.check_range_index(
                 expr,
@@ -2441,18 +2523,18 @@ impl<'a> FnCtxt<'a> {
             return Ty::Error;
         }
         let mut def = def;
-        let mut self_ty = None;
+        let mut trait_args = None;
         if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
-            let Some((chosen, ty)) = self.select_trait_item(expr.id, path, def) else {
+            let Some((chosen, args)) = self.select_trait_item(expr.id, path, def) else {
                 return Ty::Error;
             };
             if chosen != def {
                 self.path_defs.insert(expr.id, chosen);
             }
             def = chosen;
-            self_ty = Some(ty);
+            trait_args = Some(args);
         }
-        self.instantiate(expr.id, def, path, expr.span, self_ty);
+        self.instantiate(expr.id, def, path, expr.span, trait_args);
         Ty::FnDef(def)
     }
 
@@ -2487,7 +2569,7 @@ impl<'a> FnCtxt<'a> {
             );
             return Ty::Error;
         }
-        let Some((chosen, self_ty)) = self.select_trait_item(node, path, def) else {
+        let Some((chosen, args)) = self.select_trait_item(node, path, def) else {
             return Ty::Error;
         };
         if chosen != def {
@@ -2495,15 +2577,18 @@ impl<'a> FnCtxt<'a> {
         }
         let tr = self.resolve.def(chosen).parent.expect("a trait member");
         self.obligations.push(Obligation {
-            ty: self_ty.clone(),
+            ty: args[0].clone(),
             trait_: tr,
+            args: args[1..].to_vec(),
             span,
+            cause: Cause::Bound,
+            required_for: None,
+            depth: 0,
         });
-        self.generic_args
-            .insert(node, (vec![self_ty.clone()], chosen, span));
+        self.generic_args.insert(node, (args.clone(), chosen, span));
         self.items
             .const_ty(chosen)
-            .subst(&[self.resolve.trait_self(tr)], &[self_ty])
+            .subst(self.resolve.generics(tr), &args)
     }
 
     /// `W::<i32>::N` or `Self::N` naming a constant of a generic struct's or enum's
@@ -2529,11 +2614,17 @@ impl<'a> FnCtxt<'a> {
         if args.len() != generics.len() {
             args = vec![Ty::Error; generics.len()];
         }
-        for pred in self.items.param_env(def) {
+        let items = self.items;
+        for pred in items.param_env(def) {
+            let (ty, pred_args) = instantiate_pred(pred, &generics, &args);
             self.obligations.push(Obligation {
-                ty: Ty::Param(pred.param).subst(&generics, &args),
+                ty,
                 trait_: pred.trait_,
+                args: pred_args,
                 span,
+                cause: Cause::Bound,
+                required_for: None,
+                depth: 0,
             });
         }
         self.generic_args.insert(node, (args.clone(), def, span));
@@ -2548,7 +2639,7 @@ impl<'a> FnCtxt<'a> {
     fn check_try(&mut self, expr: &Expr, operand: &Expr) -> Ty {
         let ty = self.check_expr(operand, None);
         let question = Span::new(expr.span.file, operand.span.end, expr.span.end);
-        let ty = self.shallow(&ty);
+        let ty = self.structurally_resolve(&ty, operand.span);
         let found = match &ty {
             Ty::Adt(def, args) => self.resolve.core_item_of(*def).map(|k| (k, args.clone())),
             _ => None,
@@ -2614,9 +2705,27 @@ impl<'a> FnCtxt<'a> {
             Some((ret_kind, ret_args)) if ret_kind == kind => {
                 let (from, to) = match kind {
                     CoreItem::Result => (args[1].clone(), ret_args[1].clone()),
-                    CoreItem::Option => (Ty::Unit, Ty::Unit),
+                    _ => (Ty::Unit, Ty::Unit),
                 };
+                let from_trait = self.resolve.core_item(CoreItem::From);
+                if let (CoreItem::Result, Some(tr)) = (kind, from_trait) {
+                    self.try_roots.insert(question, from.clone());
+                    // `Err(From::from(e))`: the function's error type must implement
+                    // `From<E>` (decision 95).
+                    self.obligations.push(Obligation {
+                        ty: to.clone(),
+                        trait_: tr,
+                        args: vec![from.clone()],
+                        span: question,
+                        cause: Cause::Try {
+                            operand: operand.span,
+                        },
+                        required_for: None,
+                        depth: 0,
+                    });
+                }
                 self.pending_tries.push(PendingTry {
+                    node: expr.id,
                     value: value.clone(),
                     from,
                     to,
@@ -2636,7 +2745,7 @@ impl<'a> FnCtxt<'a> {
                         ),
                         "this function returns a `Result`",
                     ),
-                    CoreItem::Result => (
+                    CoreItem::Result | CoreItem::From => (
                         "the `?` operator can only be used on `Option`s, not `Result`s, in a function that returns `Option`",
                         "use `.ok()?` if you want to discard the error information".to_owned(),
                         "this function returns an `Option`",
@@ -2671,44 +2780,16 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// Lets the error conversions of `?` guide inference before literals default, as
-    /// rustc's `To: From<?E>` obligation does: when the error type `?E` of the operand is
-    /// not known yet and exactly one of the standard library's impls `From<S> for To`
-    /// has a source `S` it could be, it is that source. `let x: i32 = Err(5)?;` in a
-    /// function returning `Result<i32, u8>` makes the literal a `u8` (only the reflexive
-    /// impl takes an integer); for an `i64` error, `From<i8>`, `From<i16>`, ... all could
-    /// apply, so the literal defaults to `i32`, which `From<i32> for i64` converts.
-    fn select_try_conversions(&mut self) {
-        let pending: Vec<(Ty, Ty)> = self
-            .pending_tries
-            .iter()
-            .map(|t| (t.from.clone(), t.to.clone()))
-            .collect();
-        for (from, to) in pending {
-            let from = self.infer.resolve(&from);
-            let to = self.infer.resolve(&to);
-            if !from.has_infer() || to.has_infer() {
-                continue;
-            }
-            let candidates: Vec<Ty> = self
-                .conversion_sources(&to)
-                .into_iter()
-                .filter(|source| self.could_be(source, &[], &from))
-                .collect();
-            if let [source] = candidates.as_slice() {
-                // The candidate was checked to fit.
-                let _ = self.infer.unify(source, &from);
-            }
-        }
-    }
-
-    /// The error conversions of `?` on a `Result` (decision 93). rustc returns
-    /// `Err(From::from(e))`; `From` is a generic trait, which Sabiko does not have yet
-    /// (#117), so only the reflexive `impl<T> From<T> for T` is available: the same error
-    /// type converts. A conversion the standard library has (`From<i32> for i64`,
-    /// [`Self::conversion_sources`]) is not yet supported (E0107); any other is E0351 with
-    /// rustc's message, since no program can implement `From` yet.
-    fn check_pending_tries(&mut self) {
+    /// The types of each `?` once inference is done: a `?` on a `Result` whose types
+    /// lowered records its error conversion, `<To as From<E>>::from` (decision 95), whose
+    /// obligation `check_obligations` judged. Without the prelude's `From` the error moves
+    /// unconverted, which the error types then must allow (`try_exprs` alone).
+    fn check_pending_tries(&mut self) -> HashMap<NodeId, (DefId, Vec<Ty>)> {
+        let mut conversions = HashMap::new();
+        let from_fn = self
+            .resolve
+            .core_item(CoreItem::From)
+            .and_then(|tr| self.resolve.trait_item(tr, "from"));
         for t in std::mem::take(&mut self.pending_tries) {
             let value = self.infer.resolve_with_defaults(&t.value);
             let from = self.infer.resolve_with_defaults(&t.from);
@@ -2718,98 +2799,42 @@ impl<'a> FnCtxt<'a> {
                 // which `typeck` checks before any `?` is lowered.
                 continue;
             }
-            if from == to {
+            if self.try_exprs.get(&t.node) != Some(&CoreItem::Result) {
                 continue;
             }
-            if from.has_infer() || to.has_infer() {
-                // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(
-                        t.operand_span,
-                        "cannot infer the error type of this `Result`",
-                    ),
-                );
-                self.infer.bind_error(&from);
-                continue;
-            }
-            let (from_s, to_s) = (self.ty_str(&from), self.ty_str(&to));
-            if from.is_never() || self.conversion_sources(&to).contains(&from) {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::UNSUPPORTED_SYNTAX,
-                        format!(
-                            "not yet supported: `?` converting the error from `{from_s}` to `{to_s}`"
-                        ),
-                    )
-                    .with_label(
-                        t.span,
-                        format!("Rust converts it with `From<{from_s}> for {to_s}`"),
-                    )
-                    .with_note("`?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)"),
-                );
-            } else {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TRY_ERROR_CONVERSION,
-                        format!("`?` couldn't convert the error to `{to_s}`"),
-                    )
-                    .with_label(
-                        t.span,
-                        format!("the trait `From<{from_s}>` is not implemented for `{to_s}`"),
-                    )
-                    .with_label(
-                        t.operand_span,
-                        format!(
-                            "this can't be annotated with `?` because it has type `Result<_, {from_s}>`"
-                        ),
-                    )
-                    .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait"),
-                );
-            }
-        }
-    }
-
-    /// The sources `S` of Rust's standard library's impls `From<S> for to`, among the
-    /// types Sabiko has: `to` itself (the reflexive impl), the primitives that convert to
-    /// a primitive losslessly, `T` for `Option<T>` and `&Option<T>` for `Option<&T>`
-    /// (`&mut` likewise), and an array of `N` (up to 12) `T`s for a tuple of `N` `T`s and
-    /// the other way round. `From<!> for T` is left out: rustc's inference does not
-    /// consider it either. A program cannot implement `From` yet, so these are all the
-    /// conversions there are (checked against rustc on every pair of a table of types,
-    /// `crates/sabiko_driver/tests/try_conversions.rs`).
-    fn conversion_sources(&self, to: &Ty) -> Vec<Ty> {
-        let mut sources = vec![to.clone()];
-        match to {
-            Ty::Prim(p) => sources.extend(
-                PrimTy::ALL
-                    .into_iter()
-                    .filter(|&q| q != *p && prim_from(q, *p))
-                    .map(Ty::Prim),
-            ),
-            Ty::Adt(def, args) if self.resolve.core_item_of(*def) == Some(CoreItem::Option) => {
-                sources.push(args[0].clone());
-                if let Ty::Ref(m, inner) = &args[0] {
-                    let option = Ty::Adt(*def, vec![(**inner).clone()].into());
-                    sources.push(Ty::Ref(*m, Box::new(option)));
+            match from_fn {
+                // The same concrete type: the reflexive impl, the only one coherence lets
+                // match, is the identity, so the error moves as it is (rustc inlines it).
+                // In a generic body (`E` a type parameter) the call stays, and
+                // monomorphisation resolves it.
+                Some(_) if from == to && !from.has_param() => {}
+                Some(f) if !from.has_infer() && !to.has_infer() => {
+                    conversions.insert(t.node, (f, vec![to, from]));
                 }
+                None if from != to => {
+                    // No prelude: nothing converts (only harnesses without one get here).
+                    let (from_s, to_s) = (self.ty_str(&from), self.ty_str(&to));
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TRY_ERROR_CONVERSION,
+                            format!("`?` couldn't convert the error to `{to_s}`"),
+                        )
+                        .with_label(
+                            t.span,
+                            format!("the trait `From<{from_s}>` is not implemented for `{to_s}`"),
+                        )
+                        .with_label(
+                            t.operand_span,
+                            format!(
+                                "this can't be annotated with `?` because it has type `Result<_, {from_s}>`"
+                            ),
+                        ),
+                    );
+                }
+                _ => {}
             }
-            Ty::Array(elem, n) if (1..=12).contains(n) => {
-                let n = usize::try_from(*n).expect("at most 12");
-                sources.push(Ty::Tuple(Box::new(vec![(**elem).clone(); n])));
-            }
-            Ty::Tuple(elems)
-                if (1..=12).contains(&elems.len()) && elems.iter().all(|e| *e == elems[0]) =>
-            {
-                let n = u64::try_from(elems.len()).expect("at most 12");
-                sources.push(Ty::Array(Box::new(elems[0].clone()), n));
-            }
-            _ => {}
         }
-        sources
+        conversions
     }
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
@@ -2820,6 +2845,11 @@ impl<'a> FnCtxt<'a> {
             self.double_negation = matches!(operand, ExprKind::Unary(UnOp::Neg, _));
         }
         let (ty, never) = self.check_operand(operand, expected);
+        let ty = if never {
+            ty
+        } else {
+            self.structurally_resolve(&ty, operand.span)
+        };
         self.negating = false;
         self.double_negation = false;
         let resolved = self.shallow(&ty);
@@ -2889,11 +2919,20 @@ impl<'a> FnCtxt<'a> {
                 Ty::BOOL
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                let (l, l_never) = self.check_operand(lhs, None);
+                let (l, l_never) = self.check_open_operand(lhs, None);
                 if l_never {
                     // Only `!: PartialEq<!>` and `!: PartialOrd<!>` exist.
                     let (r, _) = self.check_operand(rhs, None);
                     self.never_operand(op, l, r, span);
+                    return Ty::BOOL;
+                }
+                if self.is_open(&l) {
+                    let (r, r_never) = self.check_open_operand(rhs, None);
+                    if r_never {
+                        self.never_operand(op, l, r, span);
+                    } else {
+                        self.open_operation(op, l, r, span);
+                    }
                     return Ty::BOOL;
                 }
                 if let Ty::Ref(..) = self.shallow(&l) {
@@ -2925,10 +2964,13 @@ impl<'a> FnCtxt<'a> {
                 Ty::BOOL
             }
             BinOp::Shl | BinOp::Shr => {
-                let (l, l_never) = self.check_operand(lhs, expected);
-                let (r, r_never) = self.check_operand(rhs, None);
+                let (l, l_never) = self.check_open_operand(lhs, expected);
+                let (r, r_never) = self.check_open_operand(rhs, None);
                 if l_never || r_never {
                     return self.never_operand(op, l, r, span);
+                }
+                if self.is_open(&l) || self.is_open(&r) {
+                    return self.open_operation(op, l, r, span);
                 }
                 if self.check_shift_operands(op, &l, &r, span) {
                     l
@@ -2937,10 +2979,15 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             _ => {
-                let (l, l_never) = self.check_operand(lhs, expected);
-                let (r, r_never) = self.check_operand(rhs, (!l_never).then_some(&l));
+                let (l, l_never) = self.check_open_operand(lhs, expected);
+                let l_open = self.is_open(&l);
+                let (r, r_never) =
+                    self.check_open_operand(rhs, (!l_never && !l_open).then_some(&l));
                 if l_never || r_never {
                     return self.never_operand(op, l, r, span);
+                }
+                if l_open || self.is_open(&r) {
+                    return self.open_operation(op, l, r, span);
                 }
                 if self.check_arith_operands(op, &l, &r, span) {
                     l
@@ -3034,12 +3081,143 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// Records an operation with an operand of type `!` (see [`NeverOperand`]) and
+    /// Records an operation with an operand whose type is still a general variable and
+    /// returns its type for now (a fresh variable, or `bool` for a comparison). rustc types
+    /// such an operator through its trait (`?L: Add<?R>`, with `Output` unknown), whose
+    /// selection waits while the left type is a variable, and, for the arithmetic, bitwise
+    /// and shift traits, also while the right one is (`i64` has `Add<i64>` and
+    /// `Add<&i64>`); a comparison with a known left type has one impl, which decides the
+    /// right type, and is checked at once. So nothing is unified here, whichever operand
+    /// is open and whatever the expected type: the operation is judged as an ordinary one
+    /// once a later use decides the operands ([`Self::select_where_possible`]), and is
+    /// E0313 in `finish` if none does (rustc's E0283), before the literal defaults. When
+    /// #117 brings the operator traits, this record becomes the obligation `L: Add<R>`
+    /// with its `Output`, and judging it is selecting that obligation.
+    fn open_operation(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
+        let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
+        let ty = out.clone().unwrap_or(Ty::BOOL);
+        self.open_operations.push(DeferredOperation {
+            op,
+            compound: false,
+            lhs,
+            rhs,
+            span,
+            out,
+        });
+        ty
+    }
+
+    /// Judges the open operations ([`Self::open_operation`]) whose impl the operand types
+    /// select now: a comparison's once its left type is known, any other once both are,
+    /// and a shift's result only once its left type is more than a literal's (`{integer}:
+    /// Shl<i64>` has an impl per integer type, each with its own `Output`), which
+    /// `defaults` gives it. Returns whether one was.
+    fn judge_open_operations(&mut self, defaults: bool) -> bool {
+        let mut judged = false;
+        for n in std::mem::take(&mut self.open_operations) {
+            let shift_out = n.out.is_some() && matches!(n.op, BinOp::Shl | BinOp::Shr);
+            if shift_out && defaults && !self.is_open(&n.rhs) {
+                let l = self.infer.resolve_with_defaults(&n.lhs);
+                // Only a literal's variable changes, to its default.
+                let _ = self.infer.unify(&n.lhs, &l);
+            }
+            let literal_lhs = matches!(self.shallow(&n.lhs), Ty::Infer(_));
+            let selects = !self.is_open(&n.lhs)
+                && (n.op.is_comparison() && !n.compound || !self.is_open(&n.rhs))
+                && !(shift_out && literal_lhs);
+            if !selects {
+                self.open_operations.push(n);
+                continue;
+            }
+            judged = true;
+            if self.is_never_like(&n.lhs) || self.is_never_like(&n.rhs) {
+                // Decided as `!` by now: judged with the other operations on `!`.
+                self.never_operands.push(n);
+                continue;
+            }
+            self.check_decided_operation(&n, false);
+            if n.op.is_comparison() && !n.compound {
+                self.pending_comparisons.push((n.op, n.lhs.clone(), n.span));
+            }
+        }
+        judged
+    }
+
+    /// rustc's `select_obligations_where_possible`: selects the pending obligations and
+    /// judges the open operations and printed values their types decide, until nothing
+    /// changes.
+    fn select_where_possible(&mut self) {
+        self.select_judging(false);
+    }
+
+    /// [`Self::select_where_possible`], with the literal defaults applied to the left
+    /// operands of open shifts when `defaults` (rustc's integer fallback before its last
+    /// selection).
+    fn select_judging(&mut self, defaults: bool) {
+        loop {
+            self.select_obligations();
+            let ops = self.judge_open_operations(defaults);
+            let prints = self.check_known_prints();
+            if !ops && !prints {
+                return;
+            }
+        }
+    }
+
+    /// Checks the `Print`/`PrintLine` arguments recorded while their type was open whose
+    /// type is known now. Returns whether one was.
+    fn check_known_prints(&mut self) -> bool {
+        let mut checked = false;
+        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
+            let t = self.infer.resolve(&ty);
+            if self.printability_known(&t) {
+                checked = true;
+                self.check_printable(builtin, span, &t);
+            } else {
+                self.pending_prints.push((builtin, span, ty));
+            }
+        }
+        checked
+    }
+
+    /// The open operations ([`Self::open_operation`]) left when the body is done: no use
+    /// decided their operand types, which is E0313 (rustc's E0283) at the operator,
+    /// unless the body is tainted by errors. The operands' variables become errors, so
+    /// what else they leave open is not reported again.
+    fn report_open_operations(&mut self) {
+        for n in std::mem::take(&mut self.open_operations) {
+            if !self.ambiguity_tainted() {
+                self.ambiguities_reported += 1;
+                let sym = format!("{}{}", n.op.as_str(), if n.compound { "=" } else { "" });
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(n.span, format!("cannot infer the operand types of `{sym}`"))
+                    .with_note(
+                        "the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation",
+                    ),
+                );
+            }
+            for t in [Some(&n.lhs), Some(&n.rhs), n.out.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                let t = self.infer.resolve(t);
+                if t.has_infer() {
+                    self.infer.bind_error(&t);
+                }
+            }
+        }
+    }
+
+    /// Records an operation with an operand of type `!` (see [`DeferredOperation`]) and
     /// returns its type for now.
     fn never_operand(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
         let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
         let ty = out.clone().unwrap_or(Ty::BOOL);
-        self.never_operands.push(NeverOperand {
+        self.never_operands.push(DeferredOperation {
             op,
             compound: false,
             lhs,
@@ -3129,7 +3307,7 @@ impl<'a> FnCtxt<'a> {
 
     /// A recorded operation whose operands were decided after all (`let y = return; let
     /// r = y + 1; let _: i32 = y;`): checked as an ordinary one now.
-    fn check_decided_operation(&mut self, n: &NeverOperand, r_never: bool) {
+    fn check_decided_operation(&mut self, n: &DeferredOperation, r_never: bool) {
         let shift = matches!(n.op, BinOp::Shl | BinOp::Shr);
         if n.op.is_comparison() && !n.compound {
             if !r_never {
@@ -3329,15 +3507,15 @@ impl<'a> FnCtxt<'a> {
     /// turbofish's (`_` a fresh variable), or a fresh inference variable per type parameter.
     /// Nothing for a function that is not generic.
     /// Records the generic arguments of a use of the function `def` at the path `path`
-    /// (node `id`), and the bounds they must meet. A trait's member takes `self_ty` as its
-    /// `Self` (decision 84).
+    /// (node `id`), and the bounds they must meet. A trait's member takes `trait_args` as
+    /// its `Self` and its trait's arguments (decisions 84, 95).
     fn instantiate(
         &mut self,
         id: NodeId,
         def: DefId,
         path: &sabiko_ast::Path,
         span: Span,
-        self_ty: Option<Ty>,
+        trait_args: Option<Vec<Ty>>,
     ) {
         if self.items.builtin(def).is_some() {
             return;
@@ -3351,8 +3529,9 @@ impl<'a> FnCtxt<'a> {
         // (`Pair::<i32, bool>::New`), or inference variables.
         let parent = self.resolve.parent_generic_count(def);
         let mut args: Vec<Ty> = Vec::new();
-        if let Some(self_ty) = self_ty {
-            args.push(self_ty);
+        if let Some(trait_args) = trait_args {
+            args = trait_args;
+            args.resize(parent, Ty::Error);
         } else if parent > 0 {
             let adt = self
                 .resolve
@@ -3382,12 +3561,18 @@ impl<'a> FnCtxt<'a> {
     /// The bounds of the function `def` at the generic arguments `args` become
     /// obligations of the body, judged when it is done.
     fn require_bounds(&mut self, def: DefId, args: &[Ty], span: Span) {
-        let generics = &self.items.fn_sig(def).generics;
-        for pred in self.items.param_env(def) {
+        let items = self.items;
+        let generics = &items.fn_sig(def).generics;
+        for pred in items.param_env(def) {
+            let (ty, pred_args) = instantiate_pred(pred, generics, args);
             self.obligations.push(Obligation {
-                ty: Ty::Param(pred.param).subst(generics, args),
+                ty,
                 trait_: pred.trait_,
+                args: pred_args,
                 span,
+                cause: Cause::Bound,
+                required_for: None,
+                depth: 0,
             });
         }
     }
@@ -3414,39 +3599,51 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// The trait method a path `A::Name` calls, and its `Self`: for `Trait::Name` the
-    /// resolver's, at a `Self` inference finds; for a type `A`, the one among the traits
-    /// with a member `Name` that `A` implements (E0319 when none does, E0342, rustc's
-    /// E0034, when several do).
+    /// The trait member a path `A::Name` names, and its trait's generic arguments (`Self`
+    /// first): for `Trait::Name` the resolver's, at a `Self` inference finds and the
+    /// arguments written after the trait (`From::<u8>::from`) or inferred; for a type `A`,
+    /// the one among the traits with a member `Name` that `A` may implement at some
+    /// arguments (E0319 when none does, E0342, rustc's E0034, when several do).
     fn select_trait_item(
         &mut self,
         node: NodeId,
         path: &sabiko_ast::Path,
         def: DefId,
-    ) -> Option<(DefId, Ty)> {
+    ) -> Option<(DefId, Vec<Ty>)> {
         let self_ty = self.assoc_self_ty(node, path);
         let by_trait = matches!(
             self.resolve.assoc_self(node),
             Some(Res::Def(d)) if self.resolve.def(d).kind == DefKind::Trait
         );
         if by_trait || self_ty.is_error() {
-            return Some((def, self_ty));
+            let tr = self.resolve.def(def).parent.expect("a trait member");
+            let n = self.items.trait_param_count(tr);
+            let written = path
+                .args_of(0)
+                .filter(|a| by_trait && path.segments.len() > 1 && a.args.len() <= n);
+            let mut args = vec![self_ty];
+            if let Some(written) = written {
+                args.extend(written.args.iter().map(|t| self.lower_type(t)));
+            }
+            while args.len() <= n {
+                args.push(self.infer.new_var(VarKind::General));
+            }
+            return Some((def, args));
         }
         let name = self.resolve.def(def).name.clone();
-        let found: Vec<DefId> = self
-            .resolve
-            .trait_items_named(&name)
-            .into_iter()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .filter(|&m| {
-                let tr = self.resolve.def(m).parent.expect("a trait member");
-                self.may_implement(&self_ty, tr)
-            })
-            .collect();
+        let mut found: Vec<(DefId, Vec<Ty>)> = Vec::new();
+        for m in self.resolve.trait_items_named(&name) {
+            let tr = self.resolve.def(m).parent.expect("a trait member");
+            let args = self.fresh_trait_args(tr);
+            if self.may_implement(&self_ty, tr, &args) {
+                let mut all = vec![self_ty.clone()];
+                all.extend(args);
+                found.push((m, all));
+            }
+        }
         let shown = self.ty_str(&self_ty);
         match found.as_slice() {
-            [one] => Some((*one, self_ty)),
+            [one] => Some(one.clone()),
             [] => {
                 let tr = self.resolve.def(def).parent.expect("a trait member");
                 let trait_name = self.resolve.def(tr).name.clone();
@@ -3461,18 +3658,30 @@ impl<'a> FnCtxt<'a> {
                 None
             }
             many => {
-                self.ambiguous(path.last().span, &name, many, &shown);
+                let defs: Vec<DefId> = many.iter().map(|(d, _)| *d).collect();
+                self.ambiguous(path.last().span, &name, &defs, &shown);
                 None
             }
         }
     }
 
-    /// Whether `ty` implements `tr` or may once inference knows more: an integer variable
-    /// may be any integer type an `impl` of `tr` is for.
-    fn may_implement(&mut self, ty: &Ty, tr: DefId) -> bool {
+    /// A fresh inference variable for each of the trait `tr`'s own parameters: a trait
+    /// member named through a type or a method call infers them, as rustc does.
+    fn fresh_trait_args(&mut self, tr: DefId) -> Vec<Ty> {
+        (0..self.items.trait_param_count(tr))
+            .map(|_| self.infer.new_var(VarKind::General))
+            .collect()
+    }
+
+    /// Whether `ty` implements `tr<args>` or may once inference knows more: an integer
+    /// variable may be any integer type an `impl` of `tr` is for, and arguments not known
+    /// yet may be any that a block or a bound gives.
+    fn may_implement(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> bool {
         let ty = self.infer.resolve(ty);
-        match self.items.implements(&ty, tr, &self.env) {
-            Solution::Yes => true,
+        let args: Vec<Ty> = args.iter().map(|a| self.infer.resolve(a)).collect();
+        match self.items.implements(&ty, tr, &args, &self.env) {
+            // An overflow is reported where the obligation is judged.
+            Solution::Yes | Solution::Overflow => true,
             Solution::No => false,
             Solution::Ambiguous => {
                 // The built-in `Copy` and `Clone` hold of every integer and float type,
@@ -3482,7 +3691,8 @@ impl<'a> FnCtxt<'a> {
                     Some(LangItem::Copy | LangItem::Clone)
                 );
                 (builtin && self.may_be_copy_like(&ty, tr))
-                    || self.impl_candidates(&ty, tr) > 0
+                    || !self.env_candidates(&ty, tr, &args).is_empty()
+                    || self.impl_candidates(&ty, tr, &args) > 0
                     || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
             }
         }
@@ -3497,100 +3707,303 @@ impl<'a> FnCtxt<'a> {
             Ty::Ref(Mutability::Mut, _) | Ty::Slice(_) | Ty::Prim(PrimTy::Str) => false,
             Ty::Tuple(elems) => elems.iter().all(|e| self.may_be_copy_like(e, tr)),
             Ty::Array(elem, _) => self.may_be_copy_like(elem, tr),
-            _ => self.items.implements(ty, tr, &self.env) != Solution::No,
+            _ => self.items.implements(ty, tr, &[], &self.env) != Solution::No,
         }
     }
 
-    /// How many `impl` blocks of `tr` have a type that `ty`, with inference variables,
-    /// could be: an integer (float) variable can only be an integer (float) type, a
-    /// general one anything.
-    fn impl_candidates(&mut self, ty: &Ty, tr: DefId) -> usize {
-        let impls: Vec<(Ty, Vec<DefId>)> = self
-            .items
+    /// How many `impl` blocks of `tr` have a header `ty: tr<args>`, with inference
+    /// variables, could match (see [`Self::impl_candidate_list`]).
+    fn impl_candidates(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> usize {
+        self.impl_candidate_list(ty, tr, args).len()
+    }
+
+    /// The `impl` blocks of `tr` (by index among them) whose header unifies with `ty:
+    /// tr<args>`, their type parameters fresh variables, tried without keeping anything
+    /// (rustc's candidate assembly in a probe): an integer (float) variable can only be an
+    /// integer (float) type, a general one anything, and a block's parameter stands for
+    /// one type everywhere (`From<T> for Option<T>` is no candidate for `Option<i32>:
+    /// From<Option<?X>>`).
+    fn impl_candidate_list(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> Vec<usize> {
+        let items = self.items;
+        let env = std::mem::take(&mut self.env);
+        let tys: Vec<&Ty> = std::iter::once(ty).chain(args).collect();
+        let out = items
             .impls_of(tr)
-            .map(|i| (i.self_ty.clone(), i.generics.clone()))
+            .enumerate()
+            .filter(|(_, imp)| {
+                imp.trait_args.len() == args.len()
+                    && self.infer.probe(|infer| {
+                        let fresh: Vec<Ty> = imp
+                            .generics
+                            .iter()
+                            .map(|_| infer.new_var(VarKind::General))
+                            .collect();
+                        let unified = std::iter::once(&imp.self_ty)
+                            .chain(&imp.trait_args)
+                            .zip(&tys)
+                            .all(|(pat, t)| {
+                                infer.unify(&pat.subst(&imp.generics, &fresh), t).is_ok()
+                            });
+                        // rustc's winnowing: a block one of whose bounds already fails
+                        // at the unified types is no candidate.
+                        unified
+                            && !imp.preds.iter().any(|pred| {
+                                let (pty, pargs) = instantiate_pred(pred, &imp.generics, &fresh);
+                                let pty = infer.resolve(&pty);
+                                let pargs: Vec<Ty> =
+                                    pargs.iter().map(|a| infer.resolve(a)).collect();
+                                items.implements(&pty, pred.trait_, &pargs, &env) == Solution::No
+                            })
+                    })
+            })
+            .map(|(i, _)| i)
             .collect();
-        impls
+        self.env = env;
+        out
+    }
+
+    /// rustc's `structurally_resolve_type`: the type `ty` of the expression at `span` must
+    /// be known here (a unary operator's operand, a receiver, a field access's or an
+    /// index's base, the operand of `?`). When it is still a variable that a pending trait
+    /// obligation or an open operation mentions, they are selected and judged first, as
+    /// rustc does (`S.Map()` with one `impl Map<i64> for S` is an `i64` there, and so is
+    /// `w + 1` once `w` is); if that leaves it unknown, it is E0313 (rustc's E0282/E0283)
+    /// instead of being decided by a later use, unless the body is tainted by errors. A
+    /// variable nothing mentions is left to the caller, which defers as before. A binary
+    /// operator's operands are not resolved here: see [`Self::open_operation`].
+    fn structurally_resolve(&mut self, ty: &Ty, span: Span) -> Ty {
+        let t = self.shallow(ty);
+        let Ty::Infer(v) = t else {
+            return t;
+        };
+        if self.infer.kind(v) != VarKind::General || !self.obligation_mentions(&t) {
+            return t;
+        }
+        self.select_where_possible();
+        let t = self.shallow(ty);
+        if let Ty::Infer(v) = t {
+            if self.infer.kind(v) == VarKind::General && self.obligation_mentions(&t) {
+                if self.ambiguity_tainted() {
+                    self.infer.bind_error(&t);
+                    return Ty::Error;
+                }
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(span, "type must be known at this point")
+                    .with_note(
+                        "the trait bounds on it leave its type open: give it a type annotation",
+                    ),
+                );
+                self.infer.bind_error(&t);
+                return Ty::Error;
+            }
+        }
+        t
+    }
+
+    /// Whether the body is tainted by errors, as rustc's inference context is when its
+    /// ambiguities are judged: an error was reported in it, or a trait it has an
+    /// obligation of has blocks reported as overlapping or overflowing (rustc checks a
+    /// trait's coherence lazily, when a body first selects with it, so that error falls
+    /// within the body). An ambiguity is then not reported.
+    fn ambiguity_tainted(&self) -> bool {
+        self.sink.error_count() - self.ambiguities_reported > self.errors_before
+            || self.uses_reported_impls(&self.obligations)
+    }
+
+    /// Whether a trait of one of `obligations` has blocks reported as overlapping or
+    /// overflowing.
+    fn uses_reported_impls(&self, obligations: &[Obligation]) -> bool {
+        obligations.iter().any(|o| {
+            self.items
+                .impls_of(o.trait_)
+                .any(|i| self.items.is_reported_impl(i.def))
+        })
+    }
+
+    /// Whether an obligation that mentions the unknown type `ty` is an ambiguity rustc
+    /// would not report: some error was reported already, or blocks reported as
+    /// overlapping or overflowing (E0215, E0353) leave it open.
+    fn tied_to_reported_impl(&mut self, ty: &Ty) -> bool {
+        let obligations = self.obligations.clone();
+        obligations.iter().any(|o| {
+            let (oty, args) = (self.infer.resolve(&o.ty), self.resolve_all(&o.args));
+            let mentions = std::iter::once(&oty)
+                .chain(&args)
+                .any(|t| ty_has_var_of(t, ty));
+            mentions
+                && (self.ambiguity_tainted() || self.involves_reported_impl(&oty, o.trait_, &args))
+        })
+    }
+
+    /// Whether a pending obligation or an open operation mentions the inference variable
+    /// `var` (resolved).
+    fn obligation_mentions(&mut self, var: &Ty) -> bool {
+        let var = self.infer.resolve(var);
+        let pending: Vec<Ty> = self
+            .obligations
             .iter()
-            .filter(|(pat, params)| self.could_be(pat, params, ty))
-            .count()
+            .flat_map(|o| std::iter::once(&o.ty).chain(&o.args))
+            .chain(
+                self.open_operations
+                    .iter()
+                    .flat_map(|n| [&n.lhs, &n.rhs].into_iter().chain(&n.out)),
+            )
+            .cloned()
+            .collect();
+        pending.iter().any(|t| {
+            let t = self.infer.resolve(t);
+            contains_ty(&t, &var)
+        })
     }
 
-    fn could_be(&mut self, pat: &Ty, params: &[DefId], ty: &Ty) -> bool {
-        if let Ty::Param(p) = pat {
-            if params.contains(p) {
-                return true;
-            }
-        }
-        match (pat, ty) {
-            (_, Ty::Infer(v)) => match self.infer.kind(*v) {
-                VarKind::General => true,
-                VarKind::Int => matches!(pat, Ty::Prim(p) if p.is_integer()),
-                VarKind::Float => matches!(pat, Ty::Prim(p) if p.is_float()),
-            },
-            (_, Ty::Error) => true,
-            // No block's type holds a slice (`check_impl_type`, E0107); a reference comes
-            // from the sources of `?`'s conversions (`&Option<T>` for `Option<&T>`).
-            (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && self.could_be(a, params, b),
-            (Ty::Array(a, n), Ty::Array(b, m)) => n == m && self.could_be(a, params, b),
-            (Ty::Tuple(a), Ty::Tuple(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .zip(b.iter())
-                        .all(|(x, y)| self.could_be(x, params, y))
-            }
-            (Ty::Adt(d1, a), Ty::Adt(d2, b)) => {
-                d1 == d2
-                    && a.len() == b.len()
-                    && a.iter()
-                        .zip(b.iter())
-                        .all(|(x, y)| self.could_be(x, params, y))
-            }
-            (a, b) => a == b,
-        }
+    /// Whether a block reported as overlapping or overflowing (E0215, E0353) has a header
+    /// that unifies with `ty: tr<args>`: the ambiguity or overflow there is that error's,
+    /// not reported again. Any other ambiguity of the trait still is.
+    fn involves_reported_impl(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> bool {
+        let items = self.items;
+        let tys: Vec<Ty> = std::iter::once(ty)
+            .chain(args)
+            .map(|t| self.infer.resolve(t))
+            .collect();
+        items
+            .impls_of(tr)
+            .filter(|imp| items.is_reported_impl(imp.def) && imp.trait_args.len() == args.len())
+            .any(|imp| {
+                self.infer.probe(|infer| {
+                    let fresh: Vec<Ty> = imp
+                        .generics
+                        .iter()
+                        .map(|_| infer.new_var(VarKind::General))
+                        .collect();
+                    std::iter::once(&imp.self_ty)
+                        .chain(&imp.trait_args)
+                        .zip(&tys)
+                        .all(|(pat, t)| infer.unify(&pat.subst(&imp.generics, &fresh), t).is_ok())
+                })
+            })
     }
 
-    /// Lets the pending bounds guide inference, as rustc's selection does: a bound on a
-    /// type with inference variables that only one `impl` block's type could match makes
-    /// it that type (`5.Show()` with only `impl Show for i64` is an `i64`). A bare
-    /// general variable decides nothing. Repeats until nothing changes.
+    /// The bounds in scope that could imply `ty: tr<args>`, `ty` a type parameter, with
+    /// their arguments: rustc's where-clause candidates, which it prefers to `impl` blocks.
+    fn env_candidates(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> Vec<Vec<Ty>> {
+        let Ty::Param(p) = ty else {
+            return Vec::new();
+        };
+        let mut out: Vec<Vec<Ty>> = Vec::new();
+        let env = std::mem::take(&mut self.env);
+        for pred in env.iter().filter(|pred| pred.param == *p) {
+            for (t, a) in self.items.elaborate(pred.trait_, ty, &pred.args).iter() {
+                let fits = *t == tr
+                    && a.len() == args.len()
+                    && self
+                        .infer
+                        .probe(|infer| a.iter().zip(args).all(|(x, y)| infer.unify(x, y).is_ok()));
+                if fits && !out.contains(a) {
+                    out.push(a.clone());
+                }
+            }
+        }
+        self.env = env;
+        out
+    }
+
+    /// Lets the pending bounds guide inference, as rustc's selection does: a bound whose
+    /// type or trait arguments have inference variables, with exactly one candidate, is
+    /// confirmed with it. A bound in scope (for a type parameter) is preferred to the
+    /// `impl` blocks and unifies the arguments with its own (`T: From<U>` makes `T:
+    /// From<?X>`'s `?X` a `U`). A single `impl` block whose header could match unifies
+    /// the obligation with its header (`5.Show()` with only `impl Show for i64` is an
+    /// `i64`; `u16: From<?E>` with `?E` an integer makes it a `u8` when no other source
+    /// is an integer type), and its bounds become obligations in place of the confirmed
+    /// one (rustc's confirmation: `u8: Into<?T>` through `impl<T, U: From<T>> Into<U> for
+    /// T` requires `?T: From<u8>`). A bare general variable as the type decides nothing.
+    /// Repeats until nothing changes.
     fn select_obligations(&mut self) {
         loop {
             let mut progress = false;
-            let pending: Vec<(Ty, DefId)> = self
-                .obligations
-                .iter()
-                .map(|o| (o.ty.clone(), o.trait_))
-                .collect();
-            for (ty, tr) in pending {
-                let ty = self.infer.resolve(&ty);
-                if !ty.has_infer()
+            let mut index = 0;
+            while index < self.obligations.len() {
+                let ob = self.obligations[index].clone();
+                index += 1;
+                if ob.depth >= DEPTH_LIMIT {
+                    // An overflow, reported when the obligation is judged.
+                    continue;
+                }
+                let ty = self.infer.resolve(&ob.ty);
+                let args: Vec<Ty> = ob.args.iter().map(|a| self.infer.resolve(a)).collect();
+                let has_infer = ty.has_infer() || args.iter().any(Ty::has_infer);
+                if !has_infer
                     || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
                 {
                     continue;
                 }
-                if self.impl_candidates(&ty, tr) != 1 {
-                    continue;
+                let before: usize = std::iter::once(&ty).chain(&args).map(known_nodes).sum();
+                let env = self.env_candidates(&ty, ob.trait_, &args);
+                if !env.is_empty() {
+                    if let [only] = env.as_slice() {
+                        for (a, b) in only.iter().zip(&args) {
+                            // The candidate was checked to fit.
+                            let _ = self.infer.unify(a, b);
+                        }
+                    }
+                } else if let [only] = self.impl_candidate_list(&ty, ob.trait_, &args)[..] {
+                    let imp = self
+                        .items
+                        .impls_of(ob.trait_)
+                        .nth(only)
+                        .expect("a candidate");
+                    let fresh: Vec<Ty> = imp
+                        .generics
+                        .iter()
+                        .map(|_| self.infer.new_var(VarKind::General))
+                        .collect();
+                    let header = std::iter::once(&imp.self_ty).chain(&imp.trait_args);
+                    let unified = header
+                        .zip(std::iter::once(&ty).chain(&args))
+                        .all(|(pat, t)| {
+                            self.infer
+                                .unify(&pat.subst(&imp.generics, &fresh), t)
+                                .is_ok()
+                        });
+                    let builtin = matches!(
+                        self.items.lang_of(ob.trait_),
+                        Some(LangItem::Copy | LangItem::Clone)
+                    );
+                    if unified && !builtin {
+                        // Confirmed: the block's bounds replace the obligation.
+                        let required_for = format!(
+                            "`{}` to implement `{}`",
+                            self.ty_str(&ty),
+                            trait_ref_str(self.resolve, ob.trait_, &self.resolve_all(&args))
+                        );
+                        index -= 1;
+                        self.obligations.remove(index);
+                        for pred in &imp.preds {
+                            let (pty, pargs) = instantiate_pred(pred, &imp.generics, &fresh);
+                            self.obligations.push(Obligation {
+                                ty: pty,
+                                trait_: pred.trait_,
+                                args: pargs,
+                                span: ob.span,
+                                cause: ob.cause,
+                                required_for: Some(required_for.clone()),
+                                depth: ob.depth + 1,
+                            });
+                        }
+                        progress = true;
+                        continue;
+                    }
                 }
-                let all: Vec<(Ty, Vec<DefId>)> = self
-                    .items
-                    .impls_of(tr)
-                    .map(|i| (i.self_ty.clone(), i.generics.clone()))
-                    .collect();
-                let Some((pat, params)) = all.into_iter().find(|(p, g)| self.could_be(p, g, &ty))
-                else {
-                    continue;
-                };
-                let fresh: Vec<Ty> = params
-                    .iter()
-                    .map(|_| self.infer.new_var(VarKind::General))
-                    .collect();
-                let pat = pat.subst(&params, &fresh);
-                // Progress is a variable of `ty` learning something, not a fresh one
-                // (a blanket block's `T`) being bound to it.
-                if self.infer.unify(&pat, &ty).is_ok()
-                    && known_nodes(&self.infer.resolve(&ty)) > known_nodes(&ty)
-                {
+                let ty = self.infer.resolve(&ty);
+                let args: Vec<Ty> = args.iter().map(|a| self.infer.resolve(a)).collect();
+                // Progress is a variable of the obligation learning something, not a
+                // fresh one (a blanket block's `T`) being bound to it.
+                let after: usize = std::iter::once(&ty).chain(&args).map(known_nodes).sum();
+                if after > before {
                     progress = true;
                 }
             }
@@ -3598,6 +4011,11 @@ impl<'a> FnCtxt<'a> {
                 return;
             }
         }
+    }
+
+    /// Each of `tys`, with what inference knows of it.
+    fn resolve_all(&mut self, tys: &[Ty]) -> Vec<Ty> {
+        tys.iter().map(|t| self.infer.resolve(t)).collect()
     }
 
     /// E0342 (rustc's E0034): several traits' methods named `name` apply to `shown`.
@@ -3908,6 +4326,11 @@ impl<'a> FnCtxt<'a> {
         recv_ty: &Ty,
         name: &sabiko_ast::Ident,
     ) -> Option<(MethodCallee, Vec<Ty>)> {
+        // Each autoderef step's type must be known (rustc's `structurally_resolve_type`).
+        let mut step = self.structurally_resolve(recv_ty, name.span);
+        while let Ty::Ref(_, inner) = step {
+            step = self.structurally_resolve(&inner, name.span);
+        }
         let mut steps = vec![self.infer.resolve(recv_ty)];
         while let Ty::Ref(_, inner) = steps.last().expect("one step").clone() {
             steps.push(*inner);
@@ -3987,7 +4410,7 @@ impl<'a> FnCtxt<'a> {
                     // needs a block for an unsized type, which is not supported yet.
                     continue;
                 }
-                let mut found: Vec<(DefId, Ty)> = Vec::new();
+                let mut found: Vec<(DefId, Vec<Ty>)> = Vec::new();
                 for &m in &trait_methods {
                     let tr = self.resolve.def(m).parent.expect("a trait member");
                     let self_ty = match self.items.fn_sig(m).self_kind {
@@ -3999,16 +4422,19 @@ impl<'a> FnCtxt<'a> {
                         },
                         _ => adjusted.clone(),
                     };
-                    if self.may_implement(&self_ty, tr) {
-                        found.push((m, self_ty));
+                    let args = self.fresh_trait_args(tr);
+                    if self.may_implement(&self_ty, tr, &args) {
+                        let mut all = vec![self_ty];
+                        all.extend(args);
+                        found.push((m, all));
                     }
                 }
                 match found.as_slice() {
                     [] => {}
-                    [(def, self_ty)] => return Some((callee(*def), vec![self_ty.clone()])),
+                    [(def, args)] => return Some((callee(*def), args.clone())),
                     many => {
                         let defs: Vec<DefId> = many.iter().map(|(d, _)| *d).collect();
-                        let shown = self.ty_str(&many[0].1);
+                        let shown = self.ty_str(&many[0].1[0]);
                         self.ambiguous(name.span, &name.name, &defs, &shown);
                         return None;
                     }
@@ -4192,35 +4618,51 @@ impl<'a> FnCtxt<'a> {
         for arg in args {
             let ty = self.check_expr(arg, None);
             let ty = self.infer.resolve(&ty);
-            if let Ty::Infer(v) = ty {
-                if self.is_diverging_var(v) {
-                    // Decided by a later use or by the never-type fallback: checked then.
-                    self.pending_prints.push((builtin, arg.span, ty));
-                    continue;
-                }
-            }
-            let known = self.has_no_general_var(&ty);
-            if !known {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(
-                        arg.span,
-                        format!(
-                            "cannot infer the type of this argument to `{}`",
-                            builtin.name()
-                        ),
-                    ),
-                );
-                // The local behind it is the same problem, not a new one.
-                self.infer.bind_error(&ty);
+            if !self.printability_known(&ty) {
+                // rustc's `T: Display` obligation of the call: decided by a later use, a
+                // pending obligation (`PrintLine(S.Map())`) or the never-type fallback,
+                // and checked then.
+                self.pending_prints.push((builtin, arg.span, ty));
                 continue;
             }
             self.check_printable(builtin, arg.span, &ty);
         }
         Ty::Unit
+    }
+
+    /// Checks the `Print`/`PrintLine` arguments left after the never-type fallback.
+    fn check_pending_prints(&mut self) {
+        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
+            let ty = self.infer.resolve_with_defaults(&ty);
+            if self.printability_known(&ty) {
+                self.check_printable(builtin, span, &ty);
+            } else {
+                self.unknown_print_argument(builtin, span, &ty);
+            }
+        }
+    }
+
+    /// E0313 for a `Print`/`PrintLine` argument whose type nothing decided (rustc's
+    /// E0283 for `T: Display`), unless the body is tainted by errors.
+    fn unknown_print_argument(&mut self, builtin: Builtin, span: Span, ty: &Ty) {
+        if !self.ambiguity_tainted() {
+            self.ambiguities_reported += 1;
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                    "type annotations needed",
+                )
+                .with_label(
+                    span,
+                    format!(
+                        "cannot infer the type of this argument to `{}`",
+                        builtin.name()
+                    ),
+                ),
+            );
+        }
+        // The local behind it is the same problem, not a new one.
+        self.infer.bind_error(ty);
     }
 
     /// Whether the variable `v` is one of a diverging initialiser or element.
@@ -4255,24 +4697,30 @@ impl<'a> FnCtxt<'a> {
         );
     }
 
-    /// Whether `ty` (resolved) holds no general inference variable: literal variables
-    /// (`{integer}`, `{float}`) count as known.
-    fn has_no_general_var(&mut self, ty: &Ty) -> bool {
+    /// Whether it is known whether a value of type `ty` (resolved) prints:
+    /// behind its references, it is not a general inference variable (a literal's
+    /// variable prints, and a tuple or array never does, whatever its elements: rustc's
+    /// "`(_, i32)` doesn't implement `Display`").
+    fn printability_known(&mut self, ty: &Ty) -> bool {
         match ty {
             Ty::Infer(v) => self.infer.kind(*v) != VarKind::General,
-            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
-                self.has_no_general_var(inner)
-            }
-            Ty::Tuple(elems) => elems.iter().all(|e| self.has_no_general_var(e)),
+            Ty::Ref(_, inner) => self.printability_known(inner),
             _ => true,
         }
     }
 
-    fn check_field(&mut self, expr: &Expr, base_ty: &Ty, name: &str, name_span: Span) -> Ty {
-        let mut ty = self.shallow(base_ty);
+    fn check_field(
+        &mut self,
+        expr: &Expr,
+        base_span: Span,
+        base_ty: &Ty,
+        name: &str,
+        name_span: Span,
+    ) -> Ty {
+        let mut ty = self.structurally_resolve(base_ty, base_span);
         let mut autoderefs = 0;
         while let Ty::Ref(_, inner) = ty {
-            ty = self.shallow(&inner);
+            ty = self.structurally_resolve(&inner, base_span);
             autoderefs += 1;
         }
         match ty {
@@ -4675,20 +5123,48 @@ impl<'a> FnCtxt<'a> {
             let mut resolved = Vec::new();
             for (i, arg) in args.iter().enumerate() {
                 let mut t = self.infer.resolve_with_defaults(arg);
-                if t.has_infer() {
+                let conflicting = t.has_infer()
+                    && self.items.trait_of_member(def).is_some_and(|tr| {
+                        let n = 1 + self.items.trait_param_count(tr);
+                        args.len() >= n
+                            && (self.ambiguity_tainted()
+                                || self.involves_reported_impl(&args[0], tr, &args[1..n]))
+                    });
+                if conflicting {
+                    // The trait's blocks overlap or overflow, which was reported.
+                    self.infer.bind_error(&t);
+                    t = Ty::Error;
+                } else if t.has_infer() {
                     let param = self.resolve.generics(def)[i];
                     let param_name = self.resolve.def(param).name.clone();
                     let fn_name = self.resolve.def(def).name.clone();
+                    // A trait's parameter (`T` of `trait Scale<T>`) is declared on the
+                    // trait, as rustc says.
+                    let on_trait = self
+                        .resolve
+                        .def(param)
+                        .parent
+                        .filter(|&p| self.resolve.def(p).kind == DefKind::Trait);
+                    let (label, note) = match on_trait {
+                        Some(tr) => {
+                            let trait_name = self.resolve.def(tr).name.clone();
+                            (
+                                format!("cannot infer type for type parameter `{param_name}` declared on the trait `{trait_name}`"),
+                                "several `impl` blocks of the trait could apply: give the type an annotation".to_owned(),
+                            )
+                        }
+                        None => (
+                            format!("cannot infer type of the type parameter `{param_name}` declared on the function `{fn_name}`"),
+                            format!("specify it with a turbofish: `{fn_name}::<..>`"),
+                        ),
+                    };
                     self.error(
                         Diagnostic::error(
                             ErrorCode::TYPE_ANNOTATIONS_NEEDED,
                             "type annotations needed",
                         )
-                        .with_label(
-                            span,
-                            format!("cannot infer type of the type parameter `{param_name}` declared on the function `{fn_name}`"),
-                        )
-                        .with_note(format!("specify it with a turbofish: `{fn_name}::<..>`")),
+                        .with_label(span, label)
+                        .with_note(note),
                     );
                     self.infer.bind_error(&t);
                     t = Ty::Error;
@@ -4716,67 +5192,203 @@ impl<'a> FnCtxt<'a> {
         out
     }
 
-    /// Judges the bounds the body's uses require (E0341, rustc's E0277), once inference is
-    /// done. A type inference left unknown is E0313 (rustc's E0283), unless an error about
-    /// it was reported.
+    /// Judges the bounds the body's uses require (E0341, rustc's E0277; E0351 for the
+    /// error conversion of `?`), once inference is done. A type inference left unknown is
+    /// E0313 (rustc's E0283, E0282), unless an error about it was reported.
     fn check_obligations(&mut self) {
-        let mut seen: HashSet<(Ty, DefId, Span)> = HashSet::new();
-        for ob in std::mem::take(&mut self.obligations) {
+        let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::new();
+        let obligations = std::mem::take(&mut self.obligations);
+        let uses_reported_impls = self.uses_reported_impls(&obligations);
+        for ob in obligations {
             let ty = self.infer.resolve_with_defaults(&ob.ty);
-            if !seen.insert((ty.clone(), ob.trait_, ob.span)) {
+            let args: Vec<Ty> = ob
+                .args
+                .iter()
+                .map(|a| self.infer.resolve_with_defaults(a))
+                .collect();
+            if !seen.insert((ty.clone(), ob.trait_, args.clone(), ob.span)) {
                 continue;
             }
-            let trait_name = self.resolve.def(ob.trait_).name.clone();
-            match self.items.implements(&ty, ob.trait_, &self.env) {
+            let trait_name = trait_ref_str(self.resolve, ob.trait_, &args);
+            match self
+                .items
+                .implements_at(&ty, ob.trait_, &args, &self.env, ob.depth)
+            {
                 Solution::Yes => {}
+                // As rustc: an ambiguity is not reported in a body tainted by errors (they
+                // may be what left the types open), nor an overflow that a block reported
+                // as overlapping or overflowing (E0353, E0215) causes.
+                Solution::Ambiguous
+                    if uses_reported_impls
+                        || self.sink.error_count() - self.ambiguities_reported
+                            > self.errors_before => {}
+                Solution::Ambiguous | Solution::Overflow
+                    if self.involves_reported_impl(&ty, ob.trait_, &args) => {}
                 Solution::Ambiguous => {
-                    let shown = self.ty_str(&ty);
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                            "type annotations needed",
-                        )
-                        .with_label(ob.span, "cannot infer type")
-                        .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
-                    );
+                    self.ambiguities_reported += 1;
+                    if let (Cause::Try { operand }, None) = (ob.cause, &ob.required_for) {
+                        // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                                "type annotations needed",
+                            )
+                            .with_label(operand, "cannot infer the error type of this `Result`"),
+                        );
+                    } else {
+                        let shown = self.ty_str(&ty);
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                                "type annotations needed",
+                            )
+                            .with_label(ob.span, "cannot infer type")
+                            .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
+                        );
+                    }
                     self.infer.bind_error(&ty);
+                    for a in &args {
+                        self.infer.bind_error(a);
+                    }
                 }
+                Solution::Overflow => {
+                    let shown = self.ty_str(&ty);
+                    self.error(overflow_error(ob.span, &shown, &trait_name));
+                }
+                // A bound of this function was dropped (E0107), which may be the missing
+                // one.
+                Solution::No if self.incomplete_bounds => {}
                 Solution::No if self.orphan_adt(&ty) => {
                     // The bound may be the one of a block the orphan rule rejected
                     // (E0214), which was reported.
                 }
-                Solution::No => {
-                    let shown = self.ty_str(&ty);
-                    let mut d = Diagnostic::error(
-                        ErrorCode::UNSATISFIED_BOUND,
-                        format!("the trait bound `{shown}: {trait_name}` is not satisfied"),
-                    )
-                    .with_label(
-                        ob.span,
-                        format!("the trait `{trait_name}` is not implemented for `{shown}`"),
-                    );
-                    let prelude = self.resolve.is_prelude(ob.trait_);
-                    if let (Ty::Param(_), false) = (&ty, prelude) {
-                        d = d.with_note(format!(
-                            "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
-                        ));
-                    } else if let Ty::Param(_) = ty {
-                        // The prelude's traits are its own (Rust's `std::fmt::Debug` is
-                        // outside its prelude), and a path cannot name one yet.
-                        d = d.with_note(format!(
-                            "a bound cannot name `{trait_name}` yet: it is not in the prelude, and paths to other modules arrive with Phase 9"
-                        ));
-                    } else if prelude {
-                        // rustc's standard library implements its traits for more types
-                        // than Sabiko's `core` prelude does so far (decision 90).
-                        d = d.with_note(format!(
-                            "Sabiko's `core` library implements `{trait_name}` only for some types so far (see `library/core`)"
-                        ));
-                    }
-                    self.error(d);
-                }
+                Solution::No => self.unsatisfied_nested(ob, ty, args, trait_name),
             }
         }
+    }
+
+    /// Reports the obligation `ob`, at `ty: trait_name` once inference is done, which does
+    /// not hold. When exactly one block's header matches it, the error is that block's
+    /// first bound that fails, required for it (rustc's confirmation of the one candidate
+    /// and its nested obligation), recursively; the root cause (`?` or a bound) stays.
+    fn unsatisfied_nested(&mut self, ob: Obligation, ty: Ty, args: Vec<Ty>, trait_name: String) {
+        let (mut ob, mut ty, mut args, mut trait_name) = (ob, ty, args, trait_name);
+        let items = self.items;
+        while ob.depth < DEPTH_LIMIT {
+            let candidates = items.matching_impls(ob.trait_, &ty, &args);
+            let [(imp, impl_args)] = candidates.as_slice() else {
+                break;
+            };
+            let Some((pty, ptr, pargs, solution)) =
+                items.failing_bound(imp, impl_args, &self.env, ob.depth + 1)
+            else {
+                break;
+            };
+            let required_for = format!("`{}` to implement `{trait_name}`", self.ty_str(&ty));
+            trait_name = trait_ref_str(self.resolve, ptr, &pargs);
+            ob = Obligation {
+                ty: pty.clone(),
+                trait_: ptr,
+                args: pargs.clone(),
+                required_for: Some(required_for),
+                depth: ob.depth + 1,
+                ..ob
+            };
+            (ty, args) = (pty, pargs);
+            if solution == Solution::Overflow {
+                let shown = self.ty_str(&ty);
+                self.error(overflow_error(ob.span, &shown, &trait_name));
+                return;
+            }
+        }
+        self.unsatisfied(&ob, &ty, &args, &trait_name);
+    }
+
+    /// Whether `tr` is the prelude's `From` or `Into`.
+    fn is_convert_trait(&self, tr: DefId) -> bool {
+        self.resolve.core_item(CoreItem::From) == Some(tr)
+            || (self.resolve.is_prelude(tr) && self.resolve.def(tr).name == "Into")
+    }
+
+    /// Reports the obligation `ob`, at `ty: trait_name` once inference is done, as not
+    /// satisfied.
+    fn unsatisfied(&mut self, ob: &Obligation, ty: &Ty, args: &[Ty], trait_name: &str) {
+        let shown = self.ty_str(ty);
+        if let Cause::Try { operand } = ob.cause {
+            // The root `To: From<E>`, whose error type the operand's label shows; a
+            // nested bound that fails is named in the message, as rustc does.
+            let (message, from) = match (&ob.required_for, self.try_roots.get(&ob.span)) {
+                (Some(required_for), Some(root)) => {
+                    let root = root.clone();
+                    let root = self.infer.resolve_with_defaults(&root);
+                    let root = self.ty_str(&root);
+                    (
+                        format!("`?` couldn't convert the error: `{shown}: {trait_name}` is not satisfied"),
+                        (root, Some(required_for.clone())),
+                    )
+                }
+                _ => (
+                    format!("`?` couldn't convert the error to `{shown}`"),
+                    (
+                        args.first().map_or_else(String::new, |a| self.ty_str(a)),
+                        None,
+                    ),
+                ),
+            };
+            let (from, required_for) = from;
+            let mut d = Diagnostic::error(ErrorCode::TRY_ERROR_CONVERSION, message)
+                .with_label(
+                    ob.span,
+                    format!("the trait `{trait_name}` is not implemented for `{shown}`"),
+                )
+                .with_label(
+                    operand,
+                    format!("this can't be annotated with `?` because it has type `Result<_, {from}>`"),
+                )
+                .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait");
+            if let Some(required_for) = required_for {
+                d = d.with_note(format!("required for {required_for}"));
+            }
+            self.error(d);
+            return;
+        }
+        let mut d = Diagnostic::error(
+            ErrorCode::UNSATISFIED_BOUND,
+            format!("the trait bound `{shown}: {trait_name}` is not satisfied"),
+        )
+        .with_label(
+            ob.span,
+            format!("the trait `{trait_name}` is not implemented for `{shown}`"),
+        );
+        let prelude = self.resolve.is_prelude(ob.trait_);
+        if let (Ty::Param(_), false) = (ty, prelude) {
+            d = d.with_note(format!(
+                "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+            ));
+        } else if let (Ty::Param(_), Some(_)) = (ty, self.resolve.core_item_of(ob.trait_)) {
+            d = d.with_note(format!(
+                "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+            ));
+        } else if let Ty::Param(_) = ty {
+            // The prelude's private traits are its own (Rust's `std::fmt::Debug` is
+            // outside its prelude), and a path cannot name one yet.
+            d = d.with_note(format!(
+                "a bound cannot name `{}` yet: it is not in the prelude, and paths to other modules arrive with Phase 9",
+                self.resolve.def(ob.trait_).name
+            ));
+        } else if prelude && !self.is_convert_trait(ob.trait_) {
+            // rustc's standard library implements its traits for more types than
+            // Sabiko's `core` prelude does so far (decision 90); `From` and `Into` have
+            // every impl of std that Sabiko's types allow (decision 95).
+            d = d.with_note(format!(
+                "Sabiko's `core` library implements `{}` only for some types so far (see `library/core`)",
+                self.resolve.def(ob.trait_).name
+            ));
+        }
+        if let Some(required_for) = &ob.required_for {
+            d = d.with_note(format!("required for {required_for}"));
+        }
+        self.error(d);
     }
 
     /// In a trait's provided method `Self` may be unsized, as in rustc: a parameter, a
@@ -4877,18 +5489,16 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn finish(mut self) -> BodyTypes {
-        self.select_obligations();
-        self.select_try_conversions();
+        self.select_where_possible();
+        self.select_judging(true);
+        self.report_open_operations();
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).
         for v in std::mem::take(&mut self.diverging_vars) {
             self.infer.fall_back_to_never(&v);
         }
-        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
-            let ty = self.infer.resolve_with_defaults(&ty);
-            self.check_printable(builtin, span, &ty);
-        }
+        self.check_pending_prints();
         // Report locals whose type is still unknown, then apply literal defaults.
         let mut local_types = HashMap::new();
         let mut locals: Vec<(LocalId, Ty)> =
@@ -4900,7 +5510,7 @@ impl<'a> FnCtxt<'a> {
         let mut reported = HashSet::new();
         for (id, ty) in locals {
             let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() && quiet {
+            if t.has_infer() && (quiet || self.tied_to_reported_impl(&t)) {
                 reported.insert(id);
                 self.infer.bind_error(&t);
                 t = Ty::Error;
@@ -4924,7 +5534,7 @@ impl<'a> FnCtxt<'a> {
         self.report_unknown_let_types(&reported, quiet);
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
-        self.check_pending_tries();
+        let try_conversions = self.check_pending_tries();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let t = self.infer.resolve_with_defaults(&ty);
@@ -4985,6 +5595,7 @@ impl<'a> FnCtxt<'a> {
             repeat_counts: self.repeat_counts,
             path_defs: self.path_defs,
             try_exprs: self.try_exprs,
+            try_conversions,
             has_errors,
         }
     }
@@ -5132,6 +5743,30 @@ impl<'a> FnCtxt<'a> {
     }
 }
 
+/// Whether `ty` holds one of the inference variables in `vars`.
+fn ty_has_var_of(ty: &Ty, vars: &Ty) -> bool {
+    match vars {
+        Ty::Infer(_) => contains_ty(ty, vars),
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => ty_has_var_of(ty, inner),
+        Ty::Tuple(elems) => elems.iter().any(|e| ty_has_var_of(ty, e)),
+        Ty::Adt(_, args) => args.iter().any(|a| ty_has_var_of(ty, a)),
+        _ => false,
+    }
+}
+
+/// Whether `needle` occurs in `ty`.
+fn contains_ty(ty: &Ty, needle: &Ty) -> bool {
+    ty == needle
+        || match ty {
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
+                contains_ty(inner, needle)
+            }
+            Ty::Tuple(elems) => elems.iter().any(|e| contains_ty(e, needle)),
+            Ty::Adt(_, args) => args.iter().any(|a| contains_ty(a, needle)),
+            _ => false,
+        }
+}
+
 /// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
 /// the top level): the primitives but `str`, and `()`.
 fn is_comparable(ty: &Ty) -> bool {
@@ -5255,29 +5890,4 @@ fn has_explicit_ref_binding(pat: &Pat) -> bool {
         }
     });
     found
-}
-
-/// Whether Rust's standard library implements `From<from> for to` for two primitive types
-/// (`from != to`): the lossless conversions between integers, floats, `bool` and `char`.
-fn prim_from(from: PrimTy, to: PrimTy) -> bool {
-    use PrimTy::{
-        Bool, Char, Isize, Usize, F32, F64, I128, I16, I32, I64, I8, U128, U16, U32, U64, U8,
-    };
-    match from {
-        Bool => to.is_integer() || to.is_float(),
-        Char => matches!(to, U32 | U64 | U128),
-        U8 => matches!(
-            to,
-            Char | U16 | U32 | U64 | U128 | Usize | I16 | I32 | I64 | I128 | Isize | F32 | F64
-        ),
-        U16 => matches!(to, U32 | U64 | U128 | Usize | I32 | I64 | I128 | F32 | F64),
-        U32 => matches!(to, U64 | U128 | I64 | I128 | F64),
-        U64 => matches!(to, U128 | I128),
-        I8 => matches!(to, I16 | I32 | I64 | I128 | Isize | F32 | F64),
-        I16 => matches!(to, I32 | I64 | I128 | Isize | F32 | F64),
-        I32 => matches!(to, I64 | I128 | F64),
-        I64 => matches!(to, I128),
-        F32 => matches!(to, F64),
-        _ => false,
-    }
 }

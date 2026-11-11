@@ -58,6 +58,8 @@ pub struct GenericParam {
     pub name: Ident,
     /// The traits after `:`; empty for a parameter without bounds.
     pub bounds: Vec<TraitRef>,
+    /// `= Type`: a default, only on a trait's parameters (`trait Add<Rhs = Self>`).
+    pub default: Option<Type>,
 }
 
 /// A trait named in a bound, a supertrait list or an `impl Trait for Type` header. The
@@ -229,6 +231,8 @@ pub struct ImplDecl {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TraitDecl {
     pub name: Ident,
+    /// `<T, U = Self>` after the name; empty for a trait that is not generic.
+    pub generics: Vec<GenericParam>,
     /// The supertraits after `:`.
     pub supertraits: Vec<TraitRef>,
     pub items: Vec<Item>,

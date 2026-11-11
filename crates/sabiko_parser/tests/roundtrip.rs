@@ -711,6 +711,32 @@ fn generic_params() -> impl Strategy<Value = Vec<GenericParam>> {
                 id: ID,
                 name: ident(n),
                 bounds: vec![],
+                default: None,
+            })
+            .collect()
+    })
+}
+
+/// Zero to two parameters of a trait, without bounds, each with or without a default (a
+/// path type); the defaults are trailing, as they must be.
+fn trait_params() -> impl Strategy<Value = Vec<GenericParam>> {
+    prop::collection::vec((name(), prop::option::of(name())), 0..3).prop_map(|params| {
+        let mut defaulted = false;
+        params
+            .into_iter()
+            .map(|(n, default)| {
+                let default = match default {
+                    Some(d) => Some(d),
+                    None if defaulted => Some(n.clone()),
+                    None => None,
+                };
+                defaulted |= default.is_some();
+                GenericParam {
+                    id: ID,
+                    name: ident(&n),
+                    bounds: vec![],
+                    default: default.map(|d| leaf_ty(TypeKind::Path(path(&d)))),
+                }
             })
             .collect()
     })
@@ -738,6 +764,7 @@ fn bounded_params() -> impl Strategy<Value = Vec<GenericParam>> {
                 id: ID,
                 name: ident(&n),
                 bounds,
+                default: None,
             })
             .collect()
     })
@@ -834,13 +861,20 @@ fn item() -> impl Strategy<Value = Item> {
                     items,
                 })
             }),
-        (name(), bounds(), prop::collection::vec(member(true), 0..3)).prop_map(
-            |(n, supertraits, items)| ItemKind::Trait(TraitDecl {
-                name: ident(&n),
-                supertraits,
-                items,
-            })
-        ),
+        (
+            name(),
+            trait_params(),
+            bounds(),
+            prop::collection::vec(member(true), 0..3)
+        )
+            .prop_map(
+                |(n, generics, supertraits, items)| ItemKind::Trait(TraitDecl {
+                    name: ident(&n),
+                    generics,
+                    supertraits,
+                    items,
+                })
+            ),
         (
             name(),
             generic_params(),

@@ -768,6 +768,12 @@ impl Parser<'_, '_> {
                 Ok(e)
             }
             TokenKind::Eof => Err(self.error_expected("an expression")),
+            // `<T as Trait>::Name` (decision 95).
+            TokenKind::Lt => Err(self.error_unsupported(
+                "qualified paths `<T as Trait>::Name`",
+                start,
+                "name the member through the trait (`Trait::<A>::Name(x)`) or a bounded type parameter",
+            )),
             _ => {
                 let d = Diagnostic::error(
                     ErrorCode::EXPECTED_EXPRESSION,

@@ -41,8 +41,8 @@ use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use super::regions::{
-    signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy, SigRegions, SiteElem,
-    Variable,
+    bound_region_links, signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy,
+    SigRegions, SiteElem, Variable,
 };
 use crate::dataflow::{self, Dominators, Location};
 
@@ -236,6 +236,9 @@ pub struct Facts {
     pub invalidations: HashMap<(Point, Loan), Invalidation>,
     /// The locals read at each point (`var_used_at`, indexed).
     pub uses_at: HashMap<Point, Vec<Local>>,
+    /// Calls whose callee's bounds the type checker proved but this pass could not relate
+    /// the regions of (decision 95): an internal error, never a silent "no relation".
+    pub unrelated_bounds: Vec<(Span, String)>,
 }
 
 impl Facts {
@@ -299,6 +302,7 @@ pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError
         all: AllFacts::default(),
         invalidations: HashMap::new(),
         uses_at: HashMap::new(),
+        unrelated_bounds: Vec::new(),
     };
     generator.collect_loans();
     let universal = generator.universal_regions(&sig);
@@ -311,6 +315,7 @@ pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError
         universal,
         invalidations: generator.invalidations,
         uses_at: generator.uses_at,
+        unrelated_bounds: generator.unrelated_bounds,
     })
 }
 
@@ -328,6 +333,7 @@ struct Generator<'a> {
     all: AllFacts<SabikoFacts>,
     invalidations: HashMap<(Point, Loan), Invalidation>,
     uses_at: HashMap<Point, Vec<Local>>,
+    unrelated_bounds: Vec<(Span, String)>,
 }
 
 impl Generator<'_> {
@@ -497,6 +503,29 @@ impl Generator<'_> {
                 let mid = self.table.mid(location);
                 for (arg, param) in arg_tys.iter().zip(&callee.inputs) {
                     self.relate(arg, param, mid, false);
+                }
+                // The callee's bounds, proved at the call's types, relate the generic
+                // arguments as the blocks proving them require (decision 95).
+                let items = &self.typeck.items;
+                let links = bound_region_links(
+                    items,
+                    &items.fn_sig(*func).generics,
+                    items.param_env(*func),
+                    generic_args,
+                    &callee.generic,
+                    items.param_env(self.body.def),
+                    &mut self.supply,
+                );
+                match links {
+                    Ok(links) => {
+                        for (a, b) in links {
+                            self.relate(&a, &b, mid, true);
+                        }
+                    }
+                    Err(why) => {
+                        let span = self.body.blocks[location.block.index()].terminator().span;
+                        self.unrelated_bounds.push((span, why));
+                    }
                 }
                 self.write_dest(destination, location);
                 // A callee whose own signature failed elision constrains nothing: its

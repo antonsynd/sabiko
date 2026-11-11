@@ -1,0 +1,10 @@
+// `?` converting a borrowed error into `Option<&T>` keeps the loan: a local escapes.
+fn F(a: &i32, fail: bool) -> Result<i32, Option<&i32>> {
+    let v = *a;
+    let e: Result<i32, &i32> = if fail { Err(&v) } else { Ok(1) };
+    let n = e?;
+    Ok(n)
+}
+fn Main() {
+    PrintLine(F(&1, false).is_ok());
+}

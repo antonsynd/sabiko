@@ -1,0 +1,74 @@
+struct S;
+struct T2;
+
+impl From<S> for S { //~ ERROR E0215 conflicting implementations of trait `From<S>` for type `S`
+    fn from(s: S) -> S {
+        s
+    }
+}
+
+trait Conv<T> {
+    fn Conv(&self) -> T;
+}
+
+impl Conv<i32> for S {
+    fn Conv(&self) -> i32 {
+        1
+    }
+}
+
+impl Conv<bool> for S {
+    fn Conv(&self) -> bool {
+        true
+    }
+}
+
+impl Conv<i32> for S { //~ ERROR E0215 conflicting implementations of trait `Conv<i32>` for type `S`
+    fn Conv(&self) -> i32 {
+        2
+    }
+}
+
+impl<U> Conv<u8> for T2 { //~ ERROR E0352 the type parameter `U` is not constrained by the impl trait, self type, or predicates
+    fn Conv(&self) -> u8 {
+        3
+    }
+}
+
+impl Conv<&u8> for T2 { //~ ERROR E0107 not yet supported: a reference in an `impl` block's trait arguments
+    fn Conv(&self) -> &u8 {
+        &4
+    }
+}
+
+trait Scale<T> {
+    const K: i32;
+    fn Scale(&self) -> i32;
+}
+
+impl Scale<i32> for T2 {
+    const K: i32 = 1;
+    fn Scale(&self) -> i32 {
+        Self::K //~ ERROR E0313 type annotations needed
+    }
+}
+
+impl Scale<bool> for T2 {
+    const K: i32 = 2;
+    fn Scale(&self) -> i32 {
+        3
+    }
+}
+
+fn Bounded<A: Conv<i64>>(a: &A) -> i64 {
+    a.Conv()
+}
+
+fn Main() {
+    let a: i8 = 5u8.into(); //~ ERROR E0341 the trait bound `i8: From<u8>` is not satisfied
+    let b: u8 = From::from(300u16); //~ ERROR E0341 the trait bound `u8: From<u16>` is not satisfied
+    let s = S;
+    let c = s.Conv();
+    let d = Bounded(&s); //~ ERROR E0341 the trait bound `S: Conv<i64>` is not satisfied
+    let e = u64::from(1); //~ ERROR E0341 the trait bound `u64: From<i32>` is not satisfied
+}

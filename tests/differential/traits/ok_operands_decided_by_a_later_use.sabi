@@ -1,0 +1,100 @@
+// A built-in operator whose operand type a trait obligation leaves open waits for a later
+// use to decide it, as rustc's operator obligations do (decision 95): whichever operand
+// is open, for arithmetic, comparison, shift, bitwise and compound assignment alike, and
+// for a printed value; the result of an open operation is decided with it. `3 == w`
+// needs no later use: the literal's default `i32` has one `PartialEq` impl. `1 << w` is
+// an `i32` whatever `w` is (the literal's default picks the impl, and its `Output`).
+trait Tr<T> {
+    fn Mk(&self) -> T;
+}
+
+struct S;
+
+impl Tr<i32> for S {
+    fn Mk(&self) -> i32 {
+        1
+    }
+}
+
+impl Tr<i64> for S {
+    fn Mk(&self) -> i64 {
+        2
+    }
+}
+
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+impl Show for i64 {
+    fn Sh(&self) -> i32 {
+        3
+    }
+}
+
+fn Operators() -> i64 {
+    let w = S.Mk();
+    let a = w + 3;
+    let b = 3 + w;
+    let c = w == 3;
+    let d = 3 < w;
+    let e = w << 1;
+    let f = 1 << w;
+    let g = (w + 1) * 2;
+    let h = w & 1;
+    let z: i64 = w;
+    if c || d {
+        a + b + e + g + h + f as i64
+    } else {
+        0
+    }
+}
+
+fn Compound() -> i64 {
+    let mut w = S.Mk();
+    w += 1;
+    let u = S.Mk();
+    let mut a = 1i64;
+    a += u;
+    let z: i64 = w;
+    let y: i64 = u;
+    w + a
+}
+
+fn BothOpen() -> bool {
+    let w = S.Mk();
+    let u = S.Mk();
+    let b = w == u;
+    let z: i64 = w;
+    b
+}
+
+fn ResultUsedLater() -> i32 {
+    let w = S.Mk();
+    let b = w + 1;
+    let c: i64 = b + 1i64;
+    let z: i64 = w;
+    PrintLine(c);
+    b.Sh()
+}
+
+fn Printed() {
+    let w = S.Mk();
+    PrintLine(w);
+    PrintLine(w + 1);
+    let z: i64 = w;
+}
+
+fn LiteralDefault() -> bool {
+    let w = S.Mk();
+    3 == w
+}
+
+fn Main() {
+    PrintLine(Operators());
+    PrintLine(Compound());
+    PrintLine(BothOpen());
+    PrintLine(ResultUsedLater());
+    Printed();
+    PrintLine(LiteralDefault());
+}

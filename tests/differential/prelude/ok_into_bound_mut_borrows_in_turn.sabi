@@ -1,0 +1,14 @@
+// `T: Into<U>` through `From<&mut Option<T>> for Option<&mut T>`: one mutable borrow
+// after the other is fine.
+fn H<T: Into<U>, U>(t: T) -> U {
+    t.into()
+}
+
+fn Main() {
+    let mut o = Some(5);
+    let r: Option<&mut i32> = H(&mut o);
+    *r.unwrap() = 1;
+    let p: Option<&mut i32> = H(&mut o);
+    *p.unwrap() = 2;
+    PrintLine(o.unwrap());
+}

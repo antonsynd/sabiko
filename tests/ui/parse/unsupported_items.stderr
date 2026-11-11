@@ -1,9 +1,9 @@
-[E0107] Error: not yet supported: generic traits
-   ╭─[ tests/ui/parse/unsupported_items.sabi:3:13 ]
+[E0107] Error: not yet supported: default type parameters outside a trait
+   ╭─[ tests/ui/parse/unsupported_items.sabi:3:17 ]
    │
- 3 │ trait Shaped<T> { } //~ ERROR E0107 not yet supported: generic traits
-   │             ┬  
-   │             ╰── not supported in this version of Sabiko
+ 3 │ struct Shaped<T = i32> { V: T } //~ ERROR E0107 not yet supported: default type parameters outside a trait
+   │                 ┬  
+   │                 ╰── not supported in this version of Sabiko
    │ 
-   │ Note: planned for Phase 6 (#117); see docs/PLAN.md
+   │ Note: not planned for 0.1; see docs/PLAN.md
 ───╯

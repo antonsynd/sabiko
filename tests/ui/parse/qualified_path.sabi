@@ -1,0 +1,14 @@
+// `<T as Trait>::Name` paths are not supported yet (decision 95).
+trait Tr {
+    const N: i32;
+}
+
+struct S;
+
+impl Tr for S {
+    const N: i32 = 1;
+}
+
+fn Main() {
+    PrintLine(<S as Tr>::N); //~ ERROR E0107 not yet supported: qualified paths `<T as Trait>::Name`
+}

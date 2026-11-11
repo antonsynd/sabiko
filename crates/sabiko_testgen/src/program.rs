@@ -331,7 +331,9 @@ fn GenOr<T>(o: GenOpt<T>, d: T) -> T { match o { GenOpt::Yes(v) => v, GenOpt::No
 /// `GenKept(e)` are `e`, and `(&*r).KeepRef()` (a provided method) returns the shared
 /// reference `r`, with its loans; `GenSign` is implemented for `i32` and `bool`, and
 /// `(e).Sign()` and `GenSigns(a, b)` evaluate their values and return an `i32` in
-/// `-2..=2`. One line each, at column 0, so no statement is ever inserted into them.
+/// `-2..=2`; the generic trait `GenAs<T>` (#117, decision 95) has two impls for `bool`,
+/// picked by the trait's argument: `GenAs::<i32>::As(&b)` and `GenAsI32(&b)` are `0` or
+/// `1` (or `2`). One line each, at column 0, so no statement is ever inserted into them.
 pub const TRAIT_HELPERS: &str = "trait GenKeep { fn Keep(self) -> Self; fn KeepRef(&self) -> &Self { self } }\n\
 impl<T> GenKeep for T { fn Keep(self) -> Self { self } }\n\
 fn GenKept<T: GenKeep>(x: T) -> T { x.Keep() }\n\
@@ -340,15 +342,24 @@ impl GenSign for i32 { const UNIT: i32 = 1; fn Sign(&self) -> i32 { if *self < 0
 impl GenSign for bool { const UNIT: i32 = 2; const BIAS: i32 = -5; fn Sign(&self) -> i32 { if *self { 1 } else { 0 } } fn Twice(&self) -> i32 { -self.Sign() } }\n\
 fn GenSigns<T>(a: T, b: T) -> i32 where T: GenSign + GenKeep { a.Keep().Sign() + GenSign::Twice(&b) / 2 + T::BIAS - T::UNIT }\n\
 fn GenCopied<T: Copy>(x: T) -> T { let y = x; let _z = x; y }\n\
-fn GenCloned<T: Clone>(x: &T) -> T { x.clone() }\n";
+fn GenCloned<T: Clone>(x: &T) -> T { x.clone() }\n\
+trait GenAs<T> { fn As(&self) -> T; fn AsTwice(&self) -> (T, T) { (self.As(), self.As()) } }\n\
+impl GenAs<i32> for bool { fn As(&self) -> i32 { if *self { 1 } else { 0 } } }\n\
+impl GenAs<bool> for bool { fn As(&self) -> bool { !*self } }\n\
+fn GenAsI32<T: GenAs<i32>>(t: &T) -> i32 { t.As() + t.AsTwice().1 }\n";
 
 /// Generic functions using `?` (decision 93) that the bodies of a program with
 /// [`Program::prelude`] wrap expressions in, each transparent to the scope model (see
 /// `BodyGen::try_value`): `GenTry` and `GenTryOk` return their operand's value or return
 /// early with `None` or the error; `GenTryErr` returns the error early; `GenTryKeep` holds
-/// `d` in a local, dropped after the value or on the early return. One line each, at
-/// column 0, so no statement is ever inserted into them.
+/// `d` in a local, dropped after the value or on the early return; `GenTryFrom` and
+/// `GenTryWiden` convert the error with `From` (decision 95), into the user type `GenErr`
+/// and into `i64`. One line each, at column 0, so no statement is ever inserted into them.
 pub const PRELUDE_HELPERS: &str = "fn GenTry<T>(o: Option<T>) -> Option<T> { Some(o?) }\n\
+struct GenErr { Code: i32 }\n\
+impl From<u8> for GenErr { fn from(c: u8) -> GenErr { GenErr { Code: c as i32 } } }\n\
+fn GenTryFrom<T>(r: Result<T, u8>) -> Result<T, GenErr> { let v = r?; Ok(v) }\n\
+fn GenTryWiden<T>(r: Result<T, u8>) -> Result<T, i64> { Ok(r?) }\n\
 fn GenTryOk<T>(r: Result<T, u8>) -> Result<T, u8> { let v = r?; Ok(v) }\n\
 fn GenTryErr<T>(r: Result<u8, T>) -> Result<u8, T> { let n = r?; Ok(n) }\n\
 fn GenTryKeep<T, U>(o: Option<T>, d: U) -> Option<T> { let _d = d; Some(o?) }\n";

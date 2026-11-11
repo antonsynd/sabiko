@@ -261,10 +261,7 @@ impl<'a, 'b, 'c> Evaluator<'a, 'b, 'c> {
         let mut target = (def, args.to_vec());
         if resolve.parent_kind(def) == Some(DefKind::Trait) {
             let tr = resolve.def(def).parent.expect("a trait member");
-            let Some((imp, impl_args)) = args
-                .first()
-                .and_then(|self_ty| self.cx.items.select_impl(tr, self_ty))
-            else {
+            let Some((imp, impl_args)) = self.cx.items.select_member_impl(tr, args) else {
                 // Type checking reported the unsatisfied bound.
                 return Err(silent(span));
             };
@@ -365,17 +362,29 @@ impl<'a, 'b, 'c> Evaluator<'a, 'b, 'c> {
         let Some(parent) = resolve.def(def).parent else {
             return name.clone();
         };
-        let (self_ty, tr) = if resolve.def(parent).kind == DefKind::Trait {
-            (args.first().cloned().unwrap_or(Ty::Error), Some(parent))
+        let items = &self.cx.items;
+        let (self_ty, tr, trait_args) = if resolve.def(parent).kind == DefKind::Trait {
+            let n = items.trait_param_count(parent);
+            let trait_args = args.get(1..=n).map_or(Vec::new(), <[Ty]>::to_vec);
+            (
+                args.first().cloned().unwrap_or(Ty::Error),
+                Some(parent),
+                trait_args,
+            )
         } else {
-            let ty = self
-                .cx
-                .items
-                .impl_self_ty(parent)
-                .subst(resolve.generics(parent), args);
-            (ty, resolve.impl_trait(parent))
+            let generics = resolve.generics(parent);
+            let ty = items.impl_self_ty(parent).subst(generics, args);
+            let trait_args = items.impl_def(parent).map_or(Vec::new(), |imp| {
+                imp.trait_args
+                    .iter()
+                    .map(|a| a.subst(generics, args))
+                    .collect()
+            });
+            (ty, resolve.impl_trait(parent), trait_args)
         };
-        let tr = tr.map_or(String::new(), |t| resolve.def(t).name.clone());
+        let tr = tr.map_or(String::new(), |t| {
+            crate::traits::trait_ref_str(resolve, t, &trait_args)
+        });
         format!("<{} as {tr}>::{name}", self_ty.display(resolve))
     }
 

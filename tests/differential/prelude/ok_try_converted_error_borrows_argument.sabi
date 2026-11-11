@@ -1,0 +1,9 @@
+// `?` converting a borrowed error into `Option<&T>`: the reference is the argument's.
+fn F(a: &i32, fail: bool) -> Result<i32, Option<&i32>> {
+    let e: Result<i32, &i32> = if fail { Err(a) } else { Ok(1) };
+    let n = e?;
+    Ok(n)
+}
+fn Main() {
+    PrintLine(F(&1, false).is_ok());
+}

@@ -1,0 +1,7 @@
+[E0114] Error: generic parameters with a default must be trailing
+   ╭─[ tests/ui/parse/trait_default_not_trailing.sabi:3:19 ]
+   │
+ 3 │ trait Tr<A = i32, B> { //~ ERROR E0114 generic parameters with a default must be trailing
+   │                   ┬  
+   │                   ╰── must come before the parameters with a default
+───╯

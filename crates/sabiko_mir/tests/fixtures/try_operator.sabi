@@ -30,8 +30,20 @@ fn Second(a: [i32; 3]) -> Option<i32> {
     Some(*a.get(1)?)
 }
 
+// The error converted by `From` (decision 95): a real call where the types differ, and
+// in a generic body (resolved per instance); the same concrete type moves as it is.
+fn Widened(r: Result<i32, u8>) -> Result<i32, i64> {
+    Ok(r? + 1)
+}
+
+fn Same<E>(r: Result<i32, E>) -> Result<i32, E> {
+    Ok(r? + 2)
+}
+
 fn Main() {
     PrintLine(Quarter(8).unwrap_or(0));
     PrintLine(Checked(Err(1)).is_err());
     PrintLine(Second([1, 2, 3]).unwrap_or(0));
+    PrintLine(Widened(Err(3)).is_err());
+    PrintLine(Same::<u8>(Ok(1)).unwrap_or(0));
 }

@@ -115,5 +115,5 @@
     │               ─┬  
     │                ╰── `&P`
     │ 
-    │ Note: see docs/PLAN.md
+    │ Note: a reference in an `impl` header needs a named lifetime, which waits for lifetimes (Phase 9); see docs/PLAN.md
 ────╯

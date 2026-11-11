@@ -1,0 +1,44 @@
+[E0354] Error: cycle detected when computing the supertraits of `A`
+   ╭─[ tests/ui/typeck/supertrait_cycle_overlapping.sabi:5:13 ]
+   │
+ 5 │ trait A<T>: B<T> {} //~ ERROR E0354 cycle detected when computing the supertraits of `A`
+   │             ──┬─  
+   │               ╰─── a supertrait that leads back to the trait
+   │ 
+ 7 │ trait B<T>: A<T> + C<(T,)> {}
+   │             ──┬─  
+   │               ╰─── ...which requires computing the supertraits of `B`...
+   │ 
+   │ Note: ...which again requires computing the supertraits of `A`, completing the cycle
+───╯
+[E0354] Error: cycle detected when computing the supertraits of `D`
+    ╭─[ tests/ui/typeck/supertrait_cycle_overlapping.sabi:18:13 ]
+    │
+ 18 │ trait D<T>: D<T> + E<(T,)> {} //~ ERROR E0354 cycle detected when computing the supertraits of `D`
+    │             ──┬─  
+    │               ╰─── a supertrait that leads back to the trait
+    │ 
+    │ Note: ...which immediately requires computing the supertraits of `D` again
+────╯
+[E0354] Error: cycle detected when computing the supertraits of `H`
+    ╭─[ tests/ui/typeck/supertrait_cycle_overlapping.sabi:23:10 ]
+    │
+ 23 │ trait H: I + K {} //~ ERROR E0354 cycle detected when computing the supertraits of `H`
+    │          ┬  
+    │          ╰── a supertrait that leads back to the trait
+    │ 
+ 25 │ trait I: H {}
+    │          ┬  
+    │          ╰── ...which requires computing the supertraits of `I`...
+    │ 
+    │ Note: ...which again requires computing the supertraits of `H`, completing the cycle
+────╯
+[E0354] Error: cycle detected when computing the supertraits of `N`
+    ╭─[ tests/ui/typeck/supertrait_cycle_overlapping.sabi:35:10 ]
+    │
+ 35 │ trait N: N + M {} //~ ERROR E0354 cycle detected when computing the supertraits of `N`
+    │          ┬  
+    │          ╰── a supertrait that leads back to the trait
+    │ 
+    │ Note: ...which immediately requires computing the supertraits of `N` again
+────╯
