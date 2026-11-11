@@ -14,6 +14,10 @@ trait Rev {
     fn Rev(&self) -> i32;
 }
 
+trait Late {
+    fn Late(&self) -> i32;
+}
+
 struct Wrap<T> {
     X: T,
 }
@@ -84,12 +88,29 @@ impl<T> Rev for (T, T) {
     }
 }
 
+// The blanket block after the specific one overlaps it too.
+impl Late for Other<i32> {
+    fn Late(&self) -> i32 {
+        1
+    }
+}
+
+impl<T> Late for Other<T> { //~ ERROR E0215 conflicting implementations of trait `Late` for type `Other<T>`
+    fn Late(&self) -> i32 {
+        2
+    }
+}
+
 fn Need<T: Show>(x: T) -> i32 {
     x.Show()
 }
 
 fn NeedPairs<T: Pairs>(x: T) -> i32 {
     x.Pairs()
+}
+
+fn Unknown(o: Other<Nope>) -> i32 { //~ ERROR E0201 cannot find type `Nope` in this scope
+    Need(o)
 }
 
 fn Main() {
