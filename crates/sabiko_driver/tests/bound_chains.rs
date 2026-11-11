@@ -10,6 +10,14 @@
 //! holds the loan of `&y`. rustc 1.99 gives E0506 for `N` up to 127 and E0275 from 128;
 //! with supertraits instead (`trait Li<T>: L{i-1}<T>`), a method of `L0` called inside `G`
 //! stores `t` in `x`, and a result outliving `y` is E0597.
+//!
+//! The nesting: `impl<T: Show> Show for W<T>` proved at `W<W<..i32..>>` `n` deep, where
+//! the innermost type is an inference variable while the body is checked (an unsuffixed
+//! literal, a type a later statement decides, a struct literal passed to a method), so
+//! inference confirms the blocks one level at a time and the rest of the proof is finished
+//! once the body is done: the recursion limit counts from the bound either way. rustc 1.99
+//! accepts `n` up to 127 and gives E0275 from 128; with `bool` innermost, E0277 up to 127
+//! (#155) and E0275 from 128.
 
 use std::fmt::Write as _;
 
@@ -65,6 +73,55 @@ fn supertrait_chain(n: usize, dangle: bool) -> String {
     src
 }
 
+/// How the innermost type of a nesting is given.
+#[derive(Clone, Copy, Debug)]
+enum Inner {
+    /// `G(W { F: .. 5 .. })`.
+    Literal,
+    /// `G(W { F: .. z .. })`, `z`'s type decided by a later statement.
+    Later,
+    /// `H.Take(W { F: .. 5 .. })`, a generic method.
+    Method,
+    /// `G(W { F: .. true .. })`: `bool: Show` does not hold.
+    Unsatisfied,
+    /// `fn Deep(w: W<..bool..>) -> i32 { G(w) }`: written types, `bool: Show` does not
+    /// hold.
+    UnsatisfiedParam,
+}
+
+/// The nesting of `n` `W`s around the innermost type `inner`.
+fn nesting(n: usize, inner: Inner) -> String {
+    let mut src = String::from(
+        "trait Show {\n    fn Get(&self) -> i32;\n}\n\nimpl Show for i32 {\n    fn Get(&self) -> i32 {\n        *self\n    }\n}\n\nstruct W<T> {\n    F: T,\n}\n\nimpl<T: Show> Show for W<T> {\n    fn Get(&self) -> i32 {\n        self.F.Get() + 1\n    }\n}\n\nstruct H;\n\nimpl H {\n    fn Take<X: Show>(&self, x: X) -> i32 {\n        x.Get()\n    }\n}\n\nfn G<X: Show>(x: X) -> i32 {\n    x.Get()\n}\n\nfn Default<T: From<i32>>() -> T {\n    T::from(5)\n}\n",
+    );
+    let wrap = |e: &str| {
+        let mut e = e.to_owned();
+        for _ in 0..n {
+            e = format!("W {{ F: {e} }}");
+        }
+        e
+    };
+    let body = match inner {
+        Inner::Literal => format!("    PrintLine(G({}));\n", wrap("5")),
+        Inner::Later => format!(
+            "    let z = Default();\n    PrintLine(G({}));\n    let k: i32 = z;\n    PrintLine(k);\n",
+            wrap("z")
+        ),
+        Inner::Method => format!("    PrintLine(H.Take({}));\n", wrap("5")),
+        Inner::Unsatisfied => format!("    PrintLine(G({}));\n", wrap("true")),
+        Inner::UnsatisfiedParam => {
+            let mut t = String::from("bool");
+            for _ in 0..n {
+                t = format!("W<{t}>");
+            }
+            let _ = write!(src, "\nfn Deep(w: {t}) -> i32 {{\n    G(w)\n}}\n");
+            String::new()
+        }
+    };
+    let _ = write!(src, "\nfn Main() {{\n{body}}}\n");
+    src
+}
+
 fn codes(src: &str) -> Vec<ErrorCode> {
     let c = compile_str("chain.sabi", src, Options::default());
     let mut codes: Vec<ErrorCode> = c.diagnostics.iter().map(|d| d.code).collect();
@@ -85,10 +142,13 @@ fn bound_chains_keep_loans_up_to_the_recursion_limit() {
 }
 
 /// One overflow per item whose bound reaches the limit, as rustc reports them: at depth
-/// 128 only `G`'s bound, at 130 also the bounds of the blocks for `L129` and `L130`.
+/// 128 `G`'s bound, at 130 also the bounds of the blocks for `L129` and `L130`; and the
+/// call in `Main`, whose proof is as deep. (rustc 1.99 reports no overflow in a body once
+/// one in a signature was reported, so it shows only the items' errors; with `G`'s bound
+/// at 127 and the call at 128 it reports the call's.)
 #[test]
 fn a_chain_as_deep_as_the_limit_is_an_overflow_per_item() {
-    for (n, errors) in [(128, 1), (130, 3)] {
+    for (n, errors) in [(128, 2), (130, 4)] {
         let c = compile_str("chain.sabi", &bound_chain(n, true), Options::default());
         let codes: Vec<ErrorCode> = c.diagnostics.iter().map(|d| d.code).collect();
         assert_eq!(
@@ -108,5 +168,46 @@ fn supertrait_chains_keep_loans() {
             "depth {n}"
         );
         assert_eq!(codes(&supertrait_chain(n, false)), [], "depth {n}");
+    }
+}
+
+/// The recursion limit counts from the bound a use requires, however much of the proof
+/// inference confirmed while checking the body, and the borrow checker follows the same
+/// proof: never an internal error.
+#[test]
+fn nestings_inferred_late_overflow_at_the_recursion_limit() {
+    for inner in [Inner::Literal, Inner::Later, Inner::Method] {
+        for n in [1, 127] {
+            assert_eq!(codes(&nesting(n, inner)), [], "{inner:?} at depth {n}");
+        }
+        for n in [128, 129, 160, 200] {
+            assert_eq!(
+                codes(&nesting(n, inner)),
+                [ErrorCode::OVERFLOW_EVALUATING],
+                "{inner:?} at depth {n}"
+            );
+        }
+    }
+}
+
+/// An unsatisfied bound at the bottom of a nesting is an error at every depth (#155): the
+/// bound itself below the limit, an overflow from it on.
+#[test]
+fn unsatisfied_nestings_are_errors_at_every_depth() {
+    for inner in [Inner::Unsatisfied, Inner::UnsatisfiedParam] {
+        for n in [1, 65, 127] {
+            assert_eq!(
+                codes(&nesting(n, inner)),
+                [ErrorCode::UNSATISFIED_BOUND],
+                "{inner:?} at depth {n}"
+            );
+        }
+        for n in [128, 129, 200] {
+            assert_eq!(
+                codes(&nesting(n, inner)),
+                [ErrorCode::OVERFLOW_EVALUATING],
+                "{inner:?} at depth {n}"
+            );
+        }
     }
 }

@@ -285,6 +285,8 @@ pub struct ItemTypes {
     predicates: HashMap<DefId, Vec<Predicate>>,
     /// The lengths and `impl` types to lower the types written in bodies with.
     pub(crate) sig_cx: ArrayLens,
+    /// What each trait reference elaborated so far implies (`ItemTypes::elaborate`).
+    pub(crate) elaborated: crate::traits::ElaborationCache,
 }
 
 impl ItemTypes {
@@ -986,6 +988,7 @@ fn collect_traits(
 ) {
     let refs = trait_refs(file);
     collect_trait_defs(file, resolve, lens, items);
+    check_supertrait_cycles(file, resolve, items, sink);
     collect_predicates(resolve, lens, items, &refs, sink);
     collect_impls(file, resolve, lens, items, sink);
     collect_param_envs(resolve, items);
@@ -1063,6 +1066,133 @@ fn collect_trait_defs(
         };
         items.traits.get_mut(&tr).expect("collected").supertraits = supertraits;
     }
+}
+
+/// A trait whose supertraits lead back to it is E0354 (rustc's E0391, "cycle detected
+/// when computing the super clauses"), by trait whatever the arguments (`trait A: A`,
+/// `trait A<T>: A<(T,)>`, `trait D: E` with `trait E: D`), once per cycle as rustc
+/// reports it: a depth-first walk over the traits in definition order and their
+/// supertraits as written finds the cycle, reported at its first trait's supertrait, and
+/// no other cycle through a trait already reported is. The supertraits between traits of
+/// reported cycles are then dropped, so the supertrait graph the solver elaborates has no
+/// cycle and elaboration ends without a limit.
+fn check_supertrait_cycles(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    items: &mut ItemTypes,
+    sink: &mut DiagnosticSink,
+) {
+    // The supertraits of each trait of the file, with the span of each, in order.
+    let graph: Vec<(DefId, Vec<(DefId, Span)>)> = file
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Trait(t) => Some((
+                resolve.def_of_item(item.id),
+                t.supertraits
+                    .iter()
+                    .filter_map(|s| match resolve.res(s.id) {
+                        Res::Def(sup) => Some((sup, s.path.span)),
+                        _ => None,
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect();
+    let index: HashMap<DefId, usize> = graph
+        .iter()
+        .enumerate()
+        .map(|(i, (tr, _))| (*tr, i))
+        .collect();
+    let mut cyclic: HashSet<DefId> = HashSet::new();
+    loop {
+        let reported = cyclic.len();
+        // 0: not visited, 1: on the walk's path, 2: done.
+        let mut state = vec![0u8; graph.len()];
+        for root in 0..graph.len() {
+            if state[root] != 0 {
+                continue;
+            }
+            // The path: each trait with the index of its next supertrait to follow.
+            let mut path: Vec<(usize, usize)> = vec![(root, 0)];
+            state[root] = 1;
+            while let Some(&mut (node, ref mut next)) = path.last_mut() {
+                let Some(&(sup, _)) = graph[node].1.get(*next) else {
+                    state[node] = 2;
+                    path.pop();
+                    continue;
+                };
+                *next += 1;
+                let Some(&target) = index.get(&sup) else {
+                    continue;
+                };
+                if cyclic.contains(&graph[node].0) && cyclic.contains(&sup) {
+                    continue;
+                }
+                match state[target] {
+                    0 => {
+                        state[target] = 1;
+                        path.push((target, 0));
+                    }
+                    1 if !cyclic.contains(&sup) => {
+                        let start = path.iter().position(|&(n, _)| n == target);
+                        let cycle = &path[start.expect("on the path")..];
+                        sink.emit(supertrait_cycle(resolve, &graph, cycle));
+                        cyclic.extend(cycle.iter().map(|&(n, _)| graph[n].0));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if cyclic.len() == reported {
+            break;
+        }
+    }
+    for tr in &cyclic {
+        if let Some(t) = items.traits.get_mut(tr) {
+            t.supertraits.retain(|(sup, _)| !cyclic.contains(sup));
+        }
+    }
+}
+
+/// E0354 for the supertrait cycle `cycle` (each trait with one past the index of the
+/// supertrait leading to the next), as rustc words E0391.
+fn supertrait_cycle(
+    resolve: &ResolveResults,
+    graph: &[(DefId, Vec<(DefId, Span)>)],
+    cycle: &[(usize, usize)],
+) -> Diagnostic {
+    let name = |n: usize| &resolve.def(graph[n].0).name;
+    let edge = |&(n, next): &(usize, usize)| graph[n].1[next - 1].1;
+    let first = cycle[0].0;
+    let mut d = Diagnostic::error(
+        ErrorCode::SUPERTRAIT_CYCLE,
+        format!(
+            "cycle detected when computing the supertraits of `{}`",
+            name(first)
+        ),
+    )
+    .with_label(edge(&cycle[0]), "a supertrait that leads back to the trait");
+    if cycle.len() == 1 {
+        return d.with_note(format!(
+            "...which immediately requires computing the supertraits of `{}` again",
+            name(first)
+        ));
+    }
+    for step in &cycle[1..] {
+        d = d.with_label(
+            edge(step),
+            format!(
+                "...which requires computing the supertraits of `{}`...",
+                name(step.0)
+            ),
+        );
+    }
+    d.with_note(format!(
+        "...which again requires computing the supertraits of `{}`, completing the cycle",
+        name(first)
+    ))
 }
 
 /// The bounds of every item, lowered.

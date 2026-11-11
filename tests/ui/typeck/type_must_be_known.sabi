@@ -1,5 +1,9 @@
-// An operand or receiver whose type a trait obligation leaves open is an error where it
-// is used (rustc's E0283), not decided by a later use or by integer fallback.
+// A binary operator or a printed value whose operand type a trait obligation leaves open
+// waits for a later use to decide it, as rustc's operator and `Display` obligations do,
+// and is an error at the operator or argument when nothing does (rustc's E0283), before
+// integer fallback could pick an impl. A unary operator's operand and a receiver must be
+// known where they are used (rustc's E0282), whatever a later use decides. rustc reports
+// a body's ambiguities together (`Never`), but none after such an error.
 struct S;
 
 trait Tr<T> {
@@ -18,9 +22,50 @@ impl Tr<i64> for S {
     }
 }
 
-fn Main() {
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+impl Show for i64 {
+    fn Sh(&self) -> i32 {
+        3
+    }
+}
+
+fn Later() {
+    let a = S.Mk();
+    let b = a + 3;
+    let c = 1 << a;
+    let d = a == 3;
+    let mut e = S.Mk();
+    e += 1;
+    PrintLine(e);
+    let f: i64 = a;
+    let g: i64 = e;
+    PrintLine(b.Sh());
+}
+
+fn Never() {
     let v = 5u8.into();
     PrintLine(v + 1u16); //~ ERROR E0313 type annotations needed
     let w = S.Mk();
     PrintLine(w + 1); //~ ERROR E0313 type annotations needed
+    let mut x = S.Mk();
+    x += 1; //~ ERROR E0313 type annotations needed
+    let y = S.Mk();
+    PrintLine(y); //~ ERROR E0313 type annotations needed
 }
+
+fn Operand() {
+    let u = S.Mk();
+    let n = -u; //~ ERROR E0313 type annotations needed
+    let k: i64 = u;
+}
+
+fn Receiver() {
+    let r = S.Mk();
+    let m = (r + 1).Sh(); //~ ERROR E0313 type annotations needed
+    let j: i64 = r;
+}
+
+fn Main() {}

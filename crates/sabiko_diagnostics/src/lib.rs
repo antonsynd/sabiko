@@ -227,6 +227,9 @@ impl ErrorCode {
     /// Proving a bound needs a chain of `impl` bounds deeper than the recursion limit
     /// (rustc's E0275, "overflow evaluating the requirement").
     pub const OVERFLOW_EVALUATING: Self = Self(353);
+    /// A trait whose supertraits lead back to it, whatever their arguments (`trait A<T>:
+    /// A<(T,)>`; rustc's E0391, "cycle detected when computing the super clauses").
+    pub const SUPERTRAIT_CYCLE: Self = Self(354);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

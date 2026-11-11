@@ -1749,6 +1749,29 @@ Update (2026-11-11), after the second review of #154. Fixed, each checked agains
   stated in `library/core/convert.sabi`.
 Filed: #156 (region types of nested generic instances grow as 2^depth, mainline too).
 
+Update (2026-11-11), after the third review of #154. Fixed, each checked against rustc:
+- Depth accounting: inference confirmed nested obligations up to 64 levels and the rest
+  of the proof was judged from depth 0, so a nesting 128 to about 190 deep whose innermost
+  type was decided late (an unsuffixed literal) passed the type checker and failed in the
+  borrow checker (E0900). An obligation now keeps its depth and is judged from it
+  (`implements_at`); the separate selection limit is gone. `bound_chains.rs` checks
+  nestings whose innermost type is a literal, a later-decided type or a struct literal
+  passed to a method, at 1, 127 (accepted), 128, 129, 160 and 200 (E0353), and an
+  unsatisfied bound at 1, 65 and 127 (E0341) and beyond (E0353): #155 is fixed.
+- Supertrait cycles (`trait A<T>: A<(T,)>` hung): E0354 at the trait (rustc's E0391),
+  once per cycle; elaboration dedups by a hash set and is cached per trait reference, and
+  its cap of 1024 references is gone (a chain of 2000 supertraits is accepted, as in
+  rustc). UI test `typeck/supertrait_cycle`,
+  `differential/traits/ok_supertrait_graphs_without_cycles`.
+- Binary operators, compound assignments and printed values with an operand whose type
+  is still open are judged once a later use decides it, E0313 when nothing does
+  (`open_operation`, decision 95), instead of the second review's error at the operator;
+  unary operands, receivers and bases stay resolved where they are used, and no longer
+  report in a body tainted by errors. A verdict table of 60 programs (operand orders,
+  operator classes, literal and general variables, with and without a later use,
+  compound assignment, nesting, result as receiver) matches rustc's; UI test
+  `typeck/type_must_be_known`, `differential/traits/ok_operands_decided_by_a_later_use`.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work

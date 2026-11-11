@@ -1,0 +1,48 @@
+[E0354] Error: cycle detected when computing the supertraits of `A`
+   ╭─[ tests/ui/typeck/supertrait_cycle.sabi:6:13 ]
+   │
+ 6 │ trait A<T>: A<(T,)> { //~ ERROR E0354 cycle detected when computing the supertraits of `A`
+   │             ───┬───  
+   │                ╰───── a supertrait that leads back to the trait
+   │ 
+   │ Note: ...which immediately requires computing the supertraits of `A` again
+───╯
+[E0354] Error: cycle detected when computing the supertraits of `Own`
+    ╭─[ tests/ui/typeck/supertrait_cycle.sabi:16:12 ]
+    │
+ 16 │ trait Own: Own {} //~ ERROR E0354 cycle detected when computing the supertraits of `Own`
+    │            ─┬─  
+    │             ╰─── a supertrait that leads back to the trait
+    │ 
+    │ Note: ...which immediately requires computing the supertraits of `Own` again
+────╯
+[E0354] Error: cycle detected when computing the supertraits of `D`
+    ╭─[ tests/ui/typeck/supertrait_cycle.sabi:20:10 ]
+    │
+ 20 │ trait D: E {} //~ ERROR E0354 cycle detected when computing the supertraits of `D`
+    │          ┬  
+    │          ╰── a supertrait that leads back to the trait
+    │ 
+ 22 │ trait E: F + D {}
+    │          ┬  
+    │          ╰── ...which requires computing the supertraits of `E`...
+    │ 
+ 24 │ trait F: D {}
+    │          ┬  
+    │          ╰── ...which requires computing the supertraits of `F`...
+    │ 
+    │ Note: ...which again requires computing the supertraits of `D`, completing the cycle
+────╯
+[E0354] Error: cycle detected when computing the supertraits of `K`
+    ╭─[ tests/ui/typeck/supertrait_cycle.sabi:26:13 ]
+    │
+ 26 │ trait K<T>: L<T> {} //~ ERROR E0354 cycle detected when computing the supertraits of `K`
+    │             ──┬─  
+    │               ╰─── a supertrait that leads back to the trait
+    │ 
+ 28 │ trait L<T>: K<i32> {}
+    │             ───┬──  
+    │                ╰──── ...which requires computing the supertraits of `L`...
+    │ 
+    │ Note: ...which again requires computing the supertraits of `K`, completing the cycle
+────╯

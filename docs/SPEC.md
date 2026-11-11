@@ -825,8 +825,13 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   E0283); `Trait::<A>::Name` gives them. Of the blocks whose header matches, those whose
   bounds fail are no candidates (rustc's winnowing), so the order of blocks never
   matters; a chain of bounds 128 deep, rustc's recursion limit, is E0353 (rustc's E0275).
-  Where a type must be known (an operand, a receiver, a printed value), the obligations
-  that could decide it are selected first; a type still open there is E0313. At a call, the
+  The limit counts from the bound a use requires, however late inference decides the
+  innermost type. A trait whose supertraits lead back to it is E0354 (rustc's E0391),
+  whatever the arguments. Where a type must be known (a unary operator's operand, a
+  receiver, a field or index base, the operand of `?`), the obligations that could decide
+  it are selected first; a type still open there is E0313. A binary operator, compound
+  assignment or printed value whose operand type is still open waits for a later use to
+  decide it, and is E0313 when nothing does (rustc's E0283). At a call, the
   callee's bounds are proved at its generic arguments, and a block proving one that
   names a parameter twice keeps the loans through it (`fn G<T, U: From<T>>(t: T) -> U`
   called with `&x` returns a reference borrowing `x`). Every type parameter but a

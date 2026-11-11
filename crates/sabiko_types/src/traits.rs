@@ -12,7 +12,8 @@
 //! candidate assembly (bounds in scope, `impl` blocks, the built-in `Copy` and `Clone`),
 //! then confirmation of the one candidate, whose bounds become new goals.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use sabiko_resolve::{DefId, LangItem, PrimTy, ResolveResults};
 use sabiko_span::Span;
@@ -33,6 +34,12 @@ pub struct Predicate {
     pub span: Span,
 }
 
+/// The trait references a bound implies, itself first ([`ItemTypes::elaborate`]).
+pub type Elaborated = Arc<[(DefId, Vec<Ty>)]>;
+
+/// The trait references elaborated so far, by `(trait, Self, arguments)`.
+pub(crate) type ElaborationCache = std::cell::RefCell<HashMap<(DefId, Ty, Vec<Ty>), Elaborated>>;
+
 /// The answer to "does this type implement that trait?".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Solution {
@@ -50,22 +57,19 @@ pub enum Solution {
 /// checker follows proofs exactly as deep (`sabiko_borrowck`'s `bound_region_links`).
 pub const DEPTH_LIMIT: usize = 128;
 
-/// How many trait references the supertraits of one bound may imply before elaboration
-/// stops (`trait A<T>: A<(T,)>` implies endlessly many; rustc reports the cycle).
-const ELABORATION_LIMIT: usize = 1024;
-
 impl ItemTypes {
     /// The trait `tr` and all its supertraits, transitively, each once, `tr` first.
     #[must_use]
     pub fn trait_closure(&self, tr: DefId) -> Vec<DefId> {
         let mut out = vec![tr];
+        let mut seen: HashSet<DefId> = HashSet::from([tr]);
         let mut next = 0;
         while next < out.len() {
             let current = out[next];
             next += 1;
             if let Some(t) = self.trait_def(current) {
                 for (s, _) in &t.supertraits {
-                    if !out.contains(s) {
+                    if seen.insert(*s) {
                         out.push(*s);
                     }
                 }
@@ -82,28 +86,47 @@ impl ItemTypes {
 
     /// The trait references `self_ty: tr<args>` implies: itself, then its supertraits with
     /// `Self` and the trait's parameters substituted, transitively, each once
-    /// (rustc's elaboration of a where clause).
+    /// (rustc's elaboration of a where clause). It ends: a trait whose supertraits lead
+    /// back to it is an error (E0354) and those supertraits are dropped, so each trait
+    /// reference implies a finite set, if one exponential in the depth of a graph that
+    /// uses each trait at several arguments (as rustc's is).
+    /// Computed once per trait reference (a bound in scope is elaborated at every goal
+    /// about its parameter).
     #[must_use]
-    pub fn elaborate(&self, tr: DefId, self_ty: &Ty, args: &[Ty]) -> Vec<(DefId, Vec<Ty>)> {
+    pub fn elaborate(&self, tr: DefId, self_ty: &Ty, args: &[Ty]) -> Elaborated {
+        let key = (tr, self_ty.clone(), args.to_vec());
+        if let Some(done) = self.elaborated.borrow().get(&key) {
+            return Arc::clone(done);
+        }
+        let out: Elaborated = self.elaborate_uncached(tr, self_ty, args).into();
+        self.elaborated.borrow_mut().insert(key, Arc::clone(&out));
+        out
+    }
+
+    fn elaborate_uncached(&self, tr: DefId, self_ty: &Ty, args: &[Ty]) -> Vec<(DefId, Vec<Ty>)> {
         let mut out = vec![(tr, args.to_vec())];
+        let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::from([(tr, args.to_vec())]);
         let mut next = 0;
-        while next < out.len() && out.len() < ELABORATION_LIMIT {
+        while next < out.len() {
             let (current, current_args) = out[next].clone();
             next += 1;
             let Some(t) = self.trait_def(current) else {
                 continue;
             };
+            if t.supertraits.is_empty() {
+                continue;
+            }
             let mut params = vec![t.self_param];
             params.extend(&t.params);
             let mut subst = vec![self_ty.clone()];
             subst.extend(current_args);
             subst.resize(params.len(), Ty::Error);
             for (sup, sup_args) in &t.supertraits {
-                let implied = (
+                let implied: (DefId, Vec<Ty>) = (
                     *sup,
                     sup_args.iter().map(|a| a.subst(&params, &subst)).collect(),
                 );
-                if !out.contains(&implied) {
+                if seen.insert(implied.clone()) {
                     out.push(implied);
                 }
             }
@@ -226,7 +249,12 @@ impl ItemTypes {
         self.implements_at(ty, tr, args, env, 0)
     }
 
-    fn implements_at(
+    /// [`ItemTypes::implements`] for a goal `depth` confirmations below the bound it
+    /// proves (a nested obligation of the type checker's selection): the recursion limit
+    /// counts from that bound, so a proof is judged exactly as deep wherever it is
+    /// finished, and as the borrow checker replays it from the bound.
+    #[must_use]
+    pub fn implements_at(
         &self,
         ty: &Ty,
         tr: DefId,
@@ -310,18 +338,20 @@ impl ItemTypes {
     }
 
     /// The first bound of the block `imp`, at its arguments, that fails where `env`
-    /// holds: what an error reports when the block is the only one whose header matches
-    /// (rustc's nested obligation).
+    /// holds, the bounds `depth` confirmations below the root (see
+    /// [`ItemTypes::implements_at`]): what an error reports when the block is the only one
+    /// whose header matches (rustc's nested obligation).
     #[must_use]
     pub fn failing_bound(
         &self,
         imp: &ImplDef,
         impl_args: &[Ty],
         env: &[Predicate],
+        depth: usize,
     ) -> Option<(Ty, DefId, Vec<Ty>, Solution)> {
         imp.preds.iter().find_map(|pred| {
             let (self_ty, pred_args) = instantiate_pred(pred, &imp.generics, impl_args);
-            match self.implements(&self_ty, pred.trait_, &pred_args, env) {
+            match self.implements_at(&self_ty, pred.trait_, &pred_args, env, depth) {
                 s @ (Solution::No | Solution::Overflow) => {
                     Some((self_ty, pred.trait_, pred_args, s))
                 }
@@ -752,7 +782,7 @@ impl Add<i32> for S { fn Add(&self, r: i32) -> i32 { r } }
         let bool_ = [Ty::Prim(PrimTy::Bool)];
         assert_eq!(items.implements(&t, sup, &bool_, &env), Solution::No);
         assert_eq!(
-            items.elaborate(sub, &t, &i32_),
+            *items.elaborate(sub, &t, &i32_),
             [(sub, i32_.to_vec()), (sup, i32_.to_vec())]
         );
         assert_eq!(items.trait_param_count(sub), 1);

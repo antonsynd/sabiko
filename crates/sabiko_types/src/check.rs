@@ -19,7 +19,9 @@ use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::{instantiate_pred, overflow_error, trait_ref_str, Predicate, Solution};
+use crate::traits::{
+    instantiate_pred, overflow_error, trait_ref_str, Predicate, Solution, DEPTH_LIMIT,
+};
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -56,13 +58,12 @@ struct Obligation {
     /// For a bound of an `impl` block selected for another obligation, that obligation:
     /// rustc's "required for `u8` to implement `Into<i8>`".
     required_for: Option<String>,
-    /// How many confirmations led to it (`select_obligations`), which stop at
-    /// [`SELECTION_DEPTH`] as rustc's recursion limit stops them.
+    /// How many confirmations led to it from the bound a use required
+    /// (`select_obligations`): the recursion limit ([`DEPTH_LIMIT`]) counts from there,
+    /// while inference confirms and when the obligation is judged, so the proof is as deep
+    /// as the one the borrow checker replays from the bound.
     depth: usize,
 }
-
-/// How deep confirmations of `impl` blocks may nest while inference runs.
-const SELECTION_DEPTH: usize = 64;
 
 /// Why an obligation must hold, for its diagnostic: the root of rustc's obligation cause
 /// chain (the nested obligations keep it, with what they are required for).
@@ -320,12 +321,16 @@ pub(crate) struct FnCtxt<'a> {
     pending_negs: Vec<(Span, Ty)>,
     /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `!`.
     diverging_vars: Vec<Ty>,
-    /// `Print`/`PrintLine` arguments typed by such a variable (`let v = return;
-    /// PrintLine(v);`), checked once the fallback decided them.
+    /// `Print`/`PrintLine` arguments whose type was still an unknown variable (`let v =
+    /// return; PrintLine(v);`, or one a later use decides), checked once it is known, or
+    /// reported in `finish` (rustc's `T: Display` obligation of the call).
     pending_prints: Vec<(Builtin, Span, Ty)>,
     /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
     pending_comparisons: Vec<(BinOp, Ty, Span)>,
     never_operands: Vec<NeverOperand>,
+    /// Operations with an operand of a type still unknown where they were checked (see
+    /// [`FnCtxt::open_operation`]).
+    open_operations: Vec<NeverOperand>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
@@ -337,6 +342,10 @@ pub(crate) struct FnCtxt<'a> {
     /// (unless it names a `const` item): judged in `finish`, once the type is known.
     pending_repeats: Vec<(Span, Ty)>,
     errors_before: usize,
+    /// The ambiguities `finish` reported (E0313 for open operations, printed values and
+    /// obligations): rustc reports a body's ambiguities together, so one does not taint
+    /// the body for the others.
+    ambiguities_reported: usize,
     /// The bounds that hold in the function being checked (`ItemTypes::param_env`).
     env: Vec<Predicate>,
     /// What `Self` names in a trait `impl` block's function: its `Self::V`, `Self { .. }`
@@ -400,6 +409,7 @@ impl<'a> FnCtxt<'a> {
             pending_prints: Vec::new(),
             pending_comparisons: Vec::new(),
             never_operands: Vec::new(),
+            open_operations: Vec::new(),
             consts: None,
             index_derefs: HashMap::new(),
             len_calls: HashMap::new(),
@@ -407,6 +417,7 @@ impl<'a> FnCtxt<'a> {
             repeat_counts: HashMap::new(),
             pending_repeats: Vec::new(),
             errors_before,
+            ambiguities_reported: 0,
             env: Vec::new(),
             self_ty: None,
             obligations: Vec::new(),
@@ -969,6 +980,27 @@ impl<'a> FnCtxt<'a> {
         (self.record(expr, ty), never)
     }
 
+    /// [`Self::check_operand`] for an operand of a built-in operator: an operand whose type
+    /// is still a general variable is not coerced to `expected` (the operator's impl,
+    /// which its types select, decides it, see [`Self::open_operation`]).
+    fn check_open_operand(&mut self, expr: &Expr, expected: Option<&Ty>) -> (Ty, bool) {
+        if let ExprKind::Paren(inner) = &expr.kind {
+            let (ty, never) = self.check_open_operand(inner, expected);
+            return (self.record(expr, ty), never);
+        }
+        let ty = self.check_expr_kind(expr, expected);
+        let never = self.is_never_like(&ty);
+        if !never && !self.is_open(&ty) {
+            self.coerce_to_expected(expr, &ty, expected);
+        }
+        (self.record(expr, ty), never)
+    }
+
+    /// Whether `ty` is still a general inference variable (not one of a literal).
+    fn is_open(&mut self, ty: &Ty) -> bool {
+        matches!(self.shallow(ty), Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
+    }
+
     /// Whether `ty` is `!` or a diverging variable nothing has decided yet.
     fn is_never_like(&mut self, ty: &Ty) -> bool {
         match self.shallow(ty) {
@@ -1023,13 +1055,24 @@ impl<'a> FnCtxt<'a> {
             ExprKind::AssignOp(op, lhs, rhs) => {
                 let lhs_ty = self.check_place(lhs);
                 let lhs_never = self.is_never_like(&lhs_ty);
-                let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) || lhs_never {
+                let lhs_open = self.is_open(&lhs_ty);
+                let rhs_expected = if matches!(op, BinOp::Shl | BinOp::Shr) || lhs_never || lhs_open
+                {
                     None
                 } else {
                     Some(&lhs_ty)
                 };
-                let (rhs_ty, rhs_never) = self.check_operand(rhs, rhs_expected);
-                if lhs_never || rhs_never {
+                let (rhs_ty, rhs_never) = self.check_open_operand(rhs, rhs_expected);
+                if !lhs_never && !rhs_never && (lhs_open || self.is_open(&rhs_ty)) {
+                    self.open_operations.push(NeverOperand {
+                        op: *op,
+                        compound: true,
+                        lhs: lhs_ty,
+                        rhs: rhs_ty,
+                        span: expr.span,
+                        out: None,
+                    });
+                } else if lhs_never || rhs_never {
                     self.never_operands.push(NeverOperand {
                         op: *op,
                         compound: true,
@@ -1059,7 +1102,7 @@ impl<'a> FnCtxt<'a> {
             }
             ExprKind::Field(base, name) => {
                 let base_ty = self.check_expr(base, None);
-                self.check_field(expr, &base_ty, &name.name, name.span)
+                self.check_field(expr, base.span, &base_ty, &name.name, name.span)
             }
             ExprKind::Try(operand) => self.check_try(expr, operand),
             ExprKind::Index(base, index) => self.check_index(expr, base, index, unsized_place),
@@ -2876,16 +2919,20 @@ impl<'a> FnCtxt<'a> {
                 Ty::BOOL
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                let (l, l_never) = self.check_operand(lhs, None);
-                let l = if l_never {
-                    l
-                } else {
-                    self.structurally_resolve(&l, lhs.span)
-                };
+                let (l, l_never) = self.check_open_operand(lhs, None);
                 if l_never {
                     // Only `!: PartialEq<!>` and `!: PartialOrd<!>` exist.
                     let (r, _) = self.check_operand(rhs, None);
                     self.never_operand(op, l, r, span);
+                    return Ty::BOOL;
+                }
+                if self.is_open(&l) {
+                    let (r, r_never) = self.check_open_operand(rhs, None);
+                    if r_never {
+                        self.never_operand(op, l, r, span);
+                    } else {
+                        self.open_operation(op, l, r, span);
+                    }
                     return Ty::BOOL;
                 }
                 if let Ty::Ref(..) = self.shallow(&l) {
@@ -2917,15 +2964,13 @@ impl<'a> FnCtxt<'a> {
                 Ty::BOOL
             }
             BinOp::Shl | BinOp::Shr => {
-                let (l, l_never) = self.check_operand(lhs, expected);
-                let l = if l_never {
-                    l
-                } else {
-                    self.structurally_resolve(&l, lhs.span)
-                };
-                let (r, r_never) = self.check_operand(rhs, None);
+                let (l, l_never) = self.check_open_operand(lhs, expected);
+                let (r, r_never) = self.check_open_operand(rhs, None);
                 if l_never || r_never {
                     return self.never_operand(op, l, r, span);
+                }
+                if self.is_open(&l) || self.is_open(&r) {
+                    return self.open_operation(op, l, r, span);
                 }
                 if self.check_shift_operands(op, &l, &r, span) {
                     l
@@ -2934,15 +2979,15 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             _ => {
-                let (l, l_never) = self.check_operand(lhs, expected);
-                let l = if l_never {
-                    l
-                } else {
-                    self.structurally_resolve(&l, lhs.span)
-                };
-                let (r, r_never) = self.check_operand(rhs, (!l_never).then_some(&l));
+                let (l, l_never) = self.check_open_operand(lhs, expected);
+                let l_open = self.is_open(&l);
+                let (r, r_never) =
+                    self.check_open_operand(rhs, (!l_never && !l_open).then_some(&l));
                 if l_never || r_never {
                     return self.never_operand(op, l, r, span);
+                }
+                if l_open || self.is_open(&r) {
+                    return self.open_operation(op, l, r, span);
                 }
                 if self.check_arith_operands(op, &l, &r, span) {
                     l
@@ -3033,6 +3078,137 @@ impl<'a> FnCtxt<'a> {
         } else if !is_comparable(&referent) {
             let resolved = self.infer.resolve(lhs_ty);
             self.binary_op_error(op, &resolved, span);
+        }
+    }
+
+    /// Records an operation with an operand whose type is still a general variable and
+    /// returns its type for now (a fresh variable, or `bool` for a comparison). rustc types
+    /// such an operator through its trait (`?L: Add<?R>`, with `Output` unknown), whose
+    /// selection waits while the left type is a variable, and, for the arithmetic, bitwise
+    /// and shift traits, also while the right one is (`i64` has `Add<i64>` and
+    /// `Add<&i64>`); a comparison with a known left type has one impl, which decides the
+    /// right type, and is checked at once. So nothing is unified here, whichever operand
+    /// is open and whatever the expected type: the operation is judged as an ordinary one
+    /// once a later use decides the operands ([`Self::select_where_possible`]), and is
+    /// E0313 in `finish` if none does (rustc's E0283), before the literal defaults. When
+    /// #117 brings the operator traits, this record becomes the obligation `L: Add<R>`
+    /// with its `Output`, and judging it is selecting that obligation.
+    fn open_operation(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
+        let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
+        let ty = out.clone().unwrap_or(Ty::BOOL);
+        self.open_operations.push(NeverOperand {
+            op,
+            compound: false,
+            lhs,
+            rhs,
+            span,
+            out,
+        });
+        ty
+    }
+
+    /// Judges the open operations ([`Self::open_operation`]) whose impl the operand types
+    /// select now: a comparison's once its left type is known, any other once both are,
+    /// and a shift's result only once its left type is more than a literal's (`{integer}:
+    /// Shl<i64>` has an impl per integer type, each with its own `Output`), which
+    /// `defaults` gives it. Returns whether one was.
+    fn judge_open_operations(&mut self, defaults: bool) -> bool {
+        let mut judged = false;
+        for n in std::mem::take(&mut self.open_operations) {
+            let shift_out = n.out.is_some() && matches!(n.op, BinOp::Shl | BinOp::Shr);
+            if shift_out && defaults && !self.is_open(&n.rhs) {
+                let l = self.infer.resolve_with_defaults(&n.lhs);
+                // Only a literal's variable changes, to its default.
+                let _ = self.infer.unify(&n.lhs, &l);
+            }
+            let literal_lhs = matches!(self.shallow(&n.lhs), Ty::Infer(_));
+            let selects = !self.is_open(&n.lhs)
+                && (n.op.is_comparison() && !n.compound || !self.is_open(&n.rhs))
+                && !(shift_out && literal_lhs);
+            if !selects {
+                self.open_operations.push(n);
+                continue;
+            }
+            judged = true;
+            if self.is_never_like(&n.lhs) || self.is_never_like(&n.rhs) {
+                // Decided as `!` by now: judged with the other operations on `!`.
+                self.never_operands.push(n);
+                continue;
+            }
+            self.check_decided_operation(&n, false);
+            if n.op.is_comparison() && !n.compound {
+                self.pending_comparisons.push((n.op, n.lhs.clone(), n.span));
+            }
+        }
+        judged
+    }
+
+    /// rustc's `select_obligations_where_possible`: selects the pending obligations and
+    /// judges the open operations and printed values their types decide, until nothing
+    /// changes.
+    fn select_where_possible(&mut self) {
+        self.select_judging(false);
+    }
+
+    /// [`Self::select_where_possible`], with the literal defaults applied to the left
+    /// operands of open shifts when `defaults` (rustc's integer fallback before its last
+    /// selection).
+    fn select_judging(&mut self, defaults: bool) {
+        loop {
+            self.select_obligations();
+            let ops = self.judge_open_operations(defaults);
+            let prints = self.check_known_prints();
+            if !ops && !prints {
+                return;
+            }
+        }
+    }
+
+    /// Checks the `Print`/`PrintLine` arguments recorded while their type was open whose
+    /// type is known now. Returns whether one was.
+    fn check_known_prints(&mut self) -> bool {
+        let mut checked = false;
+        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
+            let t = self.infer.resolve(&ty);
+            if self.has_no_general_var(&t) {
+                checked = true;
+                self.check_printable(builtin, span, &t);
+            } else {
+                self.pending_prints.push((builtin, span, ty));
+            }
+        }
+        checked
+    }
+
+    /// The open operations ([`Self::open_operation`]) left when the body is done: no use
+    /// decided their operand types, which is E0313 (rustc's E0283) at the operator,
+    /// unless the body is tainted by errors. The operands' variables become errors, so
+    /// what else they leave open is not reported again.
+    fn report_open_operations(&mut self) {
+        for n in std::mem::take(&mut self.open_operations) {
+            if !self.ambiguity_tainted() {
+                self.ambiguities_reported += 1;
+                let sym = format!("{}{}", n.op.as_str(), if n.compound { "=" } else { "" });
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(n.span, format!("cannot infer the operand types of `{sym}`"))
+                    .with_note(
+                        "the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation",
+                    ),
+                );
+            }
+            for t in [Some(&n.lhs), Some(&n.rhs), n.out.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                let t = self.infer.resolve(t);
+                if t.has_infer() {
+                    self.infer.bind_error(&t);
+                }
+            }
         }
     }
 
@@ -3587,12 +3763,14 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// rustc's `structurally_resolve_type`: the type `ty` of the expression at `span` must
-    /// be known here (an operator's left operand, a receiver, a field access's or an
+    /// be known here (a unary operator's operand, a receiver, a field access's or an
     /// index's base, the operand of `?`). When it is still a variable that a pending trait
-    /// obligation mentions, the obligations are selected first, as rustc does
-    /// (`S.Map()` with one `impl Map<i64> for S` is an `i64` there); if that leaves it
-    /// unknown, it is E0313 (rustc's E0282/E0283) instead of being decided by a later use.
-    /// A variable no obligation mentions is left to the caller, which defers as before.
+    /// obligation or an open operation mentions, they are selected and judged first, as
+    /// rustc does (`S.Map()` with one `impl Map<i64> for S` is an `i64` there, and so is
+    /// `w + 1` once `w` is); if that leaves it unknown, it is E0313 (rustc's E0282/E0283)
+    /// instead of being decided by a later use, unless the body is tainted by errors. A
+    /// variable nothing mentions is left to the caller, which defers as before. A binary
+    /// operator's operands are not resolved here: see [`Self::open_operation`].
     fn structurally_resolve(&mut self, ty: &Ty, span: Span) -> Ty {
         let t = self.shallow(ty);
         let Ty::Infer(v) = t else {
@@ -3601,10 +3779,14 @@ impl<'a> FnCtxt<'a> {
         if self.infer.kind(v) != VarKind::General || !self.obligation_mentions(&t) {
             return t;
         }
-        self.select_obligations();
+        self.select_where_possible();
         let t = self.shallow(ty);
         if let Ty::Infer(v) = t {
             if self.infer.kind(v) == VarKind::General && self.obligation_mentions(&t) {
+                if self.ambiguity_tainted() {
+                    self.infer.bind_error(&t);
+                    return Ty::Error;
+                }
                 self.error(
                     Diagnostic::error(
                         ErrorCode::TYPE_ANNOTATIONS_NEEDED,
@@ -3628,12 +3810,18 @@ impl<'a> FnCtxt<'a> {
     /// trait's coherence lazily, when a body first selects with it, so that error falls
     /// within the body). An ambiguity is then not reported.
     fn ambiguity_tainted(&self) -> bool {
-        self.sink.error_count() > self.errors_before
-            || self.obligations.iter().any(|o| {
-                self.items
-                    .impls_of(o.trait_)
-                    .any(|i| self.items.is_reported_impl(i.def))
-            })
+        self.sink.error_count() - self.ambiguities_reported > self.errors_before
+            || self.uses_reported_impls(&self.obligations)
+    }
+
+    /// Whether a trait of one of `obligations` has blocks reported as overlapping or
+    /// overflowing.
+    fn uses_reported_impls(&self, obligations: &[Obligation]) -> bool {
+        obligations.iter().any(|o| {
+            self.items
+                .impls_of(o.trait_)
+                .any(|i| self.items.is_reported_impl(i.def))
+        })
     }
 
     /// Whether an obligation that mentions the unknown type `ty` is an ambiguity rustc
@@ -3651,13 +3839,19 @@ impl<'a> FnCtxt<'a> {
         })
     }
 
-    /// Whether a pending obligation mentions the inference variable `var` (resolved).
+    /// Whether a pending obligation or an open operation mentions the inference variable
+    /// `var` (resolved).
     fn obligation_mentions(&mut self, var: &Ty) -> bool {
         let var = self.infer.resolve(var);
         let pending: Vec<Ty> = self
             .obligations
             .iter()
             .flat_map(|o| std::iter::once(&o.ty).chain(&o.args))
+            .chain(
+                self.open_operations
+                    .iter()
+                    .flat_map(|n| [&n.lhs, &n.rhs].into_iter().chain(&n.out)),
+            )
             .cloned()
             .collect();
         pending.iter().any(|t| {
@@ -3702,14 +3896,14 @@ impl<'a> FnCtxt<'a> {
         let mut out: Vec<Vec<Ty>> = Vec::new();
         let env = std::mem::take(&mut self.env);
         for pred in env.iter().filter(|pred| pred.param == *p) {
-            for (t, a) in self.items.elaborate(pred.trait_, ty, &pred.args) {
-                let fits = t == tr
+            for (t, a) in self.items.elaborate(pred.trait_, ty, &pred.args).iter() {
+                let fits = *t == tr
                     && a.len() == args.len()
                     && self
                         .infer
                         .probe(|infer| a.iter().zip(args).all(|(x, y)| infer.unify(x, y).is_ok()));
-                if fits && !out.contains(&a) {
-                    out.push(a);
+                if fits && !out.contains(a) {
+                    out.push(a.clone());
                 }
             }
         }
@@ -3735,7 +3929,8 @@ impl<'a> FnCtxt<'a> {
             while index < self.obligations.len() {
                 let ob = self.obligations[index].clone();
                 index += 1;
-                if ob.depth > SELECTION_DEPTH {
+                if ob.depth >= DEPTH_LIMIT {
+                    // An overflow, reported when the obligation is judged.
                     continue;
                 }
                 let ty = self.infer.resolve(&ob.ty);
@@ -4422,41 +4617,52 @@ impl<'a> FnCtxt<'a> {
         }
         for arg in args {
             let ty = self.check_expr(arg, None);
-            let mut ty = self.infer.resolve(&ty);
+            let ty = self.infer.resolve(&ty);
             if !self.has_no_general_var(&ty) {
-                // A type a pending obligation decides (`PrintLine(S.Map())`).
-                self.select_obligations();
-                ty = self.infer.resolve(&ty);
-            }
-            if let Ty::Infer(v) = ty {
-                if self.is_diverging_var(v) {
-                    // Decided by a later use or by the never-type fallback: checked then.
-                    self.pending_prints.push((builtin, arg.span, ty));
-                    continue;
-                }
-            }
-            let known = self.has_no_general_var(&ty);
-            if !known {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(
-                        arg.span,
-                        format!(
-                            "cannot infer the type of this argument to `{}`",
-                            builtin.name()
-                        ),
-                    ),
-                );
-                // The local behind it is the same problem, not a new one.
-                self.infer.bind_error(&ty);
+                // rustc's `T: Display` obligation of the call: decided by a later use, a
+                // pending obligation (`PrintLine(S.Map())`) or the never-type fallback,
+                // and checked then.
+                self.pending_prints.push((builtin, arg.span, ty));
                 continue;
             }
             self.check_printable(builtin, arg.span, &ty);
         }
         Ty::Unit
+    }
+
+    /// Checks the `Print`/`PrintLine` arguments left after the never-type fallback.
+    fn check_pending_prints(&mut self) {
+        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
+            let ty = self.infer.resolve_with_defaults(&ty);
+            if self.has_no_general_var(&ty) {
+                self.check_printable(builtin, span, &ty);
+            } else {
+                self.unknown_print_argument(builtin, span, &ty);
+            }
+        }
+    }
+
+    /// E0313 for a `Print`/`PrintLine` argument whose type nothing decided (rustc's
+    /// E0283 for `T: Display`), unless the body is tainted by errors.
+    fn unknown_print_argument(&mut self, builtin: Builtin, span: Span, ty: &Ty) {
+        if !self.ambiguity_tainted() {
+            self.ambiguities_reported += 1;
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                    "type annotations needed",
+                )
+                .with_label(
+                    span,
+                    format!(
+                        "cannot infer the type of this argument to `{}`",
+                        builtin.name()
+                    ),
+                ),
+            );
+        }
+        // The local behind it is the same problem, not a new one.
+        self.infer.bind_error(ty);
     }
 
     /// Whether the variable `v` is one of a diverging initialiser or element.
@@ -4504,11 +4710,18 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    fn check_field(&mut self, expr: &Expr, base_ty: &Ty, name: &str, name_span: Span) -> Ty {
-        let mut ty = self.structurally_resolve(base_ty, expr.span);
+    fn check_field(
+        &mut self,
+        expr: &Expr,
+        base_span: Span,
+        base_ty: &Ty,
+        name: &str,
+        name_span: Span,
+    ) -> Ty {
+        let mut ty = self.structurally_resolve(base_ty, base_span);
         let mut autoderefs = 0;
         while let Ty::Ref(_, inner) = ty {
-            ty = self.structurally_resolve(&inner, expr.span);
+            ty = self.structurally_resolve(&inner, base_span);
             autoderefs += 1;
         }
         match ty {
@@ -4985,7 +5198,9 @@ impl<'a> FnCtxt<'a> {
     /// E0313 (rustc's E0283, E0282), unless an error about it was reported.
     fn check_obligations(&mut self) {
         let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::new();
-        for ob in std::mem::take(&mut self.obligations) {
+        let obligations = std::mem::take(&mut self.obligations);
+        let uses_reported_impls = self.uses_reported_impls(&obligations);
+        for ob in obligations {
             let ty = self.infer.resolve_with_defaults(&ob.ty);
             let args: Vec<Ty> = ob
                 .args
@@ -4996,15 +5211,22 @@ impl<'a> FnCtxt<'a> {
                 continue;
             }
             let trait_name = trait_ref_str(self.resolve, ob.trait_, &args);
-            match self.items.implements(&ty, ob.trait_, &args, &self.env) {
+            match self
+                .items
+                .implements_at(&ty, ob.trait_, &args, &self.env, ob.depth)
+            {
                 Solution::Yes => {}
                 // As rustc: an ambiguity is not reported in a body tainted by errors (they
                 // may be what left the types open), nor an overflow that a block reported
                 // as overlapping or overflowing (E0353, E0215) causes.
-                Solution::Ambiguous if self.ambiguity_tainted() => {}
+                Solution::Ambiguous
+                    if uses_reported_impls
+                        || self.sink.error_count() - self.ambiguities_reported
+                            > self.errors_before => {}
                 Solution::Ambiguous | Solution::Overflow
                     if self.involves_reported_impl(&ty, ob.trait_, &args) => {}
                 Solution::Ambiguous => {
+                    self.ambiguities_reported += 1;
                     if let (Cause::Try { operand }, None) = (ob.cause, &ob.required_for) {
                         // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
                         self.error(
@@ -5053,12 +5275,13 @@ impl<'a> FnCtxt<'a> {
     fn unsatisfied_nested(&mut self, ob: Obligation, ty: Ty, args: Vec<Ty>, trait_name: String) {
         let (mut ob, mut ty, mut args, mut trait_name) = (ob, ty, args, trait_name);
         let items = self.items;
-        for _ in 0..SELECTION_DEPTH {
+        while ob.depth < DEPTH_LIMIT {
             let candidates = items.matching_impls(ob.trait_, &ty, &args);
             let [(imp, impl_args)] = candidates.as_slice() else {
                 break;
             };
-            let Some((pty, ptr, pargs, solution)) = items.failing_bound(imp, impl_args, &self.env)
+            let Some((pty, ptr, pargs, solution)) =
+                items.failing_bound(imp, impl_args, &self.env, ob.depth + 1)
             else {
                 break;
             };
@@ -5069,6 +5292,7 @@ impl<'a> FnCtxt<'a> {
                 trait_: ptr,
                 args: pargs.clone(),
                 required_for: Some(required_for),
+                depth: ob.depth + 1,
                 ..ob
             };
             (ty, args) = (pty, pargs);
@@ -5266,17 +5490,16 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn finish(mut self) -> BodyTypes {
-        self.select_obligations();
+        self.select_where_possible();
+        self.select_judging(true);
+        self.report_open_operations();
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).
         for v in std::mem::take(&mut self.diverging_vars) {
             self.infer.fall_back_to_never(&v);
         }
-        for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
-            let ty = self.infer.resolve_with_defaults(&ty);
-            self.check_printable(builtin, span, &ty);
-        }
+        self.check_pending_prints();
         // Report locals whose type is still unknown, then apply literal defaults.
         let mut local_types = HashMap::new();
         let mut locals: Vec<(LocalId, Ty)> =
@@ -5521,8 +5744,6 @@ impl<'a> FnCtxt<'a> {
     }
 }
 
-/// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
-/// the top level): the primitives but `str`, and `()`.
 /// Whether `ty` holds one of the inference variables in `vars`.
 fn ty_has_var_of(ty: &Ty, vars: &Ty) -> bool {
     match vars {
@@ -5547,6 +5768,8 @@ fn contains_ty(ty: &Ty, needle: &Ty) -> bool {
         }
 }
 
+/// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
+/// the top level): the primitives but `str`, and `()`.
 fn is_comparable(ty: &Ty) -> bool {
     // `str` is compared behind its reference (#10): `s == t` for `s, t: &str`.
     matches!(
