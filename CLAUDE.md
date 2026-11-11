@@ -60,6 +60,9 @@ update a dependency (a new licence must be added to `deny.toml`'s allow list on 
   `benchmarks/README.md`. The nightly fails when a Sabiko benchmark allocates >10% over
   `benchmarks/allocation-baseline.json`; `python3 benchmarks/allocation_gate.py update
   --results <run_benchmarks.py --json output>` changes it, deliberately.
+- Generator coverage thresholds (`crates/sabiko_testgen/tests/validity.rs`) are set by rule:
+  75% of the smallest of ten 500-seed windows. After changing what the generator draws, run
+  `scripts/measure_coverage.py` and update them from its output; do not hand-pick.
 - `docs/TESTING.md` describes every layer; CI runs the fast parts on every push, the
   nightly workflow runs fuzzing, thousands of generated seeds and mutation testing.
 
@@ -70,7 +73,11 @@ tables; builtins `Print`/`PrintLine`/`Panic` appended after user items) → `sab
 (inference, item signatures, const eval) → `sabiko_mir` (rustc-like MIR: build, validate,
 simplify, pretty) → `sabiko_borrowck` (mutability, init, moves, Polonius loans) →
 `sabiko_codegen` (textual IL) → `sabiko_driver` (pipeline, `Options`) → `sabikoc` (CLI,
-drives `ilasm`). Diagnostics and error codes are in `sabiko_diagnostics`: E00xx lexer,
+drives `ilasm`). `library/core/*.sabi` is the prelude (`Option`, `Result`), written in Sabiko,
+compiled into `sabikoc` and appended to every program (decision 90); it resolves in its own
+namespace and its bodies are borrow-checked once, by a `sabiko_driver` test, not per
+compilation. Harnesses reach the front end through `sabiko_driver::parse_and_resolve`.
+Diagnostics and error codes are in `sabiko_diagnostics`: E00xx lexer,
 E01xx parser (E0107 = not yet supported syntax), E02xx resolve, E03xx typeck, E04xx
 borrowck, E05xx codegen (E0500 = not yet supported by codegen), E06xx rustc's
 constant-propagation lints on MIR (E0600 `arithmetic_overflow`, E0601 `unconditional_panic`,
@@ -85,3 +92,32 @@ only with `--emit=il|dll|exe`, `sabikoc -A <lint>` allows), E0900 internal.
   (decision 30). Never silently miscompile: unsupported constructs are E0500 errors.
 - Keep each phase's status paragraph in `docs/PLAN.md` current, and document gaps there.
 - Toolchain is pinned in `rust-toolchain.toml`; match the version in CI.
+
+## Working through issues
+
+- The default branch is `mainline`. One PR per issue or coherent part, squash-merged with a
+  title like "Short description (#issue, decision N) (#PR)". `Closes #N` only when the issue
+  is completely done, otherwise `Part of #N`.
+- Take the next free decision number on `origin/mainline` when you write the row, and
+  re-check it after merging `mainline` in; parallel PRs collide on `docs/DECISIONS.md` and
+  `docs/PLAN.md` and little else.
+- A bug outside the PR's scope gets an issue with a minimal reproducer and rustc's verdict,
+  and a `TODO(#N)` where the generator must avoid it. It is fixed in its own PR unless the
+  current one cannot land without it.
+- Before merging, have the PR reviewed by a fresh agent that did not write it (`/code-review
+  high <PR>`), and ask it to compare small programs against rustc as well as read the diff.
+  Review the fix round again when it changes a design (it has introduced crashes before).
+  Then merge on green CI: Linux, macOS, Windows and the .NET 11 job.
+- rustc is the oracle at every step: build a table of rustc's verdicts for the construct
+  before changing the compiler, and turn it into differential tests. "Sabiko accepts what
+  rustc rejects" is a soundness bug; "Sabiko reports a lint rustc does not" breaks the lint
+  policy; an internal error (E0900 or a panic) is never an acceptable answer to user input.
+- Agent worktrees (`.claude/worktrees/`, gitignored) have no `tools/`: `source` the main
+  checkout's `tools/env.sh` (its paths are absolute), symlink `tools` if a script wants
+  `./tools`, and build the runtime into the worktree's own `tools/runtime` (or set
+  `SABIKO_RUNTIME_DIR`) when a PR changes `runtime/`. Each worktree's `target/` is 4 to 7
+  GB; delete it when the work is merged. Two heavy cargo jobs at once is the limit on a
+  4-core machine.
+- The nightly (03:20 UTC, on `mainline`) is where mutation scores, fuzzing and thousands of
+  generated seeds run. Check its result the morning after a merge; a failure there is an
+  issue to file, not noise.
