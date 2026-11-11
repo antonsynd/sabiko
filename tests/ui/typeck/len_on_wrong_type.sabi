@@ -15,4 +15,7 @@ fn Main() {
     let j = a.len(1); //~ ERROR E0304 this method takes 0 arguments but 1 argument was supplied
     let l = a.len; //~ ERROR E0320 attempted to take value of method `len` on type `[{integer}; 2]`
     let c = a.Count; //~ ERROR E0301 no field `Count` on type `[{integer}; 2]`
+    // Nor a generic argument (rustc's E0107, Sabiko's E0222).
+    let g = a.len::<u8>(); //~ ERROR E0222 method takes 0 generic arguments but 1 generic argument was supplied
+    let h = "ab".len::<u8>(); //~ ERROR E0222 method takes 0 generic arguments but 1 generic argument was supplied
 }

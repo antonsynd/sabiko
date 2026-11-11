@@ -1526,10 +1526,11 @@ methods of #45 beyond these (`swap`, `reverse`, `fill`, `contains`, `split_at_mu
 `?` on other types (`Try` is not a trait), generation of the loan-returning methods and of
 `?` in generated bodies (#147). Known shortcut: the prelude's `impl<T> [T]` is resolved as a
 trait `impl` block without a trait (`ImplScope::TraitImpl`, `is_slice_impl`), not as an
-inherent block of its own; a `str` block would want its own scope. A valid `?` chain 254
-levels deep (an `Option` nested as deep) compiles but takes seconds in a debug build: type
-queries on such types (`needs_drop`, the lints' layouts, the built-in `Copy`) are quadratic
-in the depth.
+inherent block of its own; a `str` block would want its own scope. A valid `?` chain over an
+`Option` nested as deep compiles, but in a debug build its time grows with about the fourth
+power of the depth (60: 0.9 s, 120: 14 s, 250: 259 s), as the same chain written with
+`match` did before: each `?` or `match` on such a type queries `needs_drop`, the lints'
+layouts and the built-in `Copy` over the whole nested type (#149).
 
 Update (2026-11-11), mutation scores after the traits work (#125): nightly run 25 measured
 `sabiko_types` at 92.0% over three of its four shards (the fourth lost its runner, and

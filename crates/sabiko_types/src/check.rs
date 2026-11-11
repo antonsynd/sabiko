@@ -191,9 +191,11 @@ struct IntLit {
     ty: Ty,
 }
 
-/// `e?` on a `Result<_, E1>` in a function returning `Result<_, E2>`: `E2` must convert
-/// from `E1`, judged in `finish` once both are known.
+/// `e?`, judged in `finish` once its types are known: its value type must have lowered,
+/// and on a `Result<_, E1>` in a function returning `Result<_, E2>` (`from`, `to`; both
+/// `()` on an `Option`) `E2` must convert from `E1`.
 struct PendingTry {
+    value: Ty,
     from: Ty,
     to: Ty,
     /// The `?`.
@@ -2591,14 +2593,17 @@ impl<'a> FnCtxt<'a> {
         };
         match ret_kind {
             Some((ret_kind, ret_args)) if ret_kind == kind => {
-                if kind == CoreItem::Result {
-                    self.pending_tries.push(PendingTry {
-                        from: args[1].clone(),
-                        to: ret_args[1].clone(),
-                        span: question,
-                        operand_span: operand.span,
-                    });
-                }
+                let (from, to) = match kind {
+                    CoreItem::Result => (args[1].clone(), ret_args[1].clone()),
+                    CoreItem::Option => (Ty::Unit, Ty::Unit),
+                };
+                self.pending_tries.push(PendingTry {
+                    value: value.clone(),
+                    from,
+                    to,
+                    span: question,
+                    operand_span: operand.span,
+                });
                 self.try_exprs.insert(expr.id, kind);
                 value
             }
@@ -2686,26 +2691,25 @@ impl<'a> FnCtxt<'a> {
     /// rustc's message, since no program can implement `From` yet.
     fn check_pending_tries(&mut self) {
         for t in std::mem::take(&mut self.pending_tries) {
+            let value = self.infer.resolve_with_defaults(&t.value);
             let from = self.infer.resolve_with_defaults(&t.from);
             let to = self.infer.resolve_with_defaults(&t.to);
-            if from == to {
-                continue;
-            }
-            if has_error(&from) || has_error(&to) {
-                if self.sink.error_count() == 0 {
-                    // An error type with nothing reported: a type Sabiko could not lower
-                    // (an array as a generic argument, #137). Never compile the `?`.
+            if has_error(&value) || has_error(&from) || has_error(&to) {
+                if self.sink.error_count() == self.errors_before {
+                    // A type that did not lower with nothing reported in this body: never
+                    // compile the `?` on it.
                     self.error(
                         Diagnostic::error(
                             ErrorCode::UNSUPPORTED_SYNTAX,
-                            "not yet supported: the error type of this `?`",
+                            "not yet supported: a type of this `?`",
                         )
-                        .with_label(t.span, "the error type could not be lowered")
-                        .with_note(
-                            "an array as a generic argument in a type is not supported yet (#137)",
-                        ),
+                        .with_label(t.span, "a type of this `?` could not be lowered")
+                        .with_note("write the types of the `Option` or `Result` out in full"),
                     );
                 }
+                continue;
+            }
+            if from == to {
                 continue;
             }
             if from.has_infer() || to.has_infer() {
@@ -3751,6 +3755,36 @@ impl<'a> FnCtxt<'a> {
     /// `e.Name(args)`. The receiver is checked first, then the method is found by
     /// [`Self::probe_method`], then the arguments are checked against the parameters
     /// after the receiver, as in a call.
+    /// E0222 (rustc's E0107): a turbofish on a method call with another number of
+    /// generic arguments than the method's `count`.
+    fn wrong_method_generic_count(
+        &mut self,
+        written: &sabiko_ast::GenericArgs,
+        count: usize,
+        defined: Option<Span>,
+        method: &sabiko_ast::Ident,
+    ) {
+        let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+        let got = written.args.len();
+        let mut d = Diagnostic::error(
+            ErrorCode::WRONG_GENERIC_ARG_COUNT,
+            format!(
+                "method takes {count} generic {} but {got} generic {} {} supplied",
+                plural(count),
+                plural(got),
+                if got == 1 { "was" } else { "were" }
+            ),
+        )
+        .with_label(
+            written.span,
+            format!("expected {count} generic {}", plural(count)),
+        );
+        if let Some(span) = defined {
+            d = d.with_label(span, format!("method `{}` defined here", method.name));
+        }
+        self.error(d);
+    }
+
     fn check_method_call(
         &mut self,
         expr: &Expr,
@@ -3765,6 +3799,10 @@ impl<'a> FnCtxt<'a> {
         self.unsized_place = true;
         let recv_ty = self.check_expr(receiver, None);
         if let Some(ty) = self.check_len_call(expr, &recv_ty, method, args) {
+            if let Some(written) = turbofish.filter(|_| !ty.is_error()) {
+                // `str::len` takes no generic arguments.
+                self.wrong_method_generic_count(written, 0, None, method);
+            }
             return ty;
         }
         let Some((callee, parent_args)) = self.probe_method(&recv_ty, method) else {
@@ -3778,6 +3816,10 @@ impl<'a> FnCtxt<'a> {
             // the length, through the references the probe looked through.
             for a in args {
                 self.check_expr(a, None);
+            }
+            if let Some(written) = turbofish {
+                let defined = self.items.fn_sig(callee.def).name_span;
+                self.wrong_method_generic_count(written, 0, Some(defined), method);
             }
             if !args.is_empty() {
                 let d = Self::wrong_arg_count("method", 0, args.len(), expr.span);
@@ -3810,27 +3852,7 @@ impl<'a> FnCtxt<'a> {
             }
             written => {
                 if let Some(written) = written {
-                    let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
-                    let got = written.args.len();
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::WRONG_GENERIC_ARG_COUNT,
-                            format!(
-                                "method takes {count} generic {} but {got} generic {} {} supplied",
-                                plural(count),
-                                plural(got),
-                                if got == 1 { "was" } else { "were" }
-                            ),
-                        )
-                        .with_label(
-                            written.span,
-                            format!("expected {count} generic {}", plural(count)),
-                        )
-                        .with_label(
-                            sig.name_span,
-                            format!("method `{}` defined here", method.name),
-                        ),
-                    );
+                    self.wrong_method_generic_count(written, count, Some(sig.name_span), method);
                 }
                 (0..count)
                     .map(|_| self.infer.new_var(VarKind::General))

@@ -100,7 +100,7 @@ const SHAPES: &[Shape] = &[
         name: "`?` chain",
         // The argument of `Some(..)` is one level below it. Invalid past the first `?`
         // (an `i32` is not `Try`): a valid chain needs an `Option` nested as deep, whose
-        // type queries make a 254-deep program take seconds in a debug build.
+        // type queries make a 254-deep program take minutes in a debug build (#149).
         base: 2,
         valid: false,
         program: |n| {

@@ -46,3 +46,23 @@
     │               ──┬──  
     │                 ╰──── unknown field
 ────╯
+[E0222] Error: method takes 0 generic arguments but 1 generic argument was supplied
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:19:18 ]
+    │
+ 19 │     let g = a.len::<u8>(); //~ ERROR E0222 method takes 0 generic arguments but 1 generic argument was supplied
+    │                  ───┬──  
+    │                     ╰──── expected 0 generic arguments
+    │
+    ├─[ library/core/slice.sabi:10:12 ]
+    │
+ 10 │     pub fn len(&self) -> usize {
+    │            ─┬─  
+    │             ╰─── method `len` defined here
+────╯
+[E0222] Error: method takes 0 generic arguments but 1 generic argument was supplied
+    ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:20:21 ]
+    │
+ 20 │     let h = "ab".len::<u8>(); //~ ERROR E0222 method takes 0 generic arguments but 1 generic argument was supplied
+    │                     ───┬──  
+    │                        ╰──── expected 0 generic arguments
+────╯
