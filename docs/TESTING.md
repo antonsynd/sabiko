@@ -1123,6 +1123,156 @@ matching only brings its mutant back as a survivor. `field_defs`' "delete field 
 stays counted: cargo-mutants 27.1 does not apply `exclude_re` to struct-field deletions.
 Shard 0's other survivors are unknown until a nightly scores all eight shards.
 
+Nightly run 26 (2026-11-11, on `85820ab`, the first with all eight `sabiko_types` shards)
+failed on `sabiko_codegen`: 735 mutants, 675 caught, 42 missed, 8 timeouts, 10 unviable,
+683 of 725 (94.2%) against 95 (#142). `sabiko_types` passed at 98.9% (1555 caught + 5
+timeouts of 1577) with 17 survivors, 12 of them not triaged (#125). Both lists were
+re-checked on `e1d4df3`, seven PRs later. cargo-mutants runs each mutant against the
+crate's test packages in about five minutes, so the survivors were first sorted by the
+IL they produce: each mutant applied in turn, the IL and diagnostics of every `.sabi`
+under `tests/`, `examples/`, `benchmarks/` and the MIR and IL fixtures (debug and release)
+and of 600 generated programs (seeds 0 to 299, default and borrow-clean knobs) compared
+with the unmutated compiler's. Then `cargo mutants --re` confirmed the outcome of every
+mutant named below (the counts are under "Verified" at the end).
+
+`sabiko_codegen`, the 42:
+
+- `load`'s `place.has_index() && !ty.is_uninhabited()` as `||` is caught on `e1d4df3`:
+  `run/enums/unit_and_unit_ref_payloads` (#148) loads a `()` local.
+- Killed by tests (17). `type_token`'s 14 arms (12 survived: `int32` and `native uint`
+  were in the unit test): a primitive's type operand written as a keyword is a `TypeSpec`,
+  which ILVerify rejects from .NET 11 on but the nightly's .NET 10 accepts; the unit test
+  `type_tokens` now covers every primitive. `entry_point_or_error`'s two `&&` as `||`,
+  looking for a generic `Main` when there is no `Main`: an item named `Main` that is not a
+  free function, or a free function of another name, was taken for one (`sabiko_driver`'s
+  `entry_point` test; E0501 without `Main` has no span, so no UI test can annotate it).
+  `print_overload`'s `is_str(inner)` guard as `true` would print a `&i32` through the
+  `&str` overload: the type checker admits no such call, so a unit test pins the
+  defence (`print_overloads`). `stackable_locals`' count of sub-slice bounds as `*=`: a
+  local read once as a whole and once as a bound was taken from the stack by the whole
+  read and then `dup`ed for the bound (IL fixture `edge_shapes`, `BoundAndUse`; the
+  program behaves the same). `cil_type`'s `&!` guard as `false`, which run 20 called
+  defensive: a generic type instantiated at `&!` has a field of that type
+  (`Opt::Yes(&Panic("x"))` in a branch not taken, which rustc accepts), and E0500 names
+  the `&!` field rather than `!` (`ui/codegen/ref_never_payload`; the instance itself is
+  #158, whose prelude form `Some(&Panic("x"))` reports inside `library/core`).
+- Dead code removed (9). `assign`'s `src.has_index()` guard (loading a place without a
+  value checks its indices, if any, and does nothing else); `typed_int_const`'s
+  `p.is_integer()` guard and `Char | Bool` arm (the validator admits `Int` and `Uint`
+  constants of integer types only; one of another type is now an internal error, E0900,
+  as `constant`'s other impossible cases are); `unary`'s `ConstValue::Uint` arm (`-` on an unsigned
+  type is E0307) and with it `negation_fits`' `is_signed_int` guard (only a signed
+  constant is an `Int`; the folding arm now matches `Int` constants only); `binary`'s
+  second `is_unit_like` and `is_str_ref` tests (the operands of a comparison have the
+  same type up to a reference's mutability, which neither test looks at, and only
+  comparisons take `()` or `&str`); `block`'s `Return` arm in `term_returns` (no block
+  that ends in `return` assigns anything: MIR building gives the return its own block and
+  simplification only retargets jumps).
+  `assign_slots`' `fake[i] && !written[i]` as `||` gave a local nothing writes no IL
+  local; that is right for every such local, not only a fake borrow's temporary (nothing
+  reads it: the borrow checker rejects a read of an uninitialised place), so it is now
+  the rule, and `edge_shapes`' `Unreached` shows the local and its type's declaration
+  gone.
+- Equivalent, excluded in `.cargo/mutants.toml` (15 of the 42; 14 mutants under 12
+  patterns now that two counts are one). They guard MIR shapes the builder does not
+  produce, and keep code generation right if it ever does:
+  - `stackable_locals` counts uses that make a local unfit to stay on the stack. A
+    local's value stays there only when its single whole read comes right after its
+    definition; otherwise the placeholder of its definition becomes a `stloc` where it
+    stands and the IL is the same. Its `in_place` `&&` as `||` counts a projection write
+    or a struct literal as a definition: a projection write needs an earlier whole
+    definition (rustc rejects partial initialisation), so the count is 2 either way, and
+    a literal is built in its local by `aggregate`, which never leaves it on the stack.
+    A call writing a projection (`+=` as `*=` or `-=`): MIR building writes every call
+    into a whole local, and copy forwarding rewrites only operands. A dropped place (the
+    `Drop` arm, `+=` as `*=`): a local read right after its definition is moved there on
+    every path, so drop elaboration never drops it. Index locals (`+=` as `*=`): MIR
+    building copies every index into a fresh temporary that nothing else reads
+    (`as_temp`), and copy forwarding never forwards one. A cleanup's places and flags (two
+    counts before, one now, `+=` as `*=`): a cleanup reads them when a call in its
+    protected region panics, and a local's definition and its single whole read are never
+    on two sides of a region's boundary with the value on the stack in between: a value
+    is carried into the next block only within one region (`block`'s `carry`), and
+    `directive` asserts that none waits at a boundary. A drop flag has two definitions
+    (cleared on entry, set where its place is initialised). The flag copies that drop
+    elaboration saves before an assignment (`save_old_value`) have one, and the cleanup
+    of the old value's open drop reads them, but that cleanup's region opens after the
+    copy's block, and the copy's whole read, the `switchInt` before dropping the flagged
+    part, comes after the earlier parts' drops inside it, so the copy is always stored
+    first. `run/drops/panic_in_reassigned_open_drop` runs that shape (a partly moved tuple
+    reassigned while its first part's drop panics); its IL is the same under the mutant.
+  - `stackable_def`'s `local == RETURN && self.def_returns` as `||`, and `block`'s
+    `term_returns && ...` as `||`: they only let the return place stay on the stack where
+    the return reads it next; the return place is assigned only in blocks that jump to the
+    return's own block, and a pending value nobody takes is stored where it was defined.
+  - `terminator`'s `stack_width(p) == Wide` guard as `false` and `p.is_integer()` guard as
+    `true`, `ldloc`'s `at + 1 == pending.len()` as `at * 1`, and `aggregate`'s and
+    `variant_aggregate`'s `!reads_dest` as `true`: argued under run 20 above. For the last
+    two, `tests/differential/run/structs/assign_from_self` now runs the shapes that would
+    read a destination while writing it (`p = P { X: p.Y, Y: p.X }`, `e = E::B(match e {
+    .. }, Code(&e))`, `a[i] = a[j]`, a struct literal into an array element, tuples and
+    arrays built from themselves), so a MIR change that made the guard live would be
+    tested at run time.
+
+A mutant's name holds only its file, line, column, mutation and function, so the
+patterns name the file, the mutation and the function, with a column where two mutations
+of one function read alike (`stackable_locals`' counts, `block`'s `&&`, `ldloc`'s `+`).
+`cargo mutants --list -p sabiko_codegen` with and without `--no-config` differs in exactly
+those 14 and the 3 older patterns' (17 of 737 on this branch). A column can come to match
+another mutation after an edit: whenever one of those functions changes, list the excluded
+set again. `scripts/mutants.sh` prints it at the start of every crate's run, so two
+nightlies' lists can be compared.
+
+`sabiko_types`, the 12 untriaged survivors of run 26:
+
+- Gone with the code: `has_error`'s `Ref | Array | Slice` arm (#148 replaced the function).
+- Killed by tests (8). `resolve_generic_args`' `i == 0` as `!=` (a trait method's own
+  parameter inferred as `str` or `[i32]`: `ui/typeck/unsized_inferred_method_argument`);
+  `holds_by_value`'s `Adt` arm (`W<Self>` in a provided method's parameter, return type
+  and local: `ui/typeck/trait_self_sized_in_types`); `bind_error`'s `Adt` arm (an unknown
+  argument inside `Opt<_>` and `W<Opt<_>>` reported once, not again for each binding that
+  shares it: `ui/typeck/annotations_needed_inside_types`); `eval_path_const`'s second `!`
+  (a trait constant naming a constant whose type does not resolve reported "referenced
+  constant has errors" again: `ui/typeck/const_error_through_trait_const`);
+  `check_assoc_const`'s `== Some(DefKind::Impl)` as `!=` (`Self::K` in `impl Tr for
+  W<i32>` named `W<T>`'s constant, a generic one:
+  `run/traits/impl_const_names_self`); `may_be_copy_like`'s `Tuple` arm (a blanket
+  trait's method named `clone` on `(&mut i32, {integer})` became ambiguous with `Clone`:
+  `run/traits/blanket_method_named_clone`); `Ty::map_params`' `Slice` arm (no program
+  substituted a parameter inside a slice: `run/generics/slices_of_type_parameters`); and
+  `Ty::is_copy` as `true`, the fallback for a program without a `Copy` item, which no
+  program is: the unit test `copy_without_items` pins its rules and kills its other two
+  mutants (`false`, `!` deleted), so their exclusions are gone. The `clone` program also
+  kills `may_be_copy_like`'s `Array` arm deleted, which run 25's list called equivalent
+  and excluded: an array of a tuple holding a `&mut` is not `Clone` whatever its integer
+  type, while the fall-through answers "ambiguous". The exclusion is removed.
+- Equivalent, excluded: `PatCx::generics` replaced with `vec![]`, which is its body.
+- Not killed: `implements_at`'s `depth + 1` as `depth * 1` and `depth > DEPTH_LIMIT` as
+  `>=`. Past the limit the solver answers "yes", so a bound 65 levels deep that does not
+  hold is accepted where rustc reports E0277 (#155); with the depth stuck at 0 the mutant
+  answers correctly. A test reaching the limit would pin the wrong answer, so these wait
+  for #155, with `>` as `==`, `known_nodes`' three `+` as `*` and `field_defs`' field
+  deletion from run 25.
+
+Verified with `cargo mutants --in-place --re` on the crates' test packages: for
+`sabiko_codegen`, every mutant of `type_token`, `print_overload`, `entry_point_or_error`,
+`assign_slots`, `typed_int_const` and `negation_fits`, and those on the changed lines of
+`stackable_locals`, `assign`, `unary` and `binary`: 60 mutants, 58 caught, 2 unviable,
+none missed (`type_token` 15 caught, `print_overload` 3, `entry_point_or_error` 4,
+`assign_slots` 16 and 2 unviable, `assign` 7, `stackable_locals` 4, `unary` 4, `binary` 2,
+`typed_int_const` 1, `negation_fits` 2). For `sabiko_types`, the 12 above and the three
+un-excluded ones: 13 caught; `implements_at`'s two missed as expected (#155), plus
+`field_defs`' field deletion and the three of `structs_needing_drop` (caught) that
+cargo-mutants adds whatever `--re` says. No timeouts.
+
+Estimated scores from run 26's counts (the full crates are only measured by the next
+nightly, which also tests the code the seven later PRs added): `sabiko_codegen` has 24
+fewer viable mutants (9 removed, 15 excluded) and none of the other 18 survive, about 701
+of 701; `sabiko_types` gains 3 viable caught mutants (the two `is_copy` ones and `Array`),
+kills 8, excludes 1 and loses 1, about 1571 of 1578 (99.6%). The thresholds stay at 95
+and 98. `scripts/mutants.sh --score` now lists the timed-out mutants as well as the missed
+ones.
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library

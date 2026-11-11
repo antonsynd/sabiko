@@ -1,0 +1,26 @@
+// A trait `impl` block's constant, evaluated at each use (#116), that names a constant
+// which failed: the failure was reported with that constant, and the use reports nothing
+// more (`eval_path_const`), whether the constant has no initialiser to check (its type
+// does not resolve) or one whose evaluation failed.
+const A: Unknown = 1; //~ ERROR E0201 cannot find type `Unknown` in this scope
+const B: i32 = 1 / 0; //~ ERROR E0316 attempt to divide by zero
+
+trait T {
+    const N: usize;
+}
+
+struct S1;
+struct S2;
+
+impl T for S1 {
+    const N: usize = A;
+}
+
+impl T for S2 {
+    const N: usize = B as usize;
+}
+
+fn Main() {
+    let a = [0; S1::N];
+    let b = [0; S2::N];
+}

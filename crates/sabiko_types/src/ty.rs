@@ -349,6 +349,24 @@ mod tests {
         assert!(!Ty::Array(Box::new(Ty::BOOL), 2).is_uninhabited());
     }
 
+    /// `Ty::is_copy` is the fallback of `ItemTypes::is_copy_in` for a program without a
+    /// `Copy` language item, which the resolver always defines (decision 86), so no program
+    /// reaches it: its rules are checked here.
+    #[test]
+    fn copy_without_items() {
+        assert!(Ty::I32.is_copy());
+        assert!(Ty::Unit.is_copy());
+        assert!(Ty::Never.is_copy());
+        assert!(Ty::shared_ref(Ty::Slice(Box::new(Ty::I32))).is_copy());
+        assert!(!Ty::mut_ref(Ty::I32).is_copy());
+        assert!(tuple(vec![Ty::BOOL, Ty::shared_ref(Ty::I32)]).is_copy());
+        assert!(!tuple(vec![Ty::BOOL, Ty::mut_ref(Ty::I32)]).is_copy());
+        assert!(Ty::Array(Box::new(Ty::I32), 2).is_copy());
+        assert!(!Ty::Array(Box::new(Ty::mut_ref(Ty::I32)), 2).is_copy());
+        assert!(!Ty::Slice(Box::new(Ty::I32)).is_copy());
+        assert!(!Ty::Adt(DefId(0), Box::new([])).is_copy());
+    }
+
     #[test]
     fn has_ref_through_tuples_arrays_and_slices() {
         assert!(Ty::shared_ref(Ty::BOOL).has_ref());

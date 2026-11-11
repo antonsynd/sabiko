@@ -47,6 +47,31 @@ exclude_re = [
     # test timeout was long enough to let it. Any test that emits a drop glue, an inline
     # array or a by-ref tuple struct would hang, so these are killed, not survivors.
     "replace \\+= with \\*= in Cx<'_>::(drop_glues|inline_array_structs|byref_tuple_structs)$",
+    # sabiko_codegen: equivalent mutants (#142), each argued in docs/TESTING.md, Mutation
+    # testing (nightly run 26). Defensive code for MIR shapes the builder does not produce:
+    # the use counts of `stackable_locals` for places that are never also defined once and
+    # read once as a whole local (`in_place` literals, a call written into a projection,
+    # a dropped place, an index temporary, a cleanup's places and flags); the return place
+    # kept on the stack (`stackable_def`, `block`), `switchInt` values that are never 128-bit
+    # nor non-integer (`terminator`), `ldloc`'s early truncation, and a struct or variant
+    # literal whose operands read its destination. A mutant's name holds only the file,
+    # line, column, mutation and function, so each pattern names the function and the
+    # mutation, and a column where two mutations of one function read alike. An edit to
+    # one of these functions can move what a column matches: re-list the excluded set
+    # (`cargo mutants --list` with and without `--no-config`) whenever they change.
+    # `scripts/mutants.sh` prints it at the start of every run.
+    "sabiko_codegen/src/func\\.rs:\\d+:33: replace && with \\|\\| in stackable_locals$",
+    "sabiko_codegen/src/func\\.rs:\\d+:54: replace \\+= with [-*]= in stackable_locals$",
+    "sabiko_codegen/src/func\\.rs:\\d+:\\d+: delete match arm TerminatorKind::Drop\\{place, \\.\\.\\} in stackable_locals$",
+    "sabiko_codegen/src/func\\.rs:\\d+:78: replace \\+= with \\*= in stackable_locals$",
+    "sabiko_codegen/src/func\\.rs:\\d+:30: replace \\+= with \\*= in stackable_locals$",
+    "sabiko_codegen/src/func\\.rs:\\d+:34: replace \\+= with \\*= in stackable_locals$",
+    "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace && with \\|\\| in FnCx<'_, '_>::stackable_def$",
+    "sabiko_codegen/src/func\\.rs:\\d+:17: replace && with \\|\\| in FnCx<'_, '_>::block$",
+    "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace match guard types::stack_width\\(p\\) == StackWidth::Wide with false in FnCx<'_, '_>::terminator$",
+    "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace match guard p\\.is_integer\\(\\) with true in FnCx<'_, '_>::terminator$",
+    "sabiko_codegen/src/func\\.rs:\\d+:23: replace \\+ with \\* in FnCx<'_, '_>::ldloc$",
+    "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace match guard !reads_dest with true in FnCx<'_, '_>::(aggregate|variant_aggregate)$",
     # sabiko_types: equivalent mutants (#125). Each is argued in docs/TESTING.md, Mutation
     # testing: run 23's list and run 25's. They change no program's diagnostics, MIR or IL,
     # so they are excluded rather than counted as survivors. The patterns name the file and
@@ -78,18 +103,17 @@ exclude_re = [
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace match guard matches!\\(&\\*self\\.adt\\(\\*def\\), AdtShape::Enum \\{ \\.\\. \\}\\) with true in Checker<'a>::lower$",
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace < with > in Checker<'a>::lower$",
     # Run 25's list: guards whose operands always hold (`unify` and `walk` see only the
-    # blocks' own parameters); fall-throughs that give the same answer; `Ty::is_copy`, a
-    # fallback for a `Copy` item that always exists; a fast path; a plain constant
-    # evaluated as a trait one.
+    # blocks' own parameters); a fall-through that gives the same answer; a fast path; a
+    # plain constant evaluated as a trait one. (`Ty::is_copy` and `may_be_copy_like`'s
+    # `Array` arm were here; a unit test and a run-time program kill them since #142.)
     "sabiko_types/src/check\\.rs:\\d+:\\d+: replace && with \\|\\| in FnCtxt<'a>::adt_args$",
     "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Ty::Infer\\(_\\) in FnCtxt<'a>::may_be_copy_like$",
-    "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Ty::Array\\(elem, _\\) in FnCtxt<'a>::may_be_copy_like$",
     "sabiko_types/src/patterns\\.rs:\\d+:\\d+: replace match guard crate::consts::is_assoc_const\\(self\\.resolve, def\\) with true in PatValues<'_, '_>::value$",
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace \\+ with \\* in ItemTypes::builtin_impl$",
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(p\\) with true in walk$",
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(p\\) with true in unify$",
     "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(q\\) with true in unify$",
-    "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace Ty::is_copy -> bool with false$",
-    "sabiko_types/src/ty\\.rs:\\d+:\\d+: delete ! in Ty::is_copy$",
     "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace \\|\\| with && in Ty::subst$",
+    # #142: the trait's default `generics` already returns an empty vector.
+    "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace PatCx::generics -> Vec<DefId> with vec!\\[\\]$",
 ]

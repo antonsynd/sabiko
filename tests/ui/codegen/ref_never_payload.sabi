@@ -1,0 +1,19 @@
+// A generic type instantiated at `&!` (#158): `Opt::Yes(&Panic("x"))` in a branch not
+// taken makes `o` an `Opt<&!>`, whose `Yes` payload field has a type without values. rustc
+// accepts this program (edition 2024) and prints `1`; code generation cannot lay out the
+// instance yet and reports the field's `&!` type (`cil_type`). With the prelude's
+// `Option` the same error points into `library/core/option.sabi` (#158), which the UI
+// harness rejects, so this test uses an enum of its own.
+enum Opt<T> {
+    No,
+    Yes(T), //~ ERROR E0500 a value of type `&!` here is not yet supported by code generation
+}
+
+fn Main() {
+    let c = false;
+    let o = if c { Opt::Yes(&Panic("x")) } else { Opt::No };
+    match o {
+        Opt::No => PrintLine(1),
+        Opt::Yes(_) => PrintLine(2),
+    }
+}

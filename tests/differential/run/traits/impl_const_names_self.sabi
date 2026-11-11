@@ -1,0 +1,22 @@
+// `Self` in a constant of a trait `impl` block for an instance of a generic struct names
+// that instance (`W<i32>`), not the struct at its own parameters, whose constant would
+// depend on a generic parameter (`check_assoc_const`).
+struct W<T> {
+    V: T,
+}
+
+impl<T> W<T> {
+    const K: i32 = 5;
+}
+
+trait Tr {
+    const N: i32;
+}
+
+impl Tr for W<i32> {
+    const N: i32 = Self::K + 1;
+}
+
+fn Main() {
+    PrintLine(W::<i32>::N);
+}

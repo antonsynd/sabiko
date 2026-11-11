@@ -1,0 +1,18 @@
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_inferred_method_argument.sabi:17:13 ]
+    │
+ 17 │     let a = P::Put("x"); //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │             ───┬──  
+    │                ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: the type parameter `U` stands for sized types only; pass a reference instead
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_inferred_method_argument.sabi:19:13 ]
+    │
+ 19 │     let b = P::Put(s); //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │             ───┬──  
+    │                ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: the type parameter `U` stands for sized types only; pass a reference instead
+────╯
