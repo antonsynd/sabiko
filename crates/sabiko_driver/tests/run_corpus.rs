@@ -63,6 +63,11 @@ fn run_time_programs_compile() {
         let rel = path.strip_prefix(&root).unwrap().display().to_string();
         let src = std::fs::read_to_string(path).unwrap();
         let compilation = compile_str(&rel, &src, options(&src));
+        let stray = compilation.diagnostics_only_in_prelude();
+        assert!(
+            stray.is_empty(),
+            "{rel}: diagnostics pointing only into the prelude: {stray:?}"
+        );
         if compilation.has_errors() || compilation.output.is_empty() {
             failures.push(format!(
                 "{rel}:\n{}",

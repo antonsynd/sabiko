@@ -1,0 +1,12 @@
+// Only the prelude's public items are visible: `Debug` and the `PanicDebug` intrinsic
+// are the prelude's own, as `std::fmt::Debug` is not in Rust's prelude. The prelude's
+// attributes are reserved for it.
+
+fn Show<T: Debug>(x: T) {} //~ ERROR E0201 cannot find trait `Debug` in this scope
+
+fn Main() {
+    PanicDebug("x", &1); //~ ERROR E0202 cannot find value `PanicDebug` in this scope
+}
+
+#[intrinsic] //~ ERROR E0107 the `#[intrinsic]` attribute is reserved for the `core` library
+fn Intrinsic() {}

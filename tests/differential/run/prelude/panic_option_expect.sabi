@@ -1,0 +1,5 @@
+// `Option::expect` on `None` panics with the message alone, at the call's `expect`.
+fn Main() {
+    let none: Option<&str> = None;
+    PrintLine(none.expect("the name was set"));
+}

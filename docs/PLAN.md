@@ -1310,6 +1310,8 @@ Tracking issue #118. Order (decision 82 for the design):
    traits (decision 86). Done.
 4. `core` prelude written in Sabiko (#13, decision 47): `Option`, `Result`, `?`, `unwrap`,
    `expect`, and `.get(i) -> Option<&T>` on slices. `?` converts errors through `From`.
+   First part done: the prelude, `Option`, `Result`, `unwrap`/`expect` (decision 90; see
+   the status below). Left: `?` with `From`, `.get(i)`.
 5. Operator traits, comparisons and derives (#117): `Add`, `Sub`, ..., their `*Assign`
    forms, `PartialEq`/`Eq`/`PartialOrd`/`Ord` on user types and in generic code,
    arithmetic on references, `#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]`.
@@ -1445,6 +1447,52 @@ clauses on types other than parameters, `where Self: Sized`, bounds on struct an
 parameters, `<T as Trait>::` paths, the derived or built-in `clone` of a type that is not
 `Copy` (#117).
 
+Status (2026-11-11): the `core` prelude, first part (#13, decision 90). `library/core/`
+holds `option.sabi`, `result.sabi` and `fmt.sabi`, compiled into `sabikoc`
+(`sabiko_parser::prelude`) and parsed after every program's file; the resolver gives the
+prelude a namespace of its own and shows its `pub` items and `pub use` imports to the
+user's file under the user's own items, so `Option`, `Some`, `None`, `Result`, `Ok` and
+`Err` are in scope everywhere and a user item of the same name shadows one. Library files
+may write `pub use Enum::{..};` (variants) and `!`; a lone identifier naming an imported
+unit variant compares in a pattern. Methods with rustc's names and messages: `is_some`,
+`is_none`, `unwrap`, `expect`, `unwrap_or` on `Option`; `is_ok`, `is_err`, `ok`, `err`,
+`unwrap`, `expect`, `unwrap_err`, `expect_err`, `unwrap_or` on `Result`, whose panicking
+methods print the other variant with a private `Debug` (integers, `bool`, `()`; E0341 with
+a note for the rest) through the intrinsic `PanicDebug`, lowered to
+`Panic::FailDebug`. `#[track_caller]` works on user functions and methods too: a hidden
+last `string` argument carries the caller's location, which every panic in the body uses
+(`Call::fn_span` gives the method name's position, as rustc reports it); on a trait's
+method or `Drop::drop` it is E0107, on `Main` E0501. Instances of prelude types are named
+`'core::Option<i32>'` in IL, so a user `Option` never collides; `--emit=mir` leaves the
+prelude's bodies out; compiling a program does not borrow-check or lint them
+(`check_core_prelude` does, once, in a test). After review: the resolver rewrites an
+identifier pattern naming a constant, unit struct or variant (and such an assignee) into a
+path pattern, so no stage special-cases it (a guard after a bare `None` arm could assign
+the scrutinee: E0510 in rustc, now E0419); the orphan rule holds for the prelude's types
+(E0211, E0214 at the user's `impl`, without follow-on errors from the rejected block);
+E0502 through a prelude helper points at the user's call, once per chain; the harnesses
+assert no diagnostic points only into the prelude; `#[track_caller]`/`#[intrinsic]` on a non-function is
+E0224; diagnostics name `Option<..>`, IL `core::Option<..>`; a file `option.sabi` keeps
+its module class `Option`. Cost: about 0.7-0.9 ms per compilation in a release build (a
+hello-world from about 2.1 to 2.9 ms). Tests: run-time programs in
+`differential/run/prelude/` (both types' methods, `Option<&T>`/`Option<&mut T>`/`Result<&T,
+E>`, drops and unwinding, shadowing, and seven panics whose message and location must match
+rustc's, through generic code and chains of `#[track_caller]` functions, an overflow and
+an index out of bounds included), compile-time ones in `differential/prelude/` (loans held
+by `Some(&x)`, moves by `unwrap`, copies of `Option<i32>`), UI tests
+`typeck/prelude_debug_bound`, `typeck/prelude_variants`, `resolve/prelude_private_items`,
+`resolve/track_caller_unsupported`, `resolve/prelude_orphan_impls` and
+`codegen/exe/main_is_track_caller`, MIR and IL
+fixtures (`prelude`), and the generator, whose programs with exactly one of the generic and
+trait helper sets wrap values in `Some(e).unwrap()`, `Some(a).unwrap_or(b)`,
+`None::<T>.unwrap_or(b)`, `Ok::<T, u8>(e).unwrap()` and the like, and shared references in
+`Some(&*r).unwrap()` (1600 seeds at four base seeds; the failures were three older bugs,
+filed as #132, #133 and #134). Not yet: `?` and `From`, `.get(i)` on slices (#13's second
+part), `==` on options (`#[derive(PartialEq)]`, #117), `#[derive(Debug)]` (#117), `Debug`
+for floats, `char`, `&str` and references, a bound naming `Debug` (Phase 9 paths), more
+methods (`map`, `and_then`, `take`, ... need closures or `&mut self` patterns), and
+`#[track_caller]` on trait methods.
+
 Update (2026-11-11), mutation scores after the traits work (#125): nightly run 25 measured
 `sabiko_types` at 92.0% over three of its four shards (the fourth lost its runner, and
 four shards no longer fit the job limit, so the crate now runs as eight). New tests kill 56
@@ -1520,6 +1568,10 @@ Work
 - Export shape: `IsReadOnlyAttribute` on `in` params, `IsByRefLikeAttribute` on
   ref structs, `StructLayout(Sequential)`, `Drop` also implemented as `IDisposable`,
   XML doc comments from `///`, names emitted as written.
+- `#[track_caller]` functions (decision 90) take the caller's location as a hidden last
+  `string` parameter, which an exported one shows C# today; rustc's caller location is
+  invisible to callers, so decide the export shape (a wrapper without it passing `null`,
+  or the parameter documented as optional).
 - Trust boundary: extern calls are marked `unsafe`-like in diagnostics (C# can alias
   `ref` parameters internally; Sabiko trusts the signature).
 

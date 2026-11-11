@@ -38,7 +38,7 @@ impl Cx<'_> {
                 return self.own_drop_call(ty, span);
             }
         }
-        let name = format!("<Drop>{}", ty.display(self.resolve));
+        let name = format!("<Drop>{}", ty.symbol(self.resolve));
         if !self.drop_glues.iter().any(|(t, _)| t == ty) {
             self.drop_glues.push((ty.clone(), name.clone()));
         }

@@ -1,0 +1,5 @@
+// An executable's entry point cannot track its caller: nothing calls it from a location.
+
+#[track_caller]
+fn Main() { //~ ERROR E0501 `Main` function is not allowed to be `#[track_caller]`
+}

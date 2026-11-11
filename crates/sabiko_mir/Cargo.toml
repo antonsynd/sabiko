@@ -16,7 +16,8 @@ sabiko_resolve = { workspace = true }
 sabiko_types = { workspace = true }
 
 [dev-dependencies]
-sabiko_parser = { workspace = true }
+# The front end as the driver runs it (`sabiko_driver::parse_and_resolve`).
+sabiko_driver = { workspace = true }
 insta = { version = "1", features = ["glob"] }
 
 [lints]

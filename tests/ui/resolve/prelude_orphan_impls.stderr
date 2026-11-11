@@ -1,0 +1,36 @@
+[E0211] Error: cannot define inherent `impl` for a type outside of the crate where the type is defined
+   ╭─[ tests/ui/resolve/prelude_orphan_impls.sabi:8:9 ]
+   │
+ 8 │ impl<T> Option<T> { //~ ERROR E0211 cannot define inherent `impl` for a type outside of the crate where the type is defined
+   │         ────┬────  
+   │             ╰────── impl for type defined outside of this file
+   │ 
+   │ Note: `Option` is defined in Sabiko's `core` library; define a trait and implement it for `Option` instead
+───╯
+[E0214] Error: only traits defined in the current crate can be implemented for types defined outside of the crate
+    ╭─[ tests/ui/resolve/prelude_orphan_impls.sabi:14:18 ]
+    │
+ 14 │ impl<T> Drop for Option<T> { //~ ERROR E0214 only traits defined in the current crate can be implemented for types defined outside of the crate
+    │                  ────┬────  
+    │                      ╰────── `Option` is not defined in this file
+    │ 
+    │ Note: `Drop` and `Option` both come from outside this file (`Option` from Sabiko's `core` library); implement a trait of this file for it, or wrap it in a struct of this file
+────╯
+[E0214] Error: only traits defined in the current crate can be implemented for types defined outside of the crate
+    ╭─[ tests/ui/resolve/prelude_orphan_impls.sabi:18:16 ]
+    │
+ 18 │ impl Clone for Option<S> { //~ ERROR E0214 only traits defined in the current crate
+    │                ────┬────  
+    │                    ╰────── `Option` is not defined in this file
+    │ 
+    │ Note: `Clone` and `Option` both come from outside this file (`Option` from Sabiko's `core` library); implement a trait of this file for it, or wrap it in a struct of this file
+────╯
+[E0214] Error: only traits defined in the current crate can be implemented for types defined outside of the crate
+    ╭─[ tests/ui/resolve/prelude_orphan_impls.sabi:24:15 ]
+    │
+ 24 │ impl Copy for Result<S, S> {} //~ ERROR E0214 only traits defined in the current crate
+    │               ──────┬─────  
+    │                     ╰─────── `Result` is not defined in this file
+    │ 
+    │ Note: `Copy` and `Result` both come from outside this file (`Result` from Sabiko's `core` library); implement a trait of this file for it, or wrap it in a struct of this file
+────╯

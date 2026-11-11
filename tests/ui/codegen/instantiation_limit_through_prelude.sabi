@@ -1,0 +1,18 @@
+// A chain of instances that grows through the `core` prelude's methods (decision 90):
+// `Option::is_none` and `Option::unwrap` are instantiated at each step too and reach the
+// limit with `Grow`. One error, at the user's call, naming `Grow` as rustc does; never
+// one pointing only into the prelude's source.
+
+fn Grow<T>(x: T, n: i32) {
+    let o = Some(x);
+    if o.is_none() {
+        return;
+    }
+    if n > 0 {
+        Grow((o.unwrap(),), n - 1); //~ ERROR E0502 reached the recursion limit while instantiating `Grow<((
+    }
+}
+
+fn Main() {
+    Grow(1, 3);
+}

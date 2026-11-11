@@ -1,0 +1,9 @@
+// `Some(&x)` keeps `x` borrowed: the option cannot outlive `x`.
+fn Main() {
+    let r;
+    {
+        let x = 5;
+        r = Some(&x);
+    }
+    PrintLine(*r.unwrap());
+}

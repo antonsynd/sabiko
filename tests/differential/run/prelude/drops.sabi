@@ -1,0 +1,43 @@
+// Drops through `Option` and `Result`: the payload is dropped with the option, moved out
+// by `unwrap`, the unused `default` of `unwrap_or` and the discarded side of `ok()` and
+// `err()` are dropped inside the method, and a panicking `expect` unwinds through the
+// caller's values.
+struct Noisy {
+    Id: i32,
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+fn Make(id: i32, keep: bool) -> Option<Noisy> {
+    if keep { Some(Noisy { Id: id }) } else { None }
+}
+
+fn Main() {
+    let _guard = Noisy { Id: 0 };
+    {
+        let a = Make(1, true);
+        PrintLine(a.is_some());
+    }
+    let b = Make(2, true).unwrap();
+    PrintLine(b.Id);
+    let c = Make(3, true).unwrap_or(Noisy { Id: 4 });
+    PrintLine(c.Id);
+    let d = Make(5, false).unwrap_or(Noisy { Id: 6 });
+    PrintLine(d.Id);
+    let r: Result<Noisy, Noisy> = Err(Noisy { Id: 7 });
+    PrintLine(r.ok().is_none());
+    let s: Result<Noisy, Noisy> = Ok(Noisy { Id: 8 });
+    PrintLine(s.err().is_none());
+    let mut slot = Some(Noisy { Id: 9 });
+    slot = None;
+    PrintLine(slot.is_none());
+    slot = Some(Noisy { Id: 10 });
+    PrintLine(slot.is_some());
+    let e = Make(11, false).expect("no noisy 11");
+    PrintLine(e.Id);
+}

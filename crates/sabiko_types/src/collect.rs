@@ -542,6 +542,7 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLe
         }
         TypeKind::Slice(elem) => Ty::Slice(Box::new(lower_sig_type(elem, resolve, lens))),
         TypeKind::Infer => Ty::Error,
+        TypeKind::Never => Ty::Never,
     }
 }
 
@@ -703,12 +704,14 @@ pub(crate) fn collect(
     }
     let lens = &lens;
     for item in file.all_items() {
-        if let ItemKind::Impl(_) | ItemKind::Trait(_) = item.kind {
+        if let ItemKind::Impl(_) | ItemKind::Trait(_) | ItemKind::Use(_) = item.kind {
             continue;
         }
         let def = resolve.def_of_item(item.id);
         match &item.kind {
-            ItemKind::Impl(_) | ItemKind::Trait(_) => unreachable!("skipped above"),
+            ItemKind::Impl(_) | ItemKind::Trait(_) | ItemKind::Use(_) => {
+                unreachable!("skipped above")
+            }
             ItemKind::Fn(f) => {
                 items
                     .fn_sigs

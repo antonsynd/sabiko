@@ -4,7 +4,7 @@ use sabiko_ast::{
     Attribute, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDef, FieldPat, FnDecl, GenericArgs,
     GenericParam, Ident, ImplDecl, Item, ItemKind, LetStmt, NodeId, Param, Pat, PatKind, Path,
     RangeEnd, SelfKind, SelfParam, SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type,
-    TypeKind, UnOp, Variant, VariantData, Visibility,
+    TypeKind, UnOp, UseDecl, Variant, VariantData, Visibility,
 };
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::TokenKind;
@@ -110,6 +110,7 @@ impl Parser<'_, '_> {
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()?),
             TokenKind::Impl => ItemKind::Impl(self.parse_impl()?),
             TokenKind::Trait => ItemKind::Trait(self.parse_trait()?),
+            TokenKind::Use if self.options.library => ItemKind::Use(self.parse_use()?),
             TokenKind::Mod | TokenKind::Use => {
                 return Err(self.unsupported_item("modules and `use`", "planned for Phase 9"))
             }
@@ -289,6 +290,52 @@ impl Parser<'_, '_> {
             segments,
             generic_args,
             span: self.span_from(start),
+        })
+    }
+
+    /// `use A::B;` or `use A::{B, C};` (library files only, decision 90), at `use`: the
+    /// path has at least two segments and no generic arguments.
+    fn parse_use(&mut self) -> PResult<UseDecl> {
+        self.expect(TokenKind::Use)?;
+        let first = self.parse_ident()?;
+        let start = first.span;
+        let mut segments = vec![first];
+        let mut names = Vec::new();
+        let mut braced = false;
+        while self.eat(TokenKind::PathSep).is_some() {
+            if self.eat(TokenKind::LBrace).is_some() {
+                braced = true;
+                while !self.at(TokenKind::RBrace) && !self.at_eof() {
+                    names.push(self.parse_ident()?);
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RBrace)?;
+                break;
+            }
+            segments.push(self.parse_ident()?);
+        }
+        if !braced {
+            if segments.len() < 2 {
+                return Err(self.error_expected("`::`"));
+            }
+            names.push(segments.pop().expect("two segments"));
+        }
+        let prefix = Path {
+            span: Span::new(
+                self.file,
+                start.start,
+                segments.last().map_or(start, |s| s.span).end,
+            ),
+            segments,
+            generic_args: Vec::new(),
+        };
+        self.expect(TokenKind::Semi)?;
+        Ok(UseDecl {
+            prefix,
+            names,
+            braced,
         })
     }
 
@@ -997,6 +1044,10 @@ impl Parser<'_, '_> {
             TokenKind::Underscore => {
                 self.bump();
                 TypeKind::Infer
+            }
+            TokenKind::Bang if self.options.library => {
+                self.bump();
+                TypeKind::Never
             }
             TokenKind::Bang => {
                 return Err(self.error_unsupported(

@@ -1,0 +1,11 @@
+// `unwrap` takes the option by value: an option of a type that is not `Copy` is moved.
+struct Token {
+    Id: i32,
+}
+
+fn Main() {
+    let o = Some(Token { Id: 1 });
+    let t = o.unwrap();
+    PrintLine(t.Id);
+    PrintLine(o.is_some());
+}

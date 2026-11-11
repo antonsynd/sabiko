@@ -1,0 +1,7 @@
+[E0501] Error: `Main` function is not allowed to be `#[track_caller]`
+   ╭─[ tests/ui/codegen/exe/main_is_track_caller.sabi:4:4 ]
+   │
+ 4 │ fn Main() { //~ ERROR E0501 `Main` function is not allowed to be `#[track_caller]`
+   │    ──┬─  
+   │      ╰─── `Main` function is not allowed to be `#[track_caller]`
+───╯

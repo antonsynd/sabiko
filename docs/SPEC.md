@@ -122,6 +122,44 @@ field and a method may share a name (`c.Count` and `c.Count()`). Inside an `impl
 `Self` is the struct; outside one it is E0201. `self` is a value only in a method with a
 `self` parameter (E0213 elsewhere, rustc's E0424).
 
+The `core` prelude (#13, decision 90): every program is compiled with Sabiko source under
+`library/core` (compiled into `sabikoc`), whose public items are in scope everywhere, as
+Rust's `std` prelude: `Option<T>` with its variants `Some` and `None`, and `Result<T, E>`
+with `Ok` and `Err`, named without their enum (`Some(5)`, `None`, `Ok(x)`; `Option::Some`
+and `None::<i32>` work too). A user item of the same name shadows a prelude item silently,
+as in rustc (`const None: i32 = 1;` makes `None` the constant in that file), while the
+prelude's own code keeps its own names; a lone identifier pattern naming an imported unit
+variant compares (`None => ..`), and one naming a tuple variant is E0326 (`Some => ..`,
+rustc's E0530); the resolver rewrites such an identifier into the path pattern it is. The
+prelude is a crate of its own to the user's file, so rustc's orphan rule applies to its
+types: an inherent `impl` for `Option` is E0211 (rustc's E0116), `impl Clone for
+Option<S>` or `impl Drop for Option<T>` is E0214 (E0117/E0120), and a trait of the file may
+be implemented for them. The rejected block is not used and is reported once: calls of its
+methods, and bounds it would have met, are not reported again. The prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`)
+are not visible (E0201, E0202), nor is `Debug` anywhere in Rust's prelude. Library files
+may contain `pub use Enum::{A, B};` and write `!` in a signature; in a user file both stay
+E0107 until Phase 9. Diagnostics may point into the prelude (`library/core/option.sabi`,
+"variant defined here").
+
+Methods, with Rust's names and panic messages (a panic reports the caller's location, as
+`#[track_caller]` makes rustc's do):
+- `Option<T>`: `is_some(&self)`, `is_none(&self)`, `unwrap(self)` ("called
+  `Option::unwrap()` on a `None` value"), `expect(self, msg: &str)` (`msg`),
+  `unwrap_or(self, default: T)`.
+- `Result<T, E>`: `is_ok(&self)`, `is_err(&self)`, `ok(self) -> Option<T>`,
+  `err(self) -> Option<E>`, `unwrap_or(self, default: T)`, and, printing the other
+  variant's value with `Debug` when they panic, `unwrap(self)` ("called `Result::unwrap()`
+  on an `Err` value: {e:?}") and `expect(self, msg)` ("{msg}: {e:?}") where `E: Debug`,
+  `unwrap_err(self)` ("called `Result::unwrap_err()` on an `Ok` value: {t:?}") and
+  `expect_err(self, msg)` where `T: Debug`.
+- Both are `#[derive(Copy, Clone)]`, so `Option<i32>` copies and `Option<Token>` moves.
+  `Debug` is implemented only for the integer types, `bool` and `()`, whose `{:?}` output is
+  what `Print` writes; `unwrap` on a `Result<T, f64>`, `Result<T, &i32>` or a struct error
+  is E0341 with a note (rustc accepts the first two; the others need `#[derive(Debug)]`,
+  #117), and a generic `Result<T, E>` cannot be unwrapped since a bound cannot name
+  `Debug` yet. `Option<&T>`, `Option<&mut T>` and `Result<&T, E>` are `ref struct`
+  instances (decision 83).
+
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System
 - Structs and layout
@@ -169,6 +207,18 @@ span, as in rustc), or of the `Panic(...)` call. The file is named as it was giv
 `sabikoc`; lines are 1-based; the column is rustc's display column, 1-based, counting a
 tab as 4 columns, East Asian wide characters as 2 and combining marks and zero-width
 characters as 0 (`SourceFile::rust_column`).
+`#[track_caller]` (#13, decision 90) on a free function or a method of an `impl` block
+makes every panic in its body (a `Panic`, a checked operation, an index out of bounds, a
+call of another `#[track_caller]` function) report the location of its caller instead,
+as in rustc: for a method call the start of the method's name (`x.unwrap()` reports
+`unwrap`), else the start of the call. The prelude's `unwrap` and `expect` are
+`#[track_caller]`. In IL the function takes the location as a hidden last `string`
+parameter. That parameter is also part of the method's signature as C# sees it when the
+function is exported (`--emit=dll`): a C# caller passes a location string, or `null` for a
+panic without one; rustc's caller location is invisible to callers, and Phase 8 decides
+the export shape (for example, a wrapper without the parameter). Not yet: on a trait's
+method or `Drop::drop` (E0107); on `Main` it is E0501, as rustc's E0648; on anything that
+is not a function it is E0224, as rustc rejects it.
 An executable's entry point runs `Main` inside a `try`: an exception that escapes is
 reported on standard error as `thread 'main' panicked at file:line:column:` followed by
 the message (`thread 'main' panicked:` for a panic without a location, which generated

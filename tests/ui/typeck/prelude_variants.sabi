@@ -1,0 +1,18 @@
+// The prelude's variants are named without their enum, as the rustc prelude's `use`
+// makes them; a pattern or a constructor of the wrong shape is rejected as for any
+// variant, and a "defined here" label points into `library/core`.
+
+fn Main() {
+    let c: Option<i32> = Some(1, 2); //~ ERROR E0304 this enum variant takes 1 argument but 2 arguments were supplied
+    match c {
+        Some => {} //~ ERROR E0326 expected unit struct, unit variant or constant, found tuple variant `Option::Some`
+        _ => {}
+    }
+    let t: Result<i32, bool> = Ok(true); //~ ERROR E0300 mismatched types
+}
+
+fn Exhaustive(r: Result<i32, bool>) {
+    match r {
+        Ok(_) => {}
+    } //~^^ ERROR E0328 non-exhaustive patterns: `Result::Err(_)` not covered
+}

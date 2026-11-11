@@ -1,0 +1,36 @@
+[E0304] Error: this enum variant takes 1 argument but 2 arguments were supplied
+    ╭─[ tests/ui/typeck/prelude_variants.sabi:6:26 ]
+    │
+  6 │     let c: Option<i32> = Some(1, 2); //~ ERROR E0304 this enum variant takes 1 argument but 2 arguments were supplied
+    │                          ─────┬────  
+    │                               ╰────── expected 1 argument
+    │
+    ├─[ library/core/option.sabi:13:5 ]
+    │
+ 13 │     Some(T),
+    │     ──┬─  
+    │       ╰─── variant defined here
+────╯
+[E0326] Error: expected unit struct, unit variant or constant, found tuple variant `Option::Some`
+   ╭─[ tests/ui/typeck/prelude_variants.sabi:8:9 ]
+   │
+ 8 │         Some => {} //~ ERROR E0326 expected unit struct, unit variant or constant, found tuple variant `Option::Some`
+   │         ──┬─  
+   │           ╰─── not a unit struct, unit variant or constant
+───╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/prelude_variants.sabi:11:32 ]
+    │
+ 11 │     let t: Result<i32, bool> = Ok(true); //~ ERROR E0300 mismatched types
+    │                                ────┬───  
+    │                                    ╰───── expected `Result<i32, bool>`, found `Result<bool, _>`
+────╯
+[E0328] Error: non-exhaustive patterns: `Result::Err(_)` not covered
+    ╭─[ tests/ui/typeck/prelude_variants.sabi:15:11 ]
+    │
+ 15 │     match r {
+    │           ┬  
+    │           ╰── pattern `Result::Err(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

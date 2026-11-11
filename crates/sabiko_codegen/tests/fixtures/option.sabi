@@ -1,0 +1,6 @@
+// A file named `option.sabi` keeps the module class `Option`: the prelude's `Option` is
+// `core::Option<..>` in IL (decision 90), so the two never collide.
+fn Main() {
+    let o = Some(1u8);
+    PrintLine(o.is_some());
+}

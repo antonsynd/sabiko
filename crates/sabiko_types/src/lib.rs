@@ -257,7 +257,7 @@ fn signature_lens(
             }
             ItemKind::Const(c) => types.push(&c.ty),
             ItemKind::Impl(imp) => types.push(&imp.self_ty),
-            ItemKind::Trait(_) => {}
+            ItemKind::Trait(_) | ItemKind::Use(_) => {}
         }
     }
     let mut lens = collect::ArrayLens::new();
@@ -281,6 +281,7 @@ fn signature_lens(
             sabiko_ast::TypeKind::Tuple(elems) => stack.extend(elems.iter().rev()),
             sabiko_ast::TypeKind::Path(_)
             | sabiko_ast::TypeKind::Unit
+            | sabiko_ast::TypeKind::Never
             | sabiko_ast::TypeKind::Infer => {}
         }
     }
@@ -312,9 +313,9 @@ mod tests {
 
     fn run(src: &str) -> (TypeckResults, ResolveResults, Vec<String>) {
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+        let mut ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
         assert!(!sink.has_errors(), "parse errors: {:?}", sink.diagnostics());
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        let resolve = sabiko_resolve::resolve(&mut ast, &mut sink);
         let results = typeck(&ast, &resolve, &mut sink);
         let mut diags = sink.into_vec();
         sabiko_diagnostics::sort(&mut diags);

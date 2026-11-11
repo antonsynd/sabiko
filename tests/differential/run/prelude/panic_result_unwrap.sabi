@@ -1,0 +1,9 @@
+// `Result::unwrap` on `Err(e)` prints `e` with `Debug`: here a negative `i64`.
+fn Check(n: i64) -> Result<i64, i64> {
+    if n >= 0 { Ok(n) } else { Err(n) }
+}
+
+fn Main() {
+    PrintLine(Check(3).unwrap());
+    PrintLine(Check(-42).unwrap());
+}

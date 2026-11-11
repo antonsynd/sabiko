@@ -1,0 +1,10 @@
+// A returned `Result<&i32, u8>` cannot borrow the function's local.
+fn Make(flag: bool, other: &i32) -> Result<&i32, u8> {
+    let local = *other + 1;
+    if flag { Ok(&local) } else { Err(0) }
+}
+
+fn Main() {
+    let x = 3;
+    PrintLine(*Make(true, &x).unwrap());
+}

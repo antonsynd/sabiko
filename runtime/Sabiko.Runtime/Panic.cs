@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -44,6 +45,103 @@ public static class Panic
     public static void Fail(ReadOnlySpan<char> message, string location)
     {
         throw new PanicException(message.ToString(), location);
+    }
+
+    // ---- FailDebug: `panic!("{msg}: {value:?}")` ----------------------------------------
+    //
+    // The `core` prelude's `PanicDebug` intrinsic (decision 90), which `Result::unwrap`,
+    // `expect`, `unwrap_err` and `expect_err` call: the message, `": "`, then the value as
+    // Rust's `Debug` formats it, which for an integer or a `bool` is what `Print` writes.
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for an <c>i8</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, sbyte value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for an <c>i16</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, short value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for an <c>i32</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, int value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for an <c>i64</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, long value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for an <c>isize</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, nint value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for an <c>i128</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, Int128 value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>u8</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, byte value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>u16</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, ushort value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>u32</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, uint value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>u64</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, ulong value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>usize</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, nuint value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>u128</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, UInt128 value, string? location) =>
+        FailDebug(message, value.ToString(CultureInfo.InvariantCulture), location);
+
+    /// <summary>Panics with <c>"{message}: {value:?}"</c> for a <c>bool</c>.</summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, bool value, string? location) =>
+        FailDebug(message, value ? "true" : "false", location);
+
+    /// <summary>
+    /// Panics with <c>"{message}: {debug}"</c>, where <paramref name="debug"/> is the
+    /// value's <c>Debug</c> text (<c>"()"</c> for <c>()</c>), at
+    /// <paramref name="location"/> (<c>null</c> for none).
+    /// </summary>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void FailDebug(ReadOnlySpan<char> message, string debug, string? location)
+    {
+        string text = string.Concat(message, ": ", debug);
+        throw location is null ? new PanicException(text) : new PanicException(text, location);
     }
 
     /// <summary>

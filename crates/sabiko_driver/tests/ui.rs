@@ -82,35 +82,12 @@ fn run_one(root: &Path, path: &Path, bless: bool) -> Option<String> {
         .to_string_lossy()
         .replace('\\', "/");
     let src = std::fs::read_to_string(path).unwrap();
-    // The directory names the stage under test; the pipeline stops after it so tests of
-    // early stages are not disturbed by later ones (a parser test may call undefined
-    // functions, for instance).
-    // `codegen/` and `lints/` also run the IL backend (`--emit=il`), which the pipeline
-    // otherwise skips, so their `E05xx` and `E06xx` diagnostics can be tested; `codegen/exe/` asks for an
-    // executable, which is what checks the `Main` signature.
-    let (stop_after, emit, output_kind) = match rel.split('/').next().unwrap_or("") {
-        "parse" => (Stage::Parse, Emit::None, OutputKind::Library),
-        "resolve" => (Stage::Resolve, Emit::None, OutputKind::Library),
-        "typeck" => (Stage::Typeck, Emit::None, OutputKind::Library),
-        // rustc's constant-propagation lints run only when code is generated.
-        "lints" => (Stage::Full, Emit::Il, OutputKind::Library),
-        "codegen" => {
-            let kind = if rel.starts_with("codegen/exe/") {
-                OutputKind::Executable
-            } else {
-                OutputKind::Library
-            };
-            (Stage::Full, Emit::Il, kind)
-        }
-        _ => (Stage::Full, Emit::None, OutputKind::Library),
-    };
-    let options = Options {
-        emit,
-        stop_after,
-        output_kind,
-        ..Options::default()
-    };
-    let compilation = compile_str(&format!("tests/ui/{rel}"), &src, options);
+    let compilation = compile_str(&format!("tests/ui/{rel}"), &src, stage_options(&rel));
+    let stray = compilation.diagnostics_only_in_prelude();
+    assert!(
+        stray.is_empty(),
+        "{rel}: diagnostics pointing only into the prelude: {stray:?}"
+    );
     let mut failures = String::new();
 
     // 1. annotations vs diagnostics
@@ -185,6 +162,38 @@ fn run_one(root: &Path, path: &Path, bless: bool) -> Option<String> {
         None
     } else {
         Some(format!("{rel}:\n{failures}"))
+    }
+}
+
+/// The options a UI test (`rel`, under `tests/ui`) runs with.
+fn stage_options(rel: &str) -> Options {
+    // The directory names the stage under test; the pipeline stops after it so tests of
+    // early stages are not disturbed by later ones (a parser test may call undefined
+    // functions, for instance).
+    // `codegen/` and `lints/` also run the IL backend (`--emit=il`), which the pipeline
+    // otherwise skips, so their `E05xx` and `E06xx` diagnostics can be tested; `codegen/exe/` asks for an
+    // executable, which is what checks the `Main` signature.
+    let (stop_after, emit, output_kind) = match rel.split('/').next().unwrap_or("") {
+        "parse" => (Stage::Parse, Emit::None, OutputKind::Library),
+        "resolve" => (Stage::Resolve, Emit::None, OutputKind::Library),
+        "typeck" => (Stage::Typeck, Emit::None, OutputKind::Library),
+        // rustc's constant-propagation lints run only when code is generated.
+        "lints" => (Stage::Full, Emit::Il, OutputKind::Library),
+        "codegen" => {
+            let kind = if rel.starts_with("codegen/exe/") {
+                OutputKind::Executable
+            } else {
+                OutputKind::Library
+            };
+            (Stage::Full, Emit::Il, kind)
+        }
+        _ => (Stage::Full, Emit::None, OutputKind::Library),
+    };
+    Options {
+        emit,
+        stop_after,
+        output_kind,
+        ..Options::default()
     }
 }
 

@@ -1,0 +1,31 @@
+// A user item of the same name shadows a prelude item, as in rustc: here `Result` is
+// the user's own enum and `None` a constant, while `Some`, `Ok` and `Option` stay the
+// prelude's, which the prelude's own code keeps using.
+#[derive(Copy, Clone)]
+enum Result {
+    Good,
+    Bad,
+}
+
+const None: i32 = -1;
+
+fn Check(n: i32) -> Result {
+    if n > 0 { Result::Good } else { Result::Bad }
+}
+
+fn Main() {
+    match Check(3) {
+        Result::Good => PrintLine("good"),
+        Result::Bad => PrintLine("bad"),
+    }
+    PrintLine(None);
+    match 4 - 5 {
+        None => PrintLine("matched the constant"),
+        _ => PrintLine("other"),
+    }
+    let o: Option<i32> = Some(2);
+    PrintLine(o.unwrap() + None);
+    let r = Ok::<i32, u8>(5);
+    PrintLine(r.unwrap());
+    PrintLine(r.ok().is_some());
+}

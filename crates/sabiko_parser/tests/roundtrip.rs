@@ -1105,7 +1105,7 @@ fn strip_parens_item(item: &mut Item) {
             .iter_mut()
             .filter_map(|v| v.discriminant.as_mut())
             .for_each(strip_parens_expr),
-        ItemKind::Struct(_) => {}
+        ItemKind::Struct(_) | ItemKind::Use(_) => {}
     }
 }
 

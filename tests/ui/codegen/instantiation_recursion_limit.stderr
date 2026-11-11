@@ -16,3 +16,12 @@
     │ 
     │ Note: each call instantiates the function at a larger type, without end
 ────╯
+[E0502] Error: reached the recursion limit while instantiating `Wrap<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<Option<i32>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`
+    ╭─[ tests/ui/codegen/instantiation_recursion_limit.sabi:29:9 ]
+    │
+ 29 │         Wrap(Some(x), n - 1); //~ ERROR E0502 reached the recursion limit while instantiating `Wrap<Option<Option<
+    │         ──────────┬─────────  
+    │                   ╰─────────── instantiated here
+    │ 
+    │ Note: each call instantiates the function at a larger type, without end
+────╯

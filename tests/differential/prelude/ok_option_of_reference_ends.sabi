@@ -1,0 +1,8 @@
+// A borrow held in an `Option<&mut T>` ends with its last use, so `x` is free again.
+fn Main() {
+    let mut x = 1;
+    let r = Some(&mut x);
+    *r.unwrap() += 1;
+    x += 1;
+    PrintLine(x);
+}

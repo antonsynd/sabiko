@@ -78,7 +78,10 @@
 //! ([`program::GENERIC_HELPERS`]), and reference locals initialised from a reference local
 //! `r` by `let q = r;`, `let q = GenId(r);` or `let q = GenBox { Value: r }.Value;`, which
 //! move a `&mut` `r` (#132), or annotated (`let q: &mut T = GenId(r);`), which reborrow
-//! it. Not generated: slice
+//! it. The `core` prelude (#13): values in `Some(e).unwrap()`,
+//! `Some(e).expect(..)`, `Some(a).unwrap_or(b)`, `None::<T>.unwrap_or(b)`,
+//! `Ok::<T, u8>(e).unwrap()` and `Err::<u8, T>(e).unwrap_err()`, shared references in
+//! `Some(&*r).unwrap()` ([`program::Program::prelude`]). Not generated: slice
 //! patterns, ranges as values, array comparison, arrays of references as parameters or
 //! as locals outliving a block of their own (`stmt_ref_aggregate` writes `[&T; N]`,
 //! `&[&T]`, `(&T, U)` and `[&mut T; 2]` locals of primitive referents used in one block;

@@ -185,6 +185,10 @@ impl Dumper {
                     }
                 });
             }
+            ItemKind::Use(u) => {
+                self.line(&format!("{vis}Use {}", use_text(u)));
+                self.nested(|d| d.meta(&item.attrs, &item.docs));
+            }
         }
     }
 
@@ -250,6 +254,7 @@ impl Dumper {
                 self.nested(|d| d.ty(elem));
             }
             TypeKind::Infer => self.line("Type _"),
+            TypeKind::Never => self.line("Type !"),
         }
     }
 
@@ -622,6 +627,18 @@ pub fn path_text(p: &Path, sep: &str) -> String {
         }
     }
     s
+}
+
+/// A `use` declaration's tree as written: `Option::Some` or `Option::{None, Some}`.
+#[must_use]
+pub fn use_text(u: &UseDecl) -> String {
+    let names: Vec<&str> = u.names.iter().map(|n| n.name.as_str()).collect();
+    let prefix = path_text(&u.prefix, "");
+    if u.braced {
+        format!("{prefix}::{{{}}}", names.join(", "))
+    } else {
+        format!("{prefix}::{}", names.join(", "))
+    }
 }
 
 pub(crate) fn lit_str(l: &Lit) -> String {

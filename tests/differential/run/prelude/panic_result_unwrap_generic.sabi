@@ -1,0 +1,10 @@
+// `Result::unwrap` on `Err(e)` with a `u128` error, called in a generic function: the
+// location is the `unwrap` call in the generic body.
+fn First<T: Copy>(r: Result<T, u128>) -> T {
+    r.unwrap()
+}
+
+fn Main() {
+    PrintLine(First(Ok::<i8, u128>(-1)));
+    PrintLine(First::<bool>(Err(340282366920938463463374607431768211455)));
+}

@@ -1,0 +1,5 @@
+// `Result::expect_err` on `Ok(())` prints `()`.
+fn Main() {
+    let r: Result<(), u32> = Ok(());
+    PrintLine(r.expect_err("expected a failure"));
+}

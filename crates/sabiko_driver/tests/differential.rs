@@ -97,6 +97,11 @@ fn run_sabiko(rel: &str, src: &str) -> Outcome {
         src,
         Options::default(),
     );
+    let stray = compilation.diagnostics_only_in_prelude();
+    assert!(
+        stray.is_empty(),
+        "{rel}: diagnostics pointing only into the prelude: {stray:?}"
+    );
     let mut codes = Vec::new();
     for d in &compilation.diagnostics {
         if d.severity == Severity::Error {

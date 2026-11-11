@@ -21,3 +21,15 @@ fn Double<T>(x: T, n: i32) {
 fn Start() {
     Double(1, 3);
 }
+
+// The prelude's types are named as the program names them, not as generated code does
+// (`core::Option`, decision 90).
+fn Wrap<T>(x: T, n: i32) {
+    if n > 0 {
+        Wrap(Some(x), n - 1); //~ ERROR E0502 reached the recursion limit while instantiating `Wrap<Option<Option<
+    }
+}
+
+fn Begin() {
+    Wrap(1, 3);
+}
