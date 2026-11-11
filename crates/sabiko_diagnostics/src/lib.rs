@@ -47,6 +47,9 @@ impl ErrorCode {
     pub const MISSING_STRUCT_BASE: Self = Self(112);
     /// A second `..` in a tuple or tuple-variant pattern (rustc reports it without a code).
     pub const MULTIPLE_REST_PATTERNS: Self = Self(113);
+    /// A generic parameter without a default after one with a default (rustc's uncoded
+    /// "generic parameters with a default must be trailing").
+    pub const DEFAULT_NOT_TRAILING: Self = Self(114);
 
     // Name resolution (E02xx)
     pub const DUPLICATE_DEFINITION: Self = Self(200);
@@ -221,6 +224,9 @@ impl ErrorCode {
     /// A type parameter of a trait `impl` block that neither its type nor its trait's
     /// arguments mention (rustc's E0207).
     pub const UNCONSTRAINED_TYPE_PARAMETER: Self = Self(352);
+    /// Proving a bound needs a chain of `impl` bounds deeper than the recursion limit
+    /// (rustc's E0275, "overflow evaluating the requirement").
+    pub const OVERFLOW_EVALUATING: Self = Self(353);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

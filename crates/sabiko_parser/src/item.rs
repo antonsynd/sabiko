@@ -443,6 +443,14 @@ impl Parser<'_, '_> {
                 }
                 self.bump();
                 default = Some(self.parse_type()?);
+            } else if params.iter().any(|p: &GenericParam| p.default.is_some()) {
+                // rustc's uncoded "generic parameters with a default must be trailing".
+                let d = Diagnostic::error(
+                    ErrorCode::DEFAULT_NOT_TRAILING,
+                    "generic parameters with a default must be trailing",
+                )
+                .with_label(name.span, "must come before the parameters with a default");
+                self.emit(d);
             }
             params.push(GenericParam {
                 id,

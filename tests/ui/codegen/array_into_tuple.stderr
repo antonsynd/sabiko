@@ -5,7 +5,9 @@
    │     ─────┬────  
    │          ╰────── cannot be compiled yet
    │ 
-   │ Note: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
+   │ Note 1: instantiated as `<(i32, i32, i32) as From<[i32; 3]>>::from`
+   │ 
+   │ Note 2: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
 ───╯
 [E0500] Error: converting an array into a tuple is not yet supported by code generation
    ╭─[ tests/ui/codegen/array_into_tuple.sabi:9:23 ]
@@ -14,7 +16,9 @@
    │                       ──────────┬─────────  
    │                                 ╰─────────── cannot be compiled yet
    │ 
-   │ Note: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
+   │ Note 1: instantiated as `<(u8, u8) as From<[u8; 2]>>::from`
+   │ 
+   │ Note 2: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
 ───╯
 [E0500] Error: converting an array into a tuple is not yet supported by code generation
     ╭─[ tests/ui/codegen/array_into_tuple.sabi:10:22 ]
@@ -23,5 +27,7 @@
     │                      ──────┬──────  
     │                            ╰──────── cannot be compiled yet
     │ 
-    │ Note: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
+    │ Note 1: instantiated as `<(bool,) as From<[bool; 1]>>::from`
+    │ 
+    │ Note 2: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
 ────╯

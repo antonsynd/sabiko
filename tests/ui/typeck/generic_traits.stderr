@@ -27,14 +27,14 @@
     │ 
     │ Note: remove the unused type parameter `U`, or use it in the type or the trait's arguments
 ────╯
-[E0107] Error: not yet supported: implementing a trait for a type that holds a reference
+[E0107] Error: not yet supported: a reference in an `impl` block's trait arguments
     ╭─[ tests/ui/typeck/generic_traits.sabi:38:11 ]
     │
- 38 │ impl Conv<&u8> for T2 { //~ ERROR E0107 not yet supported: implementing a trait for a type that holds a reference
+ 38 │ impl Conv<&u8> for T2 { //~ ERROR E0107 not yet supported: a reference in an `impl` block's trait arguments
     │           ─┬─  
     │            ╰─── `&u8`
     │ 
-    │ Note: see docs/PLAN.md
+    │ Note: a reference in an `impl` header needs a named lifetime, which waits for lifetimes (Phase 9); see docs/PLAN.md
 ────╯
 [E0313] Error: type annotations needed
     ╭─[ tests/ui/typeck/generic_traits.sabi:52:9 ]

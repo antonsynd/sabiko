@@ -222,7 +222,7 @@ pub fn monomorphize(
             // A prelude intrinsic has no instances: code generation lowers its calls
             // (decision 90).
             if resolve.intrinsic(def) == Some(Intrinsic::ArrayIntoTuple) {
-                array_into_tuple(origin, sink);
+                array_into_tuple(origin, &args, resolve, sink);
                 continue;
             }
             if resolve.intrinsic(def).is_some() {
@@ -286,15 +286,26 @@ fn made_on_demand(def: DefId, resolve: &ResolveResults, typeck: &TypeckResults) 
 
 /// E0500 at the program's call that reached `From<[T; N]> for (T, .., T)`, whose body
 /// needs array patterns (decision 95).
-fn array_into_tuple(origin: Origin, sink: &mut DiagnosticSink) {
-    sink.emit(
-        Diagnostic::error(
-            ErrorCode::UNSUPPORTED_CODEGEN,
-            "converting an array into a tuple is not yet supported by code generation",
-        )
-        .with_label(origin.user_call, "cannot be compiled yet")
-        .with_note("`From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md"),
-    );
+/// The instance is named, as E0502 names one: the call may be in a generic helper.
+fn array_into_tuple(
+    origin: Origin,
+    args: &[Ty],
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) {
+    let mut d = Diagnostic::error(
+        ErrorCode::UNSUPPORTED_CODEGEN,
+        "converting an array into a tuple is not yet supported by code generation",
+    )
+    .with_label(origin.user_call, "cannot be compiled yet");
+    if let [array, tuple] = args {
+        d = d.with_note(format!(
+            "instantiated as `<{} as From<{}>>::from`",
+            tuple.display(resolve),
+            array.display(resolve)
+        ));
+    }
+    sink.emit(d.with_note("`From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md"));
 }
 
 /// An instance to make.

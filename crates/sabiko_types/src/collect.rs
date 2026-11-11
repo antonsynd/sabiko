@@ -266,8 +266,15 @@ pub struct ItemTypes {
     traits: HashMap<DefId, TraitDef>,
     /// The trait of each trait member (function or constant).
     member_traits: HashMap<DefId, DefId>,
+    /// The traits with two overlapping blocks (E0215): obligations of them are not
+    /// judged, so only the overlap is reported, as rustc does.
+    conflicting: HashSet<DefId>,
     /// The trait `impl` blocks, in source order.
     impls: Vec<ImplDef>,
+    /// Each block's index in `impls`, by its definition.
+    impl_index: HashMap<DefId, usize>,
+    /// The indices in `impls` of each trait's blocks, in source order.
+    trait_impls: HashMap<DefId, Vec<usize>>,
     /// The language traits (decision 86).
     lang: HashMap<LangItem, DefId>,
     /// The bounds that hold in each function's signature and body: its own, its block's,
@@ -358,6 +365,12 @@ impl ItemTypes {
         self.traits.get(&def)
     }
 
+    /// Whether two blocks of the trait `tr` overlap (E0215 was reported).
+    #[must_use]
+    pub fn has_conflicting_impls(&self, tr: DefId) -> bool {
+        self.conflicting.contains(&tr)
+    }
+
     /// The trait whose member `def` is, if it is one.
     #[must_use]
     pub fn trait_of_member(&self, def: DefId) -> Option<DefId> {
@@ -366,14 +379,18 @@ impl ItemTypes {
 
     /// The trait `impl` blocks of the trait `tr`, in source order.
     pub fn impls_of(&self, tr: DefId) -> impl Iterator<Item = &ImplDef> {
-        self.impls.iter().filter(move |i| i.trait_ == tr)
+        self.trait_impls
+            .get(&tr)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .map(|&i| &self.impls[i])
     }
 
     /// The trait `impl` block `def`, if it was collected (its trait resolved and its
     /// header was accepted).
     #[must_use]
     pub fn impl_def(&self, def: DefId) -> Option<&ImplDef> {
-        self.impls.iter().find(|i| i.def == def)
+        self.impl_index.get(&def).map(|&i| &self.impls[i])
     }
 
     /// The type `Self` names in the trait `impl` block `def` (an error type when its trait
@@ -968,10 +985,12 @@ fn collect_traits(
 ) {
     let refs = trait_refs(file);
     collect_trait_defs(file, resolve, lens, items);
-    collect_predicates(resolve, lens, items, &refs);
+    collect_predicates(resolve, lens, items, &refs, sink);
     collect_impls(file, resolve, lens, items, sink);
     collect_param_envs(resolve, items);
-    check_overlap(resolve, items, sink);
+    items.conflicting = check_overlap(resolve, items, sink);
+    let overflowing = check_bound_overflow(resolve, items, &items.conflicting, sink);
+    items.conflicting.extend(overflowing);
     check_supertraits(resolve, items, sink);
     check_impl_methods(resolve, items, sink);
 }
@@ -1051,7 +1070,9 @@ fn collect_predicates(
     lens: &ArrayLens,
     items: &mut ItemTypes,
     refs: &HashMap<NodeId, &sabiko_ast::TraitRef>,
+    sink: &mut DiagnosticSink,
 ) {
+    let mut reported: HashSet<Span> = HashSet::new();
     let bounded = resolve
         .defs_of_kind(DefKind::Fn)
         .chain(resolve.defs_of_kind(DefKind::Impl))
@@ -1072,6 +1093,22 @@ fn collect_predicates(
                 span: p.span,
             })
             .collect();
+        for pred in &preds {
+            // A reference in a bound needs a named lifetime, as in rustc (E0637).
+            let with_ref = pred.args.iter().find(|a| a.has_ref());
+            if let Some(arg) = with_ref.filter(|_| !resolve.is_prelude(def)) {
+                if reported.insert(pred.span) {
+                    sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::UNSUPPORTED_SYNTAX,
+                            "not yet supported: a reference in a bound's trait arguments",
+                        )
+                        .with_label(pred.span, format!("`{}`", arg.display(resolve)))
+                        .with_note("a reference in a bound needs a named lifetime, which waits for lifetimes (Phase 9); see docs/PLAN.md"),
+                    );
+                }
+            }
+        }
         if !preds.is_empty() {
             items.predicates.insert(def, preds);
         }
@@ -1102,7 +1139,7 @@ fn collect_impls(
             continue;
         }
         let library = resolve.is_prelude(def);
-        if !check_impl_type(&self_ty, imp.self_ty.span, library, resolve, sink) {
+        if !check_impl_type(&self_ty, imp.self_ty.span, library, false, resolve, sink) {
             continue;
         }
         let trait_args = lower_trait_args(items, trait_, tr, &self_ty, resolve, lens);
@@ -1110,7 +1147,7 @@ fn collect_impls(
         let arg_spans = written.map_or(Vec::new(), |a| a.args.iter().map(|t| t.span).collect());
         let fits = trait_args.iter().enumerate().all(|(i, a)| {
             let span = arg_spans.get(i).copied().unwrap_or(tr.path.span);
-            check_impl_type(a, span, library, resolve, sink)
+            check_impl_type(a, span, library, true, resolve, sink)
         });
         if !fits {
             continue;
@@ -1128,6 +1165,10 @@ fn collect_impls(
             preds: items.predicates(def).to_vec(),
             span: resolve.def(def).span,
         });
+    }
+    for (i, imp) in items.impls.iter().enumerate() {
+        items.impl_index.insert(imp.def, i);
+        items.trait_impls.entry(imp.trait_).or_default().push(i);
     }
 }
 
@@ -1278,23 +1319,34 @@ fn check_impl_type(
     ty: &Ty,
     span: Span,
     library: bool,
+    trait_arg: bool,
     resolve: &ResolveResults,
     sink: &mut DiagnosticSink,
 ) -> bool {
-    let what = if ty.has_ref() && !library {
-        "a type that holds a reference"
+    let (message, note) = if ty.has_ref() && !library {
+        let what = if trait_arg {
+            "a reference in an `impl` block's trait arguments"
+        } else {
+            "implementing a trait for a type that holds a reference"
+        };
+        (
+            format!("not yet supported: {what}"),
+            "a reference in an `impl` header needs a named lifetime, which waits for lifetimes (Phase 9); see docs/PLAN.md",
+        )
     } else if matches!(ty, Ty::Prim(PrimTy::Str) | Ty::Slice(_)) {
-        "an unsized type"
+        let what = if trait_arg {
+            "an unsized type as an `impl` block's trait argument"
+        } else {
+            "implementing a trait for an unsized type"
+        };
+        (format!("not yet supported: {what}"), "see docs/PLAN.md")
     } else {
         return !ty.is_error();
     };
     sink.emit(
-        Diagnostic::error(
-            ErrorCode::UNSUPPORTED_SYNTAX,
-            format!("not yet supported: implementing a trait for {what}"),
-        )
-        .with_label(span, format!("`{}`", ty.display(resolve)))
-        .with_note("see docs/PLAN.md"),
+        Diagnostic::error(ErrorCode::UNSUPPORTED_SYNTAX, message)
+            .with_label(span, format!("`{}`", ty.display(resolve)))
+            .with_note(note),
     );
     false
 }
@@ -1316,7 +1368,12 @@ fn impl_trait_subst(items: &ItemTypes, imp: &ImplDef) -> (Vec<DefId>, Vec<Ty>) {
 /// unify, and no bound of either fails at the unified types where only this file could
 /// make it hold (rustc's negative reasoning in coherence: `impl<T, U: From<T>> Into<U>
 /// for T` does not overlap `impl Into<i32> for S` without `impl From<S> for i32`).
-fn check_overlap(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+fn check_overlap(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    sink: &mut DiagnosticSink,
+) -> HashSet<DefId> {
+    let mut conflicting = HashSet::new();
     for (j, later) in items.impls.iter().enumerate() {
         for earlier in &items.impls[..j] {
             if earlier.trait_ != later.trait_ {
@@ -1361,10 +1418,18 @@ fn check_overlap(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Diagnos
                 let concrete = !std::iter::once(&self_ty)
                     .chain(&args)
                     .any(|t| vars.iter().any(|&v| t.mentions(v)));
-                concrete
-                    && knowable(resolve, pred.trait_, &self_ty, &args)
-                    && items.implements(&self_ty, pred.trait_, &args, &[])
+                // The bound fails at every type the unified header stands for: at concrete
+                // types, by the solver (every candidate weighed, so the blocks' order never
+                // matters); with variables left, when no block's header could match it
+                // (`W<U>: Show` without a block for any `W<_>`).
+                let fails = if concrete {
+                    items.implements(&self_ty, pred.trait_, &args, &[])
                         == crate::traits::Solution::No
+                } else {
+                    resolve.lang_of(pred.trait_).is_none()
+                        && !items.could_have_impl(pred.trait_, &self_ty, &args, &vars)
+                };
+                fails && knowable(resolve, pred.trait_, &self_ty, &args, &vars)
             });
             if disjoint {
                 continue;
@@ -1407,18 +1472,76 @@ fn check_overlap(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Diagnos
                 d.with_label(earlier.span, "first implementation here")
             };
             sink.emit(d);
+            conflicting.insert(later.trait_);
             if !swapped {
                 break;
             }
         }
     }
+    conflicting
+}
+
+/// A bound of a program's function or `impl` block that the `impl` blocks alone could
+/// only prove through an endless chain of bounds (E0353, rustc's E0275 at the bound, as
+/// its well-formedness check of where-clauses reports it): `impl<T, U: Lp<W<T>>> Lp<T>
+/// for U` overflows at its own bound and at every `T: Lp<bool>`. Returns the traits
+/// concerned, whose uses are then not judged again.
+fn check_bound_overflow(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    conflicting: &HashSet<DefId>,
+    sink: &mut DiagnosticSink,
+) -> HashSet<DefId> {
+    let mut traits = HashSet::new();
+    let mut seen: HashSet<Span> = HashSet::new();
+    let bounded = resolve
+        .defs_of_kind(DefKind::Fn)
+        .chain(resolve.defs_of_kind(DefKind::Impl))
+        .filter(|&d| !resolve.is_prelude(d));
+    for def in bounded {
+        for pred in items.predicates(def) {
+            // Overlapping blocks were reported instead, as rustc does.
+            if !seen.insert(pred.span) || conflicting.contains(&pred.trait_) {
+                continue;
+            }
+            let ty = Ty::Param(pred.param);
+            if items.implements(&ty, pred.trait_, &pred.args, &[])
+                == crate::traits::Solution::Overflow
+            {
+                let shown = resolve.def(pred.param).name.clone();
+                let tr = crate::traits::trait_ref_str(resolve, pred.trait_, &pred.args);
+                sink.emit(crate::traits::overflow_error(pred.span, &shown, &tr));
+                traits.insert(pred.trait_);
+            }
+        }
+    }
+    traits
 }
 
 /// Whether only this file could implement `self_ty: tr<args>` (rustc's
 /// `trait_ref_is_knowable` for the crate being compiled): the trait is the file's own, or
 /// one of the types is a struct or enum of the file, so the orphan rule lets no other
 /// crate add the impl. Coherence may then rely on its absence.
-fn knowable(resolve: &ResolveResults, tr: DefId, self_ty: &Ty, args: &[Ty]) -> bool {
+fn knowable(
+    resolve: &ResolveResults,
+    tr: DefId,
+    self_ty: &Ty,
+    args: &[Ty],
+    vars: &[DefId],
+) -> bool {
+    // A type left open at the top (`T`, `&T`) could be a type of a crate depending on this
+    // one, which may implement even this file's trait for it (rustc's
+    // `Conflict::Downstream`).
+    let open = |ty: &Ty| {
+        let mut ty = ty;
+        while let Ty::Ref(_, inner) = ty {
+            ty = inner;
+        }
+        matches!(ty, Ty::Param(p) if vars.contains(p))
+    };
+    if open(self_ty) || args.iter().any(open) {
+        return false;
+    }
     let local = |ty: &Ty| matches!(ty, Ty::Adt(d, _) if !resolve.is_prelude(*d));
     (!resolve.is_prelude(tr) && resolve.lang_of(tr).is_none())
         || local(self_ty)

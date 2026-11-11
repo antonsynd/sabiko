@@ -40,6 +40,9 @@ pub enum Solution {
     No,
     /// The type or the arguments still have inference variables that decide it.
     Ambiguous,
+    /// Proving it needs a chain of bounds deeper than the recursion limit (rustc's
+    /// E0275, "overflow evaluating the requirement"): an error, never a "yes".
+    Overflow,
 }
 
 /// How deep a chain of `impl` bounds may get (`impl<T: Show> Show for W<T>` at `W<W<..>>`)
@@ -107,42 +110,90 @@ impl ItemTypes {
         out
     }
 
-    /// The trait `impl` of `tr` whose header matches `ty: tr<args>`, with the block's
-    /// generic arguments at that match (rustc's candidate assembly from impls, which
-    /// coherence makes unique). Bounds of the block are not checked.
+    /// Every trait `impl` of `tr` whose header matches `ty: tr<args>`, with the block's
+    /// generic arguments at that match: rustc's candidate assembly from impls. Bounds of
+    /// the blocks are not checked (see [`ItemTypes::select_impl`]).
     #[must_use]
-    pub fn select_impl(&self, tr: DefId, ty: &Ty, args: &[Ty]) -> Option<(&ImplDef, Vec<Ty>)> {
-        self.impls_of(tr).find_map(|imp| {
-            let mut bound: Vec<Option<Ty>> = vec![None; imp.generics.len()];
-            // A block's type parameters are `Sized`, as every type parameter is.
-            let matches = imp.trait_args.len() == args.len()
-                && match_ty(&imp.self_ty, ty, &imp.generics, &mut bound)
-                && imp
-                    .trait_args
-                    .iter()
-                    .zip(args)
-                    .all(|(pat, arg)| match_ty(pat, arg, &imp.generics, &mut bound));
-            if matches && !bound.iter().flatten().any(is_unsized) {
-                let args = bound.into_iter().map(|b| b.unwrap_or(Ty::Error)).collect();
-                Some((imp, args))
-            } else {
-                None
-            }
-        })
+    pub fn matching_impls(&self, tr: DefId, ty: &Ty, args: &[Ty]) -> Vec<(&ImplDef, Vec<Ty>)> {
+        self.impls_of(tr)
+            .filter_map(|imp| {
+                let mut bound: Vec<Option<Ty>> = vec![None; imp.generics.len()];
+                // A block's type parameters are `Sized`, as every type parameter is.
+                let matches = imp.trait_args.len() == args.len()
+                    && match_ty(&imp.self_ty, ty, &imp.generics, &mut bound)
+                    && imp
+                        .trait_args
+                        .iter()
+                        .zip(args)
+                        .all(|(pat, arg)| match_ty(pat, arg, &imp.generics, &mut bound));
+                if matches && !bound.iter().flatten().any(is_unsized) {
+                    let args = bound.into_iter().map(|b| b.unwrap_or(Ty::Error)).collect();
+                    Some((imp, args))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// The `impl` block that implements `ty: tr<args>` where the bounds `env` hold: of the
+    /// blocks whose header matches, the one whose own bounds can hold (rustc's winnowing
+    /// of the candidates), when exactly one is left. `None` when a bound in `env` proves
+    /// it instead (a type parameter's), or when none or several are left. The order of
+    /// the blocks never matters.
+    #[must_use]
+    pub fn select_impl(
+        &self,
+        tr: DefId,
+        ty: &Ty,
+        args: &[Ty],
+        env: &[Predicate],
+    ) -> Option<(&ImplDef, Vec<Ty>)> {
+        if self.holds_in_env(ty, tr, args, env) {
+            return None;
+        }
+        let mut left: Vec<(&ImplDef, Vec<Ty>)> = self
+            .matching_impls(tr, ty, args)
+            .into_iter()
+            .filter(|(imp, impl_args)| self.bounds_hold(imp, impl_args, env, 0) != Solution::No)
+            .collect();
+        if left.len() == 1 {
+            left.pop()
+        } else {
+            None
+        }
     }
 
     /// [`ItemTypes::select_impl`] for a member of the trait `tr` used at the generic
-    /// arguments `args`: `Self`, then the trait's own arguments, then the member's.
+    /// arguments `args` (`Self`, then the trait's own arguments, then the member's), at
+    /// concrete types (monomorphisation, constant evaluation).
     #[must_use]
     pub fn select_member_impl(&self, tr: DefId, args: &[Ty]) -> Option<(&ImplDef, Vec<Ty>)> {
         let n = 1 + self.trait_param_count(tr);
         let (self_ty, trait_args) = args.get(..n)?.split_first()?;
-        self.select_impl(tr, self_ty, trait_args)
+        self.select_impl(tr, self_ty, trait_args, &[])
+    }
+
+    /// Whether some block of `tr` has a header that unifies with `ty: tr<args>`, whose
+    /// type parameters `vars` (coherence's) stand for any type: if none does, the trait
+    /// reference holds at no instance.
+    #[must_use]
+    pub fn could_have_impl(&self, tr: DefId, ty: &Ty, args: &[Ty], vars: &[DefId]) -> bool {
+        let mut target = vec![ty.clone()];
+        target.extend(args.iter().cloned());
+        self.impls_of(tr).any(|imp| {
+            let mut header = vec![imp.self_ty.clone()];
+            header.extend(imp.trait_args.iter().cloned());
+            let mut all = vars.to_vec();
+            all.extend(imp.generics.iter().copied());
+            unify_headers(&header, &target, &all).is_some()
+        })
     }
 
     /// Whether `ty` implements `tr<args>`, where the bounds `env` hold (those of the
     /// function being checked). An error type implements everything, so nothing is
-    /// reported twice.
+    /// reported twice. A chain of bounds deeper than rustc's recursion limit is
+    /// [`Solution::Overflow`] (rustc's E0275), never a "yes".
     #[must_use]
     pub fn implements(&self, ty: &Ty, tr: DefId, args: &[Ty], env: &[Predicate]) -> Solution {
         self.implements_at(ty, tr, args, env, 0)
@@ -156,8 +207,11 @@ impl ItemTypes {
         env: &[Predicate],
         depth: usize,
     ) -> Solution {
-        if depth > DEPTH_LIMIT || ty.references_error() || args.iter().any(Ty::references_error) {
+        if ty.references_error() || args.iter().any(Ty::references_error) {
             return Solution::Yes;
+        }
+        if depth > DEPTH_LIMIT {
+            return Solution::Overflow;
         }
         if self.holds_in_env(ty, tr, args, env) {
             return Solution::Yes;
@@ -168,19 +222,62 @@ impl ItemTypes {
         if let Some(solution) = self.builtin_impl(ty, tr, env, depth) {
             return solution;
         }
-        let Some((imp, impl_args)) = self.select_impl(tr, ty, args) else {
-            return Solution::No;
-        };
+        // Every candidate is evaluated, so the answer never depends on the blocks' order.
+        let mut answers = Vec::new();
+        for (imp, impl_args) in self.matching_impls(tr, ty, args) {
+            answers.push(self.bounds_hold(imp, &impl_args, env, depth + 1));
+        }
+        if answers.contains(&Solution::Overflow) {
+            Solution::Overflow
+        } else if answers.contains(&Solution::Yes) {
+            Solution::Yes
+        } else if answers.contains(&Solution::Ambiguous) {
+            Solution::Ambiguous
+        } else {
+            Solution::No
+        }
+    }
+
+    /// Whether the bounds of the block `imp` hold at its arguments `impl_args`.
+    fn bounds_hold(
+        &self,
+        imp: &ImplDef,
+        impl_args: &[Ty],
+        env: &[Predicate],
+        depth: usize,
+    ) -> Solution {
         let mut result = Solution::Yes;
         for pred in &imp.preds {
-            let (self_ty, pred_args) = instantiate_pred(pred, &imp.generics, &impl_args);
-            match self.implements_at(&self_ty, pred.trait_, &pred_args, env, depth + 1) {
+            let (self_ty, pred_args) = instantiate_pred(pred, &imp.generics, impl_args);
+            match self.implements_at(&self_ty, pred.trait_, &pred_args, env, depth) {
                 Solution::Yes => {}
                 Solution::No => return Solution::No,
+                Solution::Overflow => return Solution::Overflow,
                 Solution::Ambiguous => result = Solution::Ambiguous,
             }
         }
         result
+    }
+
+    /// The first bound of the block `imp`, at its arguments, that fails where `env`
+    /// holds: what an error reports when the block is the only one whose header matches
+    /// (rustc's nested obligation).
+    #[must_use]
+    pub fn failing_bound(
+        &self,
+        imp: &ImplDef,
+        impl_args: &[Ty],
+        env: &[Predicate],
+    ) -> Option<(Ty, DefId, Vec<Ty>, Solution)> {
+        imp.preds.iter().find_map(|pred| {
+            let (self_ty, pred_args) = instantiate_pred(pred, &imp.generics, impl_args);
+            match self.implements(&self_ty, pred.trait_, &pred_args, env) {
+                s @ (Solution::No | Solution::Overflow) => {
+                    Some((self_ty, pred.trait_, pred_args, s))
+                }
+                _ => None,
+            }
+        })
     }
 
     /// Whether a bound in `env` implies `ty: tr<args>` (`ty` a type parameter).
@@ -217,7 +314,7 @@ impl ItemTypes {
             for t in tys {
                 match self.implements_at(t, tr, &[], env, depth + 1) {
                     Solution::Yes => {}
-                    Solution::No => return Solution::No,
+                    s @ (Solution::No | Solution::Overflow) => return s,
                     Solution::Ambiguous => result = Solution::Ambiguous,
                 }
             }
@@ -295,6 +392,18 @@ impl ItemTypes {
             None => unchanged,
         }
     }
+}
+
+/// E0353 (rustc's E0275): proving `shown: trait_name` at `span` overflowed the recursion
+/// limit.
+#[must_use]
+pub fn overflow_error(span: Span, shown: &str, trait_name: &str) -> sabiko_diagnostics::Diagnostic {
+    sabiko_diagnostics::Diagnostic::error(
+        sabiko_diagnostics::ErrorCode::OVERFLOW_EVALUATING,
+        format!("overflow evaluating the requirement `{shown}: {trait_name}`"),
+    )
+    .with_label(span, "the bounds of the `impl` blocks that could prove it require it at ever larger types")
+    .with_note("an `impl` block's bound asks for the trait at a type that grows each time, so proving it never ends")
 }
 
 /// The trait `tr` at the arguments `args` (after `Self`), as diagnostics show it:
@@ -522,26 +631,26 @@ impl Add<i32> for S { fn Add(&self, r: i32) -> i32 { r } }
         let i32_ = Ty::Prim(PrimTy::I32);
         let bool_ = Ty::Prim(PrimTy::Bool);
         let (a, _) = items
-            .select_impl(conv, &s, std::slice::from_ref(&i32_))
+            .select_impl(conv, &s, std::slice::from_ref(&i32_), &[])
             .unwrap();
         let (b, _) = items
-            .select_impl(conv, &s, std::slice::from_ref(&bool_))
+            .select_impl(conv, &s, std::slice::from_ref(&bool_), &[])
             .unwrap();
         assert_ne!(a.def, b.def);
         assert!(items
-            .select_impl(conv, &s, &[Ty::Prim(PrimTy::U8)])
+            .select_impl(conv, &s, &[Ty::Prim(PrimTy::U8)], &[])
             .is_none());
-        assert!(items.select_impl(conv, &s, &[]).is_none());
+        assert!(items.select_impl(conv, &s, &[], &[]).is_none());
         let w = Ty::Adt(
             named(&resolve, DefKind::Struct, "W"),
             vec![bool_.clone()].into(),
         );
         let (_, args) = items
-            .select_impl(conv, &w, std::slice::from_ref(&bool_))
+            .select_impl(conv, &w, std::slice::from_ref(&bool_), &[])
             .unwrap();
         assert_eq!(args, std::slice::from_ref(&bool_));
         assert!(items
-            .select_impl(conv, &w, std::slice::from_ref(&i32_))
+            .select_impl(conv, &w, std::slice::from_ref(&i32_), &[])
             .is_none());
         let no = items.implements(&w, conv, std::slice::from_ref(&i32_), &[]);
         assert_eq!(no, Solution::No);

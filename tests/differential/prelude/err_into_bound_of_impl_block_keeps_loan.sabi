@@ -1,0 +1,20 @@
+// A bound of an inherent `impl` block, `T: Into<U>`, which its methods have: the result
+// holds the loan.
+struct P<T, U> {
+    A: T,
+    B: Option<U>,
+}
+
+impl<T: Into<U>, U> P<T, U> {
+    fn Go(self) -> U {
+        self.A.into()
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let p: P<&i32, Option<&i32>> = P { A: &x, B: None };
+    let r = p.Go();
+    x = 2;
+    PrintLine(*r.unwrap());
+}

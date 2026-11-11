@@ -2088,10 +2088,7 @@ impl Resolver<'_> {
         if let Some(args) = tr.path.args_of(tr.path.segments.len() - 1) {
             tys.extend(&args.args);
         }
-        let res_of = |this: &Self, ty: &Type| match &ty.kind {
-            TypeKind::Path(_) => Some(this.results.res(ty.id)),
-            _ => None,
-        };
+        let res_of = |this: &Self, ty: &Type| this.orphan_res(ty);
         // The first type parameter of the block that appears bare, and its declaration.
         let mut uncovered: Option<(&Type, Span)> = None;
         for &ty in &tys {
@@ -2183,6 +2180,19 @@ impl Resolver<'_> {
                 .with_note("define and implement a trait or new type instead"),
         );
         false
+    }
+
+    /// What a type of an `impl` header names for the orphan rule. `&T` and `&mut T` are
+    /// fundamental, as in rustc: `&S` is local when `S` is, and `&T` leaves `T` uncovered.
+    fn orphan_res(&self, ty: &Type) -> Option<Res> {
+        let mut ty = ty;
+        while let TypeKind::Ref { inner, .. } = &ty.kind {
+            ty = inner;
+        }
+        match &ty.kind {
+            TypeKind::Path(_) => Some(self.results.res(ty.id)),
+            _ => None,
+        }
     }
 
     /// E0211 (rustc's E0116): an inherent `impl` block for a type of the prelude. Its

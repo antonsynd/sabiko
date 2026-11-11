@@ -1643,16 +1643,18 @@ names and the bound's node; the type checker lowers the arguments
 (`sabiko_types::traits::Predicate`), so `sabiko_resolve` stays free of types.
 Monomorphisation selects by `Self` and the arguments, and code generation names instances
 `'<S as Conv<i32>>::Conv'`; the prelude's functions, generic or not, are made only where a
-program reaches them. The borrow checker relates a trait call's generic arguments as the
-implementing block's header requires (`From::from(&x)` keeps `x`'s loan;
-`impl_region_links`). `library/core/convert.sabi` holds `From<T>`, `Into<T>` (lowercase
+program reaches them. The borrow checker proves each bound of every callee at the call's
+generic arguments and relates their regions as the block proving it requires
+(`From::from(&x)` and `G(&x)` for `fn G<T, U: From<T>>` keep `x`'s loan;
+`bound_region_links`; see the update below). `library/core/convert.sabi` holds `From<T>`, `Into<T>` (lowercase
 `from`/`into`), the reflexive and `Into` blanket blocks, `T` to `Option<T>`,
 `&Option<T>`/`&mut Option<T>` to `Option<&T>`/`Option<&mut T>` (prelude blocks may hold
 references in their headers; a program's still may not, E0107), the 64 lossless
 primitive conversions, and arrays of up to 12 `T`s to tuples and back (an array into a
 tuple needs array patterns: its body is the intrinsic `ArrayIntoTuple`, which
 monomorphisation reports as E0500 at the program's call that reaches it). `e?` on a `Result` requires `To: From<E>` and lowers the early
-return as `Err(From::from(e))`, a real call, the same-type conversion included; decision
+return as `Err(From::from(e))`, a real call (the same concrete type moves as it is; see the
+update below); decision
 93's table (`conversion_sources`, `select_try_conversions`, E0107 for std's conversions) is
 gone. Tests: `try_conversions.rs` now expects rustc's split exactly (the 77 pairs rustc
 accepts are accepted, and all but the two arrays into tuples compile to IL, those being
@@ -1673,6 +1675,50 @@ of 200 runs, release build, development machine). Not yet: `<T as Trait>::` path
 arrays into tuples (array patterns), bounds on a trait's
 parameters, `where` clauses on traits, associated types, the operator and comparison
 traits themselves (#117).
+
+Update (2026-11-11), after review of #154. Fixed, each with tests checked against rustc:
+- Soundness: only calls of trait members related regions, so a generic function or
+  method whose bound is proved by a block relating its arguments (`fn G<T, U: From<T>>`,
+  `fn H<T: Into<U>, U>`, a user `U: Same<T>`, `E2: From<E>` under `?`, a method's own
+  bound, an inherent block's bound) let a loan go: `let r: &i32 = G(&x); x = 2; *r`
+  compiled and read the old value. Now every call proves every bound of its callee at
+  its generic arguments, regions included, as rustc's type checking of a call does
+  (`bound_region_links`), through blocks' own bounds, supertraits, provided methods and
+  generic callers; a bound the caller's own bound proves relates nothing, as in rustc.
+  The region model of an `impl` header is one region per named lifetime; only the
+  prelude writes references in headers, each of its such blocks naming one lifetime, so a
+  header's references share one region; a program's header or bound that writes a
+  reference is E0107 (with a message naming where it is). 24 compile-time programs in
+  `differential/prelude/` and `differential/traits/` pin the verdicts.
+- Selection took the first block whose header matched, then failed on its bound, so
+  `impl<T: Show> Loud for T` beside `impl Loud for S` (accepted by coherence) failed
+  to compile uses unless the specific block came first; and coherence used the same
+  first match, so `S: Mid` through a second block was missed (an E0119 that rustc reports
+  was accepted, depending on order). Selection now assembles every block whose header
+  matches and winnows by their bounds (rustc's candidate winnowing), at inference too;
+  coherence uses the same evaluation, treats a bare variable as possibly downstream (not
+  knowable), and with variables left calls a bound failing when no block's header could
+  match it. Tests: `run/traits/impl_selection_by_bounds` (both orders, `Copy`,
+  `Into<i32>` and `From<i32>` blankets, generic types, tuples, `Option`), UI test
+  `typeck/trait_solver_edges`, the solver's unit tests.
+- An endless chain of bounds counted as satisfied; it is now E0353 (rustc's E0275), at
+  uses and at the bounds themselves (rustc's well-formedness check of where-clauses).
+- A trait parameter without a default after one with a default is E0114 (rustc's
+  "generic parameters with a default must be trailing"); it lowered to `Error` silently,
+  past decision 94's invariant, which now also checks bounds, traits and `impl` headers.
+- `?`'s errors keep their root cause while descending into a failing nested bound
+  ("`?` couldn't convert the error: `i32: Show` is not satisfied"); obligations made
+  ambiguous by overlapping or overflowing blocks are not reported again after E0215 or
+  E0353.
+- `&T` and `&mut T` are fundamental for the orphan rule (`impl From<&S> for i32` is
+  E0107 for its reference, not E0214).
+- `?` with the same concrete error type moves the error without a call again (the
+  reflexive block); generic bodies keep the call. E0500 for an array into a tuple names
+  the instance. Impls are indexed by trait and by definition, and the probe no longer
+  clones the bounds in scope.
+Gaps left: `?` and other uses of an array into a tuple (E0500, array patterns); `<T as
+Trait>::` paths; static promotion of `&Some(4)` (the reviewer's `(&Some(4)).into()` is
+E0413 where rustc promotes the temporary, as for any `&` of a constant expression).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

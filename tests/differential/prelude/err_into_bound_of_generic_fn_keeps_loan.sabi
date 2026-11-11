@@ -1,0 +1,12 @@
+// `T: Into<U>`, proved through the blanket `Into` impl and `From<&Option<T>> for
+// Option<&T>`: the result borrows the option.
+fn H<T: Into<U>, U>(t: T) -> U {
+    t.into()
+}
+
+fn Main() {
+    let mut o = Some(1);
+    let r: Option<&i32> = H(&o);
+    o = None;
+    PrintLine(*r.unwrap());
+}

@@ -1,0 +1,18 @@
+// A method's own bound `U: From<T>` on a generic type's block: the result holds the
+// loan of the field it converts.
+struct Box2<T> {
+    X: T,
+}
+
+impl<T> Box2<T> {
+    fn Conv<U: From<T>>(self) -> U {
+        U::from(self.X)
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let r: &i32 = Box2 { X: &x }.Conv();
+    x = 2;
+    PrintLine(*r);
+}

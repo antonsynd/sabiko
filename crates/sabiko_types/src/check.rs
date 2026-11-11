@@ -19,7 +19,7 @@ use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::{instantiate_pred, trait_ref_str, Predicate, Solution};
+use crate::traits::{instantiate_pred, overflow_error, trait_ref_str, Predicate, Solution};
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -53,6 +53,9 @@ struct Obligation {
     args: Vec<Ty>,
     span: Span,
     cause: Cause,
+    /// For a bound of an `impl` block selected for another obligation, that obligation:
+    /// rustc's "required for `u8` to implement `Into<i8>`".
+    required_for: Option<String>,
     /// How many confirmations led to it (`select_obligations`), which stop at
     /// [`SELECTION_DEPTH`] as rustc's recursion limit stops them.
     depth: usize,
@@ -61,17 +64,15 @@ struct Obligation {
 /// How deep confirmations of `impl` blocks may nest while inference runs.
 const SELECTION_DEPTH: usize = 64;
 
-/// Why an obligation must hold, for its diagnostic.
-#[derive(Clone)]
+/// Why an obligation must hold, for its diagnostic: the root of rustc's obligation cause
+/// chain (the nested obligations keep it, with what they are required for).
+#[derive(Clone, Copy)]
 enum Cause {
     /// A bound of a function, method or constant the body uses, or the trait of a trait
     /// member it names.
     Bound,
     /// The error conversion of `?`, `To: From<E>` (decision 95), with the operand's span.
     Try { operand: Span },
-    /// A bound of the `impl` block selected for another obligation, whose trait reference
-    /// is given: rustc's "required for `u8` to implement `Into<i8>`".
-    Impl { required_for: String },
 }
 
 /// A use of a generic function in a body: its generic arguments (inference variables
@@ -345,6 +346,9 @@ pub(crate) struct FnCtxt<'a> {
     path_defs: HashMap<NodeId, DefId>,
     try_exprs: HashMap<NodeId, CoreItem>,
     pending_tries: Vec<PendingTry>,
+    /// The operand's error type of each `?` on a `Result`, keyed by the `?`'s span: what
+    /// an error about a nested bound of its conversion shows.
+    try_roots: HashMap<Span, Ty>,
     /// The function's signature, from its name to its return type, while a function's
     /// body is checked; `None` for a constant.
     fn_span: Option<Span>,
@@ -406,6 +410,7 @@ impl<'a> FnCtxt<'a> {
             path_defs: HashMap::new(),
             try_exprs: HashMap::new(),
             pending_tries: Vec::new(),
+            try_roots: HashMap::new(),
             fn_span: None,
         }
     }
@@ -2528,6 +2533,7 @@ impl<'a> FnCtxt<'a> {
             args: args[1..].to_vec(),
             span,
             cause: Cause::Bound,
+            required_for: None,
             depth: 0,
         });
         self.generic_args.insert(node, (args.clone(), chosen, span));
@@ -2568,6 +2574,7 @@ impl<'a> FnCtxt<'a> {
                 args: pred_args,
                 span,
                 cause: Cause::Bound,
+                required_for: None,
                 depth: 0,
             });
         }
@@ -2653,6 +2660,7 @@ impl<'a> FnCtxt<'a> {
                 };
                 let from_trait = self.resolve.core_item(CoreItem::From);
                 if let (CoreItem::Result, Some(tr)) = (kind, from_trait) {
+                    self.try_roots.insert(question, from.clone());
                     // `Err(From::from(e))`: the function's error type must implement
                     // `From<E>` (decision 95).
                     self.obligations.push(Obligation {
@@ -2663,6 +2671,7 @@ impl<'a> FnCtxt<'a> {
                         cause: Cause::Try {
                             operand: operand.span,
                         },
+                        required_for: None,
                         depth: 0,
                     });
                 }
@@ -2745,6 +2754,11 @@ impl<'a> FnCtxt<'a> {
                 continue;
             }
             match from_fn {
+                // The same concrete type: the reflexive impl, the only one coherence lets
+                // match, is the identity, so the error moves as it is (rustc inlines it).
+                // In a generic body (`E` a type parameter) the call stays, and
+                // monomorphisation resolves it.
+                Some(_) if from == to && !from.has_param() => {}
                 Some(f) if !from.has_infer() && !to.has_infer() => {
                     conversions.insert(t.node, (f, vec![to, from]));
                 }
@@ -3355,6 +3369,7 @@ impl<'a> FnCtxt<'a> {
                 args: pred_args,
                 span,
                 cause: Cause::Bound,
+                required_for: None,
                 depth: 0,
             });
         }
@@ -3463,7 +3478,8 @@ impl<'a> FnCtxt<'a> {
         let ty = self.infer.resolve(ty);
         let args: Vec<Ty> = args.iter().map(|a| self.infer.resolve(a)).collect();
         match self.items.implements(&ty, tr, &args, &self.env) {
-            Solution::Yes => true,
+            // An overflow is reported where the obligation is judged.
+            Solution::Yes | Solution::Overflow => true,
             Solution::No => false,
             Solution::Ambiguous => {
                 // The built-in `Copy` and `Clone` hold of every integer and float type,
@@ -3507,8 +3523,9 @@ impl<'a> FnCtxt<'a> {
     /// From<Option<?X>>`).
     fn impl_candidate_list(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> Vec<usize> {
         let items = self.items;
+        let env = std::mem::take(&mut self.env);
         let tys: Vec<&Ty> = std::iter::once(ty).chain(args).collect();
-        items
+        let out = items
             .impls_of(tr)
             .enumerate()
             .filter(|(_, imp)| {
@@ -3519,16 +3536,28 @@ impl<'a> FnCtxt<'a> {
                             .iter()
                             .map(|_| infer.new_var(VarKind::General))
                             .collect();
-                        std::iter::once(&imp.self_ty)
+                        let unified = std::iter::once(&imp.self_ty)
                             .chain(&imp.trait_args)
                             .zip(&tys)
                             .all(|(pat, t)| {
                                 infer.unify(&pat.subst(&imp.generics, &fresh), t).is_ok()
+                            });
+                        // rustc's winnowing: a block one of whose bounds already fails
+                        // at the unified types is no candidate.
+                        unified
+                            && !imp.preds.iter().any(|pred| {
+                                let (pty, pargs) = instantiate_pred(pred, &imp.generics, &fresh);
+                                let pty = infer.resolve(&pty);
+                                let pargs: Vec<Ty> =
+                                    pargs.iter().map(|a| infer.resolve(a)).collect();
+                                items.implements(&pty, pred.trait_, &pargs, &env) == Solution::No
                             })
                     })
             })
             .map(|(i, _)| i)
-            .collect()
+            .collect();
+        self.env = env;
+        out
     }
 
     /// The bounds in scope that could imply `ty: tr<args>`, `ty` a type parameter, with
@@ -3538,7 +3567,7 @@ impl<'a> FnCtxt<'a> {
             return Vec::new();
         };
         let mut out: Vec<Vec<Ty>> = Vec::new();
-        let env = self.env.clone();
+        let env = std::mem::take(&mut self.env);
         for pred in env.iter().filter(|pred| pred.param == *p) {
             for (t, a) in self.items.elaborate(pred.trait_, ty, &pred.args) {
                 let fits = t == tr
@@ -3551,6 +3580,7 @@ impl<'a> FnCtxt<'a> {
                 }
             }
         }
+        self.env = env;
         out
     }
 
@@ -3631,9 +3661,8 @@ impl<'a> FnCtxt<'a> {
                                 trait_: pred.trait_,
                                 args: pargs,
                                 span: ob.span,
-                                cause: Cause::Impl {
-                                    required_for: required_for.clone(),
-                                },
+                                cause: ob.cause,
+                                required_for: Some(required_for.clone()),
                                 depth: ob.depth + 1,
                             });
                         }
@@ -4739,7 +4768,15 @@ impl<'a> FnCtxt<'a> {
             let mut resolved = Vec::new();
             for (i, arg) in args.iter().enumerate() {
                 let mut t = self.infer.resolve_with_defaults(arg);
-                if t.has_infer() {
+                let conflicting = self
+                    .items
+                    .trait_of_member(def)
+                    .is_some_and(|tr| self.items.has_conflicting_impls(tr));
+                if t.has_infer() && conflicting {
+                    // The trait's blocks overlap or overflow, which was reported.
+                    self.infer.bind_error(&t);
+                    t = Ty::Error;
+                } else if t.has_infer() {
                     let param = self.resolve.generics(def)[i];
                     let param_name = self.resolve.def(param).name.clone();
                     let fn_name = self.resolve.def(def).name.clone();
@@ -4815,8 +4852,12 @@ impl<'a> FnCtxt<'a> {
             let trait_name = trait_ref_str(self.resolve, ob.trait_, &args);
             match self.items.implements(&ty, ob.trait_, &args, &self.env) {
                 Solution::Yes => {}
+                // Overlapping (or overflowing) blocks of the trait were reported (E0215,
+                // E0353); the ambiguity they make is not reported again, as in rustc.
+                Solution::Ambiguous | Solution::Overflow
+                    if self.items.has_conflicting_impls(ob.trait_) => {}
                 Solution::Ambiguous => {
-                    if let Cause::Try { operand } = ob.cause {
+                    if let (Cause::Try { operand }, None) = (ob.cause, &ob.required_for) {
                         // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
                         self.error(
                             Diagnostic::error(
@@ -4841,48 +4882,52 @@ impl<'a> FnCtxt<'a> {
                         self.infer.bind_error(a);
                     }
                 }
+                Solution::Overflow => {
+                    let shown = self.ty_str(&ty);
+                    self.error(overflow_error(ob.span, &shown, &trait_name));
+                }
                 Solution::No if self.orphan_adt(&ty) => {
                     // The bound may be the one of a block the orphan rule rejected
                     // (E0214), which was reported.
                 }
-                Solution::No => {
-                    // rustc's confirmation: the one block whose header matches is
-                    // selected, and the bound of it that fails is the error.
-                    let (mut ob, mut ty, mut args, mut trait_name) = (ob, ty, args, trait_name);
-                    let items = self.items;
-                    let mut depth = 0;
-                    while let Some((imp, impl_args)) = items.select_impl(ob.trait_, &ty, &args) {
-                        depth += 1;
-                        if depth > SELECTION_DEPTH {
-                            break;
-                        }
-                        let failing = imp.preds.iter().find_map(|pred| {
-                            let (pty, pargs) = instantiate_pred(pred, &imp.generics, &impl_args);
-                            (items.implements(&pty, pred.trait_, &pargs, &self.env) == Solution::No)
-                                .then_some((pty, pred.trait_, pargs))
-                        });
-                        let Some((pty, ptr, pargs)) = failing else {
-                            break;
-                        };
-                        let required_for =
-                            format!("`{}` to implement `{trait_name}`", self.ty_str(&ty));
-                        trait_name = trait_ref_str(self.resolve, ptr, &pargs);
-                        ob = Obligation {
-                            ty: pty.clone(),
-                            trait_: ptr,
-                            args: pargs.clone(),
-                            cause: match ob.cause {
-                                Cause::Try { .. } => ob.cause,
-                                _ => Cause::Impl { required_for },
-                            },
-                            ..ob
-                        };
-                        (ty, args) = (pty, pargs);
-                    }
-                    self.unsatisfied(&ob, &ty, &args, &trait_name);
-                }
+                Solution::No => self.unsatisfied_nested(ob, ty, args, trait_name),
             }
         }
+    }
+
+    /// Reports the obligation `ob`, at `ty: trait_name` once inference is done, which does
+    /// not hold. When exactly one block's header matches it, the error is that block's
+    /// first bound that fails, required for it (rustc's confirmation of the one candidate
+    /// and its nested obligation), recursively; the root cause (`?` or a bound) stays.
+    fn unsatisfied_nested(&mut self, ob: Obligation, ty: Ty, args: Vec<Ty>, trait_name: String) {
+        let (mut ob, mut ty, mut args, mut trait_name) = (ob, ty, args, trait_name);
+        let items = self.items;
+        for _ in 0..SELECTION_DEPTH {
+            let candidates = items.matching_impls(ob.trait_, &ty, &args);
+            let [(imp, impl_args)] = candidates.as_slice() else {
+                break;
+            };
+            let Some((pty, ptr, pargs, solution)) = items.failing_bound(imp, impl_args, &self.env)
+            else {
+                break;
+            };
+            let required_for = format!("`{}` to implement `{trait_name}`", self.ty_str(&ty));
+            trait_name = trait_ref_str(self.resolve, ptr, &pargs);
+            ob = Obligation {
+                ty: pty.clone(),
+                trait_: ptr,
+                args: pargs.clone(),
+                required_for: Some(required_for),
+                ..ob
+            };
+            (ty, args) = (pty, pargs);
+            if solution == Solution::Overflow {
+                let shown = self.ty_str(&ty);
+                self.error(overflow_error(ob.span, &shown, &trait_name));
+                return;
+            }
+        }
+        self.unsatisfied(&ob, &ty, &args, &trait_name);
     }
 
     /// Whether `tr` is the prelude's `From` or `Into`.
@@ -4896,12 +4941,28 @@ impl<'a> FnCtxt<'a> {
     fn unsatisfied(&mut self, ob: &Obligation, ty: &Ty, args: &[Ty], trait_name: &str) {
         let shown = self.ty_str(ty);
         if let Cause::Try { operand } = ob.cause {
-            let from = args.first().map_or_else(String::new, |a| self.ty_str(a));
-            self.error(
-                Diagnostic::error(
-                    ErrorCode::TRY_ERROR_CONVERSION,
+            // The root `To: From<E>`, whose error type the operand's label shows; a
+            // nested bound that fails is named in the message, as rustc does.
+            let (message, from) = match (&ob.required_for, self.try_roots.get(&ob.span)) {
+                (Some(required_for), Some(root)) => {
+                    let root = root.clone();
+                    let root = self.infer.resolve_with_defaults(&root);
+                    let root = self.ty_str(&root);
+                    (
+                        format!("`?` couldn't convert the error: `{shown}: {trait_name}` is not satisfied"),
+                        (root, Some(required_for.clone())),
+                    )
+                }
+                _ => (
                     format!("`?` couldn't convert the error to `{shown}`"),
-                )
+                    (
+                        args.first().map_or_else(String::new, |a| self.ty_str(a)),
+                        None,
+                    ),
+                ),
+            };
+            let (from, required_for) = from;
+            let mut d = Diagnostic::error(ErrorCode::TRY_ERROR_CONVERSION, message)
                 .with_label(
                     ob.span,
                     format!("the trait `{trait_name}` is not implemented for `{shown}`"),
@@ -4910,8 +4971,11 @@ impl<'a> FnCtxt<'a> {
                     operand,
                     format!("this can't be annotated with `?` because it has type `Result<_, {from}>`"),
                 )
-                .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait"),
-            );
+                .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait");
+            if let Some(required_for) = required_for {
+                d = d.with_note(format!("required for {required_for}"));
+            }
+            self.error(d);
             return;
         }
         let mut d = Diagnostic::error(
@@ -4947,7 +5011,7 @@ impl<'a> FnCtxt<'a> {
                 self.resolve.def(ob.trait_).name
             ));
         }
-        if let Cause::Impl { required_for } = &ob.cause {
+        if let Some(required_for) = &ob.required_for {
             d = d.with_note(format!("required for {required_for}"));
         }
         self.error(d);

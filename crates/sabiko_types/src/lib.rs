@@ -195,6 +195,10 @@ fn check_no_unreported_errors(
     sink: &mut DiagnosticSink,
 ) {
     for item in file.all_items() {
+        if let ItemKind::Impl(_) | ItemKind::Trait(_) = item.kind {
+            check_trait_items_lowered(item, resolve, results, sink);
+            continue;
+        }
         if !matches!(
             item.kind,
             ItemKind::Fn(_) | ItemKind::Const(_) | ItemKind::Struct(_) | ItemKind::Enum(_)
@@ -202,6 +206,8 @@ fn check_no_unreported_errors(
             continue;
         }
         let def = resolve.def_of_item(item.id);
+        // The trait arguments of its bounds (decision 95).
+        let bounds = results.items.predicates(def).iter().flat_map(|p| &p.args);
         let signature: Box<dyn Iterator<Item = &Ty>> = match &item.kind {
             ItemKind::Fn(_) => {
                 let sig = results.items.fn_sig(def);
@@ -235,6 +241,7 @@ fn check_no_unreported_errors(
         });
         // The smallest such type's text, so the note does not depend on map order.
         let shown = signature
+            .chain(bounds)
             .chain(body_tys)
             .filter(|t| t.references_error())
             .map(|t| t.display(resolve))
@@ -251,6 +258,54 @@ fn check_no_unreported_errors(
             );
         }
     }
+}
+
+/// [`check_no_unreported_errors`] for a trait (its defaults and supertraits' arguments)
+/// and a trait `impl` block (its type, its trait's arguments and its bounds' arguments;
+/// and that a block whose trait resolved was collected, not dropped silently).
+fn check_trait_items_lowered(
+    item: &sabiko_ast::Item,
+    resolve: &ResolveResults,
+    results: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) {
+    let Some(def) = resolve.item_def(item.id) else {
+        return;
+    };
+    let items = &results.items;
+    let mut tys: Vec<&Ty> = items.predicates(def).iter().flat_map(|p| &p.args).collect();
+    let mut dropped = false;
+    if let Some(t) = items.trait_def(def) {
+        tys.extend(t.defaults.iter().flatten());
+        tys.extend(t.supertraits.iter().flat_map(|(_, a)| a));
+    } else if resolve.impl_trait(def).is_some() {
+        match items.impl_def(def) {
+            Some(imp) => {
+                tys.push(&imp.self_ty);
+                tys.extend(&imp.trait_args);
+            }
+            None => dropped = true,
+        }
+    }
+    let shown = tys
+        .into_iter()
+        .filter(|t| t.references_error())
+        .map(|t| t.display(resolve))
+        .min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    let note = match (shown, dropped) {
+        (Some(shown), _) => format!("the type is `{shown}`"),
+        (None, true) => "the `impl` block was left out without an error".to_owned(),
+        (None, false) => return,
+    };
+    sink.emit(
+        Diagnostic::error(
+            ErrorCode::INTERNAL_ERROR,
+            "internal compiler error: a type in this item is unknown, but no error was reported",
+        )
+        .with_label(item.span, "in this item")
+        .with_note(note)
+        .with_note("this is a bug in the Sabiko compiler; please report it"),
+    );
 }
 
 /// Type-checks the value of every constant and explicit discriminant.

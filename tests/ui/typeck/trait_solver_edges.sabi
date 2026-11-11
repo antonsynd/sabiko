@@ -1,0 +1,119 @@
+// Coherence weighs every candidate's bounds, so the blocks' order never matters: `S:
+// Mid` holds through `impl Mid for S` whichever `Mid` block comes first, so `impl<T: Mid>
+// Loud for T` overlaps `impl Loud for S` (rustc's E0119), in both orders. A chain of
+// bounds without end is an overflow (rustc's E0275), never a "yes". A nested bound that
+// fails under `?` is named as rustc names it. A reference behind `&` is local for the
+// orphan rule, so `impl From<&S> for i32` is not E0214, but references in headers wait
+// for lifetimes.
+trait Show {}
+
+trait Mid {
+    fn Mm(&self) -> i32;
+}
+
+trait Loud {
+    fn L(&self) -> i32;
+}
+
+struct S;
+
+impl<T: Show> Mid for T {
+    fn Mm(&self) -> i32 {
+        8
+    }
+}
+
+impl Mid for S {
+    fn Mm(&self) -> i32 {
+        7
+    }
+}
+
+impl Loud for S {
+    fn L(&self) -> i32 {
+        2
+    }
+}
+
+impl<T: Mid> Loud for T { //~ ERROR E0215 conflicting implementations of trait `Loud` for type `S`
+    fn L(&self) -> i32 {
+        1
+    }
+}
+
+trait Mid2 {
+    fn Mm(&self) -> i32;
+}
+
+trait Loud2 {
+    fn L(&self) -> i32;
+}
+
+impl Mid2 for S {
+    fn Mm(&self) -> i32 {
+        7
+    }
+}
+
+impl<T: Show> Mid2 for T {
+    fn Mm(&self) -> i32 {
+        8
+    }
+}
+
+impl<T: Mid2> Loud2 for T {
+    fn L(&self) -> i32 {
+        1
+    }
+}
+
+impl Loud2 for S { //~ ERROR E0215 conflicting implementations of trait `Loud2` for type `S`
+    fn L(&self) -> i32 {
+        2
+    }
+}
+
+trait Lp<T> {
+    fn Lp(&self) -> i32;
+}
+
+struct V<T> {
+    X: T,
+}
+
+impl<T, U: Lp<V<T>>> Lp<T> for U { //~ ERROR E0353 overflow evaluating the requirement `U: Lp<V<T>>`
+    fn Lp(&self) -> i32 {
+        1
+    }
+}
+
+fn Bounded<T: Lp<bool>>(t: T) {} //~ ERROR E0353 overflow evaluating the requirement `T: Lp<bool>`
+
+struct W<T> {
+    X: T,
+}
+
+struct MyErr;
+
+impl<T: Show> From<W<T>> for MyErr {
+    fn from(w: W<T>) -> MyErr {
+        MyErr
+    }
+}
+
+fn Convert(r: Result<i32, W<i32>>) -> Result<i32, MyErr> {
+    let v = r?; //~ ERROR E0351 `?` couldn't convert the error: `i32: Show` is not satisfied
+    Ok(v)
+}
+
+impl From<&S> for i32 { //~ ERROR E0107 not yet supported: a reference in an `impl` block's trait arguments
+    fn from(s: &S) -> i32 {
+        1
+    }
+}
+
+fn RefBound<T: From<&u8>>(t: T) {} //~ ERROR E0107 not yet supported: a reference in a bound's trait arguments
+
+fn Main() {
+    PrintLine(Lp::<bool>::Lp(&1));
+}

@@ -30,7 +30,7 @@ names which phase owns which section.
   (#116, decision 85), required (`const N: u32;`) or provided (`const N: u32 = 4;`); a
   constant elsewhere needs its value (E0100, rustc's "free constant item without body").
   A trait may be generic (#117, decision 95): `trait From<T>`, `trait Add<Rhs = Self>`,
-  with defaults only on a trait's parameters (elsewhere E0107) and no bounds on them
+  with defaults only on a trait's parameters (elsewhere E0107), trailing (E0114), and no bounds on them
   (E0107); it has no associated types (E0107); `?Sized` and lifetime bounds are E0107.
   `Clone`, `Copy` and `Drop` are traits the compiler defines (§11.2), `From` and `Into`
   the `core` prelude (§3)
@@ -197,8 +197,9 @@ the live locals as `return` does, in rustc's order, and so the temporaries of th
 enclosing expression evaluated before the `?` (`F(G(), x?)` drops `G()`'s value). rustc's
 `Err(From::from(e))` converts the error to the function's error type, and so does Sabiko
 (decision 95): the conversion is a call of the prelude's `From::from`, which
-monomorphisation resolves to the `impl From<E> for To` (the reflexive `impl<T> From<T>
-for T` for the same type). Errors, with rustc's E0277 messages: `?` on a value
+monomorphisation resolves to the `impl From<E> for To`; for the same concrete type it is
+the reflexive `impl<T> From<T> for T`, and the error simply moves. Errors, with rustc's
+E0277 messages: `?` on a value
 that is not an `Option` or a `Result` (E0350, "the `?` operator can only be applied to
 values that implement `Try`"), in a function returning neither (E0350, also `Main`), on an
 `Option` in a function returning a `Result` or the other way round (E0350), outside a
@@ -225,8 +226,10 @@ impl that could convert it, as rustc's selection does: `Err(5)?` in a function r
   when one of the types among the block's type and the trait's arguments is a struct or
   enum of the file and no type parameter of the block appears bare before it (`impl
   From<MyType> for i32` is fine; `impl From<i32> for i64` is E0214, rustc's E0117; `impl<T>
-  From<MyType> for T` E0226, rustc's E0210); a block overlapping the prelude's (`impl
-  From<S> for S`) is E0215 (rustc's E0119).
+  From<MyType> for T` E0226, rustc's E0210), `&T` and `&mut T` counting as `T` (they are
+  fundamental); a block overlapping the prelude's (`impl From<S> for S`) is E0215
+  (rustc's E0119). A reference in a program's `impl` header or in a bound's trait
+  arguments is E0107 until lifetimes.
 
 ## 4. Types (Phase 2, 5, 6)
 - Primitive mapping to the .NET Common Type System
@@ -819,7 +822,12 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   with the arguments substituted: `trait Sub<T>: Sup<T>`). A trait member named through a
   type or a method call infers the trait's arguments (`c.Conv()` beside two blocks
   `Conv<i32>` and `Conv<bool>` takes them from the expected type, else E0313, rustc's
-  E0283); `Trait::<A>::Name` gives them. Every type parameter but a
+  E0283); `Trait::<A>::Name` gives them. Of the blocks whose header matches, those whose
+  bounds fail are no candidates (rustc's winnowing), so the order of blocks never
+  matters; a chain of bounds without end is E0353 (rustc's E0275). At a call, the
+  callee's bounds are proved at its generic arguments, and a block proving one that
+  names a parameter twice keeps the loans through it (`fn G<T, U: From<T>>(t: T) -> U`
+  called with `&x` returns a reference borrowing `x`). Every type parameter but a
   trait's `Self` is implicitly `Sized`: `str` or a slice as a generic argument is E0208
   (rustc's E0277). A trait's `Self` is not, as in rustc: a provided method whose
   parameters, return type or locals hold a `Self` by value is E0208 (a required method may

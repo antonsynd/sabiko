@@ -35,7 +35,7 @@ impl<U> Conv<u8> for T2 { //~ ERROR E0352 the type parameter `U` is not constrai
     }
 }
 
-impl Conv<&u8> for T2 { //~ ERROR E0107 not yet supported: implementing a trait for a type that holds a reference
+impl Conv<&u8> for T2 { //~ ERROR E0107 not yet supported: a reference in an `impl` block's trait arguments
     fn Conv(&self) -> &u8 {
         &4
     }

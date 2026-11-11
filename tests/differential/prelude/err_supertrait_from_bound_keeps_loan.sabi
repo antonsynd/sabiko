@@ -1,0 +1,16 @@
+// A bound whose trait has `From<T>` as supertrait, proved by a block for `Option<T>`:
+// the result of the supertrait's method holds the loan.
+trait Mk<T>: From<T> {}
+
+impl<T> Mk<T> for Option<T> {}
+
+fn G<T, U: Mk<T>>(t: T) -> U {
+    U::from(t)
+}
+
+fn Main() {
+    let mut x = 1;
+    let r: Option<&i32> = G(&x);
+    x = 2;
+    PrintLine(*r.unwrap());
+}

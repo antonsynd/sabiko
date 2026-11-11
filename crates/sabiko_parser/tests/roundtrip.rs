@@ -718,16 +718,25 @@ fn generic_params() -> impl Strategy<Value = Vec<GenericParam>> {
 }
 
 /// Zero to two parameters of a trait, without bounds, each with or without a default (a
-/// path type).
+/// path type); the defaults are trailing, as they must be.
 fn trait_params() -> impl Strategy<Value = Vec<GenericParam>> {
     prop::collection::vec((name(), prop::option::of(name())), 0..3).prop_map(|params| {
+        let mut defaulted = false;
         params
             .into_iter()
-            .map(|(n, default)| GenericParam {
-                id: ID,
-                name: ident(&n),
-                bounds: vec![],
-                default: default.map(|d| leaf_ty(TypeKind::Path(path(&d)))),
+            .map(|(n, default)| {
+                let default = match default {
+                    Some(d) => Some(d),
+                    None if defaulted => Some(n.clone()),
+                    None => None,
+                };
+                defaulted |= default.is_some();
+                GenericParam {
+                    id: ID,
+                    name: ident(&n),
+                    bounds: vec![],
+                    default: default.map(|d| leaf_ty(TypeKind::Path(path(&d)))),
+                }
             })
             .collect()
     })

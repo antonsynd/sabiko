@@ -1,0 +1,180 @@
+// Blocks whose headers overlap but whose bounds keep them apart (rustc's negative
+// reasoning in coherence) are selected by weighing every candidate's bounds, so the
+// order they are written in never matters: a blanket block beside one for a type that
+// does not meet its bound, written before and after it; a `Copy` blanket; a generic
+// type's block; tuples and `Option`; blankets bounded on `Into<i32>` and `From<i32>`; a
+// blanket bounded on a trait of a generic type with no block for it.
+trait Show {}
+
+impl Show for i32 {}
+
+struct S;
+
+#[derive(Copy, Clone)]
+struct W<T> {
+    X: T,
+}
+
+trait LoudA {
+    fn A(&self) -> i32;
+}
+
+impl<T: Show> LoudA for T {
+    fn A(&self) -> i32 {
+        1
+    }
+}
+
+impl LoudA for S {
+    fn A(&self) -> i32 {
+        2
+    }
+}
+
+trait LoudB {
+    fn B(&self) -> i32;
+}
+
+impl LoudB for S {
+    fn B(&self) -> i32 {
+        3
+    }
+}
+
+impl<T: Show> LoudB for T {
+    fn B(&self) -> i32 {
+        4
+    }
+}
+
+trait Dup {
+    fn D(&self) -> i32;
+}
+
+impl<T: Copy> Dup for T {
+    fn D(&self) -> i32 {
+        5
+    }
+}
+
+impl Dup for S {
+    fn D(&self) -> i32 {
+        6
+    }
+}
+
+trait Wrapped {
+    fn Wr(&self) -> i32;
+}
+
+impl<T: Show> Wrapped for W<T> {
+    fn Wr(&self) -> i32 {
+        7
+    }
+}
+
+impl Wrapped for W<S> {
+    fn Wr(&self) -> i32 {
+        8
+    }
+}
+
+impl<T: Show> Wrapped for (T, bool) {
+    fn Wr(&self) -> i32 {
+        9
+    }
+}
+
+impl Wrapped for (S, bool) {
+    fn Wr(&self) -> i32 {
+        10
+    }
+}
+
+impl<T: Show> Wrapped for Option<T> {
+    fn Wr(&self) -> i32 {
+        11
+    }
+}
+
+impl Wrapped for Option<S> {
+    fn Wr(&self) -> i32 {
+        12
+    }
+}
+
+trait Num {
+    fn N(&self) -> i32;
+}
+
+impl<T: Into<i32> + Copy> Num for T {
+    fn N(&self) -> i32 {
+        (*self).into()
+    }
+}
+
+impl Num for S {
+    fn N(&self) -> i32 {
+        13
+    }
+}
+
+trait Make {
+    fn M(&self) -> i32;
+}
+
+impl<T: From<i32>> Make for T {
+    fn M(&self) -> i32 {
+        14
+    }
+}
+
+impl Make for S {
+    fn M(&self) -> i32 {
+        15
+    }
+}
+
+trait Shown {}
+
+trait Tagged {
+    fn T(&self) -> i32;
+}
+
+impl<T: Shown> Tagged for T {
+    fn T(&self) -> i32 {
+        16
+    }
+}
+
+impl<U> Tagged for W<U> {
+    fn T(&self) -> i32 {
+        17
+    }
+}
+
+fn Generic<T: LoudA + LoudB>(t: &T) -> i32 {
+    t.A() * 10 + t.B()
+}
+
+fn Main() {
+    PrintLine(S.A());
+    PrintLine(1.A());
+    PrintLine(S.B());
+    PrintLine(1.B());
+    PrintLine(S.D());
+    PrintLine(1.D());
+    PrintLine(W { X: 1 }.Wr());
+    PrintLine(W { X: S }.Wr());
+    PrintLine((1, true).Wr());
+    PrintLine((S, true).Wr());
+    PrintLine(Some(1).Wr());
+    PrintLine(Some(S).Wr());
+    PrintLine(S.N());
+    PrintLine(7u8.N());
+    PrintLine(S.M());
+    PrintLine(1i64.M());
+    PrintLine(W { X: 2 }.T());
+    PrintLine(Generic(&S));
+    PrintLine(Generic(&3));
+}

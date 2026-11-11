@@ -1,0 +1,13 @@
+// A generic function whose bound `U: From<T>` is proved by the reflexive impl: the
+// loan ends with the result's last use.
+fn G<T, U: From<T>>(t: T) -> U {
+    U::from(t)
+}
+
+fn Main() {
+    let mut x = 1;
+    let r: &i32 = G(&x);
+    PrintLine(*r);
+    x = 2;
+    PrintLine(x);
+}

@@ -1,0 +1,71 @@
+[E0215] Error: conflicting implementations of trait `Loud` for type `S`
+    ╭─[ tests/ui/typeck/trait_solver_edges.sabi:38:1 ]
+    │
+ 32 │ impl Loud for S {
+    │ ───────┬───────  
+    │        ╰───────── first implementation here
+    │ 
+ 38 │ impl<T: Mid> Loud for T { //~ ERROR E0215 conflicting implementations of trait `Loud` for type `S`
+    │ ───────────┬───────────  
+    │            ╰───────────── conflicting implementation for `S`
+────╯
+[E0215] Error: conflicting implementations of trait `Loud2` for type `S`
+    ╭─[ tests/ui/typeck/trait_solver_edges.sabi:70:1 ]
+    │
+ 64 │ impl<T: Mid2> Loud2 for T {
+    │ ────────────┬────────────  
+    │             ╰────────────── first implementation here
+    │ 
+ 70 │ impl Loud2 for S { //~ ERROR E0215 conflicting implementations of trait `Loud2` for type `S`
+    │ ────────┬───────  
+    │         ╰───────── conflicting implementation for `S`
+────╯
+[E0353] Error: overflow evaluating the requirement `U: Lp<V<T>>`
+    ╭─[ tests/ui/typeck/trait_solver_edges.sabi:84:12 ]
+    │
+ 84 │ impl<T, U: Lp<V<T>>> Lp<T> for U { //~ ERROR E0353 overflow evaluating the requirement `U: Lp<V<T>>`
+    │            ────┬───  
+    │                ╰───── the bounds of the `impl` blocks that could prove it require it at ever larger types
+    │ 
+    │ Note: an `impl` block's bound asks for the trait at a type that grows each time, so proving it never ends
+────╯
+[E0353] Error: overflow evaluating the requirement `T: Lp<bool>`
+    ╭─[ tests/ui/typeck/trait_solver_edges.sabi:90:15 ]
+    │
+ 90 │ fn Bounded<T: Lp<bool>>(t: T) {} //~ ERROR E0353 overflow evaluating the requirement `T: Lp<bool>`
+    │               ────┬───  
+    │                   ╰───── the bounds of the `impl` blocks that could prove it require it at ever larger types
+    │ 
+    │ Note: an `impl` block's bound asks for the trait at a type that grows each time, so proving it never ends
+────╯
+[E0351] Error: `?` couldn't convert the error: `i32: Show` is not satisfied
+     ╭─[ tests/ui/typeck/trait_solver_edges.sabi:105:14 ]
+     │
+ 105 │     let v = r?; //~ ERROR E0351 `?` couldn't convert the error: `i32: Show` is not satisfied
+     │             ┬┬  
+     │             │╰── the trait `Show` is not implemented for `i32`
+     │             │   
+     │             ╰─── this can't be annotated with `?` because it has type `Result<_, W<i32>>`
+     │ 
+     │ Note 1: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+     │ 
+     │ Note 2: required for `MyErr` to implement `From<W<i32>>`
+─────╯
+[E0107] Error: not yet supported: a reference in an `impl` block's trait arguments
+     ╭─[ tests/ui/typeck/trait_solver_edges.sabi:109:11 ]
+     │
+ 109 │ impl From<&S> for i32 { //~ ERROR E0107 not yet supported: a reference in an `impl` block's trait arguments
+     │           ─┬  
+     │            ╰── `&S`
+     │ 
+     │ Note: a reference in an `impl` header needs a named lifetime, which waits for lifetimes (Phase 9); see docs/PLAN.md
+─────╯
+[E0107] Error: not yet supported: a reference in a bound's trait arguments
+     ╭─[ tests/ui/typeck/trait_solver_edges.sabi:115:16 ]
+     │
+ 115 │ fn RefBound<T: From<&u8>>(t: T) {} //~ ERROR E0107 not yet supported: a reference in a bound's trait arguments
+     │                ────┬────  
+     │                    ╰────── `&u8`
+     │ 
+     │ Note: a reference in a bound needs a named lifetime, which waits for lifetimes (Phase 9); see docs/PLAN.md
+─────╯

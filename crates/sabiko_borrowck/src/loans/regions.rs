@@ -356,37 +356,77 @@ pub fn signature_regions(
     }
 }
 
-/// How deep the bounds of `impl` blocks are followed for [`impl_region_links`].
+/// How deep the bounds of `impl` blocks are followed for [`bound_region_links`].
 const LINK_DEPTH: usize = 32;
 
-/// The region types a call of a member of the trait `tr` must relate invariantly because
-/// of the `impl` block that implements it, where one does at the call's types (`tys`:
-/// `Self`, then the trait's arguments; `regions`: their region types). A type parameter
-/// the block's header names twice stands for one type, references and all: `impl<T>
-/// From<T> for T` makes `From::from(r)`'s result hold `r`'s loans, and `impl<T> From<T>
-/// for Option<T>` puts them in the `Some`. The references a header writes share one
-/// origin (the prelude's `impl From<&Option<T>> for Option<&T>`, rustc's `'a` there).
-/// The block's bounds are followed the same way (`impl<T, U: From<T>> Into<U> for T`
-/// relates what `U: From<T>`'s block relates). Without a block (a bound in scope decides
-/// it) nothing is related, as in rustc.
+/// The region types a call must relate invariantly to prove the callee's bounds, as
+/// rustc's type checking of a call proves each where-clause of the callee instantiated at
+/// the call's generic arguments, regions included (decision 95). `generics` and `env`
+/// are the callee's type parameters and bounds (a trait member's include `Self:
+/// Trait<..>`), `generic_args` and `generic_regions` the call's generic arguments and
+/// their region types; `caller_env` the bounds in scope at the call.
+///
+/// Each bound is proved by the `impl` block selection picks at the call's types (with
+/// the caller's bounds in scope), whose header relates the region types: a type
+/// parameter the header names twice stands for one type, references and all (`impl<T>
+/// From<T> for T` makes `From::from(r)`'s result, or `G(r)`'s for `fn G<T, U: From<T>>`,
+/// hold `r`'s loans; `impl<T> From<T> for Option<T>` puts them in the `Some`). The
+/// region model of a header is rustc's with named lifetimes: one region per lifetime the
+/// header names. Only the prelude writes references in a header, and each of its blocks
+/// that does names one lifetime in all of them (`impl<'a, T> From<&'a Option<T>> for
+/// Option<&'a T>` in std), so every reference a header writes shares one region; a
+/// program's block may not write one (E0107). The block's own bounds are proved the same
+/// way, recursively (`impl<T, U: From<T>> Into<U> for T` relates what `U: From<T>`'s
+/// block relates). A bound proved by a bound of the caller relates nothing, as in rustc,
+/// where a where-clause's types carry no region of the call.
 #[must_use]
-pub fn impl_region_links(
+#[allow(clippy::too_many_arguments)]
+pub fn bound_region_links(
     items: &ItemTypes,
-    tr: DefId,
-    tys: &[Ty],
-    regions: &[RegionTy],
+    generics: &[DefId],
+    env: &[sabiko_types::traits::Predicate],
+    generic_args: &[Ty],
+    generic_regions: &[RegionTy],
+    caller_env: &[sabiko_types::traits::Predicate],
     supply: &mut OriginSupply,
 ) -> Vec<(RegionTy, RegionTy)> {
     let mut out = Vec::new();
-    links_at(items, tr, tys, regions, supply, &mut out, 0);
+    if generics.len() != generic_args.len() || generic_args.len() != generic_regions.len() {
+        return out;
+    }
+    let params = Params {
+        defs: generics,
+        args: generic_regions,
+        items,
+    };
+    for pred in env {
+        let (pred_ty, pred_args) =
+            sabiko_types::traits::instantiate_pred(pred, generics, generic_args);
+        let mut tys = vec![pred_ty];
+        tys.extend(pred_args);
+        let mut regions = vec![params.arg(pred.param)];
+        regions.extend(pred.args.iter().map(|a| params.fresh(a, supply)));
+        links_at(
+            items,
+            pred.trait_,
+            &tys,
+            &regions,
+            caller_env,
+            supply,
+            &mut out,
+            0,
+        );
+    }
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn links_at(
     items: &ItemTypes,
     tr: DefId,
     tys: &[Ty],
     regions: &[RegionTy],
+    caller_env: &[sabiko_types::traits::Predicate],
     supply: &mut OriginSupply,
     out: &mut Vec<(RegionTy, RegionTy)>,
     depth: usize,
@@ -397,7 +437,7 @@ fn links_at(
     if depth > LINK_DEPTH {
         return;
     }
-    let Some((imp, impl_args)) = items.select_impl(tr, self_ty, args) else {
+    let Some((imp, impl_args)) = items.select_impl(tr, self_ty, args, caller_env) else {
         return;
     };
     let mut bound: Vec<Option<RegionTy>> = vec![None; imp.generics.len()];
@@ -427,6 +467,7 @@ fn links_at(
             pred.trait_,
             &pred_tys,
             &pred_regions,
+            caller_env,
             supply,
             out,
             depth + 1,

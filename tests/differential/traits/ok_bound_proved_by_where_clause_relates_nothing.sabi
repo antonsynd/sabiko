@@ -1,0 +1,25 @@
+// Inside a generic function, a bound proved by the caller's own where-clause relates no
+// loan: the function compiles, and its caller keeps the loan through the callee's bound.
+trait Same<T> {
+    fn Same(t: T) -> Self;
+}
+
+impl<T> Same<T> for T {
+    fn Same(t: T) -> T {
+        t
+    }
+}
+
+fn G<T, U: Same<T>>(t: T) -> U {
+    U::Same(t)
+}
+
+fn A<T: Copy, U: Same<T>>(t: T) -> (U, U) {
+    (G(t), G(t))
+}
+
+fn Main() {
+    let x = 1;
+    let (a, b): (&i32, &i32) = A(&x);
+    PrintLine(*a + *b);
+}

@@ -41,7 +41,7 @@ use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use super::regions::{
-    impl_region_links, signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy,
+    bound_region_links, signature_regions, Loan, Origin, OriginSupply, Path, Point, RegionTy,
     SigRegions, SiteElem, Variable,
 };
 use crate::dataflow::{self, Dominators, Location};
@@ -498,22 +498,20 @@ impl Generator<'_> {
                 for (arg, param) in arg_tys.iter().zip(&callee.inputs) {
                     self.relate(arg, param, mid, false);
                 }
-                // The `impl` block of a trait member's call relates the generic arguments
-                // its header names with one parameter (decision 95).
-                if let Some(tr) = self.typeck.items.trait_of_member(*func) {
-                    let n = 1 + self.typeck.items.trait_param_count(tr);
-                    if generic_args.len() >= n {
-                        let links = impl_region_links(
-                            &self.typeck.items,
-                            tr,
-                            &generic_args[..n],
-                            &callee.generic[..n],
-                            &mut self.supply,
-                        );
-                        for (a, b) in links {
-                            self.relate(&a, &b, mid, true);
-                        }
-                    }
+                // The callee's bounds, proved at the call's types, relate the generic
+                // arguments as the blocks proving them require (decision 95).
+                let items = &self.typeck.items;
+                let links = bound_region_links(
+                    items,
+                    &items.fn_sig(*func).generics,
+                    items.param_env(*func),
+                    generic_args,
+                    &callee.generic,
+                    items.param_env(self.body.def),
+                    &mut self.supply,
+                );
+                for (a, b) in links {
+                    self.relate(&a, &b, mid, true);
                 }
                 self.write_dest(destination, location);
                 // A callee whose own signature failed elision constrains nothing: its
