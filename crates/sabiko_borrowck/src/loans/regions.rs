@@ -356,8 +356,9 @@ pub fn signature_regions(
     }
 }
 
-/// How deep the bounds of `impl` blocks are followed for [`bound_region_links`].
-const LINK_DEPTH: usize = 32;
+/// How deep the bounds of `impl` blocks are followed for [`bound_region_links`]: exactly
+/// as deep as the type checker proves them, so a proof is never cut short here.
+const LINK_DEPTH: usize = sabiko_types::traits::DEPTH_LIMIT;
 
 /// The region types a call must relate invariantly to prove the callee's bounds, as
 /// rustc's type checking of a call proves each where-clause of the callee instantiated at
@@ -379,7 +380,13 @@ const LINK_DEPTH: usize = 32;
 /// way, recursively (`impl<T, U: From<T>> Into<U> for T` relates what `U: From<T>`'s
 /// block relates). A bound proved by a bound of the caller relates nothing, as in rustc,
 /// where a where-clause's types carry no region of the call.
-#[must_use]
+///
+/// # Errors
+///
+/// When a bound the type checker proved cannot be followed (no block and no bound in
+/// scope proves it here, the proof is deeper than the recursion limit, or the generic
+/// arguments do not fit the callee): an internal error the caller reports (E0900), never
+/// a silent "no relation", which would let a loan go.
 #[allow(clippy::too_many_arguments)]
 pub fn bound_region_links(
     items: &ItemTypes,
@@ -389,10 +396,18 @@ pub fn bound_region_links(
     generic_regions: &[RegionTy],
     caller_env: &[sabiko_types::traits::Predicate],
     supply: &mut OriginSupply,
-) -> Vec<(RegionTy, RegionTy)> {
+) -> Result<Vec<(RegionTy, RegionTy)>, String> {
     let mut out = Vec::new();
+    if env.is_empty() {
+        return Ok(out);
+    }
     if generics.len() != generic_args.len() || generic_args.len() != generic_regions.len() {
-        return out;
+        return Err(format!(
+            "the call has {} generic arguments ({} region types) for {} parameters",
+            generic_args.len(),
+            generic_regions.len(),
+            generics.len()
+        ));
     }
     let params = Params {
         defs: generics,
@@ -415,9 +430,9 @@ pub fn bound_region_links(
             supply,
             &mut out,
             0,
-        );
+        )?;
     }
-    out
+    Ok(out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -430,15 +445,28 @@ fn links_at(
     supply: &mut OriginSupply,
     out: &mut Vec<(RegionTy, RegionTy)>,
     depth: usize,
-) {
+) -> Result<(), String> {
     let Some((self_ty, args)) = tys.split_first() else {
-        return;
+        return Err("a bound without a type".to_owned());
     };
-    if depth > LINK_DEPTH {
-        return;
+    if depth >= LINK_DEPTH {
+        return Err(format!(
+            "the proof of a bound of `{}` is deeper than the recursion limit",
+            items.trait_def(tr).map_or("?", |t| t.name.as_str())
+        ));
     }
     let Some((imp, impl_args)) = items.select_impl(tr, self_ty, args, caller_env) else {
-        return;
+        // Proved by a bound in scope (a where-clause's types carry no region of the
+        // call), by the built-in `Copy`/`Clone` (which relate nothing), or for a type
+        // that holds an error (reported).
+        if items.proved_without_impl(self_ty, tr, args, caller_env) {
+            return Ok(());
+        }
+        return Err(format!(
+            "no `impl` block proves the bound on `{:?}` of trait `{}` here",
+            self_ty,
+            items.trait_def(tr).map_or("?", |t| t.name.as_str())
+        ));
     };
     let mut bound: Vec<Option<RegionTy>> = vec![None; imp.generics.len()];
     let mut header: Option<Origin> = None;
@@ -471,8 +499,9 @@ fn links_at(
             supply,
             out,
             depth + 1,
-        );
+        )?;
     }
+    Ok(())
 }
 
 /// Matches a block's header pattern `pat` against the region type of the call's type at

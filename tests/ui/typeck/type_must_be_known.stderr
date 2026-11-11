@@ -1,0 +1,18 @@
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:23:15 ]
+    │
+ 23 │     PrintLine(v + 1u16); //~ ERROR E0313 type annotations needed
+    │               ┬  
+    │               ╰── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/type_must_be_known.sabi:25:15 ]
+    │
+ 25 │     PrintLine(w + 1); //~ ERROR E0313 type annotations needed
+    │               ┬  
+    │               ╰── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯

@@ -1,0 +1,36 @@
+[E0353] Error: overflow evaluating the requirement `U: Lp<V<T>>`
+    ╭─[ tests/ui/typeck/one_error_per_root_cause.sabi:11:12 ]
+    │
+ 11 │ impl<T, U: Lp<V<T>>> Lp<T> for U {} //~ ERROR E0353 overflow evaluating the requirement `U: Lp<V<T>>`
+    │            ────┬───  
+    │                ╰───── the bounds of the `impl` blocks that could prove it require it at ever larger types
+    │ 
+    │ Note: an `impl` block's bound asks for the trait at a type that grows each time, so proving it never ends
+────╯
+[E0107] Error: not yet supported: a `where` clause on a type other than a type parameter
+    ╭─[ tests/ui/typeck/one_error_per_root_cause.sabi:23:27 ]
+    │
+ 23 │ impl<T> Tr<T> for S where S: Show<T> {} //~ ERROR E0107 not yet supported: a `where` clause on a type other than a type parameter
+    │                           ┬  
+    │                           ╰── bound a type parameter here, or write the bound on it: `T: Show`
+    │ 
+    │ Note: see docs/PLAN.md
+────╯
+[E0107] Error: not yet supported: a `where` clause on a type other than a type parameter
+    ╭─[ tests/ui/typeck/one_error_per_root_cause.sabi:27:32 ]
+    │
+ 27 │ fn Needs<T>(t: T) -> i32 where Option<T>: Tr<T> { //~ ERROR E0107 not yet supported: a `where` clause on a type other than a type parameter
+    │                                ────┬────  
+    │                                    ╰────── bound a type parameter here, or write the bound on it: `T: Show`
+    │ 
+    │ Note: see docs/PLAN.md
+────╯
+[E0215] Error: conflicting implementations of trait `From<E>` for type `E`
+    ╭─[ tests/ui/typeck/one_error_per_root_cause.sabi:37:1 ]
+    │
+ 37 │ impl<T> From<T> for E { //~ ERROR E0215 conflicting implementations of trait `From<E>` for type `E`
+    │ ──────────┬──────────  
+    │           ╰──────────── conflicting implementation for `E`
+    │ 
+    │ Note: conflicting implementation in Sabiko's `core` library: `impl<T> From<T> for T`
+────╯

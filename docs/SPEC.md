@@ -824,7 +824,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `Conv<i32>` and `Conv<bool>` takes them from the expected type, else E0313, rustc's
   E0283); `Trait::<A>::Name` gives them. Of the blocks whose header matches, those whose
   bounds fail are no candidates (rustc's winnowing), so the order of blocks never
-  matters; a chain of bounds without end is E0353 (rustc's E0275). At a call, the
+  matters; a chain of bounds 128 deep, rustc's recursion limit, is E0353 (rustc's E0275).
+  Where a type must be known (an operand, a receiver, a printed value), the obligations
+  that could decide it are selected first; a type still open there is E0313. At a call, the
   callee's bounds are proved at its generic arguments, and a block proving one that
   names a parameter twice keeps the loans through it (`fn G<T, U: From<T>>(t: T) -> U`
   called with `&x` returns a reference borrowing `x`). Every type parameter but a

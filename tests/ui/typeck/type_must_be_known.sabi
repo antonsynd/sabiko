@@ -1,0 +1,26 @@
+// An operand or receiver whose type a trait obligation leaves open is an error where it
+// is used (rustc's E0283), not decided by a later use or by integer fallback.
+struct S;
+
+trait Tr<T> {
+    fn Mk(&self) -> T;
+}
+
+impl Tr<i32> for S {
+    fn Mk(&self) -> i32 {
+        1
+    }
+}
+
+impl Tr<i64> for S {
+    fn Mk(&self) -> i64 {
+        2
+    }
+}
+
+fn Main() {
+    let v = 5u8.into();
+    PrintLine(v + 1u16); //~ ERROR E0313 type annotations needed
+    let w = S.Mk();
+    PrintLine(w + 1); //~ ERROR E0313 type annotations needed
+}

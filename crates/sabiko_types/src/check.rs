@@ -349,6 +349,9 @@ pub(crate) struct FnCtxt<'a> {
     /// The operand's error type of each `?` on a `Result`, keyed by the `?`'s span: what
     /// an error about a nested bound of its conversion shows.
     try_roots: HashMap<Span, Ty>,
+    /// Whether a bound of the function being checked was dropped as not supported
+    /// (E0107): an unsatisfied bound in its body is not reported again.
+    incomplete_bounds: bool,
     /// The function's signature, from its name to its return type, while a function's
     /// body is checked; `None` for a constant.
     fn_span: Option<Span>,
@@ -411,6 +414,7 @@ impl<'a> FnCtxt<'a> {
             try_exprs: HashMap::new(),
             pending_tries: Vec::new(),
             try_roots: HashMap::new(),
+            incomplete_bounds: false,
             fn_span: None,
         }
     }
@@ -454,6 +458,7 @@ impl<'a> FnCtxt<'a> {
             return self.finish();
         };
         self.env = self.items.param_env(def).to_vec();
+        self.incomplete_bounds = self.resolve.has_incomplete_bounds(def);
         if self.resolve.parent_kind(def) == Some(DefKind::Impl) {
             let imp = self.resolve.def(def).parent.expect("a parent");
             self.self_ty = Some(self.items.impl_self_ty(imp));
@@ -1322,6 +1327,7 @@ impl<'a> FnCtxt<'a> {
     fn check_index(&mut self, expr: &Expr, base: &Expr, index: &Expr, unsized_ok: bool) -> Ty {
         self.unsized_place = true;
         let base_ty = self.check_expr(base, None);
+        let base_ty = self.structurally_resolve(&base_ty, base.span);
         if let ExprKind::Range(lo, hi, _) = &index.kind {
             return self.check_range_index(
                 expr,
@@ -2590,7 +2596,7 @@ impl<'a> FnCtxt<'a> {
     fn check_try(&mut self, expr: &Expr, operand: &Expr) -> Ty {
         let ty = self.check_expr(operand, None);
         let question = Span::new(expr.span.file, operand.span.end, expr.span.end);
-        let ty = self.shallow(&ty);
+        let ty = self.structurally_resolve(&ty, operand.span);
         let found = match &ty {
             Ty::Adt(def, args) => self.resolve.core_item_of(*def).map(|k| (k, args.clone())),
             _ => None,
@@ -2796,6 +2802,11 @@ impl<'a> FnCtxt<'a> {
             self.double_negation = matches!(operand, ExprKind::Unary(UnOp::Neg, _));
         }
         let (ty, never) = self.check_operand(operand, expected);
+        let ty = if never {
+            ty
+        } else {
+            self.structurally_resolve(&ty, operand.span)
+        };
         self.negating = false;
         self.double_negation = false;
         let resolved = self.shallow(&ty);
@@ -2866,6 +2877,11 @@ impl<'a> FnCtxt<'a> {
             }
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 let (l, l_never) = self.check_operand(lhs, None);
+                let l = if l_never {
+                    l
+                } else {
+                    self.structurally_resolve(&l, lhs.span)
+                };
                 if l_never {
                     // Only `!: PartialEq<!>` and `!: PartialOrd<!>` exist.
                     let (r, _) = self.check_operand(rhs, None);
@@ -2902,6 +2918,11 @@ impl<'a> FnCtxt<'a> {
             }
             BinOp::Shl | BinOp::Shr => {
                 let (l, l_never) = self.check_operand(lhs, expected);
+                let l = if l_never {
+                    l
+                } else {
+                    self.structurally_resolve(&l, lhs.span)
+                };
                 let (r, r_never) = self.check_operand(rhs, None);
                 if l_never || r_never {
                     return self.never_operand(op, l, r, span);
@@ -2914,6 +2935,11 @@ impl<'a> FnCtxt<'a> {
             }
             _ => {
                 let (l, l_never) = self.check_operand(lhs, expected);
+                let l = if l_never {
+                    l
+                } else {
+                    self.structurally_resolve(&l, lhs.span)
+                };
                 let (r, r_never) = self.check_operand(rhs, (!l_never).then_some(&l));
                 if l_never || r_never {
                     return self.never_operand(op, l, r, span);
@@ -3560,6 +3586,113 @@ impl<'a> FnCtxt<'a> {
         out
     }
 
+    /// rustc's `structurally_resolve_type`: the type `ty` of the expression at `span` must
+    /// be known here (an operator's left operand, a receiver, a field access's or an
+    /// index's base, the operand of `?`). When it is still a variable that a pending trait
+    /// obligation mentions, the obligations are selected first, as rustc does
+    /// (`S.Map()` with one `impl Map<i64> for S` is an `i64` there); if that leaves it
+    /// unknown, it is E0313 (rustc's E0282/E0283) instead of being decided by a later use.
+    /// A variable no obligation mentions is left to the caller, which defers as before.
+    fn structurally_resolve(&mut self, ty: &Ty, span: Span) -> Ty {
+        let t = self.shallow(ty);
+        let Ty::Infer(v) = t else {
+            return t;
+        };
+        if self.infer.kind(v) != VarKind::General || !self.obligation_mentions(&t) {
+            return t;
+        }
+        self.select_obligations();
+        let t = self.shallow(ty);
+        if let Ty::Infer(v) = t {
+            if self.infer.kind(v) == VarKind::General && self.obligation_mentions(&t) {
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(span, "type must be known at this point")
+                    .with_note(
+                        "the trait bounds on it leave its type open: give it a type annotation",
+                    ),
+                );
+                self.infer.bind_error(&t);
+                return Ty::Error;
+            }
+        }
+        t
+    }
+
+    /// Whether the body is tainted by errors, as rustc's inference context is when its
+    /// ambiguities are judged: an error was reported in it, or a trait it has an
+    /// obligation of has blocks reported as overlapping or overflowing (rustc checks a
+    /// trait's coherence lazily, when a body first selects with it, so that error falls
+    /// within the body). An ambiguity is then not reported.
+    fn ambiguity_tainted(&self) -> bool {
+        self.sink.error_count() > self.errors_before
+            || self.obligations.iter().any(|o| {
+                self.items
+                    .impls_of(o.trait_)
+                    .any(|i| self.items.is_reported_impl(i.def))
+            })
+    }
+
+    /// Whether an obligation that mentions the unknown type `ty` is an ambiguity rustc
+    /// would not report: some error was reported already, or blocks reported as
+    /// overlapping or overflowing (E0215, E0353) leave it open.
+    fn tied_to_reported_impl(&mut self, ty: &Ty) -> bool {
+        let obligations = self.obligations.clone();
+        obligations.iter().any(|o| {
+            let (oty, args) = (self.infer.resolve(&o.ty), self.resolve_all(&o.args));
+            let mentions = std::iter::once(&oty)
+                .chain(&args)
+                .any(|t| ty_has_var_of(t, ty));
+            mentions
+                && (self.ambiguity_tainted() || self.involves_reported_impl(&oty, o.trait_, &args))
+        })
+    }
+
+    /// Whether a pending obligation mentions the inference variable `var` (resolved).
+    fn obligation_mentions(&mut self, var: &Ty) -> bool {
+        let var = self.infer.resolve(var);
+        let pending: Vec<Ty> = self
+            .obligations
+            .iter()
+            .flat_map(|o| std::iter::once(&o.ty).chain(&o.args))
+            .cloned()
+            .collect();
+        pending.iter().any(|t| {
+            let t = self.infer.resolve(t);
+            contains_ty(&t, &var)
+        })
+    }
+
+    /// Whether a block reported as overlapping or overflowing (E0215, E0353) has a header
+    /// that unifies with `ty: tr<args>`: the ambiguity or overflow there is that error's,
+    /// not reported again. Any other ambiguity of the trait still is.
+    fn involves_reported_impl(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> bool {
+        let items = self.items;
+        let tys: Vec<Ty> = std::iter::once(ty)
+            .chain(args)
+            .map(|t| self.infer.resolve(t))
+            .collect();
+        items
+            .impls_of(tr)
+            .filter(|imp| items.is_reported_impl(imp.def) && imp.trait_args.len() == args.len())
+            .any(|imp| {
+                self.infer.probe(|infer| {
+                    let fresh: Vec<Ty> = imp
+                        .generics
+                        .iter()
+                        .map(|_| infer.new_var(VarKind::General))
+                        .collect();
+                    std::iter::once(&imp.self_ty)
+                        .chain(&imp.trait_args)
+                        .zip(&tys)
+                        .all(|(pat, t)| infer.unify(&pat.subst(&imp.generics, &fresh), t).is_ok())
+                })
+            })
+    }
+
     /// The bounds in scope that could imply `ty: tr<args>`, `ty` a type parameter, with
     /// their arguments: rustc's where-clause candidates, which it prefers to `impl` blocks.
     fn env_candidates(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> Vec<Vec<Ty>> {
@@ -3998,6 +4131,11 @@ impl<'a> FnCtxt<'a> {
         recv_ty: &Ty,
         name: &sabiko_ast::Ident,
     ) -> Option<(MethodCallee, Vec<Ty>)> {
+        // Each autoderef step's type must be known (rustc's `structurally_resolve_type`).
+        let mut step = self.structurally_resolve(recv_ty, name.span);
+        while let Ty::Ref(_, inner) = step {
+            step = self.structurally_resolve(&inner, name.span);
+        }
         let mut steps = vec![self.infer.resolve(recv_ty)];
         while let Ty::Ref(_, inner) = steps.last().expect("one step").clone() {
             steps.push(*inner);
@@ -4284,7 +4422,12 @@ impl<'a> FnCtxt<'a> {
         }
         for arg in args {
             let ty = self.check_expr(arg, None);
-            let ty = self.infer.resolve(&ty);
+            let mut ty = self.infer.resolve(&ty);
+            if !self.has_no_general_var(&ty) {
+                // A type a pending obligation decides (`PrintLine(S.Map())`).
+                self.select_obligations();
+                ty = self.infer.resolve(&ty);
+            }
             if let Ty::Infer(v) = ty {
                 if self.is_diverging_var(v) {
                     // Decided by a later use or by the never-type fallback: checked then.
@@ -4362,10 +4505,10 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn check_field(&mut self, expr: &Expr, base_ty: &Ty, name: &str, name_span: Span) -> Ty {
-        let mut ty = self.shallow(base_ty);
+        let mut ty = self.structurally_resolve(base_ty, expr.span);
         let mut autoderefs = 0;
         while let Ty::Ref(_, inner) = ty {
-            ty = self.shallow(&inner);
+            ty = self.structurally_resolve(&inner, expr.span);
             autoderefs += 1;
         }
         match ty {
@@ -4768,11 +4911,14 @@ impl<'a> FnCtxt<'a> {
             let mut resolved = Vec::new();
             for (i, arg) in args.iter().enumerate() {
                 let mut t = self.infer.resolve_with_defaults(arg);
-                let conflicting = self
-                    .items
-                    .trait_of_member(def)
-                    .is_some_and(|tr| self.items.has_conflicting_impls(tr));
-                if t.has_infer() && conflicting {
+                let conflicting = t.has_infer()
+                    && self.items.trait_of_member(def).is_some_and(|tr| {
+                        let n = 1 + self.items.trait_param_count(tr);
+                        args.len() >= n
+                            && (self.ambiguity_tainted()
+                                || self.involves_reported_impl(&args[0], tr, &args[1..n]))
+                    });
+                if conflicting {
                     // The trait's blocks overlap or overflow, which was reported.
                     self.infer.bind_error(&t);
                     t = Ty::Error;
@@ -4852,10 +4998,12 @@ impl<'a> FnCtxt<'a> {
             let trait_name = trait_ref_str(self.resolve, ob.trait_, &args);
             match self.items.implements(&ty, ob.trait_, &args, &self.env) {
                 Solution::Yes => {}
-                // Overlapping (or overflowing) blocks of the trait were reported (E0215,
-                // E0353); the ambiguity they make is not reported again, as in rustc.
+                // As rustc: an ambiguity is not reported in a body tainted by errors (they
+                // may be what left the types open), nor an overflow that a block reported
+                // as overlapping or overflowing (E0353, E0215) causes.
+                Solution::Ambiguous if self.ambiguity_tainted() => {}
                 Solution::Ambiguous | Solution::Overflow
-                    if self.items.has_conflicting_impls(ob.trait_) => {}
+                    if self.involves_reported_impl(&ty, ob.trait_, &args) => {}
                 Solution::Ambiguous => {
                     if let (Cause::Try { operand }, None) = (ob.cause, &ob.required_for) {
                         // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
@@ -4886,6 +5034,9 @@ impl<'a> FnCtxt<'a> {
                     let shown = self.ty_str(&ty);
                     self.error(overflow_error(ob.span, &shown, &trait_name));
                 }
+                // A bound of this function was dropped (E0107), which may be the missing
+                // one.
+                Solution::No if self.incomplete_bounds => {}
                 Solution::No if self.orphan_adt(&ty) => {
                     // The bound may be the one of a block the orphan rule rejected
                     // (E0214), which was reported.
@@ -5137,7 +5288,7 @@ impl<'a> FnCtxt<'a> {
         let mut reported = HashSet::new();
         for (id, ty) in locals {
             let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() && quiet {
+            if t.has_infer() && (quiet || self.tied_to_reported_impl(&t)) {
                 reported.insert(id);
                 self.infer.bind_error(&t);
                 t = Ty::Error;
@@ -5372,6 +5523,30 @@ impl<'a> FnCtxt<'a> {
 
 /// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
 /// the top level): the primitives but `str`, and `()`.
+/// Whether `ty` holds one of the inference variables in `vars`.
+fn ty_has_var_of(ty: &Ty, vars: &Ty) -> bool {
+    match vars {
+        Ty::Infer(_) => contains_ty(ty, vars),
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => ty_has_var_of(ty, inner),
+        Ty::Tuple(elems) => elems.iter().any(|e| ty_has_var_of(ty, e)),
+        Ty::Adt(_, args) => args.iter().any(|a| ty_has_var_of(ty, a)),
+        _ => false,
+    }
+}
+
+/// Whether `needle` occurs in `ty`.
+fn contains_ty(ty: &Ty, needle: &Ty) -> bool {
+    ty == needle
+        || match ty {
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
+                contains_ty(inner, needle)
+            }
+            Ty::Tuple(elems) => elems.iter().any(|e| contains_ty(e, needle)),
+            Ty::Adt(_, args) => args.iter().any(|a| contains_ty(a, needle)),
+            _ => false,
+        }
+}
+
 fn is_comparable(ty: &Ty) -> bool {
     // `str` is compared behind its reference (#10): `s == t` for `s, t: &str`.
     matches!(

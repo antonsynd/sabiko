@@ -44,6 +44,13 @@ impl<T> From<T> for Option<T> {
     }
 }
 
+// Region model of a header (decision 95): every reference a prelude header writes
+// shares one region, as if the header named one lifetime in all of them; std writes
+// these two blocks `impl<'a, T> From<&'a Option<T>> for Option<&'a T>` (and `&'a mut`).
+// Read as Rust, elided references in a header would be distinct lifetimes: a new block
+// with references must name one lifetime in each, which
+// `crates/sabiko_driver/tests/prelude_impl_headers.rs` checks.
+
 /// A reference to an option converts into an option of a reference to its value.
 impl<T> From<&Option<T>> for Option<&T> {
     fn from(o: &Option<T>) -> Option<&T> {

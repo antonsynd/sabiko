@@ -1717,8 +1717,37 @@ Update (2026-11-11), after review of #154. Fixed, each with tests checked agains
   the instance. Impls are indexed by trait and by definition, and the probe no longer
   clones the bounds in scope.
 Gaps left: `?` and other uses of an array into a tuple (E0500, array patterns); `<T as
-Trait>::` paths; static promotion of `&Some(4)` (the reviewer's `(&Some(4)).into()` is
-E0413 where rustc promotes the temporary, as for any `&` of a constant expression).
+Trait>::` paths (now E0107, not a parse error); `where` clauses on types other than
+parameters (E0107, now without follow-on errors); static promotion of `&Some(4)` (the
+reviewer's `(&Some(4)).into()` is E0413 where rustc promotes the temporary, as for any
+`&` of a constant expression).
+
+Update (2026-11-11), after the second review of #154. Fixed, each checked against rustc:
+- Soundness: the borrow checker followed proofs only 32 blocks deep while the solver
+  proved them 64 deep, so a chain of 33 to 64 bounds related no regions (a reference to a
+  dead local could be read). One limit now serves both, rustc's 128
+  (`traits::DEPTH_LIMIT`: rustc accepts a chain of 127 and overflows at 128), and a bound
+  the borrow checker cannot follow is an internal error (E0900), never silence.
+  `crates/sabiko_driver/tests/bound_chains.rs` generates chains of bounds and of
+  supertraits at depths on both sides of every limit (1, 32, 33, 64, 65, 127; 128 and 130
+  overflow, one E0353 per item as rustc reports E0275).
+- Types a pending obligation decides are selected where a type must be known
+  (`structurally_resolve`, rustc's `structurally_resolve_type`): printed values,
+  receivers, operands, field and index bases, `?` operands; a type still open there is
+  E0313 (rustc's E0283) instead of being decided by a later use or integer fallback
+  (`differential/traits/ok_type_decided_by_pending_obligation`, UI test
+  `typeck/type_must_be_known`).
+- The overflow check of a bound assumes the item's own bounds (`impl<T: Foo> Foo for T`
+  beside `fn F<U: Foo>`, and two blocks asking for each other, are accepted as in rustc;
+  `differential/traits/ok_where_clause_assumed_beside_cyclic_blanket`).
+- Built-in `Clone`/`Copy` take part in coherence's negative reasoning
+  (`differential/traits/ok_builtin_clone_in_negative_reasoning`).
+- One error per root cause: an overflowing supertrait, a dropped `where` clause, an
+  overlap with the prelude's `From`; ambiguities are not reported in a body tainted by
+  errors, as rustc's inference context (UI test `typeck/one_error_per_root_cause`).
+- The prelude's header region model is enforced by `tests/prelude_impl_headers.rs` and
+  stated in `library/core/convert.sabi`.
+Filed: #156 (region types of nested generic instances grow as 2^depth, mainline too).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

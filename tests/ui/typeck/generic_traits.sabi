@@ -68,7 +68,7 @@ fn Main() {
     let a: i8 = 5u8.into(); //~ ERROR E0341 the trait bound `i8: From<u8>` is not satisfied
     let b: u8 = From::from(300u16); //~ ERROR E0341 the trait bound `u8: From<u16>` is not satisfied
     let s = S;
-    let c = s.Conv(); //~ ERROR E0313 type annotations needed
+    let c = s.Conv();
     let d = Bounded(&s); //~ ERROR E0341 the trait bound `S: Conv<i64>` is not satisfied
     let e = u64::from(1); //~ ERROR E0341 the trait bound `u64: From<i32>` is not satisfied
 }

@@ -1,0 +1,22 @@
+// A blanket block that asks for its own trait again (`impl<T: Foo> Foo for T`), and two
+// blocks that ask for each other, are fine while a where-clause proves the bound: rustc
+// assumes an item's where-clauses when checking them.
+trait Foo {}
+
+impl<T: Foo> Foo for T {}
+
+fn F<U: Foo>(u: U) {}
+
+trait A {}
+
+trait B {}
+
+impl<T: B> A for T {}
+
+impl<T: A> B for T {}
+
+fn G<T: A>(t: T) {}
+
+fn Main() {
+    PrintLine(1);
+}

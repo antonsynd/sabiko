@@ -497,6 +497,9 @@ pub struct ResolveResults {
     required: std::collections::HashSet<DefId>,
     /// The supertraits of each trait, as written.
     supertraits: HashMap<DefId, Vec<DefId>>,
+    /// The functions and trait `impl` blocks a bound of which was dropped as not supported
+    /// (E0107): what fails for lack of it is not reported again.
+    incomplete_bounds: std::collections::HashSet<DefId>,
     /// How many of each generic trait's own parameters (after `Self`) have no default:
     /// a bound or `impl` header must give at least these.
     trait_required_params: HashMap<DefId, usize>,
@@ -736,6 +739,13 @@ impl ResolveResults {
         self.generics(def)[0]
     }
 
+    /// Whether a bound of the function or trait `impl` block `def` was dropped as not
+    /// supported (E0107).
+    #[must_use]
+    pub fn has_incomplete_bounds(&self, def: DefId) -> bool {
+        self.incomplete_bounds.contains(&def)
+    }
+
     /// The trait `def`'s own type parameters, after `Self` (`T` of `trait From<T>`).
     #[must_use]
     pub fn trait_params(&self, def: DefId) -> &[DefId] {
@@ -953,6 +963,7 @@ pub fn resolve_program(
         sink,
         current_fn: None,
         ty_params: Vec::new(),
+        dropped_bound: false,
         impl_params: HashMap::new(),
         impl_scope: ImplScope::Outside,
         const_floor: None,
@@ -1070,6 +1081,8 @@ struct Resolver<'d> {
     current_fn: Option<DefId>,
     /// The type parameters in scope: those of the item being resolved.
     ty_params: Vec<(String, DefId)>,
+    /// Set by `where_bounds` when it dropped a bound it does not support (E0107).
+    dropped_bound: bool,
     /// The names an `impl` block (by item index) gives its type's parameters
     /// (`impl<U> S<U>` names `S`'s first parameter `U`), decision 83.
     impl_params: HashMap<usize, Vec<(String, DefId)>>,
@@ -2330,7 +2343,20 @@ impl Resolver<'_> {
                     };
                     self.ty_params.clone_from(&params);
                     let mut block = self.param_bounds(&imp.generics, &params);
+                    self.dropped_bound = false;
                     block.extend(self.where_bounds(&imp.where_clause));
+                    let block_dropped = std::mem::take(&mut self.dropped_bound);
+                    if block_dropped {
+                        if trait_impl {
+                            self.results
+                                .incomplete_bounds
+                                .insert(self.results.def_of_item(item.id));
+                        }
+                        for member in &imp.items {
+                            let def = self.results.def_of_item(member.id);
+                            self.results.incomplete_bounds.insert(def);
+                        }
+                    }
                     let inherited = if trait_impl {
                         let def = self.results.def_of_item(item.id);
                         self.results.predicates.insert(def, block);
@@ -2414,7 +2440,11 @@ impl Resolver<'_> {
             .map(|&p| (self.results.def(p).name.clone(), p))
             .collect();
         preds.extend(self.param_bounds(&f.generics, &own));
+        self.dropped_bound = false;
         preds.extend(self.where_bounds(&f.where_clause));
+        if std::mem::take(&mut self.dropped_bound) {
+            self.results.incomplete_bounds.insert(def);
+        }
         if !preds.is_empty() {
             self.results.predicates.insert(def, preds);
         }
@@ -2463,6 +2493,7 @@ impl Resolver<'_> {
                 Res::Err => None,
                 _ => {
                     self.unsupported_where(p.ty.span);
+                    self.dropped_bound = true;
                     None
                 }
             };

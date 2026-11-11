@@ -1,0 +1,9 @@
+[E0107] Error: not yet supported: qualified paths `<T as Trait>::Name`
+    ╭─[ tests/ui/parse/qualified_path.sabi:13:15 ]
+    │
+ 13 │     PrintLine(<S as Tr>::N); //~ ERROR E0107 not yet supported: qualified paths `<T as Trait>::Name`
+    │               ┬  
+    │               ╰── not supported in this version of Sabiko
+    │ 
+    │ Note: name the member through the trait (`Trait::<A>::Name(x)`) or a bounded type parameter; see docs/PLAN.md
+────╯

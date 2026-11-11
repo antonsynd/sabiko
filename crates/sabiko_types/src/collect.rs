@@ -266,8 +266,8 @@ pub struct ItemTypes {
     traits: HashMap<DefId, TraitDef>,
     /// The trait of each trait member (function or constant).
     member_traits: HashMap<DefId, DefId>,
-    /// The traits with two overlapping blocks (E0215): obligations of them are not
-    /// judged, so only the overlap is reported, as rustc does.
+    /// The blocks reported as overlapping another (E0215) or as overflowing at a bound
+    /// (E0353): an ambiguity or overflow they make is not reported again, as in rustc.
     conflicting: HashSet<DefId>,
     /// The trait `impl` blocks, in source order.
     impls: Vec<ImplDef>,
@@ -365,10 +365,11 @@ impl ItemTypes {
         self.traits.get(&def)
     }
 
-    /// Whether two blocks of the trait `tr` overlap (E0215 was reported).
+    /// Whether the block `def` was reported as overlapping or overflowing (E0215,
+    /// E0353).
     #[must_use]
-    pub fn has_conflicting_impls(&self, tr: DefId) -> bool {
-        self.conflicting.contains(&tr)
+    pub fn is_reported_impl(&self, def: DefId) -> bool {
+        self.conflicting.contains(&def)
     }
 
     /// The trait whose member `def` is, if it is one.
@@ -1376,7 +1377,11 @@ fn check_overlap(
     let mut conflicting = HashSet::new();
     for (j, later) in items.impls.iter().enumerate() {
         for earlier in &items.impls[..j] {
-            if earlier.trait_ != later.trait_ {
+            // A block whose bound was dropped (E0107) may look wider than it is.
+            if earlier.trait_ != later.trait_
+                || resolve.has_incomplete_bounds(earlier.def)
+                || resolve.has_incomplete_bounds(later.def)
+            {
                 continue;
             }
             // The prelude's blocks come after the user's: a user's block that conflicts
@@ -1426,8 +1431,7 @@ fn check_overlap(
                     items.implements(&self_ty, pred.trait_, &args, &[])
                         == crate::traits::Solution::No
                 } else {
-                    resolve.lang_of(pred.trait_).is_none()
-                        && !items.could_have_impl(pred.trait_, &self_ty, &args, &vars)
+                    !items.could_hold(pred.trait_, &self_ty, &args, &vars)
                 };
                 fails && knowable(resolve, pred.trait_, &self_ty, &args, &vars)
             });
@@ -1472,7 +1476,8 @@ fn check_overlap(
                 d.with_label(earlier.span, "first implementation here")
             };
             sink.emit(d);
-            conflicting.insert(later.trait_);
+            conflicting.insert(later.def);
+            conflicting.insert(earlier.def);
             if !swapped {
                 break;
             }
@@ -1492,30 +1497,35 @@ fn check_bound_overflow(
     conflicting: &HashSet<DefId>,
     sink: &mut DiagnosticSink,
 ) -> HashSet<DefId> {
-    let mut traits = HashSet::new();
+    let mut overflowing = HashSet::new();
     let mut seen: HashSet<Span> = HashSet::new();
     let bounded = resolve
         .defs_of_kind(DefKind::Fn)
         .chain(resolve.defs_of_kind(DefKind::Impl))
         .filter(|&d| !resolve.is_prelude(d));
     for def in bounded {
+        // The item's own bounds are assumed while its bounds are checked, as in rustc.
+        let env = match resolve.def(def).kind {
+            DefKind::Impl => items.predicates(def),
+            _ => items.param_env(def),
+        };
         for pred in items.predicates(def) {
-            // Overlapping blocks were reported instead, as rustc does.
-            if !seen.insert(pred.span) || conflicting.contains(&pred.trait_) {
+            if !seen.insert(pred.span) {
                 continue;
             }
             let ty = Ty::Param(pred.param);
-            if items.implements(&ty, pred.trait_, &pred.args, &[])
-                == crate::traits::Solution::Overflow
-            {
-                let shown = resolve.def(pred.param).name.clone();
-                let tr = crate::traits::trait_ref_str(resolve, pred.trait_, &pred.args);
-                sink.emit(crate::traits::overflow_error(pred.span, &shown, &tr));
-                traits.insert(pred.trait_);
+            let culprits = items.overflowing_impls(&ty, pred.trait_, &pred.args, env);
+            // Overlapping blocks were reported instead, as rustc does.
+            if culprits.is_empty() || culprits.iter().any(|d| conflicting.contains(d)) {
+                continue;
             }
+            let shown = resolve.def(pred.param).name.clone();
+            let tr = crate::traits::trait_ref_str(resolve, pred.trait_, &pred.args);
+            sink.emit(crate::traits::overflow_error(pred.span, &shown, &tr));
+            overflowing.extend(culprits);
         }
     }
-    traits
+    overflowing
 }
 
 /// Whether only this file could implement `self_ty: tr<args>` (rustc's
@@ -1563,13 +1573,20 @@ fn check_supertraits(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Dia
                 *sup,
                 args.iter().map(|a| a.subst(&params, &subst)).collect(),
             );
-            if items.implements(&imp.self_ty, sup, &args, &imp.preds)
-                == crate::traits::Solution::Yes
-            {
+            let solution = items.implements(&imp.self_ty, sup, &args, &imp.preds);
+            if solution == crate::traits::Solution::Yes {
                 continue;
             }
             let ty = imp.self_ty.display(resolve);
             let sup_name = crate::traits::trait_ref_str(resolve, sup, &args);
+            if solution == crate::traits::Solution::Overflow {
+                // One error per root cause: an overflowing block's own bound was reported.
+                let culprits = items.overflowing_impls(&imp.self_ty, sup, &args, &imp.preds);
+                if !culprits.iter().any(|&d| items.is_reported_impl(d)) {
+                    sink.emit(crate::traits::overflow_error(imp.span, &ty, &sup_name));
+                }
+                continue;
+            }
             sink.emit(
                 Diagnostic::error(
                     ErrorCode::UNSATISFIED_BOUND,

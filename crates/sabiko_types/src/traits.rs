@@ -46,12 +46,13 @@ pub enum Solution {
 }
 
 /// How deep a chain of `impl` bounds may get (`impl<T: Show> Show for W<T>` at `W<W<..>>`)
-/// before solving gives up, as rustc's recursion limit does.
-const DEPTH_LIMIT: usize = 64;
+/// before solving gives up with an overflow: rustc's default recursion limit. The borrow
+/// checker follows proofs exactly as deep (`sabiko_borrowck`'s `bound_region_links`).
+pub const DEPTH_LIMIT: usize = 128;
 
 /// How many trait references the supertraits of one bound may imply before elaboration
 /// stops (`trait A<T>: A<(T,)>` implies endlessly many; rustc reports the cycle).
-const ELABORATION_LIMIT: usize = 64;
+const ELABORATION_LIMIT: usize = 1024;
 
 impl ItemTypes {
     /// The trait `tr` and all its supertraits, transitively, each once, `tr` first.
@@ -174,6 +175,32 @@ impl ItemTypes {
         self.select_impl(tr, self_ty, trait_args, &[])
     }
 
+    /// Whether `ty: tr<args>`, whose type parameters `vars` (coherence's) stand for any
+    /// type, could hold at some instance: through a block whose header unifies with it, or
+    /// through the built-in `Copy`/`Clone`, which a struct or enum has only by its derive
+    /// or its own block (so `W<U>: Clone` cannot hold for a `W` without either), and the
+    /// other types by their shape. Built-in impls go through the same negative reasoning as
+    /// written ones.
+    #[must_use]
+    pub fn could_hold(&self, tr: DefId, ty: &Ty, args: &[Ty], vars: &[DefId]) -> bool {
+        let Some(lang @ (LangItem::Copy | LangItem::Clone)) = self.lang_of(tr) else {
+            return self.could_have_impl(tr, ty, args, vars);
+        };
+        match ty {
+            Ty::Adt(def, _) => {
+                let derived = self.adt_def(*def).is_some_and(|adt| match lang {
+                    LangItem::Copy => adt.derives_copy,
+                    _ => adt.derives_clone,
+                });
+                derived || self.could_have_impl(tr, ty, args, vars)
+            }
+            Ty::Prim(PrimTy::Str) | Ty::Slice(_) | Ty::Ref(Mutability::Mut, _) => false,
+            Ty::Tuple(elems) => elems.iter().all(|e| self.could_hold(tr, e, args, vars)),
+            Ty::Array(elem, _) => self.could_hold(tr, elem, args, vars),
+            _ => true,
+        }
+    }
+
     /// Whether some block of `tr` has a header that unifies with `ty: tr<args>`, whose
     /// type parameters `vars` (coherence's) stand for any type: if none does, the trait
     /// reference holds at no instance.
@@ -210,7 +237,7 @@ impl ItemTypes {
         if ty.references_error() || args.iter().any(Ty::references_error) {
             return Solution::Yes;
         }
-        if depth > DEPTH_LIMIT {
+        if depth >= DEPTH_LIMIT {
             return Solution::Overflow;
         }
         if self.holds_in_env(ty, tr, args, env) {
@@ -259,6 +286,29 @@ impl ItemTypes {
         result
     }
 
+    /// The blocks whose bounds overflow while proving `ty: tr<args>` through them, where
+    /// `env` is assumed: rustc's well-formedness check of a where-clause assembles the
+    /// `impl` candidates beside the where-clause itself and evaluates them, so a block
+    /// asking for the trait at an ever larger type (`impl<T, U: Lp<V<T>>> Lp<T> for U`)
+    /// overflows (E0275), while one that only asks for the same bound again (`impl<T:
+    /// Foo> Foo for T`) is proved by the where-clause.
+    #[must_use]
+    pub fn overflowing_impls(
+        &self,
+        ty: &Ty,
+        tr: DefId,
+        args: &[Ty],
+        env: &[Predicate],
+    ) -> Vec<DefId> {
+        self.matching_impls(tr, ty, args)
+            .into_iter()
+            .filter(|(imp, impl_args)| {
+                self.bounds_hold(imp, impl_args, env, 1) == Solution::Overflow
+            })
+            .map(|(imp, _)| imp.def)
+            .collect()
+    }
+
     /// The first bound of the block `imp`, at its arguments, that fails where `env`
     /// holds: what an error reports when the block is the only one whose header matches
     /// (rustc's nested obligation).
@@ -278,6 +328,16 @@ impl ItemTypes {
                 _ => None,
             }
         })
+    }
+
+    /// Whether `ty: tr<args>` holds without an `impl` block: through a bound in `env`, the
+    /// built-in `Copy`/`Clone`, or because a type holds an error (reported).
+    #[must_use]
+    pub fn proved_without_impl(&self, ty: &Ty, tr: DefId, args: &[Ty], env: &[Predicate]) -> bool {
+        ty.references_error()
+            || args.iter().any(Ty::references_error)
+            || self.holds_in_env(ty, tr, args, env)
+            || self.builtin_impl(ty, tr, env, 0) == Some(Solution::Yes)
     }
 
     /// Whether a bound in `env` implies `ty: tr<args>` (`ty` a type parameter).

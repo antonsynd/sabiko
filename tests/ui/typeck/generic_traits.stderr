@@ -61,13 +61,6 @@
     │                 ─────┬────  
     │                      ╰────── the trait `From<u16>` is not implemented for `u8`
 ────╯
-[E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/generic_traits.sabi:71:9 ]
-    │
- 71 │     let c = s.Conv(); //~ ERROR E0313 type annotations needed
-    │         ┬  
-    │         ╰── consider giving `c` an explicit type
-────╯
 [E0341] Error: the trait bound `S: Conv<i64>` is not satisfied
     ╭─[ tests/ui/typeck/generic_traits.sabi:72:13 ]
     │

@@ -66,6 +66,17 @@ pub fn check_loans(
         // The signature cannot be used; `check_signatures` reports it (E0416).
         Err(FactsError::MissingLifetime { .. }) => return,
     };
+    for (span, why) in &facts.unrelated_bounds {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::INTERNAL_ERROR,
+                "internal compiler error: the borrow checker could not relate the regions of a bound the type checker proved",
+            )
+            .with_label(*span, "at this call")
+            .with_note(why.clone())
+            .with_note("this is a bug in the Sabiko compiler; please report it"),
+        );
+    }
     let output = Output::compute(&facts.all, Algorithm::DatafrogOpt, true);
     let mut successors: HashMap<Point, Vec<Point>> = HashMap::new();
     let mut predecessors: HashMap<Point, Vec<Point>> = HashMap::new();
