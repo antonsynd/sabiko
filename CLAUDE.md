@@ -9,6 +9,7 @@ make one) and `docs/SPEC.md` (the language as implemented).
 ## Commands
 
 ```sh
+scripts/setup-env.sh [--dotnet 10|11] [--check]  # fresh machine: rustup + pinned toolchain, cargo-deny, then setup-dotnet.sh
 scripts/setup-dotnet.sh && source tools/env.sh   # ilasm, ILVerify, ref assemblies, csc, builds Sabiko.Runtime.dll
 cargo build --workspace
 cargo fmt --all --check
