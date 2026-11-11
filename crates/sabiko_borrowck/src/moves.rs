@@ -31,7 +31,7 @@ use sabiko_resolve::ResolveResults;
 use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
-use crate::check::describe_place;
+use crate::check::{describe_any_place, user_place};
 use crate::dataflow::{self, Analysis, BitSet, Dominators, Location, ResultsCursor};
 
 /// Index into [`MovePaths`].
@@ -624,11 +624,11 @@ impl MoveChecker<'_> {
             )
             .with_label(span, "cannot move out of here")
             .with_note(format!(
-                "move occurs because `{desc}` has type `{}`, which does not implement the `Copy` trait",
+                "move occurs because {desc} has type `{}`, which does not implement the `Copy` trait",
                 ty.display(self.resolve)
             ))
             .with_note(format!(
-                "`{}` is dropped as a whole by its `drop`; borrow the field instead",
+                "{} is dropped as a whole by its `drop`; borrow the field instead",
                 self.describe(base)
             )),
         );
@@ -737,7 +737,7 @@ impl MoveChecker<'_> {
             )
             .with_label(span, "cannot move out of here")
             .with_note(format!(
-                "move occurs because `{desc}` has type `{}`, which does not implement the `Copy` trait",
+                "move occurs because {desc} has type `{}`, which does not implement the `Copy` trait",
                 ty.display(self.resolve)
             ))
             .with_note("borrow the element instead (`&a[i]`), or replace it"),
@@ -770,17 +770,14 @@ impl MoveChecker<'_> {
             Ty::Ref(Mutability::Mut, _) => "mutable",
             _ => "shared",
         };
-        // A place of an unnamed local (a parameter's pattern, `&(t, n): &(T, i32)`, #49)
-        // is not named, as in rustc: "cannot move out of a shared reference".
-        let named = self.body.local_decl(place.local).name.is_some();
-        let (what, subject) = if named {
-            let desc = self.describe(place);
-            (
+        // A place rustc cannot name (rooted in a parameter's pattern, `&(t, n): &(T,
+        // i32)`, #49): "cannot move out of a shared reference".
+        let (what, subject) = match user_place(place, self.body, self.typeck) {
+            Some(desc) => (
                 format!("`{desc}` which is behind a {kind} reference"),
                 format!("`{desc}`"),
-            )
-        } else {
-            (format!("a {kind} reference"), "the value".to_owned())
+            ),
+            None => (format!("a {kind} reference"), "the value".to_owned()),
         };
         self.sink.emit(
             Diagnostic::error(
@@ -835,7 +832,7 @@ impl MoveChecker<'_> {
         let used_desc = self.describe(used);
         let mut diag = Diagnostic::error(
             ErrorCode::USE_OF_MOVED_VALUE,
-            format!("{} {partially}moved value: `{used_desc}`", kind.noun()),
+            format!("{} {partially}moved value: {used_desc}", kind.noun()),
         )
         .with_label(
             span,
@@ -867,11 +864,14 @@ impl MoveChecker<'_> {
         let moved_desc = self.describe(moved_place);
         let moved_ty = moved_place.ty(self.body);
         diag = diag.with_note(format!(
-            "{partial}move occurs because `{moved_desc}` has type `{}`, which does not implement the `Copy` trait",
+            "{partial}move occurs because {moved_desc} has type `{}`, which does not implement the `Copy` trait",
             moved_ty.display(self.resolve)
         ));
-        if self.is_plain_let_of_mut_ref(sites[0], &moved_ty) {
-            diag = diag.with_note(format!("consider reborrowing: `&mut *{moved_desc}`"));
+        if let (true, Some(moved)) = (
+            self.is_plain_let_of_mut_ref(sites[0], &moved_ty),
+            user_place(moved_place, self.body, self.typeck),
+        ) {
+            diag = diag.with_note(format!("consider reborrowing: `&mut *{moved}`"));
         }
         self.sink.emit(diag);
     }
@@ -986,6 +986,6 @@ impl MoveChecker<'_> {
     }
 
     fn describe(&self, place: &Place) -> String {
-        describe_place(place, self.body, self.typeck)
+        describe_any_place(place, self.body, self.typeck)
     }
 }

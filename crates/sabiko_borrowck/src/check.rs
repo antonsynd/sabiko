@@ -219,7 +219,7 @@ impl Checker<'_> {
                     Diagnostic::error(
                         ErrorCode::ASSIGN_TO_IMMUTABLE,
                         format!(
-                            "cannot assign to `{}`, as `{root_name}` is not declared as mutable",
+                            "cannot assign to {}, as `{root_name}` is not declared as mutable",
                             self.describe(place)
                         ),
                     )
@@ -228,21 +228,26 @@ impl Checker<'_> {
                 );
             }
             PlaceMutability::BehindSharedRef(reference) => {
-                self.sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::ASSIGN_THROUGH_SHARED_REF,
+                let (message, label) = match (self.user_place(place), self.user_place(&reference)) {
+                    (Some(p), Some(r)) => (
+                        format!("cannot assign to `{p}`, which is behind a `&` reference"),
                         format!(
-                            "cannot assign to `{}`, which is behind a `&` reference",
-                            self.describe(place)
-                        ),
-                    )
-                    .with_label(
-                        span,
-                        format!(
-                            "`{}` is a `&` reference, so the data it refers to cannot be written",
-                            self.describe(&reference)
+                            "`{r}` is a `&` reference, so the data it refers to cannot be written"
                         ),
                     ),
+                    (Some(p), None) => (
+                        format!("cannot assign to `{p}`, which is behind a `&` reference"),
+                        "cannot assign".to_owned(),
+                    ),
+                    // rustc's wording for a place it cannot name.
+                    (None, _) => (
+                        "cannot assign to data in a `&` reference".to_owned(),
+                        "cannot assign".to_owned(),
+                    ),
+                };
+                self.sink.emit(
+                    Diagnostic::error(ErrorCode::ASSIGN_THROUGH_SHARED_REF, message)
+                        .with_label(span, label),
                 );
             }
         }
@@ -285,7 +290,7 @@ impl Checker<'_> {
                     Diagnostic::error(
                         ErrorCode::BORROW_MUT_IMMUTABLE,
                         format!(
-                            "cannot borrow `{}` as mutable, as `{root_name}` is not declared as mutable",
+                            "cannot borrow {} as mutable, as `{root_name}` is not declared as mutable",
                             self.describe(place)
                         ),
                     )
@@ -294,21 +299,26 @@ impl Checker<'_> {
                 );
             }
             PlaceMutability::BehindSharedRef(reference) => {
-                self.sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::BORROW_MUT_THROUGH_SHARED_REF,
+                let (message, label) = match (self.user_place(place), self.user_place(&reference)) {
+                    (Some(p), Some(r)) => (
+                        format!("cannot borrow `{p}` as mutable, as it is behind a `&` reference"),
                         format!(
-                            "cannot borrow `{}` as mutable, as it is behind a `&` reference",
-                            self.describe(place)
-                        ),
-                    )
-                    .with_label(
-                        span,
-                        format!(
-                            "`{}` is a `&` reference, so the data it refers to cannot be borrowed as mutable",
-                            self.describe(&reference)
+                            "`{r}` is a `&` reference, so the data it refers to cannot be borrowed as mutable"
                         ),
                     ),
+                    (Some(p), None) => (
+                        format!("cannot borrow `{p}` as mutable, as it is behind a `&` reference"),
+                        "cannot borrow as mutable".to_owned(),
+                    ),
+                    // rustc's wording for a place it cannot name.
+                    (None, _) => (
+                        "cannot borrow data in a `&` reference as mutable".to_owned(),
+                        "cannot borrow as mutable".to_owned(),
+                    ),
+                };
+                self.sink.emit(
+                    Diagnostic::error(ErrorCode::BORROW_MUT_THROUGH_SHARED_REF, message)
+                        .with_label(span, label),
                 );
             }
         }
@@ -322,7 +332,11 @@ impl Checker<'_> {
     }
 
     fn describe(&self, place: &Place) -> String {
-        describe_place(place, self.body, self.typeck)
+        describe_any_place(place, self.body, self.typeck)
+    }
+
+    fn user_place(&self, place: &Place) -> Option<String> {
+        user_place(place, self.body, self.typeck)
     }
 
     /// The user-facing name of a local: its binding's name, or `_N` for temporaries.
@@ -343,6 +357,23 @@ impl Checker<'_> {
     }
 }
 
+/// [`describe_place`] for a place whose root is a user's binding; `None` for one rooted in
+/// a temporary or an unnamed parameter (`&(a, b): &(i32, i32)` binds from one, #49), which
+/// rustc does not name either.
+#[must_use]
+pub fn user_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Option<String> {
+    let decl = body.local_decl(place.local);
+    (matches!(decl.kind, LocalKind::User | LocalKind::Arg) && decl.name.is_some())
+        .then(|| describe_place(place, body, typeck))
+}
+
+/// A place as borrow-checker messages show it: `` `p.x` `` (with the backquotes) for a
+/// user's place, rustc's "value" for one it cannot name ([`user_place`]).
+#[must_use]
+pub fn describe_any_place(place: &Place, body: &Body, typeck: &TypeckResults) -> String {
+    user_place(place, body, typeck).map_or_else(|| "value".to_owned(), |d| format!("`{d}`"))
+}
+
 /// Renders a place the way a user wrote it: locals by name (`_N` for temporaries),
 /// fields by name, and derefs as `*` except directly before a field access, where
 /// auto-deref hides them (`(*p).X` prints as `p.X`, as in rustc).
@@ -360,8 +391,10 @@ pub fn describe_place(place: &Place, body: &Body, typeck: &TypeckResults) -> Str
             // rustc names a variant's field as the enum's: `s.0` for `(s as Full).0`.
             PlaceElem::Downcast(v) => variant = Some(*v),
             PlaceElem::Deref => {
-                // rustc names the field or element through the reference: `p.x`, `s[_]`,
-                // also a variant's field (`r.0` for `((*r) as Full).0`).
+                // rustc names the field or element through the reference: `p.x`, `s[_]`.
+                // A variant's field is written the same way (`r.0` for `((*r) as Full).0`);
+                // rustc's E0507 for a move out of one words it differently ("`r` as enum
+                // variant `Full`"), which Sabiko does not reproduce.
                 let followed_by_field = matches!(
                     place.projection[index + 1..]
                         .iter()

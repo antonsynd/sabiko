@@ -76,7 +76,9 @@ names which phase owns which section.
   reference patterns `&p` and `&mut p` (#49; `&&p` is two, and a range under `&` needs
   parentheses, `&(0..=5)`, E0100 otherwise as in rustc); paths `E::V`; tuple patterns
   `(p, ..)`, tuple-variant patterns `E::V(p, ..)` and struct patterns `S { F: p, G, ref H,
-  .. }` (struct or struct variant), with at most one `..` among the elements; or-patterns
+  .. }` (struct or struct variant), with at most one `..` among the elements (a `..`
+  anywhere else, `&..` or a whole pattern `..`, is E0100, rustc's "`..` patterns are not
+  allowed here"); or-patterns
   `p | q` (a leading `|` is allowed in a `match` arm and an `if let`); `(p)` is `p`. A lone
   identifier that names a constant or a unit struct compares instead of binding, as in
   rustc. A string literal pattern matches a `&str` (#10). A top-level or-pattern in a `let`
@@ -888,9 +890,12 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   integer, float or `char` type, a lower bound not above the upper one (E0332, rustc's
   E0030), for `a..b` a non-empty range and for `..b` a `b` above the type's minimum (E0332,
   E0579); `a..` includes the type's maximum. A NaN constant in a pattern, alone or as a
-  bound, is E0332 (rustc's "cannot use NaN in patterns"). Float ranges compare as floats
+  bound or inside a tuple constant, is E0332 (rustc's "cannot use NaN in patterns").
+  Float ranges compare as floats
   (`-0.0` equals `0.0`; NaN matches none) and never make a match exhaustive; a literal or
-  range inside an earlier one is unreachable, as in rustc. A variant pattern must be of the
+  range inside an earlier one is unreachable, as in rustc (a range ending at the same
+  bound only when its end is the same: `0.0..1.0` after `0.0..=1.0` is not reported). A
+  variant pattern must be of the
   scrutinee's enum (E0300) and of the right kind (E0326: `V(x)` for a unit or struct
   variant, `V` for a tuple variant, rustc's E0532/E0164); a tuple-variant pattern has as
   many elements as the variant, `..` standing for any number (E0327, E0023); a struct

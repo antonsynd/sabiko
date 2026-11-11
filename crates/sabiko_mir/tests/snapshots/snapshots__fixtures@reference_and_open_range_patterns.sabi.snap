@@ -216,6 +216,24 @@ fn Open(_1: u8, _2: i64) -> i32 {
     }
 }
 
+fn Char(_1: char) -> i32 {
+    let mut _0: i32;
+
+    bb0: {
+        PlaceMention(_1);
+        goto -> bb1;
+    }
+
+    bb1: {
+        _0 = const 1_i32;
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
 fn Float(_1: f64) -> i32 {
     let mut _0: i32;
     let mut _2: f64;

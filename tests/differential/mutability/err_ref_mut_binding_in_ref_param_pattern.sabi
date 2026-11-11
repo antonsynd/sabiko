@@ -1,0 +1,6 @@
+// Under a `&` pattern in a parameter (#49), `ref mut` would borrow through a shared
+// reference: E0596 ("cannot borrow data in a `&` reference as mutable").
+fn F(&(ref mut a, _): &(i32, i32)) -> i32 {
+    *a = 3;
+    *a
+}

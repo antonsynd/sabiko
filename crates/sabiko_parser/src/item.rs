@@ -1122,6 +1122,22 @@ impl Parser<'_, '_> {
         })
     }
 
+    /// An element of a tuple or tuple-struct pattern: `..` alone (a rest pattern, the one
+    /// place it is allowed), or a pattern that may be an or-pattern.
+    fn parse_pat_elem(&mut self) -> PResult<Pat> {
+        if self.at(TokenKind::DotDot)
+            && matches!(self.nth_kind(1), TokenKind::Comma | TokenKind::RParen)
+        {
+            let tok = self.bump();
+            return Ok(Pat {
+                id: self.new_id(),
+                kind: PatKind::Rest,
+                span: tok.span,
+            });
+        }
+        self.parse_pat_or()
+    }
+
     /// One alternative of a pattern: everything but a top-level `|`.
     pub(crate) fn parse_pat(&mut self) -> PResult<Pat> {
         self.nested(Self::parse_pat_inner)
@@ -1138,13 +1154,19 @@ impl Parser<'_, '_> {
             }
             TokenKind::DotDot => {
                 self.bump();
-                if self.at_range_bound() {
-                    // `..hi`: a half-open range (#49).
-                    let hi = self.parse_range_bound()?;
-                    PatKind::Range(None, Some(Box::new(hi)), RangeEnd::Excluded)
-                } else {
-                    PatKind::Rest
+                if !self.at_range_bound() {
+                    // A rest pattern is only an element of a tuple or tuple-struct pattern
+                    // (`parse_pat_elem`), as in rustc.
+                    let d = Diagnostic::error(
+                        ErrorCode::UNEXPECTED_TOKEN,
+                        "`..` patterns are not allowed here",
+                    )
+                    .with_label(start, "only allowed in tuple and tuple struct patterns");
+                    return Err(self.emit(d));
                 }
+                // `..hi`: a half-open range (#49).
+                let hi = self.parse_range_bound()?;
+                PatKind::Range(None, Some(Box::new(hi)), RangeEnd::Excluded)
             }
             TokenKind::DotDotEq => {
                 // `..=hi` (#49).
@@ -1181,7 +1203,7 @@ impl Parser<'_, '_> {
                     TokenKind::LParen => {
                         self.bump();
                         let (elems, _) = self.nested(|p| {
-                            p.parse_comma_list(TokenKind::RParen, Self::parse_pat_or)
+                            p.parse_comma_list(TokenKind::RParen, Self::parse_pat_elem)
                         })?;
                         self.check_single_rest(&elems, "tuple struct");
                         PatKind::TupleStruct(path, elems)
@@ -1210,7 +1232,7 @@ impl Parser<'_, '_> {
             TokenKind::LParen => {
                 self.bump();
                 let (mut elems, trailing_comma) =
-                    self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_pat_or))?;
+                    self.nested(|p| p.parse_comma_list(TokenKind::RParen, Self::parse_pat_elem))?;
                 if elems.len() == 1 && !trailing_comma && !matches!(elems[0].kind, PatKind::Rest) {
                     // `(p)` is `p`.
                     let mut inner = elems.pop().expect("one element");

@@ -1454,12 +1454,18 @@ fn push_fake_place(out: &mut Vec<Place>, place: &Place, itself: bool) {
     }
 }
 
-/// Whether `c` is a range pattern matching every value of the integer type `ty`
-/// (`i32::MIN..=i32::MAX`, `0u8..=255`): rustc tests nothing for it.
+/// Whether `c` is a range pattern matching every value of the integer or `char` type `ty`
+/// (`i32::MIN..=i32::MAX`, `0u8..=255`, `'\0'..`): rustc tests nothing for it.
 fn is_full_range(c: Option<&PatConst>, ty: &Ty) -> bool {
     let (Some(PatConst::Range { lo, hi, inclusive }), Some(prim)) = (c, ty.as_prim()) else {
         return false;
     };
+    if *ty == Ty::CHAR {
+        // A `char` literal cannot reach rustc's maximum, `'\u{10FFFF}'` (decision 31): only
+        // an open end does.
+        let lo_is_min = matches!(lo, None | Some(ConstValue::Char('\0')));
+        return *inclusive && lo_is_min && hi.is_none();
+    }
     if !prim.is_integer() {
         return false;
     }

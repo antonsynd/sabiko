@@ -303,10 +303,17 @@ impl PatValues<'_, '_> {
         );
     }
 
-    /// Reports a NaN constant in a pattern, which rustc rejects ("cannot use NaN in
-    /// patterns"): no value equals it.
+    /// Reports a NaN constant in a pattern, also inside a tuple constant, which rustc
+    /// rejects ("cannot use NaN in patterns"): no value equals it.
     fn is_nan(&mut self, v: &ConstValue, span: Span) -> bool {
-        if !matches!(v, ConstValue::Float(f) if f.is_nan()) {
+        fn has_nan(v: &ConstValue) -> bool {
+            match v {
+                ConstValue::Float(f) => f.is_nan(),
+                ConstValue::Tuple(values) => values.iter().any(has_nan),
+                _ => false,
+            }
+        }
+        if !has_nan(v) {
             return false;
         }
         self.sink.emit(
@@ -456,9 +463,10 @@ fn is_type_min(v: &ConstValue, ty: Option<&Ty>) -> bool {
     while let Some(Ty::Ref(_, inner)) = ty {
         ty = Some(inner);
     }
+    let min = |p: PrimTy| p.is_integer().then(|| crate::consts::int_bounds(p).0);
     match (v, ty.and_then(Ty::as_prim)) {
-        (ConstValue::Int(i), Some(p)) if p.is_integer() => *i == crate::consts::int_bounds(p).0,
-        (ConstValue::Uint(u), _) => *u == 0,
+        (ConstValue::Int(i), Some(p)) => min(p) == Some(*i),
+        (ConstValue::Uint(u), Some(p)) => min(p).is_some_and(|m| i128::try_from(*u) == Ok(m)),
         (ConstValue::Char(c), _) => *c == '\0',
         (ConstValue::Float(f), _) => *f == f64::NEG_INFINITY,
         _ => false,

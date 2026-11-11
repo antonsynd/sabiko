@@ -1178,9 +1178,14 @@ guard's fake borrows are those of `*r`. A half-open range compares its one bound
 is E0332 (E0579), `a..=` E0102 (E0586) and `&0..=5` E0100 ("ambiguous interpretation").
 Float ranges compare as floats and use rustc's `F64Range` in the usefulness port: they
 never make a match exhaustive, but a literal or range inside an earlier one is
-unreachable; a NaN constant in a pattern is E0332. Moving out of a reference that has no
-name (a parameter's pattern) now says "cannot move out of a shared reference", and a
-variant field behind a reference is named `r.0`, not `*r.0`. The two staged programs
+unreachable; a NaN constant in a pattern (also inside a tuple constant) is E0332. A `..`
+outside a tuple or tuple-struct pattern (`&..`, a whole pattern `..`, accepted before) is
+E0100. Borrow-checker messages no longer name a place rooted in an unnamed local (a
+parameter's pattern): "cannot move out of a shared reference", "cannot borrow data in a
+`&` reference as mutable", "value" elsewhere, as rustc words them (`describe_any_place`);
+a variant field behind a reference is named `r.0`, not `*r.0` (rustc's E0507 says "`r` as
+enum variant `Full`"). A parameter's pattern binds from a mutable argument, as in rustc,
+so `(ref mut a, b): (i32, i32)` is accepted (it was E0402). `'\0'..` tests nothing. The two staged programs
 moved to `differential/run/enums/` with three more (every position of a `&` pattern,
 half-open ranges of every integer type and `char`, float ranges with NaN and infinities);
 18 verdict programs in `differential/{moves,loans,mutability,enums}/`, one lint program,

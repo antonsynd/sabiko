@@ -263,8 +263,10 @@ impl<'a> Builder<'a> {
                     Mutability::from_bool(*mutable),
                     resolve.local_of_pat(param.pat.id),
                 ),
-                // Any other pattern destructures the argument at the start of the body.
-                _ => (None, Mutability::Not, None),
+                // Any other pattern destructures the argument at the start of the body. The
+                // unnamed argument is mutable, as rustc declares it: `(ref mut a, _): (i32,
+                // i32)` borrows it mutably.
+                _ => (None, Mutability::Mut, None),
             };
             let local = Local(u32::try_from(locals.len()).expect("fewer than 2^32 locals"));
             if let Some(id) = source {

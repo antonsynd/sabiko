@@ -1,21 +1,28 @@
 [E0407] Error: cannot move out of `r.0` which is behind a shared reference
-    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:10:21 ]
+    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:11:21 ]
     │
- 10 │         &Slot::Full(t) => t.Id, //~ ERROR E0407 cannot move out of `r.0` which is behind a shared reference
+ 11 │         &Slot::Full(t) => t.Id, //~ ERROR E0407 cannot move out of `r.0` which is behind a shared reference
     │                     ┬  
     │                     ╰── move occurs because `r.0` has type `Token`, which does not implement the `Copy` trait
 ────╯
 [E0407] Error: cannot move out of `r.0` which is behind a mutable reference
-    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:16:15 ]
+    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:17:15 ]
     │
- 16 │     let &mut (t, n) = r; //~ ERROR E0407 cannot move out of `r.0` which is behind a mutable reference
+ 17 │     let &mut (t, n) = r; //~ ERROR E0407 cannot move out of `r.0` which is behind a mutable reference
     │               ┬  
     │               ╰── move occurs because `r.0` has type `Token`, which does not implement the `Copy` trait
 ────╯
 [E0407] Error: cannot move out of a shared reference
-    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:20:12 ]
+    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:21:12 ]
     │
- 20 │ fn Param(&(t, n): &(Token, i32)) -> i32 { //~ ERROR E0407 cannot move out of a shared reference
+ 21 │ fn Param(&(t, n): &(Token, i32)) -> i32 { //~ ERROR E0407 cannot move out of a shared reference
     │            ┬  
     │            ╰── move occurs because the value has type `Token`, which does not implement the `Copy` trait
+────╯
+[E0404] Error: cannot borrow data in a `&` reference as mutable
+    ╭─[ tests/ui/borrowck/ref_pattern_moves_out_of_borrow.sabi:26:18 ]
+    │
+ 26 │ fn ParamRefMut(&(ref mut a, _): &(i32, i32)) -> i32 { //~ ERROR E0404 cannot borrow data in a `&` reference as mutable
+    │                  ────┬────  
+    │                      ╰────── cannot borrow as mutable
 ────╯

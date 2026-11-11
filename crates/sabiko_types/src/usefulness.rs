@@ -142,8 +142,9 @@ pub enum PatKind {
     /// floats never cover the type.
     Float(f64),
     /// A float range pattern (#49), `lo..=hi` or `lo..hi`, an open end infinite (`lo..`
-    /// is `lo..=inf`): it covers the literals and ranges inside it, as rustc's
-    /// `F64Range`, but floats never cover the type.
+    /// is `lo..=inf`): it covers the literals and ranges inside it by rustc's `F64Range`
+    /// rule (a range ending at the same bound is covered only with the same end, so
+    /// `0.0..1.0` is not covered by `0.0..=1.0`), but floats never cover the type.
     FloatRange { lo: f64, hi: f64, inclusive: bool },
     /// Any other literal value: it covers nothing but itself and never makes a match
     /// exhaustive. Of type `&str` it behaves like a `Str` pattern.
@@ -642,11 +643,13 @@ impl Ctor {
             (Ctor::IntRange(a), Ctor::IntRange(b)) => a.is_subrange(*b),
             (Ctor::Str(a), Ctor::Str(b)) => a == b,
             (Ctor::FloatRange(lo, hi, inclusive), Ctor::FloatRange(o_lo, o_hi, o_inclusive)) => {
-                // rustc's `is_covered_by` for float ranges.
+                // rustc's `is_covered_by` for float ranges: with equal upper bounds the
+                // ends must be equal too, so rustc (1.99) takes `0.0..1.0` as not covered by
+                // `0.0..=1.0`.
                 lo >= o_lo
                     && match hi.partial_cmp(o_hi) {
                         Some(std::cmp::Ordering::Less) => true,
-                        Some(std::cmp::Ordering::Equal) => *o_inclusive || inclusive == o_inclusive,
+                        Some(std::cmp::Ordering::Equal) => inclusive == o_inclusive,
                         _ => false,
                     }
             }

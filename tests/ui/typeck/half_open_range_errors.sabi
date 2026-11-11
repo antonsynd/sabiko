@@ -3,6 +3,7 @@
 // Half-open and float range patterns (#49): `..MIN` is empty (E0579), a float range is
 // checked like an integer one (E0030, E0579), and a NaN bound or constant is an error.
 const N: f64 = 0.0 / 0.0;
+const T: (f64, i32) = (0.0 / 0.0, 1);
 
 fn Ints(n: i32, c: char, u: u8) -> i32 {
     let a = match n {
@@ -44,6 +45,13 @@ fn Floats(x: f64) -> i32 {
         _ => 0,
     };
     a + b + c + d + e
+}
+
+fn InTuple(p: (f64, i32)) -> i32 {
+    match p {
+        T => 1, //~ ERROR E0332 cannot use NaN in patterns
+        _ => 0,
+    }
 }
 
 fn Main() {}

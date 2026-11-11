@@ -28,6 +28,13 @@ fn Open(x: u8, y: i64) -> i32 {
     }
 }
 
+// `'\0'..` covers `char`: no test, as in rustc.
+fn Char(c: char) -> i32 {
+    match c {
+        '\0'.. => 1,
+    }
+}
+
 fn Float(x: f64) -> i32 {
     match x {
         ..0.0 => -1,
