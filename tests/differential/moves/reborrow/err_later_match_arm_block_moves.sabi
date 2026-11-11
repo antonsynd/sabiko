@@ -1,0 +1,9 @@
+// A later `match` arm that is a block is not coerced to the first arm's type itself: its
+// tail has no expected type and moves the `&mut`, as in rustc.
+fn F(c: bool, r: &mut u8, s: &mut u8) {
+    let x = match c {
+        true => r,
+        false => { s }
+    };
+    *s += 1;
+}

@@ -1,0 +1,5 @@
+// `(_, i32)` leaves the element's type undecided: the `&mut` is moved into the tuple.
+fn F(r: &mut u8) {
+    let t: (_, i32) = (r, 1);
+    *r += 1;
+}

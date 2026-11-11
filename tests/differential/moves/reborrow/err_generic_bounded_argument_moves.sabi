@@ -1,0 +1,11 @@
+// A bounded type parameter is still not known to be a reference at the call.
+trait Tr {}
+
+impl<T> Tr for T {}
+
+fn B<T: Tr>(x: T) {}
+
+fn F(r: &mut u8) {
+    B(r);
+    *r += 1;
+}

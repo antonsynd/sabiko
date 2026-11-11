@@ -1,0 +1,6 @@
+// Without an expected type the `else` block's tail is not coerced to the `then`
+// branch's type: it is moved.
+fn F(c: bool, r: &mut u8, s: &mut u8) {
+    let x = if c { r } else { s };
+    *s += 1;
+}

@@ -1,0 +1,12 @@
+// Passed to a type parameter in a loop, a `&mut` is moved in the first iteration.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(r: &mut u8) {
+    let mut i = 0;
+    while i < 2 {
+        Id(r);
+        i += 1;
+    }
+}

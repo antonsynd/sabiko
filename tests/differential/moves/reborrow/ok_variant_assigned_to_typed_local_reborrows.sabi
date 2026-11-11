@@ -1,0 +1,12 @@
+// Assigned to a local whose type is already known, the variant's payload type is known:
+// reborrowed.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn F(r: &mut u8, s: &mut u8) {
+    let mut t = Opt::Yes(s);
+    t = Opt::Yes(r);
+    *r += 1;
+}

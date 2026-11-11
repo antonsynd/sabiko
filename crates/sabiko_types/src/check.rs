@@ -68,10 +68,15 @@ pub struct BodyTypes {
     /// value (`ref`/`ref mut` by default binding mode), keyed by the `PatKind::Ident`
     /// node; absent for a by-value binding.
     pub ref_bindings: HashMap<NodeId, Mutability>,
-    /// Tuple expressions checked against an expected tuple type of their arity: each
-    /// element is a coercion site (a `&mut` place there is reborrowed, not moved), as in
-    /// rustc. Keyed by the `ExprKind::Tuple` node.
-    pub coerced_tuples: HashSet<NodeId>,
+    /// Expressions of type `&mut T` that are reborrowed where they are coerced, rather
+    /// than moved: `&mut *e`, or `&*e` (`Mutability::Not`) where a `&T` is expected.
+    /// rustc's reborrow adjustment, which its coercion inserts only when the target type
+    /// is already known to be a reference at the coercion site: a parameter of type
+    /// `&mut u8` reborrows its argument, one of type `T` (an inference variable then)
+    /// moves it, and so do `let x = r;` and an element of a tuple nothing types (#132).
+    /// Keyed by the coerced expression's node inside any parentheses; read through
+    /// [`BodyTypes::reborrow`].
+    pub(crate) reborrows: HashMap<NodeId, Mutability>,
     /// The callee of every method call, keyed by the `ExprKind::MethodCall` node.
     pub method_calls: HashMap<NodeId, MethodCallee>,
     /// The function a path names where the type checker chose it rather than the
@@ -102,8 +107,10 @@ pub struct BodyTypes {
     pub len_calls: HashMap<NodeId, usize>,
     /// Expressions whose value is coerced to another pointer representation where it is
     /// used, with the target type: `&[T; N]` or `&mut [T; N]` to `&[T]` / `&mut [T]`
-    /// (unsizing), and `&mut [T]` to `&[T]`.
-    pub coercions: HashMap<NodeId, Ty>,
+    /// (unsizing), and `&mut [T]` to `&[T]`. Keyed by the expression's node inside any
+    /// parentheses, read through [`BodyTypes::coercion`]; or by the pattern node of a
+    /// destructuring assignment's assignee ([`BodyTypes::assignee_coercion`]).
+    pub(crate) coercions: HashMap<NodeId, Ty>,
     /// The evaluated count of each repeat expression `[v; N]`, keyed by its node.
     pub repeat_counts: HashMap<NodeId, u64>,
     /// `true` when at least one error was reported inside this body.
@@ -126,6 +133,28 @@ pub enum PatConst {
 }
 
 impl BodyTypes {
+    /// The pointer coercion `expr`'s value gets where it is used (see `coercions`). Side
+    /// tables of adjustments are keyed by the expression inside any parentheses, so `(r)`
+    /// and `r` agree (a reader keying by the parenthesised node missed them).
+    #[must_use]
+    pub fn coercion(&self, expr: &Expr) -> Option<&Ty> {
+        self.coercions.get(&strip_parens(expr).id)
+    }
+
+    /// The pointer coercion of the value a destructuring assignment writes to the
+    /// assignee pattern `pat`.
+    #[must_use]
+    pub fn assignee_coercion(&self, pat: NodeId) -> Option<&Ty> {
+        self.coercions.get(&pat)
+    }
+
+    /// How `expr`, a `&mut T`, is reborrowed where it is coerced (see `reborrows`);
+    /// `None` when it is moved. Through parentheses, as [`BodyTypes::coercion`].
+    #[must_use]
+    pub fn reborrow(&self, expr: &Expr) -> Option<Mutability> {
+        self.reborrows.get(&strip_parens(expr).id).copied()
+    }
+
     #[must_use]
     pub fn expr_ty(&self, id: NodeId) -> &Ty {
         self.expr_types
@@ -181,6 +210,9 @@ struct NeverOperand {
     out: Option<Ty>,
 }
 
+/// A failed coercion: where, the expected type and the type found.
+type Mismatch = (Span, Ty, Ty);
+
 #[allow(clippy::struct_excessive_bools)] // independent flags of the expression being checked
 pub(crate) struct FnCtxt<'a> {
     resolve: &'a ResolveResults,
@@ -196,7 +228,12 @@ pub(crate) struct FnCtxt<'a> {
     field_accesses: HashMap<NodeId, FieldAccess>,
     pat_derefs: HashMap<NodeId, usize>,
     ref_bindings: HashMap<NodeId, Mutability>,
-    coerced_tuples: HashSet<NodeId>,
+    reborrows: HashMap<NodeId, Mutability>,
+    /// While a call argument is checked against an [`Self::expected_inputs`] hint: its
+    /// node (inside any parentheses) and, once checked, its own failed coercion to the
+    /// hint (where, expected, found), which [`Self::check_args`] reports instead of
+    /// [`Self::coerce_to_expected`].
+    deferred_mismatch: Option<(NodeId, Option<Mismatch>)>,
     method_calls: HashMap<NodeId, MethodCallee>,
     /// See [`BodyTypes::generic_args`]; with the function and the span to report an
     /// argument that inference leaves unknown at.
@@ -276,7 +313,8 @@ impl<'a> FnCtxt<'a> {
             field_accesses: HashMap::new(),
             pat_derefs: HashMap::new(),
             ref_bindings: HashMap::new(),
-            coerced_tuples: HashSet::new(),
+            reborrows: HashMap::new(),
+            deferred_mismatch: None,
             method_calls: HashMap::new(),
             generic_args: HashMap::new(),
             pat_types: HashMap::new(),
@@ -453,6 +491,14 @@ impl<'a> FnCtxt<'a> {
     /// Makes `found` acceptable where `expected` is required, reporting a mismatch at
     /// `span` if it is not.
     fn coerce(&mut self, span: Span, found: &Ty, expected: &Ty) {
+        if let Some((span, expected, found)) = self.coerce_or_mismatch(span, found, expected) {
+            self.mismatch(span, &expected, &found);
+        }
+    }
+
+    /// [`Self::coerce`], returning a plain mismatch (where, expected, found) instead of
+    /// reporting it. A cyclic type is reported here.
+    fn coerce_or_mismatch(&mut self, span: Span, found: &Ty, expected: &Ty) -> Option<Mismatch> {
         if self.try_coerce(found, expected).is_err() {
             if self.infer.is_cyclic(found, expected) {
                 let (e, f) = (self.ty_str(expected), self.ty_str(found));
@@ -465,9 +511,10 @@ impl<'a> FnCtxt<'a> {
                 self.infer.bind_error(found);
                 self.infer.bind_error(expected);
             } else {
-                self.mismatch(span, expected, found);
+                return Some((span, expected.clone(), found.clone()));
             }
         }
+        None
     }
 
     fn try_coerce(&mut self, found: &Ty, expected: &Ty) -> Result<(), ()> {
@@ -653,8 +700,161 @@ impl<'a> FnCtxt<'a> {
     /// the expression's own type, which is also recorded.
     fn check_expr(&mut self, expr: &Expr, expected: Option<&Ty>) -> Ty {
         let ty = self.check_expr_kind(expr, expected);
+        if let Some(exp) = expected {
+            // Blocks, `if` and parentheses pass the expectation on to their tails,
+            // branches and operand, which are the coercion sites.
+            if !matches!(
+                expr.kind,
+                ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
+            ) {
+                self.note_reborrow(expr, &ty, exp);
+            }
+        }
         self.coerce_to_expected(expr, &ty, expected);
         self.record(expr, ty)
+    }
+
+    /// Records that `expr`, of type `found`, is reborrowed where it is coerced to
+    /// `target` (see [`BodyTypes::reborrows`]): when it is a `&mut` and the target is
+    /// already known to be a reference. A target that is still an inference variable (a
+    /// generic parameter's `T`, an unannotated `let`) is unified with `found` instead,
+    /// and the reference is moved, as in rustc's `coerce`.
+    fn note_reborrow(&mut self, expr: &Expr, found: &Ty, target: &Ty) {
+        if let (Ty::Ref(Mutability::Mut, _), Ty::Ref(m, _)) =
+            (self.shallow(found), self.shallow(target))
+        {
+            self.reborrows.insert(strip_parens(expr).id, m);
+        }
+    }
+
+    /// rustc's `adjust_for_branches`: the expectation the branches of an `if` or the arms
+    /// of a `match` are checked against. One that is still an inference variable says
+    /// nothing and is dropped, so a branch's tail is not coerced to it: in `Id(if c { r }
+    /// else { s })` the `else` block's tail `s` is moved even though `r` already decided
+    /// the variable, as rustc does. The caller coerces the result to the variable.
+    fn expectation_for_branches(&mut self, expected: Option<&Ty>) -> Option<Ty> {
+        let exp = expected?;
+        match self.shallow(exp) {
+            Ty::Infer(v) if self.infer.kind(v) == VarKind::General => None,
+            _ => Some(exp.clone()),
+        }
+    }
+
+    /// rustc's `expected_inputs_for_expected_output`: the types the arguments of a call
+    /// whose result is expected to be `expected` are checked against, found by unifying
+    /// the callee's `output` with `expected` without keeping the result. `None` without an
+    /// (informative) expectation or when the two do not unify: the arguments are then
+    /// checked against the parameters. So `let t: &mut u8 = Id(r);` reborrows `r`, as the
+    /// parameter `T` is known to be `&mut u8` when `r` is coerced to it.
+    fn expected_inputs(
+        &mut self,
+        expected: Option<&Ty>,
+        output: &Ty,
+        inputs: &[Ty],
+    ) -> Option<Vec<Ty>> {
+        let exp = self.shallow(expected?);
+        if matches!(exp, Ty::Infer(_) | Ty::Error | Ty::Never) {
+            return None;
+        }
+        // Nothing to learn when the output has no variable an expectation could decide.
+        if !self.has_infer_vars(output) {
+            return None;
+        }
+        self.infer.probe(|infer| {
+            infer
+                .unify(output, &exp)
+                .is_ok()
+                .then(|| inputs.iter().map(|t| infer.resolve(t)).collect())
+        })
+    }
+
+    /// Whether `ty` still has a variable nothing has decided.
+    fn has_infer_vars(&mut self, ty: &Ty) -> bool {
+        self.infer.has_undecided(ty)
+    }
+
+    /// rustc's hint for a struct literal: its type `adt` (with fresh variables for the
+    /// generic arguments not written) is unified with the expected type first, when they
+    /// unify, so the fields are checked against what the expectation says of them: in
+    /// `let w: W<&mut u8> = W { F: r };` the field `F` is known to be a `&mut u8`, and `r`
+    /// is reborrowed.
+    fn unify_with_expected_adt(&mut self, adt: &Ty, expected: Option<&Ty>) {
+        let Some(exp) = expected.map(|e| self.shallow(e)) else {
+            return;
+        };
+        if !matches!(exp, Ty::Adt(..)) {
+            return;
+        }
+        if self.has_infer_vars(adt) {
+            let _ = self.infer.unify_or_rollback(adt, &exp);
+        }
+    }
+
+    /// Checks the arguments of a call against the parameter types `formals`, or the
+    /// [`Self::expected_inputs`] `hints` for them. With hints, several arguments may fail
+    /// against the same expectation (`let c: bool = Pick(1, 2);`): their mismatches are
+    /// reported as one error with a label per argument, as rustc's "arguments to this
+    /// function are incorrect" (E0308), at the callee (`callee_span`).
+    fn check_args(
+        &mut self,
+        args: &[Expr],
+        formals: &[Ty],
+        hints: Option<&[Ty]>,
+        callee_span: Span,
+    ) {
+        let mut failed = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            let hint = hints.and_then(|h| h.get(i));
+            if let Some(m) = self.check_arg(a, formals.get(i), hint) {
+                failed.push(m);
+            }
+        }
+        if failed.len() < 2 {
+            for (span, expected, found) in failed {
+                self.mismatch(span, &expected, &found);
+            }
+            return;
+        }
+        let mut merged = Diagnostic::error(
+            ErrorCode::TYPE_MISMATCH,
+            "arguments to this function are incorrect",
+        )
+        .with_label(callee_span, "arguments to this function are incorrect");
+        for (span, expected, found) in failed {
+            let (e, f) = (self.ty_str(&expected), self.ty_str(&found));
+            merged = merged.with_label(span, format!("expected `{e}`, found `{f}`"));
+        }
+        self.error(merged);
+    }
+
+    /// Checks the argument `arg` of a call against its parameter type `formal`, or the
+    /// [`Self::expected_inputs`] hint for it, which the parameter is then unified with
+    /// (rustc's `check_argument_types`).
+    /// Its own failed coercion to the hint is returned, not reported (see
+    /// `deferred_mismatch`); a mismatch inside it is reported as usual.
+    fn check_arg(
+        &mut self,
+        arg: &Expr,
+        formal: Option<&Ty>,
+        hint: Option<&Ty>,
+    ) -> Option<Mismatch> {
+        match (formal, hint) {
+            (Some(formal), Some(hint)) => {
+                let outer = self.deferred_mismatch.replace((strip_parens(arg).id, None));
+                self.check_expr(arg, Some(hint));
+                let own =
+                    std::mem::replace(&mut self.deferred_mismatch, outer).and_then(|(_, m)| m);
+                let unified = self.infer.unify(formal, hint).is_ok();
+                if own.is_none() && !unified {
+                    self.mismatch(arg.span, formal, hint);
+                }
+                own
+            }
+            (formal, _) => {
+                self.check_expr(arg, formal);
+                None
+            }
+        }
     }
 
     fn coerce_to_expected(&mut self, expr: &Expr, ty: &Ty, expected: Option<&Ty>) {
@@ -664,8 +864,14 @@ impl<'a> FnCtxt<'a> {
                 expr.kind,
                 ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
             ) {
-                self.coerce(expr.span, ty, exp);
-                self.note_pointer_coercion(expr.id, ty, exp);
+                let deferred = matches!(self.deferred_mismatch, Some((id, None)) if id == expr.id);
+                if deferred {
+                    let m = self.coerce_or_mismatch(expr.span, ty, exp);
+                    self.deferred_mismatch = Some((expr.id, m));
+                } else {
+                    self.coerce(expr.span, ty, exp);
+                }
+                self.note_pointer_coercion(strip_parens(expr).id, ty, exp);
             }
         }
     }
@@ -718,7 +924,7 @@ impl<'a> FnCtxt<'a> {
         match &expr.kind {
             ExprKind::Lit(lit) => self.check_lit(lit, expr.span, expected),
             ExprKind::Unit => Ty::Unit,
-            ExprKind::Tuple(elems) => self.check_tuple(expr.id, elems, expected),
+            ExprKind::Tuple(elems) => self.check_tuple(elems, expected),
             ExprKind::Array(elems) => self.check_array(elems, expected),
             ExprKind::Repeat(value, count) => self.check_repeat(expr, value, count, expected),
             ExprKind::Path(_) => self.check_path(expr, false),
@@ -763,13 +969,18 @@ impl<'a> FnCtxt<'a> {
                 }
                 Ty::Unit
             }
-            ExprKind::Call { callee, args } => self.check_call(expr.id, callee, args, expr.span),
+            ExprKind::Call { callee, args } => {
+                self.check_call(expr.id, callee, args, expected, expr.span)
+            }
             ExprKind::MethodCall {
                 receiver,
                 method,
                 generic_args,
                 args,
-            } => self.check_method_call(expr, receiver, method, generic_args.as_deref(), args),
+            } => {
+                let turbofish = generic_args.as_deref();
+                self.check_method_call(expr, receiver, method, turbofish, args, expected)
+            }
             ExprKind::Field(base, name) => {
                 let base_ty = self.check_expr(base, None);
                 self.check_field(expr, &base_ty, &name.name, name.span)
@@ -941,7 +1152,7 @@ impl<'a> FnCtxt<'a> {
                 self.diverges = true;
                 Ty::Never
             }
-            ExprKind::Struct { fields, .. } => self.check_struct_literal(expr, fields),
+            ExprKind::Struct { fields, .. } => self.check_struct_literal(expr, fields, expected),
             ExprKind::Match { scrutinee, arms } => {
                 self.check_match(expr, scrutinee, arms, expected)
             }
@@ -961,14 +1172,11 @@ impl<'a> FnCtxt<'a> {
     /// expectation flows into tuple elements the same way). An element that diverges
     /// without an expectation gets a fresh variable that falls back to `!` when nothing
     /// else decides it, as a diverging `let` initialiser does.
-    fn check_tuple(&mut self, id: NodeId, elems: &[Expr], expected: Option<&Ty>) -> Ty {
+    fn check_tuple(&mut self, elems: &[Expr], expected: Option<&Ty>) -> Ty {
         let expected_elems = match expected.map(|e| self.shallow(e)) {
             Some(Ty::Tuple(tys)) if tys.len() == elems.len() => Some(tys),
             _ => None,
         };
-        if expected_elems.is_some() {
-            self.coerced_tuples.insert(id);
-        }
         let mut tys = Vec::with_capacity(elems.len());
         for (i, e) in elems.iter().enumerate() {
             let exp = expected_elems.as_ref().map(|tys| tys[i].clone());
@@ -1906,6 +2114,9 @@ impl<'a> FnCtxt<'a> {
             self.scrutinee_ty(scrut_ty, arms.iter().map(|a| &a.pat))
         };
         let scrut_diverges = self.diverges;
+        // The caller coerces the `match` to an expectation dropped here.
+        let expected = self.expectation_for_branches(expected);
+        let expected = expected.as_ref();
         let mut result: Option<Ty> = expected.cloned();
         let mut first_ty: Option<(Ty, Span)> = None;
         let mut all_diverge = true;
@@ -1921,6 +2132,14 @@ impl<'a> FnCtxt<'a> {
                 (Some(r), None) => {
                     let r = r.clone();
                     let found = self.check_expr(&arm.body, None);
+                    // Coerced to the first arm's type, which is known: a `&mut` place
+                    // there is reborrowed (rustc's least-upper-bound coercion).
+                    if !matches!(
+                        strip_parens(&arm.body).kind,
+                        ExprKind::Block(_) | ExprKind::If { .. }
+                    ) {
+                        self.note_reborrow(strip_parens(&arm.body), &found, &r);
+                    }
                     if self.try_coerce(&found, &r).is_err() {
                         let (e, f) = (self.ty_str(&r), self.ty_str(&found));
                         let mut d = Diagnostic::error(
@@ -3094,7 +3313,14 @@ impl<'a> FnCtxt<'a> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn check_call(&mut self, id: NodeId, callee: &Expr, args: &[Expr], span: Span) -> Ty {
+    fn check_call(
+        &mut self,
+        id: NodeId,
+        callee: &Expr,
+        args: &[Expr],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
         let target = strip_parens(callee);
         let callee_ty = if let ExprKind::Path(_) = &target.kind {
             let t = self.check_path(target, true);
@@ -3173,12 +3399,12 @@ impl<'a> FnCtxt<'a> {
                         .with_label(variant.span, "variant defined here");
                 self.error(d);
             }
-            for (i, a) in args.iter().enumerate() {
-                let expected = variant.fields.get(i).map(|f| f.ty.clone());
-                self.check_expr(a, expected.as_ref());
-            }
+            let output = Ty::Adt(adt, generic.into());
+            let formals: Vec<Ty> = variant.fields.iter().map(|f| f.ty.clone()).collect();
+            let hints = self.expected_inputs(expected, &output, &formals);
+            self.check_args(args, &formals, hints.as_deref(), callee.span);
             self.variant_exprs.insert(id, (adt, index));
-            return Ty::Adt(adt, generic.into());
+            return output;
         }
         if self.is_destructor(def) {
             // `D::drop(&mut d)`, `Drop::drop(&mut d)`: nothing infers `Self` then.
@@ -3206,10 +3432,8 @@ impl<'a> FnCtxt<'a> {
             };
             self.error(d);
         }
-        for (i, a) in args.iter().enumerate() {
-            let expected = sig.inputs.get(i).cloned();
-            self.check_expr(a, expected.as_ref());
-        }
+        let hints = self.expected_inputs(expected, &sig.output, &sig.inputs);
+        self.check_args(args, &sig.inputs, hints.as_deref(), callee.span);
         if sig.output.is_never() {
             self.diverges = true;
         }
@@ -3226,6 +3450,7 @@ impl<'a> FnCtxt<'a> {
         method: &sabiko_ast::Ident,
         turbofish: Option<&sabiko_ast::GenericArgs>,
         args: &[Expr],
+        expected: Option<&Ty>,
     ) -> Ty {
         // `(*s).len()` measures a slice place; any other method of a slice is reported by
         // `check_len_call`.
@@ -3309,10 +3534,8 @@ impl<'a> FnCtxt<'a> {
                 );
             self.error(d);
         }
-        for (i, a) in args.iter().enumerate() {
-            let expected = params.get(i).cloned();
-            self.check_expr(a, expected.as_ref());
-        }
+        let hints = self.expected_inputs(expected, &sig.output, params);
+        self.check_args(args, params, hints.as_deref(), method.span);
         // No method returns `!`: the never type cannot be written in a signature.
         self.method_calls.insert(expr.id, callee);
         sig.output
@@ -3803,6 +4026,25 @@ impl<'a> FnCtxt<'a> {
             self.diverges = cond_diverges;
             return Ty::Unit;
         };
+        let adjusted = self.expectation_for_branches(expected);
+        let ty = self.check_branches(then, els, adjusted.as_ref(), cond_diverges, span);
+        if let (Some(var), None) = (expected, &adjusted) {
+            // The expectation was a variable, which the branches were not checked against
+            // (see `expectation_for_branches`): the `if` as a whole is coerced to it.
+            self.coerce(span, &ty, var);
+        }
+        ty
+    }
+
+    /// The branches of `if cond { then } else { els }`, checked against `expected`.
+    fn check_branches(
+        &mut self,
+        then: &Block,
+        els: &Expr,
+        expected: Option<&Ty>,
+        cond_diverges: bool,
+        span: Span,
+    ) -> Ty {
         let then_ty = self.check_block(then, expected);
         let then_diverges = self.diverges;
         self.diverges = cond_diverges;
@@ -3888,7 +4130,12 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    fn check_struct_literal(&mut self, expr: &Expr, fields: &[sabiko_ast::FieldInit]) -> Ty {
+    fn check_struct_literal(
+        &mut self,
+        expr: &Expr,
+        fields: &[sabiko_ast::FieldInit],
+        expected: Option<&Ty>,
+    ) -> Ty {
         let ExprKind::Struct { path, .. } = &expr.kind else {
             unreachable!()
         };
@@ -3919,6 +4166,7 @@ impl<'a> FnCtxt<'a> {
             (def, self.items.adt(def).clone())
         };
         let generic = self.adt_args(def, path);
+        self.unify_with_expected_adt(&Ty::Adt(def, generic.clone().into()), expected);
         let mut adt = adt;
         adt.fields = self.instance_fields(def, &adt.fields, &generic);
         let mut seen: Vec<Option<Span>> = vec![None; adt.fields.len()];
@@ -4310,7 +4558,7 @@ impl<'a> FnCtxt<'a> {
             field_accesses: self.field_accesses,
             pat_derefs: self.pat_derefs,
             ref_bindings: self.ref_bindings,
-            coerced_tuples: self.coerced_tuples,
+            reborrows: self.reborrows,
             method_calls: self.method_calls,
             generic_args,
             pat_types,

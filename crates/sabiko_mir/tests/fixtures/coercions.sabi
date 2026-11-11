@@ -1,6 +1,7 @@
 // Coercion sites reborrow a `&mut` place instead of moving it: `&mut *r` where a `&mut`
 // is expected, `&*r` where a `&` is (call arguments, annotated `let`, assignment,
-// `return`); a plain `let` moves it.
+// `return`); a plain `let` moves it, and so does passing it where a type parameter is
+// expected, unless an annotation decides the parameter first (#132).
 fn Read(a: &i32, b: &i32) -> i32 {
     *a + *b
 }
@@ -11,6 +12,17 @@ fn Bump(p: &mut i32) {
 
 fn View(p: &mut i32) -> &i32 {
     p
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Generic(r: &mut i32) -> i32 {
+    let a: &mut i32 = Id(r);
+    *a += 1;
+    let b = Id(r);
+    *b
 }
 
 fn Main() {

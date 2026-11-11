@@ -1,0 +1,5 @@
+// `let x: _ = r;` gives the binding no known type: moved, as without an annotation.
+fn F(r: &mut u8) {
+    let x: _ = r;
+    *r += 1;
+}

@@ -16,7 +16,7 @@ pub enum VarKind {
     Float,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct VarData {
     parent: TyVid,
     kind: VarKind,
@@ -26,6 +26,19 @@ struct VarData {
 #[derive(Debug, Default)]
 pub struct InferCtxt {
     vars: Vec<VarData>,
+    /// While a snapshot is open, the old data of every variable written since it was
+    /// taken, oldest first (rustc's undo log, behind `probe` and `commit_if_ok`).
+    undo: Vec<(TyVid, VarData)>,
+    /// How many snapshots are open; writes are logged while it is positive.
+    snapshots: usize,
+}
+
+/// The state of an [`InferCtxt`] to roll back to: see [`InferCtxt::probe`].
+#[derive(Debug)]
+#[must_use]
+pub struct Snapshot {
+    vars: usize,
+    undo: usize,
 }
 
 /// Why two types did not unify.
@@ -48,13 +61,86 @@ impl InferCtxt {
         Ty::Infer(id)
     }
 
+    /// Opens a snapshot: every later write to the table can be undone by
+    /// [`Self::rollback_to`], until it is closed by that or by [`Self::commit`]. Costs
+    /// nothing beyond the writes made while it is open.
+    pub fn snapshot(&mut self) -> Snapshot {
+        self.snapshots += 1;
+        Snapshot {
+            vars: self.vars.len(),
+            undo: self.undo.len(),
+        }
+    }
+
+    /// Undoes every write since `s` was taken and closes it.
+    // Taken by value, so that a closed snapshot cannot be used again.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn rollback_to(&mut self, s: Snapshot) {
+        let Snapshot { vars, undo } = s;
+        while self.undo.len() > undo {
+            let (v, data) = self.undo.pop().expect("checked above");
+            if let Some(slot) = self.vars.get_mut(v.0 as usize) {
+                *slot = data;
+            }
+        }
+        self.vars.truncate(vars);
+        self.snapshots -= 1;
+        if self.snapshots == 0 {
+            self.undo.clear();
+        }
+    }
+
+    /// Keeps the writes since `s` was taken and closes it.
+    #[allow(clippy::needless_pass_by_value)] // as in `rollback_to`
+    pub fn commit(&mut self, s: Snapshot) {
+        let Snapshot { undo, .. } = s;
+        debug_assert!(self.undo.len() >= undo);
+        self.snapshots -= 1;
+        if self.snapshots == 0 {
+            self.undo.clear();
+        }
+    }
+
+    /// Runs `f` and undoes whatever it did to the table (rustc's `probe`).
+    pub fn probe<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let s = self.snapshot();
+        let out = f(self);
+        self.rollback_to(s);
+        out
+    }
+
+    /// Unifies `a` with `b`, leaving the table as it was when they do not unify (rustc's
+    /// `commit_if_ok`); [`Self::unify`] may keep the parts that did.
+    pub fn unify_or_rollback(&mut self, a: &Ty, b: &Ty) -> Result<(), UnifyError> {
+        let s = self.snapshot();
+        let out = self.unify(a, b);
+        if out.is_ok() {
+            self.commit(s);
+        } else {
+            self.rollback_to(s);
+        }
+        out
+    }
+
+    /// The data of `v`, to write, with its old value logged while a snapshot is open.
+    fn var_mut(&mut self, v: TyVid) -> &mut VarData {
+        if self.snapshots > 0 {
+            let old = self.vars[v.0 as usize].clone();
+            self.undo.push((v, old));
+        }
+        &mut self.vars[v.0 as usize]
+    }
+
     fn root(&mut self, v: TyVid) -> TyVid {
         let parent = self.vars[v.0 as usize].parent;
         if parent == v {
             return v;
         }
         let r = self.root(parent);
-        self.vars[v.0 as usize].parent = r;
+        if parent != r {
+            // Path compression is a write too: undone with the union it depends on.
+            self.var_mut(v).parent = r;
+        }
         r
     }
 
@@ -103,6 +189,20 @@ impl InferCtxt {
         }
     }
 
+    /// Whether `ty` has a variable nothing has decided, without building the resolved
+    /// type: stops at the first.
+    pub fn has_undecided(&mut self, ty: &Ty) -> bool {
+        match self.shallow_resolve(ty) {
+            Ty::Infer(_) => true,
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
+                self.has_undecided(&inner)
+            }
+            Ty::Tuple(elems) => elems.iter().any(|e| self.has_undecided(e)),
+            Ty::Adt(_, args) => args.iter().any(|a| self.has_undecided(a)),
+            _ => false,
+        }
+    }
+
     /// Like [`resolve`](Self::resolve) but applies the literal defaults (`i32`, `f64`) to
     /// unbound literal variables. General variables stay unbound.
     #[must_use]
@@ -137,7 +237,7 @@ impl InferCtxt {
     fn bind(&mut self, v: TyVid, ty: Ty) {
         let r = self.root(v);
         debug_assert!(self.vars[r.0 as usize].value.is_none());
-        self.vars[r.0 as usize].value = Some(ty);
+        self.var_mut(r).value = Some(ty);
     }
 
     /// Binds every unbound variable inside `ty` to `Error`, after its problem was reported.
@@ -230,8 +330,8 @@ impl InferCtxt {
                     (k1, k2) if k1 == k2 => k1,
                     _ => return Err(UnifyError),
                 };
-                self.vars[rb.0 as usize].parent = ra;
-                self.vars[ra.0 as usize].kind = kind;
+                self.var_mut(rb).parent = ra;
+                self.var_mut(ra).kind = kind;
                 Ok(())
             }
             (Ty::Infer(v), other) | (other, Ty::Infer(v)) => {
@@ -294,6 +394,39 @@ impl InferCtxt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A probe undoes bindings, unions (with the path compression that followed them) and
+    /// the variables it created; `unify_or_rollback` keeps a success and undoes a failure.
+    #[test]
+    fn snapshots_roll_back_every_write() {
+        let mut cx = InferCtxt::new();
+        let a = cx.new_var(VarKind::General);
+        let b = cx.new_var(VarKind::General);
+        let c = cx.new_var(VarKind::Int);
+        let seen = cx.probe(|cx| {
+            cx.unify(&a, &b).unwrap();
+            cx.unify(&b, &c).unwrap();
+            let d = cx.new_var(VarKind::General);
+            cx.unify(&d, &a).unwrap();
+            cx.unify(&a, &Ty::Prim(PrimTy::U8)).unwrap();
+            cx.resolve(&b)
+        });
+        assert_eq!(seen, Ty::Prim(PrimTy::U8));
+        for v in [&a, &b] {
+            assert!(matches!(cx.shallow_resolve(v), Ty::Infer(_)));
+        }
+        assert_ne!(cx.shallow_resolve(&a), cx.shallow_resolve(&b));
+        assert_eq!(cx.resolve_with_defaults(&c), Ty::I32);
+        assert_eq!(cx.vars.len(), 3);
+        // A tuple failing on its second element: the first stays unbound.
+        let pair = Ty::Tuple(vec![a.clone(), Ty::BOOL].into());
+        let want = Ty::Tuple(vec![Ty::BOOL, Ty::I32].into());
+        assert!(cx.unify_or_rollback(&pair, &want).is_err());
+        assert!(matches!(cx.shallow_resolve(&a), Ty::Infer(_)));
+        assert!(cx.unify_or_rollback(&a, &b).is_ok());
+        assert_eq!(cx.shallow_resolve(&a), cx.shallow_resolve(&b));
+        assert!(cx.undo.is_empty() && cx.snapshots == 0);
+    }
 
     #[test]
     fn literal_variables_default_and_constrain() {
