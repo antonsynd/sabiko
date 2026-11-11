@@ -830,6 +830,9 @@ impl<'a> BodyGen<'a> {
         if self.prog.traits && depth > 0 && self.rng.chance(4) {
             return self.trait_value(ty, depth - 1);
         }
+        if self.prog.prelude && depth > 0 && self.rng.chance(2) {
+            return self.prelude_value(ty, depth - 1);
+        }
         if !matches!(ty, ValTy::Prim(_)) && depth >= 2 && self.rng.chance(4) {
             return self.inline_match(ty, depth);
         }
@@ -888,6 +891,51 @@ impl<'a> BodyGen<'a> {
                     None => format!("GenOr(GenOpt::Yes({}), {})", a.text, b.text),
                 };
                 Expr { text, roots }
+            }
+        }
+    }
+
+    /// A value of type `ty` through the `core` prelude's `Option` and `Result` (#13,
+    /// decision 90), transparent to the scope model as the generic helpers are:
+    /// `Some(e).unwrap()`, `Some(e).expect(..)`, `Ok::<T, u8>(e).unwrap()` and
+    /// `Err::<u8, T>(e).unwrap_err()` are `e`; `Some(a).unwrap_or(b)` evaluates (and moves)
+    /// both values like a tuple literal and returns `a`, dropping `b` inside the call, as
+    /// `GenOr(GenOpt::Yes(a), b)` does; `None::<T>.unwrap_or(b)` is `b`. None of them
+    /// panics. The type is only ever written as a turbofish, never in an annotation:
+    /// TODO(#137): an annotation with an array as a generic argument (`let o:
+    /// Option<[i32; 2]>`) lowers the array to an error type; write one once that is fixed.
+    fn prelude_value(&mut self, ty: ValTy, depth: u32) -> Expr {
+        let name = self.prog.val_name(ty);
+        match self.rng.weighted(&[30, 10, 10, 10, 20, 20]) {
+            4 => {
+                let a = self.val_expr(ty, depth);
+                let b = self.val_expr(ty, depth);
+                let mut roots = a.roots;
+                roots.extend(b.roots);
+                Expr {
+                    text: format!("Some({}).unwrap_or({})", a.text, b.text),
+                    roots,
+                }
+            }
+            5 => {
+                let b = self.val_expr(ty, depth);
+                Expr {
+                    text: format!("None::<{name}>.unwrap_or({})", b.text),
+                    roots: b.roots,
+                }
+            }
+            kind => {
+                let e = self.val_expr(ty, depth);
+                let text = match kind {
+                    0 => format!("Some({}).unwrap()", e.text),
+                    1 => format!("Some({}).expect(\"generated\")", e.text),
+                    2 => format!("Ok::<{name}, u8>({}).unwrap()", e.text),
+                    _ => format!("Err::<u8, {name}>({}).unwrap_err()", e.text),
+                };
+                Expr {
+                    text,
+                    roots: e.roots,
+                }
             }
         }
     }
@@ -1397,6 +1445,23 @@ impl<'a> BodyGen<'a> {
         })
     }
 
+    /// `Some(r).unwrap()` (#13): a shared reference to `inner` through an `Option<&T>`, a
+    /// `ref struct` instance (decision 83), with the loans of `r`. A reference local may be
+    /// a `&mut T`, which `Some` would move (it takes any `T`, so nothing reborrows it):
+    /// it is reborrowed as shared.
+    fn some_unwrapped_ref(&mut self, inner: ValTy, depth: u32) -> Option<Expr> {
+        let r = self.ref_expr(false, inner, depth)?;
+        let arg = if r.text.starts_with('&') {
+            r.text
+        } else {
+            format!("&*{}", r.text)
+        };
+        Some(Expr {
+            text: format!("Some({arg}).unwrap()"),
+            roots: r.roots,
+        })
+    }
+
     /// An expression of type `&inner` / `&mut inner`: a borrow of a place, a reference
     /// local, a call returning such a reference, or (shared) an element of an array of
     /// them (`[&a, r][i]`, #43). `None` when nothing in scope fits. For
@@ -1405,15 +1470,12 @@ impl<'a> BodyGen<'a> {
     /// argument, an annotated `let`).
     fn ref_expr(&mut self, mutable: bool, inner: ValTy, depth: u32) -> Option<Expr> {
         let prog = self.prog;
-        // `GenFirst(r)` (#114): the shared reference `r`, with its loans. Not for arrays,
-        // whose references may coerce to slices where `T` would have to be unsized.
-        if prog.generics
-            && !mutable
-            && inner != ValTy::Str
-            && prog.array_of(inner).is_none()
-            && depth > 0
-            && self.rng.chance(25)
-        {
+        // A shared reference may go through a helper. Not to an array, whose references
+        // may coerce to slices where `T` would have to be unsized, nor to a string.
+        let wrappable =
+            !mutable && inner != ValTy::Str && prog.array_of(inner).is_none() && depth > 0;
+        // `GenFirst(r)` (#114): the shared reference `r`, with its loans.
+        if prog.generics && wrappable && self.rng.chance(25) {
             let r = self.ref_expr(false, inner, depth - 1)?;
             let arg = if r.text.starts_with('&') {
                 r.text
@@ -1431,14 +1493,11 @@ impl<'a> BodyGen<'a> {
                 roots: r.roots,
             });
         }
-        // `(r).KeepRef()` (#116): not for strings and arrays either.
-        if prog.traits
-            && !mutable
-            && inner != ValTy::Str
-            && prog.array_of(inner).is_none()
-            && depth > 0
-            && self.rng.chance(20)
-        {
+        if prog.prelude && wrappable && self.rng.chance(10) {
+            return self.some_unwrapped_ref(inner, depth - 1);
+        }
+        // `(r).KeepRef()` (#116).
+        if prog.traits && wrappable && self.rng.chance(20) {
             return self.kept_ref(inner, depth - 1);
         }
         if inner == ValTy::Str {

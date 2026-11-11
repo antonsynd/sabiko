@@ -47,7 +47,10 @@ prelude's. Tuples (#6), inherent `impl` blocks with methods and associated funct
 enums, `match`, `if let`, `while let`, `let`-`else`
 and patterns (#8), arrays and slices (`[T; N]`, `&[T]`, indexing, `.len()`, #9) and `&str`
 with range slicing (#10) are in the subset too, and so are generic functions and types
-(#114, #115) and traits with bounds and associated constants (#116, `traits/`). No
+(#114, #115) and traits with bounds and associated constants (#116, `traits/`), and so
+are `Option`, `Some`, `None`, `Result`, `Ok` and `Err` with the methods Sabiko's `core`
+prelude has (#13, decision 90, `prelude/`): rustc takes them from its own prelude, so a
+program uses them unqualified and may not define them unless it means to shadow them. No
 associated types, closures,
 modules, macros, explicit lifetimes or references in struct fields, and no
 `char` literal above U+FFFF (a Sabiko `char` is one UTF-16 code unit, so those are E0318). Function names are PascalCase, locals camelCase. A
@@ -77,7 +80,9 @@ overflow-checks=off`): arithmetic wraps, division and shift checks stay
   each location must name the file its compiler was given; the thread id and directories
   are ignored. Every panicking program in `run/` is therefore also a test of Sabiko's
   panic locations (`run/panics/location_*` aim at the edge cases: parentheses, tabs, wide
-  and zero-width characters, multi-line expressions).
+  and zero-width characters, multi-line expressions; `run/prelude/panic_*` check that
+  `unwrap` and `expect` and the program's own `#[track_caller]` functions report their
+  caller, at a method call's name).
 
 For the run-time tests the prelude goes *after* the program, so that its lines keep their
 numbers in `prog.rs`: the `#![allow(...)]` line becomes `-A` flags on the rustc command

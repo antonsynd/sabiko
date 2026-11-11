@@ -1,0 +1,9 @@
+// `Option::unwrap` on `None` panics with rustc's message, at the call's `unwrap`
+// (`#[track_caller]`), after earlier output is flushed.
+fn Main() {
+    let some = Some(1);
+    PrintLine(some.unwrap());
+    let none: Option<i32> = None;
+    PrintLine(none
+        .unwrap());
+}

@@ -1,0 +1,105 @@
+//! `Result<T, E>`, Rust's `core::result::Result`: success with a value of type `T`, or
+//! failure with an error of type `E`.
+//!
+//! Part of the `core` prelude (decision 90): `Result`, `Ok` and `Err` are visible in every
+//! program, and a user item of the same name shadows them. The methods keep Rust's names
+//! and panic messages. Those that print the other variant's value when they panic need
+//! it to be `Debug` (`fmt.sabi`), as in Rust.
+
+/// `Ok(value)` or `Err(error)`.
+#[derive(Copy, Clone)]
+pub enum Result<T, E> {
+    /// The success value.
+    Ok(T),
+    /// The error value.
+    Err(E),
+}
+
+pub use Result::{Err, Ok};
+
+impl<T, E> Result<T, E> {
+    /// Whether the result is `Ok`.
+    pub fn is_ok(&self) -> bool {
+        match self {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    /// Whether the result is `Err`.
+    pub fn is_err(&self) -> bool {
+        !self.is_ok()
+    }
+
+    /// The success value as an `Option`, discarding the error.
+    pub fn ok(self) -> Option<T> {
+        match self {
+            Ok(x) => Some(x),
+            Err(_) => None,
+        }
+    }
+
+    /// The error as an `Option`, discarding the success value.
+    pub fn err(self) -> Option<E> {
+        match self {
+            Ok(_) => None,
+            Err(x) => Some(x),
+        }
+    }
+
+    /// The `Ok` value; on `Err(e)`, panics with `msg` and `e`.
+    #[track_caller]
+    pub fn expect(self, msg: &str) -> T
+    where
+        E: Debug,
+    {
+        match self {
+            Ok(t) => t,
+            Err(e) => PanicDebug(msg, &e),
+        }
+    }
+
+    /// The `Ok` value; on `Err(e)`, panics with `e`.
+    #[track_caller]
+    pub fn unwrap(self) -> T
+    where
+        E: Debug,
+    {
+        match self {
+            Ok(t) => t,
+            Err(e) => PanicDebug("called `Result::unwrap()` on an `Err` value", &e),
+        }
+    }
+
+    /// The `Err` value; on `Ok(t)`, panics with `msg` and `t`.
+    #[track_caller]
+    pub fn expect_err(self, msg: &str) -> E
+    where
+        T: Debug,
+    {
+        match self {
+            Ok(t) => PanicDebug(msg, &t),
+            Err(e) => e,
+        }
+    }
+
+    /// The `Err` value; on `Ok(t)`, panics with `t`.
+    #[track_caller]
+    pub fn unwrap_err(self) -> E
+    where
+        T: Debug,
+    {
+        match self {
+            Ok(t) => PanicDebug("called `Result::unwrap_err()` on an `Ok` value", &t),
+            Err(e) => e,
+        }
+    }
+
+    /// The `Ok` value, or `default`.
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            Ok(t) => t,
+            Err(_) => default,
+        }
+    }
+}

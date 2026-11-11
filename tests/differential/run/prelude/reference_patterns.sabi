@@ -1,0 +1,38 @@
+// `&None` and `&Some(x)` (#49's reference patterns) through the prelude's imported
+// variants, and bare `None` and constants in or-patterns and nested positions.
+const ZERO: i32 = 0;
+
+fn Describe(o: &Option<i32>) -> i32 {
+    match o {
+        &None => -1,
+        &Some(ZERO) => 0,
+        &Some(x) => x,
+    }
+}
+
+fn Main() {
+    PrintLine(Describe(&None));
+    PrintLine(Describe(&Some(0)));
+    PrintLine(Describe(&Some(7)));
+    let pairs = [(Some(1), None), (None, Some(2)), (None, None)];
+    let mut i = 0;
+    while i < 3 {
+        match pairs[i] {
+            (Some(a), None) | (None, Some(a)) => PrintLine(a),
+            (None, None) => PrintLine("neither"),
+            (Some(_), Some(_)) => PrintLine("both"),
+        }
+        i += 1;
+    }
+    let r: &Option<&str> = &Some("hi");
+    if let &Some(s) = r {
+        PrintLine(s);
+    }
+    let mut y = Some(3);
+    let mut n = 0;
+    while let Some(v) = y {
+        n += v;
+        y = if v == 1 { None } else { Some(v - 1) };
+    }
+    PrintLine(n);
+}

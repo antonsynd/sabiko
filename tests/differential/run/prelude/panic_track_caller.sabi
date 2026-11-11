@@ -1,0 +1,40 @@
+// A user `#[track_caller]` function reports its caller's location for every panic in
+// its body (an explicit `Panic`, a checked operation), through a chain of them, and a
+// method of an `impl` block reports the method's name.
+struct Stack {
+    Items: [i32; 3],
+}
+
+impl Stack {
+    #[track_caller]
+    fn At(&self, i: usize) -> i32 {
+        self.Items[i]
+    }
+}
+
+#[track_caller]
+fn Positive(n: i32) -> i32 {
+    if n <= 0 {
+        Panic("not positive");
+    }
+    n
+}
+
+#[track_caller]
+fn Twice(n: i32) -> i32 {
+    Positive(n) * 2
+}
+
+#[track_caller]
+fn Increment(n: u8) -> u8 {
+    n + 1
+}
+
+fn Main() {
+    PrintLine(Twice(4));
+    PrintLine(Increment(254));
+    let s = Stack { Items: [1, 2, 3] };
+    PrintLine(s.At(2));
+    PrintLine(Twice(5) + s.At(0));
+    PrintLine(s.At(3));
+}

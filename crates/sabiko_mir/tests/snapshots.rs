@@ -3,17 +3,16 @@
 //! `cargo insta review` (or set `INSTA_UPDATE=always` once to accept them).
 
 use sabiko_diagnostics::{DiagnosticSink, Format, SourceMap};
-
 #[test]
 fn fixtures() {
     insta::glob!("fixtures/*.sabi", |path| {
         let src = std::fs::read_to_string(path).unwrap();
         let mut sm = SourceMap::new();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let id = sm.add(name, src.clone());
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(id, &src, &mut sink);
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
+            .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(
             sink.diagnostics().is_empty(),
@@ -30,7 +29,9 @@ fn fixtures() {
             "invalid MIR after simplification: {errors:#?}"
         );
         assert!(sink.diagnostics().is_empty(), "lowering never reports");
-        insta::assert_snapshot!(sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck));
+        insta::assert_snapshot!(sabiko_mir::pretty::print_user_bodies(
+            &bodies, &resolve, &typeck
+        ));
     });
 }
 
@@ -43,10 +44,10 @@ fn fixtures_forwarded() {
         let src = std::fs::read_to_string(path).unwrap();
         let mut sm = SourceMap::new();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let id = sm.add(name, src.clone());
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(id, &src, &mut sink);
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
+            .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
         let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
@@ -58,7 +59,9 @@ fn fixtures_forwarded() {
             errors.is_empty(),
             "invalid MIR after forwarding: {errors:#?}"
         );
-        insta::assert_snapshot!(sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck));
+        insta::assert_snapshot!(sabiko_mir::pretty::print_user_bodies(
+            &bodies, &resolve, &typeck
+        ));
     });
 }
 
@@ -71,10 +74,10 @@ fn fixtures_elaborated() {
         let src = std::fs::read_to_string(path).unwrap();
         let mut sm = SourceMap::new();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let id = sm.add(name, src.clone());
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(id, &src, &mut sink);
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
+            .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(sink.diagnostics().is_empty(), "fixture must be valid");
         let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
@@ -91,6 +94,8 @@ fn fixtures_elaborated() {
             errors.is_empty(),
             "invalid MIR after simplification: {errors:#?}"
         );
-        insta::assert_snapshot!(sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck));
+        insta::assert_snapshot!(sabiko_mir::pretty::print_user_bodies(
+            &bodies, &resolve, &typeck
+        ));
     });
 }

@@ -1,0 +1,32 @@
+// A trait of the file may be implemented for the prelude's types (the orphan rule allows
+// a local trait for a foreign type), generically and for one instance, and called through
+// a bound.
+trait Size {
+    fn Size(&self) -> i32;
+}
+
+impl<T> Size for Option<T> {
+    fn Size(&self) -> i32 {
+        if self.is_some() { 1 } else { 0 }
+    }
+}
+
+impl Size for Result<i32, bool> {
+    fn Size(&self) -> i32 {
+        match self {
+            Ok(n) => *n,
+            Err(_) => -1,
+        }
+    }
+}
+
+fn Total<T: Size>(a: T, b: T) -> i32 {
+    a.Size() + b.Size()
+}
+
+fn Main() {
+    PrintLine(Some(3).Size());
+    PrintLine(None::<bool>.Size());
+    PrintLine(Total(Ok(4), Err(true)));
+    PrintLine(Total(Some('x'), None));
+}

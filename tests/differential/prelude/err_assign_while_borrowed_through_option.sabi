@@ -1,0 +1,8 @@
+// `Some(&mut x)` still holds its loan when `x` is assigned before the option's last use.
+fn Main() {
+    let mut x = 1;
+    let r = Some(&mut x);
+    x = 2;
+    *r.unwrap() = 3;
+    PrintLine(x);
+}

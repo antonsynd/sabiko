@@ -1,0 +1,5 @@
+// `Result::unwrap_err` on `Ok(t)` prints `t` with `Debug`: here a `usize`.
+fn Main() {
+    let r: Result<usize, i32> = Ok(4294967295);
+    PrintLine(r.unwrap_err());
+}

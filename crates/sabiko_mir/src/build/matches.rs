@@ -216,23 +216,11 @@ impl Builder<'_> {
         (variant, out)
     }
 
-    /// Whether an identifier pattern compares (a constant or a unit struct) instead of
-    /// binding, or an assignee does (a unit struct or variant).
-    fn ident_is_path(&self, pat: &Pat) -> bool {
-        matches!(pat.kind, PatKind::Ident { .. } | PatKind::Assignee(_))
-            && self.resolve.pat_res(pat.id).is_some()
-    }
-
     // ----- tests -----
 
     /// Emits the tests of `pat` (under `choice`) against `place`: a failed test jumps to
     /// `fail`; the builder continues where every test passed.
     fn test_pat(&mut self, pat: &Pat, place: &Place, choice: &Choice, fail: BasicBlock) {
-        if self.ident_is_path(pat) {
-            let place = self.pat_place(pat, place.clone());
-            self.test_value(pat, &place, fail);
-            return;
-        }
         match &pat.kind {
             PatKind::Ident { sub, .. } => {
                 if let Some(sub) = sub {
@@ -503,10 +491,6 @@ impl Builder<'_> {
                 _ => {}
             }
         };
-        if self.ident_is_path(pat) {
-            value(pat, self.pat_place(pat, place.clone()), out);
-            return;
-        }
         match &pat.kind {
             PatKind::Ident { sub, .. } => {
                 if let Some(sub) = sub {
@@ -569,14 +553,6 @@ impl Builder<'_> {
             // A tuple constant reads what its expansion's element constants read.
             let place = self.pat_place(pat, place.clone());
             push_const_fake_places(out, &place, &place.ty(&self.body), value);
-            return;
-        }
-        if self.ident_is_path(pat) {
-            let place = self.pat_place(pat, place.clone());
-            let reads = reads_value(pat, &place.ty(&self.body));
-            if reads {
-                push_fake_place(out, &place, true);
-            }
             return;
         }
         match &pat.kind {
@@ -664,9 +640,6 @@ impl Builder<'_> {
 
     /// Binds the names of `pat` (under `choice`) to the parts of `place`.
     pub(super) fn bind_pat(&mut self, pat: &Pat, place: Place, choice: &Choice, mode: BindMode) {
-        if self.ident_is_path(pat) {
-            return;
-        }
         match &pat.kind {
             PatKind::Ident { sub, .. } => {
                 self.bind_local(pat, &place, mode);
@@ -738,9 +711,6 @@ impl Builder<'_> {
         choice: &Choice,
         values: &mut Vec<Local>,
     ) {
-        if self.ident_is_path(pat) {
-            return;
-        }
         match &pat.kind {
             PatKind::Ident { sub, .. } => {
                 let id = self

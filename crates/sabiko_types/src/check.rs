@@ -507,6 +507,7 @@ impl<'a> FnCtxt<'a> {
     fn lower_type_unchecked(&mut self, ty: &Type) -> Ty {
         match &ty.kind {
             TypeKind::Infer => self.infer.new_var(VarKind::General),
+            TypeKind::Never => Ty::Never,
             TypeKind::Ref { mutable, inner } => {
                 let inner = self.lower_type_unchecked(inner);
                 Ty::Ref(Mutability::from_bool(*mutable), Box::new(inner))
@@ -1235,15 +1236,8 @@ impl<'a> FnCtxt<'a> {
         init_span: Option<Span>,
     ) {
         self.pat_types.insert(pat.id, ty.clone());
-        if let Some(res) = self.resolve.pat_res(pat.id) {
-            if let PatKind::Ident { .. } | PatKind::Assignee(_) = pat.kind {
-                // A constant or a unit struct named by a lone identifier, or a unit struct
-                // or variant on the left of a destructuring assignment: it compares.
-                let ty = self.peel_unless_const(pat, res, ty, by_ref);
-                self.check_path_pat(pat, res, &ty, init_span);
-                return;
-            }
-        }
+        // A lone identifier that names a constant, a unit struct or a variant is a path
+        // pattern by now (the resolver rewrote it), as is an assignee naming one.
         match &pat.kind {
             PatKind::Ident {
                 by_ref: explicit_ref,
@@ -2741,9 +2735,12 @@ impl<'a> FnCtxt<'a> {
         let mut assignees = Vec::new();
         pat.walk_assignees(&mut |p, place| assignees.push((p, place)));
         for (p, place) in assignees {
-            let Some(local) = self.resolve.local_of_pat(p.id) else {
-                continue; // A unit struct or variant: it compared.
-            };
+            // The resolver gives every assignee a local: one naming a unit struct or a
+            // variant compares, and is a path pattern by now.
+            let local = self
+                .resolve
+                .local_of_pat(p.id)
+                .expect("an assignee pattern has a local");
             let value_ty = self.local_types[&local].clone();
             let place_ty = self.check_place(place);
             self.coerce(place.span, &value_ty, &place_ty);
@@ -3480,6 +3477,12 @@ impl<'a> FnCtxt<'a> {
         );
     }
 
+    /// Whether `ty` is a type of the prelude the user's file has an `impl` block for that
+    /// the orphan rule rejects.
+    fn orphan_adt(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Adt(adt, _) if self.resolve.has_orphan_impl(*adt))
+    }
+
     /// E0319: no method `name` for a receiver of type `recv_ty`.
     fn unknown_method(
         &mut self,
@@ -3489,6 +3492,11 @@ impl<'a> FnCtxt<'a> {
         label: &str,
         trait_methods: &[DefId],
     ) {
+        if adt.is_some_and(|a| self.resolve.has_orphan_impl(a)) {
+            // The method may be one of the block the orphan rule rejected (E0211, E0214),
+            // which was reported.
+            return;
+        }
         let shown = self.ty_str(recv_ty);
         let mut base = self.infer.resolve(recv_ty);
         while let Ty::Ref(_, inner) = base {
@@ -4098,6 +4106,10 @@ impl<'a> FnCtxt<'a> {
                     );
                     self.infer.bind_error(&ty);
                 }
+                Solution::No if self.orphan_adt(&ty) => {
+                    // The bound may be the one of a block the orphan rule rejected
+                    // (E0214), which was reported.
+                }
                 Solution::No => {
                     let shown = self.ty_str(&ty);
                     let mut d = Diagnostic::error(
@@ -4108,9 +4120,22 @@ impl<'a> FnCtxt<'a> {
                         ob.span,
                         format!("the trait `{trait_name}` is not implemented for `{shown}`"),
                     );
-                    if let Ty::Param(_) = ty {
+                    let prelude = self.resolve.is_prelude(ob.trait_);
+                    if let (Ty::Param(_), false) = (&ty, prelude) {
                         d = d.with_note(format!(
                             "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+                        ));
+                    } else if let Ty::Param(_) = ty {
+                        // The prelude's traits are its own (Rust's `std::fmt::Debug` is
+                        // outside its prelude), and a path cannot name one yet.
+                        d = d.with_note(format!(
+                            "a bound cannot name `{trait_name}` yet: it is not in the prelude, and paths to other modules arrive with Phase 9"
+                        ));
+                    } else if prelude {
+                        // rustc's standard library implements its traits for more types
+                        // than Sabiko's `core` prelude does so far (decision 90).
+                        d = d.with_note(format!(
+                            "Sabiko's `core` library implements `{trait_name}` only for some types so far (see `library/core`)"
                         ));
                     }
                     self.error(d);

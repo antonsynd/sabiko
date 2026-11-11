@@ -94,7 +94,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   a slice of references (`[a, b, c][1..][k]`), with the usual in-bounds, out-of-bounds and
   overflowing indices and ranges; the elements' loans are held while the later elements
   and the index are generated, and the expression carries them all. About a quarter of
-  programs have one (`programs_use_arrays_of_references` pins 100 and 15 ranged of 500).
+  programs have one (`programs_use_arrays_of_references` counts them, and the ranged ones; see Coverage thresholds).
   Arrays and slices of references as locals and parameters, and tuples with references,
   are not generated yet (TODO(#92)).
 
@@ -105,8 +105,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   of a temporary (only a literal or a unary operator's value is parenthesised: seed 279
   of the borrow-clean set wrote `&mut (d[i])` of an immutable `d`). The reference holds
   no loan of the scope model. About half of the programs have one
-  (`programs_extend_temporaries_through_blocks_and_branches` pins 90 blocks, 80 `if`s and
-  45 `match`es of 500).
+  (`programs_extend_temporaries_through_blocks_and_branches` counts each kind).
 
   Let chains (#86, decision 79, `BodyGen::chain_rest`): half of the `if let` statements
   and a third of the `while let` ones are chains, `if c && let p = s && d && let q = t {`:
@@ -118,11 +117,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   the state after the whole condition (what any operand moved is moved there, as the
   borrow checker sees a failure after it), and what the scrutinee itself moved (an inline
   `match` binding the whole of a place) is moved on every path (seed 66000512).
-  `programs_use_let_chains` pins 60 programs of 500 with a chain, 18 led by a `bool`, 35
-  with two `let`s and 45 with a `bool` after a `let`. Match guards are `if let <literal> =
+  `programs_use_let_chains` counts the programs with a chain, one led by a `bool`, one with
+  two `let`s and one with a `bool` after a `let`. Match guards are `if let <literal> =
   <place>` a sixth of the time (#98, `guard_let`), on a primitive place a guard may read,
   bindings preferred, sometimes followed by `&&` and a comparison;
-  `programs_use_if_let_guards` pins 30 programs of 500 with one and 9 with `&&`.
+  `programs_use_if_let_guards` counts the programs with one, and with `&&`.
 
   Aggregates of references as locals (#92, `BodyGen::stmt_ref_aggregate`): a block of its
   own declares `let a: [&T; N] = [&p, &q];` (read by index, now and then through `let s:
@@ -130,8 +129,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   [&mut T; 2] = [&mut p, &mut q];` written through `*a[k] = v` (on places of two locals in
   scope, or on two `mut` locals the block declares when there are none), for primitive
   referents of a type some place in scope has. The loans end with the block, so the scope
-  model only checks each borrow. `programs_use_aggregates_of_references` pins 40, 30, 50
-  and 90 programs of 500. Parameters of these types, longer-lived locals, and `&str` or
+  model only checks each borrow. `programs_use_aggregates_of_references` counts each
+  form. Parameters of these types, longer-lived locals, and `&str` or
   `&&T` elements are still TODO(#92).
 
   Generic functions and types (#114, #115, decisions 82 and 83): half of the programs
@@ -151,9 +150,8 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   (seed 81000007 wrote `(&t[i], match &mut t[1] { .. })`), and so was the index read out
   of an array of references (seeds 85000088 and 86000852 moved or mutably borrowed an
   element's root there). `programs_use_generic_helpers`
-  pins 60, 20, 50, 25, 30, 20 and 30 programs of 500 using `GenId`, `GenId::<T>`,
-  `GenPick`, `GenFirst`, `GenOr(GenOpt::Yes(..), ..)`, `GenOr(GenOpt::No, ..)` and
-  `GenBox`.
+  counts the programs using `GenId`, `GenId::<T>`, `GenPick`, `GenFirst`,
+  `GenOr(GenOpt::Yes(..), ..)`, `GenOr(GenOpt::No, ..)` and `GenBox`.
 
   Traits (#116, decision 84): half of the programs, independently, get
   `program::TRAIT_HELPERS`, one line each: `trait GenKeep { fn Keep(self) -> Self; fn
@@ -166,14 +164,31 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `(e).Sign()` or `GenSigns(a, b)` of `i32` or `bool` values (cast to the integer's
   type), so method probing through a blanket impl and through two blocks, `Trait::Name`
   paths, provided methods, bounds with `where`, and an integer literal's type picked by
-  the one integer block all meet rustc. `programs_use_trait_helpers` pins 40, 30, 30, 20,
-  20 and 20 programs of 500. The runs found a borrow-checker gap older than traits: a
+  the one integer block all meet rustc. `programs_use_trait_helpers` counts the programs
+  using each. The runs found a borrow-checker gap older than traits: a
   `match` on a field of a moved struct read its discriminant unchecked, since only
   operands, borrows and lengths made move paths (seed 89001756; now
-  `moves/err_match_on_field_of_moved_struct`). The new draws shift every program's random choices, which
-  lowered a few unrelated usage counts; their thresholds went down with them (let chains
-  50, `let` = `match` 50, string `match` arms 50, guarded string bindings 12, `while i <
-  s.len()` 85, extension through a `match` 38).
+  `moves/err_match_on_field_of_moved_struct`). The new draws shift every program's random choices,
+  which moves the other usage counts too (see Coverage thresholds).
+
+  The `core` prelude (#13, decision 90): the programs with exactly one of the two helper
+  sets (`program.prelude`, derived without a draw of its own, so the other programs keep
+  their bodies) wrap a value in `Some(e).unwrap()`, `Some(e).expect("generated")`,
+  `Ok::<T, u8>(e).unwrap()` or `Err::<u8, T>(e).unwrap_err()` (all `e`),
+  `Some(a).unwrap_or(b)` (both evaluated and moved, `b` dropped inside the call, as
+  `GenOr(GenOpt::Yes(a), b)`) or `None::<T>.unwrap_or(b)`, and a shared reference in
+  `Some(&*r).unwrap()`, an `Option<&T>` instance (a `&mut` local passed to `Some` would be
+  moved, since `T` is not a reference to reborrow into; Sabiko reborrows it, #132). None
+  of them panics. `programs_use_the_prelude` counts the programs
+  with each form. Every harness that runs the front end itself (the MIR and IL snapshots, the layout
+  test, `validate_corpus`, the generator's `reorder` and `validity`) appends the prelude
+  as the driver does, through the driver's own front-end step,
+  `sabiko_driver::parse_and_resolve` (which returns the user's `FileId` too). Every
+  harness that compiles through the driver (UI, differential, run corpus, `no_panic`,
+  generated programs) asserts that no diagnostic has all its labels in the prelude's source
+  (`Compilation::diagnostics_only_in_prelude`). Compiling a program skips borrow checking and linting the prelude's bodies;
+  `sabiko_driver::check_core_prelude` runs both on them, and the driver's
+  `core_prelude_borrow_checks_and_lints_clean` asserts it reports nothing.
 
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
@@ -228,7 +243,7 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   with a `&&T` parameter returns a reference (rustc's E0106 otherwise); nothing borrows a
   literal directly (no `'static` promotion, #106). About 45% of borrow-clean programs hold
   a double reference (906 of 2000 at base 5000000: 383 retarget, 70 write through `&mut
-  &mut T`); `programs_use_references_to_references` pins minimum counts for 11 of these
+  &mut T`); `programs_use_references_to_references` counts 11 of these
   constructs. Avoided with TODOs: three levels, `&mut &T` parameters, a retarget in a
   loop of a reference declared outside it, string patterns on a `&&str` scrutinee (#58),
   double references in aggregates (#92). The two borrow-check divergences the runs found
@@ -251,6 +266,148 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   body where breaking the condition would change the value read; the run-time differential corpus (`regressions/stack_values.sabi`,
   `regressions/operand_order_sibling_call.sabi` among others) and the generated programs
   check the optimised code against rustc.
+
+## Coverage thresholds
+
+The `programs_*` tests of `crates/sabiko_testgen/tests/validity.rs` count, over seeds 1 to
+500, how many generated programs have each construct, and fail when a count falls under
+its threshold: a construct that silently stopped being generated. Every count goes
+through `coverage()`, which prints `coverage <test>: <name> = <count> (min <threshold>)`.
+The thresholds are measured, not picked: `python3 scripts/measure_coverage.py` counts over
+the 10 windows of 500 seeds from 1 to 5000 (`SABIKO_COVERAGE_BASE_SEED` moves the window,
+`SABIKO_COVERAGE_MEASURE` turns the assertions off) and each threshold is 75% of the
+smallest window's count, rounded down, at least 1 (a count that is 0 in some window
+fails the script instead: that construct is barely generated). The margin lets a threshold survive the
+reshuffle any change to the generator's draws makes, since the test only counts one
+window; re-measure and update after a generator change that moves the counts. Measured on
+2026-11-11, after #49 and #13's first part:
+
+| test | count | min | mean | max | threshold |
+| --- | --- | --- | --- | --- | --- |
+| extended_temporaries | extend through a block | 93 | 106.6 | 118 | 69 |
+| extended_temporaries | through an `if` | 88 | 103.0 | 125 | 66 |
+| extended_temporaries | through a `match` | 46 | 56.4 | 64 | 34 |
+| unreachable_patterns | unreachable pattern (default and borrow-clean) | 116 | 133.0 | 156 | 87 |
+| 128_bit_integers | i128 | 363 | 378.3 | 395 | 272 |
+| 128_bit_integers | u128 | 364 | 376.3 | 391 | 273 |
+| 128_bit_integers | the `i128::MIN` literal | 4 | 12.1 | 18 | 3 |
+| aggregates_of_references | `[&T; N]` local | 54 | 65.4 | 74 | 40 |
+| aggregates_of_references | `&[&T]` local | 22 | 39.8 | 52 | 16 |
+| aggregates_of_references | `(&T, U)` local | 69 | 81.0 | 98 | 51 |
+| aggregates_of_references | `[&mut T; 2]` local | 111 | 124.0 | 134 | 83 |
+| arrays | array type | 422 | 431.2 | 444 | 316 |
+| arrays | nested array type | 21 | 32.6 | 42 | 15 |
+| arrays | zero-length array | 47 | 58.0 | 70 | 35 |
+| arrays | one-element array | 111 | 129.8 | 145 | 83 |
+| arrays | length from a constant | 85 | 99.5 | 110 | 63 |
+| arrays | slice type | 122 | 135.1 | 148 | 91 |
+| arrays | array field | 157 | 166.8 | 183 | 117 |
+| arrays | array in a tuple | 41 | 59.2 | 70 | 30 |
+| arrays | array in an enum payload | 148 | 159.7 | 173 | 111 |
+| arrays | array of an `impl Drop` type | 50 | 64.7 | 80 | 37 |
+| arrays | `.len()` | 359 | 373.3 | 397 | 269 |
+| arrays | `while i < s.len()` | 65 | 76.2 | 86 | 48 |
+| arrays | computed index | 363 | 370.0 | 382 | 272 |
+| arrays | element write | 307 | 318.1 | 336 | 230 |
+| arrays | element compound assignment | 15 | 21.9 | 32 | 11 |
+| arrays | borrow of an element | 219 | 225.2 | 230 | 164 |
+| arrays | repeat expression | 310 | 319.1 | 330 | 232 |
+| arrays | out-of-bounds-prone index | 164 | 180.0 | 196 | 123 |
+| arrays_of_references | index an array of references | 95 | 106.8 | 126 | 71 |
+| arrays_of_references | a range of one | 14 | 17.5 | 21 | 10 |
+| drop | `impl Drop` | 218 | 233.0 | 253 | 163 |
+| enums_and_match | enum | 420 | 432.2 | 446 | 315 |
+| enums_and_match | Copy enum | 221 | 229.1 | 240 | 165 |
+| enums_and_match | `impl Drop` for an enum | 109 | 117.1 | 131 | 81 |
+| enums_and_match | explicit discriminant | 66 | 71.8 | 86 | 49 |
+| enums_and_match | `match` statement | 282 | 305.8 | 324 | 211 |
+| enums_and_match | `let` = `match` | 38 | 44.7 | 53 | 28 |
+| enums_and_match | inline `match` | 266 | 287.6 | 296 | 199 |
+| enums_and_match | `if let` | 217 | 226.7 | 235 | 162 |
+| enums_and_match | `while let` | 17 | 23.6 | 32 | 12 |
+| enums_and_match | `let`-`else` | 133 | 151.7 | 161 | 99 |
+| enums_and_match | guard | 175 | 188.7 | 205 | 131 |
+| enums_and_match | `ref` binding | 179 | 186.3 | 199 | 134 |
+| enums_and_match | `ref mut` binding | 80 | 92.4 | 105 | 60 |
+| enums_and_match | `@` binding | 65 | 77.0 | 86 | 48 |
+| enums_and_match | range pattern | 340 | 352.5 | 370 | 255 |
+| enums_and_match | or-pattern | 165 | 183.4 | 193 | 123 |
+| enums_and_match | match on a reference | 238 | 253.9 | 272 | 178 |
+| enums_and_match | `impl` block of an enum | 160 | 188.6 | 199 | 120 |
+| generic_helpers | `GenId` | 101 | 110.3 | 116 | 75 |
+| generic_helpers | `GenId::<T>` | 49 | 57.5 | 64 | 36 |
+| generic_helpers | `GenPick` | 97 | 113.2 | 127 | 72 |
+| generic_helpers | `GenFirst` | 27 | 34.1 | 43 | 20 |
+| generic_helpers | `GenOr(GenOpt::Yes(..), ..)` | 69 | 78.6 | 88 | 51 |
+| generic_helpers | `GenOr(GenOpt::No, ..)` | 50 | 57.3 | 72 | 37 |
+| generic_helpers | `GenBox` | 74 | 89.1 | 102 | 55 |
+| if_let_guards | `if let` guard | 34 | 39.6 | 46 | 25 |
+| if_let_guards | one with `&&` | 13 | 17.3 | 21 | 9 |
+| let_chains | let chain | 35 | 43.5 | 52 | 26 |
+| let_chains | led by a `bool` | 9 | 12.6 | 20 | 6 |
+| let_chains | two `let`s | 20 | 26.7 | 35 | 15 |
+| let_chains | a `bool` after a `let` | 19 | 31.1 | 40 | 14 |
+| methods | impl block | 403 | 417.8 | 428 | 302 |
+| methods | method call | 295 | 309.7 | 321 | 221 |
+| methods | argument reading the receiver | 17 | 21.9 | 25 | 12 |
+| patterns | `&` pattern | 17 | 29.1 | 41 | 12 |
+| patterns | `&mut` pattern | 5 | 13.7 | 19 | 3 |
+| patterns | half-open range pattern | 37 | 54.3 | 62 | 27 |
+| patterns | float pattern | 22 | 30.9 | 41 | 16 |
+| references_to_references | `&&T` parameter | 75 | 85.7 | 107 | 56 |
+| references_to_references | `&&mut T` parameter | 15 | 24.1 | 37 | 11 |
+| references_to_references | `&mut &mut T` parameter | 18 | 23.0 | 32 | 13 |
+| references_to_references | `&&str` parameter | 18 | 23.6 | 32 | 13 |
+| references_to_references | annotated double reference local | 112 | 121.7 | 136 | 84 |
+| references_to_references | `&mut` of a reference local | 52 | 59.4 | 71 | 39 |
+| references_to_references | write through `&mut &mut` | 8 | 13.3 | 19 | 6 |
+| references_to_references | retarget through `&mut &T` | 76 | 83.3 | 92 | 57 |
+| references_to_references | `&&x` argument | 12 | 17.7 | 22 | 9 |
+| references_to_references | explicit dereferences of a double reference | 64 | 73.3 | 80 | 48 |
+| references_to_references | `let` of a borrowed borrow | 16 | 23.0 | 29 | 12 |
+| strings_and_ranges | `&str` parameter | 79 | 89.0 | 108 | 59 |
+| strings_and_ranges | `-> &str` | 25 | 33.3 | 42 | 18 |
+| strings_and_ranges | `&str` local | 226 | 238.1 | 255 | 169 |
+| strings_and_ranges | escape in a string | 199 | 217.6 | 239 | 149 |
+| strings_and_ranges | `a..b` | 256 | 273.0 | 284 | 192 |
+| strings_and_ranges | `a..` | 232 | 243.4 | 255 | 174 |
+| strings_and_ranges | `..b` | 187 | 200.8 | 218 | 140 |
+| strings_and_ranges | `..` | 113 | 126.7 | 145 | 84 |
+| strings_and_ranges | `a..=b` | 192 | 216.7 | 238 | 144 |
+| strings_and_ranges | `..=b` | 163 | 176.4 | 194 | 122 |
+| strings_and_ranges | computed bound | 228 | 243.5 | 261 | 171 |
+| strings_and_ranges | bound measuring the base | 207 | 222.6 | 239 | 155 |
+| strings_and_ranges | slice of a string literal | 395 | 408.5 | 430 | 296 |
+| strings_and_ranges | range of a range | 195 | 209.6 | 231 | 146 |
+| strings_and_ranges | `.len()` of a range place | 239 | 259.8 | 278 | 179 |
+| strings_and_ranges | `&mut` of a range place | 13 | 21.1 | 28 | 9 |
+| strings_and_ranges | element of a range place | 263 | 277.5 | 296 | 197 |
+| strings_and_ranges | write through a range place | 9 | 14.9 | 19 | 6 |
+| strings_and_ranges | `while i < x[..].len()` | 15 | 20.6 | 25 | 11 |
+| strings_and_ranges | string comparison | 110 | 133.9 | 147 | 82 |
+| strings_and_ranges | `match` arm of string literals | 34 | 48.6 | 62 | 25 |
+| strings_and_ranges | string or-pattern | 85 | 100.5 | 126 | 63 |
+| strings_and_ranges | guarded binding of a string | 8 | 16.8 | 22 | 6 |
+| strings_and_ranges | `if let` on a string | 42 | 54.2 | 68 | 31 |
+| strings_and_ranges | `let`-`else` on a string | 42 | 51.8 | 61 | 31 |
+| strings_and_ranges | `while let` on a string | 3 | 9.7 | 17 | 2 |
+| strings_and_ranges | `while i < s.len()` over a string | 22 | 29.7 | 35 | 16 |
+| strings_and_ranges | shrinking a `&str` | 12 | 21.2 | 29 | 9 |
+| prelude | `).unwrap()` | 59 | 72.6 | 87 | 44 |
+| prelude | `).expect("generated")` | 6 | 14.9 | 21 | 4 |
+| prelude | `).unwrap_or(` | 22 | 30.8 | 43 | 16 |
+| prelude | `None::<` | 22 | 28.1 | 37 | 16 |
+| prelude | `Ok::<` | 12 | 17.0 | 25 | 9 |
+| prelude | `Err::<` | 12 | 15.9 | 20 | 9 |
+| prelude | `Some(&` | 14 | 20.9 | 28 | 10 |
+| trait_helpers | `.Keep()` | 68 | 74.9 | 86 | 51 |
+| trait_helpers | `GenKeep::Keep` | 45 | 60.3 | 70 | 33 |
+| trait_helpers | `GenKept` | 50 | 59.3 | 72 | 37 |
+| trait_helpers | `.KeepRef()` | 28 | 33.4 | 38 | 21 |
+| trait_helpers | `.Sign()` | 46 | 55.8 | 65 | 34 |
+| trait_helpers | `GenSigns` | 38 | 52.8 | 69 | 28 |
+| trait_helpers | a trait constant | 21 | 25.9 | 33 | 15 |
+| trait_helpers | `Copy`/`Clone` through a bound | 32 | 42.1 | 50 | 24 |
 
 ## Properties
 

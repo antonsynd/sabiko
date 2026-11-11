@@ -88,11 +88,17 @@ pub fn emit_il(
     options: &Options,
     sink: &mut DiagnosticSink,
 ) -> Option<String> {
+    // The prelude's types are named `core::Option<..>` in IL (decision 90): a file named
+    // `option.sabi` keeps the module class `Option`.
     let struct_names: Vec<String> = resolve
         .defs
         .iter()
-        .filter(|d| d.kind.is_type())
-        .map(|d| d.name.clone())
+        .enumerate()
+        .filter(|(i, d)| {
+            let def = sabiko_resolve::DefId(u32::try_from(*i).expect("fewer than 2^32 items"));
+            d.kind.is_type() && !resolve.is_prelude(def)
+        })
+        .map(|(_, d)| d.name.clone())
         .collect();
     let class_name = module_class_name(&options.assembly_name, &struct_names);
     let mut cx = Cx {
@@ -145,38 +151,7 @@ pub fn emit_il(
     );
     out.push_str(&module);
     if options.kind == OutputKind::Executable {
-        if let Some(body) = main {
-            if body.arg_count != 0 || !body.return_ty().is_unit() {
-                cx.error(
-                    ErrorCode::INVALID_MAIN,
-                    "`Main` must take no parameters and return `()`",
-                    body.span,
-                    "entry point defined here",
-                );
-            } else {
-                cx.entry_point(&mut out);
-            }
-        } else if let Some(generic_main) = (0..resolve.defs.len())
-            .map(|i| sabiko_resolve::DefId(u32::try_from(i).expect("fewer than 2^32 items")))
-            .find(|&d| {
-                let info = resolve.def(d);
-                info.kind == DefKind::Fn && info.parent.is_none() && info.name == "Main"
-            })
-        {
-            // A generic `Main` has no instance (rustc's E0131).
-            cx.error(
-                ErrorCode::INVALID_MAIN,
-                "`Main` function is not allowed to have generic parameters",
-                resolve.def(generic_main).span,
-                "`Main` cannot have generic parameters",
-            );
-        } else {
-            cx.sink.emit(Diagnostic::error(
-                ErrorCode::INVALID_MAIN,
-                "an executable needs a `Main` function",
-            ));
-            cx.had_error = true;
-        }
+        cx.entry_point_or_error(main, &mut out);
     }
     out.push_str("}\n");
     cx.byref_tuple_structs(&mut out);
@@ -288,7 +263,7 @@ impl Cx<'_> {
         if let Some((_, name)) = self.byref_tuples.iter().find(|(t, _)| t == ty) {
             return name.clone();
         }
-        let name = ty.display(self.resolve);
+        let name = ty.symbol(self.resolve);
         self.byref_tuples.push((ty.clone(), name.clone()));
         if let Ty::Tuple(elems) = ty {
             for e in elems.iter() {
@@ -313,7 +288,7 @@ impl Cx<'_> {
             self.unsupported("an array of more than 2147483647 elements", span);
             return None;
         }
-        let name = ty.display(self.resolve);
+        let name = ty.symbol(self.resolve);
         self.inline_arrays.push((ty.clone(), name.clone()));
         types::stored_type(self, elem, span);
         Some(name)
@@ -498,7 +473,7 @@ impl Cx<'_> {
     /// registered for [`Cx::adt_instance_types`].
     pub(crate) fn adt_class(&mut self, def: DefId, args: &[Ty]) -> String {
         if args.is_empty() {
-            return types::quote(&self.typeck.items.adt(def).name);
+            return types::quote(&self.resolve.symbol_name(def));
         }
         if !self
             .adt_instances
@@ -507,7 +482,7 @@ impl Cx<'_> {
         {
             self.adt_instances.push((def, args.into()));
         }
-        types::quote(&Ty::Adt(def, args.into()).display(self.resolve))
+        types::quote(&Ty::Adt(def, args.into()).symbol(self.resolve))
     }
 
     /// Emits the instances registered since the last call.
@@ -516,6 +491,51 @@ impl Cx<'_> {
             let (def, args) = self.adt_instances[self.adt_instances_done].clone();
             self.adt_instances_done += 1;
             self.adt_type(def, &args, bodies, out);
+        }
+    }
+
+    /// The entry point of an executable, calling `main`; an error when there is no
+    /// `Main`, or one that cannot be the entry point.
+    fn entry_point_or_error(&mut self, main: Option<&Body>, out: &mut String) {
+        if let Some(body) = main {
+            if body.arg_count != 0 || !body.return_ty().is_unit() {
+                self.error(
+                    ErrorCode::INVALID_MAIN,
+                    "`Main` must take no parameters and return `()`",
+                    body.span,
+                    "entry point defined here",
+                );
+            } else if self.resolve.is_track_caller(body.def) {
+                // Nothing calls the entry point from a location (rustc's E0648 for `main`).
+                self.error(
+                    ErrorCode::INVALID_MAIN,
+                    "`Main` function is not allowed to be `#[track_caller]`",
+                    self.resolve.def(body.def).span,
+                    "`Main` function is not allowed to be `#[track_caller]`",
+                );
+            } else {
+                self.entry_point(out);
+            }
+        } else if let Some(generic_main) = (0..self.resolve.defs.len())
+            .map(|i| sabiko_resolve::DefId(u32::try_from(i).expect("fewer than 2^32 items")))
+            .find(|&d| {
+                let info = self.resolve.def(d);
+                info.kind == DefKind::Fn && info.parent.is_none() && info.name == "Main"
+            })
+        {
+            // A generic `Main` has no instance (rustc's E0131).
+            self.error(
+                ErrorCode::INVALID_MAIN,
+                "`Main` function is not allowed to have generic parameters",
+                self.resolve.def(generic_main).span,
+                "`Main` cannot have generic parameters",
+            );
+        } else {
+            self.sink.emit(Diagnostic::error(
+                ErrorCode::INVALID_MAIN,
+                "an executable needs a `Main` function",
+            ));
+            self.had_error = true;
         }
     }
 

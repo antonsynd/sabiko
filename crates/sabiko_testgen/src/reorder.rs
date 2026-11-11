@@ -52,7 +52,7 @@ use std::collections::{BTreeSet, HashSet};
 use sabiko_ast::{BinOp, Block, Expr, ExprKind, ItemKind, Lit, PatKind, Stmt, StmtKind, UnOp};
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{LocalId, Res, ResolveResults};
-use sabiko_span::{FileId, Span};
+use sabiko_span::Span;
 use sabiko_types::{BodyTypes, Ty, TypeckResults};
 
 use crate::rng::Rng;
@@ -70,11 +70,14 @@ pub struct Reordering {
 /// checker (every generated program does).
 pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
     let mut sink = DiagnosticSink::new();
-    let ast = sabiko_parser::parse_file(FileId(0), program, &mut sink);
-    if sink.has_errors() {
+    let mut source_map = sabiko_diagnostics::SourceMap::new();
+    // With the `core` prelude, as the driver compiles (decision 90).
+    let front =
+        sabiko_driver::parse_and_resolve("program.sabi", program, &mut source_map, &mut sink);
+    let file = front.file;
+    let Some((ast, resolve)) = front.program else {
         return Err(format!("parse errors: {:?}", sink.diagnostics()));
-    }
-    let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+    };
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     if sink.has_errors() {
         return Err(format!("front-end errors: {:?}", sink.diagnostics()));
@@ -85,6 +88,10 @@ pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
         let ItemKind::Fn(f) = &item.kind else {
             continue;
         };
+        if item.span.file != file {
+            // The prelude's.
+            continue;
+        }
         let def = resolve.def_of_item(item.id);
         let mut cx = FnCx {
             resolve: &resolve,

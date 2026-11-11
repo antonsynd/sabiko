@@ -306,6 +306,9 @@ pub struct Program {
     /// Whether the program has the trait helpers [`TRAIT_HELPERS`] (#116), which bodies
     /// wrap expressions in.
     pub traits: bool,
+    /// Whether bodies wrap expressions in the `core` prelude's `Option` and `Result` (#13,
+    /// decision 90), which every program sees.
+    pub prelude: bool,
 }
 
 /// Generic functions, a generic enum and a generic struct (#114, #115) that the bodies of
@@ -1564,6 +1567,7 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
         fns: Vec::new(),
         generics: false,
         traits: false,
+        prelude: false,
     };
     program.consts = gen_consts(rng, knobs);
     let count = rng.index(knobs.max_tuples / 2 + 1);
@@ -1596,6 +1600,9 @@ pub fn gen_program(rng: &mut Rng, knobs: &Knobs) -> Program {
     }
     program.generics = rng.chance(50);
     program.traits = rng.chance(50);
+    // Half the programs, without a draw of its own, so the seeds of programs without it
+    // keep the bodies they had.
+    program.prelude = program.generics != program.traits;
     program
 }
 

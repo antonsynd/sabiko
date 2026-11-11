@@ -747,6 +747,10 @@ pub enum TerminatorKind {
         args: Vec<Operand>,
         destination: Place,
         target: Option<BasicBlock>,
+        /// Where a `#[track_caller]` callee's panics say they happened: the call from its
+        /// method name on for a method call (`x.unwrap()` reports `unwrap`), the whole call
+        /// otherwise, as rustc's `fn_span` (decision 90).
+        fn_span: Span,
     },
     /// Drop the value in `place`, whose type has drop glue, and continue at `target`. As
     /// built (and as the borrow checker sees it), it drops whatever part of the place holds

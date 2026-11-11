@@ -97,6 +97,9 @@ impl ErrorCode {
     /// Generic arguments on a path segment that takes none: a primitive type, a type
     /// parameter, a local, a non-generic item (rustc's E0109).
     pub const GENERIC_ARGS_NOT_ALLOWED: Self = Self(223);
+    /// An attribute that only a function takes (`#[track_caller]`, `#[intrinsic]`) on
+    /// something else (rustc's E0739).
+    pub const MISPLACED_ATTRIBUTE: Self = Self(224);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);

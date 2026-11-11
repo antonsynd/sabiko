@@ -21,10 +21,10 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
     let mut sm = SourceMap::new();
     let name = path.file_name().unwrap().to_string_lossy().into_owned();
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
-    let id = sm.add(name, src.clone());
     let mut sink = DiagnosticSink::new();
-    let ast = sabiko_parser::parse_file(id, &src, &mut sink);
-    let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+    let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+        .program
+        .expect("fixture parses");
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     let mut bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
     sabiko_mir::simplify::simplify_all(&mut bodies);

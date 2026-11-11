@@ -36,12 +36,16 @@ use sabiko_mir::{
     Mutability, Operand, Place, PlaceElem, Rvalue, SliceBounds, Statement, StatementKind,
     Terminator, TerminatorKind, Ty, UnOp,
 };
-use sabiko_resolve::{Builtin, DefId, PrimTy};
+use sabiko_resolve::{Builtin, DefId, Intrinsic, PrimTy};
 use sabiko_span::Span;
 
 use crate::drops::DROP_METHOD;
 use crate::types::{self, StackWidth, IS_READONLY_ATTR, STR_SPAN};
 use crate::{Cx, RUNTIME_ASSEMBLY};
+
+/// The hidden last parameter of a `#[track_caller]` function: the location of its call,
+/// which its panics report (decision 90).
+pub(crate) const CALLER_LOCATION: &str = "<caller location>";
 
 /// Where a MIR local lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -629,6 +633,66 @@ impl FnCx<'_, '_> {
         slot
     }
 
+    /// A call of a prelude intrinsic (decision 90), which has no body of its own.
+    /// `PanicDebug::<T>(msg, &value)` calls `Sabiko.Runtime.Panic::FailDebug(msg, value,
+    /// location)`, whose overload for `T` formats the value as Rust's `{:?}` does; `()`
+    /// passes its text, `"()"`. It never returns: the MIR call has no return edge.
+    fn intrinsic_call(&mut self, func: DefId, generic_args: &[Ty], args: &[Operand], span: Span) {
+        match self.cx.resolve.intrinsic(func) {
+            Some(Intrinsic::PanicDebug) => {
+                let ty = &generic_args[0];
+                self.operand(&args[0], span);
+                let overload = if types::has_no_value(ty) {
+                    self.op("ldstr \"()\"", 0, 1);
+                    Some("string")
+                } else {
+                    let overload = match ty {
+                        Ty::Prim(p) if p.int_bits().is_some() || *p == PrimTy::Bool => {
+                            types::prim_type(*p)
+                        }
+                        _ => None,
+                    };
+                    if overload.is_some() {
+                        self.operand(&args[1], span);
+                        self.load_indirect(ty, span);
+                    }
+                    overload
+                };
+                let Some(overload) = overload else {
+                    // The prelude implements `Debug` only for the types handled here.
+                    self.cx
+                        .unsupported("formatting a value of this type with `Debug`", span);
+                    return;
+                };
+                let location = self
+                    .location_op(span)
+                    .unwrap_or_else(|| "ldnull".to_owned());
+                self.op(location, 0, 1);
+                self.op(
+                    format!(
+                        "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::FailDebug({STR_SPAN}, {overload}, string)"
+                    ),
+                    3,
+                    0,
+                );
+            }
+            None => unreachable!("not an intrinsic"),
+        }
+    }
+
+    /// The instruction that pushes the location (`file:line:column`) a panic at `span`
+    /// reports: the caller's, the hidden last argument, in a `#[track_caller]` function
+    /// (decision 90, rustc's implicit caller location); else `span`'s as a string
+    /// literal. `None` for a span without source text outside such a function.
+    fn location_op(&self, span: Span) -> Option<String> {
+        if self.cx.resolve.is_track_caller(self.body.def) {
+            return Some(format!("ldarg {}", types::quote(CALLER_LOCATION)));
+        }
+        self.cx
+            .location(span)
+            .map(|location| format!("ldstr {}", types::il_string(&location)))
+    }
+
     fn write_method(&mut self, out: &mut String) {
         let body = self.body;
         let ret = types::ret_type(self.cx, body.return_ty(), body.span);
@@ -648,11 +712,21 @@ impl FnCx<'_, '_> {
                 params.push(format!("{ty} {}", types::quote(&name)));
             }
         }
+        if self.cx.resolve.is_track_caller(body.def) {
+            params.push(format!("string {}", types::quote(CALLER_LOCATION)));
+        }
         // The `drop` of an `impl Drop` (decision 55).
+        let symbol;
         let name = if self.cx.resolve.is_drop_fn(body.def) {
             DROP_METHOD
         } else {
-            &body.name
+            symbol = sabiko_mir::mono::instance_symbol(
+                self.cx.resolve,
+                &self.cx.typeck.items,
+                body.def,
+                &body.instance,
+            );
+            &symbol
         };
         let _ = writeln!(
             out,
@@ -1251,8 +1325,9 @@ impl FnCx<'_, '_> {
                 args,
                 destination,
                 target,
+                fn_span,
             } => {
-                self.call(*func, generic_args, args, destination, term.span);
+                self.call(*func, generic_args, args, destination, term.span, *fn_span);
                 // A return the jump inlines may read the call's result from the stack.
                 self.stmt_start = self.code.len();
                 match target {
@@ -1965,10 +2040,10 @@ impl FnCx<'_, '_> {
         self.load(&index_place, span);
         self.span_len(&es, false, span);
         self.op(format!("blt.un {ok}"), 2, 0);
-        if let Some(location) = self.cx.location(span) {
+        if let Some(location) = self.location_op(span) {
             self.span_len(&es, true, span);
             self.load(&index_place, span);
-            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+            self.op(location, 0, 1);
             self.op(
                 format!(
                     "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)"
@@ -2161,7 +2236,7 @@ impl FnCx<'_, '_> {
         }
         self.op(format!("br {ok}"), 0, 0);
         self.label(&fail);
-        if let Some(location) = self.cx.location(span) {
+        if let Some(location) = self.location_op(span) {
             match &bounds.lo {
                 Some(lo) => self.operand(lo, span),
                 None => self.int_const(0, PrimTy::Usize),
@@ -2172,7 +2247,7 @@ impl FnCx<'_, '_> {
             }
             self.ldc_i4(i32::from(bounds.inclusive));
             self.span_length(s, &class);
-            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+            self.op(location, 0, 1);
             let helper = if is_str { "StrSliceFail" } else { "SliceFail" };
             self.op(
                 format!(
@@ -2644,8 +2719,8 @@ impl FnCx<'_, '_> {
     /// Rust's message. A span without source text (never produced for checks today) falls
     /// back to `Panic::Fail(message)`, without a location.
     fn panic_at(&mut self, check: Check, span: Span) {
-        if let Some(location) = self.cx.location(span) {
-            self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+        if let Some(location) = self.location_op(span) {
+            self.op(location, 0, 1);
             self.op(
                 format!(
                     "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Checks::{}(string)",
@@ -3017,6 +3092,7 @@ impl FnCx<'_, '_> {
         args: &[Operand],
         destination: &Place,
         span: Span,
+        fn_span: Span,
     ) {
         match self.cx.resolve.builtin(func) {
             Some(builtin @ (Builtin::Print | Builtin::PrintLine)) => {
@@ -3037,8 +3113,8 @@ impl FnCx<'_, '_> {
             }
             Some(Builtin::Panic) => {
                 self.operand(&args[0], span);
-                if let Some(location) = self.cx.location(span) {
-                    self.op(format!("ldstr {}", types::il_string(&location)), 0, 1);
+                if let Some(location) = self.location_op(span) {
+                    self.op(location, 0, 1);
                     self.op(
                         format!(
                             "call void [{RUNTIME_ASSEMBLY}]Sabiko.Runtime.Panic::Fail({STR_SPAN}, string)"
@@ -3056,22 +3132,36 @@ impl FnCx<'_, '_> {
                     );
                 }
             }
+            None if self.cx.resolve.intrinsic(func).is_some() => {
+                self.intrinsic_call(func, generic_args, args, fn_span);
+            }
             None => {
                 let mut sig = self.cx.typeck.items.fn_sig(func).clone();
                 sig.inputs = sig.inputs_with(generic_args);
                 sig.output = sig.output_with(generic_args);
-                let name = sabiko_mir::mono::instance_name(
+                let name = sabiko_mir::mono::instance_symbol(
                     self.cx.resolve,
                     &self.cx.typeck.items,
                     func,
                     generic_args,
                 );
                 let ret = types::ret_type(self.cx, &sig.output, span);
-                let params: Vec<String> = sig
+                let mut params: Vec<String> = sig
                     .inputs
                     .iter()
                     .map(|t| types::param_type(self.cx, t, span))
                     .collect();
+                // A `#[track_caller]` callee takes the call's location last.
+                let location = if self.cx.resolve.is_track_caller(func) {
+                    params.push("string".to_owned());
+                    Some(
+                        self.location_op(fn_span)
+                            .unwrap_or_else(|| "ldnull".to_owned()),
+                    )
+                } else {
+                    None
+                };
+                let pops = params.len();
                 let callee = format!(
                     "call {ret} {}::{}({})",
                     self.cx.owner_class(func, generic_args),
@@ -3084,13 +3174,19 @@ impl FnCx<'_, '_> {
                         for a in args {
                             this.operand_value(a, span);
                         }
-                        this.op(callee, args.len(), 1);
+                        if let Some(location) = location {
+                            this.op(location, 0, 1);
+                        }
+                        this.op(callee, pops, 1);
                     });
                 } else {
                     for a in args {
                         self.operand_value(a, span);
                     }
-                    self.op(callee, args.len(), 0);
+                    if let Some(location) = location {
+                        self.op(location, 0, 1);
+                    }
+                    self.op(callee, pops, 0);
                 }
             }
         }

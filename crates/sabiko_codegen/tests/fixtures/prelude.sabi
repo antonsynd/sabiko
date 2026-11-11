@@ -1,0 +1,19 @@
+// The `core` prelude in IL (decision 90): only the instances a program reaches are
+// emitted, in classes named `core::Option<i32>`; a `#[track_caller]` function takes the
+// caller's location as a hidden last `string` argument, which its panics and its own
+// `#[track_caller]` calls use; `Result::unwrap` lowers its `PanicDebug` intrinsic to
+// `Panic::FailDebug`.
+#[track_caller]
+fn Checked(o: Option<i32>) -> i32 {
+    if o.is_none() {
+        Panic("missing");
+    }
+    o.unwrap()
+}
+
+fn Main() {
+    let a = Some(4);
+    let r: Result<u8, bool> = Err(true);
+    PrintLine(Checked(a));
+    PrintLine(r.unwrap());
+}

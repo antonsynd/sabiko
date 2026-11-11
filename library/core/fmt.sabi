@@ -1,0 +1,32 @@
+//! `Debug`, Rust's `core::fmt::Debug`, so far only as the bound of the methods that
+//! print a value when they panic (`Result::unwrap` and the like). It is implemented for
+//! the types whose `{:?}` output Sabiko's printing already writes exactly: the integers,
+//! `bool` and `()`. `Debug` is not exported, as in Rust, where it is `std::fmt::Debug`
+//! and outside the prelude; deriving it waits for #117.
+
+/// Formatting with `{:?}`.
+trait Debug {}
+
+impl Debug for i8 {}
+impl Debug for i16 {}
+impl Debug for i32 {}
+impl Debug for i64 {}
+impl Debug for i128 {}
+impl Debug for isize {}
+impl Debug for u8 {}
+impl Debug for u16 {}
+impl Debug for u32 {}
+impl Debug for u64 {}
+impl Debug for u128 {}
+impl Debug for usize {}
+impl Debug for bool {}
+impl Debug for () {}
+
+/// Panics with `"{msg}: {value:?}"`, at the location of the `#[track_caller]` function
+/// that calls it (rustc's `unwrap_failed`). Code generation lowers each call; the body is
+/// never used.
+#[intrinsic]
+#[track_caller]
+fn PanicDebug<T: Debug>(msg: &str, value: &T) -> ! {
+    loop {}
+}

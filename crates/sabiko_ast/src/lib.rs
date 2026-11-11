@@ -10,6 +10,7 @@
 
 pub mod dump;
 pub mod pretty;
+mod visit_mut;
 
 pub use sabiko_lexer::literal::{FloatSuffix, IntSuffix};
 use sabiko_span::Span;
@@ -169,10 +170,25 @@ pub enum ItemKind {
     Enum(EnumDecl),
     /// `trait Name: Super { fn Required(&self); fn Provided(&self) { .. } }`
     Trait(TraitDecl),
+    /// `use Option::{None, Some};`: only library files (the `core` prelude, decision 90)
+    /// may contain one until modules arrive (Phase 9).
+    Use(UseDecl),
+}
+
+/// `use Prefix::Name;` or `use Prefix::{A, B};`: brings the items `Prefix::A`, ... into
+/// the file's namespace under their own names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UseDecl {
+    /// The path before the last `::`.
+    pub prefix: Path,
+    /// The names imported from it; more than one only when written in braces.
+    pub names: Vec<Ident>,
+    /// Whether the names were written in braces.
+    pub braced: bool,
 }
 
 impl Item {
-    /// The item's name; `None` for an `impl` block.
+    /// The item's name; `None` for an `impl` block and a `use` declaration.
     #[must_use]
     pub fn name(&self) -> Option<&Ident> {
         match &self.kind {
@@ -181,7 +197,7 @@ impl Item {
             ItemKind::Const(c) => Some(&c.name),
             ItemKind::Enum(e) => Some(&e.name),
             ItemKind::Trait(t) => Some(&t.name),
-            ItemKind::Impl(_) => None,
+            ItemKind::Impl(_) | ItemKind::Use(_) => None,
         }
     }
 }
@@ -379,6 +395,9 @@ pub enum TypeKind {
     Slice(Box<Type>),
     /// `_` in a type position: ask inference.
     Infer,
+    /// `!`, the never type: only library files (the `core` prelude, decision 90) may
+    /// write it for now.
+    Never,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
