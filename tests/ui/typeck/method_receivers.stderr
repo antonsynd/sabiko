@@ -30,5 +30,5 @@
    │            ─┬─  
    │             ╰─── method not found
    │ 
-   │ Note: strings, arrays and slices have one method for now, `len()`
+   │ Note: strings have one method for now, `len()`
 ───╯

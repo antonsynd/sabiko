@@ -1,0 +1,14 @@
+// A binding assigned from `?` is initialised on every path that reaches its use.
+fn Get(o: Option<i32>, c: bool) -> Option<i32> {
+    let x;
+    if c {
+        x = o?;
+    } else {
+        x = 0;
+    }
+    Some(x)
+}
+
+fn Main() {
+    PrintLine(Get(Some(4), true).unwrap_or(-1));
+}

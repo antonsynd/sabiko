@@ -1,0 +1,7 @@
+// The reference `get` returns borrows the array: it cannot be assigned while it is used.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let first = a.get(0);
+    a[0] = 5;
+    PrintLine(*first.unwrap());
+}

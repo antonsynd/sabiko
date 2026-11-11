@@ -1,0 +1,18 @@
+// `?` on a field behind a shared reference would move the field out of the borrow.
+struct Token {
+    Id: i32,
+}
+
+struct Holder {
+    Inner: Option<Token>,
+}
+
+fn Get(h: &Holder) -> Option<i32> {
+    let t = h.Inner?;
+    Some(t.Id)
+}
+
+fn Main() {
+    let h = Holder { Inner: None };
+    PrintLine(Get(&h).is_none());
+}

@@ -1,0 +1,10 @@
+// The reference `?` takes out of an `Option<&T>` keeps the parameter's lifetime.
+fn Positive(o: Option<&i32>) -> Option<&i32> {
+    let r = o?;
+    if *r > 0 { Some(r) } else { None }
+}
+
+fn Main() {
+    let x = 5;
+    PrintLine(*Positive(Some(&x)).unwrap());
+}

@@ -21,7 +21,7 @@
     │               ─┬─  
     │                ╰─── method not found
     │ 
-    │ Note: strings, arrays and slices have one method for now, `len()`
+    │ Note: arrays and slices have `len()` and the methods of `library/core/slice.sabi` for now
 ────╯
 [E0304] Error: this method takes 0 arguments but 1 argument was supplied
     ╭─[ tests/ui/typeck/len_on_wrong_type.sabi:15:13 ]

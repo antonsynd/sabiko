@@ -183,6 +183,7 @@ fn expr_pats(expr: &mut Expr, f: &mut impl FnMut(&mut Pat)) {
         ExprKind::Paren(e)
         | ExprKind::Unary(_, e)
         | ExprKind::Field(e, _)
+        | ExprKind::Try(e)
         | ExprKind::Ref { expr: e, .. }
         | ExprKind::Deref(e) => expr_pats(e, f),
         ExprKind::DestructuringAssign(p, e) | ExprKind::Let(p, e) => {

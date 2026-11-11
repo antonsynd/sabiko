@@ -1108,13 +1108,13 @@ fn programs_use_trait_helpers() {
 fn programs_use_the_prelude() {
     let knobs = Knobs::default();
     let patterns = [
-        (").unwrap()", 44),
-        (").expect(\"generated\")", 4),
-        (").unwrap_or(", 16),
-        ("None::<", 16),
-        ("Ok::<", 9),
-        ("Err::<", 9),
-        ("Some(&", 10),
+        (").unwrap()", 78),
+        (").expect(\"generated\")", 3),
+        (").unwrap_or(", 35),
+        ("None::<", 36),
+        ("Ok::<", 15),
+        ("Err::<", 19),
+        ("Some(&", 9),
     ];
     let mut counts = [0usize; 7];
     for seed in coverage_seeds() {
@@ -1129,6 +1129,43 @@ fn programs_use_the_prelude() {
         .map(|((p, min), n)| (*p, n, *min))
         .collect();
     coverage("prelude", &rows);
+}
+
+/// `?` in the prelude helpers, the `Option` combinators and the slice methods of the
+/// `core` prelude (decision 93).
+#[test]
+fn programs_use_try_and_slice_methods() {
+    let knobs = Knobs::default();
+    let patterns = [
+        ("GenTry(Some(", 11),
+        ("GenTry(None::<", 5),
+        ("GenTryOk(Ok::<", 5),
+        ("GenTryOk(Err::<", 5),
+        ("GenTryErr(Err::<", 3),
+        ("GenTryKeep(Some(", 6),
+        ("GenTryKeep(None::<", 6),
+        (".or(Some(", 9),
+        (".and(Some(", 8),
+        (".xor(", 8),
+        (".ok_or(", 3),
+        (".get(", 11),
+        (".is_empty()", 2),
+        (".first()", 4),
+        (".last()", 1),
+    ];
+    let mut counts = [0usize; 15];
+    for seed in coverage_seeds() {
+        let src = generate(seed, &knobs);
+        for (count, (pattern, _)) in counts.iter_mut().zip(patterns) {
+            *count += usize::from(src.contains(pattern));
+        }
+    }
+    let rows: Vec<(&str, usize, usize)> = patterns
+        .iter()
+        .zip(counts)
+        .map(|((p, min), n)| (*p, n, *min))
+        .collect();
+    coverage("try", &rows);
 }
 
 #[test]

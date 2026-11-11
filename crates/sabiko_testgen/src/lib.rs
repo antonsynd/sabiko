@@ -78,7 +78,10 @@
 //! ([`program::GENERIC_HELPERS`]). The `core` prelude (#13): values in `Some(e).unwrap()`,
 //! `Some(e).expect(..)`, `Some(a).unwrap_or(b)`, `None::<T>.unwrap_or(b)`,
 //! `Ok::<T, u8>(e).unwrap()` and `Err::<u8, T>(e).unwrap_err()`, shared references in
-//! `Some(&*r).unwrap()` ([`program::Program::prelude`]). Not generated: slice
+//! `Some(&*r).unwrap()` ([`program::Program::prelude`]); `?` (decision 93) in the helpers
+//! `GenTry`, `GenTryOk`, `GenTryErr` and `GenTryKeep` ([`program::PRELUDE_HELPERS`]),
+//! returning early or not, the `Option` combinators `or`, `and`, `xor` and `ok_or`, and
+//! the slice methods `get`, `is_empty`, `first` and `last`. Not generated: slice
 //! patterns, ranges as values, array comparison, arrays of references as parameters or
 //! as locals outliving a block of their own (`stmt_ref_aggregate` writes `[&T; N]`,
 //! `&[&T]`, `(&T, U)` and `[&mut T; 2]` locals of primitive referents used in one block;

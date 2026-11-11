@@ -1,0 +1,10 @@
+// `o?` copies an option of a `Copy` type, so it can be used again.
+fn Twice(o: Option<i32>) -> Option<i32> {
+    let a = o?;
+    let b = o?;
+    Some(a + b)
+}
+
+fn Main() {
+    PrintLine(Twice(Some(2)).unwrap_or(0));
+}

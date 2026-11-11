@@ -1,0 +1,9 @@
+// `s.get_mut(..)` on a `&mut [T]` reborrows it two-phase, so the argument may read it.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let s: &mut [i32] = &mut a;
+    if let Some(x) = s.get_mut(s.len() - 1) {
+        *x = 0;
+    }
+    PrintLine(a[2]);
+}

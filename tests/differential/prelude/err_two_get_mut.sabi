@@ -1,0 +1,9 @@
+// Two live results of `get_mut` borrow the slice mutably twice, whatever their indices.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let s: &mut [i32] = &mut a;
+    let x = s.get_mut(0);
+    let y = s.get_mut(1);
+    *x.unwrap() += 1;
+    *y.unwrap() += 1;
+}

@@ -342,6 +342,17 @@ fn GenSigns<T>(a: T, b: T) -> i32 where T: GenSign + GenKeep { a.Keep().Sign() +
 fn GenCopied<T: Copy>(x: T) -> T { let y = x; let _z = x; y }\n\
 fn GenCloned<T: Clone>(x: &T) -> T { x.clone() }\n";
 
+/// Generic functions using `?` (decision 93) that the bodies of a program with
+/// [`Program::prelude`] wrap expressions in, each transparent to the scope model (see
+/// `BodyGen::try_value`): `GenTry` and `GenTryOk` return their operand's value or return
+/// early with `None` or the error; `GenTryErr` returns the error early; `GenTryKeep` holds
+/// `d` in a local, dropped after the value or on the early return. One line each, at
+/// column 0, so no statement is ever inserted into them.
+pub const PRELUDE_HELPERS: &str = "fn GenTry<T>(o: Option<T>) -> Option<T> { Some(o?) }\n\
+fn GenTryOk<T>(r: Result<T, u8>) -> Result<T, u8> { let v = r?; Ok(v) }\n\
+fn GenTryErr<T>(r: Result<u8, T>) -> Result<u8, T> { let n = r?; Ok(n) }\n\
+fn GenTryKeep<T, U>(o: Option<T>, d: U) -> Option<T> { let _d = d; Some(o?) }\n";
+
 impl Program {
     pub fn is_copy(&self, ty: Ty) -> bool {
         match ty {
@@ -652,6 +663,10 @@ impl Program {
         }
         if self.traits {
             out.push_str(TRAIT_HELPERS);
+            out.push('\n');
+        }
+        if self.prelude {
+            out.push_str(PRELUDE_HELPERS);
             out.push('\n');
         }
         out

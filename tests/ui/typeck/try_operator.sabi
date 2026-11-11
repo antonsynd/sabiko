@@ -1,0 +1,62 @@
+// The `?` operator's errors, with rustc's E0277 messages (decision 93): on a value that is
+// neither an `Option` nor a `Result`, in a function that returns neither, mixing the two,
+// and a `Result` whose error type does not convert to the function's. `From` is not a
+// trait yet (#117), so an error type converts only to itself; where Rust's standard
+// library has a `From` impl (`i32` to `i64`) the conversion is not yet supported.
+struct A;
+struct B;
+
+fn Convert() -> Result<i32, B> {
+    let r: Result<i32, A> = Err(A);
+    let x = r?; //~ ERROR E0351 `?` couldn't convert the error to `B`
+    Ok(x)
+}
+
+fn ReturnsInt() -> i32 {
+    let o: Option<i32> = None;
+    o? //~ ERROR E0350 the `?` operator can only be used in a function that returns `Result` or `Option`
+}
+
+fn ResultInOption() -> Option<i32> {
+    let r: Result<i32, A> = Err(A);
+    r?; //~ ERROR E0350 the `?` operator can only be used on `Option`s, not `Result`s, in a function that returns `Option`
+    None
+}
+
+fn OptionInResult() -> Result<i32, A> {
+    let o: Option<i32> = None;
+    o?; //~ ERROR E0350 the `?` operator can only be used on `Result`s, not `Option`s, in a function that returns `Result`
+    Ok(1)
+}
+
+fn NotTry() -> Option<i32> {
+    5? //~ ERROR E0350 the `?` operator can only be applied to values that implement `Try`
+}
+
+fn Widening() -> Result<i32, i64> {
+    let r: Result<i32, i32> = Err(1);
+    Ok(r?) //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
+}
+
+fn Narrowing() -> Result<i32, i32> {
+    let r: Result<i32, i64> = Err(1);
+    Ok(r?) //~ ERROR E0351 `?` couldn't convert the error to `i32`
+}
+
+fn Generic<E, F>(r: Result<i32, E>) -> Result<i32, F> {
+    Ok(r?) //~ ERROR E0351 `?` couldn't convert the error to `F`
+}
+
+fn Unknown() -> Result<i32, i32> {
+    Ok(Ok(1)?) //~ ERROR E0313 type annotations needed
+}
+
+const C: i32 = {
+    let o: Option<i32> = None;
+    o? //~ ERROR E0350 the `?` operator can only be used in a function
+};
+
+fn Main() {
+    let o: Option<i32> = None;
+    o?; //~ ERROR E0350 the `?` operator can only be used in a function that returns `Result` or `Option`
+}

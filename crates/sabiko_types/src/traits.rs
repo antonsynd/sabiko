@@ -216,7 +216,7 @@ pub fn is_unsized(ty: &Ty) -> bool {
     matches!(ty, Ty::Prim(sabiko_resolve::PrimTy::Str) | Ty::Slice(_))
 }
 
-fn has_error(ty: &Ty) -> bool {
+pub(crate) fn has_error(ty: &Ty) -> bool {
     match ty {
         Ty::Error => true,
         Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => has_error(inner),

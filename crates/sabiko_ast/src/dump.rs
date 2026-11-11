@@ -494,6 +494,10 @@ impl Dumper {
                 self.line(&format!("Field {}", name.name));
                 self.nested(|d| d.expr(e));
             }
+            ExprKind::Try(e) => {
+                self.line("Try");
+                self.nested(|d| d.expr(e));
+            }
             ExprKind::Index(e, i) => {
                 self.line("Index");
                 self.nested(|d| {

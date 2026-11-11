@@ -180,7 +180,14 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `Some(&*r).unwrap()`, an `Option<&T>` instance (a `&mut` local passed to `Some` would be
   moved, since `T` is not a reference to reborrow into; Sabiko reborrows it, #132). None
   of them panics. `programs_use_the_prelude` counts the programs
-  with each form. Every harness that runs the front end itself (the MIR and IL snapshots, the layout
+  with each form. With `?` (decision 93), such programs also have the helpers
+  `GenTry`, `GenTryOk`, `GenTryErr` and `GenTryKeep` (`program::PRELUDE_HELPERS`, one
+  `?` each, returning early or not), and wrap values in them and in the `Option`
+  combinators (`or`, `and`, `xor`, `ok_or`), all transparent to the scope model
+  (`BodyGen::try_value`); an element of an array of references is now and then read
+  through `(*[a, b].get(i).unwrap())`, and a length through a slice method's answer
+  (`(x.get(2).is_some() as usize)`, `is_empty`, `first`, `last`).
+  `programs_use_try_and_slice_methods` counts them. Every harness that runs the front end itself (the MIR and IL snapshots, the layout
   test, `validate_corpus`, the generator's `reorder` and `validity`) appends the prelude
   as the driver does, through the driver's own front-end step,
   `sabiko_driver::parse_and_resolve` (which returns the user's `FileId` too). Every
@@ -393,13 +400,13 @@ window; re-measure and update after a generator change that moves the counts. Me
 | strings_and_ranges | `while let` on a string | 3 | 9.7 | 17 | 2 |
 | strings_and_ranges | `while i < s.len()` over a string | 22 | 29.7 | 35 | 16 |
 | strings_and_ranges | shrinking a `&str` | 12 | 21.2 | 29 | 9 |
-| prelude | `).unwrap()` | 59 | 72.6 | 87 | 44 |
-| prelude | `).expect("generated")` | 6 | 14.9 | 21 | 4 |
-| prelude | `).unwrap_or(` | 22 | 30.8 | 43 | 16 |
-| prelude | `None::<` | 22 | 28.1 | 37 | 16 |
-| prelude | `Ok::<` | 12 | 17.0 | 25 | 9 |
-| prelude | `Err::<` | 12 | 15.9 | 20 | 9 |
-| prelude | `Some(&` | 14 | 20.9 | 28 | 10 |
+| prelude | `).unwrap()` | 104 | 129.7 | 149 | 78 |
+| prelude | `).expect("generated")` | 4 | 13.8 | 23 | 3 |
+| prelude | `).unwrap_or(` | 47 | 60.6 | 69 | 35 |
+| prelude | `None::<` | 49 | 62.6 | 70 | 36 |
+| prelude | `Ok::<` | 20 | 28.8 | 38 | 15 |
+| prelude | `Err::<` | 26 | 36.2 | 44 | 19 |
+| prelude | `Some(&` | 13 | 18.7 | 26 | 9 |
 | trait_helpers | `.Keep()` | 68 | 74.9 | 86 | 51 |
 | trait_helpers | `GenKeep::Keep` | 45 | 60.3 | 70 | 33 |
 | trait_helpers | `GenKept` | 50 | 59.3 | 72 | 37 |
@@ -408,6 +415,21 @@ window; re-measure and update after a generator change that moves the counts. Me
 | trait_helpers | `GenSigns` | 38 | 52.8 | 69 | 28 |
 | trait_helpers | a trait constant | 21 | 25.9 | 33 | 15 |
 | trait_helpers | `Copy`/`Clone` through a bound | 32 | 42.1 | 50 | 24 |
+| try | `GenTry(Some(` | 15 | 19.8 | 23 | 11 |
+| try | `GenTry(None::<` | 7 | 14.2 | 20 | 5 |
+| try | `GenTryOk(Ok::<` | 7 | 13.7 | 19 | 5 |
+| try | `GenTryOk(Err::<` | 7 | 11.6 | 17 | 5 |
+| try | `GenTryErr(Err::<` | 4 | 13.0 | 18 | 3 |
+| try | `GenTryKeep(Some(` | 9 | 15.1 | 23 | 6 |
+| try | `GenTryKeep(None::<` | 8 | 12.9 | 19 | 6 |
+| try | `.or(Some(` | 12 | 20.0 | 25 | 9 |
+| try | `.and(Some(` | 11 | 14.0 | 18 | 8 |
+| try | `.xor(` | 11 | 13.4 | 19 | 8 |
+| try | `.ok_or(` | 4 | 7.4 | 10 | 3 |
+| try | `.get(` | 15 | 21.2 | 29 | 11 |
+| try | `.is_empty()` | 3 | 7.5 | 16 | 2 |
+| try | `.first()` | 6 | 8.7 | 12 | 4 |
+| try | `.last()` | 2 | 7.4 | 11 | 1 |
 
 ## Properties
 

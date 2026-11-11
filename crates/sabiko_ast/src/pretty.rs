@@ -661,6 +661,10 @@ impl Printer {
                 }
                 let _ = write!(self.out, ".{}", name.name);
             }
+            ExprKind::Try(e) => {
+                self.expr(e, POSTFIX_PRECEDENCE);
+                self.out.push('?');
+            }
             ExprKind::Index(e, i) => {
                 self.expr(e, POSTFIX_PRECEDENCE);
                 self.out.push('[');
@@ -851,6 +855,7 @@ fn needs_cond_parens(e: &Expr) -> bool {
         | ExprKind::Ref { expr: x, .. }
         | ExprKind::Cast(x, _)
         | ExprKind::Field(x, _)
+        | ExprKind::Try(x)
         | ExprKind::Index(x, _)
         | ExprKind::Call { callee: x, .. }
         | ExprKind::MethodCall { receiver: x, .. } => needs_cond_parens(x),
@@ -904,6 +909,7 @@ fn leftmost_is_block(e: &Expr) -> bool {
         }
         ExprKind::Cast(x, _)
         | ExprKind::Field(x, _)
+        | ExprKind::Try(x)
         | ExprKind::Index(x, _)
         | ExprKind::Call { callee: x, .. }
         | ExprKind::MethodCall { receiver: x, .. } => leftmost_is_block(x),
@@ -953,6 +959,7 @@ fn leftmost_is_underscore(e: &Expr) -> bool {
         }
         ExprKind::Cast(x, _)
         | ExprKind::Field(x, _)
+        | ExprKind::Try(x)
         | ExprKind::Index(x, _)
         | ExprKind::Call { callee: x, .. }
         | ExprKind::MethodCall { receiver: x, .. } => leftmost_is_underscore(x),
@@ -973,6 +980,7 @@ fn leftmost_is_block_like(e: &Expr) -> bool {
         }
         ExprKind::Cast(x, _)
         | ExprKind::Field(x, _)
+        | ExprKind::Try(x)
         | ExprKind::Index(x, _)
         | ExprKind::Call { callee: x, .. }
         | ExprKind::MethodCall { receiver: x, .. } => leftmost_is_block_like(x),
@@ -1003,6 +1011,7 @@ fn precedence(e: &Expr) -> u8 {
         ExprKind::Call { .. }
         | ExprKind::MethodCall { .. }
         | ExprKind::Field(..)
+        | ExprKind::Try(_)
         | ExprKind::Index(..) => POSTFIX_PRECEDENCE,
         ExprKind::Unary(..) | ExprKind::Ref { .. } | ExprKind::Deref(_) => UNARY_PRECEDENCE,
         ExprKind::Cast(..) => CAST_PRECEDENCE,

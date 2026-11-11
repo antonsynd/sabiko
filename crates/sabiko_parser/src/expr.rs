@@ -462,12 +462,8 @@ impl Parser<'_, '_> {
                     }
                 }
                 TokenKind::Question => {
-                    let span = self.peek().span;
-                    return Err(self.error_unsupported(
-                        "the `?` operator",
-                        span,
-                        "planned for Phase 5",
-                    ));
+                    self.bump();
+                    e = self.mk(ExprKind::Try(Box::new(e)), start);
                 }
                 _ => return Ok(e),
             }

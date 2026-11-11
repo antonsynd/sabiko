@@ -1,0 +1,14 @@
+// The `&mut` that `?` takes out of an option is a live loan: a second one conflicts.
+fn Bump(o: Option<&mut i32>, v: &mut i32) -> Option<i32> {
+    let m = o?;
+    let n = &mut *m;
+    *m += 1;
+    *n += 1;
+    Some(*v)
+}
+
+fn Main() {
+    let mut x = 1;
+    let mut y = 2;
+    PrintLine(Bump(Some(&mut x), &mut y).unwrap_or(0));
+}

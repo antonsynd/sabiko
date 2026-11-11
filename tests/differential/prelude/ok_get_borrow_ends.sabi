@@ -1,0 +1,8 @@
+// The borrow of `get`'s result ends at its last use; the array can be assigned after.
+fn Main() {
+    let mut a = [1, 2, 3];
+    let first = a.get(0);
+    PrintLine(*first.unwrap());
+    a[0] = 5;
+    PrintLine(*a.last().unwrap());
+}
