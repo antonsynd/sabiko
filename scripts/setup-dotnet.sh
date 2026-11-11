@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install the .NET toolchain Sabiko needs into ./tools:
-#   - a .NET 10 runtime (`dotnet` muxer + shared framework)
+#   - a .NET runtime of the major version of SABIKO_DOTNET_VERSION (10 by default, or 11)
+#     (`dotnet` muxer + shared framework)
 #   - ilasm / ildasm native binaries
-#   - ILVerify (dotnet-ilverify) and the net10.0 reference assemblies it needs
+#   - ILVerify (dotnet-ilverify) and the matching netN.0 reference assemblies it needs
 #   - the Roslyn C# compiler (csc.dll from microsoft.net.compilers.toolset), which
 #     runs on the bare runtime, so no .NET SDK is needed
 # and then builds the Sabiko runtime library (runtime/Sabiko.Runtime -> tools/runtime/
@@ -10,11 +11,13 @@
 #
 # Usage: scripts/setup-dotnet.sh [--from-nuget] [--force]
 #
-# By default an existing `dotnet` with a 10.x runtime on PATH is reused and only
+# By default an existing `dotnet` with a runtime of that major version on PATH is reused and only
 # ilasm/ildasm/ILVerify/csc are fetched. Otherwise the official dotnet-install script
 # is tried, and if that host is unreachable (some sandboxes block dot.net) the
 # runtime is assembled from NuGet packages instead (--from-nuget forces this).
 # Versions: SABIKO_DOTNET_VERSION (default 10.0.13), SABIKO_CSC_VERSION (default 5.9.0).
+# With an 11.x version, tools/env.sh also sets DOTNET_ROLL_FORWARD=Major so programs
+# sabikoc emits (which still target net10.0) run on the .NET 11 runtime.
 #
 # Afterwards: `source tools/env.sh`
 set -euo pipefail
@@ -23,6 +26,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TOOLS="$ROOT/tools"
 CACHE="$TOOLS/.cache"
 DOTNET_VERSION="${SABIKO_DOTNET_VERSION:-10.0.13}"   # runtime / ilasm / ildasm / ilverify / ref pack
+DOTNET_MAJOR="${DOTNET_VERSION%%.*}"
+TFM="net$DOTNET_MAJOR.0"
 MUXER_VERSION="${SABIKO_MUXER_VERSION:-8.0.32}"      # last version of the standalone muxer package; it is version-agnostic
 CSC_VERSION="${SABIKO_CSC_VERSION:-5.9.0}"           # microsoft.net.compilers.toolset (Roslyn)
 NUGET="https://api.nuget.org/v3-flatcontainer"
@@ -32,7 +37,7 @@ for a in "$@"; do
   case "$a" in
     --from-nuget) FROM_NUGET=1 ;;
     --force) FORCE=1 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -66,8 +71,8 @@ extract() {
   unzip -qo -j "$pkg" "$pat" -d "$dest"
 }
 
-have_dotnet10() {
-  command -v "$1" >/dev/null 2>&1 && "$1" --list-runtimes 2>/dev/null | grep -q '^Microsoft.NETCore.App 10\.'
+have_dotnet_major() {
+  command -v "$1" >/dev/null 2>&1 && "$1" --list-runtimes 2>/dev/null | grep -q "^Microsoft.NETCore.App $DOTNET_MAJOR\\."
 }
 
 install_runtime_from_nuget() {
@@ -75,7 +80,7 @@ install_runtime_from_nuget() {
   log "assembling .NET $v runtime from NuGet packages into $d"
   rm -rf "$d"; mkdir -p "$d/host/fxr/$v" "$d/shared/Microsoft.NETCore.App/$v"
   local rt; rt="$(fetch_pkg "microsoft.netcore.app.runtime.$RID" "$v")"
-  extract "$rt" "runtimes/$RID/lib/net10.0/*" "$d/shared/Microsoft.NETCore.App/$v"
+  extract "$rt" "runtimes/$RID/lib/$TFM/*" "$d/shared/Microsoft.NETCore.App/$v"
   extract "$rt" "runtimes/$RID/native/*" "$d/shared/Microsoft.NETCore.App/$v"
   # libhostfxr lives beside the shared framework in the pack but the host expects it under host/fxr.
   mv "$d/shared/Microsoft.NETCore.App/$v"/libhostfxr.* "$d/host/fxr/$v/"
@@ -94,14 +99,14 @@ install_runtime_official() {
   log "trying official dotnet-install script"
   local script="$CACHE/dotnet-install.sh"
   curl -sSfL --max-time 60 -o "$script" https://dot.net/v1/dotnet-install.sh || return 1
-  bash "$script" --runtime dotnet --channel 10.0 --install-dir "$d" || return 1
+  bash "$script" --runtime dotnet --channel "$DOTNET_MAJOR.0" --install-dir "$d" || return 1
 }
 
 # 1. runtime -----------------------------------------------------------------
 DOTNET_BIN=""
-if [[ $FROM_NUGET == 0 && $FORCE == 0 ]] && have_dotnet10 dotnet; then
+if [[ $FROM_NUGET == 0 && $FORCE == 0 ]] && have_dotnet_major dotnet; then
   DOTNET_BIN="$(command -v dotnet)"; log "using existing $DOTNET_BIN"
-elif [[ $FROM_NUGET == 0 && $FORCE == 0 ]] && have_dotnet10 "$TOOLS/dotnet/dotnet"; then
+elif [[ $FROM_NUGET == 0 && $FORCE == 0 ]] && have_dotnet_major "$TOOLS/dotnet/dotnet"; then
   DOTNET_BIN="$TOOLS/dotnet/dotnet"; log "using existing $DOTNET_BIN"
 else
   if [[ $FROM_NUGET == 1 ]] || ! install_runtime_official; then
@@ -121,13 +126,13 @@ done
 
 # 3. ILVerify + reference assemblies ----------------------------------------
 p="$(fetch_pkg dotnet-ilverify "$DOTNET_VERSION")"
-rm -rf "$TOOLS/ilverify"; extract "$p" "tools/net10.0/any/*" "$TOOLS/ilverify"
+rm -rf "$TOOLS/ilverify"; extract "$p" "tools/$TFM/any/*" "$TOOLS/ilverify"
 p="$(fetch_pkg microsoft.netcore.app.ref "$DOTNET_VERSION")"
-rm -rf "$TOOLS/ref"; extract "$p" "ref/net10.0/*.dll" "$TOOLS/ref"
+rm -rf "$TOOLS/ref"; extract "$p" "ref/$TFM/*.dll" "$TOOLS/ref"
 
 cat > "$TOOLS/bin/ilverify" <<SH
 #!/usr/bin/env bash
-# ILVerify wrapper: verifies the given assemblies against the net10.0 reference assemblies.
+# ILVerify wrapper: verifies the given assemblies against the $TFM reference assemblies.
 exec "$DOTNET_BIN" "$TOOLS/ilverify/ILVerify.dll" -r "$TOOLS/ref/*.dll" "\$@"
 SH
 chmod +x "$TOOLS/bin/ilverify"
@@ -155,6 +160,10 @@ export SABIKO_REF_DIR="$TOOLS/ref"
 export SABIKO_RUNTIME_DIR="$TOOLS/runtime"
 export PATH="$TOOLS/bin:$DOTNET_ROOT_DIR:\$PATH"
 SH
+if (( DOTNET_MAJOR > 10 )); then
+  # sabikoc emits net10.0 assemblies; let them run on the newer runtime.
+  echo "export DOTNET_ROLL_FORWARD=Major" >> "$TOOLS/env.sh"
+fi
 
 # 6. Sabiko runtime library ---------------------------------------------------
 "$ROOT/scripts/build-runtime.sh"

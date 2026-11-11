@@ -52,12 +52,15 @@ Still to come: `Option`/`Result`, `Box`/`Gc`/`Cell`, and C# interop (Phases 6–
 
 ## Building
 
-You need the pinned Rust toolchain and the .NET 10 runtime, but no .NET SDK.
-`scripts/setup-dotnet.sh` (`.ps1` on Windows) fetches `ilasm`, ILVerify, the reference
-assemblies and `csc` into `./tools`, and builds the runtime library.
+You need the pinned Rust toolchain and a .NET 10 or 11 runtime, but no .NET SDK.
+`scripts/setup-env.sh` sets up a fresh Linux/macOS machine: rustup and the toolchain from
+`rust-toolchain.toml`, cargo-deny, and the newest .NET 10 runtime (`--dotnet 11` for .NET 11,
+where the ILVerify gate does not pass yet; `--check` builds and tests afterwards). It calls
+`scripts/setup-dotnet.sh` (`.ps1` on Windows), which fetches `ilasm`, ILVerify, the
+reference assemblies and `csc` into `./tools` and builds the runtime library.
 
 ```sh
-scripts/setup-dotnet.sh && source tools/env.sh
+scripts/setup-env.sh && source tools/env.sh   # or just scripts/setup-dotnet.sh with Rust already set up
 cargo run -p sabikoc -- examples/shapes.sabi --emit=exe -o out/shapes.dll && dotnet out/shapes.dll
 cargo run -p sabikoc -- examples/shapes.sabi --emit=mir   # or il, mir-elaborated, ast, pretty, tokens
 cargo test --workspace

@@ -14,7 +14,7 @@ OUT="$TOOLS/runtime"
 log() { printf '\033[1;34m[build-runtime]\033[0m %s\n' "$*" >&2; }
 
 mkdir -p "$OUT"
-# Response file: one reference per line for every net10.0 reference assembly.
+# Response file: one reference per line for every reference assembly in tools/ref.
 rsp="$OUT/Sabiko.Runtime.rsp"
 {
   for dll in "$TOOLS"/ref/*.dll; do printf -- '-r:"%s"\n' "$dll"; done
