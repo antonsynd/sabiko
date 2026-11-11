@@ -1,0 +1,8 @@
+// An `if let` testing the variant of a moved value reads it: E0382 (at the scrutinee).
+struct Token { Id: i32 }
+
+fn Main() {
+    let o = Some(Token { Id: 1 });
+    let p = o;
+    if let Some(_) = o {}
+}

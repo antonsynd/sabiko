@@ -1,0 +1,121 @@
+// Sabiko codes for rustc's: E0405 for E0381, E0406 for E0382, E0411 for E0503.
+// Where the use of a scrutinee is reported, as rustc reports it (#138): a discriminant
+// read at the scrutinee, at any depth of the pattern, for `match`, `if let`, `while let`
+// and let-else; a comparison in a `match` from `match` to the end of the scrutinee, and in
+// an `if let` or let-else at the pattern.
+enum Opt {
+    No,
+    Yes(i32),
+}
+
+struct D {
+    V: i32,
+}
+
+fn Uninitialised() {
+    let o: Opt;
+    match o { //~ ERROR E0405 used binding `o` isn't initialized
+        Opt::No => {}
+        _ => {}
+    }
+}
+
+fn UninitialisedIfLet() {
+    let o: Opt;
+    if let Opt::No = o {} //~ ERROR E0405 used binding `o` isn't initialized
+}
+
+fn UninitialisedWhileLet() {
+    let o: Opt;
+    while let Opt::Yes(_) = o {} //~ ERROR E0405 used binding `o` isn't initialized
+}
+
+fn UninitialisedLetElse() {
+    let o: Opt;
+    let Opt::Yes(x) = o else { //~ ERROR E0405 used binding `o` isn't initialized
+        return;
+    };
+}
+
+fn Moved() {
+    let o = Some(D { V: 1 });
+    let p = o;
+    match o { //~ ERROR E0406 use of moved value: `o`
+        None => {}
+        Some(_) => {}
+    }
+}
+
+fn MovedIfLet() {
+    let o = Some(D { V: 1 });
+    let p = o;
+    if let Some(_) = o {} //~ ERROR E0406 use of moved value: `o`
+}
+
+fn Borrowed() {
+    let mut o = Opt::Yes(1);
+    let r = &mut o;
+    match o { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
+        Opt::No => {}
+        _ => {}
+    }
+    let s = r;
+}
+
+fn BorrowedLetElse() {
+    let mut o = Opt::Yes(1);
+    let r = &mut o;
+    let Opt::Yes(_) = o else { //~ ERROR E0411 cannot use `o` because it was mutably borrowed
+        return;
+    };
+    let s = r;
+}
+
+fn NestedDiscriminant() {
+    let mut t = (1, Opt::No);
+    let r = &mut t.1;
+    match t { //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
+        (_, Opt::No) => {}
+        _ => {}
+    }
+    let s = r;
+}
+
+fn NestedDiscriminantIfLet() {
+    let mut t = (1, Opt::No);
+    let r = &mut t.1;
+    if let (_, Opt::No) = t {} //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
+    let s = r;
+}
+
+fn Comparison() {
+    let a: i32;
+    match a { //~ ERROR E0405 used binding `a` isn't initialized
+        1 => {}
+        _ => {}
+    }
+}
+
+fn ComparisonBorrowed() {
+    let mut t = (1, 2);
+    let r = &mut t.1;
+    match t { //~ ERROR E0411 cannot use `t.1` because it was mutably borrowed
+        (_, 2) => {}
+        _ => {}
+    }
+    let s = r;
+}
+
+fn ComparisonIfLet() {
+    let a: i32;
+    if let 1 = a {} //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn ComparisonLetElse() {
+    let a: i32;
+    let 1 = a else { //~ ERROR E0405 used binding `a` isn't initialized
+        return;
+    };
+}
+
+fn Main() {}

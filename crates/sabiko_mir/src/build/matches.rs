@@ -80,6 +80,13 @@ pub(super) struct TestCache {
     /// What is known on every jump to the current candidate's failure block lowered so
     /// far; `None` before the first.
     at_fail: Option<HashMap<(Place, bool), Local>>,
+    /// Where a discriminant read is located: the scrutinee, as rustc reports a use of it
+    /// (an uninitialised, moved or mutably borrowed scrutinee, #138), at any depth.
+    discr_span: Option<Span>,
+    /// Where a comparison's read is located in a `match`: from `match` to the end of the
+    /// scrutinee, rustc's `match_start_span`. `None` elsewhere (`if let`, `while let`,
+    /// let-else), where rustc reports it at the pattern.
+    value_span: Option<Span>,
 }
 
 /// How a candidate's bindings are made.
@@ -281,11 +288,12 @@ impl Builder<'_> {
         let temp = if let Some(&temp) = self.tests.known.get(&key) {
             temp
         } else {
-            let temp = self.new_temp(Ty::Prim(sabiko_resolve::PrimTy::Isize), span);
+            let read = self.tests.discr_span.unwrap_or(span);
+            let temp = self.new_temp(Ty::Prim(sabiko_resolve::PrimTy::Isize), read);
             self.assign(
                 Place::local(temp),
                 Rvalue::Discriminant(place.clone()),
-                span,
+                read,
             );
             self.tests.known.insert(key, temp);
             temp
@@ -304,7 +312,7 @@ impl Builder<'_> {
     /// The test of a literal, range or constant pattern: comparisons of the value at
     /// `place` with the pattern's constants.
     fn test_value(&mut self, pat: &Pat, place: &Place, fail: BasicBlock) {
-        let span = pat.span;
+        let span = self.tests.value_span.unwrap_or(pat.span);
         let ty = place.ty(&self.body);
         let pat_const = self.types.pat_consts.get(&pat.id).cloned();
         match pat_const.clone() {
@@ -453,8 +461,15 @@ impl Builder<'_> {
 
     /// A fresh [`TestCache`] for a match with these patterns against `place`, replacing
     /// the current one (a match in a guard is lowered between two candidates of its own);
-    /// returns the one to restore.
-    fn start_tests(&mut self, pats: &[&Pat], place: &Place) -> TestCache {
+    /// returns the one to restore. Its reads are located at `discr_span` (discriminants)
+    /// and `value_span` (comparisons; the pattern when `None`).
+    fn start_tests(
+        &mut self,
+        pats: &[&Pat],
+        place: &Place,
+        discr_span: Span,
+        value_span: Option<Span>,
+    ) -> TestCache {
         let mut counts: HashMap<Place, usize> = HashMap::new();
         for pat in pats {
             for choice in choices(pat) {
@@ -475,6 +490,8 @@ impl Builder<'_> {
             &mut self.tests,
             TestCache {
                 shared,
+                discr_span: Some(discr_span),
+                value_span,
                 ..TestCache::default()
             },
         )
@@ -989,7 +1006,8 @@ impl Builder<'_> {
         let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
         let place = self.scrutinee_place(scrutinee, &pats);
         let fakes = self.guard_fake_places(arms, &place);
-        let saved = self.start_tests(&pats, &place);
+        let match_start = Span::point(span.file, span.start).to(scrutinee.span);
+        let saved = self.start_tests(&pats, &place, scrutinee.span, Some(match_start));
         let outer_held = std::mem::take(&mut self.guard_held);
         let mut entries = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
@@ -1050,7 +1068,7 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let then_block = self.new_block();
-        let saved = self.start_tests(&[pat], &place);
+        let saved = self.start_tests(&[pat], &place, scrutinee.span, None);
         self.lower_candidates(pat, None, &place, scrutinee.span, then_block, true);
         self.tests = saved;
         let join = self.new_block();
@@ -1123,7 +1141,7 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let body_block = self.new_block();
-        let saved_tests = self.start_tests(&[pat], &place);
+        let saved_tests = self.start_tests(&[pat], &place, scrutinee.span, None);
         self.lower_candidates(pat, None, &place, scrutinee.span, body_block, true);
         self.tests = saved_tests;
         // No match: leave the loop, dropping the scrutinee's temporaries.
@@ -1245,7 +1263,7 @@ impl Builder<'_> {
                 None => self.prepare_locals(pat),
             };
             let matched = self.new_block();
-            let saved = self.start_tests(&[pat], &place);
+            let saved = self.start_tests(&[pat], &place, scrutinee.span, None);
             self.lower_candidates(pat, None, &place, scrutinee.span, matched, true);
             self.tests = saved;
             fail(self);
@@ -1295,7 +1313,7 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
-        let saved = self.start_tests(&[pat], &place);
+        let saved = self.start_tests(&[pat], &place, init.span, None);
         self.lower_candidates(pat, None, &place, span, ok, els.is_some());
         self.tests = saved;
         if let Some(els) = els {
