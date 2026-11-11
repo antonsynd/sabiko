@@ -597,3 +597,48 @@ fn validator_rejects_malformed_subslice_mir() {
     });
     assert!(has(&errors, "sub-slice bound of type"), "{errors:#?}");
 }
+
+/// A cleanup scope's drop of a place inside a variant is guarded by the discriminant of
+/// each enum on its path (decision 91): the validator checks that each guard is an enum
+/// the place is inside, paired with the discriminant of the variant the place selects.
+#[test]
+fn validator_rejects_mispaired_variant_guards() {
+    let src = "struct D { Id: i32 }\n\
+        impl Drop for D { fn drop(&mut self) {} }\n\
+        enum E { Empty, Full(D) }\n\
+        fn Touch() {}\n\
+        fn F(c: bool) { let e = E::Full(D { Id: 1 }); \
+        if c { match e { E::Full(d) => {} E::Empty => {} } } Touch(); }";
+    let (mut bodies, typeck) = lower(src).expect("valid program");
+    sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
+    assert!(sabiko_mir::validate::validate_all(&bodies, &typeck).is_empty());
+    let f = bodies.iter().position(|b| b.name == "F").expect("F");
+    let (scope, index) = bodies[f]
+        .cleanups
+        .iter()
+        .enumerate()
+        .find_map(|(s, c)| {
+            c.drops
+                .iter()
+                .position(|d| !d.variants.is_empty())
+                .map(|i| (s, i))
+        })
+        .expect("the cleanup of `e` drops `(e as Full).0` behind its discriminant");
+    let rejects = |edit: &dyn Fn(&mut sabiko_mir::CleanupDrop)| {
+        let mut bodies = bodies.clone();
+        edit(&mut bodies[f].cleanups[scope].drops[index]);
+        let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("which is not the variant of an enum")),
+            "{errors:#?}"
+        );
+    };
+    // The discriminant of `Empty`, not `Full`.
+    rejects(&|d| d.variants[0].1 = 0);
+    // A guard on another local.
+    rejects(&|d| d.variants[0].0.local = sabiko_mir::Local(1));
+    // A guard on the dropped place itself, which is not an enum.
+    rejects(&|d| d.variants[0].0 = d.place.clone());
+}

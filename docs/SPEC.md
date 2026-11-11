@@ -1289,8 +1289,10 @@ earlier pattern's tests, as rustc's false edges make it (decision 72): assigning
 immutable binding there is E0400, a move there counts for the code after the `match`,
 and a local initialised only in the body of an irrefutable `if let` is possibly
 uninitialised after it. Variants of one enum are disjoint places, as are their fields. A partially moved
-enum is dropped field by field, each behind a drop flag set from the discriminant when the
-enum is written, so only the variant it holds is dropped.
+enum, or one that holds a value on some paths only, is dropped field by field, each behind
+its drop flag (not moved out) and the discriminant the enum holds when the drop runs, so
+only the variant it holds then is dropped, also after a write through a reference changed
+it (decision 91).
 
 The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
 ↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597 (E0716 for a temporary); E0414 ↔ E0515;

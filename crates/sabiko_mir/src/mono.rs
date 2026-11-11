@@ -420,7 +420,9 @@ fn instantiate(
     }
     for cleanup in &mut body.cleanups {
         for drop in &mut cleanup.drops {
-            subst_place(&mut drop.place, &s);
+            for place in drop.places_mut() {
+                subst_place(place, &s);
+            }
         }
     }
     // Drops of places without drop glue go: elaboration and code generation only expect

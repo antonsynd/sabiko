@@ -1,0 +1,203 @@
+// Issue #133: drops of parts of nested enums, generic enums, enums in struct fields,
+// tuples and arrays, after moves and writes through references at each level.
+struct D {
+    Id: isize,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.Id);
+    }
+}
+
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+enum In {
+    Z,
+    P(D, D),
+}
+
+enum Out {
+    Q(D),
+    R(In, D),
+    S,
+}
+
+struct Holder<T> {
+    Head: D,
+    Body: Opt<T>,
+}
+
+fn Cond(n: isize) -> bool {
+    n > 0
+}
+
+fn SetOut(o: &mut Out, k: isize, id: isize) {
+    if k == 0 {
+        *o = Out::Q(D { Id: id });
+    } else if k == 1 {
+        *o = Out::R(In::P(D { Id: id }, D { Id: id + 1 }), D { Id: id + 2 });
+    } else if k == 2 {
+        *o = Out::R(In::Z, D { Id: id + 2 });
+    } else {
+        *o = Out::S;
+    }
+}
+
+fn SetIn(i: &mut In, k: isize, id: isize) {
+    if k == 0 {
+        *i = In::Z;
+    } else {
+        *i = In::P(D { Id: id }, D { Id: id + 1 });
+    }
+}
+
+fn Nested(n: isize, k: isize) {
+    PrintLine("-- nested");
+    let mut o = Out::R(In::P(D { Id: 1 }, D { Id: 2 }), D { Id: 3 });
+    if Cond(n) {
+        if let Out::R(In::P(a, _), _) = o {
+            Print("moved ");
+            PrintLine(a.Id);
+        }
+    } else {
+        if let Out::R(ref mut inner, _) = o {
+            SetIn(inner, k, 50);
+        }
+        SetOut(&mut o, k, 60);
+    }
+    PrintLine("end nested");
+}
+
+fn NestedDeferred(n: isize, k: isize) {
+    PrintLine("-- nested deferred");
+    let mut o;
+    if Cond(n) {
+        o = Out::S;
+        SetOut(&mut o, k, 70);
+        if let Out::R(ref mut inner, _) = o {
+            SetIn(inner, n - 1, 80);
+        }
+    }
+    PrintLine("end nested deferred");
+}
+
+fn Generic<T>(v: T, w: T, n: isize) {
+    PrintLine("-- generic");
+    let mut h = Holder { Head: D { Id: 90 }, Body: Opt::Yes(v) };
+    if Cond(n) {
+        if let Opt::Yes(t) = h.Body {
+            PrintLine("moved generic");
+        }
+    }
+    if Cond(n - 1) {
+        h.Body = Opt::Yes(w);
+        let r = &mut h;
+        r.Body = Opt::No;
+    }
+    PrintLine("end generic");
+}
+
+fn GenericNested(n: isize) {
+    PrintLine("-- generic nested");
+    let mut x: Opt<Opt<D>>;
+    if Cond(n) {
+        x = Opt::Yes(Opt::Yes(D { Id: 120 }));
+        if n == 2 {
+            if let Opt::Yes(ref mut inner) = x {
+                *inner = Opt::No;
+            }
+        }
+        if n == 3 {
+            let r = &mut x;
+            *r = Opt::No;
+        }
+        if n == 4 {
+            if let Opt::Yes(Opt::Yes(d)) = x {
+                PrintLine(d.Id);
+            }
+        }
+    }
+    PrintLine("end generic nested");
+}
+
+fn TupleArr(n: isize) {
+    PrintLine("-- tuple arr");
+    let mut t = (In::P(D { Id: 200 }, D { Id: 201 }), D { Id: 202 });
+    let mut a = [In::P(D { Id: 210 }, D { Id: 211 }), In::Z];
+    if Cond(n) {
+        if let In::P(x, _) = t.0 {
+            PrintLine(x.Id);
+        }
+    } else {
+        SetIn(&mut t.0, 0, 0);
+    }
+    SetIn(&mut a[1], 1, 220);
+    SetIn(&mut a[0], 0, 0);
+    PrintLine("end tuple arr");
+}
+
+enum WithRef<R> {
+    Ref(R),
+    Own(D),
+    Nothing,
+}
+
+fn Refs(n: isize) {
+    PrintLine("-- refs");
+    let keep = D { Id: 300 };
+    let mut w;
+    if Cond(n) {
+        w = WithRef::Own(D { Id: 301 });
+        let r = &mut w;
+        *r = WithRef::Ref(&keep);
+    }
+    PrintLine("end refs");
+}
+
+enum Plain {
+    X,
+    Y,
+}
+
+fn PlainF(n: isize) {
+    let mut p;
+    if Cond(n) {
+        p = Plain::X;
+        let r = &mut p;
+        *r = Plain::Y;
+    }
+    PrintLine("plain");
+}
+
+fn Main() {
+    Nested(1, 0);
+    Nested(0, 0);
+    Nested(0, 1);
+    Nested(0, 2);
+    Nested(0, 3);
+    NestedDeferred(1, 1);
+    NestedDeferred(2, 1);
+    NestedDeferred(1, 0);
+    NestedDeferred(0, 1);
+    NestedDeferred(2, 2);
+    Generic(D { Id: 100 }, D { Id: 101 }, 0);
+    Generic(D { Id: 100 }, D { Id: 101 }, 1);
+    Generic(D { Id: 100 }, D { Id: 101 }, 2);
+    Generic(Opt::Yes(D { Id: 110 }), Opt::No, 2);
+    Generic(Opt::No, Opt::Yes(D { Id: 111 }), 2);
+    GenericNested(0);
+    GenericNested(1);
+    GenericNested(2);
+    GenericNested(3);
+    GenericNested(4);
+    TupleArr(0);
+    TupleArr(1);
+    Refs(0);
+    Refs(1);
+    PlainF(1);
+}

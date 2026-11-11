@@ -627,7 +627,8 @@ algorithm (decision 58). Enums are value types with a tag and one payload field 
 (decision 57, C#-facing names by decision 59, checked from C# by `tests/interop/enum_layout`);
 matches lower to sequential candidates with rustc's guard semantics (fake borrows,
 bindings by reference until the guard holds; a guard may move the scrutinee, decision 60),
-and drop elaboration follows partial moves into variants behind discriminant-set flags.
+and drop elaboration follows partial moves into variants behind drop flags and the
+discriminant read at the drop (decision 91).
 Everything staged in `tests/pending/enums/` landed (30 run-time programs in
 `differential/run/enums/`, verdict pairs in `differential/{moves,loans,enums}/`, UI tests
 per stage); the generator covers every construct (paragraph below) and mutation testing on
@@ -1196,6 +1197,28 @@ a pattern through a single reference. Moving the generator's draws showed that f
 coverage thresholds in `sabiko_testgen`'s validity tests sat above their long-run rates
 (measured over 3000 seeds) and had passed on the first 500 seeds by luck; they were set
 from those rates. 400 seeds per property at each of the bases 4900000 and 7700000 agree with rustc (verdicts, runs, constant-propagation lints, reorderings).
+
+Drop flags of enum variants (#133, decision 91): an enum dropped field by field (it holds a
+value on some paths only, or was partly moved) had each variant's fields flagged from the
+discriminant when the enum was written, so a write through a reference went unseen: `let r
+= if c { &mut E::A(D) } else { &mut E::A(D) }; *r = E::B;` (generator seed 50241), or a
+deferred `let mut x;` changed by `f(&mut x)` or a `&mut self` method, dropped a zeroed `D`
+at the end of the scope, and an enum filled through a reference leaked its new fields. The
+flags now only say "written and not moved out", and each drop of a part inside a variant
+reads the discriminant when it runs, also in cleanup handlers, as rustc's open drop does.
+The extended temporaries of the report were one route in; the bug was in drop elaboration.
+New: `differential/run/drops/extended_enums_written_through` (`if`/`else`, `match`, `if let`,
+nested blocks, tuples and arrays of borrows, nested enums, `&`, no drop glue),
+`differential/run/enums/{,unwind_}drop_flags_written_through` (all three failed before) and
+the MIR fixture `drop_variants`. 400 generated seeds at bases 50000, 7000 and 123456 agree.
+After review: `drop_flags_{moves_and_rewrites,nested_and_generic}` (moves, reassignments
+and writes in any order and in loops; nested and generic enums, enums in struct fields,
+tuples and arrays) joined them, `CleanupDrop::places` makes every pass that walks, counts
+or substitutes places see the guards too, and the validator checks each guard's
+discriminant against the variant the dropped place selects. Left, as for #51's tag loads:
+each part of an open drop reads its enum's discriminant again, and a `fault` handler loads
+the tag once per guarded drop; one switch per enum, as rustc's `open_drop_for_multivariant`
+makes, would read it once (a size and speed cost only where a drop is already open).
 
 ### Phase 5: Data types
 
