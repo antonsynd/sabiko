@@ -141,8 +141,12 @@ pub enum PatKind {
     /// A float literal. Literals equal as floats (`0.0` and `-0.0` too) cover each other;
     /// floats never cover the type.
     Float(f64),
-    /// Any other literal value (a float range, say): it covers nothing but itself and
-    /// never makes a match exhaustive. Of type `&str` it behaves like a `Str` pattern.
+    /// A float range pattern (#49), `lo..=hi` or `lo..hi`, an open end infinite (`lo..`
+    /// is `lo..=inf`): it covers the literals and ranges inside it, as rustc's
+    /// `F64Range`, but floats never cover the type.
+    FloatRange { lo: f64, hi: f64, inclusive: bool },
+    /// Any other literal value: it covers nothing but itself and never makes a match
+    /// exhaustive. Of type `&str` it behaves like a `Str` pattern.
     Opaque,
     /// `p | q | ...`, in source order. Nested or-patterns are flattened, as in rustc.
     Or(Vec<Pat>),
@@ -611,7 +615,8 @@ enum Ctor {
     Bool(bool),
     IntRange(IntRange),
     Str(String),
-    Float(f64),
+    /// A float literal (`lo == hi`, inclusive) or range, as rustc's `F64Range`.
+    FloatRange(f64, f64, bool),
     /// Covers nothing but the pattern it came from.
     Opaque(u32),
     /// An or-pattern; its fields are the alternatives. Never a matrix head.
@@ -636,7 +641,15 @@ impl Ctor {
             (Ctor::Bool(a), Ctor::Bool(b)) => a == b,
             (Ctor::IntRange(a), Ctor::IntRange(b)) => a.is_subrange(*b),
             (Ctor::Str(a), Ctor::Str(b)) => a == b,
-            (Ctor::Float(a), Ctor::Float(b)) => a == b,
+            (Ctor::FloatRange(lo, hi, inclusive), Ctor::FloatRange(o_lo, o_hi, o_inclusive)) => {
+                // rustc's `is_covered_by` for float ranges.
+                lo >= o_lo
+                    && match hi.partial_cmp(o_hi) {
+                        Some(std::cmp::Ordering::Less) => true,
+                        Some(std::cmp::Ordering::Equal) => *o_inclusive || inclusive == o_inclusive,
+                        _ => false,
+                    }
+            }
             (Ctor::Opaque(a), Ctor::Opaque(b)) => a == b,
             _ => false,
         }
@@ -950,7 +963,10 @@ impl<'a> Checker<'a> {
             }
             PatKind::Bool(b) => self.alloc(Ctor::Bool(*b), Vec::new(), span),
             PatKind::Str(s) => self.lower_through_ref(&pat.ty, Ctor::Str(s.clone()), span),
-            PatKind::Float(f) => self.alloc(Ctor::Float(*f), Vec::new(), span),
+            PatKind::Float(f) => self.alloc(Ctor::FloatRange(*f, *f, true), Vec::new(), span),
+            PatKind::FloatRange { lo, hi, inclusive } => {
+                self.alloc(Ctor::FloatRange(*lo, *hi, *inclusive), Vec::new(), span)
+            }
             PatKind::Opaque => {
                 let ctor = self.fresh_opaque();
                 self.lower_through_ref(&pat.ty, ctor, span)

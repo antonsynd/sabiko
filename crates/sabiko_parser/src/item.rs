@@ -2,9 +2,9 @@
 
 use sabiko_ast::{
     Attribute, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDef, FieldPat, FnDecl, GenericArgs,
-    GenericParam, Ident, ImplDecl, Item, ItemKind, LetStmt, Param, Pat, PatKind, Path, RangeEnd,
-    SelfKind, SelfParam, SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type, TypeKind, UnOp,
-    Variant, VariantData, Visibility,
+    GenericParam, Ident, ImplDecl, Item, ItemKind, LetStmt, NodeId, Param, Pat, PatKind, Path,
+    RangeEnd, SelfKind, SelfParam, SourceFile, Stmt, StmtKind, StructDecl, StructKind, Type,
+    TypeKind, UnOp, Variant, VariantData, Visibility,
 };
 use sabiko_diagnostics::{Diagnostic, ErrorCode};
 use sabiko_lexer::TokenKind;
@@ -1139,20 +1139,21 @@ impl Parser<'_, '_> {
             TokenKind::DotDot => {
                 self.bump();
                 if self.at_range_bound() {
-                    return Err(self.error_unsupported(
-                        "half-open range patterns",
-                        start,
-                        "not planned yet",
-                    ));
+                    // `..hi`: a half-open range (#49).
+                    let hi = self.parse_range_bound()?;
+                    PatKind::Range(None, Some(Box::new(hi)), RangeEnd::Excluded)
+                } else {
+                    PatKind::Rest
                 }
-                PatKind::Rest
             }
             TokenKind::DotDotEq => {
-                return Err(self.error_unsupported(
-                    "half-open range patterns",
-                    start,
-                    "not planned yet",
-                ));
+                // `..=hi` (#49).
+                self.bump();
+                if !self.at_range_bound() {
+                    return Err(self.error_expected("a range pattern's end after `..=`"));
+                }
+                let hi = self.parse_range_bound()?;
+                PatKind::Range(None, Some(Box::new(hi)), RangeEnd::Included)
             }
             TokenKind::Ref => {
                 self.bump();
@@ -1188,7 +1189,7 @@ impl Parser<'_, '_> {
                     TokenKind::LBrace => self.parse_struct_pat(path)?,
                     TokenKind::DotDot | TokenKind::DotDotEq => {
                         let lo = self.path_expr(path);
-                        self.parse_range_pat(lo, start)?
+                        self.parse_range_pat(lo)?
                     }
                     _ if path.is_single() && path.segments[0].name != "Self" => {
                         let name = path.segments.into_iter().next().expect("one segment");
@@ -1205,13 +1206,7 @@ impl Parser<'_, '_> {
                     _ => PatKind::Path(path),
                 }
             }
-            TokenKind::Amp | TokenKind::AndAnd => {
-                return Err(self.error_unsupported(
-                    "reference patterns",
-                    start,
-                    "not planned yet: a pattern matched against a reference looks through it",
-                ))
-            }
+            TokenKind::Amp | TokenKind::AndAnd => return self.parse_ref_pat(id),
             TokenKind::LParen => {
                 self.bump();
                 let (mut elems, trailing_comma) =
@@ -1237,7 +1232,7 @@ impl Parser<'_, '_> {
             | TokenKind::Minus => {
                 let lit = self.parse_lit_pat_expr()?;
                 if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::DotDotEq) {
-                    self.parse_range_pat(lit, start)?
+                    self.parse_range_pat(lit)?
                 } else {
                     PatKind::Lit(Box::new(lit))
                 }
@@ -1330,8 +1325,8 @@ impl Parser<'_, '_> {
         })
     }
 
-    /// The rest of `lo..=hi` or `lo..hi`, at the `..=` or `..`.
-    fn parse_range_pat(&mut self, lo: Expr, start: Span) -> PResult<PatKind> {
+    /// The rest of `lo..=hi`, `lo..hi` or `lo..`, at the `..=` or `..`.
+    fn parse_range_pat(&mut self, lo: Expr) -> PResult<PatKind> {
         let end = if self.eat(TokenKind::DotDotEq).is_some() {
             RangeEnd::Included
         } else {
@@ -1339,20 +1334,81 @@ impl Parser<'_, '_> {
             RangeEnd::Excluded
         };
         if !self.at_range_bound() {
-            let span = self.span_from(start);
-            return Err(self.error_unsupported(
-                "half-open range patterns",
-                span,
-                "not planned yet",
-            ));
+            if end == RangeEnd::Included {
+                let span = self.prev_span();
+                let d = Diagnostic::error(
+                    ErrorCode::EXPECTED_EXPRESSION,
+                    "inclusive range with no end",
+                )
+                .with_label(span, "an inclusive range needs an end")
+                .with_note("use `..` instead of `..=` for a range with no end");
+                return Err(self.emit(d));
+            }
+            // `lo..`: a half-open range (#49).
+            return Ok(PatKind::Range(Some(Box::new(lo)), None, end));
         }
-        let hi = if matches!(self.peek_kind(), TokenKind::Ident | TokenKind::SelfType) {
+        let hi = self.parse_range_bound()?;
+        Ok(PatKind::Range(Some(Box::new(lo)), Some(Box::new(hi)), end))
+    }
+
+    /// The upper bound of a range pattern: a path or a (possibly negated) literal.
+    fn parse_range_bound(&mut self) -> PResult<Expr> {
+        if matches!(self.peek_kind(), TokenKind::Ident | TokenKind::SelfType) {
             let path = self.parse_path()?;
-            self.path_expr(path)
+            Ok(self.path_expr(path))
         } else {
-            self.parse_lit_pat_expr()?
+            self.parse_lit_pat_expr()
+        }
+    }
+
+    /// `&p`, `&mut p` and `&&p` (two reference patterns), at the `&` or `&&` (#49). The
+    /// subpattern may not be a range without parentheses (`&0..=5` is ambiguous, as in
+    /// rustc); `&mut x` is a `&mut` pattern around the binding `x`.
+    fn parse_ref_pat(&mut self, outer_id: NodeId) -> PResult<Pat> {
+        let tok = self.bump();
+        let start = tok.span;
+        let double = tok.kind == TokenKind::AndAnd;
+        let inner_id = if double { Some(self.new_id()) } else { None };
+        let mutable = self.eat(TokenKind::Mut).is_some();
+        let sub_start = self.peek().span;
+        let parenthesised = self.at(TokenKind::LParen);
+        let sub = self.nested(|p| {
+            if double {
+                p.descend()?;
+            }
+            p.parse_pat()
+        })?;
+        if matches!(sub.kind, PatKind::Range(..)) && !parenthesised {
+            let d = Diagnostic::error(
+                ErrorCode::UNEXPECTED_TOKEN,
+                "the range pattern here has ambiguous interpretation",
+            )
+            .with_label(
+                sub_start.to(sub.span),
+                "add parentheses to clarify the precedence",
+            );
+            return Err(self.emit(d));
+        }
+        let mut pat = Pat {
+            id: inner_id.unwrap_or(outer_id),
+            kind: PatKind::Ref {
+                pat: Box::new(sub),
+                mutable,
+            },
+            span: self.span_from(start),
         };
-        Ok(PatKind::Range(Box::new(lo), Box::new(hi), end))
+        if double {
+            pat.span = Span::new(self.file, start.start + 1, pat.span.end);
+            pat = Pat {
+                id: outer_id,
+                kind: PatKind::Ref {
+                    pat: Box::new(pat),
+                    mutable: false,
+                },
+                span: self.span_from(start),
+            };
+        }
+        Ok(pat)
     }
 
     /// `Path { X, Y: p, ref Z, .. }`, at the `{`.

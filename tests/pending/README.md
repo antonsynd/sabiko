@@ -304,12 +304,12 @@ All run under rustc (`.expected` notes); none is required by #8.
 `unreachable_arms_borrowck.sabi` (rustc borrow-checks code that patterns make unreachable)
 and `move_scrutinee_in_guard_then_test.sabi` (a later arm re-tested a scrutinee a failed
 guard moved out), are fixed (decision 72): the first became verdict programs in
-`differential/{moves,mutability}/`, the second `differential/run/enums/`.
+`differential/{moves,mutability}/`, the second `differential/run/enums/`. The two #49
+gaps, `reference_patterns.sabi` (`&p` patterns) and `half_open_range_patterns.sabi`
+(`..=-1`, `1..`), landed as `tests/differential/run/enums/` programs of the same names.
 
 | file | gap | rustc |
 | --- | --- | --- |
-| `reference_patterns.sabi` | `&p` patterns (`&Cell::Value(n)`, `let &(a, b) = &t;`), not listed in #8 (E0107 today, SPEC §2) (#49) | exit 0 |
-| `half_open_range_patterns.sabi` | `..=-1`, `1..` (exhaustive for `i32`), optional (#49) | exit 0 |
 | `enum_equality.sabi` | `#[derive(PartialEq)]` and `==` on enums: Phase 6 comparison traits | exit 0 |
 
 ### Rules rustc applies (each confirmed by the program named)

@@ -1,0 +1,47 @@
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/ref_pattern_mismatch.sabi:11:9 ]
+    │
+ 11 │         &n => n, //~ ERROR E0300 mismatched types
+    │         ─┬  
+    │          ╰── expected `i32`, found `&_`
+    │ 
+    │ Note: a reference pattern matches a reference; `i32` is not one
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/ref_pattern_mismatch.sabi:16:9 ]
+    │
+ 16 │     let &(a, _) = t; //~ ERROR E0300 mismatched types
+    │         ───┬───  
+    │            ╰───── types differ in mutability
+    │ 
+    │ Note: expected `&mut (i32, i32)`, found `&_`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/ref_pattern_mismatch.sabi:21:9 ]
+    │
+ 21 │     let &mut (a, _) = t; //~ ERROR E0300 mismatched types
+    │         ─────┬─────  
+    │              ╰─────── types differ in mutability
+    │ 
+    │ Note: expected `&(i32, i32)`, found `&mut _`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/ref_pattern_mismatch.sabi:27:21 ]
+    │
+ 27 │         Cell::Value(&n) => n, //~ ERROR E0300 mismatched types
+    │                     ─┬  
+    │                      ╰── expected `i32`, found `&_`
+    │ 
+    │ Note: a reference pattern matches a reference; `i32` is not one
+────╯
+[E0337] Error: cannot explicitly dereference within an implicitly-borrowing pattern
+    ╭─[ tests/ui/typeck/ref_pattern_mismatch.sabi:33:13 ]
+    │
+ 33 │     let (_, &b) = t; //~ ERROR E0337 cannot explicitly dereference within an implicitly-borrowing pattern
+    │             ─┬  
+    │              ╰── reference pattern not allowed when implicitly borrowing
+    │ 
+    │ Note 1: `&i32` is matched through a reference here, so the pattern already borrows it (edition 2024)
+    │ 
+    │ Note 2: remove the `&`, or match on the value instead of the reference
+────╯

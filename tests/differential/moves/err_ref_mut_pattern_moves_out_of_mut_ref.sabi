@@ -1,0 +1,8 @@
+// A `&mut` pattern (#49) does not make a by-value binding of a non-Copy part a move out
+// of the `&mut` borrow either: E0507.
+struct Token { Id: i32 }
+
+fn F(r: &mut (Token, i32)) -> i32 {
+    let &mut (t, n) = r;
+    t.Id + n
+}

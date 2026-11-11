@@ -1,0 +1,7 @@
+// A `ref` binding under a `&` pattern (#49) is a shared reference: assigning through it
+// is E0594.
+fn F(r: &(i32, i32)) -> i32 {
+    let &(ref a, _) = r;
+    *a = 3;
+    *a
+}

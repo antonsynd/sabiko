@@ -3,17 +3,20 @@
 //! `while let` over a state variable, `let`-`else` and irrefutable destructuring `let`s.
 //!
 //! Every `match` is exhaustive by construction: a few optional arms with refutable
-//! patterns (literals, ranges, or-patterns, nested variants, `x @ p`) or guards come first,
-//! then unguarded arms that cover the type: a catch-all, or a *cover* (one arm per variant,
-//! `true`/`false`, contiguous integer ranges from the type's minimum to its maximum, nested
+//! patterns (literals, ranges also half-open and of floats, or-patterns, nested variants,
+//! `x @ p`) or guards come first, then unguarded arms that cover the type: a catch-all, or
+//! a *cover* (one arm per variant, `true`/`false`, contiguous integer ranges from the
+//! type's minimum to its maximum, the outer ones sometimes half-open and always for
+//! `usize`/`isize`, nested
 //! covers of one payload element, some arms merged into or-patterns, a suffix replaced by a
 //! catch-all).
 //!
 //! Patterns are generated against the scope model. A scrutinee is a place matched by value
 //! (`match p.A`, `match *r`, `match **rr`), a reference (`match &x`, `match r`, `match
 //! F(&mut x)`, and through two of them `match rr` (#11): default binding modes, every
-//! binding a reference, a top-level one the scrutinee itself) or a temporary (`match F()`, a variant
-//! literal). By value, a binding of a non-`Copy` part moves it, which the model allows only
+//! binding a reference, a top-level one the scrutinee itself; through a single reference
+//! the pattern is now and then an explicit `&p`/`&mut p`, #49) or a temporary (`match
+//! F()`, a variant literal). By value, a binding of a non-`Copy` part moves it, which the model allows only
 //! where a move of the place is allowed and never out of a type with `impl Drop` (E0509);
 //! `ref` and `ref mut` borrow the place and are reference locals with a region, like the
 //! bindings under a default binding mode. A by-value move marks the place's root moved for
@@ -31,7 +34,7 @@
 //! an `else`.
 
 use super::{Access, BodyGen, Expr, LoopKind, Place, Ranges};
-use crate::program::{int_literal, int_text, random_int, VariantKind, CHARS};
+use crate::program::{float_literal, int_literal, int_text, random_int, VariantKind, CHARS};
 use crate::ty::{IntTy, Prim, Ty, ValTy};
 
 /// The default binding mode at the top of a pattern: by value, or (matching a reference
@@ -249,14 +252,15 @@ impl BodyGen<'_> {
 
     // ----- scrutinees ------------------------------------------------------------------
 
-    /// A type to match on: enums most often, then integers, `bool`, `char`, structs and
-    /// tuples; half of the time the type of a place in scope.
+    /// A type to match on: enums most often, then integers, `bool`, `char`, structs,
+    /// tuples and floats; half of the time the type of a place in scope.
     fn matchable_ty(&mut self) -> ValTy {
         if self.rng.chance(50) {
             let places: Vec<ValTy> = self
                 .candidates()
                 .into_iter()
                 .map(|p| p.ty)
+                // Floats come from the list below, now and then (#49).
                 .filter(|t| {
                     !matches!(t, ValTy::Prim(Prim::F32 | Prim::F64)) && self.prog.is_sized(*t)
                 })
@@ -281,13 +285,20 @@ impl BodyGen<'_> {
             5,
             if prog.structs.is_empty() { 0 } else { 6 },
             if prog.tuples.is_empty() { 0 } else { 6 },
+            4,
         ]) {
             0 => ValTy::Enum(self.rng.index(prog.enums.len())),
             1 => ValTy::Prim(Prim::Int(*self.rng.pick(&IntTy::ALL))),
             2 => ValTy::Prim(Prim::Bool),
             3 => ValTy::Prim(Prim::Char),
             4 => ValTy::Struct(self.rng.index(prog.structs.len())),
-            _ => ValTy::Tuple(self.rng.index(prog.tuples.len())),
+            5 => ValTy::Tuple(self.rng.index(prog.tuples.len())),
+            // Float range and literal patterns (#49), never exhaustive.
+            _ => ValTy::Prim(if self.rng.chance(50) {
+                Prim::F32
+            } else {
+                Prim::F64
+            }),
         }
     }
 
@@ -727,9 +738,9 @@ impl BodyGen<'_> {
         format!("{{ {} }}", parts.join(", "))
     }
 
-    /// A pattern of type `ty` that may not match: a literal, a range, an or-pattern, a
-    /// variant (with nested patterns), `x @ p`, or a struct or tuple with a refutable
-    /// element. Float types (no float patterns) get an irrefutable one.
+    /// A pattern of type `ty` that may not match: a literal, a range (also half-open, and
+    /// of floats, #49), an or-pattern, a variant (with nested patterns), `x @ p`, or a
+    /// struct or tuple with a refutable element.
     fn refutable(&mut self, ty: ValTy, cx: &mut PatCx, in_drop: bool, depth: u32) -> String {
         match ty {
             ValTy::Prim(Prim::Int(i)) => self.int_refutable(i, cx),
@@ -737,9 +748,8 @@ impl BodyGen<'_> {
                 (if self.rng.chance(50) { "true" } else { "false" }).to_owned()
             }
             ValTy::Prim(Prim::Char) => self.char_refutable(cx),
-            ValTy::Prim(_) | ValTy::Array(_) | ValTy::Str => {
-                self.irrefutable(ty, cx, in_drop, depth)
-            }
+            ValTy::Prim(p @ (Prim::F32 | Prim::F64)) => self.float_refutable(p),
+            ValTy::Array(_) | ValTy::Str => self.irrefutable(ty, cx, in_drop, depth),
             ValTy::Enum(e) => self.enum_refutable(e, cx, in_drop, depth),
             ValTy::Struct(_) | ValTy::Tuple(_) => {
                 let n = match ty {
@@ -821,9 +831,18 @@ impl BodyGen<'_> {
         let v = self.int_pat_value(i);
         match self
             .rng
-            .weighted(&[35, 30, 10, 15, if cx.bindings_ok { 10 } else { 0 }])
+            .weighted(&[35, 30, 10, 15, if cx.bindings_ok { 10 } else { 0 }, 12])
         {
             1 => self.int_range(i, v),
+            // Half-open (#49): `v..`, `..=v` or `..v` (not empty: `v` above the minimum).
+            5 => match self
+                .rng
+                .weighted(&[40, 35, if v > i.min() { 25 } else { 0 }])
+            {
+                0 => format!("{}..", int_text(self.rng, i, v)),
+                1 => format!("..={}", int_text(self.rng, i, v)),
+                _ => format!("..{}", int_text(self.rng, i, v)),
+            },
             2 if v < i.max() => {
                 let hi = v
                     .saturating_add(i128::from(self.rng.range(1, 8)))
@@ -877,6 +896,30 @@ impl BodyGen<'_> {
         )
     }
 
+    /// A float literal or range pattern (#49): `a`, `a | b`, `a..=b`, `a..b`, `a..`,
+    /// `..=b` or `..b`, never empty (`-0.0..0.0` is, so equal bounds make it inclusive).
+    /// Floats are never exhaustive: a cover of a float is a catch-all.
+    fn float_refutable(&mut self, prim: Prim) -> String {
+        let first = float_literal(self.rng, prim);
+        let second = float_literal(self.rng, prim);
+        let ((lo, lo_v), (hi, hi_v)) = if first.1 <= second.1 {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        #[allow(clippy::float_cmp)] // `0.0` and `-0.0` make an empty `..`
+        let exclusive_ok = lo_v != hi_v;
+        match self.rng.weighted(&[30, 10, 25, 10, 10, 10, 5]) {
+            1 if lo != hi => format!("{lo} | {hi}"),
+            2 => format!("{lo}..={hi}"),
+            3 if exclusive_ok => format!("{lo}..{hi}"),
+            4 => format!("{lo}.."),
+            5 => format!("..={hi}"),
+            6 => format!("..{hi}"),
+            _ => lo,
+        }
+    }
+
     fn char_refutable(&mut self, cx: &mut PatCx) -> String {
         let a = *self.rng.pick(CHARS);
         let b = *self.rng.pick(CHARS);
@@ -904,12 +947,8 @@ impl BodyGen<'_> {
                 let first = self.rng.chance(50);
                 vec![Shape::Bool(first), Shape::Bool(!first)]
             }
-            ValTy::Prim(Prim::Int(i))
-                // `usize`/`isize` have no fixed maximum for exhaustiveness (E0004).
-                if !matches!(i, IntTy::Usize | IntTy::Isize) && self.rng.chance(50) =>
-            {
-                self.int_cover(i)
-            }
+            // `usize`/`isize` covers end in half-open ranges (#49).
+            ValTy::Prim(Prim::Int(i)) if self.rng.chance(50) => self.int_cover(i),
             ValTy::Enum(e) => {
                 let def = &prog.enums[e];
                 let mut shapes = Vec::new();
@@ -983,7 +1022,22 @@ impl BodyGen<'_> {
             } else {
                 int_text(self.rng, i, hi)
             };
-            let text = if lo == hi && !(top && i == IntTy::U128) {
+            // `usize` and `isize` have no fixed maximum or minimum for exhaustiveness: only
+            // an open end covers them (E0004 otherwise); other types sometimes have one too
+            // (#49).
+            let wide = matches!(i, IntTy::Usize | IntTy::Isize);
+            let text = if k == 0 && top && wide {
+                // No cut: one open range would need both ends open.
+                "_".to_owned()
+            } else if k == 0 && !top && (wide || self.rng.chance(25)) {
+                if self.rng.chance(60) {
+                    format!("..={}", int_text(self.rng, i, hi))
+                } else {
+                    format!("..{}", int_text(self.rng, i, hi + 1))
+                }
+            } else if top && k > 0 && (wide || self.rng.chance(25)) {
+                format!("{}..", int_text(self.rng, i, lo))
+            } else if lo == hi && !(top && i == IntTy::U128) {
                 // A lone value: a literal, which also matches through a reference.
                 int_literal(i, lo)
             } else if !top && self.rng.chance(30) {
@@ -1027,6 +1081,39 @@ impl BodyGen<'_> {
         }
     }
 
+    /// `make`'s pattern, now and then written as an explicit `&p` or `&mut p` (#49) where
+    /// the scrutinee is a single reference: `p` is then matched by value against the
+    /// referent (a `&` pattern resets the default binding mode), so its bindings copy, or
+    /// borrow through the reference with `ref` (and `ref mut` through a `&mut`), and
+    /// moving a non-`Copy` part out is a violation (E0507). `p` gets parentheses where it
+    /// needs them (`&(1..)`, `&(A | B)`, `&(mut x)`).
+    fn deref_pattern(
+        &mut self,
+        cx: &mut PatCx,
+        make: impl FnOnce(&mut Self, &mut PatCx) -> String,
+    ) -> String {
+        let Mode::Ref(m) = cx.mode else {
+            return make(self, cx);
+        };
+        if cx.top.is_some() || !self.rng.chance(40) {
+            return make(self, cx);
+        }
+        let saved = (cx.can_move, cx.can_ref, cx.can_ref_mut);
+        cx.mode = Mode::Move;
+        cx.can_move = self.violate();
+        cx.can_ref = true;
+        cx.can_ref_mut = m;
+        let p = make(self, cx);
+        cx.mode = Mode::Ref(m);
+        (cx.can_move, cx.can_ref, cx.can_ref_mut) = saved;
+        let p = if p.contains("..") || p.contains('|') || p.starts_with("mut ") {
+            format!("({p})")
+        } else {
+            p
+        };
+        format!("&{}{p}", if m { "mut " } else { "" })
+    }
+
     /// The pattern context of an arm: the first arm may break the rules as the scrutinee
     /// allows; a later one may be unreachable, so it gets the strict permissions.
     fn arm_cx(s: &Scrut, first: bool) -> PatCx {
@@ -1046,11 +1133,13 @@ impl BodyGen<'_> {
             let first = arms.is_empty();
             let mut cx = Self::arm_cx(s, first);
             self.no_violations += u32::from(!first);
-            let pat = if self.rng.chance(25) {
-                self.irrefutable(s.ty, &mut cx, false, 0)
-            } else {
-                self.refutable(s.ty, &mut cx, false, 0)
-            };
+            let pat = self.deref_pattern(&mut cx, |gen, cx| {
+                if gen.rng.chance(25) {
+                    gen.irrefutable(s.ty, cx, false, 0)
+                } else {
+                    gen.refutable(s.ty, cx, false, 0)
+                }
+            });
             self.no_violations -= u32::from(!first);
             // Mostly guarded: an unguarded `E::A(..)` makes a cover's `E::A(x)` unreachable,
             // and an unguarded irrefutable pattern every later arm (#47).
@@ -1083,16 +1172,21 @@ impl BodyGen<'_> {
             let merge =
                 i + 1 < shapes.len() && !matches!(shapes[i + 1], Shape::Any) && self.rng.chance(20);
             let pat = if merge {
-                cx.bindings_ok = false;
-                let a = self.render_shape(&shapes[i].clone(), s.ty, &mut cx, false, 0);
-                let b = self.render_shape(&shapes[i + 1].clone(), s.ty, &mut cx, false, 0);
-                cx.bindings_ok = true;
+                let (a, b) = (shapes[i].clone(), shapes[i + 1].clone());
                 i += 2;
-                format!("{a} | {b}")
+                self.deref_pattern(&mut cx, |gen, cx| {
+                    cx.bindings_ok = false;
+                    let a = gen.render_shape(&a, s.ty, cx, false, 0);
+                    let b = gen.render_shape(&b, s.ty, cx, false, 0);
+                    cx.bindings_ok = true;
+                    format!("{a} | {b}")
+                })
             } else {
                 let shape = shapes[i].clone();
                 i += 1;
-                self.render_shape(&shape, s.ty, &mut cx, false, 0)
+                self.deref_pattern(&mut cx, |gen, cx| {
+                    gen.render_shape(&shape, s.ty, cx, false, 0)
+                })
             };
             self.no_violations -= u32::from(!first);
             arms.push(Arm {
@@ -1563,7 +1657,7 @@ impl BodyGen<'_> {
         let s = self.scrutinee(ty, depth.saturating_sub(1));
         let mut cx = Self::pat_cx(&s);
         // An irrefutable pattern makes the `else` (or the fall-through) unreachable (#47).
-        let pat = self.refutable(ty, &mut cx, false, 0);
+        let pat = self.deref_pattern(&mut cx, |gen, cx| gen.refutable(ty, cx, false, 0));
         operands.push(format!("let {pat} = {}", s.text));
         // What evaluating the scrutinee moved (`match sum { .., d => .. }` moves `sum`) is
         // moved on every path, `else` included (seed 66000512).
@@ -1682,7 +1776,7 @@ impl BodyGen<'_> {
             }
         };
         let mut cx = Self::pat_cx(&s);
-        let pat = self.refutable(ty, &mut cx, false, 0);
+        let pat = self.deref_pattern(&mut cx, |gen, cx| gen.refutable(ty, cx, false, 0));
         let bound = self.rng.range(1, 4);
         let before = self.snapshot_moved();
         self.loops.push(LoopKind::Stmt);
@@ -1770,7 +1864,8 @@ impl BodyGen<'_> {
         let s = self.scrutinee(ty, depth.saturating_sub(1));
         let mut cx = Self::pat_cx(&s);
         // An irrefutable pattern makes the `else` unreachable (#47).
-        let pat = let_pattern(self.refutable(ty, &mut cx, false, 0));
+        let pat = self.deref_pattern(&mut cx, |gen, cx| gen.refutable(ty, cx, false, 0));
+        let pat = let_pattern(pat);
         let Some(diverge) = self.strictly(|gen| gen.diverge(depth)) else {
             return false;
         };
@@ -1801,7 +1896,7 @@ impl BodyGen<'_> {
         let ty = *self.rng.pick(&types);
         let s = self.scrutinee(ty, depth.saturating_sub(1));
         let mut cx = Self::pat_cx(&s);
-        let pat = self.destructure(ty, &mut cx, false, 0);
+        let pat = self.deref_pattern(&mut cx, |gen, cx| gen.destructure(ty, cx, false, 0));
         self.line(&format!("let {pat} = {};", s.text));
         self.bind_all(&s, &cx);
         true

@@ -418,8 +418,13 @@ pub enum PatKind {
     /// A literal, possibly negated: the expression is an `ExprKind::Lit` or a
     /// `ExprKind::Unary(Neg, Lit)`.
     Lit(Box<Expr>),
-    /// `a..=b` or `a..b`; each bound is a (possibly negated) literal or a path.
-    Range(Box<Expr>, Box<Expr>, RangeEnd),
+    /// `a..=b`, `a..b`, and the half-open `a..`, `..=b` and `..b` (#49): at least one
+    /// bound, each a (possibly negated) literal or a path. The end is as written: `a..` is
+    /// [`RangeEnd::Excluded`], though it includes the type's maximum.
+    Range(Option<Box<Expr>>, Option<Box<Expr>>, RangeEnd),
+    /// `&p` or `&mut p` (#49): matches a reference of that mutability and continues with
+    /// `p` against the referent.
+    Ref { pat: Box<Pat>, mutable: bool },
     /// `p | q | ..`, at least two alternatives.
     Or(Vec<Pat>),
     /// A place on the left of a destructuring assignment (`a`, `s.F`, `*r`, `v[i]` in
@@ -485,6 +490,7 @@ impl Pat {
                     first.walk_idents(f);
                 }
             }
+            PatKind::Ref { pat, .. } => pat.walk_idents(f),
             PatKind::Wild
             | PatKind::Rest
             | PatKind::Path(_)
@@ -510,6 +516,7 @@ impl Pat {
             }
             PatKind::Ident { .. }
             | PatKind::Or(_)
+            | PatKind::Ref { .. }
             | PatKind::Wild
             | PatKind::Rest
             | PatKind::Path(_)

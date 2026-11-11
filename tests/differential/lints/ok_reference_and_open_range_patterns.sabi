@@ -1,0 +1,12 @@
+// `&` patterns, half-open ranges and float ranges (#49): a half-open range tests its one
+// bound, a range covering the type tests nothing, and a `&p` pattern tests through the
+// reference; arms of a constant scrutinee that the tests rule out are not linted, as in
+// rustc, and the ones they take are.
+fn A() -> u8 { match 7i32 { ..=5i32 => 1u8 - 2u8, 6i32.. => 0u8 } }
+fn B() -> u8 { match 7i32 { ..=5i32 => 0u8, 6i32.. => 1u8 - 3u8 } }
+fn C() -> u8 { match 3u8 { 0u8.. => 255u8 * 2u8 } }
+fn D() -> u8 { match &7i32 { &(..0) => 1u8 - 4u8, &(0..=6) => 0u8, &(7..) => 2u8 } }
+fn E() -> u8 { let r = &(1i32, 2u8); match r { &(1, n) => n - 5u8, &(_, _) => 0u8 } }
+fn F() -> u8 { let t = (4i64, 0u8); let &(a, b) = &t; if a > 3 { 1u8 / b } else { 0u8 } }
+fn G() -> u8 { match 0.5f64 { ..0.0 => 1u8 - 6u8, 0.0..=1.0 => 0u8, _ => 2u8 } }
+fn H(x: i32) -> u8 { match x { ..=-1 => 0u8, 0.. => 200u8 + 100u8 } }

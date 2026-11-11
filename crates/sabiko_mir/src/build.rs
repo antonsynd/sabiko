@@ -2704,6 +2704,8 @@ fn is_extending_pattern(pat: &Pat) -> bool {
         | PatKind::Path(_)
         | PatKind::Lit(_)
         | PatKind::Range(..)
+        // `let &(ref a, _) = &t;` borrows through the reference, as in rustc.
+        | PatKind::Ref { .. }
         | PatKind::Assignee(_) => false,
     }
 }

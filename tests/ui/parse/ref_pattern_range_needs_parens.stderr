@@ -1,0 +1,7 @@
+[E0100] Error: the range pattern here has ambiguous interpretation
+   ╭─[ tests/ui/parse/ref_pattern_range_needs_parens.sabi:7:10 ]
+   │
+ 7 │         &0..=5 => 1, //~ ERROR E0100 the range pattern here has ambiguous interpretation
+   │          ──┬──  
+   │            ╰──── add parentheses to clarify the precedence
+───╯

@@ -1,0 +1,49 @@
+// Sabiko codes for rustc's: E0332 for E0579, E0030 and the uncoded "cannot use NaN in
+// patterns".
+// Half-open and float range patterns (#49): `..MIN` is empty (E0579), a float range is
+// checked like an integer one (E0030, E0579), and a NaN bound or constant is an error.
+const N: f64 = 0.0 / 0.0;
+
+fn Ints(n: i32, c: char, u: u8) -> i32 {
+    let a = match n {
+        ..i32::MIN => 1, //~ ERROR E0332 exclusive upper bound for a range bound cannot be the minimum
+        _ => 0,
+    };
+    let b = match c {
+        ..'\0' => 1, //~ ERROR E0332 exclusive upper bound for a range bound cannot be the minimum
+        _ => 0,
+    };
+    // Fine: `..=MIN` is the minimum, `MAX..` the maximum.
+    let d = match u {
+        ..=0 => 1,
+        255.. => 2,
+        _ => 0,
+    };
+    a + b + d
+}
+
+fn Floats(x: f64) -> i32 {
+    let a = match x {
+        1.0..=0.0 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+        _ => 0,
+    };
+    let b = match x {
+        1.0..1.0 => 1, //~ ERROR E0332 lower bound for range pattern must be less than upper bound
+        _ => 0,
+    };
+    let c = match x {
+        N..=1.0 => 1, //~ ERROR E0332 cannot use NaN in patterns
+        _ => 0,
+    };
+    let d = match x {
+        N => 1, //~ ERROR E0332 cannot use NaN in patterns
+        _ => 0,
+    };
+    let e = match x {
+        f64::NAN.. => 1, //~ ERROR E0332 cannot use NaN in patterns
+        _ => 0,
+    };
+    a + b + c + d + e
+}
+
+fn Main() {}

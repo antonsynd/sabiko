@@ -1,0 +1,30 @@
+[E0328] Error: non-exhaustive patterns: `_` not covered
+   ╭─[ tests/ui/typeck/float_range_exhaustiveness.sabi:5:11 ]
+   │
+ 5 │     match x { //~ ERROR E0328 non-exhaustive patterns: `_` not covered
+   │           ┬  
+   │           ╰── pattern `_` not covered
+   │ 
+   │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+───╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/float_range_exhaustiveness.sabi:14:9 ]
+    │
+ 14 │         0.5 => 2, //~ WARN unreachable pattern
+    │         ─┬─  
+    │          ╰─── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/float_range_exhaustiveness.sabi:15:9 ]
+    │
+ 15 │         0.0..=0.5 => 3, //~ WARN unreachable pattern
+    │         ────┬────  
+    │             ╰────── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/float_range_exhaustiveness.sabi:18:9 ]
+    │
+ 18 │         1.5..2.0 => 6, //~ WARN unreachable pattern
+    │         ────┬───  
+    │             ╰───── no value can reach this
+────╯

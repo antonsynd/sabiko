@@ -770,16 +770,27 @@ impl MoveChecker<'_> {
             Ty::Ref(Mutability::Mut, _) => "mutable",
             _ => "shared",
         };
-        let desc = self.describe(place);
+        // A place of an unnamed local (a parameter's pattern, `&(t, n): &(T, i32)`, #49)
+        // is not named, as in rustc: "cannot move out of a shared reference".
+        let named = self.body.local_decl(place.local).name.is_some();
+        let (what, subject) = if named {
+            let desc = self.describe(place);
+            (
+                format!("`{desc}` which is behind a {kind} reference"),
+                format!("`{desc}`"),
+            )
+        } else {
+            (format!("a {kind} reference"), "the value".to_owned())
+        };
         self.sink.emit(
             Diagnostic::error(
                 ErrorCode::MOVE_OUT_OF_BORROW,
-                format!("cannot move out of `{desc}` which is behind a {kind} reference"),
+                format!("cannot move out of {what}"),
             )
             .with_label(
                 span,
                 format!(
-                    "move occurs because `{desc}` has type `{}`, which does not implement the `Copy` trait",
+                    "move occurs because {subject} has type `{}`, which does not implement the `Copy` trait",
                     ty.display(self.resolve)
                 ),
             ),

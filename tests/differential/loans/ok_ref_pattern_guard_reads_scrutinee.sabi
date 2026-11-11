@@ -1,0 +1,7 @@
+// A guard may read what an arm's `&mut` pattern (#49) tests through the scrutinee.
+fn F(r: &mut (i32, i32)) -> i32 {
+    match r {
+        &mut (0, b) if r.1 > 0 => b,
+        &mut (a, _) => a,
+    }
+}

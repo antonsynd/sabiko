@@ -1,0 +1,12 @@
+// A `ref` binding under a `&` pattern (#49) borrows the non-Copy payload instead of
+// moving it, and a by-value binding of a Copy part copies it.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token, i32) }
+
+fn F(r: &Slot) -> i32 {
+    match r {
+        &Slot::Full(ref t, n) => t.Id + n,
+        &Slot::Empty => 0,
+    }
+}
