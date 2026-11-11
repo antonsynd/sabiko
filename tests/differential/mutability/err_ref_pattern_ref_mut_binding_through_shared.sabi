@@ -1,0 +1,7 @@
+// A `ref mut` binding under a `&` pattern (#49) would borrow mutably through a shared
+// reference: E0596.
+fn F(r: &(i32, i32)) -> i32 {
+    let &(ref mut a, _) = r;
+    *a = 3;
+    *a
+}

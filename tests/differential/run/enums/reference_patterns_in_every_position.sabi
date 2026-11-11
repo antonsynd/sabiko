@@ -1,0 +1,78 @@
+// `&` and `&mut` patterns (#49) in parameters, `let`, `if let`, `while let`, `let`-`else`,
+// guards and or-patterns, nested (`&&p`, `&(&a, b)`), with `ref`/`ref mut` bindings
+// through them and a `&mut` pattern that writes through its `ref mut` binding.
+struct Name { Len: i32 }
+struct Token { Text: Name, Weight: i32 }
+enum Slot { Empty, Full(Token), Pair(i32, i32) }
+
+fn Sum(&(a, b): &(i32, i32)) -> i32 {
+    a + b
+}
+
+fn Weight(slot: &Slot) -> i32 {
+    match slot {
+        &Slot::Full(Token { Weight: w, .. }) if w > 10 => w * 2,
+        &Slot::Full(Token { ref Text, Weight }) => Text.Len + Weight,
+        &Slot::Pair(a, b) | &Slot::Pair(b, a) if a > b => a - b,
+        &Slot::Pair(_, b) => b,
+        &Slot::Empty => 0,
+    }
+}
+
+fn Bump(t: &mut (i32, i32)) {
+    let &mut (ref mut a, b) = t;
+    *a += b;
+}
+
+fn Deep(r: &&(i32, &i32)) -> i32 {
+    let &&(a, &b) = r;
+    a * b
+}
+
+fn LeadingNonZero(xs: &[i32; 4]) -> usize {
+    let mut i = 0;
+    while let &(..=-1 | 1..) = &xs[i] {
+        i += 1;
+        if i == 4 {
+            break;
+        }
+    }
+    i
+}
+
+fn Main() {
+    PrintLine(Sum(&(3, 4)));
+    let slots = [
+        Slot::Empty,
+        Slot::Full(Token { Text: Name { Len: 3 }, Weight: 4 }),
+        Slot::Full(Token { Text: Name { Len: 1 }, Weight: 11 }),
+        Slot::Pair(2, 9),
+        Slot::Pair(9, 2),
+    ];
+    let mut i = 0;
+    while i < 5 {
+        PrintLine(Weight(&slots[i]));
+        i += 1;
+    }
+    let mut t = (1, 5);
+    Bump(&mut t);
+    Bump(&mut t);
+    PrintLine(t.0);
+    let k = 6;
+    PrintLine(Deep(&&(7, &k)));
+    PrintLine(LeadingNonZero(&[-1, 5, 0, 3]));
+    PrintLine(LeadingNonZero(&[1, 2, 3, 4]));
+    if let &Slot::Full(Token { ref Text, .. }) = &slots[1] {
+        PrintLine(Text.Len);
+    }
+    let &Slot::Pair(x, _) = &slots[4] else {
+        Panic("not a pair");
+    };
+    PrintLine(x);
+    let v = 3;
+    let r = &v;
+    let &w @ 1..=5 = r else {
+        return;
+    };
+    PrintLine(w);
+}

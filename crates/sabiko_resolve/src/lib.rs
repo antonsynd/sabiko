@@ -2473,9 +2473,11 @@ impl Resolver<'_> {
             }
             PatKind::Lit(e) => self.resolve_expr(e),
             PatKind::Range(lo, hi, _) => {
-                self.resolve_expr(lo);
-                self.resolve_expr(hi);
+                for bound in [lo, hi].into_iter().flatten() {
+                    self.resolve_expr(bound);
+                }
             }
+            PatKind::Ref { pat, .. } => self.walk_pat(pat, is_param, reuse, out),
             PatKind::Assignee(e) => self.walk_assignee(pat, e),
             PatKind::Or(alts) => {
                 let mut first = Vec::new();

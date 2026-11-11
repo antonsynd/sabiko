@@ -483,6 +483,8 @@ fn programs_use_arrays() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
             },
+            // 75 per 500 seeds before #49 and 80 after, over seeds 1 to 3000 (the first
+            // 500 had 85 before, 84 after).
             70,
         ),
         (
@@ -738,7 +740,9 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.contains("\" | \"") && l.contains(" => "))
             },
-            85,
+            // 105 per 500 seeds before #49 and 109 after, over seeds 1 to 3000 (the first
+            // 500 had 100 or more before, 96 after).
+            90,
         ),
         // One string binding arm in ten is unguarded since #47 (it was 26 before).
         (
@@ -1010,8 +1014,10 @@ fn programs_use_let_chains() {
         "of {SEEDS} programs: {any} have a let chain, {leading} one led by a `bool`, {two_lets} one with two `let`s, {after} a `bool` after a `let`"
     );
     assert!(
-        any >= 50 && leading >= 10 && two_lets >= 30 && after >= 25,
-        "of {SEEDS} programs: {any} have a let chain (expected 50), {leading} one led by a `bool` (expected 10), {two_lets} one with two `let`s (expected 30), {after} a `bool` after a `let` (expected 25)"
+        // Over seeds 1 to 3000, 42 programs per 500 have a let chain and 25 (28 since #49)
+        // one with two `let`s; the first 500 had 51 and 30 before #49, 43 and 26 after.
+        any >= 36 && leading >= 10 && two_lets >= 22 && after >= 25,
+        "of {SEEDS} programs: {any} have a let chain (expected 36), {leading} one led by a `bool` (expected 10), {two_lets} one with two `let`s (expected 22), {after} a `bool` after a `let` (expected 25)"
     );
 }
 
@@ -1165,4 +1171,91 @@ fn programs_use_generic_helpers() {
         ids >= 60 && turbofish >= 20 && picks >= 50 && firsts >= 25,
         "of {SEEDS} programs: {ids} `GenId` (expected 60), {turbofish} turbofish (expected 20), {picks} `GenPick` (expected 50), {firsts} `GenFirst` (expected 25)"
     );
+}
+
+/// The patterns of a program's `let`s, `if let`s and `while let`s (from the `let` on),
+/// and roughly those of its `match` arms, inline ones included (what precedes each ` => `
+/// back to a `{ ` or `, `).
+fn patterns(src: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for line in src.lines() {
+        if let Some(i) = line.find("let ") {
+            out.push(&line[i + 4..]);
+        }
+        let mut rest = line;
+        while let Some((before, after)) = rest.split_once(" => ") {
+            let start = [before.rfind("{ "), before.rfind(", ")]
+                .into_iter()
+                .flatten()
+                .max()
+                .map_or(0, |i| i + 2);
+            out.push(before[start..].trim_start());
+            rest = after;
+        }
+    }
+    out
+}
+
+/// `&` and `&mut` patterns, half-open range patterns and float patterns (#49) are part of
+/// the subset: a fair share of programs use each.
+#[test]
+fn programs_use_reference_open_range_and_float_patterns() {
+    let knobs = Knobs::default();
+    let (mut deref, mut deref_mut, mut open, mut float) = (0, 0, 0, 0);
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        let pats = patterns(&src);
+        deref += usize::from(
+            pats.iter()
+                .any(|p| p.starts_with('&') && !p.starts_with("&mut ")),
+        );
+        deref_mut += usize::from(pats.iter().any(|p| p.starts_with("&mut ")));
+        open += usize::from(pats.iter().any(|p| is_half_open(p)));
+        float += usize::from(pats.iter().any(|p| is_float_pattern(p)));
+    }
+    eprintln!(
+        "of {SEEDS} programs: {deref} have a `&` pattern, {deref_mut} a `&mut` pattern, {open} a half-open range, {float} a float pattern"
+    );
+    assert!(
+        deref >= 15 && deref_mut >= 8 && open >= 30 && float >= 15,
+        "of {SEEDS} programs: {deref} have a `&` pattern (expected 15), {deref_mut} a `&mut` pattern (expected 8), {open} a half-open range (expected 30), {float} a float pattern (expected 15)"
+    );
+}
+
+/// Whether a pattern has a half-open range: `..=hi` or `..hi` where a pattern starts
+/// (`(`, `| `, `@ ` or the start before it), or `lo..` before where one ends.
+fn is_half_open(p: &str) -> bool {
+    let b = p.as_bytes();
+    p.match_indices("..").any(|(i, _)| {
+        let starts =
+            i == 0 || p[..i].ends_with('(') || p[..i].ends_with("| ") || p[..i].ends_with("@ ");
+        let next = b.get(i + 2).copied();
+        let upper = matches!(next, Some(c) if c == b'=' || c == b'-' || c.is_ascii_alphanumeric());
+        let lower_before = i > 0 && b[i - 1].is_ascii_alphanumeric();
+        let ends = matches!(next, None | Some(b')' | b',' | b' '));
+        (starts && upper) || (lower_before && ends)
+    })
+}
+
+/// Whether a pattern has a float literal pattern or range: a suffixed float literal that
+/// is a bound of a range (`0.5f64..`, `..=1.5f32`) or a whole (sub)pattern (`(_, 2.5f64)`,
+/// `x @ 0.5f32`, before a guard).
+fn is_float_pattern(p: &str) -> bool {
+    let p = p.split(" if ").next().unwrap_or(p);
+    let p = p.split(" = ").next().unwrap_or(p);
+    ["f32", "f64"].iter().any(|suffix| {
+        p.match_indices(suffix).any(|(i, _)| {
+            let before = &p[..i];
+            let literal =
+                before.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-');
+            if literal.len() == before.len() {
+                return false;
+            }
+            let after = &p[i + 3..];
+            let alone = (literal.is_empty()
+                || ["(", ", ", "| ", "@ "].iter().any(|t| literal.ends_with(t)))
+                && (after.is_empty() || [")", ",", " |"].iter().any(|t| after.starts_with(t)));
+            after.starts_with("..") || literal.ends_with("..") || literal.ends_with("..=") || alone
+        })
+    })
 }

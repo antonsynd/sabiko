@@ -1,0 +1,8 @@
+// Sabiko codes for rustc's: E0102 for E0586.
+// A half-open range pattern is `lo..`; `lo..=` needs an end (#49).
+fn F(x: i32) -> i32 {
+    match x {
+        5..= => 1, //~ ERROR E0102 inclusive range with no end
+        _ => 2,
+    }
+}

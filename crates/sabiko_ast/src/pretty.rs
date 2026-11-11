@@ -414,9 +414,35 @@ impl Printer {
             }
             PatKind::Lit(e) | PatKind::Assignee(e) => self.expr(e, 0),
             PatKind::Range(lo, hi, end) => {
-                self.expr(lo, 0);
+                if let Some(lo) = lo {
+                    self.expr(lo, 0);
+                }
                 self.out.push_str(end.as_str());
-                self.expr(hi, 0);
+                if let Some(hi) = hi {
+                    self.expr(hi, 0);
+                }
+            }
+            PatKind::Ref { pat, mutable } => {
+                self.out.push_str(if *mutable { "&mut " } else { "&" });
+                // A range needs its parentheses back (`&a..=b` is ambiguous), and so does a
+                // `mut` binding (`&mut x` is a `&mut` pattern).
+                let paren = matches!(pat.kind, PatKind::Range(..))
+                    || (!*mutable
+                        && matches!(
+                            pat.kind,
+                            PatKind::Ident {
+                                by_ref: false,
+                                mutable: true,
+                                ..
+                            }
+                        ));
+                if paren {
+                    self.out.push('(');
+                }
+                self.pat(pat);
+                if paren {
+                    self.out.push(')');
+                }
             }
             PatKind::Or(alts) => {
                 for (i, p) in alts.iter().enumerate() {

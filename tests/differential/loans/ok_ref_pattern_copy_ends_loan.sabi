@@ -1,0 +1,8 @@
+// A `&` pattern (#49) resets the default binding mode: `let &(a, _) = &t;` copies `t.0`,
+// so no loan of `t` is live when `t` is assigned (compare the `err_` twin).
+fn F() -> i32 {
+    let mut t = (1, 2);
+    let &(a, _) = &t;
+    t.0 = 5;
+    a + t.0
+}

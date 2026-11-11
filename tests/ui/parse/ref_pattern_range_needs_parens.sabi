@@ -1,0 +1,10 @@
+// Sabiko codes for rustc's: E0100 for its uncoded "the range pattern here has ambiguous
+// interpretation".
+// A range directly under `&` is ambiguous (`&0..=5` could be `(&0)..=5`): rustc wants
+// parentheses, `&(0..=5)` (#49).
+fn F(x: &i32) -> i32 {
+    match x {
+        &0..=5 => 1, //~ ERROR E0100 the range pattern here has ambiguous interpretation
+        _ => 2,
+    }
+}

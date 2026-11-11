@@ -1,0 +1,25 @@
+// `&` patterns (#49): `&p` matches a `&T` and continues with `p` against the referent, so
+// `&Cell::Value(n)` binds `n` by value (a copy) and `let &(a, b) = &t;` copies both
+// elements out; a `&` pattern also resets the default binding mode to by-value.
+enum Cell { Empty, Value(i32) }
+
+fn Get(r: &Cell) -> i32 {
+    match r {
+        &Cell::Value(n) => n,
+        &Cell::Empty => -1,
+    }
+}
+
+fn Main() {
+    let c = Cell::Value(7);
+    PrintLine(Get(&c));
+    PrintLine(Get(&Cell::Empty));
+    let t = (1, 2);
+    let &(a, b) = &t;
+    PrintLine(a + b);
+    let m = match (&c, 3) {
+        (&Cell::Value(n), k) => n * k,
+        _ => 0,
+    };
+    PrintLine(m);
+}

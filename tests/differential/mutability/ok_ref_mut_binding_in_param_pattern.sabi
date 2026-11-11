@@ -1,0 +1,6 @@
+// A parameter's pattern binds from an unnamed argument that is mutable, as rustc declares
+// it: `ref mut` there borrows the argument mutably (#49 review).
+fn F((ref mut a, b): (i32, i32)) -> i32 {
+    *a += b;
+    *a
+}

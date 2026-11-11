@@ -227,7 +227,18 @@ fn pat() -> BoxedStrategy<Pat> {
             range_bound(),
             prop_oneof![Just(RangeEnd::Included), Just(RangeEnd::Excluded)]
         )
-            .prop_map(|(lo, hi, end)| PatKind::Range(Box::new(lo), Box::new(hi), end)),
+            .prop_map(|(lo, hi, end)| PatKind::Range(
+                Some(Box::new(lo)),
+                Some(Box::new(hi)),
+                end
+            )),
+        // Half-open ranges (#49): `lo..`, `..=hi`, `..hi`.
+        range_bound().prop_map(|lo| PatKind::Range(Some(Box::new(lo)), None, RangeEnd::Excluded)),
+        (
+            range_bound(),
+            prop_oneof![Just(RangeEnd::Included), Just(RangeEnd::Excluded)]
+        )
+            .prop_map(|(hi, end)| PatKind::Range(None, Some(Box::new(hi)), end)),
     ]
     .prop_map(mk_pat);
     leaf.prop_recursive(3, 12, 3, |inner| {
@@ -277,6 +288,11 @@ fn pat() -> BoxedStrategy<Pat> {
                     rest: rest.then_some(SP),
                 }),
             prop::collection::vec(inner.clone(), 2..4).prop_map(PatKind::Or),
+            // `&p`, `&mut p` (#49).
+            (any::<bool>(), inner.clone()).prop_map(|(mutable, pat)| PatKind::Ref {
+                pat: Box::new(pat),
+                mutable
+            }),
             (any::<bool>(), any::<bool>(), name(), inner).prop_map(|(by_ref, mutable, n, sub)| {
                 PatKind::Ident {
                     by_ref,

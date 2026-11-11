@@ -1,0 +1,9 @@
+[E0102] Error: inclusive range with no end
+   ╭─[ tests/ui/parse/range_pattern_inclusive_no_end.sabi:5:10 ]
+   │
+ 5 │         5..= => 1, //~ ERROR E0102 inclusive range with no end
+   │          ─┬─  
+   │           ╰─── an inclusive range needs an end
+   │ 
+   │ Note: use `..` instead of `..=` for a range with no end
+───╯

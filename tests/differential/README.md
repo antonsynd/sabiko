@@ -19,7 +19,8 @@ concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` p
 by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`,
 `never/` (borrows of diverging expressions, typed `&!`), and `enums/` (programs with enums
 and patterns that both compilers must accept: casts, `..` in tuple and variant patterns,
-struct patterns, a `match` whose arms all diverge).
+struct patterns, a `match` whose arms all diverge, `&` patterns, half-open and float
+ranges).
 
 The harness prepends this prelude, which defines Sabiko's builtin functions for rustc:
 

@@ -1,0 +1,31 @@
+// Sabiko codes for rustc's: E0407 for E0507.
+// A by-value binding of a non-Copy part under a `&` or `&mut` pattern (#49) moves out of
+// the borrow. The wording of the first differs from rustc's: rustc reports it at the
+// scrutinee as "cannot move out of `r` as enum variant `Full` which is behind a shared
+// reference", Sabiko at the binding as "cannot move out of `r.0` ...". Codes agree.
+struct Token { Id: i32 }
+enum Slot { Empty, Full(Token) }
+
+fn Shared(r: &Slot) -> i32 {
+    match r {
+        &Slot::Full(t) => t.Id, //~ ERROR E0407 cannot move out of `r.0` which is behind a shared reference
+        &Slot::Empty => 0,
+    }
+}
+
+fn Mutable(r: &mut (Token, i32)) -> i32 {
+    let &mut (t, n) = r; //~ ERROR E0407 cannot move out of `r.0` which is behind a mutable reference
+    t.Id + n
+}
+
+fn Param(&(t, n): &(Token, i32)) -> i32 { //~ ERROR E0407 cannot move out of a shared reference
+    t.Id + n
+}
+
+// A place rustc cannot name (rooted in a parameter's pattern) is not named here either.
+fn ParamRefMut(&(ref mut a, _): &(i32, i32)) -> i32 { //~ ERROR E0404 cannot borrow data in a `&` reference as mutable
+    *a = 3;
+    *a
+}
+
+fn Main() {}

@@ -1,0 +1,19 @@
+// `&` and `&mut` patterns (#49) both compilers accept: nested, with `ref`, inside
+// tuples and or-patterns, under `@`, and exhaustive through the references.
+enum E { A(i32), B(bool) }
+
+fn F(r: &E, p: (&i32, &mut i32), q: &&(i32, i32)) -> i32 {
+    let (&x, &mut y) = p;
+    let &&(a, ref b) = q;
+    let k = match r {
+        &E::A(n @ (1 | 2)) | &E::A(n) => n,
+        &E::B(true) => 1,
+        &E::B(false) => 0,
+    };
+    let w = match (r, &x) {
+        (&E::A(_), &(..=0)) => -1,
+        (&E::A(_), &(1..)) => 1,
+        (&E::B(_), _) => 2,
+    };
+    x + y + a + *b + k + w
+}

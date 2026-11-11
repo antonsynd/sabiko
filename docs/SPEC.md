@@ -71,15 +71,19 @@ names which phase owns which section.
   (E0100, rustc's E0449)
 - Patterns (#6, #8): `_`; bindings `x`, `mut x`, `ref x`, `ref mut x`, each optionally
   `@ subpattern`; literals (integer, possibly negated, float, `bool`, `char`) and ranges
-  `a..=b`, `a..b` whose bounds are literals or constants (a local is E0315, rustc's
-  E0080); paths `E::V`; tuple patterns
+  `a..=b`, `a..b` and the half-open `a..`, `..=b`, `..b` (#49) whose bounds are literals
+  or constants (a local is E0315, rustc's E0080; `a..=` is E0102, rustc's E0586);
+  reference patterns `&p` and `&mut p` (#49; `&&p` is two, and a range under `&` needs
+  parentheses, `&(0..=5)`, E0100 otherwise as in rustc); paths `E::V`; tuple patterns
   `(p, ..)`, tuple-variant patterns `E::V(p, ..)` and struct patterns `S { F: p, G, ref H,
-  .. }` (struct or struct variant), with at most one `..` among the elements; or-patterns
+  .. }` (struct or struct variant), with at most one `..` among the elements (a `..`
+  anywhere else, `&..` or a whole pattern `..`, is E0100, rustc's "`..` patterns are not
+  allowed here"); or-patterns
   `p | q` (a leading `|` is allowed in a `match` arm and an `if let`); `(p)` is `p`. A lone
   identifier that names a constant or a unit struct compares instead of binding, as in
   rustc. A string literal pattern matches a `&str` (#10). A top-level or-pattern in a `let`
-  or a parameter needs parentheses (E0100, as in rustc). Not yet supported (E0107):
-  reference patterns `&p`, half-open ranges `a..` and `..=b`, slice patterns
+  or a parameter needs parentheses (E0100, as in rustc). Not yet supported (E0107): slice
+  patterns
 - `match e { p if guard => body, .. }`; the scrutinee may not be a bare struct literal
   (E0108). A block-like arm body needs no comma. `if let p = e { .. } else { .. }`, `while
   let p = e { .. }` and `let p = e else { .. };`. Let chains (edition 2024, #86): the
@@ -915,10 +919,24 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   reserved binding modifiers, rustc's "implicitly-borrowing pattern" errors). A constant
   pattern (`Z`, `Grid::Cells`, `u8::MAX`) does not look through a reference, as in rustc
   (`AdjustMode::Pass`): `match &k { Z => .. }` is E0300, while a range with constant bounds
-  (`Z..=u8::MAX`) does look through it. A literal has the
+  (`Z..=u8::MAX`) does look through it. A reference pattern `&p` (`&mut p`) does not look
+  through references: it matches a `&T` (`&mut T`) and checks `p` against `T` by value,
+  resetting the default binding mode (`let &(a, b) = &t;` copies both elements; a non-`Copy`
+  part bound by value is a move out of the borrow, E0407, rustc's E0507); against a
+  non-reference or a reference of the other mutability it is E0300 (rustc's E0308), and
+  under a by-reference default binding mode, where the matched type is a reference, it
+  is E0337 (edition 2024's "cannot explicitly dereference within an implicitly-borrowing
+  pattern"). A literal has the
   matched type (E0314 when it does not fit, E0300 for another type); a range needs an
-  integer or `char` type, a lower bound not above the upper one (E0332, rustc's E0030),
-  and for `a..b` a non-empty range (E0332, E0579). A variant pattern must be of the
+  integer, float or `char` type, a lower bound not above the upper one (E0332, rustc's
+  E0030), for `a..b` a non-empty range and for `..b` a `b` above the type's minimum (E0332,
+  E0579); `a..` includes the type's maximum. A NaN constant in a pattern, alone or as a
+  bound or inside a tuple constant, is E0332 (rustc's "cannot use NaN in patterns").
+  Float ranges compare as floats
+  (`-0.0` equals `0.0`; NaN matches none) and never make a match exhaustive; a literal or
+  range inside an earlier one is unreachable, as in rustc (a range ending at the same
+  bound only when its end is the same: `0.0..1.0` after `0.0..=1.0` is not reported). A
+  variant pattern must be of the
   scrutinee's enum (E0300) and of the right kind (E0326: `V(x)` for a unit or struct
   variant, `V` for a tuple variant, rustc's E0532/E0164); a tuple-variant pattern has as
   many elements as the variant, `..` standing for any number (E0327, E0023); a struct
@@ -939,10 +957,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   listing up to three missing patterns as rustc does: "`A`, `B` and `C(_)` not covered",
   "`i32::MIN..=-1_i32` and `3_i32..=i32::MAX` not covered", "type `i32` is non-empty" for
   a `match` without arms); guarded arms count for nothing; integers are covered by ranges
-  that together span the type; `char` ranges cover Unicode scalar values (rustc's
+  that together span the type (half-open ones included: `..=-1 | 0..` covers `i32`, and
+  only an open end covers `usize`/`isize` past their `MAX`/`MIN`, so `0..=usize::MAX` is
+  not exhaustive but `0..` is, #49); `char` ranges cover Unicode scalar values (rustc's
   `0..=0xD7FF` and `0xE000..=0x10FFFF`), so covering only the Basic Multilingual Plane
   leaves `'𐀀'..='\u{10ffff}'` uncovered although a Sabiko `char` cannot hold those values
-  (decision 31): Sabiko must not accept invalid Rust; floats are never covered by literals.
+  (decision 31): Sabiko must not accept invalid Rust; floats are never covered by literals
+  or ranges (`..=-0.0 | 0.0..` reports `_`). A `&p` pattern matches every reference, so it
+  is checked as `p` against the referent (`&E::B(false)` not covered).
   A scrutinee reached through a dereference (`match *r`, or `match r.F` for a reference
   `r`, whose field access dereferences it) is not assumed valid, so its
   uninhabited variants must be matched, as in rustc. A `let` or parameter pattern must be
@@ -1216,7 +1238,10 @@ Signatures and lifetimes (E0414–E0416):
 Patterns and `match` (#8, decision 57). A `match` evaluates its scrutinee once, into a
 temporary unless it is a place, and reads only what its arms test: a variant pattern of
 an enum with more than one variant reads the discriminant, a literal or range reads the
-value; a lone `_` arm, a binding or a single-variant enum's pattern reads nothing. So
+value (a half-open range compares its one bound, #49); a lone `_` arm, a binding, a
+single-variant enum's pattern or a `&p` pattern itself reads nothing (`p` is matched
+against `*place`, so `&E::B(n)` reads `(*r)`'s discriminant and copies `((*r) as B).0`,
+#49). So
 matching a partially moved enum is E0406 (rustc's E0382), matching a mutably borrowed one
 E0411 (E0503), an uninitialised one E0405 (E0381), while `match c { _ => .. }` touches
 nothing. A by-value binding copies or moves its part of the scrutinee (`Slot::Full(t)`

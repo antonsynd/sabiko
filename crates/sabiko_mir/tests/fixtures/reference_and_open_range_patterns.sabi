@@ -1,0 +1,44 @@
+// `&` patterns and half-open ranges (#49). A `&p` pattern tests nothing itself: `p` is
+// matched against `*place`, so `&E::B(n)` reads the discriminant of `(*r)` and copies
+// `((*r) as B).0`, and the guard fake-borrows `*r` and `r`. A half-open range compares
+// its one bound (`1..` is `x >= 1`), a range covering the type tests nothing, and a float
+// range compares like an integer one.
+enum E { A, B(i32) }
+
+fn Deref(r: &E) -> i32 {
+    match r {
+        &E::B(n) if n > 0 => n,
+        &E::B(..=-1) => -1,
+        &_ => 0,
+    }
+}
+
+fn Let(t: &mut (i32, i32)) -> i32 {
+    let &mut (ref mut a, b) = t;
+    *a += b;
+    *a
+}
+
+fn Open(x: u8, y: i64) -> i32 {
+    match (x, y) {
+        (0.., ..0) => 1,
+        (..=9, _) => 2,
+        (_, 100..) => 3,
+        _ => 4,
+    }
+}
+
+// `'\0'..` covers `char`: no test, as in rustc.
+fn Char(c: char) -> i32 {
+    match c {
+        '\0'.. => 1,
+    }
+}
+
+fn Float(x: f64) -> i32 {
+    match x {
+        ..0.0 => -1,
+        0.0..=1.0 => 0,
+        _ => 1,
+    }
+}

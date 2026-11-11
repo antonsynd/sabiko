@@ -115,10 +115,12 @@ pub struct BodyTypes {
 pub enum PatConst {
     /// Equal to the value (a literal or a constant).
     Value(crate::ConstValue),
-    /// Within `lo..=hi` (`inclusive`) or `lo..hi`.
+    /// Within `lo..=hi` (`inclusive`) or `lo..hi`; a missing bound is unbounded (#49):
+    /// `..=hi`, `..hi`, and `lo..`, which includes the type's maximum (`inclusive`, as
+    /// rustc records it).
     Range {
-        lo: crate::ConstValue,
-        hi: crate::ConstValue,
+        lo: Option<crate::ConstValue>,
+        hi: Option<crate::ConstValue>,
         inclusive: bool,
     },
 }
@@ -1290,6 +1292,11 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             PatKind::Wild | PatKind::Rest => {}
+            PatKind::Ref { pat: sub, mutable } => {
+                let inner = self.check_ref_pat(pat, *mutable, ty, by_ref);
+                // A `&` pattern resets the default binding mode to by-value.
+                self.check_pat_in_mode(sub, &inner, None, init_span);
+            }
             PatKind::Assignee(_) => {
                 // A fresh local of the value's type, assigned to the place afterwards.
                 if let Some(local) = self.resolve.local_of_pat(pat.id) {
@@ -1532,12 +1539,13 @@ impl<'a> FnCtxt<'a> {
             }
             PatKind::Range(lo, hi, _) => {
                 let (ty, _) = self.peel_pat_refs(pat, ty, by_ref);
-                self.check_pat_expr(lo, &ty);
-                self.check_pat_expr(hi, &ty);
+                for bound in [lo, hi].into_iter().flatten() {
+                    self.check_pat_expr(bound, &ty);
+                }
                 let t = self.shallow(&ty);
                 let ok = match &t {
-                    Ty::Prim(p) => p.is_integer() || *p == PrimTy::Char,
-                    Ty::Infer(v) => self.infer.kind(*v) == VarKind::Int,
+                    Ty::Prim(p) => p.is_numeric() || *p == PrimTy::Char,
+                    Ty::Infer(v) => matches!(self.infer.kind(*v), VarKind::Int | VarKind::Float),
                     Ty::Error => true,
                     _ => false,
                 };
@@ -1556,6 +1564,70 @@ impl<'a> FnCtxt<'a> {
                 }
             }
         }
+    }
+
+    /// A `&p` or `&mut p` pattern (#49) against a value of `ty`: the type its subpattern
+    /// matches. The pattern does not look through references (`&p` against `&&T` matches
+    /// the outer one); a non-reference type or a reference of the other mutability is a
+    /// mismatch (rustc's E0308), and under a by-reference default binding mode the pattern
+    /// is E0337, edition 2024's "cannot explicitly dereference within an
+    /// implicitly-borrowing pattern".
+    fn check_ref_pat(
+        &mut self,
+        pat: &Pat,
+        mutable: bool,
+        ty: &Ty,
+        by_ref: Option<Mutability>,
+    ) -> Ty {
+        let m = Mutability::from_bool(mutable);
+        let written = if mutable { "&mut _" } else { "&_" };
+        let inner = match self.shallow(ty) {
+            Ty::Ref(found, inner) if found == m => *inner,
+            Ty::Error => return Ty::Error,
+            Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
+                let inner = self.infer.new_var(VarKind::General);
+                let _ = self
+                    .infer
+                    .unify(&Ty::Infer(v), &Ty::Ref(m, Box::new(inner.clone())));
+                inner
+            }
+            found @ Ty::Ref(..) => {
+                let f = self.ty_str(&found);
+                self.error(
+                    Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+                        .with_label(pat.span, "types differ in mutability")
+                        .with_note(format!("expected `{f}`, found `{written}`")),
+                );
+                return Ty::Error;
+            }
+            found => {
+                let f = self.ty_str(&found);
+                let mut d = Diagnostic::error(ErrorCode::TYPE_MISMATCH, "mismatched types")
+                    .with_label(pat.span, format!("expected `{f}`, found `{written}`"));
+                if !matches!(found, Ty::Infer(_)) {
+                    d = d.with_note(format!(
+                        "a reference pattern matches a reference; `{f}` is not one"
+                    ));
+                }
+                self.error(d);
+                return Ty::Error;
+            }
+        };
+        if by_ref.is_some() {
+            let found = self.ty_str(ty);
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::BINDING_MODIFIER_UNDER_REF,
+                    "cannot explicitly dereference within an implicitly-borrowing pattern",
+                )
+                .with_label(pat.span, "reference pattern not allowed when implicitly borrowing")
+                .with_note(format!(
+                    "`{found}` is matched through a reference here, so the pattern already borrows it (edition 2024)"
+                ))
+                .with_note("remove the `&`, or match on the value instead of the reference"),
+            );
+        }
+        inner
     }
 
     /// Checks `pats` (with at most one `..`) against `tys`, the types of the elements or

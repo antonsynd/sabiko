@@ -38,10 +38,12 @@
 //! `if let` match guards (`p if let 3 = x && c =>`),
 //! `let`-`else` diverging with `return`, `break`,
 //! `continue` or a panic, and irrefutable destructuring `let`s of structs and
-//! single-variant enums. Patterns: variants (nested), literals and ranges (`a..=b`, `a..b`)
-//! of integers, `bool` and `char`, or-patterns, `_`, `..`, field shorthand, bindings by
-//! value, `mut`, `ref`, `ref mut` and `x @ p`, guards reading bindings and other locals,
-//! on places, references (default binding modes) and temporaries; every `match` is
+//! single-variant enums. Patterns: variants (nested), literals and ranges (`a..=b`, `a..b`,
+//! and the half-open `a..`, `..=b`, `..b`, #49) of integers, `bool` and `char`, float
+//! literals and ranges (#49), or-patterns, `_`, `..`, field shorthand, bindings by value,
+//! `mut`, `ref`, `ref mut` and `x @ p`, guards reading bindings and other locals, on
+//! places, references (default binding modes, or an explicit `&p`/`&mut p` at the top,
+//! #49) and temporaries; every `match` is
 //! exhaustive by construction (see [`body`]'s `matches` module). Arrays and slices (#9):
 //! `[T; N]` of primitives, tuples, structs (`Copy` or not, with `impl Drop` or not),
 //! enums and arrays, with lengths 0 to 4 written as literals or `usize` constants (`LEN`,
@@ -83,9 +85,9 @@
 //! TODO(#92)), user-defined generic items and bounds (#116), closures, returned double references and
 //! three levels of references, `&mut str`, comparisons of `str` places, non-ASCII text,
 //! references (`&str` and `&&T` included, #92) in struct fields, tuples, arrays or enum
-//! payloads, `()` values, comparisons of tuples or enums, `&` patterns, half-open range
-//! patterns, float patterns, recursion, shadowing, unbounded loops, and reads of
-//! uninitialised locals.
+//! payloads, `()` values, comparisons of tuples or enums, `&` patterns below the top of a
+//! pattern (references are never fields or payloads), recursion, shadowing, unbounded
+//! loops, and reads of uninitialised locals.
 //!
 //! With [`Knobs::default`] a small fraction of the scope-model checks are skipped on
 //! purpose, so some programs contain a use after move, a conflicting borrow, a write to an

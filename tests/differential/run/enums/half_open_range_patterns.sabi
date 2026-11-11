@@ -1,0 +1,14 @@
+// Half-open range patterns `X..` and `..=X` (#49): `..=-1 | 0 | 1..` covers `i32`.
+fn Sign(n: i32) -> i32 {
+    match n {
+        ..=-1 => -1,
+        0 => 0,
+        1.. => 1,
+    }
+}
+
+fn Main() {
+    PrintLine(Sign(-2147483648));
+    PrintLine(Sign(0));
+    PrintLine(Sign(9));
+}

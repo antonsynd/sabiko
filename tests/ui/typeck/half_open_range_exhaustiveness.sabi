@@ -1,0 +1,43 @@
+// Sabiko codes for rustc's: E0328 for E0004.
+// Half-open ranges (#49) in exhaustiveness: `..=-1 | 0..` covers `i32`; only an open end
+// covers the values of `usize` and `isize` past their `MAX`/`MIN`.
+fn Gap(n: i32) -> i32 {
+    match n { //~ ERROR E0328 non-exhaustive patterns: `0_i32` not covered
+        ..=-1 => -1,
+        1.. => 1,
+    }
+}
+
+fn Covered(n: i32) -> i32 {
+    match n {
+        ..=-1 => -1,
+        0.. => 1,
+    }
+}
+
+fn Closed(n: usize) -> i32 {
+    match n { //~ ERROR E0328 non-exhaustive patterns: `usize::MAX..` not covered
+        0..=usize::MAX => 1,
+    }
+}
+
+fn Open(n: usize, m: isize) -> i32 {
+    let a = match n {
+        0.. => 1,
+    };
+    let b = match m {
+        ..0 => 1,
+        0.. => 2,
+    };
+    a + b
+}
+
+fn Unreachable(n: u8) -> i32 {
+    match n {
+        100.. => 1,
+        ..100 => 2,
+        150 => 3, //~ WARN unreachable pattern
+    }
+}
+
+fn Main() {}
