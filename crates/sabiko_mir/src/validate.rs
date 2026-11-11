@@ -9,8 +9,8 @@ use sabiko_resolve::{Builtin, PrimTy};
 use sabiko_types::{is_printable, ConstValue, Mutability, Ty, TypeckResults};
 
 use crate::{
-    AggregateKind, BasicBlock, BinOp, Body, CleanupScope, Constant, LocalKind, Operand, Place,
-    PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
+    AggregateKind, BasicBlock, BinOp, Body, CleanupDrop, CleanupScope, Constant, LocalKind,
+    Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Checks one body, returning every violation found.
@@ -121,6 +121,49 @@ impl Validator<'_> {
         self.cleanups();
     }
 
+    /// What cleanup `i` drops: a place with drop glue, behind a `bool` flag if any, and
+    /// behind the discriminants of enums it is inside, if any.
+    fn cleanup_drop(&mut self, i: usize, drop: &CleanupDrop) {
+        let bb = BasicBlock::START;
+        if let Some(ty) = self.place_ty(bb, &drop.place) {
+            if !self.typeck.items.needs_drop(&ty) {
+                self.errors.push(format!(
+                    "cleanup c{i} drops {:?}, whose type {ty:?} has no drop glue",
+                    drop.place
+                ));
+            }
+        }
+        for (enum_place, _) in &drop.variants {
+            let is_enum = matches!(
+                self.place_ty(bb, enum_place),
+                Some(Ty::Adt(def, _)) if self.typeck.items.adt(def).is_enum()
+            );
+            let encloses = enum_place.local == drop.place.local
+                && drop.place.projection.starts_with(&enum_place.projection)
+                && enum_place.projection.len() < drop.place.projection.len();
+            if !is_enum || !encloses {
+                self.errors.push(format!(
+                    "cleanup c{i} drops {:?} on the variant of {enum_place:?}, \
+                     which is not an enum it is inside",
+                    drop.place
+                ));
+            }
+        }
+        if let Some(flag) = drop.flag {
+            let is_bool = self
+                .body
+                .locals
+                .get(flag.index())
+                .is_some_and(|d| d.ty.is_bool());
+            if !is_bool {
+                self.errors.push(format!(
+                    "cleanup c{i} has a drop flag _{} that is not a bool",
+                    flag.0
+                ));
+            }
+        }
+    }
+
     /// Cleanup scopes (decision 55): parents precede their children; every drop is of a
     /// place with drop glue, behind a `bool` flag if any; no block that returns is
     /// protected; and the reachable blocks a scope protects have a single entry, so code
@@ -141,28 +184,7 @@ impl Validator<'_> {
         for i in 0..n {
             let drops = self.body.cleanups[i].drops.clone();
             for drop in &drops {
-                let bb = BasicBlock::START;
-                if let Some(ty) = self.place_ty(bb, &drop.place) {
-                    if !self.typeck.items.needs_drop(&ty) {
-                        self.errors.push(format!(
-                            "cleanup c{i} drops {:?}, whose type {ty:?} has no drop glue",
-                            drop.place
-                        ));
-                    }
-                }
-                if let Some(flag) = drop.flag {
-                    let is_bool = self
-                        .body
-                        .locals
-                        .get(flag.index())
-                        .is_some_and(|d| d.ty.is_bool());
-                    if !is_bool {
-                        self.errors.push(format!(
-                            "cleanup c{i} has a drop flag _{} that is not a bool",
-                            flag.0
-                        ));
-                    }
-                }
+                self.cleanup_drop(i, drop);
             }
         }
         let mut chains: Vec<Vec<CleanupScope>> = Vec::with_capacity(self.body.blocks.len());

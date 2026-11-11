@@ -812,12 +812,22 @@ impl FnCx<'_, '_> {
             0,
         );
         for drop in self.body.cleanup(scope).drops.clone() {
-            let skip = drop.flag.map(|flag| {
-                let skip = self.fresh_label();
+            let skip =
+                (drop.flag.is_some() || !drop.variants.is_empty()).then(|| self.fresh_label());
+            if let (Some(flag), Some(skip)) = (drop.flag, &skip) {
                 self.load(&Place::local(flag), span);
                 self.op(format!("brfalse {skip}"), 1, 0);
-                skip
-            });
+            }
+            // A place inside a variant: each enum on its path, outermost first, must hold
+            // that variant (decision 91).
+            for (enum_place, discr) in &drop.variants {
+                let skip = skip.as_ref().expect("a label");
+                let isize = Ty::Prim(PrimTy::Isize);
+                self.rvalue(&Rvalue::Discriminant(enum_place.clone()), &isize, span);
+                #[allow(clippy::cast_sign_loss)]
+                self.int_const(*discr as u128, PrimTy::Isize);
+                self.branch_ne(PrimTy::Isize, skip);
+            }
             self.drop_place(&drop.place, span);
             if let Some(skip) = skip {
                 self.label(&skip);

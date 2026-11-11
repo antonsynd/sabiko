@@ -1,0 +1,36 @@
+// Issue #133, decision 91: a part of an enum inside a variant is dropped behind its flag
+// (whether the enum was written and the part not moved out) and a read of the
+// discriminant when the drop runs, since a write through a reference may have changed it.
+struct D {
+    Id: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+enum E {
+    Empty,
+    Full(D),
+}
+
+// The temporary of each branch: flagged, and its drop reads the variant.
+fn ExtendedBranches(c: bool) {
+    let r = if c { &mut E::Full(D { Id: 1 }) } else { &mut E::Full(D { Id: 2 }) };
+    *r = E::Empty;
+}
+
+// Moved out of the variant on one path: the flag says moved, the discriminant says
+// which variant; the cleanup of a panic later reads both.
+fn PartlyMoved(c: bool) {
+    let e = E::Full(D { Id: 3 });
+    if c {
+        match e {
+            E::Full(d) => {}
+            E::Empty => {}
+        }
+    }
+    Touch();
+}
+
+fn Touch() {}

@@ -16,6 +16,14 @@
 //!   glue); all uninitialised, it is removed; a leaf that is maybe initialised is dropped
 //!   behind its *drop flag*; any other path *opens*: each child in declaration order, by
 //!   the same rules. That leaves a moved field out and drops the rest (`let b = p.B;`).
+//! - An enum without its own `drop` has a child per field with drop glue of each variant.
+//!   A write to the enum initialises all of them, whatever variant it writes: a leaf's
+//!   state and flag say whether the enum was written and the leaf not moved out since,
+//!   and a drop of a path inside a variant also reads, when it runs, whether each enum on
+//!   its path holds that variant (rustc reads the discriminant in an open drop too). The
+//!   variant cannot be decided when the enum is written: a write through a reference
+//!   changes it unseen (`let r = if c { &mut E::A(..) } else { .. }; *r = E::B;`, #133,
+//!   decision 91).
 //! - An assignment to a place that may hold a value drops the old value after the store:
 //!   `old = move p; p = new; drop(old)`. If that drop panics, `p` already holds the new
 //!   value and unwinding drops it in `p`'s place, as rustc does. Nothing is dropped when the
@@ -23,7 +31,8 @@
 //! - A cleanup scope drops its local under the union of the states at the points inside it
 //!   that may panic (calls, drops, checked arithmetic, and the drop of an assignment's old
 //!   value): unconditionally where it always holds a value there, behind its flag where
-//!   only sometimes, not at all where never (then the scope needs no handler).
+//!   only sometimes, not at all where never (then the scope needs no handler); a place
+//!   inside a variant also behind the discriminants ([`crate::CleanupDrop::variants`]).
 //! - An open drop runs its parts one after the other; while one part is dropped, a cleanup
 //!   scope of its own drops the remaining parts, so a panic in one still drops the others.
 //! - A flag is a `bool` local per leaf that needs one, kept equal to the leaf's state
@@ -82,8 +91,8 @@ struct PathNode {
     /// For a leaf (a struct or enum with its own `drop`), its index among the leaves.
     leaf: Option<usize>,
     /// For a path inside a variant of an enum: the enums (outermost first) and the
-    /// discriminants they must hold for the path to hold a value at all. Its leaves'
-    /// drop flags are set from these when the enum is written (see `Rewriter`).
+    /// discriminants they must hold for the path to hold a value at all. A drop of the
+    /// path reads them when it runs (decision 91).
     conds: Vec<(Place, i128)>,
 }
 
@@ -421,11 +430,13 @@ impl Analysis {
 // Decisions
 // ------------------------------------------------------------------------------------------
 
-/// One drop of an elaborated drop: `place`, behind the flag of a leaf if any.
+/// One drop of an elaborated drop: `place`, behind the flag of a leaf if any, and for a
+/// place inside a variant, behind the discriminants of the enums on its path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Action {
     place: Place,
     flag: Option<usize>,
+    variants: Vec<(Place, i128)>,
 }
 
 /// How to drop the path `node` given the state of each leaf (see the module docs).
@@ -447,16 +458,22 @@ fn collect_actions(
     }
     let place = paths.nodes[node].place.clone();
     // A path inside a variant holds a value only when its enum holds that variant, which
-    // its flag says: never dropped unconditionally.
-    let conditional = !paths.nodes[node].conds.is_empty();
-    if states.iter().all(|&s| s == LeafState::Init) && !conditional {
-        out.push(Action { place, flag: None });
+    // is read when the drop runs: the enum may have been written through a reference
+    // since its own write (decision 91).
+    let variants = paths.nodes[node].conds.clone();
+    if states.iter().all(|&s| s == LeafState::Init) {
+        out.push(Action {
+            place,
+            flag: None,
+            variants,
+        });
         return;
     }
     if let Some(leaf) = paths.nodes[node].leaf {
         out.push(Action {
             place,
             flag: Some(leaf),
+            variants,
         });
         return;
     }
@@ -619,14 +636,17 @@ fn old_value_actions(
         // A field of a value with its own `drop` holds a value whenever that value does.
         Lookup::InLeaf(node) => {
             let leaf = paths.nodes[node].leaf.expect("a leaf");
+            let variants = paths.nodes[node].conds.clone();
             match state.leaf(leaf) {
                 LeafState::Init => vec![Action {
                     place: place.clone(),
                     flag: None,
+                    variants,
                 }],
                 LeafState::Maybe => vec![Action {
                     place: place.clone(),
                     flag: Some(leaf),
+                    variants,
                 }],
                 LeafState::Uninit => Vec::new(),
             }
@@ -635,6 +655,7 @@ fn old_value_actions(
         Lookup::Untracked => vec![Action {
             place: place.clone(),
             flag: None,
+            variants: Vec::new(),
         }],
     }
 }
@@ -725,71 +746,25 @@ impl Rewriter<'_> {
             .map(|a| CleanupDrop {
                 place: a.place.clone(),
                 flag: a.flag.and_then(flag_of),
+                variants: a.variants.clone(),
             })
             .collect()
     }
 
-    /// `flag = value` for the flagged leaves among `leaves`. A leaf inside a variant of
-    /// an enum holds a value after a write only if the enum holds that variant: its flag is
-    /// set to the comparison of the discriminants with the variants on its path.
+    /// `flag = value` for the flagged leaves among `leaves`. A leaf inside a variant of an
+    /// enum is flagged as holding a value whichever variant the enum holds: its drop also
+    /// reads the discriminant (decision 91).
     fn flag_writes(
-        &mut self,
+        &self,
         leaves: &[usize],
         value: bool,
         span: sabiko_span::Span,
     ) -> Vec<Statement> {
-        let mut out = Vec::new();
-        for &leaf in leaves {
-            let Some(flag) = self.flags[leaf] else {
-                continue;
-            };
-            let conds = self.paths.nodes[self.paths.leaf_nodes[leaf]].conds.clone();
-            if !value || conds.is_empty() {
-                out.push(assign_bool(flag, value, span));
-                continue;
-            }
-            for (i, (enum_place, discr)) in conds.into_iter().enumerate() {
-                let isize = Ty::Prim(sabiko_resolve::PrimTy::Isize);
-                let d = self.new_temp(isize.clone(), span);
-                out.push(Statement {
-                    kind: StatementKind::Assign(Place::local(d), Rvalue::Discriminant(enum_place)),
-                    span,
-                });
-                let is = Rvalue::BinaryOp(
-                    BinOp::Eq,
-                    Operand::Copy(Place::local(d)),
-                    Operand::Constant(Constant {
-                        ty: isize,
-                        value: ConstValue::Int(discr),
-                        span,
-                    }),
-                );
-                if i == 0 {
-                    out.push(Statement {
-                        kind: StatementKind::Assign(Place::local(flag), is),
-                        span,
-                    });
-                } else {
-                    let b = self.new_temp(Ty::BOOL, span);
-                    out.push(Statement {
-                        kind: StatementKind::Assign(Place::local(b), is),
-                        span,
-                    });
-                    out.push(Statement {
-                        kind: StatementKind::Assign(
-                            Place::local(flag),
-                            Rvalue::BinaryOp(
-                                BinOp::BitAnd,
-                                Operand::Copy(Place::local(flag)),
-                                Operand::Copy(Place::local(b)),
-                            ),
-                        ),
-                        span,
-                    });
-                }
-            }
-        }
-        out
+        leaves
+            .iter()
+            .filter_map(|&leaf| self.flags[leaf])
+            .map(|flag| assign_bool(flag, value, span))
+            .collect()
     }
 
     fn rewrite_block(&mut self, bb: BasicBlock, plan: &Plan) {
@@ -970,14 +945,27 @@ impl Rewriter<'_> {
                 None => None,
             };
             flags.push(flag);
-            let mut projection = vec![];
-            projection.extend_from_slice(&action.place.projection[place.projection.len()..]);
+            // The enums at or under `place` move into `old` with the value; those that
+            // enclose `place` stay where they are.
+            let variants = action
+                .variants
+                .iter()
+                .map(|(e, discr)| {
+                    let moved = e.projection.starts_with(&place.projection);
+                    (
+                        if moved {
+                            rebase(e, place, old)
+                        } else {
+                            e.clone()
+                        },
+                        *discr,
+                    )
+                })
+                .collect();
             rebased.push(Action {
-                place: Place {
-                    local: old,
-                    projection,
-                },
+                place: rebase(&action.place, place, old),
                 flag: None,
+                variants,
             });
         }
         stmts.push(Statement {
@@ -1009,6 +997,7 @@ impl Rewriter<'_> {
                 .map(|(a, &flag)| CleanupDrop {
                     place: a.place.clone(),
                     flag,
+                    variants: a.variants.clone(),
                 })
                 .collect();
             let drop_cleanup = if rest.is_empty() {
@@ -1036,6 +1025,33 @@ impl Rewriter<'_> {
                 span,
                 drop_cleanup,
             );
+            // The discriminant tests, outermost first, run after the flag's: an enum is
+            // read only once it is known to hold a value.
+            let mut test = drop_block;
+            for (enum_place, discr) in actions[k].variants.iter().rev() {
+                let d = self.new_temp(Ty::Prim(sabiko_resolve::PrimTy::Isize), span);
+                let block = self.new_block(cleanup);
+                self.finish(
+                    block,
+                    vec![Statement {
+                        kind: StatementKind::Assign(
+                            Place::local(d),
+                            Rvalue::Discriminant(enum_place.clone()),
+                        ),
+                        span,
+                    }],
+                    TerminatorKind::SwitchInt {
+                        discr: Operand::Copy(Place::local(d)),
+                        #[allow(clippy::cast_sign_loss)]
+                        targets: vec![(*discr as u128, test)],
+                        otherwise: next,
+                    },
+                    span,
+                    cleanup,
+                );
+                test = block;
+            }
+            let drop_block = test;
             next = match flags[k] {
                 Some(flag) => {
                     let switch = self.new_block(cleanup);
@@ -1071,5 +1087,14 @@ impl Rewriter<'_> {
             terminator: Some(Terminator { kind, span }),
             cleanup,
         };
+    }
+}
+
+/// `place`, a place at or under `from`, as the same place under the local `to` that holds
+/// `from`'s value.
+fn rebase(place: &Place, from: &Place, to: Local) -> Place {
+    Place {
+        local: to,
+        projection: place.projection[from.projection.len()..].to_vec(),
     }
 }

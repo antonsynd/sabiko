@@ -21,7 +21,8 @@ use sabiko_resolve::ResolveResults;
 use sabiko_types::TypeckResults;
 
 use crate::{
-    AggregateKind, Body, Local, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
+    AggregateKind, Body, CleanupDrop, Local, Operand, Place, PlaceElem, Rvalue, StatementKind,
+    TerminatorKind,
 };
 
 /// Prints every body, separated by blank lines.
@@ -96,14 +97,7 @@ pub fn print_body(body: &Body, resolve: &ResolveResults, typeck: &TypeckResults,
         let parent = cleanup
             .parent
             .map_or(String::new(), |c| format!(" in c{}", c.0));
-        let drops: Vec<String> = cleanup
-            .drops
-            .iter()
-            .map(|d| match d.flag {
-                Some(flag) => format!("drop({}) if _{}", p.place(&d.place), flag.0),
-                None => format!("drop({})", p.place(&d.place)),
-            })
-            .collect();
+        let drops: Vec<String> = cleanup.drops.iter().map(|d| p.cleanup_drop(d)).collect();
         let drops = if drops.is_empty() {
             "nothing".to_owned()
         } else {
@@ -147,6 +141,21 @@ struct Printer<'a> {
 impl Printer<'_> {
     fn ty(&self, ty: &sabiko_types::Ty) -> String {
         ty.display(self.resolve)
+    }
+
+    /// `drop(place)`, with the flag and the discriminants it is behind.
+    fn cleanup_drop(&self, d: &CleanupDrop) -> String {
+        let mut conds: Vec<String> = d.flag.iter().map(|flag| format!("_{}", flag.0)).collect();
+        conds.extend(
+            d.variants
+                .iter()
+                .map(|(e, discr)| format!("discriminant({}) == {discr}", self.place(e))),
+        );
+        if conds.is_empty() {
+            format!("drop({})", self.place(&d.place))
+        } else {
+            format!("drop({}) if {}", self.place(&d.place), conds.join(" && "))
+        }
     }
 
     fn place(&self, place: &Place) -> String {

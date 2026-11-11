@@ -153,11 +153,15 @@ pub struct CleanupData {
     pub drops: Vec<CleanupDrop>,
 }
 
-/// One drop a cleanup scope performs: `place`, when `flag` is `None` or holds `true`.
+/// One drop a cleanup scope performs: `place`, when `flag` is `None` or holds `true` and
+/// each enum in `variants` holds the discriminant paired with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CleanupDrop {
     pub place: Place,
     pub flag: Option<Local>,
+    /// For a place inside a variant of an enum: the enums on its path (outermost first)
+    /// and the discriminant each must hold, read when the drop runs (decision 91).
+    pub variants: Vec<(Place, i128)>,
 }
 
 /// The MIR of one function.

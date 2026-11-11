@@ -627,7 +627,8 @@ algorithm (decision 58). Enums are value types with a tag and one payload field 
 (decision 57, C#-facing names by decision 59, checked from C# by `tests/interop/enum_layout`);
 matches lower to sequential candidates with rustc's guard semantics (fake borrows,
 bindings by reference until the guard holds; a guard may move the scrutinee, decision 60),
-and drop elaboration follows partial moves into variants behind discriminant-set flags.
+and drop elaboration follows partial moves into variants behind drop flags and the
+discriminant read at the drop (decision 91).
 Everything staged in `tests/pending/enums/` landed (30 run-time programs in
 `differential/run/enums/`, verdict pairs in `differential/{moves,loans,enums}/`, UI tests
 per stage); the generator covers every construct (paragraph below) and mutation testing on
@@ -1164,6 +1165,20 @@ string constant, keyed per walk), so a later candidate's string test that an ear
 decides takes only the edge rustc's tree would. New: `differential/lints/
 ok_string_match_after_guard`. 3000 generated seeds at each of three bases agree except
 seed 71001629, an older divergence in the order blocks are visited (#111).
+
+Drop flags of enum variants (#133, decision 91): an enum dropped field by field (it holds a
+value on some paths only, or was partly moved) had each variant's fields flagged from the
+discriminant when the enum was written, so a write through a reference went unseen: `let r
+= if c { &mut E::A(D) } else { &mut E::A(D) }; *r = E::B;` (generator seed 50241), or a
+deferred `let mut x;` changed by `f(&mut x)` or a `&mut self` method, dropped a zeroed `D`
+at the end of the scope, and an enum filled through a reference leaked its new fields. The
+flags now only say "written and not moved out", and each drop of a part inside a variant
+reads the discriminant when it runs, also in cleanup handlers, as rustc's open drop does.
+The extended temporaries of the report were one route in; the bug was in drop elaboration.
+New: `differential/run/drops/extended_enums_written_through` (`if`/`else`, `match`, `if let`,
+nested blocks, tuples and arrays of borrows, nested enums, `&`, no drop glue),
+`differential/run/enums/{,unwind_}drop_flags_written_through` (all three failed before) and
+the MIR fixture `drop_variants`. 400 generated seeds at bases 50000, 7000 and 123456 agree.
 
 ### Phase 5: Data types
 

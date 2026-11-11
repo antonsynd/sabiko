@@ -1,0 +1,133 @@
+// Issue #133: a local enum that holds a value on some paths only (or was partly moved
+// out of) is dropped field by field, each part behind a drop flag. A write through a
+// reference changes the variant without the drop flags seeing it, so the drop reads the
+// discriminant the enum holds when it runs: an emptied enum drops nothing, a filled one
+// drops its new fields.
+struct Frame {
+    Flag: isize,
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        Print("drop Frame ");
+        PrintLine(self.Flag);
+    }
+}
+
+enum Status {
+    Empty,
+    Busy { Inner: Frame },
+    Pair(Frame, Frame),
+}
+
+impl Status {
+    fn Clear(&mut self) {
+        *self = Status::Empty;
+    }
+}
+
+struct Slot {
+    Head: Frame,
+    State: Status,
+}
+
+fn Cond(n: isize) -> bool {
+    n > 0
+}
+
+fn Empty(s: &mut Status) {
+    *s = Status::Empty;
+}
+
+fn Fill(s: &mut Status, flag: isize) {
+    *s = Status::Pair(Frame { Flag: flag }, Frame { Flag: flag + 1 });
+}
+
+fn Deferred(n: isize) {
+    PrintLine("-- deferred initialisation");
+    let mut x;
+    if Cond(n) {
+        x = Status::Busy { Inner: Frame { Flag: 1 } };
+        let r = &mut x;
+        *r = Status::Empty;
+    }
+    let mut y;
+    if Cond(n) {
+        y = Status::Empty;
+        Fill(&mut y, 2);
+    }
+    let mut z;
+    if Cond(n) {
+        z = Status::Busy { Inner: Frame { Flag: 4 } };
+        z.Clear();
+    }
+    PrintLine("end");
+}
+
+fn Reassigned(n: isize) {
+    PrintLine("-- reassigned");
+    let mut x;
+    if Cond(n) {
+        x = Status::Busy { Inner: Frame { Flag: 10 } };
+        Empty(&mut x);
+    }
+    // The old value, if any, is dropped: it holds no `Busy` any more.
+    x = Status::Busy { Inner: Frame { Flag: 11 } };
+    let mut y;
+    if Cond(n) {
+        y = Status::Empty;
+        Fill(&mut y, 12);
+    }
+    y = Status::Empty;
+    match y {
+        Status::Empty => PrintLine("y empty"),
+        _ => PrintLine("y not empty"),
+    }
+    match x {
+        Status::Busy { Inner } => {
+            Print("moved ");
+            PrintLine(Inner.Flag);
+        }
+        _ => PrintLine("other"),
+    }
+    PrintLine("end");
+}
+
+fn PartlyMoved(n: isize) {
+    PrintLine("-- partly moved");
+    let mut s = Slot { Head: Frame { Flag: 20 }, State: Status::Busy { Inner: Frame { Flag: 21 } } };
+    Fill(&mut s.State, 22);
+    if Cond(n) {
+        let h = s.Head;
+        Print("took ");
+        PrintLine(h.Flag);
+    }
+    PrintLine("end");
+}
+
+fn MovedOutOfVariant(n: isize) {
+    PrintLine("-- moved out of a variant");
+    let mut e = Status::Busy { Inner: Frame { Flag: 30 } };
+    Fill(&mut e, 31);
+    if Cond(n) {
+        match e {
+            Status::Pair(a, _) => {
+                Print("took ");
+                PrintLine(a.Flag);
+            }
+            _ => PrintLine("other"),
+        }
+    }
+    PrintLine("end");
+}
+
+fn Main() {
+    Deferred(1);
+    Deferred(0);
+    Reassigned(1);
+    Reassigned(0);
+    PartlyMoved(1);
+    PartlyMoved(0);
+    MovedOutOfVariant(1);
+    MovedOutOfVariant(0);
+}
