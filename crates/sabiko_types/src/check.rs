@@ -3572,6 +3572,7 @@ impl<'a> FnCtxt<'a> {
     /// one step are E0342 (rustc's E0034). Returns the callee and the generic arguments
     /// of its block or trait: the receiver type's for an inherent method, `Self` for a
     /// trait's. Reports and returns `None` when nothing matches.
+    #[allow(clippy::too_many_lines)]
     fn probe_method(
         &mut self,
         recv_ty: &Ty,
@@ -3607,23 +3608,7 @@ impl<'a> FnCtxt<'a> {
             }
             _ => {}
         }
-        // The inherent method, with its receiver type at the innermost type's arguments.
-        let inherent = match &base {
-            Ty::Adt(adt, base_args) => self
-                .resolve
-                .assoc_fn(*adt, &name.name)
-                .filter(|&def| self.items.fn_sig(def).self_kind.is_some())
-                .map(|def| {
-                    let sig = self.items.fn_sig(def);
-                    let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
-                    (
-                        def,
-                        sig.inputs[0].subst(parent, base_args),
-                        base_args.to_vec(),
-                    )
-                }),
-            _ => None,
-        };
+        let inherent = self.inherent_method(&base, &name.name);
         // An array's last step is its slice, reached by unsizing (rustc's probe does the
         // same), where the slice methods of the prelude's `impl<T> [T]` are inherent.
         let mut steps: Vec<(Ty, usize, bool)> = steps
@@ -3634,21 +3619,12 @@ impl<'a> FnCtxt<'a> {
         if let Ty::Array(elem, _) = &base {
             steps.push((Ty::Slice(elem.clone()), steps.len() - 1, true));
         }
-        let slice_inherent = self
-            .resolve
-            .slice_method(&name.name)
-            .filter(|&def| self.items.fn_sig(def).self_kind.is_some());
         for (step, autoderefs, unsize) in &steps {
             let (autoderefs, unsize) = (*autoderefs, *unsize);
-            // The slice method, with its receiver type at this slice's element type.
-            let inherent_here = match (step, slice_inherent) {
-                (Ty::Slice(elem), Some(def)) => {
-                    let sig = self.items.fn_sig(def);
-                    let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
-                    let args = vec![(**elem).clone()];
-                    Some((def, sig.inputs[0].subst(parent, &args), args))
-                }
-                _ => inherent.clone(),
+            let inherent_here = if unsize {
+                self.inherent_method(step, &name.name)
+            } else {
+                inherent.clone()
             };
             for autoref in [None, Some(Mutability::Not), Some(Mutability::Mut)] {
                 let adjusted = match autoref {
@@ -3711,6 +3687,22 @@ impl<'a> FnCtxt<'a> {
         }
         self.method_not_found(recv_ty, &base, name, &trait_methods);
         None
+    }
+
+    /// The inherent method `name` of `base` taking a receiver (`self`, `&self`, ...), with
+    /// its receiver type and the generic arguments of its block: a struct's or enum's at
+    /// the type's arguments, or for a slice the prelude's `impl<T> [T]` at its element
+    /// type (decision 93).
+    fn inherent_method(&self, base: &Ty, name: &str) -> Option<(DefId, Ty, Vec<Ty>)> {
+        let (def, args) = match base {
+            Ty::Adt(adt, base_args) => (self.resolve.assoc_fn(*adt, name)?, base_args.to_vec()),
+            Ty::Slice(elem) => (self.resolve.slice_method(name)?, vec![(**elem).clone()]),
+            _ => return None,
+        };
+        let sig = self.items.fn_sig(def);
+        sig.self_kind?;
+        let parent = &sig.generics[..self.resolve.parent_generic_count(def)];
+        Some((def, sig.inputs[0].subst(parent, &args), args))
     }
 
     /// Reports a method call nothing matched (E0319, rustc's E0599), with what may explain
