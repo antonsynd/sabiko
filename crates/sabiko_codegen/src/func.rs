@@ -1448,7 +1448,7 @@ impl FnCx<'_, '_> {
             self.op(format!("ldind.{s}"), 1, 1);
         } else {
             let cil = types::cil_type(self.cx, ty, span);
-            self.op(format!("ldobj {cil}"), 1, 1);
+            self.op(format!("ldobj {}", types::type_token(&cil)), 1, 1);
         }
     }
 
@@ -1464,7 +1464,7 @@ impl FnCx<'_, '_> {
             self.op(format!("stind.{s}"), 2, 0);
         } else {
             let cil = types::cil_type(self.cx, ty, span);
-            self.op(format!("stobj {cil}"), 2, 0);
+            self.op(format!("stobj {}", types::type_token(&cil)), 2, 0);
         }
     }
 
@@ -1533,7 +1533,7 @@ impl FnCx<'_, '_> {
                     self.addr(place, span);
                     push(self);
                     let cil = types::stored_type(self.cx, &ty, span);
-                    self.op(format!("stobj {cil}"), 2, 0);
+                    self.op(format!("stobj {}", types::type_token(&cil)), 2, 0);
                 }
             }
             return;
@@ -1838,7 +1838,7 @@ impl FnCx<'_, '_> {
             let tmp = self.scratch(&span_ty, span);
             let cil = types::cil_type(self.cx, &span_ty, span);
             self.ldloca(tmp);
-            self.op(format!("initobj {cil}"), 1, 0);
+            self.op(format!("initobj {}", types::type_token(&cil)), 1, 0);
             self.ldloc(tmp);
             return;
         }
@@ -1996,7 +1996,7 @@ impl FnCx<'_, '_> {
         let array_cil = types::cil_type(self.cx, array, span);
         if operands.is_empty() {
             self.ldloca(tmp);
-            self.op(format!("initobj {array_cil}"), 1, 0);
+            self.op(format!("initobj {}", types::type_token(&array_cil)), 1, 0);
             self.ldloc(tmp);
             return;
         }
@@ -2026,7 +2026,7 @@ impl FnCx<'_, '_> {
         if Cx::is_byref(elem) {
             self.wrap(elem, span);
             let cil = types::stored_type(self.cx, elem, span);
-            self.op(format!("stobj {cil}"), 2, 0);
+            self.op(format!("stobj {}", types::type_token(&cil)), 2, 0);
         } else {
             self.store_indirect(elem, span);
         }
@@ -2059,7 +2059,7 @@ impl FnCx<'_, '_> {
                 self.op("pop", 1, 0);
             }
             self.ldloca(tmp);
-            self.op(format!("initobj {array_cil}"), 1, 0);
+            self.op(format!("initobj {}", types::type_token(&array_cil)), 1, 0);
             self.ldloc(tmp);
             return;
         }
@@ -2266,7 +2266,7 @@ impl FnCx<'_, '_> {
         };
         let target = in_place.unwrap_or_else(|| self.scratch(&ty, span));
         self.ldloca(target);
-        self.op(format!("initobj valuetype {struct_name}"), 1, 0);
+        self.op(format!("initobj {struct_name}"), 1, 0);
         for (index, operand) in operands.iter().enumerate() {
             let field_ty = adt.field_ty(&adt.fields[index].ty, args);
             if field_ty.is_unit() || field_ty.is_never() {
@@ -2309,7 +2309,7 @@ impl FnCx<'_, '_> {
         let target = in_place.unwrap_or_else(|| self.scratch(&ty, span));
         self.ldloca(target);
         let class = self.cx.adt_class(def, args);
-        self.op(format!("initobj valuetype {class}"), 1, 0);
+        self.op(format!("initobj {class}"), 1, 0);
         let tag_ty = self.cx.tag_type(def);
         self.ldloca(target);
         #[allow(clippy::cast_sign_loss)]

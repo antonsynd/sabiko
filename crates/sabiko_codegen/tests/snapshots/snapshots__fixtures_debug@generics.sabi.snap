@@ -45,7 +45,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/generics.sabi
     call valuetype '(&i32, bool)' 'Generics'::'Swap<bool, &i32>'(valuetype '(bool, &i32)')
   BB2:
     ldloca.s 2
-    initobj valuetype 'D'
+    initobj 'D'
     ldloca.s 2
     ldc.i4.2
     stfld int32 'D'::'X'

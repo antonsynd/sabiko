@@ -315,15 +315,15 @@ expression: il
     ldc.i8 -1
     ldc.i8 -1
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
-    stobj valuetype [System.Runtime]System.UInt128
+    stobj [System.Runtime]System.UInt128
     ldarg.1
     ldarg.1
-    ldobj valuetype [System.Runtime]System.UInt128
+    ldobj [System.Runtime]System.UInt128
     ldc.i8 0
     ldc.i8 1
     newobj instance void [System.Runtime]System.UInt128::.ctor(uint64, uint64)
     call valuetype [System.Runtime]System.UInt128 [System.Runtime]System.UInt128::op_Addition(valuetype [System.Runtime]System.UInt128, valuetype [System.Runtime]System.UInt128)
-    stobj valuetype [System.Runtime]System.UInt128
+    stobj [System.Runtime]System.UInt128
     ldarg.0
     ldfld valuetype [System.Runtime]System.Int128 'Holder'::'Big'
     ret

@@ -174,6 +174,42 @@ pub(crate) fn prim_type(p: PrimTy) -> Option<&'static str> {
     })
 }
 
+/// The type token of the CIL type `cil` (as [`cil_type`] or [`stored_type`] write it), for
+/// the type operand of `initobj`, `ldobj` and `stobj`.
+///
+/// ilasm encodes a type operand by its syntax: a plain class name becomes a `TypeDef` or
+/// `TypeRef` token, anything else a `TypeSpec`. ECMA-335 II.23.2.14 allows a `TypeSpec`
+/// only for a generic instance, an array, a pointer, a function pointer or a type
+/// parameter, and `ILVerify` enforces that from .NET 11 on (`BadTypeSpec`): `valuetype
+/// 'Point'` and `int32` must be written `'Point'` and `[System.Runtime]System.Int32`.
+/// Generic instances (``valuetype [System.Runtime]System.Span`1<int32>``) stay as they are:
+/// they are `TypeSpec`s, which must say whether the type is a value type (decision 88).
+pub(crate) fn type_token(cil: &str) -> String {
+    if let Some(class) = cil.strip_prefix("valuetype ") {
+        if !class.ends_with('>') {
+            return class.to_owned();
+        }
+    }
+    let class = match cil {
+        "int8" => "SByte",
+        "int16" => "Int16",
+        "int32" => "Int32",
+        "int64" => "Int64",
+        "native int" => "IntPtr",
+        "uint8" => "Byte",
+        "uint16" => "UInt16",
+        "uint32" => "UInt32",
+        "uint64" => "UInt64",
+        "native uint" => "UIntPtr",
+        "float32" => "Single",
+        "float64" => "Double",
+        "bool" => "Boolean",
+        "char" => "Char",
+        _ => return cil.to_owned(),
+    };
+    format!("[System.Runtime]System.{class}")
+}
+
 /// The class of a 128-bit integer type, for calls to its operator methods.
 pub(crate) fn wide_class(p: PrimTy) -> &'static str {
     debug_assert!(matches!(p, PrimTy::I128 | PrimTy::U128));
@@ -454,6 +490,27 @@ mod tests {
             module_class_name("point", &["Point".to_owned()]),
             "PointModule"
         );
+    }
+
+    #[test]
+    fn type_tokens() {
+        // Plain classes become TypeDef/TypeRef tokens ...
+        assert_eq!(type_token("valuetype 'Point'"), "'Point'");
+        assert_eq!(
+            type_token("valuetype 'Pair<i32, bool>'"),
+            "'Pair<i32, bool>'"
+        );
+        assert_eq!(type_token(UINT128), UINT128_CLASS);
+        assert_eq!(type_token(UNIT), "[Sabiko.Runtime]Sabiko.Runtime.Unit");
+        assert_eq!(type_token("int32"), "[System.Runtime]System.Int32");
+        assert_eq!(type_token("native uint"), "[System.Runtime]System.UIntPtr");
+        // ... generic instances and type parameters stay TypeSpecs.
+        assert_eq!(type_token(STR_SPAN), STR_SPAN);
+        assert_eq!(
+            type_token("valuetype 'Ref`1'<valuetype 'Point'>"),
+            "valuetype 'Ref`1'<valuetype 'Point'>"
+        );
+        assert_eq!(type_token("!T"), "!T");
     }
 
     #[test]

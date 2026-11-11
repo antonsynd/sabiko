@@ -3,20 +3,20 @@
 #   1. Rust: rustup (installed if missing) and the toolchain pinned in rust-toolchain.toml,
 #      with its components (rustfmt, clippy).
 #   2. cargo-deny at the version CI uses (skip with --no-cargo-deny).
-#   3. .NET: the latest patch of the chosen major version (10, what CI runs, by default;
-#      --dotnet 11 for the newer runtime), then scripts/setup-dotnet.sh at that version, which fetches
-#      ilasm/ildasm, ILVerify, the reference assemblies and csc into ./tools and builds
+#   3. .NET: the latest patch of the chosen major version (11 by default; --dotnet 10 for the
+#      version the main CI matrix runs), then scripts/setup-dotnet.sh at that version, which
+#      fetches ilasm/ildasm, ILVerify, the reference assemblies and csc into ./tools and builds
 #      tools/runtime/Sabiko.Runtime.dll.
 #   4. With --check: cargo build and cargo test --workspace with SABIKO_REQUIRE_DOTNET=1.
 #
 # Usage: scripts/setup-env.sh [--dotnet 10|11] [--dotnet-version X.Y.Z] [--no-cargo-deny]
 #                             [--profile] [--check] [--force]
 #
-#   --dotnet N           .NET major version for ./tools (default 10, as CI). With 11, sabikoc's
-#                        net10.0 output runs on the .NET 11 runtime (tools/env.sh sets
-#                        DOTNET_ROLL_FORWARD=Major), but ILVerify 11 rejects the `valuetype X`
-#                        TypeSpecs sabikoc emits (BadTypeSpec), so the test suite fails there
-#                        until codegen emits plain type tokens; then 11 becomes the default.
+#   --dotnet N           .NET major version for ./tools (default 11; 10 is what the main CI
+#                        matrix and setup-dotnet.ps1 use, and CI also tests 11 on Linux). sabikoc
+#                        emits net10.0 assemblies; on 11 they run on the .NET 11 runtime
+#                        (tools/env.sh sets DOTNET_ROLL_FORWARD=Major). The suite passes on both;
+#                        ILVerify 11 is the stricter verifier (decisions 87 and 88).
 #   --dotnet-version V   exact patch version instead of the newest one on NuGet.
 #   --no-cargo-deny      skip `cargo install cargo-deny` (a few minutes of compiling).
 #   --profile            append `source <repo>/tools/env.sh` to ~/.bashrc (or ~/.zshrc).
@@ -30,7 +30,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CARGO_DENY_VERSION="0.20.2"   # keep in sync with CLAUDE.md and .github/workflows/ci.yml
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
-DOTNET_MAJOR=10; DOTNET_VERSION=""; CARGO_DENY=1; PROFILE=0; CHECK=0; FORCE=()
+DOTNET_MAJOR=11; DOTNET_VERSION=""; CARGO_DENY=1; PROFILE=0; CHECK=0; FORCE=()
 while (($#)); do
   case "$1" in
     --dotnet) DOTNET_MAJOR="${2:?--dotnet needs 10 or 11}"; shift ;;
@@ -41,7 +41,7 @@ while (($#)); do
     --profile) PROFILE=1 ;;
     --check) CHECK=1 ;;
     --force) FORCE=(--force) ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
