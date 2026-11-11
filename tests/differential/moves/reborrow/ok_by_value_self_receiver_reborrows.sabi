@@ -1,0 +1,14 @@
+// A `&mut` receiver of a by-value `self` method is reborrowed by method-call
+// autoref, even through a blanket implementation.
+trait Tr {
+    fn M(self);
+}
+
+impl<T> Tr for T {
+    fn M(self) {}
+}
+
+fn F(r: &mut u8) {
+    r.M();
+    *r += 1;
+}

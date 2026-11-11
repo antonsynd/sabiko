@@ -1,0 +1,7 @@
+// The first argument meets an undecided `T`: it is moved.
+fn Two<T>(a: T, b: T) {}
+
+fn F(r: &mut u8, s: &mut u8) {
+    Two(r, s);
+    *r += 1;
+}

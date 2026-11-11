@@ -1,0 +1,5 @@
+// An array's first element meets an undecided element type: moved.
+fn F(r: &mut u8) {
+    let a = [r];
+    *r += 1;
+}

@@ -1,0 +1,10 @@
+// The annotation decides the payload type before the argument is checked: reborrowed.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn F(r: &mut u8) {
+    let t: Opt<&mut u8> = Opt::Yes(r);
+    *r += 1;
+}

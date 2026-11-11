@@ -1,0 +1,15 @@
+// `W::<&mut u8>::New(r)`: the parameter is known to be a `&mut u8`, so reborrowed.
+struct W<T> {
+    F: T,
+}
+
+impl<T> W<T> {
+    fn New(x: T) -> W<T> {
+        W { F: x }
+    }
+}
+
+fn F(r: &mut u8) {
+    let w = W::<&mut u8>::New(r);
+    *r += 1;
+}

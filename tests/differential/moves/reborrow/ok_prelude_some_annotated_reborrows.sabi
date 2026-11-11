@@ -1,0 +1,6 @@
+// With the `Option`'s type annotated, `Some`'s payload type is known to be `&mut u8`
+// when `r` is checked: it is reborrowed.
+fn F(r: &mut u8) {
+    let o: Option<&mut u8> = Some(r);
+    *r += 1;
+}

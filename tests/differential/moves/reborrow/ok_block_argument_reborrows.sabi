@@ -1,0 +1,7 @@
+// A block passed to a `&mut u8` parameter: its tail is reborrowed.
+fn Take(x: &mut u8) {}
+
+fn F(r: &mut u8) {
+    Take({ r });
+    *r += 1;
+}

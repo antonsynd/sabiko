@@ -19,11 +19,11 @@
    │           ╰─── not a unit struct, unit variant or constant
 ───╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/prelude_variants.sabi:11:32 ]
+    ╭─[ tests/ui/typeck/prelude_variants.sabi:11:35 ]
     │
  11 │     let t: Result<i32, bool> = Ok(true); //~ ERROR E0300 mismatched types
-    │                                ────┬───  
-    │                                    ╰───── expected `Result<i32, bool>`, found `Result<bool, _>`
+    │                                   ──┬─  
+    │                                     ╰─── expected `i32`, found `bool`
 ────╯
 [E0328] Error: non-exhaustive patterns: `Result::Err(_)` not covered
     ╭─[ tests/ui/typeck/prelude_variants.sabi:15:11 ]

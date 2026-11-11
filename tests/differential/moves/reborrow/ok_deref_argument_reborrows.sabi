@@ -1,0 +1,7 @@
+// `*r` of type `&mut u8` passed to a `&mut u8` parameter is reborrowed.
+fn Take(x: &mut u8) {}
+
+fn F(r: &mut &mut u8) {
+    Take(*r);
+    **r += 1;
+}

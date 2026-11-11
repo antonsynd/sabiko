@@ -1,0 +1,10 @@
+// Nested generic variants: nothing decides the inner payload type, so it is moved.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn F(r: &mut u8) {
+    let t = Opt::Yes(Opt::Yes(r));
+    *r += 1;
+}

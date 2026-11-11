@@ -1,0 +1,8 @@
+// The first `match` arm meets an undecided type: moved.
+fn F(c: bool, r: &mut u8, s: &mut u8) {
+    let x = match c {
+        true => r,
+        false => s,
+    };
+    *r += 1;
+}

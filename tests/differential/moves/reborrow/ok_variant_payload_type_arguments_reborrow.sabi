@@ -1,0 +1,10 @@
+// `Opt::<&mut u8>::Yes(r)` knows its payload type: reborrowed.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn F(r: &mut u8) {
+    let t = Opt::<&mut u8>::Yes(r);
+    *r += 1;
+}

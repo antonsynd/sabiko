@@ -1,0 +1,9 @@
+// The annotation decides the field type before the field is checked: reborrowed.
+struct W<T> {
+    F: T,
+}
+
+fn F(r: &mut u8) {
+    let t: W<&mut u8> = W { F: r };
+    *r += 1;
+}

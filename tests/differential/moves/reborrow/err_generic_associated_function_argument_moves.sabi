@@ -1,0 +1,15 @@
+// `W::New(r)` infers `W`'s argument from `r`: moved.
+struct W<T> {
+    F: T,
+}
+
+impl<T> W<T> {
+    fn New(x: T) -> W<T> {
+        W { F: x }
+    }
+}
+
+fn F(r: &mut u8) {
+    let w = W::New(r);
+    *r += 1;
+}

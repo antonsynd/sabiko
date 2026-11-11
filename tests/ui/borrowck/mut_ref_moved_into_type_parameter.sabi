@@ -1,0 +1,36 @@
+// A `&mut` is reborrowed only where it is coerced to a type already known to be a
+// reference (#132): passed where a type parameter `T` is expected (a generic function's,
+// method's or variant's), it is moved, and using it afterwards is E0406 (rustc's E0382),
+// with rustc's suggestion to reborrow it at the call.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct S {}
+
+impl S {
+    fn Keep<T>(&self, x: T) {}
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Function(r: &mut u8) {
+    let t = Id(r);
+    *r += 1; //~ ERROR E0406 use of moved value: `r`
+}
+
+fn Method(r: &mut u8) {
+    let s = S {};
+    s.Keep(r);
+    *r += 1; //~ ERROR E0406 use of moved value: `r`
+}
+
+fn Variant(r: &mut u8) {
+    let o = Opt::Yes(r);
+    *r += 1; //~ ERROR E0406 use of moved value: `r`
+}
+
+fn Main() {}

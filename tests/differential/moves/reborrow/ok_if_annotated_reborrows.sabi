@@ -1,0 +1,5 @@
+// Both branches of an annotated `if` are coerced to `&mut u8`: reborrowed.
+fn F(c: bool, r: &mut u8, s: &mut u8) {
+    let x: &mut u8 = if c { r } else { s };
+    *r += 1;
+}

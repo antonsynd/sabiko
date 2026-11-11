@@ -867,11 +867,16 @@ impl MoveChecker<'_> {
             "{partial}move occurs because {moved_desc} has type `{}`, which does not implement the `Copy` trait",
             moved_ty.display(self.resolve)
         ));
-        if let (true, Some(moved)) = (
-            self.is_plain_let_of_mut_ref(sites[0], &moved_ty),
-            user_place(moved_place, self.body, self.typeck),
-        ) {
-            diag = diag.with_note(format!("consider reborrowing: `&mut *{moved}`"));
+        if let Some(moved) = user_place(moved_place, self.body, self.typeck) {
+            if self.is_plain_let_of_mut_ref(sites[0], &moved_ty) {
+                diag = diag.with_note(format!("consider reborrowing: `&mut *{moved}`"));
+            } else if self.is_mut_ref_moved_into_call(sites[0], &moved_ty) {
+                // rustc's help for a `&mut` passed where a type parameter is expected
+                // (`Id(r)`), which moves it (#132).
+                diag = diag.with_note(format!(
+                    "consider creating a fresh reborrow of `{moved}` here: `&mut *{moved}`"
+                ));
+            }
         }
         self.sink.emit(diag);
     }
@@ -900,6 +905,35 @@ impl MoveChecker<'_> {
             }) => dest.is_local() && self.body.local_decl(dest.local).kind == LocalKind::User,
             _ => false,
         }
+    }
+
+    /// Whether the move at `site` is of a `&mut T` local into a call's argument: the
+    /// temporary it is moved into is moved into a call. A parameter whose type is not
+    /// known to be a reference at the call (a type parameter's) moves the argument.
+    fn is_mut_ref_moved_into_call(&self, site: MoveSite, moved_ty: &Ty) -> bool {
+        if !matches!(moved_ty, Ty::Ref(Mutability::Mut, _))
+            || !self.paths.path(site.path).place.is_local()
+        {
+            return false;
+        }
+        let data = self.body.block(site.location.block);
+        let Some(Statement {
+            kind: StatementKind::Assign(dest, Rvalue::Use(Operand::Move(_))),
+            ..
+        }) = data.statements.get(site.location.statement_index)
+        else {
+            return false;
+        };
+        if !dest.is_local() || self.body.local_decl(dest.local).kind != LocalKind::Temp {
+            return false;
+        }
+        self.body.blocks.iter().any(|b| {
+            matches!(
+                &b.terminator,
+                Some(Terminator { kind: TerminatorKind::Call { args, .. }, .. })
+                    if args.iter().any(|a| matches!(a, Operand::Move(p) if p == dest))
+            )
+        })
     }
 
     /// The moves of `moved` or of one of its ancestors that reach `use_location`, by a

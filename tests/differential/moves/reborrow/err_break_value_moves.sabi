@@ -1,0 +1,7 @@
+// `break r` out of an unannotated `loop` is moved.
+fn F(r: &mut u8) {
+    let x = loop {
+        break r;
+    };
+    *r += 1;
+}

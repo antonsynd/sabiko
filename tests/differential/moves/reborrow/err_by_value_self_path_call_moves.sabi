@@ -1,0 +1,13 @@
+// Called as a path, the same method's `self: Self` is undecided at the argument: moved.
+trait Tr {
+    fn M(self);
+}
+
+impl<T> Tr for T {
+    fn M(self) {}
+}
+
+fn F(r: &mut u8) {
+    Tr::M(r);
+    *r += 1;
+}
