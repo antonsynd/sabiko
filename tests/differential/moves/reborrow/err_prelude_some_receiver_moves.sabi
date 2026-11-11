@@ -1,0 +1,7 @@
+// `Some(r).unwrap()`: the receiver `Some(r)` has no expected type, even under an
+// annotation, so `r` is moved into it.
+fn F(r: &mut u8) {
+    let q: &mut u8 = Some(r).unwrap();
+    *q += 1;
+    *r += 1;
+}

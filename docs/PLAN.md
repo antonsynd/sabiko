@@ -1522,11 +1522,33 @@ annotated `let x: &mut u8 = { r };` (or `if`, `break r`, a later `match` arm), a
 suggests `&mut *r`, as rustc's E0382 does. Tests: 41 compile-time programs in
 `differential/moves/reborrow/`, `run/refs/reborrow_coercion_sites.sabi`, the UI test
 `borrowck/mut_ref_moved_into_type_parameter`, the MIR fixture `coercions.sabi`; the
-generator writes `let q = r;`, `let q = GenId(r);` and `let q = GenBox { Value: r
-}.Value;` for reference locals, moving a `&mut` one in its scope model, and `let q: &mut
-T = GenId(r);`, which reborrows, and passes `&mut` locals to `GenFirst(r)` plainly. Left:
-the prelude's `Some(r)` (#13, on its own branch) is the same code path but has no test of
-its own yet.
+generator writes `let q = r;`, `let q = GenId(r);`, `let q = GenBox { Value: r
+}.Value;` and `let q = Some(r).unwrap();` for reference locals, moving a `&mut` one in its
+scope model, and `let q: &mut T = GenId(r);` (now and then `(r)`), which reborrows, and
+passes `&mut` locals to `GenFirst(r)` plainly.
+
+Update (2026-11-11), after review of #141: the side tables of adjustments
+(`BodyTypes::coercions`, `reborrows`) are keyed by the expression inside any parentheses
+and read only through `BodyTypes::coercion`/`reborrow`, which strip them. A reader keyed
+by the parenthesised node missed the unsizing of a reborrowed `(r)` (`T((r))` for `fn T(x:
+&mut [i32])`, `return (r);`, `s = (r);`: an internal error in MIR validation, older than
+#132, and new ones at `(r)` tails and `break (r)`; `run/refs/reborrow_parenthesised_unsizing`).
+The speculative unifications of the expected inputs and struct literal hints use a
+snapshot of the inference table with an undo log (`InferCtxt::probe`, `unify_or_rollback`),
+not a copy of it, and are skipped when the callee's output has no undecided variable: a
+body of 24000 `let x: u8 = Id(1);` lines type-checks in 11.5 s (debug), as on mainline
+(10.3 s), against 35 s with the copy (6000 lines: 0.96 s, 1.06 s, 3.9 s). Several
+arguments failing against one expected result type (`let c: bool = Pick(1, 2);`) are one
+E0300 "arguments to this function are incorrect" with a label per argument, as rustc's
+E0308. The prelude's `Some(r)` moves `r` and `let o: Option<&mut u8> = Some(r);`
+reborrows it (`differential/moves/reborrow/*prelude*`). Gaps, all older than #132 and
+filed: least-upper-bound coercion goes one way only, so `match c { true => r, false => &a
+}`, `if c { r } else { &a }` and `[r, &a]` with `r: &mut u8` are E0300 where rustc
+accepts them (#144); a variant constructor's `&mut` argument is not two-phase, so `let e:
+E<&mut P> = E::V(m, m.X);` is E0411 where rustc accepts it (#145); `_` in a generic
+argument of a type written in a body (`let x: Opt<_> = Wrap(300);`) lowers to `Error`
+and fails MIR validation, the same root as #137 (reproducer added there); `impl Tr for
+&mut u8` is still E0107.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

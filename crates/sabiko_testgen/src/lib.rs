@@ -81,7 +81,8 @@
 //! it. The `core` prelude (#13): values in `Some(e).unwrap()`,
 //! `Some(e).expect(..)`, `Some(a).unwrap_or(b)`, `None::<T>.unwrap_or(b)`,
 //! `Ok::<T, u8>(e).unwrap()` and `Err::<u8, T>(e).unwrap_err()`, shared references in
-//! `Some(&*r).unwrap()` ([`program::Program::prelude`]). Not generated: slice
+//! `Some(r).unwrap()` (`Some(&*r)` for a `&mut`; `let q = Some(r).unwrap();` moves it,
+//! #132) ([`program::Program::prelude`]). Not generated: slice
 //! patterns, ranges as values, array comparison, arrays of references as parameters or
 //! as locals outliving a block of their own (`stmt_ref_aggregate` writes `[&T; N]`,
 //! `&[&T]`, `(&T, U)` and `[&mut T; 2]` locals of primitive referents used in one block;

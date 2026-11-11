@@ -209,9 +209,9 @@ fn programs_use_128_bit_integers() {
     coverage(
         "128_bit_integers",
         &[
-            ("i128", signed, 272),
-            ("u128", unsigned, 273),
-            ("the `i128::MIN` literal", min_literal, 3),
+            ("i128", signed, 264),
+            ("u128", unsigned, 270),
+            ("the `i128::MIN` literal", min_literal, 4),
         ],
     );
 }
@@ -264,13 +264,13 @@ fn programs_use_methods() {
         "methods",
         &[
             ("impl block", impls, 302),
-            ("method call", calls, 221),
-            ("argument reading the receiver", reads_receiver, 12),
+            ("method call", calls, 224),
+            ("argument reading the receiver", reads_receiver, 9),
         ],
     );
 }
 
-/// Drops (#12) are part of the subset: a fair share of programs declare structs with
+/// Drops (#9) are part of the subset: a fair share of programs declare structs with
 /// `impl Drop` and keep values of them in locals, so drop order, moves, reassignments,
 /// early exits and unwinding are all observable in the output.
 #[test]
@@ -310,7 +310,7 @@ fn programs_have_unreachable_patterns() {
     }
     coverage(
         "unreachable_patterns",
-        &[("unreachable pattern (default and borrow-clean)", found, 87)],
+        &[("unreachable pattern (default and borrow-clean)", found, 78)],
     );
 }
 
@@ -347,7 +347,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.starts_with("    ") && l.ends_with(',') && l.contains(" = "))
             },
-            49,
+            48,
         ),
         (
             "`match` statement",
@@ -355,7 +355,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("match ") && l.ends_with('{'))
             },
-            211,
+            219,
         ),
         (
             "`let` = `match`",
@@ -363,18 +363,18 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" = match ") && l.ends_with('{'))
             },
-            28,
+            27,
         ),
-        ("inline `match`", |s| s.contains("(match "), 199),
-        ("`if let`", |s| s.contains("if let "), 162),
-        ("`while let`", |s| s.contains("while let "), 12),
+        ("inline `match`", |s| s.contains("(match "), 206),
+        ("`if let`", |s| s.contains("if let "), 155),
+        ("`while let`", |s| s.contains("while let "), 11),
         (
             "`let`-`else`",
             |s| {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("let ") && l.ends_with(" else {"))
             },
-            99,
+            98,
         ),
         (
             "guard",
@@ -382,18 +382,18 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" if ") && l.contains(" => ") && !l.contains("(if "))
             },
-            131,
+            129,
         ),
-        ("`ref` binding", |s| s.contains("ref "), 134),
+        ("`ref` binding", |s| s.contains("ref "), 126),
         ("`ref mut` binding", |s| s.contains("ref mut "), 60),
-        ("`@` binding", |s| s.contains(" @ "), 48),
-        ("range pattern", |s| s.contains("..="), 255),
+        ("`@` binding", |s| s.contains(" @ "), 46),
+        ("range pattern", |s| s.contains("..="), 252),
         (
             "or-pattern",
             |s| s.lines().any(|l| l.contains(" | ") && l.contains("=>")),
-            123,
+            120,
         ),
-        ("match on a reference", |s| s.contains("match &"), 178),
+        ("match on a reference", |s| s.contains("match &"), 185),
         (
             "`impl` block of an enum",
             |s| {
@@ -494,11 +494,11 @@ fn programs_use_arrays() {
         (
             "array type",
             |s| s.contains(": [") || s.contains("-> ["),
-            316,
+            310,
         ),
-        ("nested array type", |s| s.contains("[["), 15),
+        ("nested array type", |s| s.contains("[["), 19),
         ("zero-length array", |s| s.contains("; 0]"), 35),
-        ("one-element array", |s| s.contains("; 1]"), 83),
+        ("one-element array", |s| s.contains("; 1]"), 87),
         (
             "length from a constant",
             |s| {
@@ -506,9 +506,9 @@ fn programs_use_arrays() {
                     .iter()
                     .any(|n| s.contains(&format!("; {n}]")) || s.contains(&format!("; {n} + ")))
             },
-            63,
+            66,
         ),
-        ("slice type", has_slice_type, 91),
+        ("slice type", has_slice_type, 99),
         (
             "array field",
             |s| {
@@ -517,24 +517,24 @@ fn programs_use_arrays() {
             },
             117,
         ),
-        ("array in a tuple", has_array_in_tuple, 30),
+        ("array in a tuple", has_array_in_tuple, 32),
         ("array in an enum payload", has_array_payload, 111),
-        ("array of an `impl Drop` type", has_drop_array, 37),
-        ("`.len()`", |s| s.contains(".len()"), 269),
+        ("array of an `impl Drop` type", has_drop_array, 34),
+        ("`.len()`", |s| s.contains(".len()"), 276),
         (
             "`while i < s.len()`",
             |s| {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
             },
-            48,
+            52,
         ),
         (
             "computed index",
             |s| s.contains("[(") && s.contains(" % "),
-            272,
+            269,
         ),
-        ("element write", |s| writes_element(s, "="), 230),
+        ("element write", |s| writes_element(s, "="), 227),
         (
             "element compound assignment",
             |s| {
@@ -542,18 +542,18 @@ fn programs_use_arrays() {
                     .iter()
                     .any(|op| writes_element(s, op))
             },
-            11,
+            9,
         ),
-        ("borrow of an element", borrows_element, 164),
+        ("borrow of an element", borrows_element, 156),
         (
             "repeat expression",
             |s| s.contains("; ") && s.contains("= ["),
-            232,
+            222,
         ),
         (
             "out-of-bounds-prone index",
             |s| s.contains(" + 1usize)]") || s.contains(" - 1usize)]"),
-            123,
+            128,
         ),
     ];
     count_checks("arrays", &knobs, &checks);
@@ -663,7 +663,7 @@ fn programs_use_strings_and_ranges() {
             59,
         ),
         ("`-> &str`", |s| s.contains("-> &str {"), 18),
-        ("`&str` local", |s| s.contains(": &str = "), 169),
+        ("`&str` local", |s| s.contains(": &str = "), 173),
         (
             "escape in a string",
             |s| {
@@ -673,28 +673,28 @@ fn programs_use_strings_and_ranges() {
                 .iter()
                 .any(|e| s.contains(e))
             },
-            149,
+            150,
         ),
-        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 192),
-        ("`a..`", |s| any_range(s, |_, _, _, f| f == "a.."), 174),
-        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 140),
+        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 191),
+        ("`a..`", |s| any_range(s, |_, _, _, f| f == "a.."), 168),
+        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 145),
         ("`..`", |s| any_range(s, |_, _, _, f| f == ".."), 84),
-        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 144),
-        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 122),
+        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 159),
+        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 120),
         (
             "computed bound",
             |s| any_range(s, |l, open, close, _| l[open..close].contains(" % ")),
-            171,
+            172,
         ),
         (
             "bound measuring the base",
             |s| any_range(s, |l, open, close, _| l[open..close].contains(".len()")),
-            155,
+            164,
         ),
         (
             "slice of a string literal",
             |s| any_range(s, |l, open, _, _| l[..open].ends_with('"')),
-            296,
+            303,
         ),
         (
             "range of a range",
@@ -706,12 +706,12 @@ fn programs_use_strings_and_ranges() {
                         .any(|&(_, close, _)| groups.iter().any(|&(open, _, _)| open == close + 1))
                 })
             },
-            146,
+            158,
         ),
         (
             "`.len()` of a range place",
             |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with(".len()")),
-            179,
+            193,
         ),
         (
             "`&mut` of a range place",
@@ -723,12 +723,12 @@ fn programs_use_strings_and_ranges() {
                         .is_some_and(|at| !before[at + 5..].contains([' ', '(', '[']))
                 })
             },
-            9,
+            10,
         ),
         (
             "element of a range place",
             |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with('[')),
-            197,
+            207,
         ),
         ("write through a range place", writes_through_range, 6),
         (
@@ -740,7 +740,7 @@ fn programs_use_strings_and_ranges() {
                         && !range_groups(l).is_empty()
                 })
             },
-            11,
+            10,
         ),
         (
             "string comparison",
@@ -749,7 +749,7 @@ fn programs_use_strings_and_ranges() {
                     .iter()
                     .any(|op| s.contains(&format!(" {op} \"")) || s.contains(&format!("\" {op} ")))
             },
-            82,
+            87,
         ),
         (
             "`match` arm of string literals",
@@ -757,7 +757,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with('"') && l.contains(" => "))
             },
-            25,
+            30,
         ),
         (
             "string or-pattern",
@@ -765,7 +765,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.contains("\" | \"") && l.contains(" => "))
             },
-            63,
+            69,
         ),
         // One string binding arm in ten is unguarded since #47 (it was 26 before).
         (
@@ -780,9 +780,9 @@ fn programs_use_strings_and_ranges() {
                             || t.contains(&format!(" if {name} ")))
                 })
             },
-            6,
+            7,
         ),
-        ("`if let` on a string", |s| s.contains("if let \""), 31),
+        ("`if let` on a string", |s| s.contains("if let \""), 36),
         (
             "`let`-`else` on a string",
             |s| {
@@ -791,9 +791,9 @@ fn programs_use_strings_and_ranges() {
                     (t.starts_with("let \"") || t.starts_with("let (\"")) && t.ends_with(" else {")
                 })
             },
-            31,
+            32,
         ),
-        ("`while let` on a string", |s| s.contains("while let \""), 2),
+        ("`while let` on a string", |s| s.contains("while let \""), 3),
         (
             "`while i < s.len()` over a string",
             |s| {
@@ -806,7 +806,7 @@ fn programs_use_strings_and_ranges() {
                         && w[1].contains('[')
                 })
             },
-            16,
+            21,
         ),
         (
             "shrinking a `&str`",
@@ -817,7 +817,7 @@ fn programs_use_strings_and_ranges() {
                     !name.is_empty() && t[name.len()..].starts_with(&format!(" = &{name}["))
                 })
             },
-            9,
+            13,
         ),
     ];
     count_checks("strings_and_ranges", &knobs, &checks);
@@ -859,12 +859,12 @@ fn programs_use_references_to_references() {
                     t.starts_with("let ") && (t.contains(": &&") || t.contains(": &mut &"))
                 })
             },
-            84,
+            76,
         ),
         (
             "`&mut` of a reference local",
             |s| line_with_name(s, "let ", ": &mut &"),
-            39,
+            36,
         ),
         (
             "write through `&mut &mut`",
@@ -874,7 +874,7 @@ fn programs_use_references_to_references() {
         (
             "retarget through `&mut &T`",
             |s| line_with_name(s, "*", " = &") || line_with_name(s, "*", " = \""),
-            57,
+            48,
         ),
         (
             "`&&x` argument",
@@ -884,12 +884,12 @@ fn programs_use_references_to_references() {
         (
             "explicit dereferences of a double reference",
             |s| s.lines().any(|l| l.contains("(**")),
-            48,
+            39,
         ),
         (
             "`let` of a borrowed borrow",
             |s| line_with_name(s, "let ", " = &&") || line_with_name(s, "let ", " = &mut &"),
-            12,
+            13,
         ),
     ];
     count_checks("references_to_references", &knobs, &checks);
@@ -919,7 +919,7 @@ fn programs_use_arrays_of_references() {
         "arrays_of_references",
         &[
             ("index an array of references", any, 71),
-            ("a range of one", ranged, 10),
+            ("a range of one", ranged, 11),
         ],
     );
 }
@@ -960,8 +960,8 @@ fn programs_extend_temporaries_through_blocks_and_branches() {
     coverage(
         "extended_temporaries",
         &[
-            ("extend through a block", block, 69),
-            ("through an `if`", branch, 66),
+            ("extend through a block", block, 63),
+            ("through an `if`", branch, 63),
             ("through a `match`", arm, 34),
         ],
     );
@@ -1006,9 +1006,9 @@ fn programs_use_let_chains() {
         "let_chains",
         &[
             ("let chain", any, 26),
-            ("led by a `bool`", leading, 6),
+            ("led by a `bool`", leading, 5),
             ("two `let`s", two_lets, 15),
-            ("a `bool` after a `let`", after, 14),
+            ("a `bool` after a `let`", after, 18),
         ],
     );
 }
@@ -1033,7 +1033,7 @@ fn programs_use_if_let_guards() {
     }
     coverage(
         "if_let_guards",
-        &[("`if let` guard", any, 25), ("one with `&&`", chained, 9)],
+        &[("`if let` guard", any, 21), ("one with `&&`", chained, 7)],
     );
 }
 
@@ -1051,10 +1051,10 @@ fn programs_use_aggregates_of_references() {
     coverage(
         "aggregates_of_references",
         &[
-            ("`[&T; N]` local", arrays, 40),
-            ("`&[&T]` local", slices, 16),
-            ("`(&T, U)` local", tuples, 51),
-            ("`[&mut T; 2]` local", muts, 83),
+            ("`[&T; N]` local", arrays, 39),
+            ("`&[&T]` local", slices, 24),
+            ("`(&T, U)` local", tuples, 53),
+            ("`[&mut T; 2]` local", muts, 86),
         ],
     );
 }
@@ -1090,14 +1090,14 @@ fn programs_use_trait_helpers() {
     coverage(
         "trait_helpers",
         &[
-            ("`.Keep()`", keeps, 51),
+            ("`.Keep()`", keeps, 46),
             ("`GenKeep::Keep`", paths, 33),
-            ("`GenKept`", kept, 37),
-            ("`.KeepRef()`", refs, 21),
-            ("`.Sign()`", signs, 34),
-            ("`GenSigns`", sums, 28),
-            ("a trait constant", consts, 15),
-            ("`Copy`/`Clone` through a bound", copies, 24),
+            ("`GenKept`", kept, 35),
+            ("`.KeepRef()`", refs, 15),
+            ("`.Sign()`", signs, 32),
+            ("`GenSigns`", sums, 33),
+            ("a trait constant", consts, 16),
+            ("`Copy`/`Clone` through a bound", copies, 28),
         ],
     );
 }
@@ -1108,13 +1108,13 @@ fn programs_use_trait_helpers() {
 fn programs_use_the_prelude() {
     let knobs = Knobs::default();
     let patterns = [
-        (").unwrap()", 44),
-        (").expect(\"generated\")", 4),
-        (").unwrap_or(", 16),
-        ("None::<", 16),
-        ("Ok::<", 9),
-        ("Err::<", 9),
-        ("Some(&", 10),
+        (").unwrap()", 48),
+        (").expect(\"generated\")", 5),
+        (").unwrap_or(", 17),
+        ("None::<", 15),
+        ("Ok::<", 6),
+        ("Err::<", 6),
+        ("Some(&", 5),
     ];
     let mut counts = [0usize; 7];
     for seed in coverage_seeds() {
@@ -1150,52 +1150,87 @@ fn programs_use_generic_helpers() {
     coverage(
         "generic_helpers",
         &[
-            ("`GenId`", ids, 75),
-            ("`GenId::<T>`", turbofish, 36),
-            ("`GenPick`", picks, 72),
-            ("`GenFirst`", firsts, 20),
-            ("`GenOr(GenOpt::Yes(..), ..)`", ors, 51),
-            ("`GenOr(GenOpt::No, ..)`", nones, 37),
-            ("`GenBox`", boxes, 55),
+            ("`GenId`", ids, 76),
+            ("`GenId::<T>`", turbofish, 41),
+            ("`GenPick`", picks, 74),
+            ("`GenFirst`", firsts, 18),
+            ("`GenOr(GenOpt::Yes(..), ..)`", ors, 49),
+            ("`GenOr(GenOpt::No, ..)`", nones, 30),
+            ("`GenBox`", boxes, 57),
         ],
     );
 }
 
-/// `let q = GenId(r);` or `let q = GenBox { Value: r }.Value;` of a local `r`: for a
-/// reference local, a move of a `&mut` one into a type parameter (#132; the count also
-/// takes in value locals), or, annotated as a reference, a reborrow.
+/// Whether `name` is declared a `&mut` reference on `line`: a parameter or annotated
+/// `let` (`r: &mut T`), `&mut self`, or `let r = &mut ..;`. Locals initialised from a call
+/// returning a `&mut` are not seen (a lower bound is enough for coverage).
+fn declares_mut_ref(line: &str, name: &str) -> bool {
+    if name == "self" {
+        return line.contains("(&mut self");
+    }
+    let t = line.trim();
+    line.contains(&format!("({name}: &mut "))
+        || line.contains(&format!(" {name}: &mut "))
+        || t.starts_with(&format!("let {name} = &mut "))
+        || t.starts_with(&format!("let mut {name} = &mut "))
+}
+
+/// Whether `name` is a `&mut` reference where `src`'s line `at` is: declared so in the
+/// function that line is in (the generator never shadows).
+fn is_mut_ref_at(lines: &[&str], at: usize, name: &str) -> bool {
+    for line in lines[..at].iter().rev() {
+        if declares_mut_ref(line, name) {
+            return true;
+        }
+        if line.trim_start().starts_with("fn ") {
+            return false;
+        }
+    }
+    false
+}
+
+/// A `&mut` reference local passed where a type parameter is expected (#132): moved by
+/// `let q = GenId(r);`, `let q = GenBox { Value: r }.Value;` or `let q =
+/// Some(r).unwrap();`, or reborrowed by `let q: &mut T = GenId(r);`, whose annotation
+/// decides `T` first.
 #[test]
-fn programs_pass_reference_locals_to_type_parameters() {
+fn programs_pass_mut_ref_locals_to_type_parameters() {
     let knobs = Knobs::default();
-    let bare = |arg: &str| !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphabetic());
-    let (mut plain, mut annotated) = (0, 0);
-    for seed in 1..=SEEDS {
+    let (mut moved, mut reborrowed) = (0, 0);
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
-        for line in src.lines().map(str::trim) {
+        let lines: Vec<&str> = src.lines().collect();
+        let (mut m, mut r) = (false, false);
+        for (at, line) in lines.iter().map(|l| l.trim()).enumerate() {
             let Some((lhs, rhs)) = line.strip_prefix("let ").and_then(|l| l.split_once(" = "))
             else {
                 continue;
             };
-            let arg = rhs
-                .strip_prefix("GenId(")
-                .and_then(|r| r.strip_suffix(");"))
-                .or_else(|| {
-                    rhs.strip_prefix("GenBox { Value: ")
-                        .and_then(|r| r.strip_suffix(" }.Value;"))
+            let arg = ["GenId(", "GenBox { Value: ", "Some("]
+                .iter()
+                .find_map(|p| rhs.strip_prefix(p))
+                .and_then(|r| {
+                    [");", " }.Value;", ").unwrap();"]
+                        .iter()
+                        .find_map(|s| r.strip_suffix(s))
                 });
-            if arg.is_some_and(bare) {
-                if lhs.contains(": &") {
-                    annotated += 1;
+            if arg.is_some_and(|a| is_mut_ref_at(&lines, at, a)) {
+                if lhs.contains(": &mut ") {
+                    r |= rhs.starts_with("GenId(");
                 } else {
-                    plain += 1;
+                    m = true;
                 }
             }
         }
+        moved += usize::from(m);
+        reborrowed += usize::from(r);
     }
-    eprintln!("of {SEEDS} programs: {plain} unannotated, {annotated} annotated");
-    assert!(
-        plain >= 12 && annotated >= 8,
-        "of {SEEDS} programs: {plain} `let q = GenId(r);` (expected 12), {annotated} `let q: &T = GenId(r);` (expected 8)"
+    coverage(
+        "mut_ref_locals_to_type_parameters",
+        &[
+            ("moved into a type parameter", moved, 4),
+            ("reborrowed through an annotated `GenId`", reborrowed, 3),
+        ],
     );
 }
 
@@ -1242,10 +1277,10 @@ fn programs_use_reference_open_range_and_float_patterns() {
     coverage(
         "patterns",
         &[
-            ("`&` pattern", deref, 12),
-            ("`&mut` pattern", deref_mut, 3),
-            ("half-open range pattern", open, 27),
-            ("float pattern", float, 16),
+            ("`&` pattern", deref, 15),
+            ("`&mut` pattern", deref_mut, 6),
+            ("half-open range pattern", open, 33),
+            ("float pattern", float, 15),
         ],
     );
 }

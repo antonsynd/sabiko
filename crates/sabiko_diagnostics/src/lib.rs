@@ -387,6 +387,11 @@ impl DiagnosticSink {
         self.diagnostics
     }
 
+    /// Removes and returns the diagnostics emitted since there were `len` of them.
+    pub fn take_from(&mut self, len: usize) -> Vec<Diagnostic> {
+        self.diagnostics.split_off(len.min(self.diagnostics.len()))
+    }
+
     pub fn extend(&mut self, other: DiagnosticSink) {
         self.diagnostics.extend(other.diagnostics);
     }

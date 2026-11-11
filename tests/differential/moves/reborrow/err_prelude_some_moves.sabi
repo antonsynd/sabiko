@@ -1,0 +1,6 @@
+// The prelude's `Some` takes a `T`: a `&mut` passed to it is moved, not reborrowed
+// (#132).
+fn F(r: &mut u8) {
+    let o = Some(r);
+    *r += 1;
+}

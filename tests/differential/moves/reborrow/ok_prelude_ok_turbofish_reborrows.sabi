@@ -1,0 +1,5 @@
+// `Ok::<&mut u8, u8>(r)` knows its payload type from the turbofish: reborrowed.
+fn F(r: &mut u8) {
+    let o = Ok::<&mut u8, u8>(r);
+    *r += 1;
+}

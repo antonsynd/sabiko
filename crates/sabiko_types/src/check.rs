@@ -74,8 +74,9 @@ pub struct BodyTypes {
     /// is already known to be a reference at the coercion site: a parameter of type
     /// `&mut u8` reborrows its argument, one of type `T` (an inference variable then)
     /// moves it, and so do `let x = r;` and an element of a tuple nothing types (#132).
-    /// Keyed by the coerced expression's node (inside any parentheses).
-    pub reborrows: HashMap<NodeId, Mutability>,
+    /// Keyed by the coerced expression's node inside any parentheses; read through
+    /// [`BodyTypes::reborrow`].
+    pub(crate) reborrows: HashMap<NodeId, Mutability>,
     /// The callee of every method call, keyed by the `ExprKind::MethodCall` node.
     pub method_calls: HashMap<NodeId, MethodCallee>,
     /// The function a path names where the type checker chose it rather than the
@@ -106,8 +107,10 @@ pub struct BodyTypes {
     pub len_calls: HashMap<NodeId, usize>,
     /// Expressions whose value is coerced to another pointer representation where it is
     /// used, with the target type: `&[T; N]` or `&mut [T; N]` to `&[T]` / `&mut [T]`
-    /// (unsizing), and `&mut [T]` to `&[T]`.
-    pub coercions: HashMap<NodeId, Ty>,
+    /// (unsizing), and `&mut [T]` to `&[T]`. Keyed by the expression's node inside any
+    /// parentheses, read through [`BodyTypes::coercion`]; or by the pattern node of a
+    /// destructuring assignment's assignee ([`BodyTypes::assignee_coercion`]).
+    pub(crate) coercions: HashMap<NodeId, Ty>,
     /// The evaluated count of each repeat expression `[v; N]`, keyed by its node.
     pub repeat_counts: HashMap<NodeId, u64>,
     /// `true` when at least one error was reported inside this body.
@@ -130,6 +133,28 @@ pub enum PatConst {
 }
 
 impl BodyTypes {
+    /// The pointer coercion `expr`'s value gets where it is used (see `coercions`). Side
+    /// tables of adjustments are keyed by the expression inside any parentheses, so `(r)`
+    /// and `r` agree (a reader keying by the parenthesised node missed them).
+    #[must_use]
+    pub fn coercion(&self, expr: &Expr) -> Option<&Ty> {
+        self.coercions.get(&strip_parens(expr).id)
+    }
+
+    /// The pointer coercion of the value a destructuring assignment writes to the
+    /// assignee pattern `pat`.
+    #[must_use]
+    pub fn assignee_coercion(&self, pat: NodeId) -> Option<&Ty> {
+        self.coercions.get(&pat)
+    }
+
+    /// How `expr`, a `&mut T`, is reborrowed where it is coerced (see `reborrows`);
+    /// `None` when it is moved. Through parentheses, as [`BodyTypes::coercion`].
+    #[must_use]
+    pub fn reborrow(&self, expr: &Expr) -> Option<Mutability> {
+        self.reborrows.get(&strip_parens(expr).id).copied()
+    }
+
     #[must_use]
     pub fn expr_ty(&self, id: NodeId) -> &Ty {
         self.expr_types
@@ -668,7 +693,7 @@ impl<'a> FnCtxt<'a> {
         if let (Ty::Ref(Mutability::Mut, _), Ty::Ref(m, _)) =
             (self.shallow(found), self.shallow(target))
         {
-            self.reborrows.insert(expr.id, m);
+            self.reborrows.insert(strip_parens(expr).id, m);
         }
     }
 
@@ -701,14 +726,21 @@ impl<'a> FnCtxt<'a> {
         if matches!(exp, Ty::Infer(_) | Ty::Error | Ty::Never) {
             return None;
         }
-        let snapshot = self.infer.clone();
-        let hints = self
-            .infer
-            .unify(output, &exp)
-            .is_ok()
-            .then(|| inputs.iter().map(|t| self.infer.resolve(t)).collect());
-        self.infer = snapshot;
-        hints
+        // Nothing to learn when the output has no variable an expectation could decide.
+        if !self.has_infer_vars(output) {
+            return None;
+        }
+        self.infer.probe(|infer| {
+            infer
+                .unify(output, &exp)
+                .is_ok()
+                .then(|| inputs.iter().map(|t| infer.resolve(t)).collect())
+        })
+    }
+
+    /// Whether `ty` still has a variable nothing has decided.
+    fn has_infer_vars(&mut self, ty: &Ty) -> bool {
+        self.infer.resolve(ty).has_infer()
     }
 
     /// rustc's hint for a struct literal: its type `adt` (with fresh variables for the
@@ -723,9 +755,66 @@ impl<'a> FnCtxt<'a> {
         if !matches!(exp, Ty::Adt(..)) {
             return;
         }
-        let snapshot = self.infer.clone();
-        if self.infer.unify(adt, &exp).is_err() {
-            self.infer = snapshot;
+        if self.has_infer_vars(adt) {
+            let _ = self.infer.unify_or_rollback(adt, &exp);
+        }
+    }
+
+    /// Checks the arguments of a call against the parameter types `formals`, or the
+    /// [`Self::expected_inputs`] `hints` for them. With hints, several arguments may fail
+    /// against the same expectation (`let c: bool = Pick(1, 2);`): their mismatches are
+    /// reported as one error with a label per argument, as rustc's "arguments to this
+    /// function are incorrect" (E0308), at the callee (`callee_span`).
+    fn check_args(
+        &mut self,
+        args: &[Expr],
+        formals: &[Ty],
+        hints: Option<&[Ty]>,
+        callee_span: Span,
+    ) {
+        let start = self.sink.diagnostics().len();
+        let mut failed = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            let before = self.sink.diagnostics().len();
+            let hint = hints.and_then(|h| h.get(i));
+            self.check_arg(a, formals.get(i), hint);
+            if hint.is_none() {
+                continue;
+            }
+            // The argument's own mismatch against its hint, not one inside it.
+            let own = self.sink.diagnostics()[before..].iter().position(|d| {
+                d.code == ErrorCode::TYPE_MISMATCH
+                    && d.message == "mismatched types"
+                    && d.notes.is_empty()
+                    && d.labels.len() == 1
+                    && d.primary_span() == Some(a.span)
+            });
+            if let Some(k) = own {
+                failed.push(before + k);
+            }
+        }
+        if failed.len() < 2 {
+            return;
+        }
+        let emitted = self.sink.take_from(start);
+        let mut merged = Diagnostic::error(
+            ErrorCode::TYPE_MISMATCH,
+            "arguments to this function are incorrect",
+        )
+        .with_label(callee_span, "arguments to this function are incorrect");
+        for &k in &failed {
+            let label = &emitted[k - start].labels[0];
+            merged = merged.with_label(label.span, label.message.clone());
+        }
+        let mut merged = Some(merged);
+        for (k, d) in emitted.into_iter().enumerate() {
+            if failed.contains(&(start + k)) {
+                if let Some(m) = merged.take() {
+                    self.sink.emit(m);
+                }
+            } else {
+                self.sink.emit(d);
+            }
         }
     }
 
@@ -754,7 +843,7 @@ impl<'a> FnCtxt<'a> {
                 ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
             ) {
                 self.coerce(expr.span, ty, exp);
-                self.note_pointer_coercion(expr.id, ty, exp);
+                self.note_pointer_coercion(strip_parens(expr).id, ty, exp);
             }
         }
     }
@@ -3286,10 +3375,7 @@ impl<'a> FnCtxt<'a> {
             let output = Ty::Adt(adt, generic.into());
             let formals: Vec<Ty> = variant.fields.iter().map(|f| f.ty.clone()).collect();
             let hints = self.expected_inputs(expected, &output, &formals);
-            for (i, a) in args.iter().enumerate() {
-                let hint = hints.as_ref().and_then(|h| h.get(i));
-                self.check_arg(a, formals.get(i), hint);
-            }
+            self.check_args(args, &formals, hints.as_deref(), callee.span);
             self.variant_exprs.insert(id, (adt, index));
             return output;
         }
@@ -3320,10 +3406,7 @@ impl<'a> FnCtxt<'a> {
             self.error(d);
         }
         let hints = self.expected_inputs(expected, &sig.output, &sig.inputs);
-        for (i, a) in args.iter().enumerate() {
-            let hint = hints.as_ref().and_then(|h| h.get(i));
-            self.check_arg(a, sig.inputs.get(i), hint);
-        }
+        self.check_args(args, &sig.inputs, hints.as_deref(), callee.span);
         if sig.output.is_never() {
             self.diverges = true;
         }
@@ -3425,10 +3508,7 @@ impl<'a> FnCtxt<'a> {
             self.error(d);
         }
         let hints = self.expected_inputs(expected, &sig.output, params);
-        for (i, a) in args.iter().enumerate() {
-            let hint = hints.as_ref().and_then(|h| h.get(i));
-            self.check_arg(a, params.get(i), hint);
-        }
+        self.check_args(args, params, hints.as_deref(), method.span);
         // No method returns `!`: the never type cannot be written in a signature.
         self.method_calls.insert(expr.id, callee);
         sig.output

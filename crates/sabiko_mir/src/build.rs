@@ -876,7 +876,7 @@ impl<'a> Builder<'a> {
         if !is_place_expr(self.resolve, expr) {
             return None;
         }
-        self.types.reborrows.get(&strip_parens(expr).id).copied()
+        self.types.reborrow(expr)
     }
 
     /// `expr`'s value as an operand, as [`Self::as_operand`] gives it: a `&mut T` place the
@@ -894,7 +894,7 @@ impl<'a> Builder<'a> {
                     let temp = self.new_temp(Ty::Ref(mutability, Box::new(referent)), expr.span);
                     // A reborrow that is coerced at once (`&mut [T; N]` to `&mut [T]`) is
                     // used, so activated, right there: an ordinary borrow.
-                    let coerced = self.types.coercions.contains_key(&expr.id);
+                    let coerced = self.types.coercion(expr).is_some();
                     let kind = match mutability {
                         Mutability::Mut => BorrowKind::Mut {
                             two_phase: call_arg && !coerced,
@@ -917,7 +917,7 @@ impl<'a> Builder<'a> {
     /// Applies the pointer coercion the type checker recorded for `expr` (unsizing, or
     /// `&mut [T]` to `&[T]`) to `op`, `expr`'s value (reborrowed), into a temporary.
     fn pointer_coercion(&mut self, expr: &Expr, op: Operand) -> Operand {
-        let Some(target) = self.types.coercions.get(&expr.id).cloned() else {
+        let Some(target) = self.types.coercion(expr).cloned() else {
             return op;
         };
         if op.ty(&self.body) == target {
@@ -935,15 +935,15 @@ impl<'a> Builder<'a> {
 
     /// `expr`'s value as an operand of its own type, before its pointer coercion.
     fn uncoerced_operand(&mut self, expr: &Expr) -> Operand {
-        self.coercing.insert(expr.id);
+        self.coercing.insert(strip_parens(expr).id);
         let op = self.as_operand(expr);
-        self.coercing.remove(&expr.id);
+        self.coercing.remove(&strip_parens(expr).id);
         op
     }
 
     /// Whether `expr` has a pointer coercion still to apply.
     fn has_pending_coercion(&self, expr: &Expr) -> bool {
-        self.types.coercions.contains_key(&expr.id) && !self.coercing.contains(&expr.id)
+        self.types.coercion(expr).is_some() && !self.coercing.contains(&strip_parens(expr).id)
     }
 
     fn unit_rvalue(span: Span) -> Rvalue {
@@ -1305,7 +1305,7 @@ impl<'a> Builder<'a> {
         }
         if self.has_pending_coercion(expr) {
             let op = self.uncoerced_operand(expr);
-            let target = self.types.coercions[&expr.id].clone();
+            let target = self.types.coercion(expr).expect("pending").clone();
             self.assign(dest.clone(), Rvalue::PointerCoercion(op, target), span);
             return;
         }
@@ -1892,7 +1892,7 @@ impl<'a> Builder<'a> {
         let temp = self.extended_referent(inner);
         let mutability = Mutability::from_bool(mutable);
         let borrow = Rvalue::Ref(BorrowKind::new(mutability), Place::local(temp));
-        if let Some(target) = self.types.coercions.get(&expr.id).cloned() {
+        if let Some(target) = self.types.coercion(expr).cloned() {
             // `let s: &[i32] = &[1, 2];`: the borrow is unsized.
             let r = self.new_temp(Ty::Ref(mutability, Box::new(ty)), expr.span);
             self.assign(Place::local(r), borrow, expr.span);
@@ -2007,7 +2007,7 @@ impl<'a> Builder<'a> {
             ),
             e.span,
         );
-        if let Some(target) = self.types.coercions.get(&e.id).cloned() {
+        if let Some(target) = self.types.coercion(e).cloned() {
             // An unsized borrow (`&[1, 2]` as a `&[i32]` element).
             let op = self.place_operand(Place::local(temp));
             let coerced = self.new_temp(target.clone(), e.span);
@@ -2261,7 +2261,7 @@ impl<'a> Builder<'a> {
             self.assign(Place::local(temp), Rvalue::Use(value), target.span);
             value = self.place_operand(Place::local(temp));
         }
-        if let Some(ty) = self.types.coercions.get(&assignee).cloned() {
+        if let Some(ty) = self.types.assignee_coercion(assignee).cloned() {
             let temp = self.new_temp(ty.clone(), target.span);
             self.assign(
                 Place::local(temp),

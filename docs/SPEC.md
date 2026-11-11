@@ -1181,7 +1181,10 @@ Moves (E0406, E0407):
   for `Opt::Yes(r)` and `W { F: r }` of generic types (moved; reborrowed when annotated,
   `let o: Opt<&mut u8> = Opt::Yes(r);`). `let s = r;`, `let s: _ = r;`, `let s; s =
   r;`, `(r, 1)` and `[r]` without an expected type move it; a later array element or
-  `match` arm is coerced to the type the first one decided and is reborrowed. The
+  `match` arm is coerced to the type the first one decided and is reborrowed, unless the
+  arm is a block or an `if`, whose tail has no expected type and moves it (`false => { s
+  }`, as in rustc). Parentheses change nothing: `(r)` is reborrowed or moved as `r` is.
+  A `&mut` arm or element followed by a `&` one is still E0300 (#144). The
   branches of an `if` or `match` whose expected type is still undecided are checked
   without it, so in `Id(if c { r } else { s })` the `else` block's tail `s` is moved.
   Using a moved `&mut` is E0406; when it was moved into a call's argument the error

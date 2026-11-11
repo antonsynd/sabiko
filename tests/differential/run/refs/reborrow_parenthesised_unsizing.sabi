@@ -1,0 +1,66 @@
+// A parenthesised `&mut [i32; 3]` place reborrowed and unsized to a slice at a value
+// position: a tail, a `break` value, a generic argument, a struct field, a plain argument,
+// `return`, an array and a tuple element, an assignment. The parentheses used to hide the
+// unsizing from MIR building (an internal error in MIR validation).
+struct Q<T> {
+    F: T,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn T(x: &mut [i32]) {
+    x[0] += 1;
+}
+
+fn Tail(r: &mut [i32; 3]) -> &mut [i32] {
+    (r)
+}
+
+fn Ret(r: &mut [i32; 3]) -> &mut [i32] {
+    r[1] += 1;
+    return (r);
+}
+
+fn Main() {
+    let mut a = [1, 2, 3];
+    let r = &mut a;
+    {
+        let x: &[i32] = loop {
+            break (r);
+        };
+        PrintLine(x[0]);
+    }
+    {
+        let s: &mut [i32] = Id((r));
+        s[1] += 10;
+    }
+    {
+        let x: Q<&mut [i32]> = Q { F: (r) };
+        x.F[2] += 20;
+    }
+    T((r));
+    {
+        let arr: [&mut [i32]; 1] = [(r)];
+        arr[0][0] += 1;
+    }
+    {
+        let t: (&mut [i32], i32) = ((r), 1);
+        t.0[1] += t.1;
+    }
+    {
+        let mut b = [0, 0];
+        let mut s: &mut [i32] = &mut b;
+        s[0] = 5;
+        s = (r);
+        s[2] += 1;
+    }
+    let tail = Tail(r);
+    tail[0] += 100;
+    let ret = Ret(r);
+    PrintLine(ret.len());
+    PrintLine(a[0]);
+    PrintLine(a[1]);
+    PrintLine(a[2]);
+}
