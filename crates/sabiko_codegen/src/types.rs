@@ -243,10 +243,14 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
         }
         // A reference to `()` is as stateless as `()` (decision 64).
         Ty::Ref(..) if is_unit_like(ty) => UNIT.to_owned(),
+        // A field of a generic type instantiated at `&!` (`Some(&Panic("x"))` in a branch
+        // not taken, #158): `&!` has no value, but the instance still lays out its field.
+        Ty::Ref(_, inner) if inner.is_uninhabited() => {
+            cx.unsupported("a value of type `&!` here", span);
+            "int32".to_owned()
+        }
         // A managed pointer to the place's storage: a reference held by the place is a
-        // `Ref<T>`, since no managed pointer points to another (decision 64). `&!` has no
-        // value either, so no local, field or operand has that type; the `!` arm below
-        // reports one that would.
+        // `Ref<T>`, since no managed pointer points to another (decision 64).
         Ty::Ref(_, inner) => format!("{}&", stored_type(cx, inner, span)),
         Ty::Unit => UNIT.to_owned(),
         Ty::Tuple(elems) => tuple_type(cx, ty, elems, span),

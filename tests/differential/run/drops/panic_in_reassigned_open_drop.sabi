@@ -1,0 +1,36 @@
+// Assigning to a tuple whose second part may have been moved drops the old value part by
+// part, the second behind a copy of its drop flag saved before the assignment. When the
+// first part's `drop` panics, the cleanup drops the second part if that saved flag is set
+// (here it is: `c` is false), then the new value. The saved flag has one definition and
+// one read besides the cleanup's, so it must still be stored for the cleanup (#142,
+// `stackable_locals`). Exit code 101.
+struct D {
+    A: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.A);
+        if self.A == 99 {
+            Panic("boom");
+        }
+    }
+}
+
+fn Make(a: i32) -> D {
+    D { A: a }
+}
+
+fn Take(d: D) {}
+
+fn Open(c: bool) {
+    let mut p = (Make(99), Make(23));
+    if c {
+        Take(p.1);
+    }
+    p = (Make(1), Make(2));
+}
+
+fn Main() {
+    Open(false);
+}

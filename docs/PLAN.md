@@ -1546,11 +1546,12 @@ or a slice). The threshold stays at 98.
 
 Update (2026-11-11), the survivors of nightly run 26 (#142): `sabiko_codegen` scored
 94.2% against 95 with 42 survivors, and 12 of `sabiko_types`' 17 were untriaged (#125).
-Of the 42, tests kill 16 (the 12 primitive type tokens that only .NET 11's ILVerify
+Of the 42, tests kill 17 (the 12 primitive type tokens that only .NET 11's ILVerify
 rejects, the missing-`Main` check, the `Print` overload defence, a sub-slice bound's use
-count), one was already caught, 9 were dead code and are gone (redundant guards and arms
-in `assign`, `typed_int_const`, `unary`, `negation_fits`, `cil_type` and `binary`; a local
-nothing writes now gets no IL local at all), and 16 are equivalent and excluded in
+count, and `cil_type`'s `&!` arm, reached by a generic type instantiated at `&!`, #158),
+one was already caught, 9 were dead code and are gone (redundant guards and arms in
+`assign`, `typed_int_const`, `unary`, `negation_fits`, `binary` and `block`; a local
+nothing writes now gets no IL local at all), and 15 are equivalent and excluded in
 `.cargo/mutants.toml`, each argued in `docs/TESTING.md`. Of `sabiko_types`' 12, tests
 kill 8, one is gone, one is equivalent, and two wait for #155: past the trait solver's
 depth limit an unsatisfied bound is accepted. Estimated from run 26's counts, about 100%

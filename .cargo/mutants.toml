@@ -54,8 +54,12 @@ exclude_re = [
     # a dropped place, an index temporary, a cleanup's places and flags); the return place
     # kept on the stack (`stackable_def`, `block`), `switchInt` values that are never 128-bit
     # nor non-integer (`terminator`), `ldloc`'s early truncation, and a struct or variant
-    # literal whose operands read its destination. Columns tell apart operators that read
-    # alike in one function; check with `cargo mutants --list -p sabiko_codegen`.
+    # literal whose operands read its destination. A mutant's name holds only the file,
+    # line, column, mutation and function, so each pattern names the function and the
+    # mutation, and a column where two mutations of one function read alike. An edit to
+    # one of these functions can move what a column matches: re-list the excluded set
+    # (`cargo mutants --list` with and without `--no-config`) whenever they change.
+    # `scripts/mutants.sh` prints it at the start of every run.
     "sabiko_codegen/src/func\\.rs:\\d+:33: replace && with \\|\\| in stackable_locals$",
     "sabiko_codegen/src/func\\.rs:\\d+:54: replace \\+= with [-*]= in stackable_locals$",
     "sabiko_codegen/src/func\\.rs:\\d+:\\d+: delete match arm TerminatorKind::Drop\\{place, \\.\\.\\} in stackable_locals$",
@@ -63,7 +67,6 @@ exclude_re = [
     "sabiko_codegen/src/func\\.rs:\\d+:30: replace \\+= with \\*= in stackable_locals$",
     "sabiko_codegen/src/func\\.rs:\\d+:34: replace \\+= with \\*= in stackable_locals$",
     "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace && with \\|\\| in FnCx<'_, '_>::stackable_def$",
-    "sabiko_codegen/src/func\\.rs:\\d+:\\d+: delete match arm TerminatorKind::Return in FnCx<'_, '_>::block$",
     "sabiko_codegen/src/func\\.rs:\\d+:17: replace && with \\|\\| in FnCx<'_, '_>::block$",
     "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace match guard types::stack_width\\(p\\) == StackWidth::Wide with false in FnCx<'_, '_>::terminator$",
     "sabiko_codegen/src/func\\.rs:\\d+:\\d+: replace match guard p\\.is_integer\\(\\) with true in FnCx<'_, '_>::terminator$",

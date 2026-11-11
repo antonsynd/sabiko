@@ -1,25 +1,25 @@
 [E0208] Error: the size for values of type `Self` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/trait_self_sized_in_types.sabi:10:16 ]
+    ╭─[ tests/ui/typeck/trait_self_sized_in_types.sabi:11:16 ]
     │
- 10 │     fn Wrapped(w: W<Self>) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+ 11 │     fn Wrapped(w: W<Self>) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
     │                ─────┬────  
     │                     ╰────── doesn't have a size known at compile-time
     │ 
     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
 ────╯
 [E0208] Error: the size for values of type `Self` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/trait_self_sized_in_types.sabi:13:18 ]
+    ╭─[ tests/ui/typeck/trait_self_sized_in_types.sabi:14:18 ]
     │
- 13 │     fn Back() -> W<Self> { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+ 14 │     fn Back() -> W<Self> { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
     │                  ───┬───  
     │                     ╰───── doesn't have a size known at compile-time
     │ 
     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
 ────╯
 [E0208] Error: the size for values of type `Self` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/trait_self_sized_in_types.sabi:17:13 ]
+    ╭─[ tests/ui/typeck/trait_self_sized_in_types.sabi:18:13 ]
     │
- 17 │         let w = W { V: Self::Make() }; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+ 18 │         let w = W { V: Self::Make() }; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
     │             ┬  
     │             ╰── doesn't have a size known at compile-time
     │ 

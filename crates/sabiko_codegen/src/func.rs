@@ -1087,8 +1087,10 @@ impl FnCx<'_, '_> {
         self.label(&format!("BB{}", bb.0));
         let data = self.body.block(bb);
         let term = data.terminator();
+        // Whether the block ends by returning. A block ending in `return` itself assigns
+        // nothing (MIR building gives the return a block of its own, and simplification only
+        // retargets jumps), so only a jump to such a block counts.
         let term_returns = match &term.kind {
-            TerminatorKind::Return => true,
             TerminatorKind::Goto { target } => self.layout.returns_in_place(bb, *target),
             _ => false,
         };
@@ -1746,9 +1748,9 @@ impl FnCx<'_, '_> {
             ConstValue::Int(i) => {
                 #[allow(clippy::cast_sign_loss)]
                 let bits = *i as u128;
-                self.typed_int_const(bits, &c.ty);
+                self.typed_int_const(bits, &c.ty, c.span);
             }
-            ConstValue::Uint(u) => self.typed_int_const(*u, &c.ty),
+            ConstValue::Uint(u) => self.typed_int_const(*u, &c.ty, c.span),
             ConstValue::Float(f) => self.float_const(*f, c.ty.as_prim() == Some(PrimTy::F32)),
             ConstValue::Str(s) => {
                 self.op(format!("ldstr {}", types::il_string(s)), 0, 1);
@@ -1804,12 +1806,18 @@ impl FnCx<'_, '_> {
 
     /// Pushes an `Int` or `Uint` constant of type `ty`, which the MIR validator admits for
     /// integer types only (`constant_matches`).
-    fn typed_int_const(&mut self, bits: u128, ty: &Ty) {
-        let p = ty
-            .as_prim()
-            .filter(|p| p.is_integer())
-            .expect("an integer constant of an integer type");
-        self.int_const(bits, p);
+    fn typed_int_const(&mut self, bits: u128, ty: &Ty, span: Span) {
+        if let Some(p) = ty.as_prim().filter(|p| p.is_integer()) {
+            self.int_const(bits, p);
+        } else {
+            self.cx.error(
+                ErrorCode::INTERNAL_ERROR,
+                "internal error: an integer constant of a non-integer type reached code generation",
+                span,
+                "the MIR validator admits integer constants of integer types only",
+            );
+            self.ldc_i4(0);
+        }
     }
 
     fn rvalue(&mut self, rvalue: &Rvalue, result_ty: &Ty, span: Span) {
@@ -2467,14 +2475,14 @@ impl FnCx<'_, '_> {
                 let Operand::Constant(Constant {
                     value: ConstValue::Int(i),
                     ty,
-                    ..
+                    span,
                 }) = operand
                 else {
                     unreachable!()
                 };
                 #[allow(clippy::cast_sign_loss)]
                 let bits = i.wrapping_neg() as u128;
-                self.typed_int_const(bits, ty);
+                self.typed_int_const(bits, ty, *span);
             }
             UnOp::Neg if self.checks() => {
                 // `0 - x`, checked like a subtraction: negating the minimum value panics,
@@ -2515,8 +2523,10 @@ impl FnCx<'_, '_> {
     fn binary(&mut self, op: BinOp, lhs: &Operand, rhs: &Operand, span: Span) {
         let lty = lhs.ty(self.body);
         let rty = rhs.ty(self.body);
-        // The operands of a comparison have the same type, so the left one's decides (the
-        // type checker's `check_binary`); only a comparison takes `()` or `&str` operands.
+        // The operands of a comparison have the same type up to the mutability of a
+        // reference (`check_binary`, `check_ref_comparison`), and `is_unit_like` and
+        // `is_str_ref` accept both mutabilities, so the left one's type decides; only a
+        // comparison takes `()` or `&str` operands.
         if op.is_comparison() && types::is_unit_like(&lty) {
             // `()` has one value: `==`, `<=`, `>=` hold, `!=`, `<`, `>` do not. Reading a
             // `()` operand has no effect, so neither is read.

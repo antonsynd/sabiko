@@ -1,6 +1,7 @@
 // Sabiko's E0313 for rustc's E0282. A generic argument left unknown inside a struct or an
 // enum is reported once, at the first binding of that type; its unknown parts become
 // error types (`bind_error`), so the bindings that share them report nothing more.
+// rustc reports only the first of the two (#159).
 enum Opt<T> {
     No,
     Yes(T),
