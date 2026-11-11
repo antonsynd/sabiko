@@ -47,4 +47,49 @@ exclude_re = [
     # test timeout was long enough to let it. Any test that emits a drop glue, an inline
     # array or a by-ref tuple struct would hang, so these are killed, not survivors.
     "replace \\+= with \\*= in Cx<'_>::(drop_glues|inline_array_structs|byref_tuple_structs)$",
+    # sabiko_types: equivalent mutants (#125). Each is argued in docs/TESTING.md, Mutation
+    # testing: run 23's list and run 25's. They change no program's diagnostics, MIR or IL,
+    # so they are excluded rather than counted as survivors. The patterns name the file and
+    # the mutation but not the line, so they survive edits elsewhere in the file; a pattern
+    # that stops matching (code removed or rewritten) only brings the mutant back. Check a
+    # change here with `cargo mutants --list -p sabiko_types` before and after.
+    # Run 23's list: guards only programs the type checker rejects reach, bits that never
+    # overlap, a parenthesised callee's unused type, `!` coercing to anything, and the
+    # older pattern-checking survivors.
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: replace match guard !mutable with true in FnCtxt<'a>::check_pat_in_mode$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: replace match guard self\\.resolve\\.def\\(ctor\\)\\.kind == DefKind::Variant with true in FnCtxt<'a>::check_pat_in_mode$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Some\\(Res::Def\\(def\\)\\) in FnCtxt<'a>::check_pat_in_mode$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: replace match guard self\\.resolve\\.def\\(def\\)\\.kind == DefKind::Struct with true in FnCtxt<'a>::check_pat_in_mode$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: replace > with >= in FnCtxt<'a>::peel_pat_refs$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: delete ! in FnCtxt<'a>::check_call$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm \\(_, Ty::Never\\) in FnCtxt<'a>::check_if$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: replace > with >= in rest_positions$",
+    "sabiko_types/src/consts\\.rs:\\d+:\\d+: replace match guard access\\.autoderefs == 0 && access\\.index < elems\\.len\\(\\) with true in Evaluator<'a, 'b, 'c>::eval_kind$",
+    "sabiko_types/src/consts\\.rs:\\d+:\\d+: replace && with \\|\\| in Evaluator<'a, 'b, 'c>::eval_kind$",
+    "sabiko_types/src/consts\\.rs:\\d+:\\d+: replace < with <= in Evaluator<'a, 'b, 'c>::eval_kind$",
+    "sabiko_types/src/consts\\.rs:\\d+:56: replace \\| with \\^ in binary$",
+    "sabiko_types/src/consts\\.rs:\\d+:\\d+: replace match guard op\\.is_comparison\\(\\) with true in binary$",
+    "sabiko_types/src/consts\\.rs:\\d+:\\d+: replace \\| with \\^ in sign_extend$",
+    "sabiko_types/src/consts\\.rs:\\d+:31: replace match guard p\\.is_integer\\(\\) with true in cast$",
+    "sabiko_types/src/patterns\\.rs:\\d+:\\d+: replace match guard self\\.resolve\\.def\\(def\\)\\.kind == DefKind::Const with true in PatValues<'_, '_>::value$",
+    "sabiko_types/src/patterns\\.rs:\\d+:\\d+: delete match arm \\(ConstValue::Float\\(x\\), ConstValue::Float\\(y\\)\\) in compare$",
+    "sabiko_types/src/patterns\\.rs:\\d+:\\d+: replace < with <= in Exhaustive<'_, '_>::lower_kind$",
+    "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace < with <= in IntRange::intersection$",
+    "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace match guard matches!\\(&\\*self\\.adt\\(\\*def\\), AdtShape::Enum \\{ \\.\\. \\}\\) with true in Checker<'a>::lower$",
+    "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace < with > in Checker<'a>::lower$",
+    # Run 25's list: arms unreachable because no trait block is for a type holding a
+    # reference or an unsized type; guards whose operands always hold; fall-throughs that
+    # give the same answer; `Ty::is_copy`, a fallback for a `Copy` item that always exists;
+    # a fast path; and a wild sub-pattern's type, only checked for errors.
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: replace && with \\|\\| in FnCtxt<'a>::adt_args$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Ty::Infer\\(_\\) in FnCtxt<'a>::may_be_copy_like$",
+    "sabiko_types/src/check\\.rs:\\d+:\\d+: delete match arm Ty::Array\\(elem, _\\) in FnCtxt<'a>::may_be_copy_like$",
+    "sabiko_types/src/patterns\\.rs:\\d+:\\d+: replace match guard crate::consts::is_assoc_const\\(self\\.resolve, def\\) with true in PatValues<'_, '_>::value$",
+    "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace \\+ with \\* in ItemTypes::builtin_impl$",
+    "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(p\\) with true in walk$",
+    "sabiko_types/src/traits\\.rs:\\d+:\\d+: replace match guard vars\\.contains\\(p\\) with true in unify$",
+    "sabiko_types/src/traits\\.rs:\\d+:\\d+: delete match arm \\(Ty::Slice\\(li\\), Ty::Slice\\(ri\\)\\) in unify$",
+    "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace Ty::is_copy -> bool with false$",
+    "sabiko_types/src/ty\\.rs:\\d+:\\d+: delete ! in Ty::is_copy$",
+    "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace \\|\\| with && in Ty::subst$",
 ]

@@ -239,7 +239,7 @@ fn match_ty(pat: &Ty, ty: &Ty, params: &[DefId], bound: &mut [Option<Ty>]) -> bo
         }
     }
     match (pat, ty) {
-        (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && match_ty(a, b, params, bound),
+        (Ty::Ref(m1, a), Ty::Ref(m2, b)) if m1 == m2 => match_ty(a, b, params, bound),
         (Ty::Array(a, n), Ty::Array(b, m)) => n == m && match_ty(a, b, params, bound),
         (Ty::Slice(a), Ty::Slice(b)) => match_ty(a, b, params, bound),
         (Ty::Tuple(a), Ty::Tuple(b)) => {
@@ -286,11 +286,11 @@ fn unify(left: &Ty, right: &Ty, vars: &[DefId], subst: &mut HashMap<DefId, Ty>) 
             }
             true
         }
-        (_, Ty::Param(p)) if vars.contains(p) => {
-            subst.insert(*p, left.clone());
+        (_, Ty::Param(q)) if vars.contains(q) => {
+            subst.insert(*q, left.clone());
             true
         }
-        (Ty::Ref(lm, li), Ty::Ref(rm, ri)) => lm == rm && unify(li, ri, vars, subst),
+        (Ty::Ref(lm, li), Ty::Ref(rm, ri)) if lm == rm => unify(li, ri, vars, subst),
         (Ty::Array(li, ln), Ty::Array(ri, rn)) => ln == rn && unify(li, ri, vars, subst),
         (Ty::Slice(li), Ty::Slice(ri)) => unify(li, ri, vars, subst),
         (Ty::Tuple(ls), Ty::Tuple(rs)) => {
