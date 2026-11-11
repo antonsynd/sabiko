@@ -67,22 +67,25 @@ pub fn instance_name(
             };
             let tr = resolve
                 .impl_trait(imp)
-                .map_or("?", |t| resolve.def(t).name.as_str());
-            format!("<{} as {tr}>::{}", self_ty.display(resolve), info.name)
+                .map_or_else(|| "?".to_owned(), |t| resolve.symbol_name(t));
+            format!("<{} as {tr}>::{}", self_ty.symbol(resolve), info.name)
         }
         Some((tr, DefKind::Trait)) => match args.first() {
             Some(self_ty) => format!(
                 "<{} as {}>::{}",
-                self_ty.display(resolve),
-                resolve.def(tr).name,
+                self_ty.symbol(resolve),
+                resolve.symbol_name(tr),
                 info.name
             ),
-            None => format!("{}::{}", resolve.def(tr).name, info.name),
+            None => format!("{}::{}", resolve.symbol_name(tr), info.name),
         },
-        _ => info.name.clone(),
+        // A function of a struct's or enum's `impl` block lives in its class, which names
+        // the type; a free function of the prelude lives in the module class.
+        _ if info.parent.is_some() => info.name.clone(),
+        _ => resolve.symbol_name(def),
     };
     if !own.is_empty() {
-        let own: Vec<String> = own.iter().map(|t| t.display(resolve)).collect();
+        let own: Vec<String> = own.iter().map(|t| t.symbol(resolve)).collect();
         name = format!("{name}<{}>", own.join(", "));
     }
     name
@@ -146,6 +149,11 @@ pub fn monomorphize(
                     .with_note("each call instantiates the function at a larger type, without end"),
                 );
                 // The chain stops here; other instances are still made.
+                continue;
+            }
+            // A prelude intrinsic has no instances: code generation lowers its calls
+            // (decision 90).
+            if resolve.intrinsic(def).is_some() {
                 continue;
             }
             // A generic function whose body has errors was not built; nothing calls it
@@ -226,6 +234,7 @@ fn builtin_clone(
         args,
         destination,
         target,
+        ..
     } = &term.kind
     else {
         return None;

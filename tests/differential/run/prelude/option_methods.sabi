@@ -1,0 +1,94 @@
+// The `core` prelude's `Option<T>`: constructors without a path, patterns, and the
+// methods `is_some`, `is_none`, `unwrap`, `expect` and `unwrap_or`, at several types.
+#[derive(Copy, Clone)]
+struct Point {
+    X: i32,
+    Y: i32,
+}
+
+fn Find(values: [i32; 4], wanted: i32) -> Option<usize> {
+    let mut i = 0;
+    while i < 4 {
+        if values[i] == wanted {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn Describe(o: Option<i32>) {
+    match o {
+        Some(n) if n < 0 => PrintLine("negative"),
+        Some(0) => PrintLine("zero"),
+        Some(n) => PrintLine(n),
+        None => PrintLine("none"),
+    }
+}
+
+fn Main() {
+    let a = Some(5);
+    let b: Option<i32> = None;
+    PrintLine(a.is_some());
+    PrintLine(a.is_none());
+    PrintLine(b.is_some());
+    PrintLine(b.is_none());
+    PrintLine(a.unwrap());
+    PrintLine(a.expect("a is set"));
+    PrintLine(b.unwrap_or(-1));
+    PrintLine(a.unwrap_or(-1));
+    Describe(Some(-3));
+    Describe(Some(0));
+    Describe(a);
+    Describe(b);
+    Describe(None);
+
+    let values = [4, 8, 15, 16];
+    match Find(values, 15) {
+        Some(i) => PrintLine(i),
+        None => PrintLine("missing"),
+    }
+    PrintLine(Find(values, 23).is_none());
+    if let Some(i) = Find(values, 16) {
+        PrintLine(values[i]);
+    }
+    let Some(first) = Find(values, 4) else {
+        return;
+    };
+    PrintLine(first);
+
+    let p = Some(Point { X: 1, Y: 2 });
+    let q = p.unwrap();
+    PrintLine(q.X + q.Y);
+    PrintLine(p.is_some());
+
+    let nested: Option<Option<bool>> = Some(None);
+    match nested {
+        Some(Some(v)) => PrintLine(v),
+        Some(None) => PrintLine("some none"),
+        None => PrintLine("none"),
+    }
+    PrintLine(nested.unwrap().unwrap_or(true));
+
+    let pair = Some((3u8, 'x'));
+    let (n, c) = pair.unwrap();
+    PrintLine(n);
+    PrintLine(c);
+    let typed = None::<i64>;
+    PrintLine(typed.unwrap_or(9));
+    let qualified = Option::Some(2.5);
+    PrintLine(qualified.unwrap());
+    let none = Option::<u16>::None;
+    PrintLine(none.is_none());
+
+    let mut count = 0;
+    let mut next = Some(3);
+    while let Some(n) = next {
+        count += n;
+        next = if n > 0 { Some(n - 1) } else { None };
+    }
+    PrintLine(count);
+    let copied = a;
+    PrintLine(copied.unwrap() + a.unwrap());
+    PrintLine(a.clone().unwrap());
+}

@@ -273,6 +273,9 @@ impl Printer {
                 }
                 self.members(&t.items);
             }
+            ItemKind::Use(u) => {
+                let _ = writeln!(self.out, "use {};", crate::dump::use_text(u));
+            }
         }
     }
 
@@ -325,6 +328,7 @@ impl Printer {
                 self.out.push(']');
             }
             TypeKind::Infer => self.out.push('_'),
+            TypeKind::Never => self.out.push('!'),
         }
     }
 

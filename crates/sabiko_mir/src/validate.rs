@@ -720,6 +720,7 @@ impl Validator<'_> {
                 args,
                 destination,
                 target,
+                ..
             } => {
                 if let Some(builtin @ (Builtin::Print | Builtin::PrintLine)) =
                     self.typeck.items.builtin(*func)

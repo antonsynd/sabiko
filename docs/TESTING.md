@@ -175,6 +175,21 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   50, `let` = `match` 50, string `match` arms 50, guarded string bindings 12, `while i <
   s.len()` 85, extension through a `match` 38).
 
+  The `core` prelude (#13, decision 90): the programs with exactly one of the two helper
+  sets (`program.prelude`, derived without a draw of its own, so the other programs keep
+  their bodies) wrap a value in `Some(e).unwrap()`, `Some(e).expect("generated")`,
+  `Ok::<T, u8>(e).unwrap()` or `Err::<u8, T>(e).unwrap_err()` (all `e`),
+  `Some(a).unwrap_or(b)` (both evaluated and moved, `b` dropped inside the call, as
+  `GenOr(GenOpt::Yes(a), b)`) or `None::<T>.unwrap_or(b)`, and a shared reference in
+  `Some(&*r).unwrap()`, an `Option<&T>` instance (a `&mut` local passed to `Some` would be
+  moved, since `T` is not a reference to reborrow into; Sabiko reborrows it, #132). None
+  of them panics. `programs_use_the_prelude` pins 5 programs of 500 for each form. The
+  changed draws lowered four unrelated usage counts, whose thresholds went down with them
+  (`let` = `match` 40, `while i < s.len()` 70, string or-patterns 85, shrinking a `&str`
+  20). Every harness that runs the front end itself (the MIR and IL snapshots, the layout
+  test, `validate_corpus`, the generator's `reorder` and `validity`) appends the prelude
+  as the driver does (`sabiko_parser::prelude::add_core_prelude`, `parse_program`).
+
   Strings and range indexing (#10, `body/strings.rs`, `body/arrays.rs`): `&str` locals
   (a plain one lives to the end of its block, since a slice of `*s` borrows the string,
   not `s`; one carrying the loan of a `&mut self` method's result gets a region),

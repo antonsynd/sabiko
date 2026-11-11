@@ -919,8 +919,9 @@ impl Exhaustive<'_, '_> {
         {
             return match self.resolve.def(def).kind {
                 DefKind::Const => self.value(pat),
+                // An imported unit variant (the prelude's `None`).
                 _ => K::Ctor {
-                    variant: None,
+                    variant: self.body.pat_variants.get(&pat.id).map(|&(_, i)| i),
                     fields: Vec::new(),
                 },
             };

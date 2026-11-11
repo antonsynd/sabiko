@@ -266,6 +266,29 @@ impl LangItem {
     }
 }
 
+/// A function of the `core` prelude that the compiler implements (decision 90): declared
+/// in Sabiko with `#[intrinsic]` and a placeholder body, so resolution, type checking and
+/// borrow checking treat it as an ordinary generic function; monomorphisation makes no
+/// instance of it and code generation lowers each call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Intrinsic {
+    /// `fn PanicDebug<T: Debug>(msg: &str, value: &T) -> !`: panics with `"{msg}:
+    /// {value:?}"`, as `Result::unwrap` does (rustc's `unwrap_failed`).
+    PanicDebug,
+}
+
+impl Intrinsic {
+    pub const ALL: [Intrinsic; 1] = [Self::PanicDebug];
+
+    /// The function's name in the prelude.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::PanicDebug => "PanicDebug",
+        }
+    }
+}
+
 /// An associated constant of a primitive type (`i32::MAX`, `f64::EPSILON`, #48). Each one
 /// used gets a [`DefKind::Const`] definition of its own, with no source item: the type
 /// checker supplies its type and value.
@@ -431,6 +454,16 @@ pub struct ResolveResults {
     /// type (a struct, a primitive, a type parameter, a trait `impl` block for `Self`), or
     /// the trait itself for `Trait::Name`. The type checker takes `Self` from it.
     assoc_self: HashMap<NodeId, Res>,
+    /// The index of the first item of the `core` prelude in the file's items (decision
+    /// 89); the number of items when there is no prelude.
+    prelude_start: usize,
+    /// The functions marked `#[track_caller]`: their panics report their caller's
+    /// location, which code generation passes them as a hidden last argument.
+    track_caller: std::collections::HashSet<DefId>,
+    /// The prelude's intrinsics (`#[intrinsic]`), whose calls code generation lowers
+    /// itself; their bodies are never used.
+    #[allow(clippy::zero_sized_map_values)] // One intrinsic so far; more will come.
+    intrinsics: HashMap<DefId, Intrinsic>,
     /// Identifier patterns that name a constant or a unit struct instead of binding
     /// (`LIMIT => ..`), and the path of every path, tuple-struct and struct pattern, keyed
     /// by the `Pat` node.
@@ -699,6 +732,45 @@ impl ResolveResults {
         self.def(def).builtin
     }
 
+    /// Whether `def` is defined by the `core` prelude (decision 90), not by the user's
+    /// file. Builtins and language traits are neither.
+    #[must_use]
+    pub fn is_prelude(&self, def: DefId) -> bool {
+        let index = self.def(def).item_index;
+        index != usize::MAX && index >= self.prelude_start
+    }
+
+    /// The name of `def` in the names of generated code: its name, qualified as
+    /// `core::Name` for an item of the prelude (decision 90), so a user item of the same
+    /// name never collides with it.
+    #[must_use]
+    pub fn symbol_name(&self, def: DefId) -> String {
+        let name = &self.def(def).name;
+        if self.is_prelude(def) {
+            format!("core::{name}")
+        } else {
+            name.clone()
+        }
+    }
+
+    /// The index of the prelude's first item among the file's items.
+    #[must_use]
+    pub fn prelude_start(&self) -> usize {
+        self.prelude_start
+    }
+
+    /// Whether the function `def` is `#[track_caller]`.
+    #[must_use]
+    pub fn is_track_caller(&self, def: DefId) -> bool {
+        self.track_caller.contains(&def)
+    }
+
+    /// The intrinsic the prelude function `def` declares, if it is one.
+    #[must_use]
+    pub fn intrinsic(&self, def: DefId) -> Option<Intrinsic> {
+        self.intrinsics.get(&def).copied()
+    }
+
     /// The resolution recorded for a type, path expression or struct literal node.
     /// Panics if the node is not one of those: every such node gets an entry, `Res::Err`
     /// when resolution failed.
@@ -737,10 +809,30 @@ impl ResolveResults {
 /// errors occurred (failed resolutions are `Res::Err`).
 #[must_use]
 pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
+    resolve_program(file, file.items.len(), sink)
+}
+
+/// Resolves every name in `file`, whose items from `prelude_start` on are the `core`
+/// prelude's (decision 90). The prelude's items resolve in a namespace of their own (its
+/// items, its `use` imports, the builtins and the language traits), so a user item never
+/// changes what prelude code means; the user's items see their own first, then the
+/// prelude's public items and imports, then the builtins and language traits, so a user
+/// item of the same name shadows a prelude item silently, as in rustc.
+#[must_use]
+pub fn resolve_program(
+    file: &SourceFile,
+    prelude_start: usize,
+    sink: &mut DiagnosticSink,
+) -> ResolveResults {
     let mut r = Resolver {
-        results: ResolveResults::default(),
+        results: ResolveResults {
+            prelude_start,
+            ..ResolveResults::default()
+        },
         unit_structs: std::collections::HashSet::new(),
         items: HashMap::new(),
+        other_items: HashMap::new(),
+        in_prelude: false,
         scopes: Vec::new(),
         sink,
         current_fn: None,
@@ -755,10 +847,15 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
     r.collect_impl_defs(file);
     r.collect_generics(file);
     r.collect_impls(file);
+    r.enter_namespace(false);
     r.collect_bounds(file);
+    r.enter_namespace(false);
     for (index, item) in file.items.iter().enumerate() {
+        r.enter(index);
         r.resolve_item(item, index);
     }
+    r.enter_namespace(false);
+    r.collect_fn_attrs(file);
     r.results
 }
 
@@ -776,8 +873,13 @@ struct Resolver<'d> {
     results: ResolveResults,
     /// The unit structs of the file, which a lone identifier in a pattern names.
     unit_structs: std::collections::HashSet<DefId>,
-    /// First definition of each item name.
+    /// First definition of each item name, in the namespace of the item being resolved:
+    /// the user's file or the prelude (decision 90).
     items: HashMap<String, DefId>,
+    /// The other namespace; [`Resolver::enter`] swaps the two.
+    other_items: HashMap<String, DefId>,
+    /// Whether `items` is the prelude's namespace.
+    in_prelude: bool,
     scopes: Vec<Vec<(String, LocalId)>>,
     sink: &'d mut DiagnosticSink,
     current_fn: Option<DefId>,
@@ -819,9 +921,103 @@ impl Resolver<'_> {
         id
     }
 
+    /// Reads the attributes of every function that change how it is compiled:
+    /// `#[track_caller]` (any function but a trait's member and `Drop::drop`, which are
+    /// E0107 for now) and, in the prelude, `#[intrinsic]`.
+    fn collect_fn_attrs(&mut self, file: &SourceFile) {
+        for (index, item) in file.items.iter().enumerate() {
+            let in_prelude = index >= self.results.prelude_start;
+            let (members, in_trait): (&[Item], bool) = match &item.kind {
+                ItemKind::Fn(_) => (std::slice::from_ref(item), false),
+                ItemKind::Impl(imp) => (&imp.items, false),
+                ItemKind::Trait(t) => (&t.items, true),
+                _ => continue,
+            };
+            for member in members {
+                if !matches!(member.kind, ItemKind::Fn(_)) {
+                    continue;
+                }
+                for attr in &member.attrs {
+                    if !attr.path.is_single() {
+                        continue;
+                    }
+                    match attr.path.segments[0].name.as_str() {
+                        "track_caller" => self.track_caller_attr(member, attr, in_trait),
+                        "intrinsic" => self.intrinsic_attr(member, attr, in_prelude),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    fn track_caller_attr(&mut self, f: &Item, attr: &sabiko_ast::Attribute, in_trait: bool) {
+        let def = self.results.def_of_item(f.id);
+        let is_drop = self
+            .results
+            .def(def)
+            .parent
+            .and_then(|p| self.results.impl_trait(p))
+            .is_some_and(|tr| self.results.lang_of(tr) == Some(LangItem::Drop));
+        if in_trait || is_drop {
+            let what = if in_trait {
+                "a trait's method"
+            } else {
+                "`Drop::drop`"
+            };
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::UNSUPPORTED_SYNTAX,
+                    format!("not yet supported: `#[track_caller]` on {what}"),
+                )
+                .with_label(attr.span, "only free functions and the methods of `impl` blocks can track their caller for now"),
+            );
+            return;
+        }
+        self.results.track_caller.insert(def);
+    }
+
+    fn intrinsic_attr(&mut self, f: &Item, attr: &sabiko_ast::Attribute, in_prelude: bool) {
+        let def = self.results.def_of_item(f.id);
+        let name = &self.results.def(def).name;
+        match Intrinsic::ALL.iter().find(|i| i.name() == name) {
+            Some(&intrinsic) if in_prelude => {
+                self.results.intrinsics.insert(def, intrinsic);
+            }
+            _ => {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::UNSUPPORTED_SYNTAX,
+                        "the `#[intrinsic]` attribute is reserved for the `core` library",
+                    )
+                    .with_label(attr.span, "not an intrinsic the compiler knows"),
+                );
+            }
+        }
+    }
+
+    /// Makes `items` the namespace of the item at `index`: the user's or the prelude's.
+    fn enter(&mut self, index: usize) {
+        self.enter_namespace(index >= self.results.prelude_start);
+    }
+
+    /// Makes `items` the prelude's namespace (`prelude`) or the user's.
+    fn enter_namespace(&mut self, prelude: bool) {
+        if prelude != self.in_prelude {
+            std::mem::swap(&mut self.items, &mut self.other_items);
+            self.in_prelude = prelude;
+        }
+    }
+
+    fn has_prelude(&self, file: &SourceFile) -> bool {
+        self.results.prelude_start < file.items.len()
+    }
+
     fn collect_items(&mut self, file: &SourceFile) {
         for (index, item) in file.items.iter().enumerate() {
+            self.enter(index);
             let kind = match &item.kind {
+                ItemKind::Use(_) => continue,
                 ItemKind::Fn(_) => DefKind::Fn,
                 ItemKind::Struct(_) => DefKind::Struct,
                 ItemKind::Const(_) => DefKind::Const,
@@ -894,10 +1090,27 @@ impl Resolver<'_> {
                 self.items.insert(name.name.clone(), id);
             }
         }
-        // Builtins come last so user items keep the `DefId`s they would have without
-        // them. A user item of the same name shadows the builtin without a diagnostic.
+        // The prelude's imports, with its items known (decision 90).
+        let prelude = self.has_prelude(file);
+        if prelude {
+            self.enter_namespace(true);
+            self.collect_uses(file);
+        }
+        self.enter_namespace(false);
+        self.collect_builtins(prelude);
+        self.collect_lang_items();
+        if prelude {
+            self.export_prelude(file);
+        }
+    }
+
+    /// The builtins (decision 28). They come after the items so user items keep the
+    /// `DefId`s they would have without them. A user item of the same name shadows a
+    /// builtin without a diagnostic; the prelude (`prelude`) still sees the builtin.
+    fn collect_builtins(&mut self, prelude: bool) {
         for builtin in Builtin::ALL {
-            if self.items.contains_key(builtin.name()) {
+            let shadowed = self.items.contains_key(builtin.name());
+            if shadowed && !prelude {
                 continue;
             }
             let id = self.new_def(DefInfo {
@@ -910,9 +1123,114 @@ impl Resolver<'_> {
                 parent: None,
                 builtin: Some(builtin),
             });
-            self.items.insert(builtin.name().to_owned(), id);
+            if !shadowed {
+                self.items.insert(builtin.name().to_owned(), id);
+            }
+            self.other_items
+                .entry(builtin.name().to_owned())
+                .or_insert(id);
         }
-        self.collect_lang_items();
+    }
+
+    /// Brings the prelude's public items and imports into the user's namespace, under
+    /// the user's own items (decision 90): rustc's `std` prelude is a glob import, which
+    /// any item of the crate shadows.
+    fn export_prelude(&mut self, file: &SourceFile) {
+        debug_assert!(!self.in_prelude);
+        let mut exports: Vec<(String, DefId)> = Vec::new();
+        for item in &file.items[self.results.prelude_start..] {
+            if item.vis != sabiko_ast::Visibility::Public {
+                continue;
+            }
+            match &item.kind {
+                ItemKind::Use(u) => {
+                    for name in &u.names {
+                        if let Some(&def) = self.other_items.get(&name.name) {
+                            exports.push((name.name.clone(), def));
+                        }
+                    }
+                }
+                ItemKind::Impl(_) => {}
+                _ => {
+                    if let Some(def) = self.results.item_defs.get(&item.id) {
+                        let name = item.name().expect("only `impl` and `use` have no name");
+                        exports.push((name.name.clone(), *def));
+                    }
+                }
+            }
+        }
+        for (name, def) in exports {
+            self.items.entry(name).or_insert(def);
+        }
+    }
+
+    /// The prelude's `use` declarations: each names the variants of an enum of the
+    /// prelude (`use Option::{None, Some};`), which enter the prelude's namespace. The
+    /// prelude is the compiler's own source, so a `use` it cannot resolve is an internal
+    /// error, reported as an unresolved name.
+    fn collect_uses(&mut self, file: &SourceFile) {
+        debug_assert!(self.in_prelude);
+        for item in &file.items[self.results.prelude_start..] {
+            let ItemKind::Use(u) = &item.kind else {
+                continue;
+            };
+            let owner = if u.prefix.is_single() {
+                self.items
+                    .get(&u.prefix.segments[0].name)
+                    .copied()
+                    .filter(|&d| self.results.def(d).kind == DefKind::Enum)
+            } else {
+                None
+            };
+            let Some(owner) = owner else {
+                self.sink.emit(
+                    Diagnostic::error(
+                        ErrorCode::UNRESOLVED_TYPE,
+                        format!(
+                            "cannot find enum `{}` to import from",
+                            sabiko_ast::dump::path_text(&u.prefix, "")
+                        ),
+                    )
+                    .with_label(
+                        u.prefix.span,
+                        "only the variants of an enum can be imported",
+                    ),
+                );
+                continue;
+            };
+            for name in &u.names {
+                let Some(variant) = self.variant(owner, &name.name) else {
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::UNRESOLVED_VALUE,
+                            format!(
+                                "no variant `{}` in enum `{}`",
+                                name.name,
+                                self.results.def(owner).name
+                            ),
+                        )
+                        .with_label(name.span, "not found"),
+                    );
+                    continue;
+                };
+                if let Some(&first) = self.items.get(&name.name) {
+                    let first_span = self.results.def(first).span;
+                    self.sink.emit(
+                        Diagnostic::error(
+                            ErrorCode::DUPLICATE_DEFINITION,
+                            format!("the name `{}` is defined multiple times", name.name),
+                        )
+                        .with_label(name.span, format!("`{}` reimported here", name.name))
+                        .with_label(
+                            first_span,
+                            format!("previous definition of `{}` here", name.name),
+                        ),
+                    );
+                    continue;
+                }
+                self.items.insert(name.name.clone(), variant);
+            }
+        }
     }
 
     /// The language traits (decision 86), each with its `Self` parameter and its method,
@@ -964,6 +1282,7 @@ impl Resolver<'_> {
             if !self.items.contains_key(item.name()) {
                 self.items.insert(item.name().to_owned(), tr);
             }
+            self.other_items.entry(item.name().to_owned()).or_insert(tr);
         }
         let clone = self.results.lang_items[&LangItem::Clone];
         let copy = self.results.lang_items[&LangItem::Copy];
@@ -1093,7 +1412,7 @@ impl Resolver<'_> {
                         self.inherit_generics_of(def, tr);
                     }
                 }
-                ItemKind::Const(_) => {}
+                ItemKind::Const(_) | ItemKind::Use(_) => {}
             }
         }
     }
@@ -1193,6 +1512,7 @@ impl Resolver<'_> {
         // The first definition of each `(struct, name)`, with the index of its block.
         let mut first: HashMap<(DefId, String), (DefId, usize)> = HashMap::new();
         for (index, item) in file.items.iter().enumerate() {
+            self.enter(index);
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
@@ -1504,6 +1824,7 @@ impl Resolver<'_> {
     /// supertraits. An inherent `impl` block's bounds become each of its functions'.
     fn collect_bounds(&mut self, file: &SourceFile) {
         for (index, item) in file.items.iter().enumerate() {
+            self.enter(index);
             match &item.kind {
                 ItemKind::Fn(f) => {
                     let def = self.results.def_of_item(item.id);
@@ -1561,7 +1882,8 @@ impl Resolver<'_> {
                     }
                     self.impl_scope = ImplScope::Outside;
                 }
-                ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Const(_) => {}
+                ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Const(_) | ItemKind::Use(_) => {
+                }
             }
         }
         self.ty_params.clear();
@@ -1837,6 +2159,10 @@ impl Resolver<'_> {
     }
 
     fn resolve_item(&mut self, item: &Item, index: usize) {
+        if let ItemKind::Use(_) = &item.kind {
+            // Resolved with the items (`collect_uses`).
+            return;
+        }
         if let ItemKind::Trait(t) = &item.kind {
             let tr = self.results.def_of_item(item.id);
             self.impl_scope = ImplScope::Trait(tr);
@@ -1888,7 +2214,9 @@ impl Resolver<'_> {
             .map(|&p| (self.results.def(p).name.clone(), p))
             .collect();
         match &item.kind {
-            ItemKind::Impl(_) | ItemKind::Trait(_) => unreachable!("handled above"),
+            ItemKind::Impl(_) | ItemKind::Trait(_) | ItemKind::Use(_) => {
+                unreachable!("handled above")
+            }
             ItemKind::Fn(f) => self.resolve_fn(def, f),
             ItemKind::Struct(s) => {
                 if let StructKind::Named(fields) = &s.kind {
@@ -2121,7 +2449,12 @@ impl Resolver<'_> {
                 }
             }
             PatKind::TupleStruct(path, elems) => {
-                let res = if path.is_single() {
+                let imported = path.is_single()
+                    && self
+                        .items
+                        .get(&path.segments[0].name)
+                        .is_some_and(|&d| self.results.def(d).kind == DefKind::Variant);
+                let res = if path.is_single() && !imported {
                     self.unknown_tuple_variant(path)
                 } else {
                     self.resolve_value_path(path)
@@ -2256,7 +2589,9 @@ impl Resolver<'_> {
         let &def = self.items.get(name)?;
         let info = self.results.def(def);
         match info.kind {
-            DefKind::Const => Some(Res::Def(def)),
+            // A variant is only in the namespace when a `use` imported it (the prelude's
+            // `None`); one that is not a unit variant is then the type checker's E0326.
+            DefKind::Const | DefKind::Variant => Some(Res::Def(def)),
             DefKind::Struct if self.unit_structs.contains(&def) => Some(Res::Def(def)),
             _ => None,
         }
@@ -2315,7 +2650,7 @@ impl Resolver<'_> {
                     self.resolve_type(t, in_signature);
                 }
             }
-            TypeKind::Unit => {}
+            TypeKind::Unit | TypeKind::Never => {}
             TypeKind::Infer => {
                 if in_signature {
                     self.sink.emit(
@@ -2655,9 +2990,10 @@ impl Resolver<'_> {
             let info = self.results.def(def);
             return match info.kind {
                 // Unit structs are values; the type checker rejects named structs used
-                // as values, since it knows the struct's shape.
-                DefKind::Fn | DefKind::Const | DefKind::Struct => Res::Def(def),
-                kind @ (DefKind::Enum | DefKind::Variant | DefKind::Trait) => {
+                // as values, since it knows the struct's shape. A variant is only in the
+                // namespace when a `use` imported it (the prelude's `Some`).
+                DefKind::Fn | DefKind::Const | DefKind::Struct | DefKind::Variant => Res::Def(def),
+                kind @ (DefKind::Enum | DefKind::Trait) => {
                     let mut d = Diagnostic::error(
                         ErrorCode::WRONG_NAMESPACE,
                         format!("expected value, found {} `{}`", kind.describe(), name.name),

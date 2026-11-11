@@ -257,7 +257,7 @@ fn signature_lens(
             }
             ItemKind::Const(c) => types.push(&c.ty),
             ItemKind::Impl(imp) => types.push(&imp.self_ty),
-            ItemKind::Trait(_) => {}
+            ItemKind::Trait(_) | ItemKind::Use(_) => {}
         }
     }
     let mut lens = collect::ArrayLens::new();
@@ -281,6 +281,7 @@ fn signature_lens(
             sabiko_ast::TypeKind::Tuple(elems) => stack.extend(elems.iter().rev()),
             sabiko_ast::TypeKind::Path(_)
             | sabiko_ast::TypeKind::Unit
+            | sabiko_ast::TypeKind::Never
             | sabiko_ast::TypeKind::Infer => {}
         }
     }

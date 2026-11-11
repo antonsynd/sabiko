@@ -505,6 +505,7 @@ impl<'a> FnCtxt<'a> {
     fn lower_type_unchecked(&mut self, ty: &Type) -> Ty {
         match &ty.kind {
             TypeKind::Infer => self.infer.new_var(VarKind::General),
+            TypeKind::Never => Ty::Never,
             TypeKind::Ref { mutable, inner } => {
                 let inner = self.lower_type_unchecked(inner);
                 Ty::Ref(Mutability::from_bool(*mutable), Box::new(inner))
@@ -4036,9 +4037,22 @@ impl<'a> FnCtxt<'a> {
                         ob.span,
                         format!("the trait `{trait_name}` is not implemented for `{shown}`"),
                     );
-                    if let Ty::Param(_) = ty {
+                    let prelude = self.resolve.is_prelude(ob.trait_);
+                    if let (Ty::Param(_), false) = (&ty, prelude) {
                         d = d.with_note(format!(
                             "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+                        ));
+                    } else if let Ty::Param(_) = ty {
+                        // The prelude's traits are its own (Rust's `std::fmt::Debug` is
+                        // outside its prelude), and a path cannot name one yet.
+                        d = d.with_note(format!(
+                            "a bound cannot name `{trait_name}` yet: it is not in the prelude, and paths to other modules arrive with Phase 9"
+                        ));
+                    } else if prelude {
+                        // rustc's standard library implements its traits for more types
+                        // than Sabiko's `core` prelude does so far (decision 90).
+                        d = d.with_note(format!(
+                            "Sabiko's `core` library implements `{trait_name}` only for some types so far (see `library/core`)"
                         ));
                     }
                     self.error(d);

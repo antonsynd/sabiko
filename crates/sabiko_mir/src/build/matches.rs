@@ -214,8 +214,8 @@ impl Builder<'_> {
         (variant, out)
     }
 
-    /// Whether an identifier pattern compares (a constant or a unit struct) instead of
-    /// binding, or an assignee does (a unit struct or variant).
+    /// Whether an identifier pattern compares (a constant, a unit struct or an imported
+    /// unit variant) instead of binding, or an assignee does (a unit struct or variant).
     fn ident_is_path(&self, pat: &Pat) -> bool {
         matches!(pat.kind, PatKind::Ident { .. } | PatKind::Assignee(_))
             && self.resolve.pat_res(pat.id).is_some()
@@ -228,7 +228,13 @@ impl Builder<'_> {
     fn test_pat(&mut self, pat: &Pat, place: &Place, choice: &Choice, fail: BasicBlock) {
         if self.ident_is_path(pat) {
             let place = self.pat_place(pat, place.clone());
-            self.test_value(pat, &place, fail);
+            // A lone identifier naming an imported unit variant (the prelude's `None`)
+            // tests like a path pattern.
+            if let Some(&(adt, index)) = self.types.pat_variants.get(&pat.id) {
+                self.test_variant(&place, adt, index, fail, pat.span);
+            } else {
+                self.test_value(pat, &place, fail);
+            }
             return;
         }
         match &pat.kind {

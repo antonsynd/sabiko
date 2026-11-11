@@ -1,0 +1,27 @@
+// A `Panic` two `#[track_caller]` functions deep reports the outermost call, and an
+// `unwrap` inside a `#[track_caller]` function reports that function's caller too.
+#[track_caller]
+fn Positive(n: i32) -> i32 {
+    if n <= 0 {
+        Panic("not positive");
+    }
+    n
+}
+
+#[track_caller]
+fn Twice(n: i32) -> i32 {
+    Positive(n) * 2
+}
+
+#[track_caller]
+fn Get(o: Option<i32>) -> i32 {
+    o.unwrap()
+}
+
+fn Main() {
+    PrintLine(Get(Some(3)));
+    PrintLine(Twice(1));
+    PrintLine(
+        Twice(0),
+    );
+}

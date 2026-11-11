@@ -232,25 +232,42 @@ impl Ty {
     #[must_use]
     pub fn display(&self, resolve: &ResolveResults) -> String {
         let mut out = String::new();
-        self.write(resolve, &mut out);
+        self.write(resolve, &mut out, false);
         out
     }
 
-    fn write(&self, resolve: &ResolveResults, out: &mut String) {
+    /// Renders the type as the names of generated code see it: like [`Ty::display`], with
+    /// the `core` prelude's items qualified (`core::Option<i32>`), so that a user type of
+    /// the same name never gives an instance the same name (decision 90).
+    #[must_use]
+    pub fn symbol(&self, resolve: &ResolveResults) -> String {
+        let mut out = String::new();
+        self.write(resolve, &mut out, true);
+        out
+    }
+
+    fn write(&self, resolve: &ResolveResults, out: &mut String, symbol: bool) {
+        let name = |d: DefId| {
+            if symbol {
+                resolve.symbol_name(d)
+            } else {
+                resolve.def(d).name.clone()
+            }
+        };
         match self {
             Ty::Prim(p) => out.push_str(p.name()),
             Ty::Unit => out.push_str("()"),
             Ty::Never => out.push('!'),
             Ty::Param(d) => out.push_str(&resolve.def(*d).name),
             Ty::Adt(d, args) => {
-                out.push_str(&resolve.def(*d).name);
+                out.push_str(&name(*d));
                 if !args.is_empty() {
                     out.push('<');
                     for (i, a) in args.iter().enumerate() {
                         if i > 0 {
                             out.push_str(", ");
                         }
-                        a.write(resolve, out);
+                        a.write(resolve, out, symbol);
                     }
                     out.push('>');
                 }
@@ -258,7 +275,7 @@ impl Ty {
             Ty::Ref(m, inner) => {
                 out.push('&');
                 out.push_str(m.prefix_str());
-                inner.write(resolve, out);
+                inner.write(resolve, out, symbol);
             }
             Ty::Tuple(elems) => {
                 out.push('(');
@@ -266,7 +283,7 @@ impl Ty {
                     if i > 0 {
                         out.push_str(", ");
                     }
-                    e.write(resolve, out);
+                    e.write(resolve, out, symbol);
                 }
                 if elems.len() == 1 {
                     out.push(',');
@@ -275,14 +292,14 @@ impl Ty {
             }
             Ty::Array(elem, n) => {
                 out.push('[');
-                elem.write(resolve, out);
+                elem.write(resolve, out, symbol);
                 out.push_str("; ");
                 out.push_str(&n.to_string());
                 out.push(']');
             }
             Ty::Slice(elem) => {
                 out.push('[');
-                elem.write(resolve, out);
+                elem.write(resolve, out, symbol);
                 out.push(']');
             }
             Ty::FnDef(d) => {

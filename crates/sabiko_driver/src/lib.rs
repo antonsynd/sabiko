@@ -145,7 +145,12 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
             out
         }
         Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir | Emit::MirElaborated | Emit::Il => {
-            let ast = sabiko_parser::parse_file(file, src, &mut sink);
+            let (mut ast, next_id) = sabiko_parser::parse_file_with(
+                file,
+                src,
+                sabiko_parser::ParseOptions::default(),
+                &mut sink,
+            );
             match options.emit {
                 Emit::Ast => sabiko_ast::dump::dump(&ast),
                 Emit::Pretty => sabiko_ast::pretty::pretty(&ast),
@@ -155,7 +160,14 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                     // for names defined inside them would only add noise.
                     let mut output = String::new();
                     if options.stop_after > Stage::Parse && !sink.has_errors() {
-                        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+                        let prelude_start = sabiko_parser::prelude::add_core_prelude(
+                            &mut ast,
+                            next_id,
+                            &mut source_map,
+                            &mut sink,
+                        );
+                        let resolve =
+                            sabiko_resolve::resolve_program(&ast, prelude_start, &mut sink);
                         if options.stop_after > Stage::Resolve {
                             let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
                             // Signature elision (E0416) depends on signatures alone, so it
@@ -173,11 +185,11 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                 check_mir(&bodies, &typeck, &mut sink);
                                 sabiko_mir::simplify::simplify_all(&mut bodies);
                                 check_mir(&bodies, &typeck, &mut sink);
-                                sabiko_borrowck::check_all(&bodies, &resolve, &typeck, &mut sink);
+                                for body in checked_bodies(&bodies, &resolve) {
+                                    sabiko_borrowck::check_body(body, &resolve, &typeck, &mut sink);
+                                }
                                 if options.emit == Emit::Mir {
-                                    output = sabiko_mir::pretty::print_bodies(
-                                        &bodies, &resolve, &typeck,
-                                    );
+                                    output = print_user_bodies(&bodies, &resolve, &typeck);
                                 }
                                 if options.emit == Emit::MirElaborated && !sink.has_errors() {
                                     // After borrow checking, which sees the drops as built
@@ -190,9 +202,7 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                     check_mir(&bodies, &typeck, &mut sink);
                                     sabiko_mir::simplify::simplify_all(&mut bodies);
                                     check_mir(&bodies, &typeck, &mut sink);
-                                    output = sabiko_mir::pretty::print_bodies(
-                                        &bodies, &resolve, &typeck,
-                                    );
+                                    output = print_user_bodies(&bodies, &resolve, &typeck);
                                 }
                                 if options.emit == Emit::Il && !sink.has_errors() {
                                     output = lint_and_emit_il(
@@ -222,6 +232,36 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
     }
 }
 
+/// The bodies borrow checking and the constant-propagation lints run on: every body in a
+/// debug build of the compiler, which so checks the `core` prelude with each program it
+/// compiles (every test does); only the user's in a release build, as rustc never checks
+/// `core` again when it compiles a program (decision 90). The prelude's generic bodies
+/// are the same in every compilation, and checking them costs about as much as the rest
+/// of a hello-world's compilation.
+fn checked_bodies<'a>(
+    bodies: &'a [sabiko_mir::Body],
+    resolve: &'a sabiko_resolve::ResolveResults,
+) -> impl Iterator<Item = &'a sabiko_mir::Body> + 'a {
+    bodies
+        .iter()
+        .filter(move |b| cfg!(debug_assertions) || !resolve.is_prelude(b.def))
+}
+
+/// The MIR of the user's functions and their instances, without the prelude's (as rustc's
+/// MIR dumps leave out `core`'s).
+fn print_user_bodies(
+    bodies: &[sabiko_mir::Body],
+    resolve: &sabiko_resolve::ResolveResults,
+    typeck: &sabiko_types::TypeckResults,
+) -> String {
+    let user: Vec<sabiko_mir::Body> = bodies
+        .iter()
+        .filter(|b| !resolve.is_prelude(b.def))
+        .cloned()
+        .collect();
+    sabiko_mir::pretty::print_bodies(&user, resolve, typeck)
+}
+
 /// The end of the pipeline for `--emit=il` (and assemblies): rustc's constant-propagation
 /// lints, which rustc runs only when it generates code, then monomorphisation (decision
 /// 82), the lowering passes and code generation. Empty when a step reports errors.
@@ -238,7 +278,9 @@ fn lint_and_emit_il(
         overflow_checks: options.overflow_checks,
         allowed: options.allowed_lints,
     };
-    sabiko_mir::lint::check_all(&bodies, typeck, &lints, sink);
+    for body in checked_bodies(&bodies, resolve) {
+        sabiko_mir::lint::check_body(body, typeck, &lints, sink);
+    }
     if sink.has_errors() {
         return String::new();
     }

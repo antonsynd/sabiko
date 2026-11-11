@@ -1,0 +1,21 @@
+[E0201] Error: cannot find trait `Debug` in this scope
+   ╭─[ tests/ui/resolve/prelude_private_items.sabi:5:12 ]
+   │
+ 5 │ fn Show<T: Debug>(x: T) {} //~ ERROR E0201 cannot find trait `Debug` in this scope
+   │            ──┬──  
+   │              ╰──── not found in this scope
+───╯
+[E0202] Error: cannot find value `PanicDebug` in this scope
+   ╭─[ tests/ui/resolve/prelude_private_items.sabi:8:5 ]
+   │
+ 8 │     PanicDebug("x", &1); //~ ERROR E0202 cannot find value `PanicDebug` in this scope
+   │     ─────┬────  
+   │          ╰────── not found in this scope
+───╯
+[E0107] Error: the `#[intrinsic]` attribute is reserved for the `core` library
+    ╭─[ tests/ui/resolve/prelude_private_items.sabi:11:1 ]
+    │
+ 11 │ #[intrinsic] //~ ERROR E0107 the `#[intrinsic]` attribute is reserved for the `core` library
+    │ ──────┬─────  
+    │       ╰─────── not an intrinsic the compiler knows
+────╯

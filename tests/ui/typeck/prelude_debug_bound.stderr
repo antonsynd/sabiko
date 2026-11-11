@@ -1,0 +1,36 @@
+[E0341] Error: the trait bound `Point: Debug` is not satisfied
+    ╭─[ tests/ui/typeck/prelude_debug_bound.sabi:11:17 ]
+    │
+ 11 │     PrintLine(a.unwrap()); //~ ERROR E0341 the trait bound `Point: Debug` is not satisfied
+    │                 ───┬──  
+    │                    ╰──── the trait `Debug` is not implemented for `Point`
+    │ 
+    │ Note: Sabiko's `core` library implements `Debug` only for some types so far (see `library/core`)
+────╯
+[E0341] Error: the trait bound `f64: Debug` is not satisfied
+    ╭─[ tests/ui/typeck/prelude_debug_bound.sabi:13:17 ]
+    │
+ 13 │     PrintLine(b.unwrap_err()); //~ ERROR E0341 the trait bound `f64: Debug` is not satisfied
+    │                 ─────┬────  
+    │                      ╰────── the trait `Debug` is not implemented for `f64`
+    │ 
+    │ Note: Sabiko's `core` library implements `Debug` only for some types so far (see `library/core`)
+────╯
+[E0341] Error: the trait bound `&i32: Debug` is not satisfied
+    ╭─[ tests/ui/typeck/prelude_debug_bound.sabi:16:17 ]
+    │
+ 16 │     PrintLine(c.expect("set")); //~ ERROR E0341 the trait bound `&i32: Debug` is not satisfied
+    │                 ───┬──  
+    │                    ╰──── the trait `Debug` is not implemented for `&i32`
+    │ 
+    │ Note: Sabiko's `core` library implements `Debug` only for some types so far (see `library/core`)
+────╯
+[E0341] Error: the trait bound `E: Debug` is not satisfied
+    ╭─[ tests/ui/typeck/prelude_debug_bound.sabi:22:7 ]
+    │
+ 22 │     r.unwrap() //~ ERROR E0341 the trait bound `E: Debug` is not satisfied
+    │       ───┬──  
+    │          ╰──── the trait `Debug` is not implemented for `E`
+    │ 
+    │ Note: a bound cannot name `Debug` yet: it is not in the prelude, and paths to other modules arrive with Phase 9
+────╯

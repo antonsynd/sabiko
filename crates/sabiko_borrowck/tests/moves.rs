@@ -302,6 +302,7 @@ impl BodyBuilder {
                 args,
                 destination,
                 target: Some(target),
+                fn_span: Span::dummy(),
             },
         )
     }

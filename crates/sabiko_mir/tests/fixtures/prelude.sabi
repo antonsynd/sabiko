@@ -1,0 +1,21 @@
+// The `core` prelude's `Option` and `Result` (decision 90): variants named without their
+// enum, `None` as a lone identifier in a pattern (a variant test, not a binding), and
+// calls of the prelude's methods. The prelude's own bodies are not printed.
+fn Describe(o: Option<i32>) -> i32 {
+    match o {
+        Some(n) => n,
+        None => -1,
+    }
+}
+
+fn Main() {
+    let a = Some(4);
+    let b: Option<i32> = None;
+    let r: Result<u8, bool> = Ok(1);
+    let x = Describe(a) + Describe(b);
+    let y = a.unwrap() + b.unwrap_or(x);
+    if r.is_ok() {
+        PrintLine(r.unwrap());
+    }
+    PrintLine(y);
+}

@@ -11,9 +11,12 @@ fn front_end_errors(name: &str, src: &str) -> String {
     let mut sm = SourceMap::new();
     let file = sm.add(name, src);
     let mut sink = DiagnosticSink::new();
-    let ast = sabiko_parser::parse_file(file, src, &mut sink);
+    let options = sabiko_parser::ParseOptions::default();
+    let (mut ast, next) = sabiko_parser::parse_file_with(file, src, options, &mut sink);
     if !sink.has_errors() {
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        // With the `core` prelude, as the driver compiles (decision 90).
+        let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next, &mut sm, &mut sink);
+        let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
         if !sink.has_errors() {
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
         }
@@ -236,9 +239,11 @@ fn programs_have_unreachable_patterns() {
         for seed in 1..=SEEDS {
             let src = generate(seed, &knobs);
             let mut sink = DiagnosticSink::new();
-            let file = SourceMap::new().add("u.sabi", &src);
-            let ast = sabiko_parser::parse_file(file, &src, &mut sink);
-            let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+            let mut sm = SourceMap::new();
+            let file = sm.add("u.sabi", &src);
+            let (ast, start) =
+                sabiko_parser::prelude::parse_program(file, &src, &mut sm, &mut sink);
+            let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
             let codes: Vec<String> = sink
                 .diagnostics()
@@ -301,7 +306,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" = match ") && l.ends_with('{'))
             },
-            50,
+            40,
         ),
         ("inline `match`", |s| s.contains("(match "), 150),
         ("`if let`", |s| s.contains("if let "), 150),
@@ -478,7 +483,7 @@ fn programs_use_arrays() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
             },
-            85,
+            70,
         ),
         (
             "computed index",
@@ -733,7 +738,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.contains("\" | \"") && l.contains(" => "))
             },
-            100,
+            85,
         ),
         // One string binding arm in ten is unguarded since #47 (it was 26 before).
         (
@@ -785,7 +790,7 @@ fn programs_use_strings_and_ranges() {
                     !name.is_empty() && t[name.len()..].starts_with(&format!(" = &{name}["))
                 })
             },
-            25,
+            20,
         ),
     ];
     let mut counts = [0usize; 28];
@@ -1096,6 +1101,40 @@ fn programs_use_trait_helpers() {
             && consts >= 10
             && copies >= 20,
         "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20), {consts} a trait constant (expected 10), {copies} `Copy`/`Clone` (expected 20)"
+    );
+}
+
+/// The `core` prelude's `Option` and `Result` (#13, decision 90) around values and shared
+/// references.
+#[test]
+fn programs_use_the_prelude() {
+    let knobs = Knobs::default();
+    let patterns = [
+        ").unwrap()",
+        ").expect(\"generated\")",
+        ").unwrap_or(",
+        "None::<",
+        "Ok::<",
+        "Err::<",
+        "Some(&",
+    ];
+    let mut counts = [0usize; 7];
+    for seed in 1..=SEEDS {
+        let src = generate(seed, &knobs);
+        for (count, pattern) in counts.iter_mut().zip(patterns) {
+            *count += usize::from(src.contains(pattern));
+        }
+    }
+    let report: Vec<String> = patterns
+        .iter()
+        .zip(counts)
+        .map(|(p, n)| format!("`{p}` in {n}"))
+        .collect();
+    eprintln!("of {SEEDS} programs: {}", report.join(", "));
+    assert!(
+        counts.iter().all(|&n| n >= 5),
+        "of {SEEDS} programs: {} (expected 5 each)",
+        report.join(", ")
     );
 }
 

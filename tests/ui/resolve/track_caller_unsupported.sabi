@@ -1,0 +1,24 @@
+// `#[track_caller]` is supported on free functions and the methods of `impl` blocks;
+// on a trait's method (whose impls rustc makes track their caller too) and on
+// `Drop::drop` (which drop glue calls) it is not yet.
+
+trait Check {
+    #[track_caller] //~ ERROR E0107 not yet supported: `#[track_caller]` on a trait's method
+    fn Check(&self);
+}
+
+struct Guard {
+    Id: i32,
+}
+
+impl Drop for Guard {
+    #[track_caller] //~ ERROR E0107 not yet supported: `#[track_caller]` on `Drop::drop`
+    fn drop(&mut self) {}
+}
+
+impl Check for Guard {
+    #[track_caller]
+    fn Check(&self) {}
+}
+
+fn Main() {}

@@ -353,6 +353,7 @@ impl Printer<'_> {
                 args,
                 destination,
                 target,
+                ..
             } => {
                 let args: Vec<String> = args.iter().map(|a| self.operand(a)).collect();
                 let target = match target {

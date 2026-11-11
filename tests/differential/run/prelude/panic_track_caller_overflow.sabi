@@ -1,0 +1,17 @@
+// An arithmetic overflow in a `#[track_caller]` function reports its caller's location,
+// as rustc's checked operations do there.
+#[track_caller]
+fn Increment(n: u8) -> u8 {
+    n + 1
+}
+
+#[track_caller]
+fn Get(o: Option<i32>) -> i32 {
+    o.unwrap()
+}
+
+fn Main() {
+    PrintLine(Increment(254));
+    PrintLine(Get(Some(-2)));
+    PrintLine(Increment(255));
+}

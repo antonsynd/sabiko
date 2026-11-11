@@ -977,6 +977,7 @@ fn switch_discriminant_and_call_arguments_are_uses() {
             args: vec![copy(a)],
             destination: local(y),
             target: Some(bb2),
+            fn_span: Span::dummy(),
         },
     );
     b.assign(bb2, local(Local::RETURN), use_copy(y));
@@ -1006,6 +1007,7 @@ fn call_destination_initialises_and_counts_as_assignment() {
             args: vec![copy(a)],
             destination: local(y),
             target: Some(bb1),
+            fn_span: Span::dummy(),
         },
     );
     let second = b.terminate(
@@ -1016,6 +1018,7 @@ fn call_destination_initialises_and_counts_as_assignment() {
             args: vec![copy(y)],
             destination: local(y),
             target: None,
+            fn_span: Span::dummy(),
         },
     );
     let diags = fx.check(&b.finish());
@@ -1041,6 +1044,7 @@ fn call_destination_projection_is_checked() {
             args: vec![int(1)],
             destination: local(p).deref().field(0, Ty::I32),
             target: None,
+            fn_span: Span::dummy(),
         },
     );
     assert_eq!(

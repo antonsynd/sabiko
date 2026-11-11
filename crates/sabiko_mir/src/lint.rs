@@ -142,53 +142,62 @@ pub fn check_all(
     options: &LintOptions,
     sink: &mut DiagnosticSink,
 ) {
+    for body in bodies {
+        check_body(body, typeck, options, sink);
+    }
+}
+
+/// Lints one body (see [`check_all`]).
+pub fn check_body(
+    body: &Body,
+    typeck: &TypeckResults,
+    options: &LintOptions,
+    sink: &mut DiagnosticSink,
+) {
     if options.allowed.arithmetic_overflow && options.allowed.unconditional_panic {
         return;
     }
-    for body in bodies {
-        // rustc lints the MIR after drop elaboration, which it does not simplify again:
-        // every drop as built still ends a block (one elaborated away leaves `goto`s), but
-        // only the drops elaboration keeps make a local unpropagated. So the walk is over
-        // the MIR as built, without its false edges, and the dropped locals are those of
-        // the elaborated MIR (whose locals keep their numbers; it only adds drop flags).
-        let mut built = body.clone();
-        crate::simplify::remove_false_edges(&mut built);
-        let mut elaborated = built.clone();
-        crate::elaborate::elaborate_body(&mut elaborated, typeck);
-        let mut dropped = HashSet::new();
-        let mut drop = |place: &Place| {
-            if place.projection.first() != Some(&PlaceElem::Deref) {
-                dropped.insert(place.local);
-            }
-        };
-        for data in &elaborated.blocks {
-            if let Some(TerminatorKind::Drop { place, .. }) =
-                data.terminator.as_ref().map(|t| &t.kind)
-            {
-                drop(place);
-            }
+    // rustc lints the MIR after drop elaboration, which it does not simplify again:
+    // every drop as built still ends a block (one elaborated away leaves `goto`s), but
+    // only the drops elaboration keeps make a local unpropagated. So the walk is over
+    // the MIR as built, without its false edges, and the dropped locals are those of
+    // the elaborated MIR (whose locals keep their numbers; it only adds drop flags).
+    let mut built = body.clone();
+    crate::simplify::remove_false_edges(&mut built);
+    let mut elaborated = built.clone();
+    crate::elaborate::elaborate_body(&mut elaborated, typeck);
+    let mut dropped = HashSet::new();
+    let mut drop = |place: &Place| {
+        if place.projection.first() != Some(&PlaceElem::Deref) {
+            dropped.insert(place.local);
         }
-        for cleanup in &elaborated.cleanups {
-            for d in &cleanup.drops {
-                drop(&d.place);
-            }
+    };
+    for data in &elaborated.blocks {
+        if let Some(TerminatorKind::Drop { place, .. }) = data.terminator.as_ref().map(|t| &t.kind)
+        {
+            drop(place);
         }
-        let body = built;
-        let kept = kept_by_tests(&body, typeck, *options);
-        // Neither way of revisiting a block (see `Lints::run`) follows rustc everywhere,
-        // and each errs in different programs: a lint is reported only when both walks
-        // find it, so Sabiko does not reject what rustc accepts (it may accept a few
-        // programs rustc rejects).
-        let mut once = Lints::new(&body, typeck, options, &dropped, &kept, false);
-        once.run();
-        let mut again = Lints::new(&body, typeck, options, &dropped, &kept, true);
-        again.run();
-        let key = |d: &Diagnostic| (d.code, d.primary_span(), d.labels[0].message.clone());
-        let confirmed: HashSet<_> = again.found.iter().map(key).collect();
-        for d in once.found {
-            if confirmed.contains(&key(&d)) {
-                sink.emit(d);
-            }
+    }
+    for cleanup in &elaborated.cleanups {
+        for d in &cleanup.drops {
+            drop(&d.place);
+        }
+    }
+    let body = built;
+    let kept = kept_by_tests(&body, typeck, *options);
+    // Neither way of revisiting a block (see `Lints::run`) follows rustc everywhere,
+    // and each errs in different programs: a lint is reported only when both walks
+    // find it, so Sabiko does not reject what rustc accepts (it may accept a few
+    // programs rustc rejects).
+    let mut once = Lints::new(&body, typeck, options, &dropped, &kept, false);
+    once.run();
+    let mut again = Lints::new(&body, typeck, options, &dropped, &kept, true);
+    again.run();
+    let key = |d: &Diagnostic| (d.code, d.primary_span(), d.labels[0].message.clone());
+    let confirmed: HashSet<_> = again.found.iter().map(key).collect();
+    for d in once.found {
+        if confirmed.contains(&key(&d)) {
+            sink.emit(d);
         }
     }
 }

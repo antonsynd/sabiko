@@ -1,0 +1,5 @@
+// `Result::expect` on `Err(e)` panics with the message, `: ` and `e` with `Debug`.
+fn Main() {
+    let r: Result<u8, bool> = Err(true);
+    PrintLine(r.expect("reading the flag"));
+}

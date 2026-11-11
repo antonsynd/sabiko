@@ -1533,6 +1533,12 @@ impl<'a> Builder<'a> {
         args: Vec<Operand>,
         span: Span,
     ) {
+        let fn_span = match &expr.kind {
+            ExprKind::MethodCall { method, .. } => {
+                Span::new(span.file, method.span.start, span.end.max(method.span.end))
+            }
+            _ => span,
+        };
         let next = self.new_block();
         let target = if self.ty(expr).is_never() {
             None
@@ -1546,6 +1552,7 @@ impl<'a> Builder<'a> {
                 args,
                 destination: dest.clone(),
                 target,
+                fn_span,
             },
             span,
         );

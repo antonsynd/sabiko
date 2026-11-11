@@ -1,0 +1,62 @@
+// `Option<&T>`, `Option<&mut T>` and `Result<&T, E>`: instances holding references
+// (`ref struct`s, decision 83), their methods by reference and by value, and borrows
+// that end when the option does.
+struct Counter {
+    Hits: u32,
+}
+
+fn Largest(values: &[i32]) -> Option<&i32> {
+    if values.len() == 0 {
+        return None;
+    }
+    let mut best = &values[0];
+    let mut i = 1;
+    while i < values.len() {
+        if values[i] > *best {
+            best = &values[i];
+        }
+        i += 1;
+    }
+    Some(best)
+}
+
+fn Pick(c: &mut Counter, take: bool) -> Option<&mut Counter> {
+    if take { Some(c) } else { None }
+}
+
+fn Lookup(values: &[u8], i: usize) -> Result<&u8, usize> {
+    if i < values.len() { Ok(&values[i]) } else { Err(i) }
+}
+
+fn Main() {
+    let values = [3, 9, 4];
+    let largest = Largest(&values);
+    PrintLine(largest.is_some());
+    PrintLine(*largest.unwrap());
+    PrintLine(Largest(&values[..0]).is_none());
+    match Largest(&values[1..]) {
+        Some(v) => PrintLine(*v),
+        None => PrintLine("empty"),
+    }
+
+    let mut c = Counter { Hits: 0 };
+    if let Some(r) = Pick(&mut c, true) {
+        r.Hits += 5;
+    }
+    let skipped = Pick(&mut c, false);
+    PrintLine(skipped.is_none());
+    Pick(&mut c, true).unwrap().Hits += 1;
+    PrintLine(c.Hits);
+
+    let bytes = [10, 20];
+    PrintLine(*Lookup(&bytes, 1).unwrap());
+    PrintLine(Lookup(&bytes, 5).err().unwrap());
+    PrintLine(*Lookup(&bytes, 0).expect("in range"));
+    let x = 7;
+    let rx = Some(&x);
+    let rrx = Some(&rx);
+    PrintLine(*rrx.unwrap().unwrap_or(&0));
+    let fallback = 1;
+    let none: Option<&i32> = None;
+    PrintLine(*none.unwrap_or(&fallback));
+}

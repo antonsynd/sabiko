@@ -1,0 +1,77 @@
+// The `core` prelude's `Result<T, E>`: constructors without a path, patterns, and the
+// methods `is_ok`, `is_err`, `ok`, `err`, `unwrap`, `expect`, `unwrap_err`, `expect_err`
+// and `unwrap_or`, with errors of every type `Debug` is implemented for.
+#[derive(Copy, Clone)]
+enum Fault {
+    Empty,
+    TooLong(usize),
+}
+
+fn Parse(digits: &str) -> Result<u32, Fault> {
+    if digits.len() == 0 {
+        return Err(Fault::Empty);
+    }
+    if digits.len() > 9 {
+        return Err(Fault::TooLong(digits.len()));
+    }
+    Ok(digits.len() as u32 * 11)
+}
+
+fn Halve(n: i32) -> Result<i32, i32> {
+    if n % 2 == 0 { Ok(n / 2) } else { Err(n) }
+}
+
+fn Main() {
+    let good: Result<i32, u8> = Ok(4);
+    let bad: Result<i32, u8> = Err(9);
+    PrintLine(good.is_ok());
+    PrintLine(good.is_err());
+    PrintLine(bad.is_ok());
+    PrintLine(bad.is_err());
+    PrintLine(good.unwrap());
+    PrintLine(good.expect("good is ok"));
+    PrintLine(bad.unwrap_err());
+    PrintLine(bad.expect_err("bad is an error"));
+    PrintLine(bad.unwrap_or(-1));
+    PrintLine(good.ok().unwrap());
+    PrintLine(good.err().is_none());
+    PrintLine(bad.ok().is_none());
+    PrintLine(bad.err().unwrap());
+
+    match Parse("123") {
+        Ok(n) => PrintLine(n),
+        Err(Fault::Empty) => PrintLine("empty"),
+        Err(Fault::TooLong(n)) => PrintLine(n),
+    }
+    match Parse("12345678901") {
+        Ok(n) => PrintLine(n),
+        Err(Fault::Empty) => PrintLine("empty"),
+        Err(Fault::TooLong(n)) => PrintLine(n),
+    }
+    PrintLine(Parse("").is_err());
+    PrintLine(Parse("7").unwrap_or(0));
+
+    let mut n = 40;
+    loop {
+        match Halve(n) {
+            Ok(h) => n = h,
+            Err(odd) => {
+                PrintLine(odd);
+                break;
+            }
+        }
+    }
+    if let Err(odd) = Halve(7) {
+        PrintLine(odd);
+    }
+    let units: Result<bool, ()> = Ok(true);
+    PrintLine(units.unwrap());
+    let flags: Result<(), bool> = Err(false);
+    PrintLine(flags.unwrap_err());
+    let wide: Result<i128, u128> = Ok(-12345678901234567890123);
+    PrintLine(wide.unwrap());
+    let qualified = Result::Ok::<i32, i64>(3);
+    PrintLine(qualified.unwrap());
+    let nested: Result<Option<i32>, i32> = Ok(None);
+    PrintLine(nested.unwrap().is_none());
+}

@@ -1,0 +1,23 @@
+// The `Result` methods that print the other variant's value when they panic need it to
+// be `Debug`, as in Rust. Sabiko's `core` implements `Debug` only for the integers,
+// `bool` and `()` so far, so a float, a reference or a struct is rejected (rustc accepts
+// the first two, and derives the third with `#[derive(Debug)]`, #117).
+struct Point {
+    X: i32,
+}
+
+fn Main() {
+    let a: Result<i32, Point> = Ok(1);
+    PrintLine(a.unwrap()); //~ ERROR E0341 the trait bound `Point: Debug` is not satisfied
+    let b: Result<f64, u8> = Ok(1.5);
+    PrintLine(b.unwrap_err()); //~ ERROR E0341 the trait bound `f64: Debug` is not satisfied
+    let y = 5;
+    let c: Result<i32, &i32> = Err(&y);
+    PrintLine(c.expect("set")); //~ ERROR E0341 the trait bound `&i32: Debug` is not satisfied
+    let d: Option<Point> = None;
+    PrintLine(d.unwrap().X);
+}
+
+fn Generic<T, E>(r: Result<T, E>) -> T {
+    r.unwrap() //~ ERROR E0341 the trait bound `E: Debug` is not satisfied
+}

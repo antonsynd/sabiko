@@ -1,0 +1,14 @@
+// `Option<i32>` and `Result<bool, u8>` are `Copy`: `unwrap` copies them, so they stay
+// usable, and `is_some` borrows.
+fn Main() {
+    let o = Some(1);
+    let a = o.unwrap();
+    PrintLine(a + o.unwrap());
+    let r: Result<bool, u8> = Ok(true);
+    PrintLine(r.unwrap());
+    PrintLine(r.is_ok());
+    let t = Some((1, 2));
+    PrintLine(t.is_some());
+    let (x, y) = t.unwrap();
+    PrintLine(x + y);
+}

@@ -876,6 +876,7 @@ impl Rewriter<'_> {
                 args,
                 destination,
                 target,
+                fn_span,
             } => {
                 for arg in &args {
                     if let Operand::Move(place) = arg {
@@ -925,6 +926,7 @@ impl Rewriter<'_> {
                     args,
                     destination,
                     target,
+                    fn_span,
                 }
             }
             TerminatorKind::Drop { target, .. } => {

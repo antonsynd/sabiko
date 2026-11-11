@@ -13,6 +13,7 @@
 mod assignee;
 mod expr;
 mod item;
+pub mod prelude;
 mod recovery;
 
 use sabiko_ast::{NodeId, SourceFile};
@@ -38,6 +39,28 @@ pub const MAX_NESTING: u32 = 256;
 /// tree contains everything that could be parsed.
 #[must_use]
 pub fn parse_file(file: FileId, src: &str, sink: &mut DiagnosticSink) -> SourceFile {
+    parse_file_with(file, src, ParseOptions::default(), sink).0
+}
+
+/// How [`parse_file_with`] parses.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ParseOptions {
+    /// The first [`NodeId`] to give out, so that the nodes of several files parsed into
+    /// one compilation (the user's file and the `core` prelude, decision 90) are distinct.
+    pub first_node_id: u32,
+    /// A library file (the `core` prelude): `use` declarations are allowed.
+    pub library: bool,
+}
+
+/// Parses a whole source file with `options`; also returns the first [`NodeId`] it did
+/// not give out.
+#[must_use]
+pub fn parse_file_with(
+    file: FileId,
+    src: &str,
+    options: ParseOptions,
+    sink: &mut DiagnosticSink,
+) -> (SourceFile, u32) {
     let before = sink.diagnostics().len();
     let tokens = sabiko_lexer::lex(file, src, sink);
     // An unterminated string or comment swallows the rest of the file; parsing what is
@@ -50,14 +73,18 @@ pub fn parse_file(file: FileId, src: &str, sink: &mut DiagnosticSink) -> SourceF
     });
     if fatal {
         let end = u32::try_from(src.len()).expect("source file larger than 4 GiB");
-        return SourceFile {
+        let empty = SourceFile {
             docs: vec![],
             items: vec![],
             span: Span::new(file, 0, end),
         };
+        return (empty, options.first_node_id);
     }
     let mut p = Parser::new(file, src, tokens, sink);
-    p.parse_source_file()
+    p.next_id = options.first_node_id;
+    p.options = options;
+    let parsed = p.parse_source_file();
+    (parsed, p.next_id)
 }
 
 /// Parses a single expression (used by tests and the REPL-style `--emit=ast` on snippets).
@@ -76,6 +103,9 @@ pub(crate) struct Parser<'s, 'd> {
     pos: usize,
     sink: &'d mut DiagnosticSink,
     next_id: u32,
+    /// How to parse: in a library file ([`ParseOptions::library`]), `use` declarations
+    /// and `!` are allowed.
+    options: ParseOptions,
     /// When set, a path followed by `{` is not a struct literal (inside `if`/`while`
     /// conditions).
     no_struct_literal: bool,
@@ -121,6 +151,7 @@ impl<'s, 'd> Parser<'s, 'd> {
             pos: 0,
             sink,
             next_id: 0,
+            options: ParseOptions::default(),
             no_struct_literal: false,
             stmt_start: false,
             last_error_pos: None,

@@ -9,7 +9,6 @@ use sabiko_mir::{
     AggregateKind, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue, Statement,
     StatementKind, TerminatorKind,
 };
-use sabiko_span::FileId;
 use sabiko_types::{ConstValue, Ty};
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -51,11 +50,16 @@ fn lower_resolved(
     sabiko_resolve::ResolveResults,
 )> {
     let mut sink = DiagnosticSink::new();
-    let ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+    let mut sm = sabiko_diagnostics::SourceMap::new();
+    let file = sm.add("corpus.sabi", src);
+    let options = sabiko_parser::ParseOptions::default();
+    let (mut ast, next) = sabiko_parser::parse_file_with(file, src, options, &mut sink);
     if sink.has_errors() {
         return None;
     }
-    let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+    // With the `core` prelude, as the driver compiles (decision 90).
+    let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next, &mut sm, &mut sink);
+    let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
     if sink.has_errors() {
         return None;
     }
