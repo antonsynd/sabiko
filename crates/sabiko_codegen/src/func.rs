@@ -418,12 +418,13 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
                 // Emits nothing.
                 continue;
             }
-            if place.is_local()
-                && !matches!(
-                    rvalue,
-                    Rvalue::Aggregate(AggregateKind::Adt(..) | AggregateKind::Variant(..), _)
-                )
-            {
+            // A struct or variant literal is built in its destination (`aggregate`), which
+            // never stays on the stack.
+            let in_place = matches!(
+                rvalue,
+                Rvalue::Aggregate(AggregateKind::Adt(..) | AggregateKind::Variant(..), _)
+            );
+            if place.is_local() && !in_place {
                 defs[place.local.index()] += 1;
             } else {
                 other[place.local.index()] += 1;
@@ -485,14 +486,9 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
     });
     // Cleanup handlers read drop flags and the discriminants guarding a drop, and borrow
     // the places they drop.
-    for cleanup in &body.cleanups {
-        for drop in &cleanup.drops {
-            for place in drop.places() {
-                other[place.local.index()] += 1;
-            }
-            if let Some(flag) = drop.flag {
-                other[flag.index()] += 1;
-            }
+    for drop in body.cleanups.iter().flat_map(|c| &c.drops) {
+        for local in drop.places().map(|p| p.local).chain(drop.flag) {
+            other[local.index()] += 1;
         }
     }
     (0..n)
@@ -541,17 +537,16 @@ impl FnCx<'_, '_> {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;
             }
         }
-        // A fake borrow (of a guard's scrutinee, or the shallow one of a compared reference,
-        // whose temporary is a `&&T`) emits nothing: it only exists for the borrow checker,
-        // so its temporary needs no slot.
+        // A local nothing writes needs no slot: nothing reads it either (the borrow checker
+        // rejects a read of an uninitialised place), so it is one whose assignments are all
+        // unreachable and removed (`let a = return 1;`), or the temporary of a fake borrow
+        // (of a guard's scrutinee, or the shallow one of a compared reference, a `&&T`),
+        // which emits nothing: it only exists for the borrow checker.
         let mut written = vec![false; body.locals.len()];
-        let mut fake = vec![false; body.locals.len()];
         for data in &body.blocks {
             for stmt in &data.statements {
                 if let StatementKind::Assign(place, rvalue) = &stmt.kind {
-                    if matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _)) {
-                        fake[place.local.index()] |= place.is_local();
-                    } else {
+                    if !matches!(rvalue, Rvalue::Ref(sabiko_mir::BorrowKind::Fake(_), _)) {
                         written[place.local.index()] = true;
                     }
                 }
@@ -564,7 +559,7 @@ impl FnCx<'_, '_> {
         }
         for (i, decl) in body.locals.iter().enumerate() {
             // `()`, `&()`, `!` and `&!` (decisions 32, 44 and 64) have no values to store.
-            let elided = types::has_no_value(&decl.ty) || (fake[i] && !written[i]);
+            let elided = types::has_no_value(&decl.ty) || !written[i];
             let name = || match &decl.name {
                 Some(n) if name_counts[n] == 1 => n.clone(),
                 _ => format!("_{i}"),
@@ -1097,8 +1092,10 @@ impl FnCx<'_, '_> {
         self.label(&format!("BB{}", bb.0));
         let data = self.body.block(bb);
         let term = data.terminator();
+        // Whether the block ends by returning. A block ending in `return` itself assigns
+        // nothing (MIR building gives the return a block of its own, and simplification only
+        // retargets jumps), so only a jump to such a block counts.
         let term_returns = match &term.kind {
-            TerminatorKind::Return => true,
             TerminatorKind::Goto { target } => self.layout.returns_in_place(bb, *target),
             _ => false,
         };
@@ -1178,12 +1175,11 @@ impl FnCx<'_, '_> {
         let ty = place.ty(self.body);
         if types::has_no_value(&ty) {
             // Rvalues have no side effects; a unit store is nothing, but an element's
-            // index is still checked: the one read (`x = a[i]`, which loads nothing
-            // else, or the one borrowed by `r = &a[i]`), then the one written.
+            // index is still checked: the one read (`x = a[i]`: loading a place without a
+            // value only checks its indices, if it has any), or the one borrowed by
+            // `r = &a[i]`, then the one written.
             match rvalue {
-                Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) if src.has_index() => {
-                    self.load(src, span);
-                }
+                Rvalue::Use(Operand::Copy(src) | Operand::Move(src)) => self.load(src, span),
                 Rvalue::Ref(kind, src)
                     if src.has_index() && !matches!(kind, sabiko_mir::BorrowKind::Fake(_)) =>
                 {
@@ -1813,17 +1809,19 @@ impl FnCx<'_, '_> {
         self.op(text, 0, 1);
     }
 
+    /// Pushes an `Int` or `Uint` constant of type `ty`, which the MIR validator admits for
+    /// integer types only (`constant_matches`).
     fn typed_int_const(&mut self, bits: u128, ty: &Ty, span: Span) {
-        match ty.as_prim() {
-            Some(p) if p.is_integer() => self.int_const(bits, p),
-            Some(PrimTy::Char | PrimTy::Bool) => {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-                self.ldc_i4(bits as u32 as i32);
-            }
-            _ => {
-                types::cil_type(self.cx, ty, span);
-                self.ldc_i4(0);
-            }
+        if let Some(p) = ty.as_prim().filter(|p| p.is_integer()) {
+            self.int_const(bits, p);
+        } else {
+            self.cx.error(
+                ErrorCode::INTERNAL_ERROR,
+                "internal error: an integer constant of a non-integer type reached code generation",
+                span,
+                "the MIR validator admits integer constants of integer types only",
+            );
+            self.ldc_i4(0);
         }
     }
 
@@ -2470,28 +2468,26 @@ impl FnCx<'_, '_> {
                 self.operand(operand, span);
                 self.op("neg", 1, 1);
             }
+            // `-C` for a constant item (MIR building folds `-literal` already): fold instead
+            // of emitting `0 - C`, unless the negation overflows (`C` is the type's minimum)
+            // in a checked build, which then panics at run time. Only a signed integer
+            // constant is an `Int` (the MIR validator's `constant_matches`); a float one is
+            // negated above, and `-` on an unsigned type is a type error (E0307).
             UnOp::Neg
-                if matches!(operand, Operand::Constant(c)
-                    if !self.checks() || negation_fits(&c.value, p)) =>
+                if matches!(operand, Operand::Constant(Constant { value: ConstValue::Int(i), .. })
+                    if !self.checks() || negation_fits(*i, p)) =>
             {
-                // `-C` for a constant item (MIR building folds `-literal` already): fold
-                // instead of emitting `0 - C`, unless the negation overflows (`C` is the
-                // type's minimum) in a checked build, which then panics at run time.
-                let Operand::Constant(c) = operand else {
+                let Operand::Constant(Constant {
+                    value: ConstValue::Int(i),
+                    ty,
+                    span,
+                }) = operand
+                else {
                     unreachable!()
                 };
-                match &c.value {
-                    ConstValue::Int(i) => {
-                        #[allow(clippy::cast_sign_loss)]
-                        let bits = i.wrapping_neg() as u128;
-                        self.typed_int_const(bits, &c.ty, c.span);
-                    }
-                    ConstValue::Uint(u) => self.typed_int_const(u.wrapping_neg(), &c.ty, c.span),
-                    _ => {
-                        self.constant(c);
-                        self.op("neg", 1, 1);
-                    }
-                }
+                #[allow(clippy::cast_sign_loss)]
+                let bits = i.wrapping_neg() as u128;
+                self.typed_int_const(bits, ty, *span);
             }
             UnOp::Neg if self.checks() => {
                 // `0 - x`, checked like a subtraction: negating the minimum value panics,
@@ -2532,13 +2528,17 @@ impl FnCx<'_, '_> {
     fn binary(&mut self, op: BinOp, lhs: &Operand, rhs: &Operand, span: Span) {
         let lty = lhs.ty(self.body);
         let rty = rhs.ty(self.body);
-        if types::is_unit_like(&lty) && types::is_unit_like(&rty) && op.is_comparison() {
+        // The operands of a comparison have the same type up to the mutability of a
+        // reference (`check_binary`, `check_ref_comparison`), and `is_unit_like` and
+        // `is_str_ref` accept both mutabilities, so the left one's type decides; only a
+        // comparison takes `()` or `&str` operands.
+        if op.is_comparison() && types::is_unit_like(&lty) {
             // `()` has one value: `==`, `<=`, `>=` hold, `!=`, `<`, `>` do not. Reading a
             // `()` operand has no effect, so neither is read.
             self.ldc_i4(i32::from(matches!(op, BinOp::Eq | BinOp::Le | BinOp::Ge)));
             return;
         }
-        if op.is_comparison() && is_str_ref(&lty) && is_str_ref(&rty) {
+        if op.is_comparison() && is_str_ref(&lty) {
             self.str_compare(op, lhs, rhs, span);
             return;
         }
@@ -3290,17 +3290,14 @@ fn is_mut_ref(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref(m, _) if m.is_mut())
 }
 
-/// Whether negating the constant `value` of type `p` stays in range: always but for a
-/// signed constant holding the type's minimum.
-fn negation_fits(value: &ConstValue, p: PrimTy) -> bool {
-    match value {
-        ConstValue::Int(i) if p.is_signed_int() => {
-            let (min, max) = sabiko_types::consts::int_bounds(p);
-            let max = i128::try_from(max).expect("a signed maximum fits i128");
-            i.checked_neg().is_some_and(|n| (min..=max).contains(&n))
-        }
-        _ => true,
-    }
+/// Whether negating the constant `value` of the signed integer type `p` stays in range:
+/// always but for the type's minimum.
+fn negation_fits(value: i128, p: PrimTy) -> bool {
+    let (min, max) = sabiko_types::consts::int_bounds(p);
+    let max = i128::try_from(max).expect("a signed maximum fits i128");
+    value
+        .checked_neg()
+        .is_some_and(|n| (min..=max).contains(&n))
 }
 
 /// `&str` (or `&mut str`).

@@ -1,0 +1,37 @@
+// A type parameter inside a slice is substituted like one anywhere else (`Ty::map_params`):
+// parameters of a function and of an `impl` block's methods, inferred or written.
+struct W<T> {
+    V: T,
+}
+
+impl<T: Copy> W<T> {
+    fn First(&self, s: &[T]) -> T {
+        s[0]
+    }
+    fn Count(&self, s: &[T]) -> usize {
+        s.len()
+    }
+}
+
+fn Take<T: Copy>(s: &[T]) -> T {
+    s[1]
+}
+
+fn Pass<T>(s: &[T]) -> &[T] {
+    s
+}
+
+fn Main() {
+    let w = W { V: 1 };
+    let a = [4, 5, 6];
+    PrintLine(w.First(&a));
+    PrintLine(w.Count(&a));
+    PrintLine(Take(&a));
+    PrintLine(Pass(&a).len());
+    let b = [true, false];
+    PrintLine(Take(&b));
+    let s: &[i32] = &a;
+    PrintLine(Take(s));
+    let n = Pass::<i32>(&a);
+    PrintLine(n[2]);
+}

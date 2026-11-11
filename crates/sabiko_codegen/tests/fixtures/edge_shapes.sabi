@@ -36,3 +36,19 @@ fn UnitAt(a: &[(); 3], i: usize) -> &() {
 fn Spans(a: &[i32], n: usize) -> usize {
     a[0..n].len() + a[0..].len() + a[1..3].len() + a[2..=2].len()
 }
+
+// Found by nightly run 26 (#142): a local used once as a whole and also as a sub-slice
+// bound is stored at its definition, not taken from the stack by its one whole use and then
+// duplicated for the bound's two reads (`BoundAndUse`); and a local that is never written
+// (its only assignment is unreachable) gets no IL local, so its type `[i64; 3]` is not
+// declared either (`Unreached`).
+fn BoundAndUse(a: &[i32], n: usize) -> usize {
+    let m = n + 1;
+    PrintLine(m);
+    a[0..m].len()
+}
+
+fn Unreached() -> i64 {
+    let a: [i64; 3] = return 1;
+    a[0]
+}

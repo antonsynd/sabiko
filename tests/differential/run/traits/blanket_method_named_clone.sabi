@@ -1,0 +1,20 @@
+// A blanket trait's method named `clone`, called on a tuple and an array that hold a
+// `&mut` and an integer whose type is not known yet: `Clone` cannot hold of them whatever
+// the integer type, so the blanket method is the only candidate (`may_be_copy_like`).
+trait Dup {
+    fn clone(&self) -> i32;
+}
+
+impl<T> Dup for T {
+    fn clone(&self) -> i32 {
+        7
+    }
+}
+
+fn Main() {
+    let mut a = 1;
+    let t = (&mut a, 2);
+    PrintLine(t.clone());
+    let u = [(&mut a, 3)];
+    PrintLine(u.clone());
+}

@@ -1,0 +1,82 @@
+// Assignments whose right-hand side reads the place being assigned: every operand must be
+// read before the destination is written. A struct or variant literal is built in the
+// destination's own local only when no operand reads that local (`aggregate`,
+// `variant_aggregate`); a tuple or an array is built on the stack; an element is written
+// after its value is read (`a[i] = a[j]`).
+struct P { X: i32, Y: i32 }
+struct Outer { In: P, Tag: i32 }
+enum E { A(i32), B(i32, i32) }
+
+fn Show(p: &P) {
+    Print(p.X);
+    Print(" ");
+    PrintLine(p.Y);
+}
+
+fn Code(e: &E) -> i32 {
+    match e {
+        E::A(v) => *v,
+        E::B(x, y) => *x * 100 + *y,
+    }
+}
+
+fn Swap(mut p: P) -> P {
+    p = P { X: p.Y, Y: p.X };
+    p
+}
+
+fn Next(mut e: E) -> E {
+    e = match e {
+        E::A(v) => E::B(v, v + 1),
+        E::B(x, y) => E::A(x + y),
+    };
+    e
+}
+
+fn Main() {
+    let mut p = P { X: 1, Y: 2 };
+    p = P { X: p.Y, Y: p.X };
+    Show(&p);
+    p = P { X: p.X + p.Y, Y: p.X * 10 };
+    Show(&p);
+    p = Swap(p);
+    Show(&p);
+
+    let mut o = Outer { In: P { X: 5, Y: 6 }, Tag: 7 };
+    o = Outer { In: P { X: o.Tag, Y: o.In.X }, Tag: o.In.Y };
+    Show(&o.In);
+    PrintLine(o.Tag);
+    o.In = P { X: o.In.Y, Y: o.Tag };
+    Show(&o.In);
+
+    let mut t = (1, 2, 3);
+    t = (t.2, t.0, t.1);
+    PrintLine(t.0 * 100 + t.1 * 10 + t.2);
+
+    let mut a = [1, 2, 3, 4];
+    a = [a[3], a[2], a[1], a[0]];
+    PrintLine(a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3]);
+    let i = 0;
+    let j = 3;
+    a[i] = a[j];
+    a[j] = a[i] + a[j];
+    PrintLine(a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3]);
+
+    let mut ps = [P { X: 1, Y: 2 }, P { X: 3, Y: 4 }];
+    ps[0] = P { X: ps[1].Y, Y: ps[0].X };
+    ps[1] = P { X: ps[0].X + ps[1].X, Y: ps[0].Y };
+    Show(&ps[0]);
+    Show(&ps[1]);
+
+    let mut e = E::A(4);
+    e = E::B(Code(&e), 5);
+    PrintLine(Code(&e));
+    e = E::B(match e { E::A(v) => v, E::B(x, _) => x }, Code(&e));
+    PrintLine(Code(&e));
+    e = E::A(match e { E::A(v) => v, E::B(x, y) => x - y });
+    PrintLine(Code(&e));
+    e = Next(e);
+    PrintLine(Code(&e));
+    e = Next(e);
+    PrintLine(Code(&e));
+}

@@ -1,0 +1,7 @@
+[E0500] Error: a value of type `&!` here is not yet supported by code generation
+   ╭─[ tests/ui/codegen/ref_never_payload.sabi:9:9 ]
+   │
+ 9 │     Yes(T), //~ ERROR E0500 a value of type `&!` here is not yet supported by code generation
+   │         ┬  
+   │         ╰── cannot be compiled yet
+───╯

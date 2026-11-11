@@ -243,6 +243,8 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
         }
         // A reference to `()` is as stateless as `()` (decision 64).
         Ty::Ref(..) if is_unit_like(ty) => UNIT.to_owned(),
+        // A field of a generic type instantiated at `&!` (`Some(&Panic("x"))` in a branch
+        // not taken, #158): `&!` has no value, but the instance still lays out its field.
         Ty::Ref(_, inner) if inner.is_uninhabited() => {
             cx.unsupported("a value of type `&!` here", span);
             "int32".to_owned()
@@ -502,8 +504,31 @@ mod tests {
         );
         assert_eq!(type_token(UINT128), UINT128_CLASS);
         assert_eq!(type_token(UNIT), "[Sabiko.Runtime]Sabiko.Runtime.Unit");
-        assert_eq!(type_token("int32"), "[System.Runtime]System.Int32");
-        assert_eq!(type_token("native uint"), "[System.Runtime]System.UIntPtr");
+        // Every primitive's CIL keyword names its class (ILVerify rejects a `TypeSpec` for
+        // one from .NET 11 on, which the .NET 10 runs of CI would not notice).
+        for (cil, class) in [
+            ("int8", "SByte"),
+            ("int16", "Int16"),
+            ("int32", "Int32"),
+            ("int64", "Int64"),
+            ("native int", "IntPtr"),
+            ("uint8", "Byte"),
+            ("uint16", "UInt16"),
+            ("uint32", "UInt32"),
+            ("uint64", "UInt64"),
+            ("native uint", "UIntPtr"),
+            ("float32", "Single"),
+            ("float64", "Double"),
+            ("bool", "Boolean"),
+            ("char", "Char"),
+        ] {
+            assert_eq!(type_token(cil), format!("[System.Runtime]System.{class}"));
+        }
+        for p in PrimTy::ALL {
+            if let Some(cil) = prim_type(p) {
+                assert_ne!(type_token(cil), cil, "{cil} is a TypeSpec");
+            }
+        }
         // ... generic instances and type parameters stay TypeSpecs.
         assert_eq!(type_token(STR_SPAN), STR_SPAN);
         assert_eq!(
@@ -511,6 +536,21 @@ mod tests {
             "valuetype 'Ref`1'<valuetype 'Point'>"
         );
         assert_eq!(type_token("!T"), "!T");
+    }
+
+    /// `Print` and `PrintLine` have an overload for each primitive and for `&str`; for any
+    /// other type (the type checker's `is_printable` admits none) the caller reports E0500
+    /// rather than pass the value to an overload of another type.
+    #[test]
+    fn print_overloads() {
+        let prim = |p| Ty::Prim(p);
+        let shared = |t| Ty::Ref(sabiko_types::Mutability::Not, Box::new(t));
+        assert_eq!(print_overload(&prim(PrimTy::I64)), Some("int64"));
+        assert_eq!(print_overload(&shared(prim(PrimTy::Str))), Some(STR_SPAN));
+        assert_eq!(print_overload(&prim(PrimTy::Str)), None);
+        assert_eq!(print_overload(&shared(prim(PrimTy::I32))), None);
+        assert_eq!(print_overload(&shared(shared(prim(PrimTy::Str)))), None);
+        assert_eq!(print_overload(&Ty::Unit), None);
     }
 
     #[test]
