@@ -11,8 +11,6 @@ rust-version.workspace = true
 sabiko_span = { workspace = true }
 sabiko_diagnostics = { workspace = true }
 sabiko_ast = { workspace = true }
-
-[dev-dependencies]
 sabiko_parser = { workspace = true }
 
 [lints]

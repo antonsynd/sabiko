@@ -21,13 +21,9 @@ fn lower(path: &std::path::Path, overflow_checks: bool) -> String {
     let mut sm = SourceMap::new();
     let name = path.file_name().unwrap().to_string_lossy().into_owned();
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
-    let id = sm.add(name, src.clone());
     let mut sink = DiagnosticSink::new();
-    let options = sabiko_parser::ParseOptions::default();
-    let (mut ast, next) = sabiko_parser::parse_file_with(id, &src, options, &mut sink);
-    // With the `core` prelude, as the driver compiles (decision 90).
-    let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next, &mut sm, &mut sink);
-    let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
+    let (ast, resolve) =
+        sabiko_resolve::parse_and_resolve(&name, &src, &mut sm, &mut sink).expect("fixture parses");
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     let mut bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
     sabiko_mir::simplify::simplify_all(&mut bodies);

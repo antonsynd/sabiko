@@ -1236,15 +1236,8 @@ impl<'a> FnCtxt<'a> {
         init_span: Option<Span>,
     ) {
         self.pat_types.insert(pat.id, ty.clone());
-        if let Some(res) = self.resolve.pat_res(pat.id) {
-            if let PatKind::Ident { .. } | PatKind::Assignee(_) = pat.kind {
-                // A constant or a unit struct named by a lone identifier, or a unit struct
-                // or variant on the left of a destructuring assignment: it compares.
-                let ty = self.peel_unless_const(pat, res, ty, by_ref);
-                self.check_path_pat(pat, res, &ty, init_span);
-                return;
-            }
-        }
+        // A lone identifier that names a constant, a unit struct or a variant is a path
+        // pattern by now (the resolver rewrote it), as is an assignee naming one.
         match &pat.kind {
             PatKind::Ident {
                 by_ref: explicit_ref,

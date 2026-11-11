@@ -83,8 +83,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(FileId(0), SRC, &mut sink);
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        let mut ast = sabiko_parser::parse_file(FileId(0), SRC, &mut sink);
+        let resolve = sabiko_resolve::resolve(&mut ast, &mut sink);
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(
             !sink.has_errors(),

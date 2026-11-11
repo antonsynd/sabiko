@@ -1,0 +1,13 @@
+// A guard after a bare `None` arm cannot assign the scrutinee: the arm's variant test
+// read its discriminant, which stays borrowed while guards run (rustc's E0510).
+fn Main() {
+    let mut x: Option<i32> = None;
+    match x {
+        None if {
+            x = Some(1);
+            false
+        } => {}
+        _ => {}
+    }
+    PrintLine(x.is_some());
+}

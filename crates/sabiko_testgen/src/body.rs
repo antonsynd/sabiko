@@ -901,7 +901,9 @@ impl<'a> BodyGen<'a> {
     /// `Err::<u8, T>(e).unwrap_err()` are `e`; `Some(a).unwrap_or(b)` evaluates (and moves)
     /// both values like a tuple literal and returns `a`, dropping `b` inside the call, as
     /// `GenOr(GenOpt::Yes(a), b)` does; `None::<T>.unwrap_or(b)` is `b`. None of them
-    /// panics.
+    /// panics. The type is only ever written as a turbofish, never in an annotation:
+    /// TODO(#137): an annotation with an array as a generic argument (`let o:
+    /// Option<[i32; 2]>`) lowers the array to an error type; write one once that is fixed.
     fn prelude_value(&mut self, ty: ValTy, depth: u32) -> Expr {
         let name = self.prog.val_name(ty);
         match self.rng.weighted(&[30, 10, 10, 10, 20, 20]) {

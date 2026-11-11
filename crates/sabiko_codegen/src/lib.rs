@@ -88,11 +88,17 @@ pub fn emit_il(
     options: &Options,
     sink: &mut DiagnosticSink,
 ) -> Option<String> {
+    // The prelude's types are named `core::Option<..>` in IL (decision 90): a file named
+    // `option.sabi` keeps the module class `Option`.
     let struct_names: Vec<String> = resolve
         .defs
         .iter()
-        .filter(|d| d.kind.is_type())
-        .map(|d| d.name.clone())
+        .enumerate()
+        .filter(|(i, d)| {
+            let def = sabiko_resolve::DefId(u32::try_from(*i).expect("fewer than 2^32 items"));
+            d.kind.is_type() && !resolve.is_prelude(def)
+        })
+        .map(|(_, d)| d.name.clone())
         .collect();
     let class_name = module_class_name(&options.assembly_name, &struct_names);
     let mut cx = Cx {

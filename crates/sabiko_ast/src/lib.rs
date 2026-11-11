@@ -10,6 +10,7 @@
 
 pub mod dump;
 pub mod pretty;
+mod visit_mut;
 
 pub use sabiko_lexer::literal::{FloatSuffix, IntSuffix};
 use sabiko_span::Span;

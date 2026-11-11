@@ -808,8 +808,9 @@ impl ResolveResults {
 /// Resolves every name in `file`. Errors go to `sink`; the results are complete even when
 /// errors occurred (failed resolutions are `Res::Err`).
 #[must_use]
-pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
-    resolve_program(file, file.items.len(), sink)
+pub fn resolve(file: &mut SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
+    let items = file.items.len();
+    resolve_program(file, items, sink)
 }
 
 /// Resolves every name in `file`, whose items from `prelude_start` on are the `core`
@@ -820,7 +821,7 @@ pub fn resolve(file: &SourceFile, sink: &mut DiagnosticSink) -> ResolveResults {
 /// item of the same name shadows a prelude item silently, as in rustc.
 #[must_use]
 pub fn resolve_program(
-    file: &SourceFile,
+    file: &mut SourceFile,
     prelude_start: usize,
     sink: &mut DiagnosticSink,
 ) -> ResolveResults {
@@ -856,7 +857,76 @@ pub fn resolve_program(
     }
     r.enter_namespace(false);
     r.collect_fn_attrs(file);
-    r.results
+    let results = r.results;
+    path_patterns(file, &results);
+    results
+}
+
+/// The front end up to name resolution, as the driver runs it: adds `src` to
+/// `source_map` under `name`, parses it, appends the `core` prelude (decision 90) and
+/// resolves both. `None` when parsing reported errors (they are in `sink`); resolution's
+/// errors are in `sink` too. For the harnesses that drive the stages themselves.
+pub fn parse_and_resolve(
+    name: &str,
+    src: &str,
+    source_map: &mut sabiko_diagnostics::SourceMap,
+    sink: &mut DiagnosticSink,
+) -> Option<(SourceFile, ResolveResults)> {
+    let file = source_map.add(name, src);
+    let (mut ast, start) = sabiko_parser::prelude::parse_program(file, src, source_map, sink);
+    if sink.has_errors() {
+        return None;
+    }
+    let resolve = resolve_program(&mut ast, start, sink);
+    Some((ast, resolve))
+}
+
+/// How rustc names a kind of item in "cannot be used on ..." (E0224).
+fn item_kind_plural(kind: &ItemKind) -> &'static str {
+    match kind {
+        ItemKind::Fn(_) => "functions",
+        ItemKind::Struct(_) => "structs",
+        ItemKind::Const(_) => "constants",
+        ItemKind::Impl(imp) if imp.trait_ref.is_some() => "trait impl blocks",
+        ItemKind::Impl(_) => "inherent impl blocks",
+        ItemKind::Enum(_) => "enums",
+        ItemKind::Trait(_) => "traits",
+        ItemKind::Use(_) => "use statements",
+    }
+}
+
+/// Rewrites every identifier pattern that names a constant, a unit struct or a variant
+/// (`None`, `LIMIT`), and every place on the left of a destructuring assignment that names
+/// a unit struct or a variant, into the path pattern it is, as rustc's resolver decides
+/// it. The later stages then only ever see such a name as a [`PatKind::Path`], whose
+/// resolution is the pattern's [`ResolveResults::pat_res`] as for any path pattern; the
+/// patterns that bind stay identifier patterns and assignees.
+fn path_patterns(file: &mut SourceFile, results: &ResolveResults) {
+    file.for_each_pat_mut(&mut |pat| {
+        if results.local_of_pat(pat.id).is_some() || results.pat_res(pat.id).is_none() {
+            return;
+        }
+        let path = match &pat.kind {
+            PatKind::Ident {
+                by_ref: false,
+                mutable: false,
+                name,
+                sub: None,
+            } => Path::single(name.clone()),
+            PatKind::Assignee(e) => {
+                let mut target = e.as_ref();
+                while let ExprKind::Paren(inner) = &target.kind {
+                    target = inner;
+                }
+                let ExprKind::Path(path) = &target.kind else {
+                    return;
+                };
+                path.clone()
+            }
+            _ => return,
+        };
+        pat.kind = PatKind::Path(path);
+    });
 }
 
 /// A name a pattern binds.
@@ -931,10 +1001,19 @@ impl Resolver<'_> {
                 ItemKind::Fn(_) => (std::slice::from_ref(item), false),
                 ItemKind::Impl(imp) => (&imp.items, false),
                 ItemKind::Trait(t) => (&t.items, true),
-                _ => continue,
+                _ => (&[], false),
             };
+            if !matches!(item.kind, ItemKind::Fn(_)) {
+                self.misplaced_fn_attrs(&item.attrs, item_kind_plural(&item.kind));
+            }
+            if let ItemKind::Enum(e) = &item.kind {
+                for v in &e.variants {
+                    self.misplaced_fn_attrs(&v.attrs, "enum variants");
+                }
+            }
             for member in members {
                 if !matches!(member.kind, ItemKind::Fn(_)) {
+                    self.misplaced_fn_attrs(&member.attrs, "associated consts");
                     continue;
                 }
                 for attr in &member.attrs {
@@ -948,6 +1027,24 @@ impl Resolver<'_> {
                     }
                 }
             }
+        }
+    }
+
+    /// E0224 (rustc's E0739): `#[track_caller]` or `#[intrinsic]` on an item that is not
+    /// a function, which would otherwise be ignored.
+    fn misplaced_fn_attrs(&mut self, attrs: &[sabiko_ast::Attribute], on: &str) {
+        for attr in attrs {
+            let name = match attr.path.segments.as_slice() {
+                [seg] if matches!(seg.name.as_str(), "track_caller" | "intrinsic") => &seg.name,
+                _ => continue,
+            };
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::MISPLACED_ATTRIBUTE,
+                    format!("the `{name}` attribute cannot be used on {on}"),
+                )
+                .with_label(attr.span, "can only be applied to functions"),
+            );
         }
     }
 
@@ -1097,11 +1194,13 @@ impl Resolver<'_> {
             self.collect_uses(file);
         }
         self.enter_namespace(false);
-        self.collect_builtins(prelude);
-        self.collect_lang_items();
+        // The user's namespace: its own items (above), then the prelude's exports, then
+        // the builtins and the language traits, each only where the name is still free.
         if prelude {
             self.export_prelude(file);
         }
+        self.collect_builtins(prelude);
+        self.collect_lang_items();
     }
 
     /// The builtins (decision 28). They come after the items so user items keep the
@@ -1528,6 +1627,10 @@ impl Resolver<'_> {
             let Some(adt) = target else {
                 continue;
             };
+            if self.is_foreign(adt) {
+                self.foreign_inherent_impl(adt, &imp.self_ty);
+                continue;
+            }
             for member in &imp.items {
                 let Some(ident) = member.name() else {
                     continue;
@@ -1593,6 +1696,19 @@ impl Resolver<'_> {
             _ => None,
         };
         self.impl_adts.insert(imp_def, adt);
+        // The orphan rule (rustc's E0117): a trait that is not the file's own (a language
+        // trait, or one of the prelude's) only for a type of the file. Such a block is
+        // left without its trait, so nothing else is checked against it.
+        let trait_ = trait_.filter(|&t| {
+            let foreign_trait = self.results.lang_of(t).is_some() || self.is_foreign(t);
+            match adt {
+                Some(adt) if foreign_trait && self.is_foreign(adt) => {
+                    self.foreign_trait_impl(t, adt, &imp.self_ty);
+                    false
+                }
+                _ => true,
+            }
+        });
         if let Some(t) = trait_ {
             self.results.impl_traits.insert(imp_def, t);
             if let Some(lang) = self.results.lang_of(t) {
@@ -1740,6 +1856,44 @@ impl Resolver<'_> {
             }
             self.sink.emit(d);
         }
+    }
+
+    /// Whether `def` is defined outside the file being resolved: by the `core` prelude,
+    /// seen from the user's file (decision 90). The prelude is a crate of its own there.
+    fn is_foreign(&self, def: DefId) -> bool {
+        !self.in_prelude && self.results.is_prelude(def)
+    }
+
+    /// E0211 (rustc's E0116): an inherent `impl` block for a type of the prelude. Its type
+    /// is recorded as unresolved, so its members get no parent.
+    fn foreign_inherent_impl(&mut self, adt: DefId, ty: &Type) {
+        let name = self.results.def(adt).name.clone();
+        self.results.res.insert(ty.id, Res::Err);
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::INVALID_IMPL_TARGET,
+                "cannot define inherent `impl` for a type outside of the crate where the type is defined",
+            )
+            .with_label(ty.span, "impl for type defined outside of this file")
+            .with_note(format!(
+                "`{name}` is defined in Sabiko's `core` library; define a trait and implement it for `{name}` instead"
+            )),
+        );
+    }
+
+    /// E0214 (rustc's E0117): a language trait implemented for a type of the prelude.
+    fn foreign_trait_impl(&mut self, tr: DefId, adt: DefId, ty: &Type) {
+        let (tr, adt) = (&self.results.def(tr).name, &self.results.def(adt).name);
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::INVALID_DROP_TARGET,
+                "only traits defined in the current crate can be implemented for types defined outside of the crate",
+            )
+            .with_label(ty.span, format!("`{adt}` is not defined in this file"))
+            .with_note(format!(
+                "`{tr}` and `{adt}` both come from outside this file (`{adt}` from Sabiko's `core` library); implement a trait of this file for it, or wrap it in a struct of this file"
+            )),
+        );
     }
 
     /// A block of a language trait for a type that is no struct or enum of the file
@@ -3532,9 +3686,9 @@ mod tests {
 
     fn run(src: &str) -> (SourceFile, ResolveResults, Vec<String>) {
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+        let mut ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
         assert!(!sink.has_errors(), "parse errors: {:?}", sink.diagnostics());
-        let results = resolve(&ast, &mut sink);
+        let results = resolve(&mut ast, &mut sink);
         let msgs = sink
             .into_vec()
             .into_iter()

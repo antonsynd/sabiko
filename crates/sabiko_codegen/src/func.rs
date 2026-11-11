@@ -713,10 +713,17 @@ impl FnCx<'_, '_> {
             params.push(format!("string {}", types::quote(CALLER_LOCATION)));
         }
         // The `drop` of an `impl Drop` (decision 55).
+        let symbol;
         let name = if self.cx.resolve.is_drop_fn(body.def) {
             DROP_METHOD
         } else {
-            &body.name
+            symbol = sabiko_mir::mono::instance_symbol(
+                self.cx.resolve,
+                &self.cx.typeck.items,
+                body.def,
+                &body.instance,
+            );
+            &symbol
         };
         let _ = writeln!(
             out,
@@ -3119,7 +3126,7 @@ impl FnCx<'_, '_> {
                 let mut sig = self.cx.typeck.items.fn_sig(func).clone();
                 sig.inputs = sig.inputs_with(generic_args);
                 sig.output = sig.output_with(generic_args);
-                let name = sabiko_mir::mono::instance_name(
+                let name = sabiko_mir::mono::instance_symbol(
                     self.cx.resolve,
                     &self.cx.typeck.items,
                     func,

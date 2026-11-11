@@ -52,6 +52,43 @@ pub fn instance_name(
     def: DefId,
     args: &[Ty],
 ) -> String {
+    instance_name_as(resolve, items, def, args, false)
+}
+
+/// [`instance_name`] as generated code names the method: with the `core` prelude's items
+/// qualified (`Id<core::Option<i32>>`, decision 90), so a user item of the same name
+/// never collides. Diagnostics and the MIR use [`instance_name`].
+#[must_use]
+pub fn instance_symbol(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    def: DefId,
+    args: &[Ty],
+) -> String {
+    instance_name_as(resolve, items, def, args, true)
+}
+
+fn instance_name_as(
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    def: DefId,
+    args: &[Ty],
+    symbol: bool,
+) -> String {
+    let ty_name = |t: &Ty| {
+        if symbol {
+            t.symbol(resolve)
+        } else {
+            t.display(resolve)
+        }
+    };
+    let def_name = |d: DefId| {
+        if symbol {
+            resolve.symbol_name(d)
+        } else {
+            resolve.def(d).name.clone()
+        }
+    };
     let info = resolve.def(def);
     let parent_count = resolve.parent_generic_count(def).min(args.len());
     let own = &args[parent_count..];
@@ -67,25 +104,20 @@ pub fn instance_name(
             };
             let tr = resolve
                 .impl_trait(imp)
-                .map_or_else(|| "?".to_owned(), |t| resolve.symbol_name(t));
-            format!("<{} as {tr}>::{}", self_ty.symbol(resolve), info.name)
+                .map_or_else(|| "?".to_owned(), def_name);
+            format!("<{} as {tr}>::{}", ty_name(&self_ty), info.name)
         }
         Some((tr, DefKind::Trait)) => match args.first() {
-            Some(self_ty) => format!(
-                "<{} as {}>::{}",
-                self_ty.symbol(resolve),
-                resolve.symbol_name(tr),
-                info.name
-            ),
-            None => format!("{}::{}", resolve.symbol_name(tr), info.name),
+            Some(self_ty) => format!("<{} as {}>::{}", ty_name(self_ty), def_name(tr), info.name),
+            None => format!("{}::{}", def_name(tr), info.name),
         },
         // A function of a struct's or enum's `impl` block lives in its class, which names
         // the type; a free function of the prelude lives in the module class.
         _ if info.parent.is_some() => info.name.clone(),
-        _ => resolve.symbol_name(def),
+        _ => def_name(def),
     };
     if !own.is_empty() {
-        let own: Vec<String> = own.iter().map(|t| t.symbol(resolve)).collect();
+        let own: Vec<String> = own.iter().map(ty_name).collect();
         name = format!("{name}<{}>", own.join(", "));
     }
     name

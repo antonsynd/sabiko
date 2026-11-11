@@ -71,14 +71,13 @@ pub struct Reordering {
 pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
     let mut sink = DiagnosticSink::new();
     let mut source_map = sabiko_diagnostics::SourceMap::new();
-    let file = source_map.add("program.sabi", program);
     // With the `core` prelude, as the driver compiles (decision 90).
-    let (ast, start) =
-        sabiko_parser::prelude::parse_program(file, program, &mut source_map, &mut sink);
-    if sink.has_errors() {
+    let Some((ast, resolve)) =
+        sabiko_resolve::parse_and_resolve("program.sabi", program, &mut source_map, &mut sink)
+    else {
         return Err(format!("parse errors: {:?}", sink.diagnostics()));
-    }
-    let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
+    };
+    let file = sabiko_span::FileId(0);
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     if sink.has_errors() {
         return Err(format!("front-end errors: {:?}", sink.diagnostics()));

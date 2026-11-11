@@ -26,15 +26,34 @@ use crate::{
 
 /// Prints every body, separated by blank lines.
 #[must_use]
-pub fn print_bodies(bodies: &[Body], resolve: &ResolveResults, typeck: &TypeckResults) -> String {
+pub fn print_bodies<'a>(
+    bodies: impl IntoIterator<Item = &'a Body>,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+) -> String {
     let mut out = String::new();
-    for (i, body) in bodies.iter().enumerate() {
+    for (i, body) in bodies.into_iter().enumerate() {
         if i > 0 {
             out.push('\n');
         }
         print_body(body, resolve, typeck, &mut out);
     }
     out
+}
+
+/// [`print_bodies`] for the bodies of the user's program and their instances: the `core`
+/// prelude's are left out (decision 90), as rustc's MIR dumps leave out `core`'s.
+#[must_use]
+pub fn print_user_bodies(
+    bodies: &[Body],
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+) -> String {
+    print_bodies(
+        bodies.iter().filter(|b| !resolve.is_prelude(b.def)),
+        resolve,
+        typeck,
+    )
 }
 
 pub fn print_body(body: &Body, resolve: &ResolveResults, typeck: &TypeckResults, out: &mut String) {

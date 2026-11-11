@@ -22,3 +22,17 @@ impl Check for Guard {
 }
 
 fn Main() {}
+
+// Only a function tracks its caller (rustc rejects the attribute elsewhere, uncoded).
+#[track_caller] //~ ERROR E0224 the `track_caller` attribute cannot be used on structs
+struct Point {
+    X: i32,
+}
+
+#[track_caller] //~ ERROR E0224 the `track_caller` attribute cannot be used on constants
+const LIMIT: i32 = 3;
+
+enum Shape {
+    #[track_caller] //~ ERROR E0224 the `track_caller` attribute cannot be used on enum variants
+    Dot,
+}

@@ -984,27 +984,13 @@ impl Exhaustive<'_, '_> {
 
     fn lower_kind(&self, pat: &Pat, ty: &Ty) -> usefulness::PatKind {
         use usefulness::PatKind as K;
-        if let (PatKind::Ident { .. }, Some(Res::Def(def))) =
-            (&pat.kind, self.resolve.pat_res(pat.id))
-        {
-            return match self.resolve.def(def).kind {
-                DefKind::Const => self.value(pat),
-                // An imported unit variant (the prelude's `None`).
-                _ => K::Ctor {
-                    variant: self.body.pat_variants.get(&pat.id).map(|&(_, i)| i),
-                    fields: Vec::new(),
-                },
-            };
-        }
         match &pat.kind {
             PatKind::Ident { sub: Some(sub), .. } => self.lower(sub).kind,
-            PatKind::Ident { .. } | PatKind::Wild | PatKind::Rest => K::Wild,
+            PatKind::Ident { .. } | PatKind::Wild | PatKind::Rest | PatKind::Assignee(_) => K::Wild,
             PatKind::Or(alts) => K::Or(alts.iter().map(|a| self.lower(a)).collect()),
             PatKind::Lit(_) | PatKind::Range(..) => self.value(pat),
             PatKind::Ref { pat: sub, .. } => K::Deref(Box::new(self.lower(sub))),
-            PatKind::Assignee(_) if self.resolve.pat_res(pat.id).is_none() => K::Wild,
-            // An assignee naming a unit struct or a unit variant compares like a path.
-            PatKind::Path(_) | PatKind::Assignee(_) => match self.body.pat_variants.get(&pat.id) {
+            PatKind::Path(_) => match self.body.pat_variants.get(&pat.id) {
                 Some(&(_, index)) => K::Ctor {
                     variant: Some(index),
                     fields: Vec::new(),

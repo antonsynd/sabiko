@@ -1,0 +1,26 @@
+// The prelude is a crate of its own to the user's file (decision 90), so rustc's orphan
+// rule applies to its types: no inherent `impl` for `Option` (rustc's E0116), and no
+// language trait implemented for one (E0117, and E0120 for `Drop`). Each error points at
+// the user's `impl`, not into `library/core`. A trait of the file may be implemented for
+// them (see `differential/run/prelude/user_trait_for_prelude_types.sabi`).
+struct S;
+
+impl<T> Option<T> { //~ ERROR E0211 cannot define inherent `impl` for a type outside of the crate where the type is defined
+    fn Foo(&self) -> i32 {
+        7
+    }
+}
+
+impl<T> Drop for Option<T> { //~ ERROR E0214 only traits defined in the current crate can be implemented for types defined outside of the crate
+    fn drop(&mut self) {}
+}
+
+impl Clone for Option<S> { //~ ERROR E0214 only traits defined in the current crate
+    fn clone(&self) -> Self {
+        None
+    }
+}
+
+impl Copy for Result<S, S> {} //~ ERROR E0214 only traits defined in the current crate
+
+fn Main() {}

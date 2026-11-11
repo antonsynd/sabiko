@@ -110,7 +110,7 @@ impl Parser<'_, '_> {
             TokenKind::Enum => ItemKind::Enum(self.parse_enum()?),
             TokenKind::Impl => ItemKind::Impl(self.parse_impl()?),
             TokenKind::Trait => ItemKind::Trait(self.parse_trait()?),
-            TokenKind::Use if self.options.library && !in_impl => ItemKind::Use(self.parse_use()?),
+            TokenKind::Use if self.options.library => ItemKind::Use(self.parse_use()?),
             TokenKind::Mod | TokenKind::Use => {
                 return Err(self.unsupported_item("modules and `use`", "planned for Phase 9"))
             }

@@ -12,3 +12,24 @@
     │     ───────┬───────  
     │            ╰───────── only free functions and the methods of `impl` blocks can track their caller for now
 ────╯
+[E0224] Error: the `track_caller` attribute cannot be used on structs
+    ╭─[ tests/ui/resolve/track_caller_unsupported.sabi:27:1 ]
+    │
+ 27 │ #[track_caller] //~ ERROR E0224 the `track_caller` attribute cannot be used on structs
+    │ ───────┬───────  
+    │        ╰───────── can only be applied to functions
+────╯
+[E0224] Error: the `track_caller` attribute cannot be used on constants
+    ╭─[ tests/ui/resolve/track_caller_unsupported.sabi:32:1 ]
+    │
+ 32 │ #[track_caller] //~ ERROR E0224 the `track_caller` attribute cannot be used on constants
+    │ ───────┬───────  
+    │        ╰───────── can only be applied to functions
+────╯
+[E0224] Error: the `track_caller` attribute cannot be used on enum variants
+    ╭─[ tests/ui/resolve/track_caller_unsupported.sabi:36:5 ]
+    │
+ 36 │     #[track_caller] //~ ERROR E0224 the `track_caller` attribute cannot be used on enum variants
+    │     ───────┬───────  
+    │            ╰───────── can only be applied to functions
+────╯

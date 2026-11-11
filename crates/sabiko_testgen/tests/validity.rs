@@ -6,17 +6,68 @@ use sabiko_testgen::{generate, insert_noops, Knobs};
 
 const SEEDS: u64 = 500;
 
+/// The seeds the coverage tests (`programs_*`) count over: 500 from
+/// `SABIKO_COVERAGE_BASE_SEED` (default 1). `scripts/measure_coverage.py` counts over other
+/// windows to set the thresholds.
+fn coverage_seeds() -> std::ops::RangeInclusive<u64> {
+    let base = std::env::var("SABIKO_COVERAGE_BASE_SEED")
+        .ok()
+        .and_then(|b| b.parse().ok())
+        .unwrap_or(1);
+    base..=base + SEEDS - 1
+}
+
+/// Reports the coverage counts of `test`, `(name, programs with it, least allowed)`, as
+/// `coverage <test>: <name> = <count> (min <min>)` lines on stderr, and fails when a count
+/// is under its threshold, unless `SABIKO_COVERAGE_MEASURE` is set (measuring, see
+/// `scripts/measure_coverage.py`).
+///
+/// Each threshold is set from a measurement, not by hand: over the 10 windows of 500
+/// seeds from 1 to 5000, a threshold is 75% of the smallest count (rounded down, at least
+/// 1), so it survives the reshuffle a change of the generator's draws makes, and still
+/// fails when a construct stops being generated. Re-measure with the script after a
+/// generator change that moves the counts, and update the thresholds with the numbers it
+/// prints (the measured numbers are in `docs/TESTING.md`).
+fn coverage(test: &str, counts: &[(&str, usize, usize)]) {
+    let mut low = Vec::new();
+    for &(name, count, min) in counts {
+        eprintln!("coverage {test}: {name} = {count} (min {min})");
+        if count < min {
+            low.push(format!("{name} in {count} (expected {min})"));
+        }
+    }
+    if std::env::var_os("SABIKO_COVERAGE_MEASURE").is_none() {
+        assert!(
+            low.is_empty(),
+            "{test}, of {SEEDS} programs: {}",
+            low.join(", ")
+        );
+    }
+}
+
+/// Counts the programs of [`coverage_seeds`] that have each property of `checks`, and
+/// reports them with [`coverage`].
+fn count_checks(test: &str, knobs: &Knobs, checks: &[Check]) {
+    let mut counts = vec![0usize; checks.len()];
+    for seed in coverage_seeds() {
+        let src = generate(seed, knobs);
+        for (count, (_, check, _)) in counts.iter_mut().zip(checks) {
+            *count += usize::from(check(&src));
+        }
+    }
+    let rows: Vec<(&str, usize, usize)> = checks
+        .iter()
+        .zip(counts)
+        .map(|((name, _, min), count)| (*name, count, *min))
+        .collect();
+    coverage(test, &rows);
+}
+
 /// Parses, resolves and type-checks `src`; returns the rendered errors.
 fn front_end_errors(name: &str, src: &str) -> String {
     let mut sm = SourceMap::new();
-    let file = sm.add(name, src);
     let mut sink = DiagnosticSink::new();
-    let options = sabiko_parser::ParseOptions::default();
-    let (mut ast, next) = sabiko_parser::parse_file_with(file, src, options, &mut sink);
-    if !sink.has_errors() {
-        // With the `core` prelude, as the driver compiles (decision 90).
-        let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next, &mut sm, &mut sink);
-        let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
+    if let Some((ast, resolve)) = sabiko_resolve::parse_and_resolve(name, src, &mut sm, &mut sink) {
         if !sink.has_errors() {
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
         }
@@ -147,17 +198,20 @@ fn programs_have_the_expected_shape() {
 fn programs_use_128_bit_integers() {
     let knobs = Knobs::default();
     let (mut signed, mut unsigned, mut min_literal) = (0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         signed += usize::from(src.contains("i128"));
         unsigned += usize::from(src.contains("u128"));
         min_literal += usize::from(src.contains("-170141183460469231731687303715884105728i128"));
     }
-    assert!(
-        signed >= 100 && unsigned >= 100,
-        "i128 in {signed}, u128 in {unsigned} of {SEEDS} programs"
+    coverage(
+        "128_bit_integers",
+        &[
+            ("i128", signed, 272),
+            ("u128", unsigned, 273),
+            ("the `i128::MIN` literal", min_literal, 3),
+        ],
     );
-    assert!(min_literal > 0, "no program uses the `i128::MIN` literal");
 }
 
 /// Methods are part of the subset: a fair share of programs declare `impl` blocks and call
@@ -167,7 +221,7 @@ fn programs_use_128_bit_integers() {
 fn programs_use_methods() {
     let knobs = Knobs::default();
     let (mut impls, mut calls, mut reads_receiver) = (0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         impls += usize::from(
             src.lines()
@@ -204,11 +258,13 @@ fn programs_use_methods() {
         calls += usize::from(called);
         reads_receiver += usize::from(read);
     }
-    // `reads_receiver` sat at 20 before #47 shifted the generator's random stream; 12 still
-    // fails if the shape stops being generated.
-    assert!(
-        impls >= 150 && calls >= 100 && reads_receiver >= 12,
-        "impl blocks in {impls}, method calls in {calls}, arguments reading the receiver in {reads_receiver} of {SEEDS} programs"
+    coverage(
+        "methods",
+        &[
+            ("impl block", impls, 302),
+            ("method call", calls, 221),
+            ("argument reading the receiver", reads_receiver, 12),
+        ],
     );
 }
 
@@ -219,14 +275,11 @@ fn programs_use_methods() {
 fn programs_use_drop() {
     let knobs = Knobs::default();
     let mut with_drop = 0;
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         with_drop += usize::from(src.contains("\nimpl Drop for "));
     }
-    assert!(
-        with_drop >= 100,
-        "`impl Drop` in {with_drop} of {SEEDS} programs"
-    );
+    coverage("drop", &[("`impl Drop`", with_drop, 163)]);
 }
 
 /// Some generated patterns are unreachable (E0330) or irrefutable where a refutable one is
@@ -236,14 +289,13 @@ fn programs_use_drop() {
 fn programs_have_unreachable_patterns() {
     let mut found = 0;
     for knobs in [Knobs::default(), Knobs::borrow_clean()] {
-        for seed in 1..=SEEDS {
+        for seed in coverage_seeds() {
             let src = generate(seed, &knobs);
             let mut sink = DiagnosticSink::new();
             let mut sm = SourceMap::new();
-            let file = sm.add("u.sabi", &src);
-            let (ast, start) =
-                sabiko_parser::prelude::parse_program(file, &src, &mut sm, &mut sink);
-            let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
+            let (ast, resolve) =
+                sabiko_resolve::parse_and_resolve("u.sabi", &src, &mut sm, &mut sink)
+                    .expect("generated programs parse");
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
             let codes: Vec<String> = sink
                 .diagnostics()
@@ -253,8 +305,10 @@ fn programs_have_unreachable_patterns() {
             found += usize::from(codes.iter().any(|c| c == "E0330" || c == "E0331"));
         }
     }
-    eprintln!("unreachable patterns in {found} programs");
-    assert!(found >= 100, "unreachable patterns in {found} programs");
+    coverage(
+        "unreachable_patterns",
+        &[("unreachable pattern (default and borrow-clean)", found, 87)],
+    );
 }
 
 /// A named property of a program's text and the least number of programs that have it.
@@ -268,11 +322,11 @@ type Check = (&'static str, fn(&str) -> bool, usize);
 fn programs_use_enums_and_match() {
     let knobs = Knobs::default();
     let checks: [Check; 18] = [
-        ("enum", |s| s.contains("\nenum "), 300),
+        ("enum", |s| s.contains("\nenum "), 315),
         (
             "Copy enum",
             |s| s.contains("#[derive(Copy, Clone)]\nenum "),
-            120,
+            165,
         ),
         (
             "`impl Drop` for an enum",
@@ -282,7 +336,7 @@ fn programs_use_enums_and_match() {
                         && s.contains(&format!("\nenum {} {{", &l[14..l.len() - 2]))
                 })
             },
-            50,
+            81,
         ),
         (
             "explicit discriminant",
@@ -290,7 +344,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.starts_with("    ") && l.ends_with(',') && l.contains(" = "))
             },
-            30,
+            49,
         ),
         (
             "`match` statement",
@@ -298,7 +352,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("match ") && l.ends_with('{'))
             },
-            250,
+            211,
         ),
         (
             "`let` = `match`",
@@ -306,18 +360,18 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" = match ") && l.ends_with('{'))
             },
-            40,
+            28,
         ),
-        ("inline `match`", |s| s.contains("(match "), 150),
-        ("`if let`", |s| s.contains("if let "), 150),
-        ("`while let`", |s| s.contains("while let "), 15),
+        ("inline `match`", |s| s.contains("(match "), 199),
+        ("`if let`", |s| s.contains("if let "), 162),
+        ("`while let`", |s| s.contains("while let "), 12),
         (
             "`let`-`else`",
             |s| {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("let ") && l.ends_with(" else {"))
             },
-            120,
+            99,
         ),
         (
             "guard",
@@ -325,18 +379,18 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" if ") && l.contains(" => ") && !l.contains("(if "))
             },
-            100,
+            131,
         ),
-        ("`ref` binding", |s| s.contains("ref "), 120),
+        ("`ref` binding", |s| s.contains("ref "), 134),
         ("`ref mut` binding", |s| s.contains("ref mut "), 60),
-        ("`@` binding", |s| s.contains(" @ "), 60),
-        ("range pattern", |s| s.contains("..="), 100),
+        ("`@` binding", |s| s.contains(" @ "), 48),
+        ("range pattern", |s| s.contains("..="), 255),
         (
             "or-pattern",
             |s| s.lines().any(|l| l.contains(" | ") && l.contains("=>")),
-            100,
+            123,
         ),
-        ("match on a reference", |s| s.contains("match &"), 120),
+        ("match on a reference", |s| s.contains("match &"), 178),
         (
             "`impl` block of an enum",
             |s| {
@@ -346,23 +400,10 @@ fn programs_use_enums_and_match() {
                         && s.contains(&format!("\nenum {} {{", &l[5..l.len() - 2]))
                 })
             },
-            80,
+            120,
         ),
     ];
-    let mut counts = [0usize; 18];
-    for seed in 1..=SEEDS {
-        let src = generate(seed, &knobs);
-        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
-            *count += usize::from(check(&src));
-        }
-    }
-    let low: Vec<String> = checks
-        .iter()
-        .zip(counts)
-        .filter(|((_, _, min), count)| count < min)
-        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
-        .collect();
-    assert!(low.is_empty(), "of {SEEDS} programs: {}", low.join(", "));
+    count_checks("enums_and_match", &knobs, &checks);
 }
 
 /// Whether `s` has a reference to a slice type of a non-array element (`&[i32]`,
@@ -450,11 +491,11 @@ fn programs_use_arrays() {
         (
             "array type",
             |s| s.contains(": [") || s.contains("-> ["),
-            250,
+            316,
         ),
-        ("nested array type", |s| s.contains("[["), 25),
-        ("zero-length array", |s| s.contains("; 0]"), 40),
-        ("one-element array", |s| s.contains("; 1]"), 60),
+        ("nested array type", |s| s.contains("[["), 15),
+        ("zero-length array", |s| s.contains("; 0]"), 35),
+        ("one-element array", |s| s.contains("; 1]"), 83),
         (
             "length from a constant",
             |s| {
@@ -462,37 +503,35 @@ fn programs_use_arrays() {
                     .iter()
                     .any(|n| s.contains(&format!("; {n}]")) || s.contains(&format!("; {n} + ")))
             },
-            60,
+            63,
         ),
-        ("slice type", has_slice_type, 70),
+        ("slice type", has_slice_type, 91),
         (
             "array field",
             |s| {
                 s.lines()
                     .any(|l| l.starts_with("    ") && l.ends_with("],") && l.contains(": ["))
             },
-            60,
+            117,
         ),
-        ("array in a tuple", has_array_in_tuple, 40),
-        ("array in an enum payload", has_array_payload, 30),
-        ("array of an `impl Drop` type", has_drop_array, 40),
-        ("`.len()`", |s| s.contains(".len()"), 200),
+        ("array in a tuple", has_array_in_tuple, 30),
+        ("array in an enum payload", has_array_payload, 111),
+        ("array of an `impl Drop` type", has_drop_array, 37),
+        ("`.len()`", |s| s.contains(".len()"), 269),
         (
             "`while i < s.len()`",
             |s| {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
             },
-            // 75 per 500 seeds before #49 and 80 after, over seeds 1 to 3000 (the first
-            // 500 had 85 before, 84 after).
-            70,
+            48,
         ),
         (
             "computed index",
             |s| s.contains("[(") && s.contains(" % "),
-            150,
+            272,
         ),
-        ("element write", |s| writes_element(s, "="), 100),
+        ("element write", |s| writes_element(s, "="), 230),
         (
             "element compound assignment",
             |s| {
@@ -500,38 +539,21 @@ fn programs_use_arrays() {
                     .iter()
                     .any(|op| writes_element(s, op))
             },
-            20,
+            11,
         ),
-        ("borrow of an element", borrows_element, 70),
+        ("borrow of an element", borrows_element, 164),
         (
             "repeat expression",
             |s| s.contains("; ") && s.contains("= ["),
-            100,
+            232,
         ),
         (
             "out-of-bounds-prone index",
             |s| s.contains(" + 1usize)]") || s.contains(" - 1usize)]"),
-            30,
+            123,
         ),
     ];
-    let mut counts = [0usize; 18];
-    for seed in 1..=SEEDS {
-        let src = generate(seed, &knobs);
-        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
-            *count += usize::from(check(&src));
-        }
-    }
-    let report: Vec<String> = checks
-        .iter()
-        .zip(counts)
-        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
-        .collect();
-    let low = checks
-        .iter()
-        .zip(counts)
-        .any(|((_, _, min), count)| count < *min);
-    eprintln!("of {SEEDS} programs: {}", report.join(", "));
-    assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
+    count_checks("arrays", &knobs, &checks);
 }
 
 /// The bracketed groups of a line that hold a range at their top level (`[1..]`,
@@ -635,10 +657,10 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("fn ") && l.contains(": &str"))
             },
-            50,
+            59,
         ),
-        ("`-> &str`", |s| s.contains("-> &str {"), 15),
-        ("`&str` local", |s| s.contains(": &str = "), 120),
+        ("`-> &str`", |s| s.contains("-> &str {"), 18),
+        ("`&str` local", |s| s.contains(": &str = "), 169),
         (
             "escape in a string",
             |s| {
@@ -648,28 +670,28 @@ fn programs_use_strings_and_ranges() {
                 .iter()
                 .any(|e| s.contains(e))
             },
-            120,
+            149,
         ),
-        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 120),
-        ("`a..`", |s| any_range(s, |_, _, _, f| f == "a.."), 150),
-        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 80),
-        ("`..`", |s| any_range(s, |_, _, _, f| f == ".."), 70),
-        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 120),
-        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 80),
+        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 192),
+        ("`a..`", |s| any_range(s, |_, _, _, f| f == "a.."), 174),
+        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 140),
+        ("`..`", |s| any_range(s, |_, _, _, f| f == ".."), 84),
+        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 144),
+        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 122),
         (
             "computed bound",
             |s| any_range(s, |l, open, close, _| l[open..close].contains(" % ")),
-            80,
+            171,
         ),
         (
             "bound measuring the base",
             |s| any_range(s, |l, open, close, _| l[open..close].contains(".len()")),
-            80,
+            155,
         ),
         (
             "slice of a string literal",
             |s| any_range(s, |l, open, _, _| l[..open].ends_with('"')),
-            150,
+            296,
         ),
         (
             "range of a range",
@@ -681,12 +703,12 @@ fn programs_use_strings_and_ranges() {
                         .any(|&(_, close, _)| groups.iter().any(|&(open, _, _)| open == close + 1))
                 })
             },
-            100,
+            146,
         ),
         (
             "`.len()` of a range place",
             |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with(".len()")),
-            120,
+            179,
         ),
         (
             "`&mut` of a range place",
@@ -698,14 +720,14 @@ fn programs_use_strings_and_ranges() {
                         .is_some_and(|at| !before[at + 5..].contains([' ', '(', '[']))
                 })
             },
-            15,
+            9,
         ),
         (
             "element of a range place",
             |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with('[')),
-            150,
+            197,
         ),
-        ("write through a range place", writes_through_range, 15),
+        ("write through a range place", writes_through_range, 6),
         (
             "`while i < x[..].len()`",
             |s| {
@@ -715,7 +737,7 @@ fn programs_use_strings_and_ranges() {
                         && !range_groups(l).is_empty()
                 })
             },
-            15,
+            11,
         ),
         (
             "string comparison",
@@ -724,7 +746,7 @@ fn programs_use_strings_and_ranges() {
                     .iter()
                     .any(|op| s.contains(&format!(" {op} \"")) || s.contains(&format!("\" {op} ")))
             },
-            100,
+            82,
         ),
         (
             "`match` arm of string literals",
@@ -732,7 +754,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with('"') && l.contains(" => "))
             },
-            50,
+            25,
         ),
         (
             "string or-pattern",
@@ -740,9 +762,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.contains("\" | \"") && l.contains(" => "))
             },
-            // 105 per 500 seeds before #49 and 109 after, over seeds 1 to 3000 (the first
-            // 500 had 100 or more before, 96 after).
-            90,
+            63,
         ),
         // One string binding arm in ten is unguarded since #47 (it was 26 before).
         (
@@ -757,9 +777,9 @@ fn programs_use_strings_and_ranges() {
                             || t.contains(&format!(" if {name} ")))
                 })
             },
-            12,
+            6,
         ),
-        ("`if let` on a string", |s| s.contains("if let \""), 40),
+        ("`if let` on a string", |s| s.contains("if let \""), 31),
         (
             "`let`-`else` on a string",
             |s| {
@@ -768,9 +788,9 @@ fn programs_use_strings_and_ranges() {
                     (t.starts_with("let \"") || t.starts_with("let (\"")) && t.ends_with(" else {")
                 })
             },
-            40,
+            31,
         ),
-        ("`while let` on a string", |s| s.contains("while let \""), 8),
+        ("`while let` on a string", |s| s.contains("while let \""), 2),
         (
             "`while i < s.len()` over a string",
             |s| {
@@ -783,7 +803,7 @@ fn programs_use_strings_and_ranges() {
                         && w[1].contains('[')
                 })
             },
-            25,
+            16,
         ),
         (
             "shrinking a `&str`",
@@ -794,27 +814,10 @@ fn programs_use_strings_and_ranges() {
                     !name.is_empty() && t[name.len()..].starts_with(&format!(" = &{name}["))
                 })
             },
-            20,
+            9,
         ),
     ];
-    let mut counts = [0usize; 28];
-    for seed in 1..=SEEDS {
-        let src = generate(seed, &knobs);
-        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
-            *count += usize::from(check(&src));
-        }
-    }
-    let report: Vec<String> = checks
-        .iter()
-        .zip(counts)
-        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
-        .collect();
-    let low = checks
-        .iter()
-        .zip(counts)
-        .any(|((_, _, min), count)| count < *min);
-    eprintln!("of {SEEDS} programs: {}", report.join(", "));
-    assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
+    count_checks("strings_and_ranges", &knobs, &checks);
 }
 
 /// Whether a function of `s` has a parameter of a type starting with `ty`.
@@ -841,10 +844,10 @@ fn line_with_name(s: &str, lead: &str, rest: &str) -> bool {
 fn programs_use_references_to_references() {
     let knobs = Knobs::default();
     let checks: [Check; 11] = [
-        ("`&&T` parameter", |s| param(s, "&&"), 40),
-        ("`&&mut T` parameter", |s| param(s, "&&mut "), 10),
-        ("`&mut &mut T` parameter", |s| param(s, "&mut &mut "), 15),
-        ("`&&str` parameter", |s| param(s, "&&str"), 8),
+        ("`&&T` parameter", |s| param(s, "&&"), 56),
+        ("`&&mut T` parameter", |s| param(s, "&&mut "), 11),
+        ("`&mut &mut T` parameter", |s| param(s, "&mut &mut "), 13),
+        ("`&&str` parameter", |s| param(s, "&&str"), 13),
         (
             "annotated double reference local",
             |s| {
@@ -853,57 +856,40 @@ fn programs_use_references_to_references() {
                     t.starts_with("let ") && (t.contains(": &&") || t.contains(": &mut &"))
                 })
             },
-            70,
+            84,
         ),
         (
             "`&mut` of a reference local",
             |s| line_with_name(s, "let ", ": &mut &"),
-            35,
+            39,
         ),
         (
             "write through `&mut &mut`",
             |s| line_with_name(s, "**", " = "),
-            8,
+            6,
         ),
         (
             "retarget through `&mut &T`",
             |s| line_with_name(s, "*", " = &") || line_with_name(s, "*", " = \""),
-            50,
+            57,
         ),
         (
             "`&&x` argument",
             |s| s.contains("(&&") || s.contains(", &&") || s.contains("(& &mut "),
-            6,
+            9,
         ),
         (
             "explicit dereferences of a double reference",
             |s| s.lines().any(|l| l.contains("(**")),
-            40,
+            48,
         ),
         (
             "`let` of a borrowed borrow",
             |s| line_with_name(s, "let ", " = &&") || line_with_name(s, "let ", " = &mut &"),
-            15,
+            12,
         ),
     ];
-    let mut counts = [0usize; 11];
-    for seed in 1..=SEEDS {
-        let src = generate(seed, &knobs);
-        for (count, (_, check, _)) in counts.iter_mut().zip(&checks) {
-            *count += usize::from(check(&src));
-        }
-    }
-    let report: Vec<String> = checks
-        .iter()
-        .zip(counts)
-        .map(|((name, _, min), count)| format!("{name} in {count} (expected {min})"))
-        .collect();
-    let low = checks
-        .iter()
-        .zip(counts)
-        .any(|((_, _, min), count)| count < *min);
-    eprintln!("of {SEEDS} programs: {}", report.join(", "));
-    assert!(!low, "of {SEEDS} programs: {}", report.join(", "));
+    count_checks("references_to_references", &knobs, &checks);
 }
 
 /// Whether a line indexes an array literal of references (#43): `["a", s][i]`,
@@ -913,12 +899,12 @@ fn ref_array_element(line: &str) -> bool {
 }
 
 /// The generator indexes temporary arrays of references (#43, decision 77), and some of
-/// them through a range (a slice of references). Counted in 500 programs: 132 and 24.
+/// them through a range (a slice of references).
 #[test]
 fn programs_use_arrays_of_references() {
     let knobs = Knobs::default();
     let (mut any, mut ranged) = (0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         any += usize::from(src.lines().any(ref_array_element));
         ranged += usize::from(
@@ -926,10 +912,12 @@ fn programs_use_arrays_of_references() {
                 .any(|l| ref_array_element(l) && l.contains("..][")),
         );
     }
-    eprintln!("of {SEEDS} programs: {any} index an array of references, {ranged} a range of one");
-    assert!(
-        any >= 100 && ranged >= 15,
-        "of {SEEDS} programs: {any} index an array of references (expected 100), {ranged} a range of one (expected 15)"
+    coverage(
+        "arrays_of_references",
+        &[
+            ("index an array of references", any, 71),
+            ("a range of one", ranged, 10),
+        ],
     );
 }
 
@@ -954,24 +942,25 @@ fn extended_borrow(line: &str) -> Option<&'static str> {
 }
 
 /// The generator borrows temporaries in extending positions under blocks, `if`s and
-/// `match`es (#88). Counted in 500 programs: 121 blocks, 111 `if`s, 66 `match`es.
+/// `match`es (#88).
 #[test]
 fn programs_extend_temporaries_through_blocks_and_branches() {
     let knobs = Knobs::default();
     let (mut block, mut branch, mut arm) = (0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         let kinds: Vec<&str> = src.lines().filter_map(extended_borrow).collect();
         block += usize::from(kinds.contains(&"block"));
         branch += usize::from(kinds.contains(&"if"));
         arm += usize::from(kinds.contains(&"match"));
     }
-    eprintln!(
-        "of {SEEDS} programs: {block} extend through a block, {branch} an `if`, {arm} a `match`"
-    );
-    assert!(
-        block >= 90 && branch >= 80 && arm >= 38,
-        "of {SEEDS} programs: {block} extend through a block (expected 90), {branch} an `if` (expected 80), {arm} a `match` (expected 38)"
+    coverage(
+        "extended_temporaries",
+        &[
+            ("extend through a block", block, 69),
+            ("through an `if`", branch, 66),
+            ("through a `match`", arm, 34),
+        ],
     );
 }
 
@@ -1002,7 +991,7 @@ fn let_chain(line: &str) -> Option<(bool, bool, bool)> {
 fn programs_use_let_chains() {
     let knobs = Knobs::default();
     let (mut any, mut leading, mut two_lets, mut after) = (0, 0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         let chains: Vec<(bool, bool, bool)> = src.lines().filter_map(let_chain).collect();
         any += usize::from(!chains.is_empty());
@@ -1010,14 +999,14 @@ fn programs_use_let_chains() {
         two_lets += usize::from(chains.iter().any(|c| c.1));
         after += usize::from(chains.iter().any(|c| c.2));
     }
-    eprintln!(
-        "of {SEEDS} programs: {any} have a let chain, {leading} one led by a `bool`, {two_lets} one with two `let`s, {after} a `bool` after a `let`"
-    );
-    assert!(
-        // Over seeds 1 to 3000, 42 programs per 500 have a let chain and 25 (28 since #49)
-        // one with two `let`s; the first 500 had 51 and 30 before #49, 43 and 26 after.
-        any >= 36 && leading >= 10 && two_lets >= 22 && after >= 25,
-        "of {SEEDS} programs: {any} have a let chain (expected 36), {leading} one led by a `bool` (expected 10), {two_lets} one with two `let`s (expected 22), {after} a `bool` after a `let` (expected 25)"
+    coverage(
+        "let_chains",
+        &[
+            ("let chain", any, 26),
+            ("led by a `bool`", leading, 6),
+            ("two `let`s", two_lets, 15),
+            ("a `bool` after a `let`", after, 14),
+        ],
     );
 }
 
@@ -1025,7 +1014,7 @@ fn programs_use_let_chains() {
 fn programs_use_if_let_guards() {
     let knobs = Knobs::default();
     let (mut any, mut chained) = (0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         let guards: Vec<&str> = src
             .lines()
@@ -1039,10 +1028,9 @@ fn programs_use_if_let_guards() {
                 .any(|g| g.split("=>").next().is_some_and(|c| c.contains(" && "))),
         );
     }
-    eprintln!("of {SEEDS} programs: {any} have an `if let` guard, {chained} one with `&&`");
-    assert!(
-        any >= 25 && chained >= 7,
-        "of {SEEDS} programs: {any} have an `if let` guard (expected 25), {chained} one with `&&` (expected 7)"
+    coverage(
+        "if_let_guards",
+        &[("`if let` guard", any, 25), ("one with `&&`", chained, 9)],
     );
 }
 
@@ -1050,19 +1038,21 @@ fn programs_use_if_let_guards() {
 fn programs_use_aggregates_of_references() {
     let knobs = Knobs::default();
     let (mut arrays, mut slices, mut tuples, mut muts) = (0, 0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         arrays += usize::from(src.contains(": [&") && !src.contains(": [&mut"));
         slices += usize::from(src.contains(": &[&"));
         tuples += usize::from(src.contains(": (&"));
         muts += usize::from(src.contains(": [&mut "));
     }
-    eprintln!(
-        "of {SEEDS} programs: {arrays} have a `[&T; N]` local, {slices} a `&[&T]` one, {tuples} a `(&T, U)` one, {muts} a `[&mut T; 2]` one"
-    );
-    assert!(
-        arrays >= 40 && slices >= 30 && tuples >= 50 && muts >= 90,
-        "of {SEEDS} programs: {arrays} `[&T; N]` (expected 40), {slices} `&[&T]` (expected 30), {tuples} `(&T, U)` (expected 50), {muts} `[&mut T; 2]` (expected 90)"
+    coverage(
+        "aggregates_of_references",
+        &[
+            ("`[&T; N]` local", arrays, 40),
+            ("`&[&T]` local", slices, 16),
+            ("`(&T, U)` local", tuples, 51),
+            ("`[&mut T; 2]` local", muts, 83),
+        ],
     );
 }
 
@@ -1073,7 +1063,7 @@ fn programs_use_trait_helpers() {
     let knobs = Knobs::default();
     let (mut keeps, mut paths, mut kept, mut refs, mut signs, mut sums) = (0, 0, 0, 0, 0, 0);
     let (mut consts, mut copies) = (0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         // After the helpers' last line.
         let body = src
@@ -1094,19 +1084,18 @@ fn programs_use_trait_helpers() {
                 || body.contains("GenCloned("),
         );
     }
-    eprintln!(
-        "of {SEEDS} programs: {keeps} call `.Keep()`, {paths} `GenKeep::Keep`, {kept} `GenKept`, {refs} `.KeepRef()`, {signs} `.Sign()`, {sums} `GenSigns`, {consts} a trait constant, {copies} `Copy`/`Clone` through a bound"
-    );
-    assert!(
-        keeps >= 40
-            && paths >= 30
-            && kept >= 30
-            && refs >= 20
-            && signs >= 20
-            && sums >= 20
-            && consts >= 10
-            && copies >= 20,
-        "of {SEEDS} programs: {keeps} `.Keep()` (expected 40), {paths} `GenKeep::Keep` (expected 30), {kept} `GenKept` (expected 30), {refs} `.KeepRef()` (expected 20), {signs} `.Sign()` (expected 20), {sums} `GenSigns` (expected 20), {consts} a trait constant (expected 10), {copies} `Copy`/`Clone` (expected 20)"
+    coverage(
+        "trait_helpers",
+        &[
+            ("`.Keep()`", keeps, 51),
+            ("`GenKeep::Keep`", paths, 33),
+            ("`GenKept`", kept, 37),
+            ("`.KeepRef()`", refs, 21),
+            ("`.Sign()`", signs, 34),
+            ("`GenSigns`", sums, 28),
+            ("a trait constant", consts, 15),
+            ("`Copy`/`Clone` through a bound", copies, 24),
+        ],
     );
 }
 
@@ -1116,32 +1105,27 @@ fn programs_use_trait_helpers() {
 fn programs_use_the_prelude() {
     let knobs = Knobs::default();
     let patterns = [
-        ").unwrap()",
-        ").expect(\"generated\")",
-        ").unwrap_or(",
-        "None::<",
-        "Ok::<",
-        "Err::<",
-        "Some(&",
+        (").unwrap()", 44),
+        (").expect(\"generated\")", 4),
+        (").unwrap_or(", 16),
+        ("None::<", 16),
+        ("Ok::<", 9),
+        ("Err::<", 9),
+        ("Some(&", 10),
     ];
     let mut counts = [0usize; 7];
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
-        for (count, pattern) in counts.iter_mut().zip(patterns) {
+        for (count, (pattern, _)) in counts.iter_mut().zip(patterns) {
             *count += usize::from(src.contains(pattern));
         }
     }
-    let report: Vec<String> = patterns
+    let rows: Vec<(&str, usize, usize)> = patterns
         .iter()
         .zip(counts)
-        .map(|(p, n)| format!("`{p}` in {n}"))
+        .map(|((p, min), n)| (*p, n, *min))
         .collect();
-    eprintln!("of {SEEDS} programs: {}", report.join(", "));
-    assert!(
-        counts.iter().all(|&n| n >= 5),
-        "of {SEEDS} programs: {} (expected 5 each)",
-        report.join(", ")
-    );
+    coverage("prelude", &rows);
 }
 
 #[test]
@@ -1149,7 +1133,7 @@ fn programs_use_generic_helpers() {
     let knobs = Knobs::default();
     let (mut ids, mut turbofish, mut picks, mut firsts) = (0, 0, 0, 0);
     let (mut ors, mut nones, mut boxes) = (0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         let body = src.split("fn GenOr").nth(1).unwrap_or("");
         ids += usize::from(body.contains("GenId("));
@@ -1160,16 +1144,17 @@ fn programs_use_generic_helpers() {
         nones += usize::from(body.contains("GenOr(GenOpt::No,"));
         boxes += usize::from(body.contains("GenBox { Value:"));
     }
-    eprintln!(
-        "of {SEEDS} programs: {ids} call `GenId`, {turbofish} with a turbofish, {picks} call `GenPick`, {firsts} `GenFirst`, {ors} `GenOr(GenOpt::Yes(..), ..)`, {nones} `GenOr(GenOpt::No, ..)`, {boxes} `GenBox`"
-    );
-    assert!(
-        ors >= 30 && nones >= 20 && boxes >= 30,
-        "of {SEEDS} programs: {ors} `GenOr(GenOpt::Yes(..))` (expected 30), {nones} `GenOr(GenOpt::No, ..)` (expected 20), {boxes} `GenBox` (expected 30)"
-    );
-    assert!(
-        ids >= 60 && turbofish >= 20 && picks >= 50 && firsts >= 25,
-        "of {SEEDS} programs: {ids} `GenId` (expected 60), {turbofish} turbofish (expected 20), {picks} `GenPick` (expected 50), {firsts} `GenFirst` (expected 25)"
+    coverage(
+        "generic_helpers",
+        &[
+            ("`GenId`", ids, 75),
+            ("`GenId::<T>`", turbofish, 36),
+            ("`GenPick`", picks, 72),
+            ("`GenFirst`", firsts, 20),
+            ("`GenOr(GenOpt::Yes(..), ..)`", ors, 51),
+            ("`GenOr(GenOpt::No, ..)`", nones, 37),
+            ("`GenBox`", boxes, 55),
+        ],
     );
 }
 
@@ -1202,7 +1187,7 @@ fn patterns(src: &str) -> Vec<&str> {
 fn programs_use_reference_open_range_and_float_patterns() {
     let knobs = Knobs::default();
     let (mut deref, mut deref_mut, mut open, mut float) = (0, 0, 0, 0);
-    for seed in 1..=SEEDS {
+    for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         let pats = patterns(&src);
         deref += usize::from(
@@ -1213,12 +1198,14 @@ fn programs_use_reference_open_range_and_float_patterns() {
         open += usize::from(pats.iter().any(|p| is_half_open(p)));
         float += usize::from(pats.iter().any(|p| is_float_pattern(p)));
     }
-    eprintln!(
-        "of {SEEDS} programs: {deref} have a `&` pattern, {deref_mut} a `&mut` pattern, {open} a half-open range, {float} a float pattern"
-    );
-    assert!(
-        deref >= 15 && deref_mut >= 8 && open >= 30 && float >= 15,
-        "of {SEEDS} programs: {deref} have a `&` pattern (expected 15), {deref_mut} a `&mut` pattern (expected 8), {open} a half-open range (expected 30), {float} a float pattern (expected 15)"
+    coverage(
+        "patterns",
+        &[
+            ("`&` pattern", deref, 12),
+            ("`&mut` pattern", deref_mut, 3),
+            ("half-open range pattern", open, 27),
+            ("float pattern", float, 16),
+        ],
     );
 }
 

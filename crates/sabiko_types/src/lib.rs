@@ -313,9 +313,9 @@ mod tests {
 
     fn run(src: &str) -> (TypeckResults, ResolveResults, Vec<String>) {
         let mut sink = DiagnosticSink::new();
-        let ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+        let mut ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
         assert!(!sink.has_errors(), "parse errors: {:?}", sink.diagnostics());
-        let resolve = sabiko_resolve::resolve(&ast, &mut sink);
+        let resolve = sabiko_resolve::resolve(&mut ast, &mut sink);
         let results = typeck(&ast, &resolve, &mut sink);
         let mut diags = sink.into_vec();
         sabiko_diagnostics::sort(&mut diags);

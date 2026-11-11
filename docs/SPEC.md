@@ -130,7 +130,11 @@ and `None::<i32>` work too). A user item of the same name shadows a prelude item
 as in rustc (`const None: i32 = 1;` makes `None` the constant in that file), while the
 prelude's own code keeps its own names; a lone identifier pattern naming an imported unit
 variant compares (`None => ..`), and one naming a tuple variant is E0326 (`Some => ..`,
-rustc's E0530). The prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`)
+rustc's E0530); the resolver rewrites such an identifier into the path pattern it is. The
+prelude is a crate of its own to the user's file, so rustc's orphan rule applies to its
+types: an inherent `impl` for `Option` is E0211 (rustc's E0116), `impl Clone for
+Option<S>` or `impl Drop for Option<T>` is E0214 (E0117/E0120), and a trait of the file may
+be implemented for them. The prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`)
 are not visible (E0201, E0202), nor is `Debug` anywhere in Rust's prelude. Library files
 may contain `pub use Enum::{A, B};` and write `!` in a signature; in a user file both stay
 E0107 until Phase 9. Diagnostics may point into the prelude (`library/core/option.sabi`,
@@ -208,8 +212,12 @@ call of another `#[track_caller]` function) report the location of its caller in
 as in rustc: for a method call the start of the method's name (`x.unwrap()` reports
 `unwrap`), else the start of the call. The prelude's `unwrap` and `expect` are
 `#[track_caller]`. In IL the function takes the location as a hidden last `string`
-parameter. Not yet: on a trait's method or `Drop::drop` (E0107); on `Main` it is E0501, as
-rustc's E0648.
+parameter. That parameter is also part of the method's signature as C# sees it when the
+function is exported (`--emit=dll`): a C# caller passes a location string, or `null` for a
+panic without one; rustc's caller location is invisible to callers, and Phase 8 decides
+the export shape (for example, a wrapper without the parameter). Not yet: on a trait's
+method or `Drop::drop` (E0107); on `Main` it is E0501, as rustc's E0648; on anything that
+is not a function it is E0224, as rustc rejects it.
 An executable's entry point runs `Main` inside a `try`: an exception that escapes is
 reported on standard error as `thread 'main' panicked at file:line:column:` followed by
 the message (`thread 'main' panicked:` for a panic without a location, which generated

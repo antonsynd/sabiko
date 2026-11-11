@@ -51,15 +51,7 @@ fn lower_resolved(
 )> {
     let mut sink = DiagnosticSink::new();
     let mut sm = sabiko_diagnostics::SourceMap::new();
-    let file = sm.add("corpus.sabi", src);
-    let options = sabiko_parser::ParseOptions::default();
-    let (mut ast, next) = sabiko_parser::parse_file_with(file, src, options, &mut sink);
-    if sink.has_errors() {
-        return None;
-    }
-    // With the `core` prelude, as the driver compiles (decision 90).
-    let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next, &mut sm, &mut sink);
-    let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
+    let (ast, resolve) = sabiko_resolve::parse_and_resolve("corpus.sabi", src, &mut sm, &mut sink)?;
     if sink.has_errors() {
         return None;
     }

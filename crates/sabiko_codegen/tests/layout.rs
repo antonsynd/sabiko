@@ -46,16 +46,9 @@ fn corpus() -> Vec<PathBuf> {
 fn compile(path: &Path, overflow_checks: bool) -> Option<(Vec<Body>, String)> {
     let src = std::fs::read_to_string(path).unwrap();
     let mut sm = SourceMap::new();
-    let id = sm.add(path.display().to_string(), src.clone());
     let mut sink = DiagnosticSink::new();
-    let options = sabiko_parser::ParseOptions::default();
-    let (mut ast, next) = sabiko_parser::parse_file_with(id, &src, options, &mut sink);
-    if sink.has_errors() {
-        return None;
-    }
-    // With the `core` prelude, as the driver compiles (decision 90).
-    let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next, &mut sm, &mut sink);
-    let resolve = sabiko_resolve::resolve_program(&ast, start, &mut sink);
+    let name = path.display().to_string();
+    let (ast, resolve) = sabiko_resolve::parse_and_resolve(&name, &src, &mut sm, &mut sink)?;
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     if sink.has_errors() {
         return None;
