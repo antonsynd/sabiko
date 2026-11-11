@@ -26,7 +26,18 @@
 # Afterwards: `source tools/env.sh` (and `. "$HOME/.cargo/env"` if rustup was just installed).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The repo root: two levels up from this file, unless the script was run from a copy outside
+# the repo (a cloud environment's stored setup script runs from the directory holding the
+# checkouts, so BASH_SOURCE does not point into the repo); then look in ./, ./sabiko, and
+# the enclosing git checkout.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)"
+if [[ ! -f "$ROOT/rust-toolchain.toml" ]]; then
+  ROOT=""
+  for dir in . sabiko "$(git rev-parse --show-toplevel 2>/dev/null || true)"; do
+    if [[ -n "$dir" && -f "$dir/rust-toolchain.toml" ]]; then ROOT="$(cd "$dir" && pwd)"; break; fi
+  done
+  [[ -n "$ROOT" ]] || { echo "setup-env.sh: cannot find the sabiko checkout (rust-toolchain.toml)" >&2; exit 1; }
+fi
 CARGO_DENY_VERSION="0.20.2"   # keep in sync with CLAUDE.md and .github/workflows/ci.yml
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
