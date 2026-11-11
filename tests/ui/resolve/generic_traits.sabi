@@ -1,0 +1,51 @@
+struct S;
+
+trait Pair<A, B = A> {
+    fn Pair(&self, a: A) -> B;
+}
+
+trait Plain {}
+
+fn Missing<T: Pair>(t: T) {} //~ ERROR E0222 missing generics for trait `Pair`
+
+fn TooMany<T: Pair<i32, i32, i32>>(t: T) {} //~ ERROR E0222 trait takes at most 2 generic arguments but 3 generic arguments were supplied
+
+fn NotGeneric<T: Plain<i32>>(t: T) {} //~ ERROR E0222 trait takes 0 generic arguments but 1 generic argument was supplied
+
+impl From<i32> for i64 { //~ ERROR E0214 only traits defined in the current crate can be implemented for primitive types
+    fn from(x: i32) -> i64 {
+        0
+    }
+}
+
+impl From<u8> for (i32,) { //~ ERROR E0214 only traits defined in the current crate can be implemented for arbitrary types
+    fn from(x: u8) -> (i32,) {
+        (0,)
+    }
+}
+
+impl<T> From<S> for T { //~ ERROR E0226 type parameter `T` must be covered by another type when it appears before the first local type (`S`)
+    fn from(s: S) -> T {
+        loop {}
+    }
+}
+
+impl<T> From<T> for Option<(T,)> { //~ ERROR E0226 type parameter `T` must be used as the type parameter for some local type (e.g., `MyStruct<T>`)
+    fn from(t: T) -> Option<(T,)> {
+        None
+    }
+}
+
+impl From<S> for Option<i32> {
+    fn from(s: S) -> Option<i32> {
+        None
+    }
+}
+
+impl From<S> for i32 {
+    fn from(s: S) -> i32 {
+        0
+    }
+}
+
+fn Main() {}

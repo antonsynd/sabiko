@@ -1,10 +1,11 @@
-//! The error conversions of `?` (decision 93) on every pair of a table of error types:
-//! `fn F<T>(r: Result<i32, FROM>) -> Result<i32, TO> { Ok(r?) }` for `FROM != TO`. rustc
-//! accepts exactly the pairs in [`ACCEPTED`] (an impl `From<FROM> for TO` in its standard
-//! library); Sabiko, which has no `From` yet (#117), must report each of them as not yet
-//! supported (E0107) and every other pair as rustc's E0277, Sabiko's E0351. When `rustc`
-//! can be run, the table itself is checked against it (`SABIKO_REQUIRE_RUSTC=1` makes a
-//! missing `rustc` an error), so the split stays exact.
+//! The error conversions of `?` (decisions 93, 95) on every pair of a table of error
+//! types: `fn F<T>(r: Result<i32, FROM>) -> Result<i32, TO> { Ok(r?) }` for `FROM != TO`.
+//! rustc accepts exactly the pairs in [`ACCEPTED`] (an impl `From<FROM> for TO` in its
+//! standard library); Sabiko, whose `core` prelude has the same impls (`library/core/
+//! convert.sabi`), must accept each of them through the whole pipeline (borrow checking,
+//! monomorphisation and code generation included) and report every other pair as rustc's
+//! E0277, Sabiko's E0351. When `rustc` can be run, the table itself is checked against it
+//! (`SABIKO_REQUIRE_RUSTC=1` makes a missing `rustc` an error), so the split stays exact.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -12,7 +13,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use sabiko_diagnostics::ErrorCode;
-use sabiko_driver::{compile_str, Options, Stage};
+use sabiko_driver::{compile_str, Emit, Options, Stage};
 
 /// The error types, valid in both languages. `S` is a struct, `E` an enum and `T` the
 /// function's type parameter.
@@ -142,12 +143,19 @@ const HEADER: &str = "struct S;\nenum E { A }\n";
 
 /// The program, and the pair of each of its lines (by 1-based line number).
 fn program() -> (String, BTreeMap<usize, (&'static str, &'static str)>) {
+    program_of(|_| true)
+}
+
+/// The program of the pairs `keep` selects.
+fn program_of(
+    keep: impl Fn((&str, &str)) -> bool,
+) -> (String, BTreeMap<usize, (&'static str, &'static str)>) {
     let mut src = String::from(HEADER);
     let mut lines = BTreeMap::new();
     let mut line = HEADER.lines().count();
     for &from in TYPES {
         for &to in TYPES {
-            if from == to {
+            if from == to || !keep((from, to)) {
                 continue;
             }
             // An output reference needs an input one to take its lifetime from.
@@ -194,13 +202,13 @@ fn sabiko_splits_the_pairs_as_rustc_does() {
     let accepted: BTreeSet<(&str, &str)> = ACCEPTED.iter().copied().collect();
     let mut wrong = Vec::new();
     for (line, pair) in &lines {
-        let want = if accepted.contains(pair) {
-            ErrorCode::UNSUPPORTED_SYNTAX
+        let want: &[ErrorCode] = if accepted.contains(pair) {
+            &[]
         } else {
-            ErrorCode::TRY_ERROR_CONVERSION
+            &[ErrorCode::TRY_ERROR_CONVERSION]
         };
         let got = codes.remove(line).unwrap_or_default();
-        if got != [want] {
+        if got != want {
             wrong.push(format!(
                 "{} -> {}: {got:?}, expected {want:?}",
                 pair.0, pair.1
@@ -211,6 +219,54 @@ fn sabiko_splits_the_pairs_as_rustc_does() {
         wrong.push(format!("line {line} (no pair): {got:?}"));
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The pairs rustc accepts compile to IL: borrow checking, monomorphisation of each
+/// `From::from` and code generation take every one, but an array converted into a tuple,
+/// which needs array patterns: monomorphisation reports each such call (E0500) at the
+/// program's call that reached it.
+#[test]
+fn accepted_pairs_compile_to_il() {
+    let array_into_tuple = |(from, to): (&str, &str)| from.starts_with('[') && to.starts_with('(');
+    let compiled: Vec<String> = compile_accepted(|pair| !array_into_tuple(pair))
+        .iter()
+        .map(|d| format!("{:?} {}", d.code, d.message))
+        .collect();
+    assert!(compiled.is_empty(), "{}", compiled.join("\n"));
+    let not_compiled = compile_accepted(array_into_tuple);
+    let expected = ACCEPTED.iter().filter(|&&p| array_into_tuple(p)).count();
+    assert!(expected > 0);
+    assert_eq!(not_compiled.len(), expected, "{not_compiled:?}");
+    assert!(
+        not_compiled
+            .iter()
+            .all(|d| d.code == ErrorCode::UNSUPPORTED_CODEGEN),
+        "{not_compiled:?}"
+    );
+}
+
+/// The accepted pairs `keep` selects, each called from `Main`, compiled to IL: the
+/// diagnostics.
+fn compile_accepted(keep: impl Fn((&str, &str)) -> bool) -> Vec<sabiko_diagnostics::Diagnostic> {
+    let accepted: BTreeSet<(&str, &str)> = ACCEPTED.iter().copied().collect();
+    let (src, lines) = program_of(|pair| accepted.contains(&pair) && keep(pair));
+    // Each `F` is generic: call it so that monomorphisation makes its conversion.
+    let mut src = src;
+    src.push_str("fn Main() {\n");
+    for (line, (from, to)) in &lines {
+        let anchor = if to.contains('&') && !from.contains('&') {
+            "&0, "
+        } else {
+            ""
+        };
+        let _ = writeln!(src, "    let _ = F{line}::<u8>({anchor}Ok(1));");
+    }
+    src.push_str("}\n");
+    let options = Options {
+        emit: Emit::Il,
+        ..Options::default()
+    };
+    compile_str("accepted.sabi", &src, options).diagnostics
 }
 
 #[test]

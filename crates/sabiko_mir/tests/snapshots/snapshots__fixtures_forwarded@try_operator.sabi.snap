@@ -132,9 +132,10 @@ fn Checked(_1: Result<D, u8>) -> Result<i32, u8> {
     let _2: D;                           // d
     let mut _3: Result<D, u8>;
     let mut _4: isize;
-    let mut _5: i32;
+    let mut _5: u8;
+    let mut _6: i32;
     cleanup c0: _1 => nothing;
-    cleanup c1 in c0: _3 => nothing;
+    cleanup c1 in c0: _3 => drop(_3);
     cleanup c2 in c0: _2 => nothing;
 
     bb0 (cleanup c0): {
@@ -152,51 +153,57 @@ fn Checked(_1: Result<D, u8>) -> Result<i32, u8> {
 
     bb2 (cleanup c1): {
         _2 = move (_3 as Ok).0;
-        goto -> bb7;
-    }
-
-    bb3 (cleanup c1): {
-        _0 = Result::Err { 0: copy (_3 as Err).0 };
-        StorageDead(_4);
-        goto -> bb10;
-    }
-
-    bb4: {
-        return;
-    }
-
-    bb5 (cleanup c0): {
-        StorageDead(_3);
-        goto -> bb6;
-    }
-
-    bb6: {
-        StorageDead(_2);
-        goto -> bb4;
-    }
-
-    bb7 (cleanup c2): {
-        StorageDead(_4);
         goto -> bb8;
     }
 
-    bb8 (cleanup c2): {
-        StorageDead(_3);
-        _0 = Result::Ok { 0: copy _2.N };
+    bb3 (cleanup c1): {
+        StorageLive(_5);
+        _5 = <T as From<T>>::from::<u8>(copy (_3 as Err).0) -> bb4;
+    }
+
+    bb4 (cleanup c1): {
+        _0 = Result::Err { 0: copy _5 };
+        StorageDead(_5);
+        StorageDead(_4);
         goto -> bb11;
     }
 
-    bb9: {
-        StorageDead(_2);
-        goto -> bb4;
+    bb5: {
+        return;
     }
 
-    bb10 (cleanup c0): {
-        drop(_3) -> bb5;
+    bb6 (cleanup c0): {
+        StorageDead(_3);
+        goto -> bb7;
+    }
+
+    bb7: {
+        StorageDead(_2);
+        goto -> bb5;
+    }
+
+    bb8 (cleanup c2): {
+        StorageDead(_4);
+        goto -> bb9;
+    }
+
+    bb9 (cleanup c2): {
+        StorageDead(_3);
+        _0 = Result::Ok { 0: copy _2.N };
+        goto -> bb12;
+    }
+
+    bb10: {
+        StorageDead(_2);
+        goto -> bb5;
     }
 
     bb11 (cleanup c0): {
-        drop(_2) -> bb9;
+        drop(_3) -> bb6;
+    }
+
+    bb12 (cleanup c0): {
+        drop(_2) -> bb10;
     }
 }
 

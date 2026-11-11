@@ -32,6 +32,10 @@ pub const CORE: &[(&str, &str)] = &[
         "library/core/slice.sabi",
         include_str!("../../../library/core/slice.sabi"),
     ),
+    (
+        "library/core/convert.sabi",
+        include_str!("../../../library/core/convert.sabi"),
+    ),
 ];
 
 /// Parses the prelude's files into `source_map`, appends their items to `file` (the

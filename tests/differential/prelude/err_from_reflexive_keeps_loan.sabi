@@ -1,0 +1,7 @@
+// The reflexive `From` returns the very reference it is given: its loan stays.
+fn Main() {
+    let mut x = 1;
+    let r: &i32 = From::from(&x);
+    x = 2;
+    PrintLine(*r);
+}

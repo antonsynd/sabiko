@@ -1,0 +1,7 @@
+// `Option::from(&x)` puts the reference in the `Some`, with its loan.
+fn Main() {
+    let mut x = 1;
+    let o: Option<&i32> = Option::from(&x);
+    x = 2;
+    PrintLine(*o.unwrap());
+}

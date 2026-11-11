@@ -298,6 +298,24 @@ fn check_const_bodies(
     const_types
 }
 
+/// The arguments of a generic trait named in a bound, a supertrait or an `impl` header
+/// (decision 95), whose array lengths [`signature_lens`] evaluates.
+fn trait_args(tr: &sabiko_ast::TraitRef) -> impl Iterator<Item = &sabiko_ast::Type> {
+    tr.path.generic_args.iter().flat_map(|a| a.args.iter())
+}
+
+/// The trait arguments of the bounds of `generics` and of a `where` clause.
+fn bound_args<'a>(
+    generics: &'a [sabiko_ast::GenericParam],
+    clause: &'a [sabiko_ast::WherePredicate],
+) -> impl Iterator<Item = &'a sabiko_ast::Type> {
+    generics
+        .iter()
+        .flat_map(|g| g.bounds.iter())
+        .chain(clause.iter().flat_map(|p| p.bounds.iter()))
+        .flat_map(trait_args)
+}
+
 /// Checks and evaluates every array length written in an item signature (parameter and
 /// return types, fields, constant types, the types of `impl` blocks), in source order.
 fn signature_lens(
@@ -312,6 +330,7 @@ fn signature_lens(
             ItemKind::Fn(f) => {
                 types.extend(f.params.iter().map(|p| &p.ty));
                 types.extend(f.ret.iter());
+                types.extend(bound_args(&f.generics, &f.where_clause));
             }
             ItemKind::Struct(s) => {
                 if let sabiko_ast::StructKind::Named(fields) = &s.kind {
@@ -330,8 +349,16 @@ fn signature_lens(
                 }
             }
             ItemKind::Const(c) => types.push(&c.ty),
-            ItemKind::Impl(imp) => types.push(&imp.self_ty),
-            ItemKind::Trait(_) | ItemKind::Use(_) => {}
+            ItemKind::Impl(imp) => {
+                types.push(&imp.self_ty);
+                types.extend(imp.trait_ref.iter().flat_map(trait_args));
+                types.extend(bound_args(&imp.generics, &imp.where_clause));
+            }
+            ItemKind::Trait(t) => {
+                types.extend(t.generics.iter().filter_map(|g| g.default.as_ref()));
+                types.extend(t.supertraits.iter().flat_map(trait_args));
+            }
+            ItemKind::Use(_) => {}
         }
     }
     let mut lens = collect::ArrayLens::new();

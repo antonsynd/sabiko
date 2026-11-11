@@ -1,0 +1,611 @@
+//! `From` and `Into`, Rust's `core::convert` traits for conversions that cannot fail,
+//! with the implementations of Rust's standard library that Sabiko's types allow
+//! (decision 95).
+//!
+//! Part of the `core` prelude (decision 90): `From` and `Into` are visible in every
+//! program, and a user item of the same name shadows them. `e?` converts a `Result`'s
+//! error with `From::from`. A program implements `From` for its own types; `Into` comes
+//! with it, through the blanket implementation below.
+
+/// A conversion from a `T` into `Self`, which cannot fail.
+pub trait From<T> {
+    /// Converts `value` into a `Self`.
+    fn from(value: T) -> Self;
+}
+
+/// A conversion of `Self` into a `T`, which cannot fail: implement `From` instead, which
+/// gives this one.
+pub trait Into<T> {
+    /// Converts the value into a `T`.
+    fn into(self) -> T;
+}
+
+/// Every type converts from itself.
+impl<T> From<T> for T {
+    fn from(t: T) -> T {
+        t
+    }
+}
+
+/// `Into` is `From` the other way round.
+impl<T, U> Into<U> for T
+where
+    U: From<T>,
+{
+    fn into(self) -> U {
+        U::from(self)
+    }
+}
+
+/// A value converts into `Some` of it.
+impl<T> From<T> for Option<T> {
+    fn from(val: T) -> Option<T> {
+        Some(val)
+    }
+}
+
+/// A reference to an option converts into an option of a reference to its value.
+impl<T> From<&Option<T>> for Option<&T> {
+    fn from(o: &Option<T>) -> Option<&T> {
+        o.as_ref()
+    }
+}
+
+/// A mutable reference to an option converts into an option of a mutable reference to
+/// its value.
+impl<T> From<&mut Option<T>> for Option<&mut T> {
+    fn from(o: &mut Option<T>) -> Option<&mut T> {
+        o.as_mut()
+    }
+}
+
+// The lossless conversions between primitive types.
+
+impl From<bool> for i8 {
+    fn from(small: bool) -> i8 {
+        small as i8
+    }
+}
+
+impl From<bool> for i16 {
+    fn from(small: bool) -> i16 {
+        small as i16
+    }
+}
+
+impl From<bool> for i32 {
+    fn from(small: bool) -> i32 {
+        small as i32
+    }
+}
+
+impl From<bool> for i64 {
+    fn from(small: bool) -> i64 {
+        small as i64
+    }
+}
+
+impl From<bool> for i128 {
+    fn from(small: bool) -> i128 {
+        small as i128
+    }
+}
+
+impl From<bool> for isize {
+    fn from(small: bool) -> isize {
+        small as isize
+    }
+}
+
+impl From<bool> for u8 {
+    fn from(small: bool) -> u8 {
+        small as u8
+    }
+}
+
+impl From<bool> for u16 {
+    fn from(small: bool) -> u16 {
+        small as u16
+    }
+}
+
+impl From<bool> for u32 {
+    fn from(small: bool) -> u32 {
+        small as u32
+    }
+}
+
+impl From<bool> for u64 {
+    fn from(small: bool) -> u64 {
+        small as u64
+    }
+}
+
+impl From<bool> for u128 {
+    fn from(small: bool) -> u128 {
+        small as u128
+    }
+}
+
+impl From<bool> for usize {
+    fn from(small: bool) -> usize {
+        small as usize
+    }
+}
+
+impl From<bool> for f32 {
+    fn from(small: bool) -> f32 {
+        if small { 1.0 } else { 0.0 }
+    }
+}
+
+impl From<bool> for f64 {
+    fn from(small: bool) -> f64 {
+        if small { 1.0 } else { 0.0 }
+    }
+}
+
+impl From<char> for u32 {
+    fn from(small: char) -> u32 {
+        small as u32
+    }
+}
+
+impl From<char> for u64 {
+    fn from(small: char) -> u64 {
+        small as u64
+    }
+}
+
+impl From<char> for u128 {
+    fn from(small: char) -> u128 {
+        small as u128
+    }
+}
+
+impl From<u8> for char {
+    fn from(small: u8) -> char {
+        small as char
+    }
+}
+
+impl From<u8> for u16 {
+    fn from(small: u8) -> u16 {
+        small as u16
+    }
+}
+
+impl From<u8> for u32 {
+    fn from(small: u8) -> u32 {
+        small as u32
+    }
+}
+
+impl From<u8> for u64 {
+    fn from(small: u8) -> u64 {
+        small as u64
+    }
+}
+
+impl From<u8> for u128 {
+    fn from(small: u8) -> u128 {
+        small as u128
+    }
+}
+
+impl From<u8> for usize {
+    fn from(small: u8) -> usize {
+        small as usize
+    }
+}
+
+impl From<u8> for i16 {
+    fn from(small: u8) -> i16 {
+        small as i16
+    }
+}
+
+impl From<u8> for i32 {
+    fn from(small: u8) -> i32 {
+        small as i32
+    }
+}
+
+impl From<u8> for i64 {
+    fn from(small: u8) -> i64 {
+        small as i64
+    }
+}
+
+impl From<u8> for i128 {
+    fn from(small: u8) -> i128 {
+        small as i128
+    }
+}
+
+impl From<u8> for isize {
+    fn from(small: u8) -> isize {
+        small as isize
+    }
+}
+
+impl From<u8> for f32 {
+    fn from(small: u8) -> f32 {
+        small as f32
+    }
+}
+
+impl From<u8> for f64 {
+    fn from(small: u8) -> f64 {
+        small as f64
+    }
+}
+
+impl From<u16> for u32 {
+    fn from(small: u16) -> u32 {
+        small as u32
+    }
+}
+
+impl From<u16> for u64 {
+    fn from(small: u16) -> u64 {
+        small as u64
+    }
+}
+
+impl From<u16> for u128 {
+    fn from(small: u16) -> u128 {
+        small as u128
+    }
+}
+
+impl From<u16> for usize {
+    fn from(small: u16) -> usize {
+        small as usize
+    }
+}
+
+impl From<u16> for i32 {
+    fn from(small: u16) -> i32 {
+        small as i32
+    }
+}
+
+impl From<u16> for i64 {
+    fn from(small: u16) -> i64 {
+        small as i64
+    }
+}
+
+impl From<u16> for i128 {
+    fn from(small: u16) -> i128 {
+        small as i128
+    }
+}
+
+impl From<u16> for f32 {
+    fn from(small: u16) -> f32 {
+        small as f32
+    }
+}
+
+impl From<u16> for f64 {
+    fn from(small: u16) -> f64 {
+        small as f64
+    }
+}
+
+impl From<u32> for u64 {
+    fn from(small: u32) -> u64 {
+        small as u64
+    }
+}
+
+impl From<u32> for u128 {
+    fn from(small: u32) -> u128 {
+        small as u128
+    }
+}
+
+impl From<u32> for i64 {
+    fn from(small: u32) -> i64 {
+        small as i64
+    }
+}
+
+impl From<u32> for i128 {
+    fn from(small: u32) -> i128 {
+        small as i128
+    }
+}
+
+impl From<u32> for f64 {
+    fn from(small: u32) -> f64 {
+        small as f64
+    }
+}
+
+impl From<u64> for u128 {
+    fn from(small: u64) -> u128 {
+        small as u128
+    }
+}
+
+impl From<u64> for i128 {
+    fn from(small: u64) -> i128 {
+        small as i128
+    }
+}
+
+impl From<i8> for i16 {
+    fn from(small: i8) -> i16 {
+        small as i16
+    }
+}
+
+impl From<i8> for i32 {
+    fn from(small: i8) -> i32 {
+        small as i32
+    }
+}
+
+impl From<i8> for i64 {
+    fn from(small: i8) -> i64 {
+        small as i64
+    }
+}
+
+impl From<i8> for i128 {
+    fn from(small: i8) -> i128 {
+        small as i128
+    }
+}
+
+impl From<i8> for isize {
+    fn from(small: i8) -> isize {
+        small as isize
+    }
+}
+
+impl From<i8> for f32 {
+    fn from(small: i8) -> f32 {
+        small as f32
+    }
+}
+
+impl From<i8> for f64 {
+    fn from(small: i8) -> f64 {
+        small as f64
+    }
+}
+
+impl From<i16> for i32 {
+    fn from(small: i16) -> i32 {
+        small as i32
+    }
+}
+
+impl From<i16> for i64 {
+    fn from(small: i16) -> i64 {
+        small as i64
+    }
+}
+
+impl From<i16> for i128 {
+    fn from(small: i16) -> i128 {
+        small as i128
+    }
+}
+
+impl From<i16> for isize {
+    fn from(small: i16) -> isize {
+        small as isize
+    }
+}
+
+impl From<i16> for f32 {
+    fn from(small: i16) -> f32 {
+        small as f32
+    }
+}
+
+impl From<i16> for f64 {
+    fn from(small: i16) -> f64 {
+        small as f64
+    }
+}
+
+impl From<i32> for i64 {
+    fn from(small: i32) -> i64 {
+        small as i64
+    }
+}
+
+impl From<i32> for i128 {
+    fn from(small: i32) -> i128 {
+        small as i128
+    }
+}
+
+impl From<i32> for f64 {
+    fn from(small: i32) -> f64 {
+        small as f64
+    }
+}
+
+impl From<i64> for i128 {
+    fn from(small: i64) -> i128 {
+        small as i128
+    }
+}
+
+impl From<f32> for f64 {
+    fn from(small: f32) -> f64 {
+        small as f64
+    }
+}
+
+// Arrays of up to 12 elements and tuples of as many elements of one type, both ways. An
+// array into a tuple needs array patterns: its body is an intrinsic that is not yet
+// compiled (E0500 where a program reaches it).
+
+#[intrinsic]
+fn ArrayIntoTuple<A, T>(array: A) -> T {
+    loop {}
+}
+
+impl<T> From<[T; 1]> for (T,) {
+    fn from(array: [T; 1]) -> (T,) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T,)> for [T; 1] {
+    fn from(tuple: (T,)) -> [T; 1] {
+        let (e0,) = tuple;
+        [e0]
+    }
+}
+
+impl<T> From<[T; 2]> for (T, T) {
+    fn from(array: [T; 2]) -> (T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T)> for [T; 2] {
+    fn from(tuple: (T, T)) -> [T; 2] {
+        let (e0, e1) = tuple;
+        [e0, e1]
+    }
+}
+
+impl<T> From<[T; 3]> for (T, T, T) {
+    fn from(array: [T; 3]) -> (T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T)> for [T; 3] {
+    fn from(tuple: (T, T, T)) -> [T; 3] {
+        let (e0, e1, e2) = tuple;
+        [e0, e1, e2]
+    }
+}
+
+impl<T> From<[T; 4]> for (T, T, T, T) {
+    fn from(array: [T; 4]) -> (T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T)> for [T; 4] {
+    fn from(tuple: (T, T, T, T)) -> [T; 4] {
+        let (e0, e1, e2, e3) = tuple;
+        [e0, e1, e2, e3]
+    }
+}
+
+impl<T> From<[T; 5]> for (T, T, T, T, T) {
+    fn from(array: [T; 5]) -> (T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T)> for [T; 5] {
+    fn from(tuple: (T, T, T, T, T)) -> [T; 5] {
+        let (e0, e1, e2, e3, e4) = tuple;
+        [e0, e1, e2, e3, e4]
+    }
+}
+
+impl<T> From<[T; 6]> for (T, T, T, T, T, T) {
+    fn from(array: [T; 6]) -> (T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T)> for [T; 6] {
+    fn from(tuple: (T, T, T, T, T, T)) -> [T; 6] {
+        let (e0, e1, e2, e3, e4, e5) = tuple;
+        [e0, e1, e2, e3, e4, e5]
+    }
+}
+
+impl<T> From<[T; 7]> for (T, T, T, T, T, T, T) {
+    fn from(array: [T; 7]) -> (T, T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T, T)> for [T; 7] {
+    fn from(tuple: (T, T, T, T, T, T, T)) -> [T; 7] {
+        let (e0, e1, e2, e3, e4, e5, e6) = tuple;
+        [e0, e1, e2, e3, e4, e5, e6]
+    }
+}
+
+impl<T> From<[T; 8]> for (T, T, T, T, T, T, T, T) {
+    fn from(array: [T; 8]) -> (T, T, T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T, T, T)> for [T; 8] {
+    fn from(tuple: (T, T, T, T, T, T, T, T)) -> [T; 8] {
+        let (e0, e1, e2, e3, e4, e5, e6, e7) = tuple;
+        [e0, e1, e2, e3, e4, e5, e6, e7]
+    }
+}
+
+impl<T> From<[T; 9]> for (T, T, T, T, T, T, T, T, T) {
+    fn from(array: [T; 9]) -> (T, T, T, T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T, T, T, T)> for [T; 9] {
+    fn from(tuple: (T, T, T, T, T, T, T, T, T)) -> [T; 9] {
+        let (e0, e1, e2, e3, e4, e5, e6, e7, e8) = tuple;
+        [e0, e1, e2, e3, e4, e5, e6, e7, e8]
+    }
+}
+
+impl<T> From<[T; 10]> for (T, T, T, T, T, T, T, T, T, T) {
+    fn from(array: [T; 10]) -> (T, T, T, T, T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T, T, T, T, T)> for [T; 10] {
+    fn from(tuple: (T, T, T, T, T, T, T, T, T, T)) -> [T; 10] {
+        let (e0, e1, e2, e3, e4, e5, e6, e7, e8, e9) = tuple;
+        [e0, e1, e2, e3, e4, e5, e6, e7, e8, e9]
+    }
+}
+
+impl<T> From<[T; 11]> for (T, T, T, T, T, T, T, T, T, T, T) {
+    fn from(array: [T; 11]) -> (T, T, T, T, T, T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T, T, T, T, T, T)> for [T; 11] {
+    fn from(tuple: (T, T, T, T, T, T, T, T, T, T, T)) -> [T; 11] {
+        let (e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10) = tuple;
+        [e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10]
+    }
+}
+
+impl<T> From<[T; 12]> for (T, T, T, T, T, T, T, T, T, T, T, T) {
+    fn from(array: [T; 12]) -> (T, T, T, T, T, T, T, T, T, T, T, T) {
+        ArrayIntoTuple(array)
+    }
+}
+
+impl<T> From<(T, T, T, T, T, T, T, T, T, T, T, T)> for [T; 12] {
+    fn from(tuple: (T, T, T, T, T, T, T, T, T, T, T, T)) -> [T; 12] {
+        let (e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11) = tuple;
+        [e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11]
+    }
+}

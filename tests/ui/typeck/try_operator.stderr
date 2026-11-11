@@ -51,15 +51,6 @@
     │ 
     │ Note: `?` applies to an `Option` or a `Result`
 ────╯
-[E0107] Error: not yet supported: `?` converting the error from `i32` to `i64`
-    ╭─[ tests/ui/typeck/try_operator.sabi:38:9 ]
-    │
- 38 │     Ok(r?) //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
-    │         ┬  
-    │         ╰── Rust converts it with `From<i32> for i64`
-    │ 
-    │ Note: `?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)
-────╯
 [E0351] Error: `?` couldn't convert the error to `i32`
     ╭─[ tests/ui/typeck/try_operator.sabi:43:9 ]
     │
@@ -99,15 +90,6 @@
     │                     ╰───── this can't be annotated with `?` because it has type `Result<_, i32>`
     │ 
     │ Note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
-────╯
-[E0107] Error: not yet supported: `?` converting the error from `i32` to `i64`
-    ╭─[ tests/ui/typeck/try_operator.sabi:62:24 ]
-    │
- 62 │     let x: i32 = Err(5)?; //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
-    │                        ┬  
-    │                        ╰── Rust converts it with `From<i32> for i64`
-    │ 
-    │ Note: `?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)
 ────╯
 [E0313] Error: type annotations needed
     ╭─[ tests/ui/typeck/try_operator.sabi:67:18 ]

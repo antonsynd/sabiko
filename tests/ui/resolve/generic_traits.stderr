@@ -1,0 +1,85 @@
+[E0222] Error: missing generics for trait `Pair`
+   ╭─[ tests/ui/resolve/generic_traits.sabi:9:15 ]
+   │
+ 3 │ trait Pair<A, B = A> {
+   │       ──┬─  
+   │         ╰─── trait `Pair` defined here
+   │ 
+ 9 │ fn Missing<T: Pair>(t: T) {} //~ ERROR E0222 missing generics for trait `Pair`
+   │               ──┬─  
+   │                 ╰─── expected 1 generic argument
+───╯
+[E0222] Error: trait takes at most 2 generic arguments but 3 generic arguments were supplied
+    ╭─[ tests/ui/resolve/generic_traits.sabi:11:19 ]
+    │
+  3 │ trait Pair<A, B = A> {
+    │       ──┬─  
+    │         ╰─── trait `Pair` defined here
+    │ 
+ 11 │ fn TooMany<T: Pair<i32, i32, i32>>(t: T) {} //~ ERROR E0222 trait takes at most 2 generic arguments but 3 generic arguments were supplied
+    │                   ───────┬───────  
+    │                          ╰───────── expected at most 2 generic arguments
+────╯
+[E0222] Error: trait takes 0 generic arguments but 1 generic argument was supplied
+    ╭─[ tests/ui/resolve/generic_traits.sabi:13:23 ]
+    │
+  7 │ trait Plain {}
+    │       ──┬──  
+    │         ╰──── trait `Plain` defined here
+    │ 
+ 13 │ fn NotGeneric<T: Plain<i32>>(t: T) {} //~ ERROR E0222 trait takes 0 generic arguments but 1 generic argument was supplied
+    │                       ──┬──  
+    │                         ╰──── expected 0 generic arguments
+────╯
+[E0214] Error: only traits defined in the current crate can be implemented for primitive types
+    ╭─[ tests/ui/resolve/generic_traits.sabi:15:6 ]
+    │
+ 15 │ impl From<i32> for i64 { //~ ERROR E0214 only traits defined in the current crate can be implemented for primitive types
+    │      ──────┬─┬──────┬─  
+    │            │ ╰────────── impl doesn't use only types from inside the current crate
+    │            │        │   
+    │            ╰──────────── `i32` is not defined in the current crate
+    │                     │   
+    │                     ╰─── `i64` is not defined in the current crate
+    │ 
+    │ Note 1: impl doesn't have any local type before any uncovered type parameters
+    │ 
+    │ Note 2: define and implement a trait or new type instead
+────╯
+[E0214] Error: only traits defined in the current crate can be implemented for arbitrary types
+    ╭─[ tests/ui/resolve/generic_traits.sabi:21:6 ]
+    │
+ 21 │ impl From<u8> for (i32,) { //~ ERROR E0214 only traits defined in the current crate can be implemented for arbitrary types
+    │      ──────┬──┬──────┬──  
+    │            │  ╰─────────── impl doesn't use only types from inside the current crate
+    │            │         │    
+    │            ╰────────────── `u8` is not defined in the current crate
+    │                      │    
+    │                      ╰──── this is not defined in the current crate because tuples are always foreign
+    │ 
+    │ Note 1: impl doesn't have any local type before any uncovered type parameters
+    │ 
+    │ Note 2: define and implement a trait or new type instead
+────╯
+[E0226] Error: type parameter `T` must be covered by another type when it appears before the first local type (`S`)
+    ╭─[ tests/ui/resolve/generic_traits.sabi:27:6 ]
+    │
+ 27 │ impl<T> From<S> for T { //~ ERROR E0226 type parameter `T` must be covered by another type when it appears before the first local type (`S`)
+    │      ┬  
+    │      ╰── type parameter `T` must be covered by another type when it appears before the first local type (`S`)
+    │ 
+    │ Note 1: implementing a foreign trait is only possible if at least one of the types for which it is implemented is local, and no uncovered type parameters appear before that first local type
+    │ 
+    │ Note 2: in this case, 'before' refers to the following order: `impl<..> ForeignTrait<T1, ..., Tn> for T0`, where `T0` is the first and `Tn` is the last
+────╯
+[E0226] Error: type parameter `T` must be used as the type parameter for some local type (e.g., `MyStruct<T>`)
+    ╭─[ tests/ui/resolve/generic_traits.sabi:33:6 ]
+    │
+ 33 │ impl<T> From<T> for Option<(T,)> { //~ ERROR E0226 type parameter `T` must be used as the type parameter for some local type (e.g., `MyStruct<T>`)
+    │      ┬  
+    │      ╰── type parameter `T` must be used as the type parameter for some local type
+    │ 
+    │ Note 1: implementing a foreign trait is only possible if at least one of the types for which it is implemented is local
+    │ 
+    │ Note 2: only traits defined in the current crate can be implemented for a type parameter
+────╯

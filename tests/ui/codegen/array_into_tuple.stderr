@@ -1,0 +1,27 @@
+[E0500] Error: converting an array into a tuple is not yet supported by code generation
+   ╭─[ tests/ui/codegen/array_into_tuple.sabi:5:5 ]
+   │
+ 5 │     U::from(t) //~ ERROR E0500 converting an array into a tuple is not yet supported by code generation
+   │     ─────┬────  
+   │          ╰────── cannot be compiled yet
+   │ 
+   │ Note: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
+───╯
+[E0500] Error: converting an array into a tuple is not yet supported by code generation
+   ╭─[ tests/ui/codegen/array_into_tuple.sabi:9:23 ]
+   │
+ 9 │     let t: (u8, u8) = From::from([1u8, 2]); //~ ERROR E0500 converting an array into a tuple is not yet supported by code generation
+   │                       ──────────┬─────────  
+   │                                 ╰─────────── cannot be compiled yet
+   │ 
+   │ Note: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
+───╯
+[E0500] Error: converting an array into a tuple is not yet supported by code generation
+    ╭─[ tests/ui/codegen/array_into_tuple.sabi:10:22 ]
+    │
+ 10 │     let u: (bool,) = [true].into(); //~ ERROR E0500 converting an array into a tuple is not yet supported by code generation
+    │                      ──────┬──────  
+    │                            ╰──────── cannot be compiled yet
+    │ 
+    │ Note: `From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md
+────╯

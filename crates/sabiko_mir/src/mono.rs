@@ -11,7 +11,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{DefId, DefKind, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, Intrinsic, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{ConstValue, ItemTypes, Ty, TypeckResults};
 
@@ -92,24 +92,52 @@ fn instance_name_as(
     let info = resolve.def(def);
     let parent_count = resolve.parent_generic_count(def).min(args.len());
     let own = &args[parent_count..];
+    // A trait at its arguments: `From<u8>` (decision 95), so the blocks of one trait at
+    // different arguments for one type never collide.
+    let trait_name = |tr: DefId, trait_args: &[Ty]| {
+        if trait_args.is_empty() {
+            def_name(tr)
+        } else {
+            let shown: Vec<String> = trait_args.iter().map(ty_name).collect();
+            format!("{}<{}>", def_name(tr), shown.join(", "))
+        }
+    };
     let mut name = match info.parent.map(|p| (p, resolve.def(p).kind)) {
         Some((imp, DefKind::Impl)) => {
             // A generic block's body before monomorphisation names its parameters.
-            let self_ty = if parent_count == resolve.generics(imp).len() {
-                items
-                    .impl_self_ty(imp)
-                    .subst(resolve.generics(imp), &args[..parent_count])
-            } else {
-                items.impl_self_ty(imp)
+            let block = items.impl_def(imp);
+            let subst = |ty: &Ty| {
+                if parent_count == resolve.generics(imp).len() {
+                    ty.subst(resolve.generics(imp), &args[..parent_count])
+                } else {
+                    ty.clone()
+                }
             };
+            let self_ty = subst(&items.impl_self_ty(imp));
+            let trait_args: Vec<Ty> = block
+                .map(|b| b.trait_args.iter().map(subst).collect())
+                .unwrap_or_default();
             // The prelude's `impl<T> [T]` has no trait: `<[i32]>::get`, as rustc names it.
             match resolve.impl_trait(imp) {
-                Some(tr) => format!("<{} as {}>::{}", ty_name(&self_ty), def_name(tr), info.name),
+                Some(tr) => format!(
+                    "<{} as {}>::{}",
+                    ty_name(&self_ty),
+                    trait_name(tr, &trait_args),
+                    info.name
+                ),
                 None => format!("<{}>::{}", ty_name(&self_ty), info.name),
             }
         }
-        Some((tr, DefKind::Trait)) => match args.first() {
-            Some(self_ty) => format!("<{} as {}>::{}", ty_name(self_ty), def_name(tr), info.name),
+        Some((tr, DefKind::Trait)) => match args.split_first() {
+            Some((self_ty, rest)) => {
+                let n = items.trait_param_count(tr).min(rest.len());
+                format!(
+                    "<{} as {}>::{}",
+                    ty_name(self_ty),
+                    trait_name(tr, &rest[..n]),
+                    info.name
+                )
+            }
             None => format!("{}::{}", def_name(tr), info.name),
         },
         // A function of a struct's or enum's `impl` block lives in its class, which names
@@ -136,9 +164,7 @@ pub fn monomorphize(
     typeck: &TypeckResults,
     sink: &mut DiagnosticSink,
 ) -> Vec<Body> {
-    let is_generic = |def: DefId| {
-        resolve.builtin(def).is_none() && !typeck.items.fn_sig(def).generics.is_empty()
-    };
+    let is_generic = |def: DefId| made_on_demand(def, resolve, typeck);
     let mut generic: HashMap<DefId, Body> = HashMap::new();
     let mut out = Vec::new();
     for mut body in bodies {
@@ -195,6 +221,10 @@ pub fn monomorphize(
             }
             // A prelude intrinsic has no instances: code generation lowers its calls
             // (decision 90).
+            if resolve.intrinsic(def) == Some(Intrinsic::ArrayIntoTuple) {
+                array_into_tuple(origin, sink);
+                continue;
+            }
             if resolve.intrinsic(def).is_some() {
                 continue;
             }
@@ -243,6 +273,28 @@ pub fn monomorphize(
             return out;
         }
     }
+}
+
+/// Whether the function `def` is made only where something reaches it: a generic
+/// function, or any function of the `core` prelude (whose non-generic functions, such as
+/// `impl From<u8> for u16`'s `from`, are made only where a program reaches them, as
+/// rustc links only what is used).
+fn made_on_demand(def: DefId, resolve: &ResolveResults, typeck: &TypeckResults) -> bool {
+    resolve.builtin(def).is_none()
+        && (resolve.is_prelude(def) || !typeck.items.fn_sig(def).generics.is_empty())
+}
+
+/// E0500 at the program's call that reached `From<[T; N]> for (T, .., T)`, whose body
+/// needs array patterns (decision 95).
+fn array_into_tuple(origin: Origin, sink: &mut DiagnosticSink) {
+    sink.emit(
+        Diagnostic::error(
+            ErrorCode::UNSUPPORTED_CODEGEN,
+            "converting an array into a tuple is not yet supported by code generation",
+        )
+        .with_label(origin.user_call, "cannot be compiled yet")
+        .with_note("`From<[T; N]> for (T, .., T)` needs array patterns; see docs/PLAN.md"),
+    );
 }
 
 /// An instance to make.
@@ -407,7 +459,7 @@ fn enqueue(
     seen: &mut HashSet<(DefId, Vec<Ty>)>,
 ) {
     let user_body = !resolve.is_prelude(body.def);
-    for (def, args, span) in generic_calls(body) {
+    for (def, args, span) in generic_calls(body, resolve) {
         if seen.insert((def, args.clone())) {
             queue.push(Pending {
                 def,
@@ -451,8 +503,9 @@ fn drop_instances(
     }
 }
 
-/// The generic functions `body` calls, with their (concrete) arguments and the call's span.
-fn generic_calls(body: &Body) -> Vec<(DefId, Vec<Ty>, Span)> {
+/// The generic functions and the functions of the `core` prelude `body` calls, with their
+/// (concrete) arguments and the call's span.
+fn generic_calls(body: &Body, resolve: &ResolveResults) -> Vec<(DefId, Vec<Ty>, Span)> {
     let mut calls = Vec::new();
     for data in &body.blocks {
         let term = data.terminator();
@@ -460,7 +513,7 @@ fn generic_calls(body: &Body) -> Vec<(DefId, Vec<Ty>, Span)> {
             func, generic_args, ..
         } = &term.kind
         {
-            if !generic_args.is_empty() {
+            if !generic_args.is_empty() || resolve.is_prelude(*func) {
                 calls.push((*func, generic_args.clone(), term.span));
             }
         }

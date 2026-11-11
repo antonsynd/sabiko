@@ -1,0 +1,75 @@
+// `From` and `Into`: user impls for a struct from two types, `Into` through the blanket
+// impl, the prelude's primitive conversions, `T` into `Option<T>`, `&Option<T>` into
+// `Option<&T>`, the reflexive impl, generic functions bounded on `From` and `Into`, and a
+// user impl for a primitive from a type of the file, tuples into arrays.
+#[derive(Copy, Clone)]
+struct Meters {
+    V: i64,
+}
+
+impl From<i32> for Meters {
+    fn from(v: i32) -> Meters {
+        Meters { V: v as i64 * 100 }
+    }
+}
+
+impl From<bool> for Meters {
+    fn from(b: bool) -> Meters {
+        Meters { V: if b { 1 } else { 0 } }
+    }
+}
+
+impl From<Meters> for i64 {
+    fn from(m: Meters) -> i64 {
+        m.V
+    }
+}
+
+fn Convert<T, U: From<T>>(t: T) -> U {
+    U::from(t)
+}
+
+fn Total<T: Into<i64>>(a: T, b: T) -> i64 {
+    a.into() + b.into()
+}
+
+fn Main() {
+    let a = Meters::from(3);
+    PrintLine(a.V);
+    let b: Meters = From::from(true);
+    PrintLine(b.V);
+    let c: Meters = 7.into();
+    PrintLine(c.V);
+    let d: i64 = c.into();
+    PrintLine(d);
+    PrintLine(i64::from(a));
+    let e: Meters = Convert(5);
+    PrintLine(e.V);
+    let f: f64 = Convert(2.5f32);
+    PrintLine(f);
+    PrintLine(Total(1u8, 2u8));
+    PrintLine(Total(a, c));
+    PrintLine(u32::from('A'));
+    PrintLine(char::from(66u8));
+    PrintLine(i32::from(true));
+    PrintLine(f32::from(false));
+    let w: u128 = 200u8.into();
+    PrintLine(w);
+    let s: Option<i32> = 9.into();
+    PrintLine(s.unwrap());
+    let o = Some(4);
+    let r: Option<&i32> = Option::from(&o);
+    PrintLine(*r.unwrap());
+    let mut m = Some(1);
+    let q: Option<&mut i32> = (&mut m).into();
+    *q.unwrap() += 10;
+    PrintLine(m.unwrap());
+    let same: Meters = Meters::from(a);
+    PrintLine(same.V);
+    let arr: [u8; 3] = From::from((1u8, 2u8, 3u8));
+    PrintLine(arr[2]);
+    let one: [Meters; 1] = (Meters::from(8),).into();
+    PrintLine(one[0].V);
+    let opt: Option<[i32; 2]> = Option::from([5, 6]);
+    PrintLine(opt.unwrap()[1]);
+}

@@ -5,9 +5,10 @@ use std::collections::{HashMap, HashSet};
 
 use sabiko_ast::{ItemKind, NodeId, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_resolve::{Builtin, DefId, DefKind, LangItem, Predicate, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, DefId, DefKind, LangItem, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 
+use crate::traits::Predicate;
 use crate::ty::{Mutability, Ty};
 
 /// What lowering a type written in a signature needs besides the resolver's tables: the
@@ -199,8 +200,14 @@ pub struct TraitDef {
     pub name: String,
     /// Its `Self` type parameter, which its members' signatures mention.
     pub self_param: DefId,
-    /// The supertraits, as written.
-    pub supertraits: Vec<DefId>,
+    /// Its own type parameters, after `Self` (`T` of `trait From<T>`).
+    pub params: Vec<DefId>,
+    /// The default of each of `params`, if it has one (`Rhs = Self`), in terms of `Self`
+    /// and the parameters before it.
+    pub defaults: Vec<Option<Ty>>,
+    /// The supertraits, as written, with their arguments in terms of `Self` and
+    /// `params`.
+    pub supertraits: Vec<(DefId, Vec<Ty>)>,
     pub span: Span,
 }
 
@@ -210,7 +217,10 @@ pub struct ImplDef {
     /// The block's definition (`DefKind::Impl`), its members' parent.
     pub def: DefId,
     pub trait_: DefId,
-    /// Its own type parameters, which `self_ty` and `preds` mention.
+    /// The trait's arguments after `Self` (`A` of `impl From<A> for C`), defaults filled
+    /// in.
+    pub trait_args: Vec<Ty>,
+    /// Its own type parameters, which `self_ty`, `trait_args` and `preds` mention.
     pub generics: Vec<DefId>,
     /// The type it implements the trait for.
     pub self_ty: Ty,
@@ -254,13 +264,18 @@ pub struct ItemTypes {
     /// glue (decision 55).
     needs_drop: HashSet<DefId>,
     traits: HashMap<DefId, TraitDef>,
+    /// The trait of each trait member (function or constant).
+    member_traits: HashMap<DefId, DefId>,
     /// The trait `impl` blocks, in source order.
     impls: Vec<ImplDef>,
     /// The language traits (decision 86).
     lang: HashMap<LangItem, DefId>,
     /// The bounds that hold in each function's signature and body: its own, its block's,
-    /// and for a trait's member `Self: Trait`. Absent when there are none.
+    /// and for a trait's member `Self: Trait<P..>`. Absent when there are none.
     param_envs: HashMap<DefId, Vec<Predicate>>,
+    /// The bounds written on each function (and its inherent `impl` block), trait `impl`
+    /// block and trait method, lowered (`sabiko_resolve::ResolveResults::predicates`).
+    predicates: HashMap<DefId, Vec<Predicate>>,
     /// The lengths and `impl` types to lower the types written in bodies with.
     pub(crate) sig_cx: ArrayLens,
 }
@@ -343,9 +358,22 @@ impl ItemTypes {
         self.traits.get(&def)
     }
 
+    /// The trait whose member `def` is, if it is one.
+    #[must_use]
+    pub fn trait_of_member(&self, def: DefId) -> Option<DefId> {
+        self.member_traits.get(&def).copied()
+    }
+
     /// The trait `impl` blocks of the trait `tr`, in source order.
     pub fn impls_of(&self, tr: DefId) -> impl Iterator<Item = &ImplDef> {
         self.impls.iter().filter(move |i| i.trait_ == tr)
+    }
+
+    /// The trait `impl` block `def`, if it was collected (its trait resolved and its
+    /// header was accepted).
+    #[must_use]
+    pub fn impl_def(&self, def: DefId) -> Option<&ImplDef> {
+        self.impls.iter().find(|i| i.def == def)
     }
 
     /// The type `Self` names in the trait `impl` block `def` (an error type when its trait
@@ -363,6 +391,13 @@ impl ItemTypes {
     #[must_use]
     pub fn param_env(&self, def: DefId) -> &[Predicate] {
         self.param_envs.get(&def).map_or(&[], Vec::as_slice)
+    }
+
+    /// The bounds written on a function (and its inherent `impl` block), a trait `impl`
+    /// block or a trait method; not the implied `Self: Trait` of a trait's members.
+    #[must_use]
+    pub fn predicates(&self, def: DefId) -> &[Predicate] {
+        self.predicates.get(&def).map_or(&[], Vec::as_slice)
     }
 
     /// Whether a value of `ty` has drop glue: a struct or enum with an `impl Drop`, or a
@@ -920,9 +955,10 @@ pub(crate) fn collect(
 }
 
 /// The traits, the trait `impl` blocks and the bounds of each function, then the checks
-/// that need them all: each block's type (E0107 for one with references or unsized), its
-/// methods' signatures against its trait's (E0053, E0050, E0049, E0185/E0186, E0276), its
-/// supertraits (E0277), and that no two blocks of one trait overlap (E0215, E0119).
+/// that need them all: each block's type (E0107 for one with references or unsized) and
+/// type parameters (E0352, rustc's E0207), its methods' signatures against its trait's
+/// (E0053, E0050, E0049, E0185/E0186, E0276), its supertraits (E0277), and that no two
+/// blocks of one trait overlap (E0215, E0119).
 fn collect_traits(
     file: &SourceFile,
     resolve: &ResolveResults,
@@ -930,18 +966,126 @@ fn collect_traits(
     items: &mut ItemTypes,
     sink: &mut DiagnosticSink,
 ) {
+    let refs = trait_refs(file);
+    collect_trait_defs(file, resolve, lens, items);
+    collect_predicates(resolve, lens, items, &refs);
+    collect_impls(file, resolve, lens, items, sink);
+    collect_param_envs(resolve, items);
+    check_overlap(resolve, items, sink);
+    check_supertraits(resolve, items, sink);
+    check_impl_methods(resolve, items, sink);
+}
+
+/// The traits, with their parameters, lowered defaults and supertraits.
+fn collect_trait_defs(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    lens: &ArrayLens,
+    items: &mut ItemTypes,
+) {
+    // The traits with their defaults first: lowering any trait reference fills them in.
+    let decls: HashMap<DefId, &sabiko_ast::TraitDecl> = file
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Trait(t) => Some((resolve.def_of_item(item.id), t)),
+            _ => None,
+        })
+        .collect();
     for tr in resolve.defs_of_kind(DefKind::Trait) {
         let info = resolve.def(tr);
+        for &m in resolve.trait_members(tr) {
+            items.member_traits.insert(m, tr);
+        }
+        let params = resolve.trait_params(tr).to_vec();
+        let defaults = match decls.get(&tr) {
+            Some(t) => t
+                .generics
+                .iter()
+                .map(|g| g.default.as_ref().map(|d| lower_sig_type(d, resolve, lens)))
+                .chain(std::iter::repeat(None))
+                .take(params.len())
+                .collect(),
+            None => vec![None; params.len()],
+        };
         items.traits.insert(
             tr,
             TraitDef {
                 name: info.name.clone(),
                 self_param: resolve.trait_self(tr),
-                supertraits: resolve.supertraits(tr).to_vec(),
+                params,
+                defaults,
+                supertraits: Vec::new(),
                 span: info.span,
             },
         );
     }
+    for tr in resolve.defs_of_kind(DefKind::Trait) {
+        let self_ty = Ty::Param(resolve.trait_self(tr));
+        let supertraits = match decls.get(&tr) {
+            Some(t) => t
+                .supertraits
+                .iter()
+                .filter_map(|s| match resolve.res(s.id) {
+                    Res::Def(sup) => Some((
+                        sup,
+                        lower_trait_args(items, sup, s, &self_ty, resolve, lens),
+                    )),
+                    _ => None,
+                })
+                .collect(),
+            // A language trait's (`Copy: Clone`).
+            None => resolve
+                .supertraits(tr)
+                .iter()
+                .map(|&s| (s, Vec::new()))
+                .collect(),
+        };
+        items.traits.get_mut(&tr).expect("collected").supertraits = supertraits;
+    }
+}
+
+/// The bounds of every item, lowered.
+fn collect_predicates(
+    resolve: &ResolveResults,
+    lens: &ArrayLens,
+    items: &mut ItemTypes,
+    refs: &HashMap<NodeId, &sabiko_ast::TraitRef>,
+) {
+    let bounded = resolve
+        .defs_of_kind(DefKind::Fn)
+        .chain(resolve.defs_of_kind(DefKind::Impl))
+        .chain(resolve.defs_of_kind(DefKind::Const));
+    for def in bounded {
+        let preds: Vec<Predicate> = resolve
+            .predicates(def)
+            .iter()
+            .map(|p| Predicate {
+                param: p.param,
+                trait_: p.trait_,
+                args: match refs.get(&p.trait_ref) {
+                    Some(tr) => {
+                        lower_trait_args(items, p.trait_, tr, &Ty::Param(p.param), resolve, lens)
+                    }
+                    None => Vec::new(),
+                },
+                span: p.span,
+            })
+            .collect();
+        if !preds.is_empty() {
+            items.predicates.insert(def, preds);
+        }
+    }
+}
+
+/// The trait `impl` blocks whose trait resolved and whose header is accepted.
+fn collect_impls(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    lens: &ArrayLens,
+    items: &mut ItemTypes,
+    sink: &mut DiagnosticSink,
+) {
     for item in &file.items {
         let ItemKind::Impl(imp) = &item.kind else {
             continue;
@@ -949,7 +1093,7 @@ fn collect_traits(
         let Some(def) = resolve.item_def(item.id) else {
             continue;
         };
-        let Some(trait_) = resolve.impl_trait(def) else {
+        let (Some(trait_), Some(tr)) = (resolve.impl_trait(def), &imp.trait_ref) else {
             continue;
         };
         let self_ty = lens.impl_self.get(&def).cloned().unwrap_or(Ty::Error);
@@ -957,18 +1101,38 @@ fn collect_traits(
             // The resolver reported a language trait's block for another type (E0214).
             continue;
         }
-        if !check_impl_type(&self_ty, imp.self_ty.span, resolve, sink) {
+        let library = resolve.is_prelude(def);
+        if !check_impl_type(&self_ty, imp.self_ty.span, library, resolve, sink) {
+            continue;
+        }
+        let trait_args = lower_trait_args(items, trait_, tr, &self_ty, resolve, lens);
+        let written = tr.path.args_of(tr.path.segments.len() - 1);
+        let arg_spans = written.map_or(Vec::new(), |a| a.args.iter().map(|t| t.span).collect());
+        let fits = trait_args.iter().enumerate().all(|(i, a)| {
+            let span = arg_spans.get(i).copied().unwrap_or(tr.path.span);
+            check_impl_type(a, span, library, resolve, sink)
+        });
+        if !fits {
+            continue;
+        }
+        let generics = resolve.generics(def).to_vec();
+        if !check_constrained(&generics, &self_ty, &trait_args, resolve, sink) {
             continue;
         }
         items.impls.push(ImplDef {
             def,
             trait_,
-            generics: resolve.generics(def).to_vec(),
+            trait_args,
+            generics,
             self_ty,
-            preds: resolve.predicates(def).to_vec(),
+            preds: items.predicates(def).to_vec(),
             span: resolve.def(def).span,
         });
     }
+}
+
+/// The bounds that hold in each function's and associated constant's signature and body.
+fn collect_param_envs(resolve: &ResolveResults, items: &mut ItemTypes) {
     let consts = resolve
         .defs_of_kind(DefKind::Const)
         .filter(|&d| crate::consts::is_assoc_const(resolve, d));
@@ -976,13 +1140,18 @@ fn collect_traits(
         if resolve.builtin(def).is_some() {
             continue;
         }
-        let mut env = resolve.predicates(def).to_vec();
+        let mut env = items.predicates(def).to_vec();
         if let Some(parent) = resolve.def(def).parent {
             match resolve.def(parent).kind {
-                DefKind::Impl => env.extend_from_slice(resolve.predicates(parent)),
+                DefKind::Impl => env.extend_from_slice(items.predicates(parent)),
                 DefKind::Trait => env.push(Predicate {
                     param: resolve.trait_self(parent),
                     trait_: parent,
+                    args: resolve
+                        .trait_params(parent)
+                        .iter()
+                        .map(|&p| Ty::Param(p))
+                        .collect(),
                     span: resolve.def(parent).span,
                 }),
                 _ => {}
@@ -992,19 +1161,127 @@ fn collect_traits(
             items.param_envs.insert(def, env);
         }
     }
-    check_overlap(resolve, items, sink);
-    check_supertraits(resolve, items, sink);
-    check_impl_methods(resolve, items, sink);
 }
 
-/// A trait `impl` block's type may not hold a reference or be unsized, for now (E0107).
-fn check_impl_type(
-    ty: &Ty,
-    span: Span,
+/// Every trait reference of the file (bounds, supertraits, `impl` headers), by node.
+fn trait_refs(file: &SourceFile) -> HashMap<NodeId, &sabiko_ast::TraitRef> {
+    fn params<'a>(
+        generics: &'a [sabiko_ast::GenericParam],
+        clause: &'a [sabiko_ast::WherePredicate],
+        out: &mut HashMap<NodeId, &'a sabiko_ast::TraitRef>,
+    ) {
+        let bounds = generics
+            .iter()
+            .flat_map(|g| &g.bounds)
+            .chain(clause.iter().flat_map(|p| &p.bounds));
+        for b in bounds {
+            out.insert(b.id, b);
+        }
+    }
+    let mut out = HashMap::new();
+    for item in file.all_items() {
+        match &item.kind {
+            ItemKind::Fn(f) => params(&f.generics, &f.where_clause, &mut out),
+            ItemKind::Impl(imp) => {
+                params(&imp.generics, &imp.where_clause, &mut out);
+                if let Some(tr) = &imp.trait_ref {
+                    out.insert(tr.id, tr);
+                }
+            }
+            ItemKind::Trait(t) => {
+                params(&t.generics, &[], &mut out);
+                for s in &t.supertraits {
+                    out.insert(s.id, s);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The arguments after `Self` of the trait `tr` as the reference `written` gives them for
+/// the type `self_ty`: those written, lowered, then each missing one's default with `Self`
+/// and the arguments before it substituted (`T: Add` is `T: Add<T>`). A missing argument
+/// without a default (reported by the resolver) is an error type.
+fn lower_trait_args(
+    items: &ItemTypes,
+    tr: DefId,
+    written: &sabiko_ast::TraitRef,
+    self_ty: &Ty,
+    resolve: &ResolveResults,
+    lens: &ArrayLens,
+) -> Vec<Ty> {
+    let Some(t) = items.trait_def(tr) else {
+        return Vec::new();
+    };
+    let mut args: Vec<Ty> = written
+        .path
+        .args_of(written.path.segments.len() - 1)
+        .map_or(Vec::new(), |a| {
+            a.args
+                .iter()
+                .map(|ty| lower_sig_type(ty, resolve, lens))
+                .collect()
+        });
+    args.truncate(t.params.len());
+    let mut params = vec![t.self_param];
+    params.extend(&t.params);
+    while args.len() < t.params.len() {
+        let mut subst = vec![self_ty.clone()];
+        subst.extend(args.iter().cloned());
+        subst.resize(params.len(), Ty::Error);
+        let default = t.defaults[args.len()]
+            .as_ref()
+            .map_or(Ty::Error, |d| d.subst(&params, &subst));
+        args.push(default);
+    }
+    args
+}
+
+/// Every type parameter of a trait `impl` block must appear in its type or its trait's
+/// arguments (E0352, rustc's E0207): selection could not find what it stands for. `false`
+/// after reporting one; the block is then left out.
+fn check_constrained(
+    generics: &[DefId],
+    self_ty: &Ty,
+    trait_args: &[Ty],
     resolve: &ResolveResults,
     sink: &mut DiagnosticSink,
 ) -> bool {
-    let what = if ty.has_ref() {
+    let mut ok = true;
+    for &p in generics {
+        if self_ty.mentions(p) || trait_args.iter().any(|a| a.mentions(p)) {
+            continue;
+        }
+        if self_ty.is_error() || trait_args.iter().any(Ty::is_error) {
+            return false;
+        }
+        let name = &resolve.def(p).name;
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::UNCONSTRAINED_TYPE_PARAMETER,
+                format!("the type parameter `{name}` is not constrained by the impl trait, self type, or predicates"),
+            )
+            .with_label(resolve.def(p).span, "unconstrained type parameter")
+            .with_note(format!("remove the unused type parameter `{name}`, or use it in the type or the trait's arguments")),
+        );
+        ok = false;
+    }
+    ok
+}
+
+/// A trait `impl` block's type and its trait's arguments may not be unsized, nor hold a
+/// reference outside the `core` prelude (`library`, whose `From<&Option<T>> for
+/// Option<&T>` has one), for now (E0107).
+fn check_impl_type(
+    ty: &Ty,
+    span: Span,
+    library: bool,
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> bool {
+    let what = if ty.has_ref() && !library {
         "a type that holds a reference"
     } else if matches!(ty, Ty::Prim(PrimTy::Str) | Ty::Slice(_)) {
         "an unsized type"
@@ -1022,40 +1299,130 @@ fn check_impl_type(
     false
 }
 
-/// Two `impl` blocks of one trait whose types some type matches both (E0215, rustc's
-/// E0119), reported at the later one.
+/// The trait's `Self` and own parameters, and what the trait `impl` block `imp` gives
+/// them: its type and its trait's arguments.
+fn impl_trait_subst(items: &ItemTypes, imp: &ImplDef) -> (Vec<DefId>, Vec<Ty>) {
+    let t = &items.traits[&imp.trait_];
+    let mut params = vec![t.self_param];
+    params.extend(&t.params);
+    let mut args = vec![imp.self_ty.clone()];
+    args.extend(imp.trait_args.iter().cloned());
+    args.resize(params.len(), Ty::Error);
+    (params, args)
+}
+
+/// Two `impl` blocks of one trait whose headers some trait reference matches both
+/// (E0215, rustc's E0119), reported at the later one: their types and trait arguments
+/// unify, and no bound of either fails at the unified types where only this file could
+/// make it hold (rustc's negative reasoning in coherence: `impl<T, U: From<T>> Into<U>
+/// for T` does not overlap `impl Into<i32> for S` without `impl From<S> for i32`).
 fn check_overlap(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
     for (j, later) in items.impls.iter().enumerate() {
         for earlier in &items.impls[..j] {
             if earlier.trait_ != later.trait_ {
                 continue;
             }
-            let mut vars = earlier.generics.clone();
-            vars.extend(later.generics.iter().copied());
-            if !crate::traits::unify_patterns(&earlier.self_ty, &later.self_ty, &vars) {
+            // The prelude's blocks come after the user's: a user's block that conflicts
+            // with one of them is reported, at the user's block.
+            let swapped = resolve.is_prelude(later.def) && !resolve.is_prelude(earlier.def);
+            let (earlier, later) = if swapped {
+                (later, earlier)
+            } else {
+                (earlier, later)
+            };
+            // Most pairs differ at the head of a type (`From<u8> for u16`, `From<u8> for
+            // u32`): skip them before building anything.
+            let pairs = std::iter::once((&earlier.self_ty, &later.self_ty))
+                .chain(earlier.trait_args.iter().zip(&later.trait_args));
+            if pairs
+                .into_iter()
+                .any(|(a, b)| crate::traits::heads_differ(a, b, &earlier.generics, &later.generics))
+            {
                 continue;
             }
-            let name = &items.traits[&later.trait_].name;
-            sink.emit(
-                Diagnostic::error(
-                    ErrorCode::CONFLICTING_IMPLS,
-                    format!(
-                        "conflicting implementations of trait `{name}` for type `{}`",
-                        later.self_ty.display(resolve)
-                    ),
-                )
-                .with_label(
-                    later.span,
-                    format!(
-                        "conflicting implementation for `{}`",
-                        later.self_ty.display(resolve)
-                    ),
-                )
-                .with_label(earlier.span, "first implementation here"),
+            let mut vars = earlier.generics.clone();
+            vars.extend(later.generics.iter().copied());
+            let header = |imp: &ImplDef| {
+                let mut tys = vec![imp.self_ty.clone()];
+                tys.extend(imp.trait_args.iter().cloned());
+                tys
+            };
+            let Some(subst) = crate::traits::unify_headers(&header(earlier), &header(later), &vars)
+            else {
+                continue;
+            };
+            let disjoint = earlier.preds.iter().chain(&later.preds).any(|pred| {
+                let self_ty = crate::traits::apply(&Ty::Param(pred.param), &vars, &subst);
+                let args: Vec<Ty> = pred
+                    .args
+                    .iter()
+                    .map(|a| crate::traits::apply(a, &vars, &subst))
+                    .collect();
+                let concrete = !std::iter::once(&self_ty)
+                    .chain(&args)
+                    .any(|t| vars.iter().any(|&v| t.mentions(v)));
+                concrete
+                    && knowable(resolve, pred.trait_, &self_ty, &args)
+                    && items.implements(&self_ty, pred.trait_, &args, &[])
+                        == crate::traits::Solution::No
+            });
+            if disjoint {
+                continue;
+            }
+            let self_ty = crate::traits::apply(&later.self_ty, &vars, &subst);
+            let args: Vec<Ty> = later
+                .trait_args
+                .iter()
+                .map(|a| crate::traits::apply(a, &vars, &subst))
+                .collect();
+            let shown = self_ty.display(resolve);
+            let tr = crate::traits::trait_ref_str(resolve, later.trait_, &args);
+            let d = Diagnostic::error(
+                ErrorCode::CONFLICTING_IMPLS,
+                format!("conflicting implementations of trait `{tr}` for type `{shown}`"),
+            )
+            .with_label(
+                later.span,
+                format!("conflicting implementation for `{shown}`"),
             );
-            break;
+            // The prelude is a crate of its own to the user's file (decision 90): rustc
+            // names an impl of another crate in a note.
+            let d = if resolve.is_prelude(earlier.def) && !resolve.is_prelude(later.def) {
+                let generics: Vec<String> = earlier
+                    .generics
+                    .iter()
+                    .map(|&g| resolve.def(g).name.clone())
+                    .collect();
+                let generics = if generics.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", generics.join(", "))
+                };
+                d.with_note(format!(
+                    "conflicting implementation in Sabiko's `core` library: `impl{generics} {} for {}`",
+                    crate::traits::trait_ref_str(resolve, earlier.trait_, &earlier.trait_args),
+                    earlier.self_ty.display(resolve)
+                ))
+            } else {
+                d.with_label(earlier.span, "first implementation here")
+            };
+            sink.emit(d);
+            if !swapped {
+                break;
+            }
         }
     }
+}
+
+/// Whether only this file could implement `self_ty: tr<args>` (rustc's
+/// `trait_ref_is_knowable` for the crate being compiled): the trait is the file's own, or
+/// one of the types is a struct or enum of the file, so the orphan rule lets no other
+/// crate add the impl. Coherence may then rely on its absence.
+fn knowable(resolve: &ResolveResults, tr: DefId, self_ty: &Ty, args: &[Ty]) -> bool {
+    let local = |ty: &Ty| matches!(ty, Ty::Adt(d, _) if !resolve.is_prelude(*d));
+    (!resolve.is_prelude(tr) && resolve.lang_of(tr).is_none())
+        || local(self_ty)
+        || args.iter().any(local)
 }
 
 /// The type of an `impl` block of a trait with supertraits must implement them (E0341,
@@ -1063,12 +1430,23 @@ fn check_overlap(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Diagnos
 fn check_supertraits(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
     for imp in &items.impls {
         let name = &items.traits[&imp.trait_].name;
-        for &sup in &items.traits[&imp.trait_].supertraits {
-            if items.implements(&imp.self_ty, sup, &imp.preds) == crate::traits::Solution::Yes {
+        let t = &items.traits[&imp.trait_];
+        let mut params = vec![t.self_param];
+        params.extend(&t.params);
+        let mut subst = vec![imp.self_ty.clone()];
+        subst.extend(imp.trait_args.iter().cloned());
+        for (sup, args) in &t.supertraits {
+            let (sup, args): (DefId, Vec<Ty>) = (
+                *sup,
+                args.iter().map(|a| a.subst(&params, &subst)).collect(),
+            );
+            if items.implements(&imp.self_ty, sup, &args, &imp.preds)
+                == crate::traits::Solution::Yes
+            {
                 continue;
             }
             let ty = imp.self_ty.display(resolve);
-            let sup_name = &resolve.def(sup).name;
+            let sup_name = crate::traits::trait_ref_str(resolve, sup, &args);
             sink.emit(
                 Diagnostic::error(
                     ErrorCode::UNSATISFIED_BOUND,
@@ -1079,7 +1457,8 @@ fn check_supertraits(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Dia
                     format!("the trait `{sup_name}` is not implemented for `{ty}`"),
                 )
                 .with_note(format!(
-                    "required by a bound in `{name}`: `trait {name}: {sup_name}`"
+                    "required by a bound in `{name}`: `trait {name}: {}`",
+                    resolve.def(sup).name
                 )),
             );
         }
@@ -1092,13 +1471,20 @@ fn check_supertraits(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Dia
 /// parameters (E0343, E0049), types (E0321, E0053), and no bound on its type parameters
 /// the trait's do not imply (E0344, E0276).
 fn check_impl_methods(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
+    // The members of each block, in definition order, found in one pass.
+    let mut members: HashMap<DefId, Vec<DefId>> = HashMap::new();
+    for (i, info) in resolve.defs.iter().enumerate() {
+        if let Some(parent) = info.parent {
+            members
+                .entry(parent)
+                .or_default()
+                .push(DefId(u32::try_from(i).expect("fewer than 2^32 items")));
+        }
+    }
     for imp in &items.impls {
         let trait_name = items.traits[&imp.trait_].name.clone();
-        for (i, info) in resolve.defs.iter().enumerate() {
-            if info.parent != Some(imp.def) {
-                continue;
-            }
-            let def = DefId(u32::try_from(i).expect("fewer than 2^32 items"));
+        for &def in members.get(&imp.def).map_or(&[][..], Vec::as_slice) {
+            let info = resolve.def(def);
             let Some(decl) = resolve.trait_item(imp.trait_, &info.name) else {
                 continue;
             };
@@ -1129,10 +1515,8 @@ fn check_impl_const(
     def: DefId,
     sink: &mut DiagnosticSink,
 ) {
-    let want = items.const_ty(decl).subst(
-        &[items.traits[&imp.trait_].self_param],
-        std::slice::from_ref(&imp.self_ty),
-    );
+    let (params, args) = impl_trait_subst(items, imp);
+    let want = items.const_ty(decl).subst(&params, &args);
     let have = items.const_ty(def);
     if want == *have || want.is_error() || have.is_error() {
         return;
@@ -1277,7 +1661,7 @@ fn check_impl_types(
     let (want, have) = (items.fn_sig(decl), items.fn_sig(def));
     let want_own = resolve.own_generics(decl);
     let have_own = resolve.own_generics(def);
-    let mut args = vec![imp.self_ty.clone()];
+    let (_, mut args) = impl_trait_subst(items, imp);
     args.extend(have_own.iter().map(|&p| Ty::Param(p)));
     let mismatch = |span: Span, label: String, want_span: Span| {
         Diagnostic::error(
@@ -1308,16 +1692,29 @@ fn check_impl_types(
         sink.emit(mismatch(have.name_span, label, want.name_span));
         return;
     }
-    // A bound of the method's own parameters must follow from the trait method's.
-    for pred in resolve.predicates(def) {
+    // A bound of the method's own parameters must follow from the trait method's, with
+    // the trait's parameters the block's arguments and the method's own the block
+    // method's.
+    let mut decl_params = resolve.generics(decl).to_vec();
+    decl_params.truncate(args.len());
+    for pred in items.predicates(def) {
         let Some(k) = have_own.iter().position(|&p| p == pred.param) else {
             continue;
         };
-        let implied = resolve.predicates(decl).iter().any(|w| {
-            w.param == want_own[k] && items.trait_closure(w.trait_).contains(&pred.trait_)
+        let implied = items.predicates(decl).iter().any(|w| {
+            let w_args: Vec<Ty> = w
+                .args
+                .iter()
+                .map(|a| a.subst(&decl_params, &args))
+                .collect();
+            w.param == want_own[k]
+                && items
+                    .elaborate(w.trait_, &Ty::Param(pred.param), &w_args)
+                    .iter()
+                    .any(|(t, a)| *t == pred.trait_ && *a == pred.args)
         });
         if !implied {
-            let bound = &resolve.def(pred.trait_).name;
+            let bound = crate::traits::trait_ref_str(resolve, pred.trait_, &pred.args);
             let param = &resolve.def(pred.param).name;
             sink.emit(
                 Diagnostic::error(
@@ -1512,6 +1909,7 @@ fn check_lang_impls(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Diag
                     .map(|&param| Predicate {
                         param,
                         trait_: copy,
+                        args: Vec::new(),
                         span: adt.span,
                     })
                     .collect()
@@ -1528,7 +1926,7 @@ fn check_lang_impls(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Diag
             sink,
         );
         if let Some(clone) = lang(LangItem::Clone) {
-            if items.implements(&own, clone, &env) == crate::traits::Solution::No {
+            if items.implements(&own, clone, &[], &env) == crate::traits::Solution::No {
                 sink.emit(
                     Diagnostic::error(
                         ErrorCode::UNSATISFIED_BOUND,

@@ -1,0 +1,84 @@
+[E0215] Error: conflicting implementations of trait `From<S>` for type `S`
+   ╭─[ tests/ui/typeck/generic_traits.sabi:4:1 ]
+   │
+ 4 │ impl From<S> for S { //~ ERROR E0215 conflicting implementations of trait `From<S>` for type `S`
+   │ ─────────┬────────  
+   │          ╰────────── conflicting implementation for `S`
+   │ 
+   │ Note: conflicting implementation in Sabiko's `core` library: `impl<T> From<T> for T`
+───╯
+[E0215] Error: conflicting implementations of trait `Conv<i32>` for type `S`
+    ╭─[ tests/ui/typeck/generic_traits.sabi:26:1 ]
+    │
+ 14 │ impl Conv<i32> for S {
+    │ ──────────┬─────────  
+    │           ╰─────────── first implementation here
+    │ 
+ 26 │ impl Conv<i32> for S { //~ ERROR E0215 conflicting implementations of trait `Conv<i32>` for type `S`
+    │ ──────────┬─────────  
+    │           ╰─────────── conflicting implementation for `S`
+────╯
+[E0352] Error: the type parameter `U` is not constrained by the impl trait, self type, or predicates
+    ╭─[ tests/ui/typeck/generic_traits.sabi:32:6 ]
+    │
+ 32 │ impl<U> Conv<u8> for T2 { //~ ERROR E0352 the type parameter `U` is not constrained by the impl trait, self type, or predicates
+    │      ┬  
+    │      ╰── unconstrained type parameter
+    │ 
+    │ Note: remove the unused type parameter `U`, or use it in the type or the trait's arguments
+────╯
+[E0107] Error: not yet supported: implementing a trait for a type that holds a reference
+    ╭─[ tests/ui/typeck/generic_traits.sabi:38:11 ]
+    │
+ 38 │ impl Conv<&u8> for T2 { //~ ERROR E0107 not yet supported: implementing a trait for a type that holds a reference
+    │           ─┬─  
+    │            ╰─── `&u8`
+    │ 
+    │ Note: see docs/PLAN.md
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/generic_traits.sabi:52:9 ]
+    │
+ 52 │         Self::K //~ ERROR E0313 type annotations needed
+    │         ───┬───  
+    │            ╰───── cannot infer type for type parameter `T` declared on the trait `Scale`
+    │ 
+    │ Note: several `impl` blocks of the trait could apply: give the type an annotation
+────╯
+[E0341] Error: the trait bound `i8: From<u8>` is not satisfied
+    ╭─[ tests/ui/typeck/generic_traits.sabi:68:21 ]
+    │
+ 68 │     let a: i8 = 5u8.into(); //~ ERROR E0341 the trait bound `i8: From<u8>` is not satisfied
+    │                     ──┬─  
+    │                       ╰─── the trait `From<u8>` is not implemented for `i8`
+    │ 
+    │ Note: required for `u8` to implement `Into<i8>`
+────╯
+[E0341] Error: the trait bound `u8: From<u16>` is not satisfied
+    ╭─[ tests/ui/typeck/generic_traits.sabi:69:17 ]
+    │
+ 69 │     let b: u8 = From::from(300u16); //~ ERROR E0341 the trait bound `u8: From<u16>` is not satisfied
+    │                 ─────┬────  
+    │                      ╰────── the trait `From<u16>` is not implemented for `u8`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/generic_traits.sabi:71:9 ]
+    │
+ 71 │     let c = s.Conv(); //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `c` an explicit type
+────╯
+[E0341] Error: the trait bound `S: Conv<i64>` is not satisfied
+    ╭─[ tests/ui/typeck/generic_traits.sabi:72:13 ]
+    │
+ 72 │     let d = Bounded(&s); //~ ERROR E0341 the trait bound `S: Conv<i64>` is not satisfied
+    │             ───┬───  
+    │                ╰───── the trait `Conv<i64>` is not implemented for `S`
+────╯
+[E0341] Error: the trait bound `u64: From<i32>` is not satisfied
+    ╭─[ tests/ui/typeck/generic_traits.sabi:73:13 ]
+    │
+ 73 │     let e = u64::from(1); //~ ERROR E0341 the trait bound `u64: From<i32>` is not satisfied
+    │             ────┬────  
+    │                 ╰────── the trait `From<i32>` is not implemented for `u64`
+────╯

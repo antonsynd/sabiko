@@ -1,0 +1,19 @@
+// A generic trait's impl naming its parameter in the type and the trait: the loan
+// ends with the last use of the result.
+trait Wrap<T> {
+    fn Wrap(t: T) -> Self;
+}
+
+impl<T> Wrap<T> for (T,) {
+    fn Wrap(t: T) -> (T,) {
+        (t,)
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let w: (&i32,) = Wrap::Wrap(&x);
+    PrintLine(*w.0);
+    x = 2;
+    PrintLine(x);
+}

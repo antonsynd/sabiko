@@ -254,6 +254,8 @@ pub struct SigRegions {
     pub output: Option<RegionTy>,
     /// How many reference origins the parameters introduce, for the E0416 note.
     pub input_origins: usize,
+    /// The region types of the call's generic arguments.
+    pub generic: Vec<RegionTy>,
 }
 
 impl SigRegions {
@@ -350,6 +352,141 @@ pub fn signature_regions(
         inputs,
         output,
         input_origins: input_origins.len(),
+        generic: args,
+    }
+}
+
+/// How deep the bounds of `impl` blocks are followed for [`impl_region_links`].
+const LINK_DEPTH: usize = 32;
+
+/// The region types a call of a member of the trait `tr` must relate invariantly because
+/// of the `impl` block that implements it, where one does at the call's types (`tys`:
+/// `Self`, then the trait's arguments; `regions`: their region types). A type parameter
+/// the block's header names twice stands for one type, references and all: `impl<T>
+/// From<T> for T` makes `From::from(r)`'s result hold `r`'s loans, and `impl<T> From<T>
+/// for Option<T>` puts them in the `Some`. The references a header writes share one
+/// origin (the prelude's `impl From<&Option<T>> for Option<&T>`, rustc's `'a` there).
+/// The block's bounds are followed the same way (`impl<T, U: From<T>> Into<U> for T`
+/// relates what `U: From<T>`'s block relates). Without a block (a bound in scope decides
+/// it) nothing is related, as in rustc.
+#[must_use]
+pub fn impl_region_links(
+    items: &ItemTypes,
+    tr: DefId,
+    tys: &[Ty],
+    regions: &[RegionTy],
+    supply: &mut OriginSupply,
+) -> Vec<(RegionTy, RegionTy)> {
+    let mut out = Vec::new();
+    links_at(items, tr, tys, regions, supply, &mut out, 0);
+    out
+}
+
+fn links_at(
+    items: &ItemTypes,
+    tr: DefId,
+    tys: &[Ty],
+    regions: &[RegionTy],
+    supply: &mut OriginSupply,
+    out: &mut Vec<(RegionTy, RegionTy)>,
+    depth: usize,
+) {
+    let Some((self_ty, args)) = tys.split_first() else {
+        return;
+    };
+    if depth > LINK_DEPTH {
+        return;
+    }
+    let Some((imp, impl_args)) = items.select_impl(tr, self_ty, args) else {
+        return;
+    };
+    let mut bound: Vec<Option<RegionTy>> = vec![None; imp.generics.len()];
+    let mut header: Option<Origin> = None;
+    let pats = std::iter::once(&imp.self_ty).chain(&imp.trait_args);
+    for (pat, region) in pats.zip(regions) {
+        link_pattern(pat, region, &imp.generics, &mut bound, &mut header, out);
+    }
+    let bound: Vec<RegionTy> = bound
+        .into_iter()
+        .map(|b| b.unwrap_or(RegionTy::Other))
+        .collect();
+    let params = Params {
+        defs: &imp.generics,
+        args: &bound,
+        items,
+    };
+    for pred in &imp.preds {
+        let (pred_ty, pred_args) =
+            sabiko_types::traits::instantiate_pred(pred, &imp.generics, &impl_args);
+        let mut pred_tys = vec![pred_ty];
+        pred_tys.extend(pred_args);
+        let mut pred_regions = vec![params.arg(pred.param)];
+        pred_regions.extend(pred.args.iter().map(|a| params.fresh(a, supply)));
+        links_at(
+            items,
+            pred.trait_,
+            &pred_tys,
+            &pred_regions,
+            supply,
+            out,
+            depth + 1,
+        );
+    }
+}
+
+/// Matches a block's header pattern `pat` against the region type of the call's type at
+/// its place: a parameter's second occurrence is related to its first, and a written
+/// reference's origin to the header's one origin.
+fn link_pattern(
+    pat: &Ty,
+    region: &RegionTy,
+    params: &[DefId],
+    bound: &mut [Option<RegionTy>],
+    header: &mut Option<Origin>,
+    out: &mut Vec<(RegionTy, RegionTy)>,
+) {
+    let origin_only = |o: Origin| RegionTy::Ref(Mutability::Not, o, Box::new(RegionTy::Other));
+    match (pat, region) {
+        (Ty::Param(p), _) => {
+            if let Some(i) = params.iter().position(|q| q == p) {
+                match &bound[i] {
+                    Some(first) => out.push((first.clone(), region.clone())),
+                    None => bound[i] = Some(region.clone()),
+                }
+            }
+        }
+        (Ty::Ref(_, inner), RegionTy::Ref(_, origin, rinner)) => {
+            match header {
+                Some(h) => out.push((origin_only(*h), origin_only(*origin))),
+                None => *header = Some(*origin),
+            }
+            link_pattern(inner, rinner, params, bound, header, out);
+        }
+        (Ty::Tuple(elems), RegionTy::Tuple(relems)) => {
+            for (e, r) in elems.iter().zip(relems) {
+                link_pattern(e, r, params, bound, header, out);
+            }
+        }
+        (Ty::Array(elem, _) | Ty::Slice(elem), RegionTy::Tuple(relems)) => {
+            if let Some(r) = relems.first() {
+                link_pattern(elem, r, params, bound, header, out);
+            }
+        }
+        (Ty::Adt(_, targs), RegionTy::Adt { args, .. }) => {
+            for (t, r) in targs.iter().zip(args) {
+                link_pattern(t, r, params, bound, header, out);
+            }
+        }
+        // A part without references: the parameters in it hold none either.
+        (pat, RegionTy::Other) => {
+            let _ = pat.map_params(&mut |p| {
+                if let Some(i) = params.iter().position(|&q| q == p) {
+                    bound[i].get_or_insert(RegionTy::Other);
+                }
+                None
+            });
+        }
+        _ => {}
     }
 }
 

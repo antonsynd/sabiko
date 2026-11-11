@@ -382,8 +382,13 @@ impl Parser<'_, '_> {
         Ok(self.expect(TokenKind::Gt)?.span)
     }
 
-    /// `<T, U>` after a function's name, at the `<`.
-    fn parse_generic_params(&mut self, allow_bounds: bool) -> PResult<Vec<GenericParam>> {
+    /// `<T, U>` after a function's name, at the `<`. Only a trait's parameters may have
+    /// defaults (`allow_defaults`, `trait Add<Rhs = Self>`).
+    fn parse_generic_params(
+        &mut self,
+        allow_bounds: bool,
+        allow_defaults: bool,
+    ) -> PResult<Vec<GenericParam>> {
         self.expect(TokenKind::Lt)?;
         let mut params = Vec::new();
         while !self.at_generic_close() && !self.at_eof() {
@@ -412,8 +417,13 @@ impl Parser<'_, '_> {
             if self.at(TokenKind::Colon) {
                 if !allow_bounds {
                     let span = self.peek().span;
+                    let what = if allow_defaults {
+                        "bounds on the type parameters of a trait"
+                    } else {
+                        "bounds on the type parameters of a struct or enum"
+                    };
                     return Err(self.error_unsupported(
-                        "bounds on the type parameters of a struct or enum",
+                        what,
                         span,
                         "write the bounds on the `impl` blocks and functions that need them",
                     ));
@@ -421,15 +431,25 @@ impl Parser<'_, '_> {
                 self.bump();
                 bounds = self.parse_bounds()?;
             }
+            let mut default = None;
             if self.at(TokenKind::Eq) {
-                let span = self.peek().span;
-                return Err(self.error_unsupported(
-                    "default type parameters",
-                    span,
-                    "not planned for 0.1",
-                ));
+                if !allow_defaults {
+                    let span = self.peek().span;
+                    return Err(self.error_unsupported(
+                        "default type parameters outside a trait",
+                        span,
+                        "not planned for 0.1",
+                    ));
+                }
+                self.bump();
+                default = Some(self.parse_type()?);
             }
-            params.push(GenericParam { id, name, bounds });
+            params.push(GenericParam {
+                id,
+                name,
+                bounds,
+                default,
+            });
             if self.eat(TokenKind::Comma).is_none() {
                 break;
             }
@@ -519,7 +539,7 @@ impl Parser<'_, '_> {
     fn parse_impl(&mut self) -> PResult<ImplDecl> {
         self.expect(TokenKind::Impl)?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params(true)?
+            self.parse_generic_params(true, false)?
         } else {
             Vec::new()
         };
@@ -569,14 +589,11 @@ impl Parser<'_, '_> {
     fn parse_trait(&mut self) -> PResult<sabiko_ast::TraitDecl> {
         self.expect(TokenKind::Trait)?;
         let name = self.parse_ident()?;
-        if self.at(TokenKind::Lt) {
-            let span = self.peek().span;
-            return Err(self.error_unsupported(
-                "generic traits",
-                span,
-                "planned for Phase 6 (#117)",
-            ));
-        }
+        let generics = if self.at(TokenKind::Lt) {
+            self.parse_generic_params(false, true)?
+        } else {
+            Vec::new()
+        };
         let supertraits = if self.eat(TokenKind::Colon).is_some() {
             self.parse_bounds()?
         } else {
@@ -593,6 +610,7 @@ impl Parser<'_, '_> {
         let items = self.parse_members(Members::Trait)?;
         Ok(sabiko_ast::TraitDecl {
             name,
+            generics,
             supertraits,
             items,
         })
@@ -674,7 +692,7 @@ impl Parser<'_, '_> {
         self.expect(TokenKind::Fn)?;
         let name = self.parse_ident()?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params(true)?
+            self.parse_generic_params(true, false)?
         } else {
             Vec::new()
         };
@@ -765,7 +783,7 @@ impl Parser<'_, '_> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params(false)?
+            self.parse_generic_params(false, false)?
         } else {
             Vec::new()
         };
@@ -842,7 +860,7 @@ impl Parser<'_, '_> {
         self.expect(TokenKind::Enum)?;
         let name = self.parse_ident()?;
         let generics = if self.at(TokenKind::Lt) {
-            self.parse_generic_params(false)?
+            self.parse_generic_params(false, false)?
         } else {
             Vec::new()
         };

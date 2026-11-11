@@ -272,17 +272,26 @@ input_file: crates/sabiko_codegen/tests/fixtures/try_operator.sabi
     .locals init (
       [0] valuetype 'core::Result<i32, u8>' '_0',
       [1] valuetype 'D' 'd',
-      [2] valuetype 'core::Result<D, u8>' '_3'
+      [2] valuetype 'core::Result<D, u8>' '_3',
+      [3] uint8 '_5'
     )
   BB0:
     ldarg.0
     stloc.2
+    .try
+    {
   BB1:
     ldloca.s 2
     ldfld int32 'core::Result<D, u8>'::'Tag'
     conv.i
     brfalse BB2
   BB3:
+    ldloca.s 2
+    ldflda valuetype 'core::Result<D, u8>'/'ErrPayload' 'core::Result<D, u8>'::'Err'
+    ldfld uint8 'core::Result<D, u8>'/'ErrPayload'::'Item1'
+    call uint8 'TryOperator'::'<u8 as core::From<u8>>::from'(uint8)
+    stloc.3
+  BB4:
     ldloca.s 0
     initobj 'core::Result<i32, u8>'
     ldloca.s 0
@@ -290,21 +299,29 @@ input_file: crates/sabiko_codegen/tests/fixtures/try_operator.sabi
     stfld int32 'core::Result<i32, u8>'::'Tag'
     ldloca.s 0
     ldflda valuetype 'core::Result<i32, u8>'/'ErrPayload' 'core::Result<i32, u8>'::'Err'
-    ldloca.s 2
-    ldflda valuetype 'core::Result<D, u8>'/'ErrPayload' 'core::Result<D, u8>'::'Err'
-    ldfld uint8 'core::Result<D, u8>'/'ErrPayload'::'Item1'
+    ldloc.3
     stfld uint8 'core::Result<i32, u8>'/'ErrPayload'::'Item1'
-  BB6:
-    ldloca.s 2
-    call void 'TryOperator'::'<Drop>core::Result<D, u8>'(valuetype 'core::Result<D, u8>'&)
-    ldloc.0
-    ret
+    leave BB7
   BB2:
     ldloca.s 2
     ldflda valuetype 'core::Result<D, u8>'/'OkPayload' 'core::Result<D, u8>'::'Ok'
     ldfld valuetype 'D' 'core::Result<D, u8>'/'OkPayload'::'Item1'
     stloc.1
-  BB5:
+    leave BB6
+    }
+    fault
+    {
+    call void [Sabiko.Runtime]Sabiko.Runtime.Panic::BeginCleanup()
+    ldloca.s 2
+    call void 'TryOperator'::'<Drop>core::Result<D, u8>'(valuetype 'core::Result<D, u8>'&)
+    endfault
+    }
+  BB7:
+    ldloca.s 2
+    call void 'TryOperator'::'<Drop>core::Result<D, u8>'(valuetype 'core::Result<D, u8>'&)
+    ldloc.0
+    ret
+  BB6:
     ldloca.s 0
     initobj 'core::Result<i32, u8>'
     ldloca.s 0
@@ -315,7 +332,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/try_operator.sabi
     ldloca.s 1
     ldfld int32 'D'::'N'
     stfld int32 'core::Result<i32, u8>'/'OkPayload'::'Item1'
-  BB7:
+  BB8:
     ldloca.s 1
     call void 'D'::'Drop.drop'(valuetype 'D'&)
     ldloc.0
@@ -439,6 +456,14 @@ input_file: crates/sabiko_codegen/tests/fixtures/try_operator.sabi
   BB9:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB10:
+    ret
+  }
+
+  .method public hidebysig static uint8 '<u8 as core::From<u8>>::from'(uint8 't') cil managed
+  {
+    .maxstack 1
+  BB0:
+    ldarg.0
     ret
   }
 

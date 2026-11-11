@@ -1311,7 +1311,8 @@ Tracking issue #118. Order (decision 82 for the design):
 4. `core` prelude written in Sabiko (#13, decision 47): `Option`, `Result`, `?`, `unwrap`,
    `expect`, and `.get(i) -> Option<&T>` on slices. `?` converts errors through `From`.
    First part done: the prelude, `Option`, `Result`, `unwrap`/`expect` (decision 90; see
-   the status below). Left: `?` with `From`, `.get(i)`.
+   the status below); `?` and `.get(i)` (decision 93); `?` converting through `From`, with
+   generic traits (decision 95). Done.
 5. Operator traits, comparisons and derives (#117): `Add`, `Sub`, ..., their `*Assign`
    forms, `PartialEq`/`Eq`/`PartialOrd`/`Ord` on user types and in generic code,
    arithmetic on references, `#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]`.
@@ -1622,6 +1623,56 @@ an `Option<[u8; 2]>` or `Result<u8, [u8; 2]>` compiles and runs
 in `if let`/`while let`/let-else and comparisons that reuse a cached read (#150),
 never-type fallback inside a generic constructor (#151), one namespace for types and
 values hiding a prelude variant behind a user type (#152).
+
+Status (2026-11-11): generic traits, `From` and `Into`, and `?` converting the error through
+`From` (#117's foundation, #13's last part, decision 95). `trait Tr<T, U = Self>` with its
+parameters in method signatures, associated constants, supertraits (`trait Sub<T>:
+Sup<T>`) and defaults (only on a trait's parameters); bounds and `where` clauses with
+arguments (`T: From<U>`, E0222 for too few or too many); `impl<..> Tr<A> for C` with several
+blocks of one trait for one type at different arguments, blanket blocks (`impl<T>
+Conv<T> for W<T>`), `Trait::<A>::Name` paths; method calls and `Type::Name` paths infer the
+trait's arguments from the arguments and the expected type, as rustc's selection does
+(one candidate block confirmed, its bounds becoming obligations; bounds in scope
+preferred), else E0313 (rustc's E0283). Coherence unifies whole headers with an occurs
+check and uses rustc's negative reasoning for bounds only this file could satisfy (so
+`impl<T: Show> Loud for T` beside `impl Loud for S` is accepted where `S` is not `Show`, as
+in rustc; it was E0215); unconstrained block parameters are E0352 (rustc's E0207); the
+orphan rule for the prelude's traits is rustc's over the type and the trait's arguments
+(E0214 for E0117, E0226 for E0210). The resolver records which parameter and trait a bound
+names and the bound's node; the type checker lowers the arguments
+(`sabiko_types::traits::Predicate`), so `sabiko_resolve` stays free of types.
+Monomorphisation selects by `Self` and the arguments, and code generation names instances
+`'<S as Conv<i32>>::Conv'`; the prelude's functions, generic or not, are made only where a
+program reaches them. The borrow checker relates a trait call's generic arguments as the
+implementing block's header requires (`From::from(&x)` keeps `x`'s loan;
+`impl_region_links`). `library/core/convert.sabi` holds `From<T>`, `Into<T>` (lowercase
+`from`/`into`), the reflexive and `Into` blanket blocks, `T` to `Option<T>`,
+`&Option<T>`/`&mut Option<T>` to `Option<&T>`/`Option<&mut T>` (prelude blocks may hold
+references in their headers; a program's still may not, E0107), the 64 lossless
+primitive conversions, and arrays of up to 12 `T`s to tuples and back (an array into a
+tuple needs array patterns: its body is the intrinsic `ArrayIntoTuple`, which
+monomorphisation reports as E0500 at the program's call that reaches it). `e?` on a `Result` requires `To: From<E>` and lowers the early
+return as `Err(From::from(e))`, a real call, the same-type conversion included; decision
+93's table (`conversion_sources`, `select_try_conversions`, E0107 for std's conversions) is
+gone. Tests: `try_conversions.rs` now expects rustc's split exactly (the 77 pairs rustc
+accepts are accepted, and all but the two arrays into tuples compile to IL, those being
+E0500; the other 1329 are E0351); run-time programs
+`run/traits/generic_traits`, `run/prelude/from_into` and `run/prelude/try_from_conversions`
+(user error types with `Drop`, the drops on the early return); compile-time programs on
+loans through `From`, `Into`, `?` and a user generic trait (`prelude/*from*`,
+`*into*`, `*try_converted*`, `traits/*generic_trait_impl*`); UI tests
+`resolve/generic_traits`, `typeck/generic_traits` and `codegen/array_into_tuple`; unit tests of the solver in
+`sabiko_types::traits` (selection by arguments, defaults, elaboration, coherence with the
+occurs check and negative reasoning, inference); updated MIR and IL fixtures
+(`try_operator`); the generator's `GenAs<T>` (two blocks for `bool`, `GenAs::<i32>::As`
+and the bounded `GenAsI32`) and `GenTryFrom`/`GenTryWiden` (`?` into a user error type and
+into `i64`). Cost: the prelude's 93 blocks are type-checked and built to MIR on every
+compilation (not validated: like their borrow checking, `check_core_prelude` does that
+once); a hello-world goes from about 12.3 to 30.1 million instructions (3.8 to 6.8 ms best
+of 200 runs, release build, development machine). Not yet: `<T as Trait>::` paths (E0107),
+arrays into tuples (array patterns), bounds on a trait's
+parameters, `where` clauses on traits, associated types, the operator and comparison
+traits themselves (#117).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

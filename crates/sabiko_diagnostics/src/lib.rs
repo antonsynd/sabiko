@@ -103,6 +103,10 @@ impl ErrorCode {
     /// A binding named like a constant, a unit struct or a unit variant with `mut`, `ref`
     /// or `@`, or like a tuple variant (rustc's E0530).
     pub const BINDING_SHADOWS_ITEM: Self = Self(225);
+    /// An `impl` of a trait from outside the file whose type parameter appears uncovered
+    /// before the first type of the file among its type and trait arguments (rustc's
+    /// E0210): `impl<T> From<T> for T`, `impl<T> From<S> for T`.
+    pub const ORPHAN_TYPE_PARAMETER: Self = Self(226);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
@@ -214,6 +218,9 @@ impl ErrorCode {
     /// `e?` on a `Result` whose error type does not convert to the function's (rustc's
     /// E0277, "`?` couldn't convert the error").
     pub const TRY_ERROR_CONVERSION: Self = Self(351);
+    /// A type parameter of a trait `impl` block that neither its type nor its trait's
+    /// arguments mention (rustc's E0207).
+    pub const UNCONSTRAINED_TYPE_PARAMETER: Self = Self(352);
 
     // Borrow checking (E04xx)
     pub const ASSIGN_TWICE_IMMUTABLE: Self = Self(400);

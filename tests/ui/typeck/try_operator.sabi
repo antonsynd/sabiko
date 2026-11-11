@@ -35,7 +35,7 @@ fn NotTry() -> Option<i32> {
 
 fn Widening() -> Result<i32, i64> {
     let r: Result<i32, i32> = Err(1);
-    Ok(r?) //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
+    Ok(r?)
 }
 
 fn Narrowing() -> Result<i32, i32> {
@@ -59,7 +59,7 @@ fn LiteralTwoSources() -> Result<i32, u16> {
 }
 
 fn LiteralWidened() -> Result<i32, i64> {
-    let x: i32 = Err(5)?; //~ ERROR E0107 not yet supported: `?` converting the error from `i32` to `i64`
+    let x: i32 = Err(5)?;
     Ok(x)
 }
 

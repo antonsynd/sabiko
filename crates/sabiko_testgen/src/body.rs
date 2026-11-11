@@ -981,7 +981,7 @@ impl<'a> BodyGen<'a> {
     fn try_value(&mut self, ty: ValTy, name: &str, depth: u32) -> Expr {
         let kind = self
             .rng
-            .weighted(&[15, 10, 10, 10, 10, 10, 10, 10, 10, 5, 5, 5, 5]);
+            .weighted(&[15, 10, 10, 10, 10, 10, 10, 10, 10, 5, 5, 5, 5, 5, 5, 5]);
         if (5..=8).contains(&kind) {
             let a = self.val_expr(ty, depth);
             let b = self.val_expr(ty, depth);
@@ -1008,7 +1008,11 @@ impl<'a> BodyGen<'a> {
             9 => format!("None::<{name}>.or(Some({})).unwrap()", e.text),
             10 => format!("Some({}).xor(None).unwrap()", e.text),
             11 => format!("None::<{name}>.xor(Some({})).unwrap()", e.text),
-            _ => format!("Some({}).ok_or(3u8).unwrap()", e.text),
+            12 => format!("Some({}).ok_or(3u8).unwrap()", e.text),
+            // The error converted by `From` (decision 95).
+            13 => format!("GenTryFrom(Ok::<{name}, u8>({})).ok().unwrap()", e.text),
+            14 => format!("GenTryWiden(Ok::<{name}, u8>({})).unwrap()", e.text),
+            _ => format!("GenTryWiden(Err::<{name}, u8>(9)).unwrap_or({})", e.text),
         };
         Expr {
             text,
@@ -1028,7 +1032,16 @@ impl<'a> BodyGen<'a> {
                 } else {
                     ValTy::Prim(Prim::Bool)
                 };
-                let (text, roots) = if self.rng.chance(20) {
+                let (text, roots) = if self.rng.chance(15) {
+                    // A generic trait's impl picked by its argument (decision 95).
+                    let b = self.val_expr(ValTy::Prim(Prim::Bool), depth);
+                    let text = if self.rng.chance(50) {
+                        format!("GenAs::<i32>::As(&({}))", b.text)
+                    } else {
+                        format!("GenAsI32(&({}))", b.text)
+                    };
+                    (text, b.roots)
+                } else if self.rng.chance(20) {
                     // A trait's associated constant at a type (#116).
                     let ty = if arg == ValTy::Prim(Prim::Bool) {
                         "bool"

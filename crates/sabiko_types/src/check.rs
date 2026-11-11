@@ -13,14 +13,13 @@ use sabiko_ast::{
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{
-    Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, Predicate, PrimTy, Res,
-    ResolveResults,
+    Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, PrimTy, Res, ResolveResults,
 };
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::Solution;
+use crate::traits::{instantiate_pred, trait_ref_str, Predicate, Solution};
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -45,11 +44,34 @@ pub struct MethodCallee {
 }
 
 /// A bound a use requires: `ty` (with inference variables until the body is done) must
-/// implement `trait_`. Judged in `finish`.
+/// implement `trait_<args>`. Judged in `finish`.
+#[derive(Clone)]
 struct Obligation {
     ty: Ty,
     trait_: DefId,
+    /// The trait's arguments after `Self`.
+    args: Vec<Ty>,
     span: Span,
+    cause: Cause,
+    /// How many confirmations led to it (`select_obligations`), which stop at
+    /// [`SELECTION_DEPTH`] as rustc's recursion limit stops them.
+    depth: usize,
+}
+
+/// How deep confirmations of `impl` blocks may nest while inference runs.
+const SELECTION_DEPTH: usize = 64;
+
+/// Why an obligation must hold, for its diagnostic.
+#[derive(Clone)]
+enum Cause {
+    /// A bound of a function, method or constant the body uses, or the trait of a trait
+    /// member it names.
+    Bound,
+    /// The error conversion of `?`, `To: From<E>` (decision 95), with the operand's span.
+    Try { operand: Span },
+    /// A bound of the `impl` block selected for another obligation, whose trait reference
+    /// is given: rustc's "required for `u8` to implement `Into<i8>`".
+    Impl { required_for: String },
 }
 
 /// A use of a generic function in a body: its generic arguments (inference variables
@@ -120,6 +142,10 @@ pub struct BodyTypes {
     /// `e?`, keyed by the `ExprKind::Try` node: whether `e` is an `Option` or a `Result`
     /// (the function returns the same kind, decision 93).
     pub try_exprs: HashMap<NodeId, CoreItem>,
+    /// The error conversion of each `e?` on a `Result`, keyed by the `ExprKind::Try`
+    /// node: `From::from` and its generic arguments, the function's error type and the
+    /// operand's (decision 95).
+    pub try_conversions: HashMap<NodeId, (DefId, Vec<Ty>)>,
     /// `true` when at least one error was reported inside this body.
     pub has_errors: bool,
 }
@@ -193,8 +219,10 @@ struct IntLit {
 
 /// `e?`, judged in `finish` once its types are known: its value type must have lowered,
 /// and on a `Result<_, E1>` in a function returning `Result<_, E2>` (`from`, `to`; both
-/// `()` on an `Option`) `E2` must convert from `E1`.
+/// `()` on an `Option`) `E2: From<E1>` is an obligation (decision 95).
 struct PendingTry {
+    /// The `ExprKind::Try` node.
+    node: NodeId,
     value: Ty,
     from: Ty,
     to: Ty,
@@ -2441,18 +2469,18 @@ impl<'a> FnCtxt<'a> {
             return Ty::Error;
         }
         let mut def = def;
-        let mut self_ty = None;
+        let mut trait_args = None;
         if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
-            let Some((chosen, ty)) = self.select_trait_item(expr.id, path, def) else {
+            let Some((chosen, args)) = self.select_trait_item(expr.id, path, def) else {
                 return Ty::Error;
             };
             if chosen != def {
                 self.path_defs.insert(expr.id, chosen);
             }
             def = chosen;
-            self_ty = Some(ty);
+            trait_args = Some(args);
         }
-        self.instantiate(expr.id, def, path, expr.span, self_ty);
+        self.instantiate(expr.id, def, path, expr.span, trait_args);
         Ty::FnDef(def)
     }
 
@@ -2487,7 +2515,7 @@ impl<'a> FnCtxt<'a> {
             );
             return Ty::Error;
         }
-        let Some((chosen, self_ty)) = self.select_trait_item(node, path, def) else {
+        let Some((chosen, args)) = self.select_trait_item(node, path, def) else {
             return Ty::Error;
         };
         if chosen != def {
@@ -2495,15 +2523,17 @@ impl<'a> FnCtxt<'a> {
         }
         let tr = self.resolve.def(chosen).parent.expect("a trait member");
         self.obligations.push(Obligation {
-            ty: self_ty.clone(),
+            ty: args[0].clone(),
             trait_: tr,
+            args: args[1..].to_vec(),
             span,
+            cause: Cause::Bound,
+            depth: 0,
         });
-        self.generic_args
-            .insert(node, (vec![self_ty.clone()], chosen, span));
+        self.generic_args.insert(node, (args.clone(), chosen, span));
         self.items
             .const_ty(chosen)
-            .subst(&[self.resolve.trait_self(tr)], &[self_ty])
+            .subst(self.resolve.generics(tr), &args)
     }
 
     /// `W::<i32>::N` or `Self::N` naming a constant of a generic struct's or enum's
@@ -2529,11 +2559,16 @@ impl<'a> FnCtxt<'a> {
         if args.len() != generics.len() {
             args = vec![Ty::Error; generics.len()];
         }
-        for pred in self.items.param_env(def) {
+        let items = self.items;
+        for pred in items.param_env(def) {
+            let (ty, pred_args) = instantiate_pred(pred, &generics, &args);
             self.obligations.push(Obligation {
-                ty: Ty::Param(pred.param).subst(&generics, &args),
+                ty,
                 trait_: pred.trait_,
+                args: pred_args,
                 span,
+                cause: Cause::Bound,
+                depth: 0,
             });
         }
         self.generic_args.insert(node, (args.clone(), def, span));
@@ -2614,9 +2649,25 @@ impl<'a> FnCtxt<'a> {
             Some((ret_kind, ret_args)) if ret_kind == kind => {
                 let (from, to) = match kind {
                     CoreItem::Result => (args[1].clone(), ret_args[1].clone()),
-                    CoreItem::Option => (Ty::Unit, Ty::Unit),
+                    _ => (Ty::Unit, Ty::Unit),
                 };
+                let from_trait = self.resolve.core_item(CoreItem::From);
+                if let (CoreItem::Result, Some(tr)) = (kind, from_trait) {
+                    // `Err(From::from(e))`: the function's error type must implement
+                    // `From<E>` (decision 95).
+                    self.obligations.push(Obligation {
+                        ty: to.clone(),
+                        trait_: tr,
+                        args: vec![from.clone()],
+                        span: question,
+                        cause: Cause::Try {
+                            operand: operand.span,
+                        },
+                        depth: 0,
+                    });
+                }
                 self.pending_tries.push(PendingTry {
+                    node: expr.id,
                     value: value.clone(),
                     from,
                     to,
@@ -2636,7 +2687,7 @@ impl<'a> FnCtxt<'a> {
                         ),
                         "this function returns a `Result`",
                     ),
-                    CoreItem::Result => (
+                    CoreItem::Result | CoreItem::From => (
                         "the `?` operator can only be used on `Option`s, not `Result`s, in a function that returns `Option`",
                         "use `.ok()?` if you want to discard the error information".to_owned(),
                         "this function returns an `Option`",
@@ -2671,44 +2722,16 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// Lets the error conversions of `?` guide inference before literals default, as
-    /// rustc's `To: From<?E>` obligation does: when the error type `?E` of the operand is
-    /// not known yet and exactly one of the standard library's impls `From<S> for To`
-    /// has a source `S` it could be, it is that source. `let x: i32 = Err(5)?;` in a
-    /// function returning `Result<i32, u8>` makes the literal a `u8` (only the reflexive
-    /// impl takes an integer); for an `i64` error, `From<i8>`, `From<i16>`, ... all could
-    /// apply, so the literal defaults to `i32`, which `From<i32> for i64` converts.
-    fn select_try_conversions(&mut self) {
-        let pending: Vec<(Ty, Ty)> = self
-            .pending_tries
-            .iter()
-            .map(|t| (t.from.clone(), t.to.clone()))
-            .collect();
-        for (from, to) in pending {
-            let from = self.infer.resolve(&from);
-            let to = self.infer.resolve(&to);
-            if !from.has_infer() || to.has_infer() {
-                continue;
-            }
-            let candidates: Vec<Ty> = self
-                .conversion_sources(&to)
-                .into_iter()
-                .filter(|source| self.could_be(source, &[], &from))
-                .collect();
-            if let [source] = candidates.as_slice() {
-                // The candidate was checked to fit.
-                let _ = self.infer.unify(source, &from);
-            }
-        }
-    }
-
-    /// The error conversions of `?` on a `Result` (decision 93). rustc returns
-    /// `Err(From::from(e))`; `From` is a generic trait, which Sabiko does not have yet
-    /// (#117), so only the reflexive `impl<T> From<T> for T` is available: the same error
-    /// type converts. A conversion the standard library has (`From<i32> for i64`,
-    /// [`Self::conversion_sources`]) is not yet supported (E0107); any other is E0351 with
-    /// rustc's message, since no program can implement `From` yet.
-    fn check_pending_tries(&mut self) {
+    /// The types of each `?` once inference is done: a `?` on a `Result` whose types
+    /// lowered records its error conversion, `<To as From<E>>::from` (decision 95), whose
+    /// obligation `check_obligations` judged. Without the prelude's `From` the error moves
+    /// unconverted, which the error types then must allow (`try_exprs` alone).
+    fn check_pending_tries(&mut self) -> HashMap<NodeId, (DefId, Vec<Ty>)> {
+        let mut conversions = HashMap::new();
+        let from_fn = self
+            .resolve
+            .core_item(CoreItem::From)
+            .and_then(|tr| self.resolve.trait_item(tr, "from"));
         for t in std::mem::take(&mut self.pending_tries) {
             let value = self.infer.resolve_with_defaults(&t.value);
             let from = self.infer.resolve_with_defaults(&t.from);
@@ -2718,98 +2741,37 @@ impl<'a> FnCtxt<'a> {
                 // which `typeck` checks before any `?` is lowered.
                 continue;
             }
-            if from == to {
+            if self.try_exprs.get(&t.node) != Some(&CoreItem::Result) {
                 continue;
             }
-            if from.has_infer() || to.has_infer() {
-                // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(
-                        t.operand_span,
-                        "cannot infer the error type of this `Result`",
-                    ),
-                );
-                self.infer.bind_error(&from);
-                continue;
-            }
-            let (from_s, to_s) = (self.ty_str(&from), self.ty_str(&to));
-            if from.is_never() || self.conversion_sources(&to).contains(&from) {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::UNSUPPORTED_SYNTAX,
-                        format!(
-                            "not yet supported: `?` converting the error from `{from_s}` to `{to_s}`"
-                        ),
-                    )
-                    .with_label(
-                        t.span,
-                        format!("Rust converts it with `From<{from_s}> for {to_s}`"),
-                    )
-                    .with_note("`?` returns an error of the function's own error type for now: `From` waits for generic traits (#117)"),
-                );
-            } else {
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TRY_ERROR_CONVERSION,
-                        format!("`?` couldn't convert the error to `{to_s}`"),
-                    )
-                    .with_label(
-                        t.span,
-                        format!("the trait `From<{from_s}>` is not implemented for `{to_s}`"),
-                    )
-                    .with_label(
-                        t.operand_span,
-                        format!(
-                            "this can't be annotated with `?` because it has type `Result<_, {from_s}>`"
-                        ),
-                    )
-                    .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait"),
-                );
-            }
-        }
-    }
-
-    /// The sources `S` of Rust's standard library's impls `From<S> for to`, among the
-    /// types Sabiko has: `to` itself (the reflexive impl), the primitives that convert to
-    /// a primitive losslessly, `T` for `Option<T>` and `&Option<T>` for `Option<&T>`
-    /// (`&mut` likewise), and an array of `N` (up to 12) `T`s for a tuple of `N` `T`s and
-    /// the other way round. `From<!> for T` is left out: rustc's inference does not
-    /// consider it either. A program cannot implement `From` yet, so these are all the
-    /// conversions there are (checked against rustc on every pair of a table of types,
-    /// `crates/sabiko_driver/tests/try_conversions.rs`).
-    fn conversion_sources(&self, to: &Ty) -> Vec<Ty> {
-        let mut sources = vec![to.clone()];
-        match to {
-            Ty::Prim(p) => sources.extend(
-                PrimTy::ALL
-                    .into_iter()
-                    .filter(|&q| q != *p && prim_from(q, *p))
-                    .map(Ty::Prim),
-            ),
-            Ty::Adt(def, args) if self.resolve.core_item_of(*def) == Some(CoreItem::Option) => {
-                sources.push(args[0].clone());
-                if let Ty::Ref(m, inner) = &args[0] {
-                    let option = Ty::Adt(*def, vec![(**inner).clone()].into());
-                    sources.push(Ty::Ref(*m, Box::new(option)));
+            match from_fn {
+                Some(f) if !from.has_infer() && !to.has_infer() => {
+                    conversions.insert(t.node, (f, vec![to, from]));
                 }
+                None if from != to => {
+                    // No prelude: nothing converts (only harnesses without one get here).
+                    let (from_s, to_s) = (self.ty_str(&from), self.ty_str(&to));
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TRY_ERROR_CONVERSION,
+                            format!("`?` couldn't convert the error to `{to_s}`"),
+                        )
+                        .with_label(
+                            t.span,
+                            format!("the trait `From<{from_s}>` is not implemented for `{to_s}`"),
+                        )
+                        .with_label(
+                            t.operand_span,
+                            format!(
+                                "this can't be annotated with `?` because it has type `Result<_, {from_s}>`"
+                            ),
+                        ),
+                    );
+                }
+                _ => {}
             }
-            Ty::Array(elem, n) if (1..=12).contains(n) => {
-                let n = usize::try_from(*n).expect("at most 12");
-                sources.push(Ty::Tuple(Box::new(vec![(**elem).clone(); n])));
-            }
-            Ty::Tuple(elems)
-                if (1..=12).contains(&elems.len()) && elems.iter().all(|e| *e == elems[0]) =>
-            {
-                let n = u64::try_from(elems.len()).expect("at most 12");
-                sources.push(Ty::Array(Box::new(elems[0].clone()), n));
-            }
-            _ => {}
         }
-        sources
+        conversions
     }
 
     fn check_unary(&mut self, op: UnOp, operand: &Expr, expected: Option<&Ty>) -> Ty {
@@ -3329,15 +3291,15 @@ impl<'a> FnCtxt<'a> {
     /// turbofish's (`_` a fresh variable), or a fresh inference variable per type parameter.
     /// Nothing for a function that is not generic.
     /// Records the generic arguments of a use of the function `def` at the path `path`
-    /// (node `id`), and the bounds they must meet. A trait's member takes `self_ty` as its
-    /// `Self` (decision 84).
+    /// (node `id`), and the bounds they must meet. A trait's member takes `trait_args` as
+    /// its `Self` and its trait's arguments (decisions 84, 95).
     fn instantiate(
         &mut self,
         id: NodeId,
         def: DefId,
         path: &sabiko_ast::Path,
         span: Span,
-        self_ty: Option<Ty>,
+        trait_args: Option<Vec<Ty>>,
     ) {
         if self.items.builtin(def).is_some() {
             return;
@@ -3351,8 +3313,9 @@ impl<'a> FnCtxt<'a> {
         // (`Pair::<i32, bool>::New`), or inference variables.
         let parent = self.resolve.parent_generic_count(def);
         let mut args: Vec<Ty> = Vec::new();
-        if let Some(self_ty) = self_ty {
-            args.push(self_ty);
+        if let Some(trait_args) = trait_args {
+            args = trait_args;
+            args.resize(parent, Ty::Error);
         } else if parent > 0 {
             let adt = self
                 .resolve
@@ -3382,12 +3345,17 @@ impl<'a> FnCtxt<'a> {
     /// The bounds of the function `def` at the generic arguments `args` become
     /// obligations of the body, judged when it is done.
     fn require_bounds(&mut self, def: DefId, args: &[Ty], span: Span) {
-        let generics = &self.items.fn_sig(def).generics;
-        for pred in self.items.param_env(def) {
+        let items = self.items;
+        let generics = &items.fn_sig(def).generics;
+        for pred in items.param_env(def) {
+            let (ty, pred_args) = instantiate_pred(pred, generics, args);
             self.obligations.push(Obligation {
-                ty: Ty::Param(pred.param).subst(generics, args),
+                ty,
                 trait_: pred.trait_,
+                args: pred_args,
                 span,
+                cause: Cause::Bound,
+                depth: 0,
             });
         }
     }
@@ -3414,39 +3382,51 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// The trait method a path `A::Name` calls, and its `Self`: for `Trait::Name` the
-    /// resolver's, at a `Self` inference finds; for a type `A`, the one among the traits
-    /// with a member `Name` that `A` implements (E0319 when none does, E0342, rustc's
-    /// E0034, when several do).
+    /// The trait member a path `A::Name` names, and its trait's generic arguments (`Self`
+    /// first): for `Trait::Name` the resolver's, at a `Self` inference finds and the
+    /// arguments written after the trait (`From::<u8>::from`) or inferred; for a type `A`,
+    /// the one among the traits with a member `Name` that `A` may implement at some
+    /// arguments (E0319 when none does, E0342, rustc's E0034, when several do).
     fn select_trait_item(
         &mut self,
         node: NodeId,
         path: &sabiko_ast::Path,
         def: DefId,
-    ) -> Option<(DefId, Ty)> {
+    ) -> Option<(DefId, Vec<Ty>)> {
         let self_ty = self.assoc_self_ty(node, path);
         let by_trait = matches!(
             self.resolve.assoc_self(node),
             Some(Res::Def(d)) if self.resolve.def(d).kind == DefKind::Trait
         );
         if by_trait || self_ty.is_error() {
-            return Some((def, self_ty));
+            let tr = self.resolve.def(def).parent.expect("a trait member");
+            let n = self.items.trait_param_count(tr);
+            let written = path
+                .args_of(0)
+                .filter(|a| by_trait && path.segments.len() > 1 && a.args.len() <= n);
+            let mut args = vec![self_ty];
+            if let Some(written) = written {
+                args.extend(written.args.iter().map(|t| self.lower_type(t)));
+            }
+            while args.len() <= n {
+                args.push(self.infer.new_var(VarKind::General));
+            }
+            return Some((def, args));
         }
         let name = self.resolve.def(def).name.clone();
-        let found: Vec<DefId> = self
-            .resolve
-            .trait_items_named(&name)
-            .into_iter()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .filter(|&m| {
-                let tr = self.resolve.def(m).parent.expect("a trait member");
-                self.may_implement(&self_ty, tr)
-            })
-            .collect();
+        let mut found: Vec<(DefId, Vec<Ty>)> = Vec::new();
+        for m in self.resolve.trait_items_named(&name) {
+            let tr = self.resolve.def(m).parent.expect("a trait member");
+            let args = self.fresh_trait_args(tr);
+            if self.may_implement(&self_ty, tr, &args) {
+                let mut all = vec![self_ty.clone()];
+                all.extend(args);
+                found.push((m, all));
+            }
+        }
         let shown = self.ty_str(&self_ty);
         match found.as_slice() {
-            [one] => Some((*one, self_ty)),
+            [one] => Some(one.clone()),
             [] => {
                 let tr = self.resolve.def(def).parent.expect("a trait member");
                 let trait_name = self.resolve.def(tr).name.clone();
@@ -3461,17 +3441,28 @@ impl<'a> FnCtxt<'a> {
                 None
             }
             many => {
-                self.ambiguous(path.last().span, &name, many, &shown);
+                let defs: Vec<DefId> = many.iter().map(|(d, _)| *d).collect();
+                self.ambiguous(path.last().span, &name, &defs, &shown);
                 None
             }
         }
     }
 
-    /// Whether `ty` implements `tr` or may once inference knows more: an integer variable
-    /// may be any integer type an `impl` of `tr` is for.
-    fn may_implement(&mut self, ty: &Ty, tr: DefId) -> bool {
+    /// A fresh inference variable for each of the trait `tr`'s own parameters: a trait
+    /// member named through a type or a method call infers them, as rustc does.
+    fn fresh_trait_args(&mut self, tr: DefId) -> Vec<Ty> {
+        (0..self.items.trait_param_count(tr))
+            .map(|_| self.infer.new_var(VarKind::General))
+            .collect()
+    }
+
+    /// Whether `ty` implements `tr<args>` or may once inference knows more: an integer
+    /// variable may be any integer type an `impl` of `tr` is for, and arguments not known
+    /// yet may be any that a block or a bound gives.
+    fn may_implement(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> bool {
         let ty = self.infer.resolve(ty);
-        match self.items.implements(&ty, tr, &self.env) {
+        let args: Vec<Ty> = args.iter().map(|a| self.infer.resolve(a)).collect();
+        match self.items.implements(&ty, tr, &args, &self.env) {
             Solution::Yes => true,
             Solution::No => false,
             Solution::Ambiguous => {
@@ -3482,7 +3473,8 @@ impl<'a> FnCtxt<'a> {
                     Some(LangItem::Copy | LangItem::Clone)
                 );
                 (builtin && self.may_be_copy_like(&ty, tr))
-                    || self.impl_candidates(&ty, tr) > 0
+                    || !self.env_candidates(&ty, tr, &args).is_empty()
+                    || self.impl_candidates(&ty, tr, &args) > 0
                     || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
             }
         }
@@ -3497,100 +3489,164 @@ impl<'a> FnCtxt<'a> {
             Ty::Ref(Mutability::Mut, _) | Ty::Slice(_) | Ty::Prim(PrimTy::Str) => false,
             Ty::Tuple(elems) => elems.iter().all(|e| self.may_be_copy_like(e, tr)),
             Ty::Array(elem, _) => self.may_be_copy_like(elem, tr),
-            _ => self.items.implements(ty, tr, &self.env) != Solution::No,
+            _ => self.items.implements(ty, tr, &[], &self.env) != Solution::No,
         }
     }
 
-    /// How many `impl` blocks of `tr` have a type that `ty`, with inference variables,
-    /// could be: an integer (float) variable can only be an integer (float) type, a
-    /// general one anything.
-    fn impl_candidates(&mut self, ty: &Ty, tr: DefId) -> usize {
-        let impls: Vec<(Ty, Vec<DefId>)> = self
-            .items
+    /// How many `impl` blocks of `tr` have a header `ty: tr<args>`, with inference
+    /// variables, could match (see [`Self::impl_candidate_list`]).
+    fn impl_candidates(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> usize {
+        self.impl_candidate_list(ty, tr, args).len()
+    }
+
+    /// The `impl` blocks of `tr` (by index among them) whose header unifies with `ty:
+    /// tr<args>`, their type parameters fresh variables, tried without keeping anything
+    /// (rustc's candidate assembly in a probe): an integer (float) variable can only be an
+    /// integer (float) type, a general one anything, and a block's parameter stands for
+    /// one type everywhere (`From<T> for Option<T>` is no candidate for `Option<i32>:
+    /// From<Option<?X>>`).
+    fn impl_candidate_list(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> Vec<usize> {
+        let items = self.items;
+        let tys: Vec<&Ty> = std::iter::once(ty).chain(args).collect();
+        items
             .impls_of(tr)
-            .map(|i| (i.self_ty.clone(), i.generics.clone()))
-            .collect();
-        impls
-            .iter()
-            .filter(|(pat, params)| self.could_be(pat, params, ty))
-            .count()
+            .enumerate()
+            .filter(|(_, imp)| {
+                imp.trait_args.len() == args.len()
+                    && self.infer.probe(|infer| {
+                        let fresh: Vec<Ty> = imp
+                            .generics
+                            .iter()
+                            .map(|_| infer.new_var(VarKind::General))
+                            .collect();
+                        std::iter::once(&imp.self_ty)
+                            .chain(&imp.trait_args)
+                            .zip(&tys)
+                            .all(|(pat, t)| {
+                                infer.unify(&pat.subst(&imp.generics, &fresh), t).is_ok()
+                            })
+                    })
+            })
+            .map(|(i, _)| i)
+            .collect()
     }
 
-    fn could_be(&mut self, pat: &Ty, params: &[DefId], ty: &Ty) -> bool {
-        if let Ty::Param(p) = pat {
-            if params.contains(p) {
-                return true;
+    /// The bounds in scope that could imply `ty: tr<args>`, `ty` a type parameter, with
+    /// their arguments: rustc's where-clause candidates, which it prefers to `impl` blocks.
+    fn env_candidates(&mut self, ty: &Ty, tr: DefId, args: &[Ty]) -> Vec<Vec<Ty>> {
+        let Ty::Param(p) = ty else {
+            return Vec::new();
+        };
+        let mut out: Vec<Vec<Ty>> = Vec::new();
+        let env = self.env.clone();
+        for pred in env.iter().filter(|pred| pred.param == *p) {
+            for (t, a) in self.items.elaborate(pred.trait_, ty, &pred.args) {
+                let fits = t == tr
+                    && a.len() == args.len()
+                    && self
+                        .infer
+                        .probe(|infer| a.iter().zip(args).all(|(x, y)| infer.unify(x, y).is_ok()));
+                if fits && !out.contains(&a) {
+                    out.push(a);
+                }
             }
         }
-        match (pat, ty) {
-            (_, Ty::Infer(v)) => match self.infer.kind(*v) {
-                VarKind::General => true,
-                VarKind::Int => matches!(pat, Ty::Prim(p) if p.is_integer()),
-                VarKind::Float => matches!(pat, Ty::Prim(p) if p.is_float()),
-            },
-            (_, Ty::Error) => true,
-            // No block's type holds a slice (`check_impl_type`, E0107); a reference comes
-            // from the sources of `?`'s conversions (`&Option<T>` for `Option<&T>`).
-            (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && self.could_be(a, params, b),
-            (Ty::Array(a, n), Ty::Array(b, m)) => n == m && self.could_be(a, params, b),
-            (Ty::Tuple(a), Ty::Tuple(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .zip(b.iter())
-                        .all(|(x, y)| self.could_be(x, params, y))
-            }
-            (Ty::Adt(d1, a), Ty::Adt(d2, b)) => {
-                d1 == d2
-                    && a.len() == b.len()
-                    && a.iter()
-                        .zip(b.iter())
-                        .all(|(x, y)| self.could_be(x, params, y))
-            }
-            (a, b) => a == b,
-        }
+        out
     }
 
-    /// Lets the pending bounds guide inference, as rustc's selection does: a bound on a
-    /// type with inference variables that only one `impl` block's type could match makes
-    /// it that type (`5.Show()` with only `impl Show for i64` is an `i64`). A bare
-    /// general variable decides nothing. Repeats until nothing changes.
+    /// Lets the pending bounds guide inference, as rustc's selection does: a bound whose
+    /// type or trait arguments have inference variables, with exactly one candidate, is
+    /// confirmed with it. A bound in scope (for a type parameter) is preferred to the
+    /// `impl` blocks and unifies the arguments with its own (`T: From<U>` makes `T:
+    /// From<?X>`'s `?X` a `U`). A single `impl` block whose header could match unifies
+    /// the obligation with its header (`5.Show()` with only `impl Show for i64` is an
+    /// `i64`; `u16: From<?E>` with `?E` an integer makes it a `u8` when no other source
+    /// is an integer type), and its bounds become obligations in place of the confirmed
+    /// one (rustc's confirmation: `u8: Into<?T>` through `impl<T, U: From<T>> Into<U> for
+    /// T` requires `?T: From<u8>`). A bare general variable as the type decides nothing.
+    /// Repeats until nothing changes.
     fn select_obligations(&mut self) {
         loop {
             let mut progress = false;
-            let pending: Vec<(Ty, DefId)> = self
-                .obligations
-                .iter()
-                .map(|o| (o.ty.clone(), o.trait_))
-                .collect();
-            for (ty, tr) in pending {
-                let ty = self.infer.resolve(&ty);
-                if !ty.has_infer()
+            let mut index = 0;
+            while index < self.obligations.len() {
+                let ob = self.obligations[index].clone();
+                index += 1;
+                if ob.depth > SELECTION_DEPTH {
+                    continue;
+                }
+                let ty = self.infer.resolve(&ob.ty);
+                let args: Vec<Ty> = ob.args.iter().map(|a| self.infer.resolve(a)).collect();
+                let has_infer = ty.has_infer() || args.iter().any(Ty::has_infer);
+                if !has_infer
                     || matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
                 {
                     continue;
                 }
-                if self.impl_candidates(&ty, tr) != 1 {
-                    continue;
+                let before: usize = std::iter::once(&ty).chain(&args).map(known_nodes).sum();
+                let env = self.env_candidates(&ty, ob.trait_, &args);
+                if !env.is_empty() {
+                    if let [only] = env.as_slice() {
+                        for (a, b) in only.iter().zip(&args) {
+                            // The candidate was checked to fit.
+                            let _ = self.infer.unify(a, b);
+                        }
+                    }
+                } else if let [only] = self.impl_candidate_list(&ty, ob.trait_, &args)[..] {
+                    let imp = self
+                        .items
+                        .impls_of(ob.trait_)
+                        .nth(only)
+                        .expect("a candidate");
+                    let fresh: Vec<Ty> = imp
+                        .generics
+                        .iter()
+                        .map(|_| self.infer.new_var(VarKind::General))
+                        .collect();
+                    let header = std::iter::once(&imp.self_ty).chain(&imp.trait_args);
+                    let unified = header
+                        .zip(std::iter::once(&ty).chain(&args))
+                        .all(|(pat, t)| {
+                            self.infer
+                                .unify(&pat.subst(&imp.generics, &fresh), t)
+                                .is_ok()
+                        });
+                    let builtin = matches!(
+                        self.items.lang_of(ob.trait_),
+                        Some(LangItem::Copy | LangItem::Clone)
+                    );
+                    if unified && !builtin {
+                        // Confirmed: the block's bounds replace the obligation.
+                        let required_for = format!(
+                            "`{}` to implement `{}`",
+                            self.ty_str(&ty),
+                            trait_ref_str(self.resolve, ob.trait_, &self.resolve_all(&args))
+                        );
+                        index -= 1;
+                        self.obligations.remove(index);
+                        for pred in &imp.preds {
+                            let (pty, pargs) = instantiate_pred(pred, &imp.generics, &fresh);
+                            self.obligations.push(Obligation {
+                                ty: pty,
+                                trait_: pred.trait_,
+                                args: pargs,
+                                span: ob.span,
+                                cause: Cause::Impl {
+                                    required_for: required_for.clone(),
+                                },
+                                depth: ob.depth + 1,
+                            });
+                        }
+                        progress = true;
+                        continue;
+                    }
                 }
-                let all: Vec<(Ty, Vec<DefId>)> = self
-                    .items
-                    .impls_of(tr)
-                    .map(|i| (i.self_ty.clone(), i.generics.clone()))
-                    .collect();
-                let Some((pat, params)) = all.into_iter().find(|(p, g)| self.could_be(p, g, &ty))
-                else {
-                    continue;
-                };
-                let fresh: Vec<Ty> = params
-                    .iter()
-                    .map(|_| self.infer.new_var(VarKind::General))
-                    .collect();
-                let pat = pat.subst(&params, &fresh);
-                // Progress is a variable of `ty` learning something, not a fresh one
-                // (a blanket block's `T`) being bound to it.
-                if self.infer.unify(&pat, &ty).is_ok()
-                    && known_nodes(&self.infer.resolve(&ty)) > known_nodes(&ty)
-                {
+                let ty = self.infer.resolve(&ty);
+                let args: Vec<Ty> = args.iter().map(|a| self.infer.resolve(a)).collect();
+                // Progress is a variable of the obligation learning something, not a
+                // fresh one (a blanket block's `T`) being bound to it.
+                let after: usize = std::iter::once(&ty).chain(&args).map(known_nodes).sum();
+                if after > before {
                     progress = true;
                 }
             }
@@ -3598,6 +3654,11 @@ impl<'a> FnCtxt<'a> {
                 return;
             }
         }
+    }
+
+    /// Each of `tys`, with what inference knows of it.
+    fn resolve_all(&mut self, tys: &[Ty]) -> Vec<Ty> {
+        tys.iter().map(|t| self.infer.resolve(t)).collect()
     }
 
     /// E0342 (rustc's E0034): several traits' methods named `name` apply to `shown`.
@@ -3987,7 +4048,7 @@ impl<'a> FnCtxt<'a> {
                     // needs a block for an unsized type, which is not supported yet.
                     continue;
                 }
-                let mut found: Vec<(DefId, Ty)> = Vec::new();
+                let mut found: Vec<(DefId, Vec<Ty>)> = Vec::new();
                 for &m in &trait_methods {
                     let tr = self.resolve.def(m).parent.expect("a trait member");
                     let self_ty = match self.items.fn_sig(m).self_kind {
@@ -3999,16 +4060,19 @@ impl<'a> FnCtxt<'a> {
                         },
                         _ => adjusted.clone(),
                     };
-                    if self.may_implement(&self_ty, tr) {
-                        found.push((m, self_ty));
+                    let args = self.fresh_trait_args(tr);
+                    if self.may_implement(&self_ty, tr, &args) {
+                        let mut all = vec![self_ty];
+                        all.extend(args);
+                        found.push((m, all));
                     }
                 }
                 match found.as_slice() {
                     [] => {}
-                    [(def, self_ty)] => return Some((callee(*def), vec![self_ty.clone()])),
+                    [(def, args)] => return Some((callee(*def), args.clone())),
                     many => {
                         let defs: Vec<DefId> = many.iter().map(|(d, _)| *d).collect();
-                        let shown = self.ty_str(&many[0].1);
+                        let shown = self.ty_str(&many[0].1[0]);
                         self.ambiguous(name.span, &name.name, &defs, &shown);
                         return None;
                     }
@@ -4679,16 +4743,33 @@ impl<'a> FnCtxt<'a> {
                     let param = self.resolve.generics(def)[i];
                     let param_name = self.resolve.def(param).name.clone();
                     let fn_name = self.resolve.def(def).name.clone();
+                    // A trait's parameter (`T` of `trait Scale<T>`) is declared on the
+                    // trait, as rustc says.
+                    let on_trait = self
+                        .resolve
+                        .def(param)
+                        .parent
+                        .filter(|&p| self.resolve.def(p).kind == DefKind::Trait);
+                    let (label, note) = match on_trait {
+                        Some(tr) => {
+                            let trait_name = self.resolve.def(tr).name.clone();
+                            (
+                                format!("cannot infer type for type parameter `{param_name}` declared on the trait `{trait_name}`"),
+                                "several `impl` blocks of the trait could apply: give the type an annotation".to_owned(),
+                            )
+                        }
+                        None => (
+                            format!("cannot infer type of the type parameter `{param_name}` declared on the function `{fn_name}`"),
+                            format!("specify it with a turbofish: `{fn_name}::<..>`"),
+                        ),
+                    };
                     self.error(
                         Diagnostic::error(
                             ErrorCode::TYPE_ANNOTATIONS_NEEDED,
                             "type annotations needed",
                         )
-                        .with_label(
-                            span,
-                            format!("cannot infer type of the type parameter `{param_name}` declared on the function `{fn_name}`"),
-                        )
-                        .with_note(format!("specify it with a turbofish: `{fn_name}::<..>`")),
+                        .with_label(span, label)
+                        .with_note(note),
                     );
                     self.infer.bind_error(&t);
                     t = Ty::Error;
@@ -4716,67 +4797,160 @@ impl<'a> FnCtxt<'a> {
         out
     }
 
-    /// Judges the bounds the body's uses require (E0341, rustc's E0277), once inference is
-    /// done. A type inference left unknown is E0313 (rustc's E0283), unless an error about
-    /// it was reported.
+    /// Judges the bounds the body's uses require (E0341, rustc's E0277; E0351 for the
+    /// error conversion of `?`), once inference is done. A type inference left unknown is
+    /// E0313 (rustc's E0283, E0282), unless an error about it was reported.
     fn check_obligations(&mut self) {
-        let mut seen: HashSet<(Ty, DefId, Span)> = HashSet::new();
+        let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::new();
         for ob in std::mem::take(&mut self.obligations) {
             let ty = self.infer.resolve_with_defaults(&ob.ty);
-            if !seen.insert((ty.clone(), ob.trait_, ob.span)) {
+            let args: Vec<Ty> = ob
+                .args
+                .iter()
+                .map(|a| self.infer.resolve_with_defaults(a))
+                .collect();
+            if !seen.insert((ty.clone(), ob.trait_, args.clone(), ob.span)) {
                 continue;
             }
-            let trait_name = self.resolve.def(ob.trait_).name.clone();
-            match self.items.implements(&ty, ob.trait_, &self.env) {
+            let trait_name = trait_ref_str(self.resolve, ob.trait_, &args);
+            match self.items.implements(&ty, ob.trait_, &args, &self.env) {
                 Solution::Yes => {}
                 Solution::Ambiguous => {
-                    let shown = self.ty_str(&ty);
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                            "type annotations needed",
-                        )
-                        .with_label(ob.span, "cannot infer type")
-                        .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
-                    );
+                    if let Cause::Try { operand } = ob.cause {
+                        // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                                "type annotations needed",
+                            )
+                            .with_label(operand, "cannot infer the error type of this `Result`"),
+                        );
+                    } else {
+                        let shown = self.ty_str(&ty);
+                        self.error(
+                            Diagnostic::error(
+                                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                                "type annotations needed",
+                            )
+                            .with_label(ob.span, "cannot infer type")
+                            .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
+                        );
+                    }
                     self.infer.bind_error(&ty);
+                    for a in &args {
+                        self.infer.bind_error(a);
+                    }
                 }
                 Solution::No if self.orphan_adt(&ty) => {
                     // The bound may be the one of a block the orphan rule rejected
                     // (E0214), which was reported.
                 }
                 Solution::No => {
-                    let shown = self.ty_str(&ty);
-                    let mut d = Diagnostic::error(
-                        ErrorCode::UNSATISFIED_BOUND,
-                        format!("the trait bound `{shown}: {trait_name}` is not satisfied"),
-                    )
-                    .with_label(
-                        ob.span,
-                        format!("the trait `{trait_name}` is not implemented for `{shown}`"),
-                    );
-                    let prelude = self.resolve.is_prelude(ob.trait_);
-                    if let (Ty::Param(_), false) = (&ty, prelude) {
-                        d = d.with_note(format!(
-                            "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
-                        ));
-                    } else if let Ty::Param(_) = ty {
-                        // The prelude's traits are its own (Rust's `std::fmt::Debug` is
-                        // outside its prelude), and a path cannot name one yet.
-                        d = d.with_note(format!(
-                            "a bound cannot name `{trait_name}` yet: it is not in the prelude, and paths to other modules arrive with Phase 9"
-                        ));
-                    } else if prelude {
-                        // rustc's standard library implements its traits for more types
-                        // than Sabiko's `core` prelude does so far (decision 90).
-                        d = d.with_note(format!(
-                            "Sabiko's `core` library implements `{trait_name}` only for some types so far (see `library/core`)"
-                        ));
+                    // rustc's confirmation: the one block whose header matches is
+                    // selected, and the bound of it that fails is the error.
+                    let (mut ob, mut ty, mut args, mut trait_name) = (ob, ty, args, trait_name);
+                    let items = self.items;
+                    let mut depth = 0;
+                    while let Some((imp, impl_args)) = items.select_impl(ob.trait_, &ty, &args) {
+                        depth += 1;
+                        if depth > SELECTION_DEPTH {
+                            break;
+                        }
+                        let failing = imp.preds.iter().find_map(|pred| {
+                            let (pty, pargs) = instantiate_pred(pred, &imp.generics, &impl_args);
+                            (items.implements(&pty, pred.trait_, &pargs, &self.env) == Solution::No)
+                                .then_some((pty, pred.trait_, pargs))
+                        });
+                        let Some((pty, ptr, pargs)) = failing else {
+                            break;
+                        };
+                        let required_for =
+                            format!("`{}` to implement `{trait_name}`", self.ty_str(&ty));
+                        trait_name = trait_ref_str(self.resolve, ptr, &pargs);
+                        ob = Obligation {
+                            ty: pty.clone(),
+                            trait_: ptr,
+                            args: pargs.clone(),
+                            cause: match ob.cause {
+                                Cause::Try { .. } => ob.cause,
+                                _ => Cause::Impl { required_for },
+                            },
+                            ..ob
+                        };
+                        (ty, args) = (pty, pargs);
                     }
-                    self.error(d);
+                    self.unsatisfied(&ob, &ty, &args, &trait_name);
                 }
             }
         }
+    }
+
+    /// Whether `tr` is the prelude's `From` or `Into`.
+    fn is_convert_trait(&self, tr: DefId) -> bool {
+        self.resolve.core_item(CoreItem::From) == Some(tr)
+            || (self.resolve.is_prelude(tr) && self.resolve.def(tr).name == "Into")
+    }
+
+    /// Reports the obligation `ob`, at `ty: trait_name` once inference is done, as not
+    /// satisfied.
+    fn unsatisfied(&mut self, ob: &Obligation, ty: &Ty, args: &[Ty], trait_name: &str) {
+        let shown = self.ty_str(ty);
+        if let Cause::Try { operand } = ob.cause {
+            let from = args.first().map_or_else(String::new, |a| self.ty_str(a));
+            self.error(
+                Diagnostic::error(
+                    ErrorCode::TRY_ERROR_CONVERSION,
+                    format!("`?` couldn't convert the error to `{shown}`"),
+                )
+                .with_label(
+                    ob.span,
+                    format!("the trait `{trait_name}` is not implemented for `{shown}`"),
+                )
+                .with_label(
+                    operand,
+                    format!("this can't be annotated with `?` because it has type `Result<_, {from}>`"),
+                )
+                .with_note("the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait"),
+            );
+            return;
+        }
+        let mut d = Diagnostic::error(
+            ErrorCode::UNSATISFIED_BOUND,
+            format!("the trait bound `{shown}: {trait_name}` is not satisfied"),
+        )
+        .with_label(
+            ob.span,
+            format!("the trait `{trait_name}` is not implemented for `{shown}`"),
+        );
+        let prelude = self.resolve.is_prelude(ob.trait_);
+        if let (Ty::Param(_), false) = (ty, prelude) {
+            d = d.with_note(format!(
+                "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+            ));
+        } else if let (Ty::Param(_), Some(_)) = (ty, self.resolve.core_item_of(ob.trait_)) {
+            d = d.with_note(format!(
+                "consider restricting type parameter `{shown}`: `{shown}: {trait_name}`"
+            ));
+        } else if let Ty::Param(_) = ty {
+            // The prelude's private traits are its own (Rust's `std::fmt::Debug` is
+            // outside its prelude), and a path cannot name one yet.
+            d = d.with_note(format!(
+                "a bound cannot name `{}` yet: it is not in the prelude, and paths to other modules arrive with Phase 9",
+                self.resolve.def(ob.trait_).name
+            ));
+        } else if prelude && !self.is_convert_trait(ob.trait_) {
+            // rustc's standard library implements its traits for more types than
+            // Sabiko's `core` prelude does so far (decision 90); `From` and `Into` have
+            // every impl of std that Sabiko's types allow (decision 95).
+            d = d.with_note(format!(
+                "Sabiko's `core` library implements `{}` only for some types so far (see `library/core`)",
+                self.resolve.def(ob.trait_).name
+            ));
+        }
+        if let Cause::Impl { required_for } = &ob.cause {
+            d = d.with_note(format!("required for {required_for}"));
+        }
+        self.error(d);
     }
 
     /// In a trait's provided method `Self` may be unsized, as in rustc: a parameter, a
@@ -4878,7 +5052,6 @@ impl<'a> FnCtxt<'a> {
 
     fn finish(mut self) -> BodyTypes {
         self.select_obligations();
-        self.select_try_conversions();
         self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021).
@@ -4924,7 +5097,7 @@ impl<'a> FnCtxt<'a> {
         self.report_unknown_let_types(&reported, quiet);
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
-        self.check_pending_tries();
+        let try_conversions = self.check_pending_tries();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let t = self.infer.resolve_with_defaults(&ty);
@@ -4985,6 +5158,7 @@ impl<'a> FnCtxt<'a> {
             repeat_counts: self.repeat_counts,
             path_defs: self.path_defs,
             try_exprs: self.try_exprs,
+            try_conversions,
             has_errors,
         }
     }
@@ -5255,29 +5429,4 @@ fn has_explicit_ref_binding(pat: &Pat) -> bool {
         }
     });
     found
-}
-
-/// Whether Rust's standard library implements `From<from> for to` for two primitive types
-/// (`from != to`): the lossless conversions between integers, floats, `bool` and `char`.
-fn prim_from(from: PrimTy, to: PrimTy) -> bool {
-    use PrimTy::{
-        Bool, Char, Isize, Usize, F32, F64, I128, I16, I32, I64, I8, U128, U16, U32, U64, U8,
-    };
-    match from {
-        Bool => to.is_integer() || to.is_float(),
-        Char => matches!(to, U32 | U64 | U128),
-        U8 => matches!(
-            to,
-            Char | U16 | U32 | U64 | U128 | Usize | I16 | I32 | I64 | I128 | Isize | F32 | F64
-        ),
-        U16 => matches!(to, U32 | U64 | U128 | Usize | I32 | I64 | I128 | F32 | F64),
-        U32 => matches!(to, U64 | U128 | I64 | I128 | F64),
-        U64 => matches!(to, U128 | I128),
-        I8 => matches!(to, I16 | I32 | I64 | I128 | Isize | F32 | F64),
-        I16 => matches!(to, I32 | I64 | I128 | Isize | F32 | F64),
-        I32 => matches!(to, I64 | I128 | F64),
-        I64 => matches!(to, I128),
-        F32 => matches!(to, F64),
-        _ => false,
-    }
 }

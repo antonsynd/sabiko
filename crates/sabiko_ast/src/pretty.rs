@@ -47,11 +47,14 @@ fn generic_params(params: &[GenericParam]) -> String {
     let names: Vec<String> = params
         .iter()
         .map(|g| {
-            if g.bounds.is_empty() {
-                g.name.name.clone()
-            } else {
-                format!("{}: {}", g.name.name, bounds_str(&g.bounds))
+            let mut out = g.name.name.clone();
+            if !g.bounds.is_empty() {
+                out = format!("{out}: {}", bounds_str(&g.bounds));
             }
+            if let Some(default) = &g.default {
+                out = format!("{out} = {}", type_str(default));
+            }
+            out
         })
         .collect();
     format!("<{}>", names.join(", "))
@@ -267,7 +270,12 @@ impl Printer {
                 self.members(&imp.items);
             }
             ItemKind::Trait(t) => {
-                let _ = write!(self.out, "trait {}", t.name.name);
+                let _ = write!(
+                    self.out,
+                    "trait {}{}",
+                    t.name.name,
+                    generic_params(&t.generics)
+                );
                 if !t.supertraits.is_empty() {
                     let _ = write!(self.out, ": {}", bounds_str(&t.supertraits));
                 }

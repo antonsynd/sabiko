@@ -20,16 +20,16 @@
     │ ───────────┬───────────  
     │            ╰───────────── conflicting implementation for `Wrap<i32>`
 ────╯
-[E0215] Error: conflicting implementations of trait `Late` for type `Other<T>`
+[E0215] Error: conflicting implementations of trait `Late` for type `Other<i32>`
     ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:98:1 ]
     │
  92 │ impl Late for Other<i32> {
     │ ────────────┬───────────  
     │             ╰───────────── first implementation here
     │ 
- 98 │ impl<T> Late for Other<T> { //~ ERROR E0215 conflicting implementations of trait `Late` for type `Other<T>`
+ 98 │ impl<T> Late for Other<T> { //~ ERROR E0215 conflicting implementations of trait `Late` for type `Other<i32>`
     │ ────────────┬────────────  
-    │             ╰────────────── conflicting implementation for `Other<T>`
+    │             ╰────────────── conflicting implementation for `Other<i32>`
 ────╯
 [E0201] Error: cannot find type `Nope` in this scope
      ╭─[ tests/ui/typeck/trait_impl_shapes.sabi:112:21 ]

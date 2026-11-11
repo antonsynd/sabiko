@@ -179,6 +179,7 @@ impl Dumper {
                 self.line(&format!("{vis}Trait {}", t.name.name));
                 self.nested(|d| {
                     d.meta(&item.attrs, &item.docs);
+                    d.generic_params(&t.generics);
                     d.bounds("Supertraits", &t.supertraits);
                     for member in &t.items {
                         d.item(member);
@@ -195,7 +196,13 @@ impl Dumper {
     fn generic_params(&mut self, params: &[GenericParam]) {
         for g in params {
             self.line(&format!("GenericParam {}", g.name.name));
-            self.nested(|d| d.bounds("Bounds", &g.bounds));
+            self.nested(|d| {
+                d.bounds("Bounds", &g.bounds);
+                if let Some(default) = &g.default {
+                    d.line("Default");
+                    d.nested(|d| d.ty(default));
+                }
+            });
         }
     }
 

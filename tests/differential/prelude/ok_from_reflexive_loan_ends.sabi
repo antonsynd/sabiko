@@ -1,0 +1,8 @@
+// The reflexive `From` returns the reference it is given: used before the write, fine.
+fn Main() {
+    let mut x = 1;
+    let r: &i32 = From::from(&x);
+    PrintLine(*r);
+    x = 2;
+    PrintLine(x);
+}

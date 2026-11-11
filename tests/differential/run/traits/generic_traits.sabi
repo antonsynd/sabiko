@@ -1,0 +1,134 @@
+// Generic traits: parameters in method signatures and associated constants, several
+// impls of one trait for one type picked by argument and by result type, a default type
+// parameter, a supertrait with arguments, bounds and `where` clauses with arguments, a
+// blanket impl, `Trait::<A>::Method` paths, and provided methods using the parameters.
+trait Scale<T> {
+    const FACTOR: i32;
+    fn Scale(&self, by: T) -> i32;
+    fn Twice(&self, by: T) -> i32 {
+        2 * self.Scale(by)
+    }
+}
+
+trait Combine<Rhs = Self> {
+    fn Combine(&self, other: Rhs) -> i32;
+}
+
+trait Describe<T>: Scale<T> {
+    fn Describe(&self, by: T) -> i32;
+}
+
+trait Pick<T> {
+    fn Pick(&self) -> T;
+}
+
+#[derive(Copy, Clone)]
+struct Len {
+    N: i32,
+}
+
+#[derive(Copy, Clone)]
+struct Wrap<T> {
+    Inner: T,
+}
+
+impl Scale<i32> for Len {
+    const FACTOR: i32 = 3;
+    fn Scale(&self, by: i32) -> i32 {
+        self.N * by * 3
+    }
+}
+
+impl Scale<bool> for Len {
+    const FACTOR: i32 = 5;
+    fn Scale(&self, by: bool) -> i32 {
+        if by { self.N + 5 } else { -self.N }
+    }
+}
+
+impl Describe<i32> for Len {
+    fn Describe(&self, by: i32) -> i32 {
+        self.Twice(by) + 1
+    }
+}
+
+impl Combine for Len {
+    fn Combine(&self, other: Len) -> i32 {
+        self.N + other.N
+    }
+}
+
+impl Combine<i32> for Len {
+    fn Combine(&self, other: i32) -> i32 {
+        self.N * other
+    }
+}
+
+impl Pick<i32> for Len {
+    fn Pick(&self) -> i32 {
+        self.N
+    }
+}
+
+impl Pick<bool> for Len {
+    fn Pick(&self) -> bool {
+        self.N > 2
+    }
+}
+
+impl<T: Copy> Pick<T> for Wrap<T> {
+    fn Pick(&self) -> T {
+        self.Inner
+    }
+}
+
+impl<T> Combine<Wrap<T>> for Wrap<T>
+where
+    T: Pick<i32>,
+{
+    fn Combine(&self, other: Wrap<T>) -> i32 {
+        self.Inner.Pick() - other.Inner.Pick()
+    }
+}
+
+fn Apply<S: Scale<A>, A>(s: &S, a: A) -> i32 {
+    s.Scale(a) + S::FACTOR
+}
+
+fn Described<S, A: Copy>(s: S, a: A) -> i32
+where
+    S: Describe<A>,
+{
+    s.Describe(a) + s.Scale(a)
+}
+
+fn Both<T>(t: T) -> (i32, bool)
+where
+    T: Pick<i32> + Pick<bool>,
+{
+    let n: i32 = t.Pick();
+    let b: bool = t.Pick();
+    (n, b)
+}
+
+fn Main() {
+    let l = Len { N: 4 };
+    PrintLine(l.Scale(2));
+    PrintLine(l.Scale(true));
+    PrintLine(l.Twice(false));
+    PrintLine(Scale::<i32>::Scale(&l, 10));
+    PrintLine(Apply(&l, 1));
+    PrintLine(Apply(&l, true));
+    PrintLine(Described(l, 3));
+    PrintLine(l.Combine(Len { N: 6 }));
+    PrintLine(l.Combine(7));
+    let (n, b) = Both(l);
+    PrintLine(n);
+    PrintLine(b);
+    let w = Wrap { Inner: Len { N: 9 } };
+    let inner: Len = w.Pick();
+    PrintLine(inner.N);
+    PrintLine(w.Combine(Wrap { Inner: Len { N: 2 } }));
+    let x: i32 = Wrap { Inner: 11 }.Pick();
+    PrintLine(x);
+}

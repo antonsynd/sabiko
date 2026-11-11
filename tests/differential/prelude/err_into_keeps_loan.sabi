@@ -1,0 +1,7 @@
+// `Into` through the blanket impl and `From<T> for Option<T>`: the loan stays.
+fn Main() {
+    let mut x = 1;
+    let o: Option<&i32> = (&x).into();
+    x = 3;
+    PrintLine(*o.unwrap());
+}

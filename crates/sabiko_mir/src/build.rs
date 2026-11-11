@@ -2553,6 +2553,7 @@ impl<'a> Builder<'a> {
             unreachable!("a function using `?` returns an `Option` or a `Result`")
         };
         let mut operands = Vec::new();
+        let mut converted_local = None;
         if kind == CoreItem::Result {
             let err_ty = self
                 .typeck
@@ -2560,7 +2561,39 @@ impl<'a> Builder<'a> {
                 .field_tys(&Ty::Adt(adt, args), Some(break_index))
                 .swap_remove(0);
             let err = Place::local(temp).downcast(break_index).field(0, err_ty);
-            operands.push(self.place_operand(err));
+            let mut err = self.place_operand(err);
+            // `Err(From::from(e))` (decision 95): a call of the trait's method, which
+            // monomorphisation resolves to the `impl From<E> for To` that converts.
+            if let Some((from_fn, generic_args)) = self.types.try_conversions.get(&expr.id) {
+                // The converted error moves into `_0` at once, before anything that may
+                // panic: its temporary needs no drop and no cleanup scope.
+                let converted = self.new_local(LocalDecl {
+                    ty: generic_args[0].clone(),
+                    mutability: Mutability::Mut,
+                    kind: LocalKind::Temp,
+                    name: None,
+                    span: question,
+                    source: None,
+                    match_span: None,
+                });
+                self.push_stmt(StatementKind::StorageLive(converted), question);
+                let next = self.new_block();
+                self.terminate(
+                    TerminatorKind::Call {
+                        func: *from_fn,
+                        generic_args: generic_args.clone(),
+                        args: vec![err],
+                        destination: Place::local(converted),
+                        target: Some(next),
+                        fn_span: question,
+                    },
+                    question,
+                );
+                self.enter(next);
+                err = self.place_operand(Place::local(converted));
+                converted_local = Some(converted);
+            }
+            operands.push(err);
         }
         self.assign(
             ret,
@@ -2570,6 +2603,9 @@ impl<'a> Builder<'a> {
             ),
             question,
         );
+        if let Some(converted) = converted_local {
+            self.push_stmt(StatementKind::StorageDead(converted), question);
+        }
         let target = self.return_block();
         self.leave_to(0, target, question);
         // The value.

@@ -1,0 +1,14 @@
+// `From<[T; N]> for (T, .., T)` type-checks as in rustc, but its body needs array
+// patterns: E0500 at the program's call that reaches it, directly or through `Into` and a
+// generic function (decision 95). The other direction compiles.
+fn Convert<T, U: From<T>>(t: T) -> U {
+    U::from(t) //~ ERROR E0500 converting an array into a tuple is not yet supported by code generation
+}
+
+fn Main() {
+    let t: (u8, u8) = From::from([1u8, 2]); //~ ERROR E0500 converting an array into a tuple is not yet supported by code generation
+    let u: (bool,) = [true].into(); //~ ERROR E0500 converting an array into a tuple is not yet supported by code generation
+    let v: (i32, i32, i32) = Convert([1, 2, 3]);
+    let a: [u8; 2] = From::from((1u8, 2u8));
+    PrintLine(a[1]);
+}
