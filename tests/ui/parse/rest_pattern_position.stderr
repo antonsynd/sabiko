@@ -1,0 +1,21 @@
+[E0100] Error: `..` patterns are not allowed here
+   ╭─[ tests/ui/parse/rest_pattern_position.sabi:8:9 ]
+   │
+ 8 │         .. => 1, //~ ERROR E0100 `..` patterns are not allowed here
+   │         ─┬  
+   │          ╰── only allowed in tuple and tuple struct patterns
+───╯
+[E0100] Error: `..` patterns are not allowed here
+    ╭─[ tests/ui/parse/rest_pattern_position.sabi:14:10 ]
+    │
+ 14 │         &.. => 1, //~ ERROR E0100 `..` patterns are not allowed here
+    │          ─┬  
+    │           ╰── only allowed in tuple and tuple struct patterns
+────╯
+[E0100] Error: `..` patterns are not allowed here
+    ╭─[ tests/ui/parse/rest_pattern_position.sabi:20:12 ]
+    │
+ 20 │         &(&..) => 1, //~ ERROR E0100 `..` patterns are not allowed here
+    │            ─┬  
+    │             ╰── only allowed in tuple and tuple struct patterns
+────╯

@@ -1,0 +1,258 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/reference_and_open_range_patterns.sabi
+---
+fn Deref(_1: &E) -> i32 {
+    let mut _0: i32;
+    let _2: i32;                         // n
+    let mut _3: isize;
+    let mut _4: &i32;
+    let mut _5: &E;
+    let mut _6: &&E;
+    let mut _7: &i32;
+    let mut _8: bool;
+    let mut _9: i32;
+    let mut _10: bool;
+
+    bb0: {
+        PlaceMention(_1);
+        StorageLive(_3);
+        _3 = discriminant((*_1));
+        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        _0 = copy _2;
+        StorageDead(_2);
+        goto -> bb9;
+    }
+
+    bb2: {
+        switchInt(copy _3) -> [1: bb7, otherwise: bb8];
+    }
+
+    bb3: {
+        StorageLive(_4);
+        _4 = &((*_1) as B).0;
+        StorageLive(_5);
+        _5 = &fake (*_1);
+        StorageLive(_6);
+        _6 = &fake _1;
+        StorageLive(_7);
+        _7 = &fake ((*_1) as B).0;
+        StorageLive(_8);
+        _8 = Gt(copy (*_4), const 0_i32);
+        switchInt(copy _8) -> [0: bb5, otherwise: bb4];
+    }
+
+    bb4: {
+        StorageDead(_8);
+        PlaceMention(_5);
+        PlaceMention(_6);
+        PlaceMention(_7);
+        PlaceMention(_4);
+        StorageLive(_2);
+        _2 = copy ((*_1) as B).0;
+        goto -> bb1;
+    }
+
+    bb5: {
+        StorageDead(_8);
+        goto -> bb2;
+    }
+
+    bb6: {
+        _0 = const -1_i32;
+        goto -> bb9;
+    }
+
+    bb7: {
+        StorageLive(_10);
+        _10 = Le(copy ((*_1) as B).0, const -1_i32);
+        switchInt(copy _10) -> [0: bb8, otherwise: bb6];
+    }
+
+    bb8: {
+        _0 = const 0_i32;
+        goto -> bb9;
+    }
+
+    bb9: {
+        StorageDead(_10);
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_3);
+        goto -> bb10;
+    }
+
+    bb10: {
+        return;
+    }
+}
+
+fn Let(_1: &mut (i32, i32)) -> i32 {
+    let mut _0: i32;
+    let mut _2: &mut i32;                // a
+    let _3: i32;                         // b
+    let mut _4: i32;
+
+    bb0: {
+        StorageLive(_2);
+        _2 = &mut (*_1).0;
+        StorageLive(_3);
+        _3 = copy (*_1).1;
+        (*_2) = Add(copy (*_2), copy _3);
+        _0 = copy (*_2);
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn Open(_1: u8, _2: i64) -> i32 {
+    let mut _0: i32;
+    let mut _3: (u8, i64);
+    let mut _4: u8;
+    let mut _5: i64;
+    let mut _6: i64;
+    let mut _7: bool;
+    let mut _8: bool;
+    let mut _9: bool;
+
+    bb0: {
+        StorageLive(_3);
+        _3 = (copy _1, copy _2);
+        PlaceMention(_3);
+        StorageLive(_6);
+        _6 = copy _3.1;
+        StorageLive(_7);
+        _7 = Lt(copy _6, const 0_i64);
+        switchInt(copy _7) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _0 = const 1_i32;
+        goto -> bb7;
+    }
+
+    bb2: {
+        StorageLive(_8);
+        _8 = Le(copy _3.0, const 9_u8);
+        switchInt(copy _8) -> [0: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        _0 = const 2_i32;
+        goto -> bb7;
+    }
+
+    bb4: {
+        StorageLive(_9);
+        _9 = Ge(copy _6, const 100_i64);
+        switchInt(copy _9) -> [0: bb6, otherwise: bb5];
+    }
+
+    bb5: {
+        _0 = const 3_i32;
+        goto -> bb7;
+    }
+
+    bb6: {
+        _0 = const 4_i32;
+        goto -> bb7;
+    }
+
+    bb7: {
+        StorageDead(_9);
+        StorageDead(_8);
+        StorageDead(_7);
+        StorageDead(_6);
+        StorageDead(_3);
+        goto -> bb8;
+    }
+
+    bb8: {
+        return;
+    }
+}
+
+fn Char(_1: char) -> i32 {
+    let mut _0: i32;
+
+    bb0: {
+        PlaceMention(_1);
+        goto -> bb1;
+    }
+
+    bb1: {
+        _0 = const 1_i32;
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Float(_1: f64) -> i32 {
+    let mut _0: i32;
+    let mut _2: f64;
+    let mut _3: bool;
+    let mut _4: bool;
+    let mut _5: bool;
+
+    bb0: {
+        PlaceMention(_1);
+        StorageLive(_2);
+        _2 = copy _1;
+        StorageLive(_3);
+        _3 = Lt(copy _2, const 0.0_f64);
+        switchInt(copy _3) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        _0 = const -1_i32;
+        goto -> bb6;
+    }
+
+    bb2: {
+        StorageLive(_4);
+        _4 = Ge(copy _2, const 0.0_f64);
+        switchInt(copy _4) -> [0: bb5, otherwise: bb4];
+    }
+
+    bb3: {
+        _0 = const 0_i32;
+        goto -> bb6;
+    }
+
+    bb4: {
+        StorageLive(_5);
+        _5 = Le(copy _2, const 1.0_f64);
+        switchInt(copy _5) -> [0: bb5, otherwise: bb3];
+    }
+
+    bb5: {
+        _0 = const 1_i32;
+        goto -> bb6;
+    }
+
+    bb6: {
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb7;
+    }
+
+    bb7: {
+        return;
+    }
+}

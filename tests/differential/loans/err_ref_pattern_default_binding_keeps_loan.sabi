@@ -1,0 +1,8 @@
+// Without the `&` pattern (#49), `let (a, _) = &t;` binds `a: &i32` (default binding
+// mode `ref`): the loan of `t.0` is live when `t.0` is assigned: E0506.
+fn F() -> i32 {
+    let mut t = (1, 2);
+    let (a, _) = &t;
+    t.0 = 5;
+    *a + t.0
+}

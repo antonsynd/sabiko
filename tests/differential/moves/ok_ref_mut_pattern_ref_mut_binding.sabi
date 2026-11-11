@@ -1,0 +1,9 @@
+// A `ref mut` binding under a `&mut` pattern (#49) borrows the non-Copy part mutably
+// through the reference; writing through it is fine.
+struct Token { Id: i32 }
+
+fn F(r: &mut (Token, i32)) -> i32 {
+    let &mut (ref mut t, n) = r;
+    t.Id += n;
+    t.Id
+}

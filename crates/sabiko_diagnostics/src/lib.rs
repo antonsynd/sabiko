@@ -153,8 +153,9 @@ impl ErrorCode {
     /// Warning: an `if let`, `while let` or `let`-`else` whose pattern always matches
     /// (rustc's `irrefutable_let_patterns` lint).
     pub const IRREFUTABLE_LET_PATTERN: Self = Self(331);
-    /// A range pattern whose lower bound exceeds its upper bound (rustc's E0030), or an
-    /// empty exclusive range (E0579).
+    /// A range pattern whose lower bound exceeds its upper bound (rustc's E0030), an
+    /// empty exclusive range (E0579), or a NaN constant in a pattern (rustc's uncoded
+    /// "cannot use NaN in patterns").
     pub const INVALID_RANGE_PATTERN: Self = Self(332);
     /// Two variants with the same discriminant (rustc's E0081), an implicit discriminant
     /// that overflows (E0370), or an explicit discriminant on an enum with a field (E0732).
@@ -166,9 +167,10 @@ impl ErrorCode {
     pub const INVALID_INDEX_TYPE: Self = Self(335);
     /// Indexing a value that is not an array or a slice (rustc's E0608).
     pub const NOT_INDEXABLE: Self = Self(336);
-    /// `mut`, `ref` or `ref mut` on a binding whose default binding mode is a reference
-    /// (edition 2024; rustc's uncoded "cannot mutably bind by value / cannot explicitly
-    /// borrow within an implicitly-borrowing pattern").
+    /// `mut`, `ref` or `ref mut` on a binding, or a `&` pattern, whose default binding
+    /// mode is a reference (edition 2024; rustc's uncoded "cannot mutably bind by value /
+    /// cannot explicitly borrow / cannot explicitly dereference within an
+    /// implicitly-borrowing pattern").
     pub const BINDING_MODIFIER_UNDER_REF: Self = Self(337);
     /// A struct's or enum's type parameter that no field uses (rustc's E0392).
     pub const UNUSED_TYPE_PARAMETER: Self = Self(340);

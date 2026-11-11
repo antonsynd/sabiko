@@ -1,0 +1,57 @@
+// Float range patterns (#49): closed, exclusive and half-open ranges of `f64` and `f32`,
+// with `-0.0` equal to `0.0`, infinities, and NaN matching no range. Floats are never
+// exhaustive, so every match ends with `_`.
+fn Classify(x: f64) -> i32 {
+    match x {
+        ..=-1.0 => -2,
+        -1.0..0.0 => -1,
+        0.0 => 0,
+        0.0..=0.5 => 1,
+        0.5..1.0 => 2,
+        1.0.. => 3,
+        _ => 99,
+    }
+}
+
+fn Small(x: f32) -> bool {
+    match x {
+        -0.25..=0.25 => true,
+        _ => false,
+    }
+}
+
+fn Bucket(p: (f64, i32)) -> i32 {
+    match p {
+        (1.5..=2.5, n @ 0..) => n,
+        (..1.5, ..0) => -1,
+        (f64::NEG_INFINITY, _) | (f64::INFINITY, _) => 1000,
+        _ => 0,
+    }
+}
+
+fn Zero() -> f64 {
+    0.0
+}
+
+fn Main() {
+    let xs = [-5.0, -1.0, -0.5, -0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1e300];
+    let mut i = 0;
+    while i < xs.len() {
+        PrintLine(Classify(xs[i]));
+        i += 1;
+    }
+    PrintLine(Classify(f64::INFINITY));
+    PrintLine(Classify(f64::NEG_INFINITY));
+    PrintLine(Classify(Zero() / Zero()));
+    PrintLine(Small(0.25));
+    PrintLine(Small(-0.3));
+    PrintLine(Small(Zero() as f32 / 0.0));
+    PrintLine(Bucket((2.0, 7)));
+    PrintLine(Bucket((1.0, -3)));
+    PrintLine(Bucket((f64::INFINITY, 3)));
+    PrintLine(Bucket((1.0, 3)));
+    let r = &2.25;
+    if let 2.0..=3.0 = r {
+        PrintLine("through a reference");
+    }
+}

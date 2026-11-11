@@ -1,0 +1,6 @@
+// A `ref mut` binding under a `&mut` pattern (#49) writes into the referent.
+fn F(r: &mut (i32, i32)) -> i32 {
+    let &mut (ref mut a, b) = r;
+    *a = b;
+    r.0
+}

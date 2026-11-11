@@ -1,0 +1,8 @@
+// A `ref mut` binding under a `&mut` pattern (#49) reborrows through the reference: the
+// reference cannot be used while the binding is live: E0503.
+fn F(r: &mut (i32, i32)) -> i32 {
+    let &mut (ref mut a, _) = r;
+    let b = r.0;
+    *a += 1;
+    b
+}

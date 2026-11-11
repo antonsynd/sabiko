@@ -1,0 +1,44 @@
+// Sabiko codes for rustc's: E0328 for E0004.
+// Float range patterns (#49) never make a match exhaustive, even `..=-0.0 | 0.0..`, but a
+// literal or range inside an earlier one is unreachable, as in rustc. A range ending at the
+// same bound as an earlier one is covered only with the same end: rustc (1.99) reports
+// neither `0.5..1.0` nor `0.0..1.0` after `0.0..=1.0`.
+fn Halves(x: f64) -> i32 {
+    match x { //~ ERROR E0328 non-exhaustive patterns: `_` not covered
+        ..=-0.0 => 1,
+        0.0.. => 2,
+    }
+}
+
+fn Covered(x: f32) -> i32 {
+    match x {
+        0.0..=1.0 => 1,
+        0.5 => 2, //~ WARN unreachable pattern
+        0.0..=0.5 => 3, //~ WARN unreachable pattern
+        1.0..2.0 => 4,
+        2.0 => 5,
+        1.5..2.0 => 6, //~ WARN unreachable pattern
+        _ => 7,
+    }
+}
+
+fn SameUpperBound(x: f64) -> i32 {
+    let a = match x {
+        0.0..=1.0 => 1,
+        0.5..1.0 => 2,
+        _ => 3,
+    };
+    let b = match x {
+        0.0..=1.0 => 1,
+        0.0..1.0 => 2,
+        _ => 3,
+    };
+    let c = match x {
+        0.0..1.0 => 1,
+        0.5..1.0 => 2, //~ WARN unreachable pattern
+        _ => 3,
+    };
+    a + b + c
+}
+
+fn Main() {}

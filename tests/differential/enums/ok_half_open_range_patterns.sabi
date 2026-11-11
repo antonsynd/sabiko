@@ -1,0 +1,22 @@
+// Half-open range patterns (#49): `..=hi`, `..hi` and `lo..` make matches exhaustive
+// with the closed ranges and literals, also of `usize` and through references.
+fn F(n: i32, u: usize, r: &u8, c: char) -> i32 {
+    let a = match n {
+        ..=-1 => -1,
+        0 => 0,
+        1.. => 1,
+    };
+    let b = match u {
+        ..10 => 0,
+        10.. => 1,
+    };
+    let d = match r {
+        0..=127 => 0,
+        128.. => 1,
+    };
+    let e = match c {
+        ..='a' => 0,
+        'b'.. => 1,
+    };
+    a + b + d + e
+}

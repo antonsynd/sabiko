@@ -1,0 +1,64 @@
+[E0332] Error: exclusive upper bound for a range bound cannot be the minimum
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:10:9 ]
+    │
+ 10 │         ..i32::MIN => 1, //~ ERROR E0332 exclusive upper bound for a range bound cannot be the minimum
+    │         ─────┬────  
+    │              ╰────── this range is empty
+────╯
+[E0332] Error: exclusive upper bound for a range bound cannot be the minimum
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:14:9 ]
+    │
+ 14 │         ..'\0' => 1, //~ ERROR E0332 exclusive upper bound for a range bound cannot be the minimum
+    │         ───┬──  
+    │            ╰──── this range is empty
+────╯
+[E0332] Error: lower bound for range pattern must be less than or equal to upper bound
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:28:9 ]
+    │
+ 28 │         1.0..=0.0 => 1, //~ ERROR E0332 lower bound for range pattern must be less than or equal to upper
+    │         ─┬─  
+    │          ╰─── lower bound larger than upper bound
+────╯
+[E0332] Error: lower bound for range pattern must be less than upper bound
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:32:9 ]
+    │
+ 32 │         1.0..1.0 => 1, //~ ERROR E0332 lower bound for range pattern must be less than upper bound
+    │         ────┬───  
+    │             ╰───── this range is empty
+────╯
+[E0332] Error: cannot use NaN in patterns
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:36:9 ]
+    │
+ 36 │         N..=1.0 => 1, //~ ERROR E0332 cannot use NaN in patterns
+    │         ┬  
+    │         ╰── evaluates to `NaN`, which is not allowed in patterns
+    │ 
+    │ Note: try using the `is_nan` method instead
+────╯
+[E0332] Error: cannot use NaN in patterns
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:40:9 ]
+    │
+ 40 │         N => 1, //~ ERROR E0332 cannot use NaN in patterns
+    │         ┬  
+    │         ╰── evaluates to `NaN`, which is not allowed in patterns
+    │ 
+    │ Note: try using the `is_nan` method instead
+────╯
+[E0332] Error: cannot use NaN in patterns
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:44:9 ]
+    │
+ 44 │         f64::NAN.. => 1, //~ ERROR E0332 cannot use NaN in patterns
+    │         ────┬───  
+    │             ╰───── evaluates to `NaN`, which is not allowed in patterns
+    │ 
+    │ Note: try using the `is_nan` method instead
+────╯
+[E0332] Error: cannot use NaN in patterns
+    ╭─[ tests/ui/typeck/half_open_range_errors.sabi:52:9 ]
+    │
+ 52 │         T => 1, //~ ERROR E0332 cannot use NaN in patterns
+    │         ┬  
+    │         ╰── evaluates to `NaN`, which is not allowed in patterns
+    │ 
+    │ Note: try using the `is_nan` method instead
+────╯

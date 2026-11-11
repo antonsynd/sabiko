@@ -316,9 +316,17 @@ impl Dumper {
             PatKind::Range(lo, hi, end) => {
                 self.line(&format!("RangePat {}", end.as_str()));
                 self.nested(|d| {
-                    d.expr(lo);
-                    d.expr(hi);
+                    if let Some(lo) = lo {
+                        d.expr(lo);
+                    }
+                    if let Some(hi) = hi {
+                        d.expr(hi);
+                    }
                 });
+            }
+            PatKind::Ref { pat, mutable } => {
+                self.line(if *mutable { "RefPat mut" } else { "RefPat" });
+                self.nested(|d| d.pat(pat));
             }
             PatKind::Or(alts) => {
                 self.line("OrPat");

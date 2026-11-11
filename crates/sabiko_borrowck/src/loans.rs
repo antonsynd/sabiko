@@ -29,8 +29,8 @@ use sabiko_resolve::{DefKind, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{FnSig, TypeckResults};
 
+use crate::check::{describe_any_place, user_place};
 use crate::dataflow::Location;
-use crate::describe_place;
 use facts::{AccessKind, Facts, FactsError, LocationTable, SabikoFacts};
 use regions::{signature_regions, Loan, Origin, OriginSupply, Point, SiteElem};
 
@@ -202,11 +202,11 @@ impl Reporter<'_> {
             // it out does not conflict with the fake borrow.
             let (message, label) = match invalidation.kind {
                 AccessKind::Write => (
-                    format!("cannot assign `{accessed}` in match guard"),
+                    format!("cannot assign {accessed} in match guard"),
                     "cannot assign",
                 ),
                 _ => (
-                    format!("cannot mutably borrow `{accessed}` in match guard"),
+                    format!("cannot mutably borrow {accessed} in match guard"),
                     "cannot mutably borrow",
                 ),
             };
@@ -222,7 +222,7 @@ impl Reporter<'_> {
                         .with_label(span, label)
                         .with_label(
                             data.span,
-                            format!("value is immutable in match guard: `{borrowed}`"),
+                            format!("value is immutable in match guard: {borrowed}"),
                         ),
                 );
             }
@@ -233,7 +233,7 @@ impl Reporter<'_> {
             {
                 Diagnostic::error(
                     ErrorCode::MULTIPLE_MUT_BORROWS,
-                    format!("cannot borrow `{accessed}` as mutable more than once at a time"),
+                    format!("cannot borrow {accessed} as mutable more than once at a time"),
                 )
                 .with_label(span, "second mutable borrow occurs here")
                 .with_label(data.span, "first mutable borrow occurs here")
@@ -242,7 +242,7 @@ impl Reporter<'_> {
                 Diagnostic::error(
                     ErrorCode::BORROW_CONFLICT,
                     format!(
-                    "cannot borrow `{accessed}` as mutable because it is also borrowed as immutable"
+                    "cannot borrow {accessed} as mutable because it is also borrowed as immutable"
                 ),
                 )
                 .with_label(span, "mutable borrow occurs here")
@@ -251,32 +251,32 @@ impl Reporter<'_> {
             AccessKind::SharedBorrow => Diagnostic::error(
                 ErrorCode::BORROW_CONFLICT,
                 format!(
-                    "cannot borrow `{accessed}` as immutable because it is also borrowed as mutable"
+                    "cannot borrow {accessed} as immutable because it is also borrowed as mutable"
                 ),
             )
             .with_label(span, "immutable borrow occurs here")
             .with_label(data.span, "mutable borrow occurs here"),
             AccessKind::Write => Diagnostic::error(
                 ErrorCode::ASSIGN_TO_BORROWED,
-                format!("cannot assign to `{accessed}` because it is borrowed"),
+                format!("cannot assign to {accessed} because it is borrowed"),
             )
             .with_label(
                 span,
-                format!("assignment to borrowed `{accessed}` occurs here"),
+                format!("assignment to borrowed {accessed} occurs here"),
             )
-            .with_label(data.span, format!("`{borrowed}` is borrowed here")),
+            .with_label(data.span, format!("{borrowed} is borrowed here")),
             AccessKind::Read => Diagnostic::error(
                 ErrorCode::USE_WHILE_MUTABLY_BORROWED,
-                format!("cannot use `{accessed}` because it was mutably borrowed"),
+                format!("cannot use {accessed} because it was mutably borrowed"),
             )
-            .with_label(span, format!("use of borrowed `{accessed}`"))
-            .with_label(data.span, format!("`{borrowed}` is borrowed here")),
+            .with_label(span, format!("use of borrowed {accessed}"))
+            .with_label(data.span, format!("{borrowed} is borrowed here")),
             AccessKind::Move => Diagnostic::error(
                 ErrorCode::MOVE_WHILE_BORROWED,
-                format!("cannot move out of `{accessed}` because it is borrowed"),
+                format!("cannot move out of {accessed} because it is borrowed"),
             )
-            .with_label(span, format!("move out of `{accessed}` occurs here"))
-            .with_label(data.span, format!("borrow of `{borrowed}` occurs here")),
+            .with_label(span, format!("move out of {accessed} occurs here"))
+            .with_label(data.span, format!("borrow of {borrowed} occurs here")),
             AccessKind::StorageDead | AccessKind::Drop | AccessKind::Return => {
                 return Some(self.lifetime_error(location, point, loan, invalidation.kind));
             }
@@ -305,7 +305,7 @@ impl Reporter<'_> {
             };
             return Diagnostic::error(
                 ErrorCode::RETURN_REF_TO_LOCAL,
-                format!("cannot return reference to {what} `{borrowed}`"),
+                format!("cannot return reference to {what} {borrowed}"),
             )
             .with_label(
                 data.span,
@@ -334,18 +334,18 @@ impl Reporter<'_> {
                 (
                     self.span_at(location),
                     format!(
-                        "`{local}` dropped here, when the function returns, while still borrowed"
+                        "{local} dropped here, when the function returns, while still borrowed"
                     ),
                 )
             } else {
                 (
                     drop_span(self.span_at(location)),
-                    format!("`{local}` dropped here while still borrowed"),
+                    format!("{local} dropped here while still borrowed"),
                 )
             };
             Diagnostic::error(
                 ErrorCode::DOES_NOT_LIVE_LONG_ENOUGH,
-                format!("`{borrowed}` does not live long enough"),
+                format!("{borrowed} does not live long enough"),
             )
             .with_label(data.span, "borrowed value does not live long enough")
             .with_label(span, label)
@@ -494,11 +494,11 @@ impl Reporter<'_> {
                 }
             };
         }
-        Some(self.describe(&place))
+        user_place(&place, self.body, self.typeck)
     }
 
     fn describe(&self, place: &Place) -> String {
-        describe_place(place, self.body, self.typeck)
+        describe_any_place(place, self.body, self.typeck)
     }
 
     fn span_at(&self, location: Location) -> Span {

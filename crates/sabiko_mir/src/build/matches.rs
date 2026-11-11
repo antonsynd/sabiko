@@ -111,6 +111,7 @@ pub(super) fn choices(pat: &Pat) -> Vec<Choice> {
     };
     match &pat.kind {
         PatKind::Ident { sub: Some(sub), .. } => choices(sub),
+        PatKind::Ref { pat, .. } => choices(pat),
         PatKind::Tuple(ps) | PatKind::TupleStruct(_, ps) => {
             product(ps.iter().map(choices).collect())
         }
@@ -140,6 +141,7 @@ pub(super) fn has_or(pat: &Pat) -> bool {
     match &pat.kind {
         PatKind::Or(_) => true,
         PatKind::Ident { sub, .. } => sub.as_deref().is_some_and(has_or),
+        PatKind::Ref { pat, .. } => has_or(pat),
         PatKind::Tuple(ps) | PatKind::TupleStruct(_, ps) => ps.iter().any(has_or),
         PatKind::Struct { fields, .. } => fields.iter().any(|f| has_or(&f.pat)),
         _ => false,
@@ -242,6 +244,10 @@ impl Builder<'_> {
                 let alt = &alts[choice[&pat.id]];
                 self.test_pat(alt, place, choice, fail);
             }
+            // `&p` tests nothing itself: `p` matches the referent.
+            PatKind::Ref { pat: sub, .. } => {
+                self.test_pat(sub, &place.clone().deref(), choice, fail);
+            }
             PatKind::Path(_) => {
                 let place = self.pat_place(pat, place.clone());
                 if let Some(&(adt, index)) = self.types.pat_variants.get(&pat.id) {
@@ -319,17 +325,22 @@ impl Builder<'_> {
                 // `i32::MIN..=i32::MAX` matches every value: nothing is read, as in rustc.
             }
             Some(PatConst::Range {
-                lo,
-                hi,
+                lo: Some(lo),
+                hi: Some(hi),
                 inclusive: true,
             }) if lo == hi => {
                 // `4..=4` is the constant 4, one comparison, as rustc lowers it.
                 self.test_const(place, &ty, lo, fail, span);
             }
             Some(PatConst::Range { lo, hi, inclusive }) => {
-                self.compare(BinOp::Ge, place, &ty, lo, fail, span);
-                let op = if inclusive { BinOp::Le } else { BinOp::Lt };
-                self.compare(op, place, &ty, hi, fail, span);
+                // A half-open range compares its one finite bound (#49), as rustc does.
+                if let Some(lo) = lo {
+                    self.compare(BinOp::Ge, place, &ty, lo, fail, span);
+                }
+                if let Some(hi) = hi {
+                    let op = if inclusive { BinOp::Le } else { BinOp::Lt };
+                    self.compare(op, place, &ty, hi, fail, span);
+                }
             }
             None => {
                 // A unit struct: one value, nothing to test.
@@ -506,6 +517,9 @@ impl Builder<'_> {
             PatKind::Or(alts) => {
                 self.value_test_places(&alts[choice[&pat.id]], place, choice, out);
             }
+            PatKind::Ref { pat: sub, .. } => {
+                self.value_test_places(sub, &place.clone().deref(), choice, out);
+            }
             PatKind::Path(_) => {
                 if !self.types.pat_variants.contains_key(&pat.id) {
                     value(pat, self.pat_place(pat, place.clone()), out);
@@ -577,6 +591,9 @@ impl Builder<'_> {
             PatKind::Or(alts) => {
                 let alt = &alts[choice[&pat.id]];
                 self.collect_fake_places(alt, place, choice, out);
+            }
+            PatKind::Ref { pat: sub, .. } => {
+                self.collect_fake_places(sub, &place.clone().deref(), choice, out);
             }
             PatKind::Path(_) => {
                 let place = self.pat_place(pat, place.clone());
@@ -667,6 +684,7 @@ impl Builder<'_> {
                 let alt = &alts[choice.get(&pat.id).copied().unwrap_or(0)];
                 self.bind_pat(alt, place, choice, mode);
             }
+            PatKind::Ref { pat: sub, .. } => self.bind_pat(sub, place.deref(), choice, mode),
             PatKind::Tuple(_) | PatKind::TupleStruct(..) | PatKind::Struct { .. } => {
                 let place = self.pat_place(pat, place);
                 let (_, subs) = self.subpatterns(pat, &place);
@@ -789,6 +807,9 @@ impl Builder<'_> {
             PatKind::Or(alts) => {
                 let alt = &alts[choice[&pat.id]];
                 self.bind_for_guard(alt, place, choice, values);
+            }
+            PatKind::Ref { pat: sub, .. } => {
+                self.bind_for_guard(sub, place.deref(), choice, values);
             }
             PatKind::Tuple(_) | PatKind::TupleStruct(..) | PatKind::Struct { .. } => {
                 let place = self.pat_place(pat, place);
@@ -1433,35 +1454,36 @@ fn push_fake_place(out: &mut Vec<Place>, place: &Place, itself: bool) {
     }
 }
 
-/// Whether `c` is a range pattern matching every value of the integer type `ty`
-/// (`i32::MIN..=i32::MAX`, `0u8..=255`): rustc tests nothing for it.
+/// Whether `c` is a range pattern matching every value of the integer or `char` type `ty`
+/// (`i32::MIN..=i32::MAX`, `0u8..=255`, `'\0'..`): rustc tests nothing for it.
 fn is_full_range(c: Option<&PatConst>, ty: &Ty) -> bool {
-    let (
-        Some(PatConst::Range {
-            lo,
-            hi,
-            inclusive: true,
-        }),
-        Some(prim),
-    ) = (c, ty.as_prim())
-    else {
+    let (Some(PatConst::Range { lo, hi, inclusive }), Some(prim)) = (c, ty.as_prim()) else {
         return false;
     };
+    if *ty == Ty::CHAR {
+        // A `char` literal cannot reach rustc's maximum, `'\u{10FFFF}'` (decision 31): only
+        // an open end does.
+        let lo_is_min = matches!(lo, None | Some(ConstValue::Char('\0')));
+        return *inclusive && lo_is_min && hi.is_none();
+    }
     if !prim.is_integer() {
         return false;
     }
     let (min, max) = sabiko_types::consts::int_bounds(prim);
-    let lo_is_min = match *lo {
-        ConstValue::Int(v) => v == min,
-        ConstValue::Uint(v) => i128::try_from(v).is_ok_and(|v| v == min),
+    // A missing bound is the type's end (`i32::MIN..`, `..=u8::MAX`, #49).
+    let lo_is_min = match lo {
+        None => true,
+        Some(ConstValue::Int(v)) => *v == min,
+        Some(ConstValue::Uint(v)) => i128::try_from(*v).is_ok_and(|v| v == min),
         _ => false,
     };
-    let hi_is_max = match *hi {
-        ConstValue::Int(v) => u128::try_from(v).is_ok_and(|v| v == max),
-        ConstValue::Uint(v) => v == max,
+    let hi_is_max = match hi {
+        None => true,
+        Some(ConstValue::Int(v)) => u128::try_from(*v).is_ok_and(|v| v == max),
+        Some(ConstValue::Uint(v)) => *v == max,
         _ => false,
     };
-    lo_is_min && hi_is_max
+    *inclusive && lo_is_min && hi_is_max
 }
 
 /// The operands of a match guard: its let chain's, or the guard alone.
