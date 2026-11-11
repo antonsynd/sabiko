@@ -5,7 +5,7 @@
 fn Main() {
     let c: Option<i32> = Some(1, 2); //~ ERROR E0304 this enum variant takes 1 argument but 2 arguments were supplied
     match c {
-        Some => {} //~ ERROR E0326 expected unit struct, unit variant or constant, found tuple variant `Option::Some`
+        Some(a, b) => {} //~ ERROR E0327 this pattern has 2 fields, but the corresponding tuple variant has 1 field
         _ => {}
     }
     let t: Result<i32, bool> = Ok(true); //~ ERROR E0300 mismatched types

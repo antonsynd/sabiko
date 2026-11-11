@@ -11,13 +11,19 @@
     │     ──┬─  
     │       ╰─── variant defined here
 ────╯
-[E0326] Error: expected unit struct, unit variant or constant, found tuple variant `Option::Some`
-   ╭─[ tests/ui/typeck/prelude_variants.sabi:8:9 ]
-   │
- 8 │         Some => {} //~ ERROR E0326 expected unit struct, unit variant or constant, found tuple variant `Option::Some`
-   │         ──┬─  
-   │           ╰─── not a unit struct, unit variant or constant
-───╯
+[E0327] Error: this pattern has 2 fields, but the corresponding tuple variant has 1 field
+    ╭─[ tests/ui/typeck/prelude_variants.sabi:8:9 ]
+    │
+  8 │         Some(a, b) => {} //~ ERROR E0327 this pattern has 2 fields, but the corresponding tuple variant has 1 field
+    │         ─────┬────  
+    │              ╰────── expected 1 field, found 2
+    │
+    ├─[ library/core/option.sabi:13:5 ]
+    │
+ 13 │     Some(T),
+    │     ──┬─  
+    │       ╰─── tuple variant has fields here
+────╯
 [E0300] Error: mismatched types
     ╭─[ tests/ui/typeck/prelude_variants.sabi:11:32 ]
     │

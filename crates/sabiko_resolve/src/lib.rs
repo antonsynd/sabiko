@@ -842,7 +842,7 @@ pub fn resolve_program(
             prelude_start,
             ..ResolveResults::default()
         },
-        unit_structs: std::collections::HashSet::new(),
+        ctors: HashMap::new(),
         items: HashMap::new(),
         other_items: HashMap::new(),
         in_prelude: false,
@@ -932,10 +932,29 @@ struct Binding {
     mutable: bool,
 }
 
+/// How a struct or variant whose name is a value is built (see [`Resolver::ctors`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CtorKind {
+    Unit,
+    Tuple,
+}
+
+/// Where a pattern binds, for E0225's message: rustc's `PatternSource` (`if let`,
+/// `while let` and let-else are `let`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PatSource {
+    Let,
+    Match,
+    Param,
+}
+
 struct Resolver<'d> {
     results: ResolveResults,
-    /// The unit structs of the file, which a lone identifier in a pattern names.
-    unit_structs: std::collections::HashSet<DefId>,
+    /// The unit structs and the unit and tuple variants: the structs and variants whose
+    /// name is a value (a struct with named fields, or a struct variant, is not). A lone
+    /// identifier in a pattern that names a unit one is a path pattern; one that names a
+    /// tuple variant is E0225.
+    ctors: HashMap<DefId, CtorKind>,
     /// First definition of each item name, in the namespace of the item being resolved:
     /// the user's file or the prelude (decision 90).
     items: HashMap<String, DefId>,
@@ -1160,7 +1179,7 @@ impl Resolver<'_> {
                 ..
             }) = &item.kind
             {
-                self.unit_structs.insert(id);
+                self.ctors.insert(id, CtorKind::Unit);
             }
             if let Some(&first) = self.items.get(&name.name) {
                 let first_span = self.results.def(first).span;
@@ -1582,6 +1601,11 @@ impl Resolver<'_> {
                 builtin: None,
             });
             self.results.item_defs.insert(v.id, id);
+            match v.data {
+                sabiko_ast::VariantData::Unit => self.ctors.insert(id, CtorKind::Unit),
+                sabiko_ast::VariantData::Tuple(_) => self.ctors.insert(id, CtorKind::Tuple),
+                sabiko_ast::VariantData::Named(_) => None,
+            };
             ids.push(id);
         }
         self.results.variants.insert(adt, ids);
@@ -2498,7 +2522,7 @@ impl Resolver<'_> {
                     seen.insert(&name.name, name.span);
                 }
             }
-            self.bind_pat(&p.pat, true);
+            self.bind_pat(&p.pat, PatSource::Param);
         }
         if let Some(ret) = &f.ret {
             self.resolve_type(ret, true);
@@ -2513,9 +2537,9 @@ impl Resolver<'_> {
     }
 
     /// Resolves `pat` and binds its names in the innermost scope, returning the bindings.
-    fn bind_pat(&mut self, pat: &Pat, is_param: bool) -> Vec<Binding> {
+    fn bind_pat(&mut self, pat: &Pat, source: PatSource) -> Vec<Binding> {
         let mut out = Vec::new();
-        self.walk_pat(pat, is_param, None, &mut out);
+        self.walk_pat(pat, source, None, &mut out);
         let scope = self.scopes.last_mut().expect("a scope is open");
         for b in &out {
             scope.push((b.name.clone(), b.local));
@@ -2530,7 +2554,7 @@ impl Resolver<'_> {
     fn walk_pat(
         &mut self,
         pat: &Pat,
-        is_param: bool,
+        source: PatSource,
         reuse: Option<&[Binding]>,
         out: &mut Vec<Binding>,
     ) {
@@ -2541,11 +2565,14 @@ impl Resolver<'_> {
                 name,
                 sub,
             } => {
-                if !by_ref && !mutable && sub.is_none() {
-                    if let Some(res) = self.ident_pat_path(&name.name) {
-                        self.results.pat_res.insert(pat.id, res);
+                if let Some((def, what)) = self.ident_pat_item(&name.name) {
+                    if !by_ref && !mutable && sub.is_none() && what != "tuple variant" {
+                        // A path pattern (`None`, `LIMIT`).
+                        self.results.pat_res.insert(pat.id, Res::Def(def));
                         return;
                     }
+                    // Reported, then bound as written, as rustc does.
+                    self.binding_shadows_item(name, def, what, source);
                 }
                 let existing = reuse.and_then(|r| r.iter().find(|b| b.name == name.name));
                 let local = if let Some(b) = existing {
@@ -2572,7 +2599,7 @@ impl Resolver<'_> {
                         span: name.span,
                         pat: pat.id,
                         owner: self.current_fn.expect("bindings only occur inside items"),
-                        is_param,
+                        is_param: source == PatSource::Param,
                     });
                     id
                 };
@@ -2585,13 +2612,13 @@ impl Resolver<'_> {
                     mutable: *mutable,
                 });
                 if let Some(sub) = sub {
-                    self.walk_pat(sub, is_param, reuse, out);
+                    self.walk_pat(sub, source, reuse, out);
                 }
             }
             PatKind::Wild | PatKind::Rest => {}
             PatKind::Tuple(elems) => {
                 for p in elems {
-                    self.walk_pat(p, is_param, reuse, out);
+                    self.walk_pat(p, source, reuse, out);
                 }
             }
             PatKind::Path(path) => {
@@ -2616,14 +2643,14 @@ impl Resolver<'_> {
                 };
                 self.results.pat_res.insert(pat.id, res);
                 for p in elems {
-                    self.walk_pat(p, is_param, reuse, out);
+                    self.walk_pat(p, source, reuse, out);
                 }
             }
             PatKind::Struct { path, fields, .. } => {
                 let res = self.resolve_struct_path(path);
                 self.results.pat_res.insert(pat.id, res);
                 for f in fields {
-                    self.walk_pat(&f.pat, is_param, reuse, out);
+                    self.walk_pat(&f.pat, source, reuse, out);
                 }
             }
             PatKind::Lit(e) => self.resolve_expr(e),
@@ -2632,14 +2659,14 @@ impl Resolver<'_> {
                     self.resolve_expr(bound);
                 }
             }
-            PatKind::Ref { pat, .. } => self.walk_pat(pat, is_param, reuse, out),
+            PatKind::Ref { pat, .. } => self.walk_pat(pat, source, reuse, out),
             PatKind::Assignee(e) => self.walk_assignee(pat, e),
             PatKind::Or(alts) => {
                 let mut first = Vec::new();
-                self.walk_pat(&alts[0], is_param, reuse, &mut first);
+                self.walk_pat(&alts[0], source, reuse, &mut first);
                 for alt in &alts[1..] {
                     let mut names = Vec::new();
-                    self.walk_pat(alt, is_param, Some(&first), &mut names);
+                    self.walk_pat(alt, source, Some(&first), &mut names);
                     for b in &first {
                         if !names.iter().any(|n| n.name == b.name) {
                             self.missing_in_alternative(&b.name, alt.span, b.span);
@@ -2671,7 +2698,7 @@ impl Resolver<'_> {
             if let Res::Def(def) = res {
                 let kind = self.results.def(def).kind;
                 if kind == DefKind::Variant
-                    || (kind == DefKind::Struct && self.unit_structs.contains(&def))
+                    || (kind == DefKind::Struct && self.ctors.get(&def) == Some(&CtorKind::Unit))
                 {
                     self.results.pat_res.insert(pat.id, res);
                     return;
@@ -2736,28 +2763,65 @@ impl Resolver<'_> {
         Res::Err
     }
 
-    /// What a lone identifier in a pattern names when it does not bind: a constant or a
-    /// unit struct of the file, unless a local of that name shadows it (rustc looks the
-    /// name up the same way).
-    fn ident_pat_path(&self, name: &str) -> Option<Res> {
+    /// The item a lone identifier in a pattern names that a binding may not shadow, unless
+    /// a local of that name shadows it (rustc looks the name up the same way): a constant,
+    /// a unit struct, or a unit or tuple variant (only in the namespace when a `use`
+    /// imported it: the prelude's `None` and `Some`), with how rustc calls it.
+    fn ident_pat_item(&self, name: &str) -> Option<(DefId, &'static str)> {
         if self.lookup_local(name).is_some() {
             return None;
         }
         let &def = self.items.get(name)?;
+        let what = match (self.results.def(def).kind, self.ctors.get(&def)) {
+            (DefKind::Const, _) => "constant",
+            (DefKind::Struct, Some(CtorKind::Unit)) => "unit struct",
+            (DefKind::Variant, Some(CtorKind::Unit)) => "unit variant",
+            (DefKind::Variant, Some(CtorKind::Tuple)) => "tuple variant",
+            _ => return None,
+        };
+        Some((def, what))
+    }
+
+    /// E0225 (rustc's E0530): a binding named like an item it may not shadow (see
+    /// [`Resolver::ident_pat_item`]): with `mut`, `ref` or `@`, which make the identifier a
+    /// binding whatever it names, or a tuple variant's name, which is no pattern alone.
+    fn binding_shadows_item(
+        &mut self,
+        name: &sabiko_ast::Ident,
+        def: DefId,
+        what: &str,
+        source: PatSource,
+    ) {
         let info = self.results.def(def);
-        match info.kind {
-            // A variant is only in the namespace when a `use` imported it (the prelude's
-            // `None`); one that is not a unit variant is then the type checker's E0326.
-            DefKind::Const | DefKind::Variant => Some(Res::Def(def)),
-            DefKind::Struct if self.unit_structs.contains(&def) => Some(Res::Def(def)),
-            _ => None,
+        let bindings = match source {
+            PatSource::Let => "let bindings",
+            PatSource::Match => "match bindings",
+            PatSource::Param => "function parameters",
+        };
+        let mut d = Diagnostic::error(
+            ErrorCode::BINDING_SHADOWS_ITEM,
+            format!("{bindings} cannot shadow {what}s"),
+        )
+        .with_label(name.span, format!("cannot be named the same as a {what}"));
+        if !info.span.is_dummy() {
+            d = d.with_label(
+                info.span,
+                format!("the {what} `{}` is defined here", name.name),
+            );
         }
+        if what == "tuple variant" {
+            d = d.with_note(format!(
+                "try specifying the pattern arguments: `{}(..)`",
+                name.name
+            ));
+        }
+        self.sink.emit(d);
     }
 
     /// Binds a whole pattern (of a `let`, a `match` arm, an `if let`): each name at most
     /// once per pattern (E0209, rustc's E0416), or-pattern alternatives aside.
-    fn bind_let_pat(&mut self, pat: &Pat) {
-        let bindings = self.bind_pat(pat, false);
+    fn bind_let_pat(&mut self, pat: &Pat, source: PatSource) {
+        let bindings = self.bind_pat(pat, source);
         let mut seen: HashMap<&str, Span> = HashMap::new();
         for b in &bindings {
             if let Some(&prev) = seen.get(b.name.as_str()) {
@@ -3512,7 +3576,7 @@ impl Resolver<'_> {
             }
         } else if let ExprKind::Let(pat, scrutinee) = &cond.kind {
             self.resolve_expr(scrutinee);
-            self.bind_let_pat(pat);
+            self.bind_let_pat(pat, PatSource::Let);
         } else {
             self.resolve_expr(cond);
         }
@@ -3531,7 +3595,7 @@ impl Resolver<'_> {
                     // The `else` block does not see the pattern's bindings.
                     self.resolve_block(els);
                 }
-                self.bind_let_pat(&l.pat);
+                self.bind_let_pat(&l.pat, PatSource::Let);
             }
             StmtKind::Expr { expr, .. } => self.resolve_expr(expr),
             StmtKind::Empty => {}
@@ -3629,14 +3693,14 @@ impl Resolver<'_> {
                 // produces one elsewhere.
                 self.resolve_expr(scrutinee);
                 self.scopes.push(Vec::new());
-                self.bind_let_pat(pat);
+                self.bind_let_pat(pat, PatSource::Let);
                 self.scopes.pop();
             }
             ExprKind::Match { scrutinee, arms } => {
                 self.resolve_expr(scrutinee);
                 for arm in arms {
                     self.scopes.push(Vec::new());
-                    self.bind_let_pat(&arm.pat);
+                    self.bind_let_pat(&arm.pat, PatSource::Match);
                     if let Some(g) = &arm.guard {
                         // A `let` in the guard binds for the rest of it and the arm (#98).
                         self.resolve_cond(g);
@@ -3654,7 +3718,7 @@ impl Resolver<'_> {
             ExprKind::DestructuringAssign(pat, rhs) => {
                 // rustc's `{ let pat = rhs; a = lhs; .. }`: the fresh locals no name reaches.
                 self.resolve_expr(rhs);
-                self.bind_let_pat(pat);
+                self.bind_let_pat(pat, PatSource::Let);
             }
             ExprKind::Underscore => unreachable!("the parser rejects `_` outside an assignee"),
             ExprKind::Struct { path, fields, .. } => {

@@ -100,6 +100,9 @@ impl ErrorCode {
     /// An attribute that only a function takes (`#[track_caller]`, `#[intrinsic]`) on
     /// something else (rustc's E0739).
     pub const MISPLACED_ATTRIBUTE: Self = Self(224);
+    /// A binding named like a constant, a unit struct or a unit variant with `mut`, `ref`
+    /// or `@`, or like a tuple variant (rustc's E0530).
+    pub const BINDING_SHADOWS_ITEM: Self = Self(225);
 
     // Type checking (E03xx)
     pub const TYPE_MISMATCH: Self = Self(300);
