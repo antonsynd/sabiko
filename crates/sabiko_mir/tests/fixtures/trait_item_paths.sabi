@@ -27,3 +27,12 @@ impl B for i64 {
 fn Paths() -> i32 {
     i64::Make() + bool::Make() + i64::C + A::M(&true)
 }
+
+// Trait constants as range-pattern bounds are evaluated at their impl's type.
+fn Ranges(x: i32) -> i32 {
+    match x {
+        i32::MIN..=bool::C => 0,
+        11..=i64::C => 1,
+        _ => 2,
+    }
+}

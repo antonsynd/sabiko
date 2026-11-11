@@ -104,3 +104,75 @@ fn Paths() -> i32 {
         return;
     }
 }
+
+fn Ranges(_1: i32) -> i32 {
+    let mut _0: i32;
+    let mut _2: i32;
+    let mut _3: bool;
+    let mut _4: bool;
+    let mut _5: bool;
+    let mut _6: bool;
+
+    bb0: {
+        PlaceMention(_1);
+        StorageLive(_2);
+        _2 = copy _1;
+        StorageLive(_3);
+        _3 = Ge(copy _2, const -2147483648_i32);
+        switchInt(copy _3) -> [0: bb2, otherwise: bb3];
+    }
+
+    bb1: {
+        _0 = const 0_i32;
+        goto -> bb9;
+    }
+
+    bb2: {
+        StorageLive(_5);
+        _5 = Ge(copy _2, const 11_i32);
+        switchInt(copy _5) -> [0: bb8, otherwise: bb6];
+    }
+
+    bb3: {
+        StorageLive(_4);
+        _4 = Le(copy _2, const 10_i32);
+        switchInt(copy _4) -> [0: bb2, otherwise: bb4];
+    }
+
+    bb4: {
+        falseEdge -> [real: bb1, imaginary: bb2];
+    }
+
+    bb5: {
+        _0 = const 1_i32;
+        goto -> bb9;
+    }
+
+    bb6: {
+        StorageLive(_6);
+        _6 = Le(copy _2, const 20_i32);
+        switchInt(copy _6) -> [0: bb8, otherwise: bb7];
+    }
+
+    bb7: {
+        falseEdge -> [real: bb5, imaginary: bb8];
+    }
+
+    bb8: {
+        _0 = const 2_i32;
+        goto -> bb9;
+    }
+
+    bb9: {
+        StorageDead(_6);
+        StorageDead(_5);
+        StorageDead(_4);
+        StorageDead(_3);
+        StorageDead(_2);
+        goto -> bb10;
+    }
+
+    bb10: {
+        return;
+    }
+}
