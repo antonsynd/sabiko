@@ -1547,8 +1547,30 @@ filed: least-upper-bound coercion goes one way only, so `match c { true => r, fa
 accepts them (#144); a variant constructor's `&mut` argument is not two-phase, so `let e:
 E<&mut P> = E::V(m, m.X);` is E0411 where rustc accepts it (#145); `_` in a generic
 argument of a type written in a body (`let x: Opt<_> = Wrap(300);`) lowers to `Error`
-and fails MIR validation, the same root as #137 (reproducer added there); `impl Tr for
-&mut u8` is still E0107.
+and fails MIR validation, the same root as #137 (reproducer added there, now fixed, see
+below); `impl Tr for &mut u8` is still E0107.
+
+Update (2026-11-11), four correctness fixes from reviews (#140, #137, #139, #138). A
+struct or variant field of a type with no IL value (`&()`, `&mut ()`, besides `()` and
+uninhabited types) is not stored, as for `()`: `Some(&u)` for `u: ()` underflowed the IL
+stack (#140; `run/enums/unit_and_unit_ref_payloads`, with `Option<()>`, `Result<(), E>`,
+`Result<T, ()>`, generic instances at `T = ()`/`&()` and arrays of them). The generic
+arguments of a struct or enum written in a body are lowered by the body's lowering, so `_`
+is an inference variable and an array length is evaluated (`let o: Opt<[i32; 2]>`,
+`let x: Opt<_>`); in signatures the lengths of arrays inside generic arguments are now
+evaluated (parameters, returns, fields, payloads, `impl` headers); a slice or `str` as a
+generic argument is E0208 (rustc's E0277) (#137; `run/generics/array_*`). Decision 94:
+when type checking reports no error, `typeck` checks that no signature or body type
+contains `Error` and reports an item that does as E0900, so a silent error type can no
+longer reach MIR building. A binding named like a constant, unit struct or unit variant
+with `mut`, `ref` or `@`, or like a tuple variant (`let Some = 1;`), is E0225 (rustc's
+E0530, "let bindings cannot shadow unit variants") in the resolver (#139;
+`resolve/binding_shadows_item`). A match's discriminant reads carry the scrutinee's span,
+and its comparisons in a `match` rustc's `match_start_span`, so a use of an
+uninitialised, moved or mutably borrowed scrutinee is reported where rustc reports it
+(#138; `borrowck/scrutinee_use_spans`). Label texts still differ in places: rustc names
+`a.0` for an uninitialised tuple's tested element and the borrowed base (`w`) for a
+borrowed field scrutinee, where Sabiko names `a` and `w.O`.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
