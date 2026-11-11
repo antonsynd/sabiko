@@ -1,0 +1,13 @@
+// A variant built as an argument of an `Opt<&mut u8>` parameter: its payload type is
+// known from the parameter, so the reference is reborrowed.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn G(o: Opt<&mut u8>) {}
+
+fn F(r: &mut u8) {
+    G(Opt::Yes(r));
+    *r += 1;
+}

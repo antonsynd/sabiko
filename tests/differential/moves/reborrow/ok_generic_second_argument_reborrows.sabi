@@ -1,0 +1,8 @@
+// The first argument decides `T`, so the second is coerced to a known `&mut u8` and
+// reborrowed.
+fn Two<T>(a: T, b: T) {}
+
+fn F(r: &mut u8, s: &mut u8) {
+    Two(r, s);
+    *s += 1;
+}

@@ -1,0 +1,12 @@
+// A method's type parameter, like a function's, moves a `&mut` argument.
+struct S {}
+
+impl S {
+    fn G<T>(&self, x: T) {}
+}
+
+fn F(r: &mut u8) {
+    let s = S {};
+    s.G(r);
+    *r += 1;
+}

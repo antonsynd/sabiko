@@ -1,0 +1,7 @@
+// `break r` out of an annotated `loop` is coerced to `&mut u8`: reborrowed.
+fn F(r: &mut u8) {
+    let x: &mut u8 = loop {
+        break r;
+    };
+    *r += 1;
+}

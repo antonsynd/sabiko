@@ -1,0 +1,7 @@
+// A parameter `&mut T` is a reference whatever `T` is: the argument is reborrowed.
+fn Touch<T>(x: &mut T) {}
+
+fn F(r: &mut u8) {
+    Touch(r);
+    *r += 1;
+}

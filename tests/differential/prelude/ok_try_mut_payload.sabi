@@ -1,0 +1,12 @@
+// A `&mut` payload of `?` is used where a `&mut` is expected, then its referent read.
+fn Bump(o: Option<&mut i32>) -> Option<i32> {
+    let r: &mut i32 = o?;
+    *r += 1;
+    Some(*r)
+}
+
+fn Main() {
+    let mut x = 1;
+    PrintLine(Bump(Some(&mut x)).unwrap_or(0));
+    PrintLine(x);
+}

@@ -1,0 +1,10 @@
+// With the type argument written, the parameter is known to be a `&mut u8` at the call:
+// the argument is reborrowed.
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(r: &mut u8) {
+    let t = Id::<&mut u8>(r);
+    *r += 1;
+}

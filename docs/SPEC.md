@@ -940,8 +940,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - Tuples. `(a, b)` has type `(A, B)`. Against an expected tuple type of the same arity
   (an annotation, a parameter, a return type, an assignment target), each element is
   checked and coerced against its expected element type, so the elements are coercion
-  sites (`let p: (&i32, u8) = (&mut x, 1);` coerces, and a `&mut` place element is
-  reborrowed, not moved); without one an element keeps its own type, and an element of
+  sites (`let p: (&i32, u8) = (&mut x, 1);` coerces, and a `&mut` place element whose
+  expected type is a reference is reborrowed, not moved; under `(_, i32)` it is moved);
+  without one an element keeps its own type, and an element of
   type `!` gets a fresh type, as a diverging `let` initialiser does (see `!` above).
   An arity mismatch is E0300 with a note "expected a tuple with N elements, found one with
   M elements". `t.i` is element `i` of a tuple, auto-dereferencing through references;
@@ -1215,10 +1216,29 @@ Moves (E0406, E0407):
   depth (`o.Inner`, `o.Inner.X`, also out of a by-value `self`): its `drop` will see the
   whole value (E0418, rustc's E0509). Moving the whole value, or a field of a struct
   without `Drop` that holds one, is fine.
-- A `&mut T` is implicitly reborrowed (`&mut *r`) where the expected type is `&mut`:
-  call arguments, struct literal fields, assignment, annotated `let`, `return`. Where the
-  expected type is `&T` the reborrow is shared (`&*r`), so `F(&*r, r)` with two `&T`
-  parameters is accepted. A plain `let s = r;` moves it (as in Rust).
+- A `&mut T` place is implicitly reborrowed (`&mut *r`) at a coercion site whose target
+  type is already known to be a reference when the place is coerced, and moved everywhere
+  else, as rustc decides (#132, decision 92). Where the target is `&T` the reborrow is
+  shared (`&*r`), so `F(&*r, r)` with two `&T` parameters is accepted. The coercion sites
+  are call and method arguments, variant constructor arguments, struct literal fields,
+  tuple and array elements under an expected type, an annotated `let`, an assignment, a
+  `return`, a block's tail, `if` branches, `match` arms and `break` values. The target is
+  the parameter's, field's or annotation's type with the generic arguments known so far:
+  `F(r)` for `fn F(x: &mut u8)` or `fn F<T>(x: &mut T)` reborrows, `Id(r)` for `fn
+  Id<T>(x: T)` moves (`T` is undecided), `Id::<&mut u8>(r)` and `let t: &mut u8 =
+  Id(r);` reborrow (the turbofish, or the expected result, decides `T` first), and in
+  `Two(r, s)` for `fn Two<T>(a: T, b: T)` `r` is moved and `s` reborrowed. The same goes
+  for `Opt::Yes(r)` and `W { F: r }` of generic types (moved; reborrowed when annotated,
+  `let o: Opt<&mut u8> = Opt::Yes(r);`). `let s = r;`, `let s: _ = r;`, `let s; s =
+  r;`, `(r, 1)` and `[r]` without an expected type move it; a later array element or
+  `match` arm is coerced to the type the first one decided and is reborrowed, unless the
+  arm is a block or an `if`, whose tail has no expected type and moves it (`false => { s
+  }`, as in rustc). Parentheses change nothing: `(r)` is reborrowed or moved as `r` is.
+  A `&mut` arm or element followed by a `&` one is still E0300 (#144). The
+  branches of an `if` or `match` whose expected type is still undecided are checked
+  without it, so in `Id(if c { r } else { s })` the `else` block's tail `s` is moved.
+  Using a moved `&mut` is E0406; when it was moved into a call's argument the error
+  suggests `&mut *r`, as rustc does.
 - A method call evaluates its receiver before its arguments: a by-value receiver is moved
   (or copied) first, so `p.Merge(p.X)` for a non-`Copy` `p` is E0406 at `p.X`, while
   `P::Merge(p, x)` after `let x = p.X` is fine; a receiver reached by a `&mut` (`m.Inc()`)

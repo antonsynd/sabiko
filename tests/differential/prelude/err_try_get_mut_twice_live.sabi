@@ -1,0 +1,12 @@
+// Two live `get_mut(..)?` loans of one slice borrow it mutably twice.
+fn AddTwo(v: &mut [i32]) -> Option<i32> {
+    let a = v.get_mut(0)?;
+    let b = v.get_mut(1)?;
+    *a += *b;
+    Some(v[0])
+}
+
+fn Main() {
+    let mut a = [1, 2];
+    PrintLine(AddTwo(&mut a).unwrap_or(0));
+}

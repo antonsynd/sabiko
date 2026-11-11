@@ -1,0 +1,5 @@
+// An annotated array's elements are coerced to a known `&mut u8`: reborrowed.
+fn F(r: &mut u8) {
+    let a: [&mut u8; 1] = [r];
+    *r += 1;
+}

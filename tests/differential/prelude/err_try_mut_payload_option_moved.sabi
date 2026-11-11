@@ -1,0 +1,12 @@
+// `o?` moves an `Option<&mut T>`, which is not `Copy`: a second `o?` uses a moved value.
+fn Bump(o: Option<&mut i32>) -> Option<i32> {
+    let r: &mut i32 = o?;
+    let s: &mut i32 = o?;
+    *r += *s;
+    Some(*r)
+}
+
+fn Main() {
+    let mut x = 1;
+    PrintLine(Bump(Some(&mut x)).unwrap_or(0));
+}

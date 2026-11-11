@@ -1,0 +1,8 @@
+// A later `match` arm is coerced to the first arm's type: reborrowed.
+fn F(c: bool, r: &mut u8, s: &mut u8) {
+    let x = match c {
+        true => r,
+        false => s,
+    };
+    *s += 1;
+}

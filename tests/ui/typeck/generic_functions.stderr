@@ -24,11 +24,11 @@
     │ Note: specify it with a turbofish: `Make::<..>`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/generic_functions.sabi:23:19 ]
+    ╭─[ tests/ui/typeck/generic_functions.sabi:23:22 ]
     │
  23 │     let c: bool = Id(1); //~ ERROR E0300 mismatched types
-    │                   ──┬──  
-    │                     ╰──── expected `bool`, found `{integer}`
+    │                      ┬  
+    │                      ╰── expected `bool`, found `{integer}`
 ────╯
 [E0314] Error: literal out of range for `u8`
     ╭─[ tests/ui/typeck/generic_functions.sabi:24:22 ]

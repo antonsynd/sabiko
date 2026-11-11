@@ -1,0 +1,6 @@
+// Assigned to a local whose type is already known, `r` is reborrowed.
+fn F(r: &mut u8, s: &mut u8) {
+    let mut x = s;
+    x = r;
+    *r += 1;
+}

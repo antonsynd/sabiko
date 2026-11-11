@@ -1,0 +1,10 @@
+// A `&mut` passed where a type parameter `T` is expected is moved, not reborrowed:
+// the parameter is not known to be a reference when the argument is coerced (#132).
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn F(r: &mut u8) {
+    let t = Id(r);
+    *r += 1;
+}

@@ -1,0 +1,25 @@
+// The expected type of a call's result decides its parameters' types before the
+// arguments are checked (#132). Several arguments failing against it are one error with a
+// label per argument, as rustc's E0308 "arguments to this function are incorrect"; one
+// failing argument is an ordinary mismatch at the argument.
+fn Pick<T>(a: T, b: T) -> T {
+    a
+}
+
+fn Literals() {
+    let c: bool = Pick(1, 2); //~ ERROR E0300 arguments to this function are incorrect
+}
+
+fn Locals(a: u8) {
+    let c: u16 = Pick(a, a); //~ ERROR E0300 arguments to this function are incorrect
+}
+
+fn Parenthesised() {
+    let c: bool = Pick((1), (2)); //~ ERROR E0300 arguments to this function are incorrect
+}
+
+fn One() {
+    let c: bool = Pick(true, 1); //~ ERROR E0300 mismatched types
+}
+
+fn Main() {}

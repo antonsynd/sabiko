@@ -1,0 +1,10 @@
+// A generic variant's payload is a `T`: the `&mut` is moved into the variant.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn F(r: &mut u8) {
+    let t = Opt::Yes(r);
+    *r += 1;
+}

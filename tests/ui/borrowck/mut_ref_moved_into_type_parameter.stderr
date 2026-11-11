@@ -1,0 +1,40 @@
+[E0406] Error: use of moved value: `r`
+    ╭─[ tests/ui/borrowck/mut_ref_moved_into_type_parameter.sabi:22:5 ]
+    │
+ 21 │     let t = Id(r);
+    │                ┬  
+    │                ╰── value moved here
+ 22 │     *r += 1; //~ ERROR E0406 use of moved value: `r`
+    │     ───┬───  
+    │        ╰───── value used here after move
+    │ 
+    │ Note 1: move occurs because `r` has type `&mut u8`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider creating a fresh reborrow of `r` here: `&mut *r`
+────╯
+[E0406] Error: use of moved value: `r`
+    ╭─[ tests/ui/borrowck/mut_ref_moved_into_type_parameter.sabi:28:5 ]
+    │
+ 27 │     s.Keep(r);
+    │            ┬  
+    │            ╰── value moved here
+ 28 │     *r += 1; //~ ERROR E0406 use of moved value: `r`
+    │     ───┬───  
+    │        ╰───── value used here after move
+    │ 
+    │ Note 1: move occurs because `r` has type `&mut u8`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider creating a fresh reborrow of `r` here: `&mut *r`
+────╯
+[E0406] Error: use of moved value: `r`
+    ╭─[ tests/ui/borrowck/mut_ref_moved_into_type_parameter.sabi:33:5 ]
+    │
+ 32 │     let o = Opt::Yes(r);
+    │                      ┬  
+    │                      ╰── value moved here
+ 33 │     *r += 1; //~ ERROR E0406 use of moved value: `r`
+    │     ───┬───  
+    │        ╰───── value used here after move
+    │ 
+    │ Note: move occurs because `r` has type `&mut u8`, which does not implement the `Copy` trait
+────╯

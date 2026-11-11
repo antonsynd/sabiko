@@ -1,0 +1,6 @@
+// `let x; x = r;`: the local's type is undecided at the assignment, so `r` is moved.
+fn F(r: &mut u8) {
+    let x;
+    x = r;
+    *r += 1;
+}

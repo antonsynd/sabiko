@@ -7,6 +7,7 @@
 //! missing `rustc` an error), so the split stays exact.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -151,9 +152,10 @@ fn program() -> (String, BTreeMap<usize, (&'static str, &'static str)>) {
                 ""
             };
             line += 1;
-            src.push_str(&format!(
-                "fn F{line}<T>({anchor}r: Result<i32, {from}>) -> Result<i32, {to}> {{ Ok(r?) }}\n"
-            ));
+            let _ = writeln!(
+                src,
+                "fn F{line}<T>({anchor}r: Result<i32, {from}>) -> Result<i32, {to}> {{ Ok(r?) }}"
+            );
             lines.insert(line, (from, to));
         }
     }

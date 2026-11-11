@@ -1,0 +1,6 @@
+// The first element decides the element type; a later one is coerced to it and
+// reborrowed.
+fn F(r: &mut u8, s: &mut u8) {
+    let a = [r, s];
+    *s += 1;
+}
