@@ -78,8 +78,8 @@ jobs:
       SABIKO_REQUIRE_DOTNET: 1
       # Exact version of the runtime, ilasm, ILVerify and reference-assembly packages.
       SABIKO_DOTNET_VERSION: 11.0.0
-      # sabikoc emits net10.0 programs; run them on the newest runtime (11), even where the
-      # runner image also has a .NET 10 runtime (tools/env.sh's `Major` would pick that).
+      # sabikoc emits net10.0 programs; run them on the newest runtime (11), not on the
+      # runner image's .NET 10, as tools/env.sh does (the tests do not source it).
       DOTNET_ROLL_FORWARD: LatestMajor
     steps:
       - uses: actions/checkout@v4

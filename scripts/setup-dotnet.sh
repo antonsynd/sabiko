@@ -16,7 +16,7 @@
 # is tried, and if that host is unreachable (some sandboxes block dot.net) the
 # runtime is assembled from NuGet packages instead (--from-nuget forces this).
 # Versions: SABIKO_DOTNET_VERSION (default 10.0.13), SABIKO_CSC_VERSION (default 5.9.0).
-# With an 11.x version, tools/env.sh also sets DOTNET_ROLL_FORWARD=Major so programs
+# With an 11.x version, tools/env.sh also sets DOTNET_ROLL_FORWARD=LatestMajor so programs
 # sabikoc emits (which still target net10.0) run on the .NET 11 runtime.
 #
 # Afterwards: `source tools/env.sh`
@@ -161,8 +161,10 @@ export SABIKO_RUNTIME_DIR="$TOOLS/runtime"
 export PATH="$TOOLS/bin:$DOTNET_ROOT_DIR:\$PATH"
 SH
 if (( DOTNET_MAJOR > 10 )); then
-  # sabikoc emits net10.0 assemblies; let them run on the newer runtime.
-  echo "export DOTNET_ROLL_FORWARD=Major" >> "$TOOLS/env.sh"
+  # sabikoc emits net10.0 assemblies; run them on the newest runtime. `Major` would keep a
+  # .NET 10 runtime where one is installed too, and Sabiko.Runtime.dll, built against the
+  # net$DOTNET_MAJOR.0 reference assemblies, does not load there.
+  echo "export DOTNET_ROLL_FORWARD=LatestMajor" >> "$TOOLS/env.sh"
 fi
 
 # 6. Sabiko runtime library ---------------------------------------------------

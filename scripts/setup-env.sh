@@ -15,7 +15,7 @@
 #   --dotnet N           .NET major version for ./tools (default 11; 10 is what the main CI
 #                        matrix and setup-dotnet.ps1 use, and CI also tests 11 on Linux). sabikoc
 #                        emits net10.0 assemblies; on 11 they run on the .NET 11 runtime
-#                        (tools/env.sh sets DOTNET_ROLL_FORWARD=Major). The suite passes on both;
+#                        (tools/env.sh sets DOTNET_ROLL_FORWARD=LatestMajor). The suite passes on both;
 #                        ILVerify 11 is the stricter verifier (decisions 87 and 88).
 #   --dotnet-version V   exact patch version instead of the newest one on NuGet.
 #   --no-cargo-deny      skip `cargo install cargo-deny` (a few minutes of compiling).
