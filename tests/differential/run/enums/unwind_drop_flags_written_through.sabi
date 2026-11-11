@@ -1,0 +1,63 @@
+// Issue #133 on the unwinding path: the cleanup of an enum that holds a value on some
+// paths only, or was partly moved out of, reads the variant it holds when the panic
+// passes, after writes through references changed it.
+struct Frame {
+    Flag: isize,
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        Print("drop Frame ");
+        PrintLine(self.Flag);
+    }
+}
+
+enum Status {
+    Empty,
+    Busy { Inner: Frame },
+    Pair(Frame, Frame),
+}
+
+fn Cond(n: isize) -> bool {
+    n > 0
+}
+
+fn Empty(s: &mut Status) {
+    *s = Status::Empty;
+}
+
+fn Fill(s: &mut Status, flag: isize) {
+    *s = Status::Pair(Frame { Flag: flag }, Frame { Flag: flag + 1 });
+}
+
+fn Check(n: isize) {
+    if n > 5 {
+        Panic("too big");
+    }
+}
+
+fn Main() {
+    let mut x;
+    if Cond(1) {
+        x = Status::Busy { Inner: Frame { Flag: 1 } };
+        Empty(&mut x);
+    }
+    let mut y;
+    if Cond(1) {
+        y = Status::Empty;
+        Fill(&mut y, 2);
+    }
+    let mut z = Status::Busy { Inner: Frame { Flag: 5 } };
+    Fill(&mut z, 6);
+    if Cond(1) {
+        match z {
+            Status::Pair(a, _) => {
+                Print("took ");
+                PrintLine(a.Flag);
+                Check(a.Flag);
+            }
+            _ => PrintLine("other"),
+        }
+    }
+    PrintLine("not reached");
+}

@@ -150,7 +150,9 @@ fn mentions(body: &Body) -> Vec<Mentions> {
     for cleanup in &body.cleanups {
         m[cleanup.local.index()].other += 1;
         for drop in &cleanup.drops {
-            m[drop.place.local.index()].other += 1;
+            for place in drop.places() {
+                m[place.local.index()].other += 1;
+            }
         }
     }
     // The index of an element (`a[_t]`) is read wherever the place is used: never forwarded.

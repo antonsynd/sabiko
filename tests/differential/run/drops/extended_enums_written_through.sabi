@@ -1,0 +1,173 @@
+// Issue #133: an enum in an extended temporary of one branch holds a value only when that
+// branch ran, so its drop is flagged; a write through the `&mut` changes its variant, and
+// the drop must read the variant it holds then, not the one it was written with. Every
+// extending shape: `if`/`else`, `match` arms, `if let`, block tails, tuples and arrays of
+// borrows, nested enums, `&` as well as `&mut`, and enums with and without drop glue.
+struct Frame {
+    Flag: isize,
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        Print("drop Frame ");
+        PrintLine(self.Flag);
+    }
+}
+
+enum Status {
+    Empty,
+    Busy { Inner: Frame },
+}
+
+enum Outer {
+    Nothing,
+    Wrapped(Status),
+}
+
+enum Choice {
+    Yes(isize),
+    No,
+}
+
+enum Plain {
+    Zero,
+    Number(isize),
+}
+
+fn Pick(n: isize) -> bool {
+    n > 0
+}
+
+fn Show(s: &Status) {
+    match s {
+        Status::Empty => PrintLine("empty"),
+        Status::Busy { Inner } => {
+            Print("busy ");
+            PrintLine(Inner.Flag);
+        }
+    }
+}
+
+// The reproducer of #133: the branch not taken never wrote its temporary, and the one
+// taken was emptied through the reference.
+fn IfElseEmptied() {
+    PrintLine("-- if/else, emptied");
+    let total = if false { &mut { Status::Busy { Inner: Frame { Flag: 3 } } } } else { &mut { Status::Busy { Inner: Frame { Flag: -224 } } } };
+    *total = Status::Empty;
+    PrintLine("end");
+}
+
+// The other way round: an empty temporary filled through the reference must be dropped.
+fn IfElseFilled(n: isize) {
+    PrintLine("-- if/else, filled");
+    let total = if Pick(n) { &mut Status::Empty } else { &mut Status::Busy { Inner: Frame { Flag: 5 } } };
+    *total = Status::Busy { Inner: Frame { Flag: 6 } };
+    Show(total);
+    PrintLine("end");
+}
+
+fn MatchArms(n: isize) {
+    PrintLine("-- match arms");
+    let r = match n {
+        0 => &mut Status::Busy { Inner: Frame { Flag: 10 } },
+        1 => &mut Status::Empty,
+        _ => &mut { Status::Busy { Inner: Frame { Flag: 12 } } },
+    };
+    match n {
+        0 => *r = Status::Empty,
+        _ => *r = Status::Busy { Inner: Frame { Flag: 20 + n } },
+    }
+    Show(r);
+    PrintLine("end");
+}
+
+fn IfLet(o: Choice) {
+    PrintLine("-- if let");
+    let r = if let Choice::Yes(k) = o { &mut Status::Busy { Inner: Frame { Flag: k } } } else { &mut Status::Empty };
+    if let Choice::Yes(_) = o {
+        *r = Status::Empty;
+    } else {
+        *r = Status::Busy { Inner: Frame { Flag: 31 } };
+    }
+    PrintLine("end");
+}
+
+fn NestedBlocks(n: isize) {
+    PrintLine("-- nested blocks");
+    let r = { { if Pick(n) { &mut Status::Busy { Inner: Frame { Flag: 40 } } } else { &mut { { Status::Empty } } } } };
+    *r = Status::Busy { Inner: Frame { Flag: 41 } };
+    PrintLine("end");
+}
+
+fn TuplesAndArrays(n: isize) {
+    PrintLine("-- tuples and arrays");
+    let (a, b) = if Pick(n) {
+        (&mut Status::Busy { Inner: Frame { Flag: 50 } }, &mut Status::Empty)
+    } else {
+        (&mut Status::Empty, &mut Status::Busy { Inner: Frame { Flag: 51 } })
+    };
+    *a = Status::Empty;
+    *b = Status::Busy { Inner: Frame { Flag: 52 } };
+    let arr = if Pick(n) {
+        [&mut Status::Busy { Inner: Frame { Flag: 60 } }, &mut Status::Empty]
+    } else {
+        [&mut Status::Empty, &mut Status::Empty]
+    };
+    *arr[0] = Status::Empty;
+    *arr[1] = Status::Busy { Inner: Frame { Flag: 61 } };
+    PrintLine("end");
+}
+
+fn Nested(n: isize) {
+    PrintLine("-- nested enums");
+    let r = if Pick(n) {
+        &mut Outer::Wrapped(Status::Busy { Inner: Frame { Flag: 70 } })
+    } else {
+        &mut Outer::Nothing
+    };
+    match r {
+        Outer::Wrapped(s) => *s = Status::Empty,
+        Outer::Nothing => {}
+    }
+    let q = if Pick(n) { &mut Outer::Nothing } else { &mut Outer::Wrapped(Status::Empty) };
+    *q = Outer::Wrapped(Status::Busy { Inner: Frame { Flag: 71 } });
+    PrintLine("end");
+}
+
+fn Shared(n: isize) {
+    PrintLine("-- shared borrows");
+    let r = if Pick(n) { &Status::Busy { Inner: Frame { Flag: 80 } } } else { &Status::Empty };
+    Show(r);
+    PrintLine("end");
+}
+
+fn NoDropGlue(n: isize) {
+    PrintLine("-- no drop glue");
+    let r = if Pick(n) { &mut Plain::Number(90) } else { &mut Plain::Zero };
+    *r = Plain::Zero;
+    match r {
+        Plain::Zero => PrintLine("zero"),
+        Plain::Number(k) => PrintLine(*k),
+    }
+    PrintLine("end");
+}
+
+fn Main() {
+    IfElseEmptied();
+    IfElseFilled(1);
+    IfElseFilled(0);
+    MatchArms(0);
+    MatchArms(1);
+    MatchArms(2);
+    IfLet(Choice::Yes(30));
+    IfLet(Choice::No);
+    NestedBlocks(1);
+    NestedBlocks(0);
+    TuplesAndArrays(1);
+    TuplesAndArrays(0);
+    Nested(1);
+    Nested(0);
+    Shared(1);
+    Shared(0);
+    NoDropGlue(1);
+}

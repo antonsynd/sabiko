@@ -229,12 +229,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
       [3] bool '_4'
     )
   BB0:
-    ldarga.s 0
-    ldfld int32 'Slot'::'Tag'
-    conv.i
     ldc.i4.1
-    conv.i
-    ceq
     stloc.3
     ldarga.s 0
     ldfld int32 'Slot'::'Tag'
@@ -254,7 +249,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
   BB4:
     ldc.i4.0
     stloc.0
-    br BB8
+    br BB9
   BB3:
     ldc.i4.0
     stloc.3
@@ -266,12 +261,21 @@ input_file: crates/sabiko_codegen/tests/fixtures/enums.sabi
     ldloca.s 1
     ldfld int32 'D'::'Id'
     stloc.0
-  BB9:
+  BB10:
     ldloca.s 1
     call void 'D'::'Drop.drop'(valuetype 'D'&)
-  BB8:
+  BB9:
     ldloc.3
     brfalse BB6
+  BB8:
+    ldarga.s 0
+    ldfld int32 'Slot'::'Tag'
+    conv.i
+    ldc.i4.1
+    conv.i
+    beq BB7
+    ldloc.0
+    ret
   BB7:
     ldarga.s 0
     ldflda valuetype 'Slot'/'FullPayload' 'Slot'::'Full'

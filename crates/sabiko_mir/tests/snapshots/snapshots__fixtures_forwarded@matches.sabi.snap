@@ -225,8 +225,7 @@ fn Take(_1: Slot) -> i32 {
     cleanup c1 in c0: _2 => nothing;
 
     bb0 (cleanup c0): {
-        _5 = discriminant(_1);
-        _4 = Eq(copy _5, const 1_isize);
+        _4 = const true;
         PlaceMention(_1);
         StorageLive(_3);
         _3 = discriminant(_1);
@@ -235,7 +234,7 @@ fn Take(_1: Slot) -> i32 {
 
     bb1 (cleanup c1): {
         _0 = copy _2.Id;
-        goto -> bb11;
+        goto -> bb12;
     }
 
     bb2 (cleanup c0): {
@@ -260,7 +259,7 @@ fn Take(_1: Slot) -> i32 {
 
     bb6: {
         StorageDead(_3);
-        goto -> bb10;
+        goto -> bb11;
     }
 
     bb7 (cleanup c0): {
@@ -277,10 +276,15 @@ fn Take(_1: Slot) -> i32 {
     }
 
     bb10: {
-        switchInt(copy _4) -> [0: bb8, otherwise: bb9];
+        _5 = discriminant(_1);
+        switchInt(copy _5) -> [1: bb9, otherwise: bb8];
     }
 
-    bb11 (cleanup c0): {
+    bb11: {
+        switchInt(copy _4) -> [0: bb8, otherwise: bb10];
+    }
+
+    bb12 (cleanup c0): {
         drop(_2) -> bb7;
     }
 }

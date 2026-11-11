@@ -514,6 +514,7 @@ impl<'a> Builder<'a> {
             drops: vec![CleanupDrop {
                 place: Place::local(local),
                 flag: None,
+                variants: Vec::new(),
             }],
         });
         self.chain.push((local, scope));
