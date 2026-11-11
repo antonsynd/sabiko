@@ -210,6 +210,9 @@ struct NeverOperand {
     out: Option<Ty>,
 }
 
+/// A failed coercion: where, the expected type and the type found.
+type Mismatch = (Span, Ty, Ty);
+
 #[allow(clippy::struct_excessive_bools)] // independent flags of the expression being checked
 pub(crate) struct FnCtxt<'a> {
     resolve: &'a ResolveResults,
@@ -226,6 +229,11 @@ pub(crate) struct FnCtxt<'a> {
     pat_derefs: HashMap<NodeId, usize>,
     ref_bindings: HashMap<NodeId, Mutability>,
     reborrows: HashMap<NodeId, Mutability>,
+    /// While a call argument is checked against an [`Self::expected_inputs`] hint: its
+    /// node (inside any parentheses) and, once checked, its own failed coercion to the
+    /// hint (where, expected, found), which [`Self::check_args`] reports instead of
+    /// [`Self::coerce_to_expected`].
+    deferred_mismatch: Option<(NodeId, Option<Mismatch>)>,
     method_calls: HashMap<NodeId, MethodCallee>,
     /// See [`BodyTypes::generic_args`]; with the function and the span to report an
     /// argument that inference leaves unknown at.
@@ -306,6 +314,7 @@ impl<'a> FnCtxt<'a> {
             pat_derefs: HashMap::new(),
             ref_bindings: HashMap::new(),
             reborrows: HashMap::new(),
+            deferred_mismatch: None,
             method_calls: HashMap::new(),
             generic_args: HashMap::new(),
             pat_types: HashMap::new(),
@@ -482,6 +491,14 @@ impl<'a> FnCtxt<'a> {
     /// Makes `found` acceptable where `expected` is required, reporting a mismatch at
     /// `span` if it is not.
     fn coerce(&mut self, span: Span, found: &Ty, expected: &Ty) {
+        if let Some((span, expected, found)) = self.coerce_or_mismatch(span, found, expected) {
+            self.mismatch(span, &expected, &found);
+        }
+    }
+
+    /// [`Self::coerce`], returning a plain mismatch (where, expected, found) instead of
+    /// reporting it. A cyclic type is reported here.
+    fn coerce_or_mismatch(&mut self, span: Span, found: &Ty, expected: &Ty) -> Option<Mismatch> {
         if self.try_coerce(found, expected).is_err() {
             if self.infer.is_cyclic(found, expected) {
                 let (e, f) = (self.ty_str(expected), self.ty_str(found));
@@ -494,9 +511,10 @@ impl<'a> FnCtxt<'a> {
                 self.infer.bind_error(found);
                 self.infer.bind_error(expected);
             } else {
-                self.mismatch(span, expected, found);
+                return Some((span, expected.clone(), found.clone()));
             }
         }
+        None
     }
 
     fn try_coerce(&mut self, found: &Ty, expected: &Ty) -> Result<(), ()> {
@@ -740,7 +758,7 @@ impl<'a> FnCtxt<'a> {
 
     /// Whether `ty` still has a variable nothing has decided.
     fn has_infer_vars(&mut self, ty: &Ty) -> bool {
-        self.infer.resolve(ty).has_infer()
+        self.infer.has_undecided(ty)
     }
 
     /// rustc's hint for a struct literal: its type `adt` (with fresh variables for the
@@ -772,65 +790,57 @@ impl<'a> FnCtxt<'a> {
         hints: Option<&[Ty]>,
         callee_span: Span,
     ) {
-        let start = self.sink.diagnostics().len();
         let mut failed = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let before = self.sink.diagnostics().len();
             let hint = hints.and_then(|h| h.get(i));
-            self.check_arg(a, formals.get(i), hint);
-            if hint.is_none() {
-                continue;
-            }
-            // The argument's own mismatch against its hint, not one inside it.
-            let own = self.sink.diagnostics()[before..].iter().position(|d| {
-                d.code == ErrorCode::TYPE_MISMATCH
-                    && d.message == "mismatched types"
-                    && d.notes.is_empty()
-                    && d.labels.len() == 1
-                    && d.primary_span() == Some(a.span)
-            });
-            if let Some(k) = own {
-                failed.push(before + k);
+            if let Some(m) = self.check_arg(a, formals.get(i), hint) {
+                failed.push(m);
             }
         }
         if failed.len() < 2 {
+            for (span, expected, found) in failed {
+                self.mismatch(span, &expected, &found);
+            }
             return;
         }
-        let emitted = self.sink.take_from(start);
         let mut merged = Diagnostic::error(
             ErrorCode::TYPE_MISMATCH,
             "arguments to this function are incorrect",
         )
         .with_label(callee_span, "arguments to this function are incorrect");
-        for &k in &failed {
-            let label = &emitted[k - start].labels[0];
-            merged = merged.with_label(label.span, label.message.clone());
+        for (span, expected, found) in failed {
+            let (e, f) = (self.ty_str(&expected), self.ty_str(&found));
+            merged = merged.with_label(span, format!("expected `{e}`, found `{f}`"));
         }
-        let mut merged = Some(merged);
-        for (k, d) in emitted.into_iter().enumerate() {
-            if failed.contains(&(start + k)) {
-                if let Some(m) = merged.take() {
-                    self.sink.emit(m);
-                }
-            } else {
-                self.sink.emit(d);
-            }
-        }
+        self.error(merged);
     }
 
     /// Checks the argument `arg` of a call against its parameter type `formal`, or the
     /// [`Self::expected_inputs`] hint for it, which the parameter is then unified with
     /// (rustc's `check_argument_types`).
-    fn check_arg(&mut self, arg: &Expr, formal: Option<&Ty>, hint: Option<&Ty>) {
+    /// Its own failed coercion to the hint is returned, not reported (see
+    /// `deferred_mismatch`); a mismatch inside it is reported as usual.
+    fn check_arg(
+        &mut self,
+        arg: &Expr,
+        formal: Option<&Ty>,
+        hint: Option<&Ty>,
+    ) -> Option<Mismatch> {
         match (formal, hint) {
             (Some(formal), Some(hint)) => {
+                let outer = self.deferred_mismatch.replace((strip_parens(arg).id, None));
                 self.check_expr(arg, Some(hint));
-                if self.infer.unify(formal, hint).is_err() {
+                let own =
+                    std::mem::replace(&mut self.deferred_mismatch, outer).and_then(|(_, m)| m);
+                let unified = self.infer.unify(formal, hint).is_ok();
+                if own.is_none() && !unified {
                     self.mismatch(arg.span, formal, hint);
                 }
+                own
             }
             (formal, _) => {
                 self.check_expr(arg, formal);
+                None
             }
         }
     }
@@ -842,7 +852,13 @@ impl<'a> FnCtxt<'a> {
                 expr.kind,
                 ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
             ) {
-                self.coerce(expr.span, ty, exp);
+                let deferred = matches!(self.deferred_mismatch, Some((id, None)) if id == expr.id);
+                if deferred {
+                    let m = self.coerce_or_mismatch(expr.span, ty, exp);
+                    self.deferred_mismatch = Some((expr.id, m));
+                } else {
+                    self.coerce(expr.span, ty, exp);
+                }
                 self.note_pointer_coercion(strip_parens(expr).id, ty, exp);
             }
         }

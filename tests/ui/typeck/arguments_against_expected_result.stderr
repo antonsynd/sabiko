@@ -20,10 +20,21 @@
     │                          │  
     │                          ╰── expected `u16`, found `u8`
 ────╯
-[E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/arguments_against_expected_result.sabi:18:30 ]
+[E0300] Error: arguments to this function are incorrect
+    ╭─[ tests/ui/typeck/arguments_against_expected_result.sabi:18:19 ]
     │
- 18 │     let c: bool = Pick(true, 1); //~ ERROR E0300 mismatched types
+ 18 │     let c: bool = Pick((1), (2)); //~ ERROR E0300 arguments to this function are incorrect
+    │                   ──┬─  ┬    ┬  
+    │                     ╰─────────── arguments to this function are incorrect
+    │                         │    │  
+    │                         ╰─────── expected `bool`, found `{integer}`
+    │                              │  
+    │                              ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/arguments_against_expected_result.sabi:22:30 ]
+    │
+ 22 │     let c: bool = Pick(true, 1); //~ ERROR E0300 mismatched types
     │                              ┬  
     │                              ╰── expected `bool`, found `{integer}`
 ────╯

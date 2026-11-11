@@ -2353,20 +2353,40 @@ impl<'a> BodyGen<'a> {
 
     fn stmt_if(&mut self, depth: u32) -> bool {
         let c = self.prim_expr(Prim::Bool, depth);
+        // Whether there is an `else` is drawn after the `then` branch is generated.
+        self.if_else(
+            &c.text,
+            &mut |g| g.block_body(3),
+            &mut |g| g.rng.chance(60),
+            &mut |g| g.block_body(3),
+        );
+        true
+    }
+
+    /// `if cond { then } else { els }`, the `else` only when `has_else` says so once
+    /// `then` is written. The scope model afterwards: a local is moved if either branch
+    /// may have moved it (an `if` without `else` counts as an empty one), so a
+    /// re-initialisation is definite only when both branches have one.
+    fn if_else(
+        &mut self,
+        cond: &str,
+        then: &mut dyn FnMut(&mut Self),
+        has_else: &mut dyn FnMut(&mut Self) -> bool,
+        els: &mut dyn FnMut(&mut Self),
+    ) {
         let before = self.snapshot_moved();
-        self.line(&format!("if {} {{", c.text));
-        self.block_body(3);
+        self.line(&format!("if {cond} {{"));
+        then(self);
         let after_then = self.snapshot_moved();
-        if self.rng.chance(60) {
+        if has_else(self) {
             self.restore_moved(&before);
             self.line("} else {");
-            self.block_body(3);
+            els(self);
             self.join_moved(&after_then);
         } else {
             self.join_moved(&before);
         }
         self.line("}");
-        true
     }
 
     fn counter(&mut self) -> String {
@@ -2641,7 +2661,7 @@ fn receiver_text(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{receiver_text, BodyGen, Ty, ValTy, INDENT};
+    use super::{receiver_text, Access, BodyGen, Ty, ValTy, INDENT};
     use crate::program::gen_program;
     use crate::rng::Rng;
     use crate::Knobs;
@@ -2653,12 +2673,10 @@ mod tests {
     #[test]
     fn reinitialisation_in_a_block_is_not_definite_afterwards() {
         let knobs = Knobs::borrow_clean();
-        let (mut reinitialised, mut definite) = (0, 0);
-        // 20000 seeds: with tuples (#6) and arrays (#9, whose elements are places too) in
-        // the generator, a struct local re-initialised in both branches of an `if`/`else`
-        // is rarer than in the 400 this test began with (12000 until #132's statement
-        // moved the draws).
-        for seed in 0..20000 {
+        let mut reinitialised = 0;
+        // An `if`/`else` re-initialising in both branches is rare in generated blocks:
+        // `if_else_reinitialising_both_branches_is_definite` builds that case itself.
+        for seed in 0..4000 {
             let mut rng = Rng::new(seed);
             let prog = gen_program(&mut rng, &knobs);
             let Some(s) = prog.structs.iter().position(|s| !s.copy) else {
@@ -2738,7 +2756,6 @@ mod tests {
                     reinit_at(&gen.lines[..e], &body_reinit)
                         && reinit_at(&gen.lines[e..], &body_reinit)
                 });
-            definite += usize::from(both_branches);
             assert_eq!(
                 gen.vars[v].moved,
                 !both_branches,
@@ -2746,17 +2763,61 @@ mod tests {
                 gen.lines.join("\n")
             );
         }
-        // The property is only exercised when a block re-initialises the local, and the
-        // exception only when some `if`/`else` does so in both branches; if either count
-        // drops to zero, the line matching above no longer fits the generator's layout.
+        // The property is only exercised when a block re-initialises the local; if the
+        // count drops to zero, the line matching above no longer fits the generator's
+        // layout.
         assert!(
             reinitialised >= 5,
             "only {reinitialised} blocks re-initialise the local"
         );
-        assert!(
-            definite > 0,
-            "no `if`/`else` re-initialises in both branches"
-        );
+    }
+
+    /// The exception to the rule above, built directly rather than searched for among
+    /// seeds: a moved local re-initialised in both branches of an `if`/`else` is usable
+    /// afterwards; re-initialised in one branch, or in an `if` without `else`, it is not.
+    #[test]
+    fn if_else_reinitialising_both_branches_is_definite() {
+        let knobs = Knobs::borrow_clean();
+        // Any program with a struct that is not `Copy`.
+        let s = (1..1000)
+            .map(|seed| gen_program(&mut Rng::new(seed), &knobs))
+            .find(|p| p.structs.iter().any(|s| !s.copy))
+            .expect("one of 1000 programs has one");
+        let st = s.structs.iter().position(|s| !s.copy).expect("found above");
+        for (then_reinit, has_else, else_reinit, usable) in [
+            (true, true, true, true),
+            (true, true, false, false),
+            (false, true, true, false),
+            (true, false, false, false),
+        ] {
+            let mut rng = Rng::new(7);
+            let mut gen = BodyGen::new(&s, &knobs, &mut rng, 0, 1000);
+            let v = gen.declare("moved".to_owned(), Ty::Val(ValTy::Struct(st)), true, false);
+            gen.vars[v].moved = true;
+            let reinit = |g: &mut BodyGen, yes: bool| {
+                if yes {
+                    let place = g
+                        .candidates()
+                        .into_iter()
+                        .find(|p| p.root == v && p.whole)
+                        .expect("the local itself");
+                    g.line("moved = ..;");
+                    g.apply(&place, Access::Write);
+                }
+            };
+            gen.if_else(
+                "c",
+                &mut |g| reinit(g, then_reinit),
+                &mut |_| has_else,
+                &mut |g| reinit(g, else_reinit),
+            );
+            assert_eq!(
+                !gen.vars[v].moved,
+                usable,
+                "then {then_reinit}, else {has_else}/{else_reinit}:\n{}",
+                gen.lines.join("\n")
+            );
+        }
     }
 
     #[test]

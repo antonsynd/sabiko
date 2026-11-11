@@ -270,7 +270,7 @@ fn programs_use_methods() {
     );
 }
 
-/// Drops (#9) are part of the subset: a fair share of programs declare structs with
+/// Drops (#12) are part of the subset: a fair share of programs declare structs with
 /// `impl Drop` and keep values of them in locals, so drop order, moves, reassignments,
 /// early exits and unwinding are all observable in the output.
 #[test]

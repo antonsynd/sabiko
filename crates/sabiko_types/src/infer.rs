@@ -189,6 +189,20 @@ impl InferCtxt {
         }
     }
 
+    /// Whether `ty` has a variable nothing has decided, without building the resolved
+    /// type: stops at the first.
+    pub fn has_undecided(&mut self, ty: &Ty) -> bool {
+        match self.shallow_resolve(ty) {
+            Ty::Infer(_) => true,
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
+                self.has_undecided(&inner)
+            }
+            Ty::Tuple(elems) => elems.iter().any(|e| self.has_undecided(e)),
+            Ty::Adt(_, args) => args.iter().any(|a| self.has_undecided(a)),
+            _ => false,
+        }
+    }
+
     /// Like [`resolve`](Self::resolve) but applies the literal defaults (`i32`, `f64`) to
     /// unbound literal variables. General variables stay unbound.
     #[must_use]
