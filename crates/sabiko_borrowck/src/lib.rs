@@ -29,7 +29,7 @@ pub mod mutability;
 
 mod check;
 
-pub use check::describe_place;
+pub use check::{describe_any_place, describe_place, user_place};
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_mir::Body;
 use sabiko_resolve::ResolveResults;

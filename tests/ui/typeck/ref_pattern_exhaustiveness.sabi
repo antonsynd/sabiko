@@ -1,0 +1,39 @@
+// Sabiko codes for rustc's: E0328 for E0004, E0329 for E0005.
+// Exhaustiveness through `&` patterns (#49): a `&` pattern matches every reference, so it
+// is checked as its subpattern against the referent.
+enum E { A, B(bool) }
+
+fn Missing(r: &E) -> i32 {
+    match r { //~ ERROR E0328 non-exhaustive patterns: `&E::B(false)` not covered
+        &E::A => 0,
+        &E::B(true) => 1,
+    }
+}
+
+fn Nested(r: &&(bool, i32)) -> i32 {
+    match r { //~ ERROR E0328 non-exhaustive patterns: `&&(false, i32::MIN..=0_i32)` and `&&(false, 2_i32..=i32::MAX)` not covered
+        &&(true, _) => 0,
+        &&(false, 1) => 1,
+    }
+}
+
+fn Refutable(t: &(i32, i32)) -> i32 {
+    let &(0, b) = t; //~ ERROR E0329 refutable pattern in local binding
+    b
+}
+
+fn Unreachable(r: &E) -> i32 {
+    match r {
+        &_ => 0,
+        &E::A => 1, //~ WARN unreachable pattern
+    }
+}
+
+fn Mixed(r: &E) -> i32 {
+    match r {
+        &E::A => 0,
+        E::B(_) => 1,
+    }
+}
+
+fn Main() {}

@@ -1,0 +1,6 @@
+// A `&` pattern in a parameter (#49) binding a non-Copy field by value: E0507.
+struct Token { Id: i32 }
+
+fn F(&(t, n): &(Token, i32)) -> i32 {
+    t.Id + n
+}

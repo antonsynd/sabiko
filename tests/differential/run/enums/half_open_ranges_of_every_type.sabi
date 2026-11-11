@@ -1,0 +1,70 @@
+// Half-open range patterns (#49) of every integer type and `char`: `lo..`, `..=hi` and the
+// exclusive `..hi`, at the types' ends (`i8::MAX..`, `..=u64::MIN`), on `usize`/`isize`
+// (where only an open end reaches the maximum), with `@` bindings, through references and
+// inside tuples and variants.
+enum Reading { Temp(i16), Code(u8), Mark(char) }
+
+fn Describe(r: &Reading) -> i32 {
+    match r {
+        Reading::Temp(..-40) => 0,
+        Reading::Temp(t @ -40..=0) => 1000 + *t as i32,
+        Reading::Temp(1..) => 1,
+        Reading::Code(..=9) => 2,
+        Reading::Code(c @ 10..) => *c as i32,
+        Reading::Mark('a'..='z') => 3,
+        Reading::Mark(..'a') => 4,
+        Reading::Mark('{'..) => 5,
+    }
+}
+
+fn Size(n: usize) -> i32 {
+    match n {
+        0 => 0,
+        1..1000 => 1,
+        1000.. => 2,
+    }
+}
+
+fn Offset(n: isize) -> i32 {
+    match n {
+        ..0 => -1,
+        0.. => 1,
+    }
+}
+
+fn Ends(a: i8, b: u64, c: i128, d: u128) -> i32 {
+    let x = match a {
+        i8::MAX.. => 1,
+        ..=i8::MIN => 2,
+        _ => 3,
+    };
+    let y = match b {
+        ..=u64::MIN => 10,
+        1.. => 20,
+    };
+    let z = match (c, d) {
+        (..=-1, _) => 100,
+        (0.., 340282366920938463463374607431768211455..) => 200,
+        (0.., ..170141183460469231731687303715884105728) => 300,
+        (0.., _) => 400,
+    };
+    x + y + z
+}
+
+fn Main() {
+    PrintLine(Describe(&Reading::Temp(-41)));
+    PrintLine(Describe(&Reading::Temp(-40)));
+    PrintLine(Describe(&Reading::Temp(0)));
+    PrintLine(Describe(&Reading::Temp(i16::MAX)));
+    PrintLine(Describe(&Reading::Code(9)));
+    PrintLine(Describe(&Reading::Code(200)));
+    PrintLine(Describe(&Reading::Mark('q')));
+    PrintLine(Describe(&Reading::Mark('A')));
+    PrintLine(Describe(&Reading::Mark('~')));
+    PrintLine(Size(0) + Size(999) * 10 + Size(usize::MAX) * 100);
+    PrintLine(Offset(isize::MIN) + Offset(0) * 10);
+    PrintLine(Ends(127, 0, -5, 0));
+    PrintLine(Ends(-128, 1, 5, u128::MAX));
+    PrintLine(Ends(0, u64::MAX, 0, 170141183460469231731687303715884105728));
+    PrintLine(Ends(1, 2, 3, 4));
+}

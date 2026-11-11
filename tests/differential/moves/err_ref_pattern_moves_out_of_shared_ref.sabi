@@ -1,0 +1,12 @@
+// A by-value binding under a `&` pattern (#49) moves its part of the referent out of a
+// shared borrow: E0507, as `match *r` would.
+struct Token { Id: i32 }
+
+enum Slot { Empty, Full(Token) }
+
+fn F(r: &Slot) -> i32 {
+    match r {
+        &Slot::Full(t) => t.Id,
+        &Slot::Empty => 0,
+    }
+}

@@ -1,0 +1,16 @@
+// Float range patterns (#49): closed, exclusive and half-open, in tuples and through
+// references; floats are never exhaustive, so a wildcard ends every match.
+fn F(x: f64, y: &f32) -> i32 {
+    let a = match x {
+        ..0.0 => -1,
+        0.0..=1.0 => 0,
+        1.0.. => 1,
+        _ => 2,
+    };
+    let b = match (y, x) {
+        (-1.0..=1.0, 2.5..) => 1,
+        (&(..-1.0), _) => 2,
+        _ => 0,
+    };
+    a + b
+}

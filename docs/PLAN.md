@@ -635,11 +635,12 @@ per stage); the generator covers every construct (paragraph below) and mutation 
 the changed lines leaves only equivalent survivors (the paragraph after). Benchmark
 `enums`: Sabiko takes 1.5 to 1.9 times as long as C# in-process and allocates nothing; the
 gap is the candidates re-reading the tag where a decision tree (as in rustc) would switch
-once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p`, half-open
-ranges, primitive associated constants in patterns (since done, #48), `==` on enums
-(Phase 6), a match
+once. Known gaps (`tests/pending/enums/known_gap/`): reference patterns `&p` and half-open
+ranges (since done, #49), primitive associated constants in patterns (since done, #48), `==`
+on enums (Phase 6), a match
 through `&&T` (`Ref<T>`; since lowered, #11), string literal patterns (with
-`&str`, #10), float range patterns (rejected with a misleading message), code that patterns
+`&str`, #10), float range patterns (rejected with a misleading message; since supported,
+#49), code that patterns
 make unreachable was not borrow-checked (rustc's false edges), and an arm that tests a
 scrutinee a failed guard moved out was E0406 (rustc tests once); both fixed by #47
 (decision 72, update below). Moving a non-`Copy` field out
@@ -1166,6 +1167,37 @@ decides takes only the edge rustc's tree would. New: `differential/lints/
 ok_string_match_after_guard`. 3000 generated seeds at each of three bases agree except
 seed 71001629, an older divergence in the order blocks are visited (#111).
 
+Pattern gaps (#49, decision 89): reference patterns `&p` and `&mut p` (`&Cell::Value(n)`,
+`let &(a, b) = &t;`, in parameters, `if let`, `while let`, `let`-`else`, nested and under
+`@`), half-open ranges `a..`, `..=b` and `..b`, and float ranges, all as rustc 1.99 with
+edition 2024 has them. A `&` pattern matches a reference of its own mutability without
+looking through references (E0300 otherwise), resets the default binding mode, and is
+E0337 under a by-reference one where the referent is a reference; MIR matches its
+subpattern against the dereferenced place, so a by-value non-`Copy` binding under it is
+E0407 (rustc's E0507), `ref mut` through a `&` is E0404 (E0596) and its loans and the
+guard's fake borrows are those of `*r`. A half-open range compares its one bound; `..MIN`
+is E0332 (E0579), `a..=` E0102 (E0586) and `&0..=5` E0100 ("ambiguous interpretation").
+Float ranges compare as floats and use rustc's `F64Range` in the usefulness port: they
+never make a match exhaustive, but a literal or range inside an earlier one is
+unreachable; a NaN constant in a pattern (also inside a tuple constant) is E0332. A `..`
+outside a tuple or tuple-struct pattern (`&..`, a whole pattern `..`, accepted before) is
+E0100. Borrow-checker messages no longer name a place rooted in an unnamed local (a
+parameter's pattern): "cannot move out of a shared reference", "cannot borrow data in a
+`&` reference as mutable", "value" elsewhere, as rustc words them (`describe_any_place`);
+a variant field behind a reference is named `r.0`, not `*r.0` (rustc's E0507 says "`r` as
+enum variant `Full`"). A parameter's pattern binds from a mutable argument, as in rustc,
+so `(ref mut a, b): (i32, i32)` is accepted (it was E0402). `'\0'..` tests nothing. The two staged programs
+moved to `differential/run/enums/` with three more (every position of a `&` pattern,
+half-open ranges of every integer type and `char`, float ranges with NaN and infinities);
+18 verdict programs in `differential/{moves,loans,mutability,enums}/`, one lint program,
+nine UI tests and a MIR snapshot. The generator writes half-open ranges (in covers, always
+at the open ends of `usize`/`isize`, which it could not cover before), float literal and
+range patterns (floats are now scrutinees too) and an explicit `&p`/`&mut p` at the top of
+a pattern through a single reference. Moving the generator's draws showed that four
+coverage thresholds in `sabiko_testgen`'s validity tests sat above their long-run rates
+(measured over 3000 seeds) and had passed on the first 500 seeds by luck; they were set
+from those rates. 400 seeds per property at each of the bases 4900000 and 7700000 agree with rustc (verdicts, runs, constant-propagation lints, reorderings).
+
 Drop flags of enum variants (#133, decision 91): an enum dropped field by field (it holds a
 value on some paths only, or was partly moved) had each variant's fields flagged from the
 discriminant when the enum was written, so a write through a reference went unseen: `let r
@@ -1222,7 +1254,7 @@ against drops rather than retrofitted.
   destructuring, guards); exhaustiveness and reachability checking (usefulness algorithm,
   as in rustc). Done (#8, decisions 57 and 58, with `if let`, `while let`
   and `let`-`else`; see the status notes above); match borrow checking as rustc's (#47,
-  decision 72) done; follow-up: `&p` and open-range patterns (#49).
+  decision 72) done; `&p` patterns, half-open and float ranges done (#49, decision 89).
 - `[T; N]` (via `InlineArrayAttribute`), `&[T]` / `&mut [T]` as spans, indexing, `.len()`.
   Done (#9, decision 61; see the status note above), range slicing with #10, and arrays
   and slices of references (#43, decision 77); slice patterns, `for` loops and slice

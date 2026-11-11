@@ -1,0 +1,43 @@
+// Sabiko codes for rustc's: E0300 for E0308; E0337 for the uncoded "cannot explicitly
+// dereference within an implicitly-borrowing pattern".
+// A `&` pattern (#49) matches a reference of its own mutability and does not look through
+// references: against a non-reference it is E0308, against the other mutability E0308
+// ("types differ in mutability"). Under a by-reference default binding mode, edition 2024
+// rejects it (E0337) where the referent is a reference; where it is not, E0308.
+enum Cell { Empty, Value(i32) }
+
+fn NotARef(x: i32) -> i32 {
+    match x {
+        &n => n, //~ ERROR E0300 mismatched types
+    }
+}
+
+fn SharedAgainstMut(t: &mut (i32, i32)) -> i32 {
+    let &(a, _) = t; //~ ERROR E0300 mismatched types
+    a
+}
+
+fn MutAgainstShared(t: &(i32, i32)) -> i32 {
+    let &mut (a, _) = t; //~ ERROR E0300 mismatched types
+    a
+}
+
+fn UnderDefaultBindingMode(c: &Cell) -> i32 {
+    match c {
+        Cell::Value(&n) => n, //~ ERROR E0300 mismatched types
+        _ => 0,
+    }
+}
+
+fn UnderDefaultBindingModeOfRef(t: &(i32, &i32)) -> i32 {
+    let (_, &b) = t; //~ ERROR E0337 cannot explicitly dereference within an implicitly-borrowing pattern
+    b
+}
+
+// Fine: the `&` pattern resets the default binding mode, so `&n` is matched by value.
+fn Reset(t: &(i32, &i32)) -> i32 {
+    let &(a, &b) = t;
+    a + b
+}
+
+fn Main() {}

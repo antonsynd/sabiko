@@ -239,41 +239,93 @@ impl PatValues<'_, '_> {
                     self.body.pat_consts.insert(pat.id, PatConst::Value(v));
                 }
             }
-            PatKind::Range(lo, hi, end) => {
-                let (Some(l), Some(h)) = (self.value(lo), self.value(hi)) else {
-                    return;
-                };
-                let inclusive = *end == RangeEnd::Included;
-                let order = compare(&l, &h);
-                if inclusive && order == Some(std::cmp::Ordering::Greater) {
-                    self.sink.emit(
-                        Diagnostic::error(
-                            ErrorCode::INVALID_RANGE_PATTERN,
-                            "lower bound for range pattern must be less than or equal to upper bound",
-                        )
-                        .with_label(lo.span, "lower bound larger than upper bound"),
-                    );
-                    self.failed = true;
-                } else if !inclusive && order != Some(std::cmp::Ordering::Less) {
-                    self.sink.emit(
-                        Diagnostic::error(
-                            ErrorCode::INVALID_RANGE_PATTERN,
-                            "lower bound for range pattern must be less than upper bound",
-                        )
-                        .with_label(pat.span, "this range is empty"),
-                    );
-                    self.failed = true;
+            PatKind::Range(lo, hi, end) => self.range(pat, lo.as_deref(), hi.as_deref(), *end),
+            PatKind::Ref { pat, .. } => self.pat(pat),
+        }
+    }
+
+    /// A range pattern's bounds (#49 for the half-open ones and floats), checked as
+    /// rustc's `lower_pattern_range` checks them: a NaN bound is an error, `lo..=hi` needs
+    /// `lo <= hi` (E0332, rustc's E0030), `lo..hi` needs `lo < hi` and `..hi` a `hi` above
+    /// the type's minimum (E0332, rustc's E0579). `lo..` includes the maximum.
+    fn range(&mut self, pat: &Pat, lo: Option<&Expr>, hi: Option<&Expr>, end: RangeEnd) {
+        let bound = |cx: &mut Self, e: Option<&Expr>| match e {
+            None => Some(None),
+            Some(e) => {
+                let v = cx.value(e)?;
+                if cx.is_nan(&v, e.span) {
+                    return None;
                 }
-                self.body.pat_consts.insert(
-                    pat.id,
-                    PatConst::Range {
-                        lo: l,
-                        hi: h,
-                        inclusive,
-                    },
-                );
+                Some(Some(v))
+            }
+        };
+        let (Some(l), Some(h)) = (bound(self, lo), bound(self, hi)) else {
+            return;
+        };
+        let inclusive = end == RangeEnd::Included || h.is_none();
+        let order = match (&l, &h) {
+            (Some(l), Some(h)) => compare(l, h),
+            // Only `..MIN` is empty; `MAX..` is the one value `MAX`.
+            (None, Some(h)) if is_type_min(h, self.body.pat_types.get(&pat.id)) => {
+                Some(std::cmp::Ordering::Equal)
+            }
+            _ => Some(std::cmp::Ordering::Less),
+        };
+        if inclusive && order == Some(std::cmp::Ordering::Greater) {
+            let at = lo.map_or(pat.span, |lo| lo.span);
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::INVALID_RANGE_PATTERN,
+                    "lower bound for range pattern must be less than or equal to upper bound",
+                )
+                .with_label(at, "lower bound larger than upper bound"),
+            );
+            self.failed = true;
+        } else if !inclusive && order != Some(std::cmp::Ordering::Less) {
+            let message = if l.is_none() {
+                "exclusive upper bound for a range bound cannot be the minimum"
+            } else {
+                "lower bound for range pattern must be less than upper bound"
+            };
+            self.sink.emit(
+                Diagnostic::error(ErrorCode::INVALID_RANGE_PATTERN, message)
+                    .with_label(pat.span, "this range is empty"),
+            );
+            self.failed = true;
+        }
+        self.body.pat_consts.insert(
+            pat.id,
+            PatConst::Range {
+                lo: l,
+                hi: h,
+                inclusive,
+            },
+        );
+    }
+
+    /// Reports a NaN constant in a pattern, also inside a tuple constant, which rustc
+    /// rejects ("cannot use NaN in patterns"): no value equals it.
+    fn is_nan(&mut self, v: &ConstValue, span: Span) -> bool {
+        fn has_nan(v: &ConstValue) -> bool {
+            match v {
+                ConstValue::Float(f) => f.is_nan(),
+                ConstValue::Tuple(values) => values.iter().any(has_nan),
+                _ => false,
             }
         }
+        if !has_nan(v) {
+            return false;
+        }
+        self.sink.emit(
+            Diagnostic::error(
+                ErrorCode::INVALID_RANGE_PATTERN,
+                "cannot use NaN in patterns",
+            )
+            .with_label(span, "evaluates to `NaN`, which is not allowed in patterns")
+            .with_note("try using the `is_nan` method instead"),
+        );
+        self.failed = true;
+        true
     }
 
     /// The value of a literal, a negated literal or a constant in a pattern, in the type
@@ -288,6 +340,7 @@ impl PatValues<'_, '_> {
                     self.consts.values.get(&def).cloned()
                 };
                 match value {
+                    Some(v) if self.is_nan(&v, pat.span) => {}
                     Some(v) => {
                         self.body.pat_consts.insert(pat.id, PatConst::Value(v));
                     }
@@ -400,6 +453,23 @@ fn lit_value(lit: &Lit, ty: &Ty, negated: bool) -> ConstValue {
         Lit::Bool(b) => ConstValue::Bool(*b),
         Lit::Char(c) => ConstValue::Char(*c),
         Lit::Str(s) => ConstValue::Str(s.clone()),
+    }
+}
+
+/// Whether `v` is the minimum of the (peeled) type `ty` of a range pattern: `..v` is then
+/// empty.
+fn is_type_min(v: &ConstValue, ty: Option<&Ty>) -> bool {
+    let mut ty = ty;
+    while let Some(Ty::Ref(_, inner)) = ty {
+        ty = Some(inner);
+    }
+    let min = |p: PrimTy| p.is_integer().then(|| crate::consts::int_bounds(p).0);
+    match (v, ty.and_then(Ty::as_prim)) {
+        (ConstValue::Int(i), Some(p)) => min(p) == Some(*i),
+        (ConstValue::Uint(u), Some(p)) => min(p).is_some_and(|m| i128::try_from(*u) == Ok(m)),
+        (ConstValue::Char(c), _) => *c == '\0',
+        (ConstValue::Float(f), _) => *f == f64::NEG_INFINITY,
+        _ => false,
     }
 }
 
@@ -930,6 +1000,7 @@ impl Exhaustive<'_, '_> {
             PatKind::Ident { .. } | PatKind::Wild | PatKind::Rest => K::Wild,
             PatKind::Or(alts) => K::Or(alts.iter().map(|a| self.lower(a)).collect()),
             PatKind::Lit(_) | PatKind::Range(..) => self.value(pat),
+            PatKind::Ref { pat: sub, .. } => K::Deref(Box::new(self.lower(sub))),
             PatKind::Assignee(_) if self.resolve.pat_res(pat.id).is_none() => K::Wild,
             // An assignee naming a unit struct or a unit variant compares like a path.
             PatKind::Path(_) | PatKind::Assignee(_) => match self.body.pat_variants.get(&pat.id) {
@@ -1027,13 +1098,40 @@ impl Exhaustive<'_, '_> {
                     .unwrap_or(Ty::Error);
                 const_pat_kind(v, &ty, pat.span)
             }
-            Some(PatConst::Range { lo, hi, inclusive }) => match (const_int(lo), const_int(hi)) {
-                (Some(l), Some(h)) => K::Range {
-                    lo: l,
-                    hi: if *inclusive { h } else { h - 1 },
-                },
-                _ => K::Opaque,
-            },
+            Some(PatConst::Range { lo, hi, inclusive }) => {
+                let float = |v: &Option<ConstValue>, inf: f64| match v {
+                    None => Some(inf),
+                    Some(ConstValue::Float(f)) => Some(*f),
+                    Some(_) => None,
+                };
+                if let (Some(l), Some(h)) = (float(lo, f64::NEG_INFINITY), float(hi, f64::INFINITY))
+                {
+                    if matches!(lo, Some(ConstValue::Float(_)))
+                        || matches!(hi, Some(ConstValue::Float(_)))
+                    {
+                        return K::FloatRange {
+                            lo: l,
+                            hi: h,
+                            inclusive: *inclusive,
+                        };
+                    }
+                }
+                let int = |v: &Option<ConstValue>| v.as_ref().map(const_int);
+                match (int(lo), int(hi)) {
+                    (Some(None), _) | (_, Some(None)) => K::Opaque,
+                    (l, h) => {
+                        let l = l.flatten();
+                        // `lo..hi` is `lo..=hi - 1` (a `u128` bound is its bit pattern).
+                        let h = h
+                            .flatten()
+                            .map(|h| if *inclusive { h } else { h.wrapping_sub(1) });
+                        match (l, h) {
+                            (Some(lo), Some(hi)) => K::Range { lo, hi },
+                            (lo, hi) => K::OpenRange { lo, hi },
+                        }
+                    }
+                }
+            }
             None => K::Opaque,
         }
     }
@@ -1113,6 +1211,7 @@ fn walk_all_idents<'p>(pat: &'p Pat, f: &mut impl FnMut(&'p Pat)) {
                 walk_all_idents(&fp.pat, f);
             }
         }
+        PatKind::Ref { pat, .. } => walk_all_idents(pat, f),
         PatKind::Wild
         | PatKind::Rest
         | PatKind::Path(_)

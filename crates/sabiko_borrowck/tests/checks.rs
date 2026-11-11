@@ -4,7 +4,7 @@
 //! field names exist; the bodies themselves are built by hand with [`BodyBuilder`], so
 //! the tests do not depend on MIR lowering.
 
-use sabiko_borrowck::{check_all, check_body, describe_place};
+use sabiko_borrowck::{check_all, check_body, describe_place, user_place};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
     AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, ConstValue, Constant, Local, LocalDecl,
@@ -1108,9 +1108,14 @@ fn temps_render_as_underscore_n() {
         "_1.Y"
     );
     assert_eq!(describe_place(&local(t).deref(), &body, &fx.typeck), "*_1");
+    // Messages do not name a temporary's place: rustc's wording for a place it cannot name.
+    assert_eq!(
+        user_place(&local(t).deref().field(1, Ty::I32), &body, &fx.typeck),
+        None
+    );
     assert_eq!(
         fx.messages(&body),
-        ["E0403 cannot assign to `_1.Y`, which is behind a `&` reference"]
+        ["E0403 cannot assign to data in a `&` reference"]
     );
 }
 

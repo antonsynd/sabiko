@@ -1,0 +1,11 @@
+// A `&` pattern in a parameter (#49) copying the Copy fields out, and borrowing the
+// non-Copy one with `ref`.
+struct Token { Id: i32 }
+
+fn F(&(ref t, n): &(Token, i32)) -> i32 {
+    t.Id + n
+}
+
+fn G(&(a, b): &(i32, i32)) -> i32 {
+    a + b
+}

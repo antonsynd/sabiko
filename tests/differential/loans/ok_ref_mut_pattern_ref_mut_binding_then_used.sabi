@@ -1,0 +1,8 @@
+// A `ref mut` binding under a `&mut` pattern (#49): once the binding is dead, the
+// reference is usable again.
+fn F(r: &mut (i32, i32)) -> i32 {
+    let &mut (ref mut a, _) = r;
+    *a += 1;
+    let b = r.1;
+    b + r.0
+}

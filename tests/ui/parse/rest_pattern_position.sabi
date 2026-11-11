@@ -1,0 +1,30 @@
+// Sabiko codes for rustc's: E0100 for its uncoded "`..` patterns are not allowed here".
+// A rest pattern `..` is an element of a tuple or tuple-struct pattern only: not a whole
+// pattern, not under `&` (#49), not an or-pattern's alternative.
+enum E { A(i32, i32) }
+
+fn Whole(x: i32) -> i32 {
+    match x {
+        .. => 1, //~ ERROR E0100 `..` patterns are not allowed here
+    }
+}
+
+fn UnderRef(r: &i32) -> i32 {
+    match r {
+        &.. => 1, //~ ERROR E0100 `..` patterns are not allowed here
+    }
+}
+
+fn UnderTwoRefs(r: &&i32) -> i32 {
+    match r {
+        &(&..) => 1, //~ ERROR E0100 `..` patterns are not allowed here
+    }
+}
+
+// Fine: elements of tuple and tuple-struct patterns.
+fn Elements(t: (i32, i32, i32), e: E) -> i32 {
+    let (a, ..) = t;
+    let (..) = t;
+    let E::A(.., b) = e;
+    a + b
+}

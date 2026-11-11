@@ -1,0 +1,25 @@
+[E0328] Error: non-exhaustive patterns: `0_i32` not covered
+   ╭─[ tests/ui/typeck/half_open_range_exhaustiveness.sabi:5:11 ]
+   │
+ 5 │     match n { //~ ERROR E0328 non-exhaustive patterns: `0_i32` not covered
+   │           ┬  
+   │           ╰── pattern `0_i32` not covered
+   │ 
+   │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+───╯
+[E0328] Error: non-exhaustive patterns: `usize::MAX..` not covered
+    ╭─[ tests/ui/typeck/half_open_range_exhaustiveness.sabi:19:11 ]
+    │
+ 19 │     match n { //~ ERROR E0328 non-exhaustive patterns: `usize::MAX..` not covered
+    │           ┬  
+    │           ╰── pattern `usize::MAX..` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/half_open_range_exhaustiveness.sabi:39:9 ]
+    │
+ 39 │         150 => 3, //~ WARN unreachable pattern
+    │         ─┬─  
+    │          ╰─── no value can reach this
+────╯

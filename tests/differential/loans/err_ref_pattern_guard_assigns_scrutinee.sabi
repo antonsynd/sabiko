@@ -1,0 +1,8 @@
+// A guard may not assign the place an arm's `&mut` pattern (#49) tests through the
+// scrutinee reference: the match fake-borrows `*r` (E0510).
+fn F(r: &mut (i32, i32)) -> i32 {
+    match r {
+        &mut (0, b) if { r.0 = 1; true } => b,
+        &mut (a, _) => a,
+    }
+}
