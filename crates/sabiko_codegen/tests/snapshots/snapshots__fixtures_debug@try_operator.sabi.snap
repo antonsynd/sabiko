@@ -475,7 +475,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/try_operator.sabi
     call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
     conv.u
     ldloc.s 4
-    ldstr "library/core/slice.sabi:15:19"
+    ldstr "library/core/slice.sabi:22:19"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)
     ldnull
     throw
@@ -494,7 +494,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/try_operator.sabi
     call instance int32 valuetype [System.Runtime]System.ReadOnlySpan`1<int32>::get_Length()
     conv.u
     ldloc.s 4
-    ldstr "library/core/slice.sabi:15:18"
+    ldstr "library/core/slice.sabi:22:18"
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)
     ldnull
     throw
