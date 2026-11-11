@@ -1,0 +1,135 @@
+// Payloads and fields of `()`, `&()` and `&mut ()`, which have no IL value (decision 64):
+// variants and structs with such fields among others, generic instances at `T = ()` and
+// `T = &()`, `Option<()>`, `Result<(), E>`, `Result<T, ()>`, nested variants, and arrays
+// of them (#140: a variant with a `&()` payload underflowed the IL stack).
+enum Opt<T> {
+    Yes(T),
+    No,
+}
+
+enum Many<A, B> {
+    Three(A, i32, ()),
+    Mixed((), B, i64),
+    Empty,
+}
+
+struct Holder<A> {
+    a: A,
+    b: i32,
+    c: (),
+}
+
+struct Wrap<T> {
+    value: T,
+    tag: i32,
+}
+
+fn Unwrap<T>(o: Opt<T>, d: T) -> T {
+    match o {
+        Opt::Yes(v) => v,
+        Opt::No => d,
+    }
+}
+
+fn Check(r: Result<(), i32>) -> i32 {
+    match r {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+fn Inverse(r: Result<i32, ()>) -> i32 {
+    match r {
+        Ok(v) => v,
+        Err(()) => -1,
+    }
+}
+
+fn Main() {
+    let u = ();
+    let mut m = ();
+    let o = Opt::Yes(&u);
+    match o {
+        Opt::Yes(r) => {
+            let back: &() = r;
+            let _ = back;
+            PrintLine(1);
+        }
+        Opt::No => PrintLine(2),
+    }
+    let p = Some(&u);
+    if let Some(_) = p {
+        PrintLine(3);
+    }
+    let q: Option<&mut ()> = Some(&mut m);
+    match q {
+        Some(_) => PrintLine(4),
+        None => PrintLine(5),
+    }
+    let s: Option<()> = Some(());
+    PrintLine(s.is_some());
+    let t: Option<()> = None;
+    PrintLine(t.is_none());
+    PrintLine(Check(Ok(())));
+    PrintLine(Check(Err(7)));
+    PrintLine(Inverse(Ok(8)));
+    PrintLine(Inverse(Err(())));
+    let many: Many<&(), &mut ()> = Many::Three(&u, 9, ());
+    match many {
+        Many::Three(_, n, _) => PrintLine(n),
+        _ => PrintLine(0),
+    }
+    let mut m2 = ();
+    let mixed: Many<&(), &mut ()> = Many::Mixed((), &mut m2, 10);
+    match mixed {
+        Many::Mixed(_, _, n) => PrintLine(n),
+        _ => PrintLine(0),
+    }
+    let e: Many<(), ()> = Many::Empty;
+    if let Many::Empty = e {
+        PrintLine(11);
+    }
+    let h = Holder { a: &u, b: 12, c: () };
+    let _ = h.a;
+    PrintLine(h.b);
+    let w = Wrap { value: &u, tag: 13 };
+    PrintLine(w.tag);
+    let w2 = Wrap { value: (), tag: 14 };
+    PrintLine(w2.tag);
+    let nested = Opt::Yes(Opt::Yes(&u));
+    match nested {
+        Opt::Yes(Opt::Yes(_)) => PrintLine(15),
+        _ => PrintLine(0),
+    }
+    let unit_ref: &() = Unwrap(Opt::Yes(&u), &u);
+    let _ = unit_ref;
+    Unwrap(Opt::Yes(()), ());
+    Unwrap(Opt::No, ());
+    PrintLine(16);
+    let arr = [(); 3];
+    let refs = [&u, &u];
+    PrintLine(arr.len());
+    PrintLine(refs.len());
+    let in_arr = [Some(&u), None, Some(&u)];
+    let mut count = 0;
+    let mut i = 0;
+    while i < 3 {
+        if let Some(_) = in_arr[i] {
+            count += 1;
+        }
+        i += 1;
+    }
+    PrintLine(count);
+    let opt_arr = Some([(); 2]);
+    if let Some(a) = opt_arr {
+        PrintLine(a.len());
+    }
+    let pair = Some((&u, 17));
+    if let Some((_, n)) = pair {
+        PrintLine(n);
+    }
+    let idx = Opt::Yes(refs[1]);
+    if let Opt::Yes(_) = idx {
+        PrintLine(18);
+    }
+}

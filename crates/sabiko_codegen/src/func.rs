@@ -2357,7 +2357,10 @@ impl FnCx<'_, '_> {
         self.op(format!("initobj {struct_name}"), 1, 0);
         for (index, operand) in operands.iter().enumerate() {
             let field_ty = adt.field_ty(&adt.fields[index].ty, args);
-            if field_ty.is_unit() || field_ty.is_never() {
+            if types::has_no_value(&field_ty) {
+                // A field of `()`, `&()` or an uninhabited type is never stored, and its
+                // operand pushes nothing (decision 64); only an index in it is checked.
+                self.operand(operand, span);
                 continue;
             }
             self.ldloca(target);
@@ -2408,7 +2411,10 @@ impl FnCx<'_, '_> {
         let payload = self.cx.payload_field_ref(def, args, variant);
         for (index, operand) in operands.iter().enumerate() {
             let field_ty = adt.field_ty(&adt.variant(variant).fields[index].ty, args);
-            if field_ty.is_unit() || field_ty.is_never() {
+            if types::has_no_value(&field_ty) {
+                // A field of `()`, `&()` or an uninhabited type is never stored, and its
+                // operand pushes nothing (decision 64); only an index in it is checked.
+                self.operand(operand, span);
                 continue;
             }
             self.ldloca(target);
