@@ -57,7 +57,8 @@ test_packages() {
 # types 98.8% (570 of 577); see docs/TESTING.md. Codegen, nightly run 20 (2026-11-06, the
 # first with an explicit test timeout): 95.2% (640 of 672), 96.3% (647) once the seven
 # survivors that change the IL got tests; the other 25 are equivalent, and 95 keeps room
-# for eight new survivors.
+# for eight new survivors. Run 26 (2026-11-11): 94.2% with 42 survivors; tests, dead-code
+# removal and argued exclusions leave none of them (#142, docs/TESTING.md).
 minimum_score() {
     case "$1" in
         sabiko_borrowck) echo 93 ;;
@@ -80,8 +81,9 @@ test_timeout() {
 }
 
 # report <crate> <label> <elapsed seconds> <judge: yes|no> <mutants.out dir>...: prints the
-# summed counts of the directories, and the missed mutants; with judge=yes, sets status=1
-# when the score is below the crate's minimum. Appends the line to summary.
+# summed counts of the directories, and the missed and the timed-out mutants; with
+# judge=yes, sets status=1 when the score is below the crate's minimum. Appends the line to
+# summary.
 report() {
     local crate=$1 label=$2 elapsed=$3 judge=$4
     shift 4
@@ -122,12 +124,20 @@ report() {
     fi
     summary+=("$line")
     echo "$line"
-    if [ "$missed" -gt 0 ]; then
-        echo "-- missed:"
-        for dir in "$@"; do
-            if [ -f "$dir/missed.txt" ]; then sed 's/^/   /' "$dir/missed.txt"; fi
-        done
-    fi
+    list() {
+        local outcome=$1 n=$2
+        shift 2
+        if [ "$n" -gt 0 ]; then
+            echo "-- $outcome:"
+            for dir in "$@"; do
+                if [ -f "$dir/$outcome.txt" ]; then sed 's/^/   /' "$dir/$outcome.txt"; fi
+            done
+        fi
+    }
+    # A timeout counts as caught, but a slow suite can be mistaken for a hang: list them
+    # so a run's timeouts can be checked too.
+    list missed "$missed" "$@"
+    list timeout "$timeout" "$@"
 }
 
 status=0

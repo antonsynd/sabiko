@@ -1,0 +1,22 @@
+// Sabiko's E0313 for rustc's E0282. A generic argument left unknown inside a struct or an
+// enum is reported once, at the first binding of that type; its unknown parts become
+// error types (`bind_error`), so the bindings that share them report nothing more.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct W<T> {
+    V: T,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Main() {
+    let o = Id(Opt::No); //~ ERROR E0313 type annotations needed
+    let p = o;
+    let w = Id(W { V: Opt::No }); //~ ERROR E0313 type annotations needed
+    let v = w.V;
+}

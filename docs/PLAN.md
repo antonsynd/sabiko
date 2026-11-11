@@ -1544,6 +1544,18 @@ mutants are now excluded in `.cargo/mutants.toml`, and dead `Ref`/`Slice` arms i
 `could_be`, `match_ty` and `unify` are removed (no trait block's type holds a reference
 or a slice). The threshold stays at 98.
 
+Update (2026-11-11), the survivors of nightly run 26 (#142): `sabiko_codegen` scored
+94.2% against 95 with 42 survivors, and 12 of `sabiko_types`' 17 were untriaged (#125).
+Of the 42, tests kill 16 (the 12 primitive type tokens that only .NET 11's ILVerify
+rejects, the missing-`Main` check, the `Print` overload defence, a sub-slice bound's use
+count), one was already caught, 9 were dead code and are gone (redundant guards and arms
+in `assign`, `typed_int_const`, `unary`, `negation_fits`, `cil_type` and `binary`; a local
+nothing writes now gets no IL local at all), and 16 are equivalent and excluded in
+`.cargo/mutants.toml`, each argued in `docs/TESTING.md`. Of `sabiko_types`' 12, tests
+kill 8, one is gone, one is equivalent, and two wait for #155: past the trait solver's
+depth limit an unsatisfied bound is accepted. Estimated from run 26's counts, about 100%
+and 99.6%; the next nightly measures the full crates. The thresholds stay.
+
 Status (2026-11-11): reborrow or move of a `&mut` decided as rustc does (#132, decision
 92). Sabiko reborrowed every `&mut` call or constructor argument, so it accepted `Id(r);
 *r += 1;` for `fn Id<T>(x: T)`, `Opt::Yes(r)` and `W { F: r }` of generic types, which

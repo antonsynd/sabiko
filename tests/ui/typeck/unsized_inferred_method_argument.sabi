@@ -1,0 +1,20 @@
+// Sabiko's E0208 for rustc's E0277. A trait method's own type parameter is `Sized` like
+// any other but the trait's `Self`, also when the argument is inferred rather than written
+// (`resolve_generic_args`).
+trait Show {
+    fn Put<U>(u: &U) -> i32;
+}
+
+struct P;
+
+impl Show for P {
+    fn Put<U>(u: &U) -> i32 {
+        1
+    }
+}
+
+fn Main() {
+    let a = P::Put("x"); //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    let s: &[i32] = &[1, 2];
+    let b = P::Put(s); //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+}

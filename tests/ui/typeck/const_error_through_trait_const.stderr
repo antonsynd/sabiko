@@ -1,0 +1,14 @@
+[E0201] Error: cannot find type `Unknown` in this scope
+   ╭─[ tests/ui/typeck/const_error_through_trait_const.sabi:5:10 ]
+   │
+ 5 │ const A: Unknown = 1; //~ ERROR E0201 cannot find type `Unknown` in this scope
+   │          ───┬───  
+   │             ╰───── not found in this scope
+───╯
+[E0316] Error: attempt to divide by zero
+   ╭─[ tests/ui/typeck/const_error_through_trait_const.sabi:6:16 ]
+   │
+ 6 │ const B: i32 = 1 / 0; //~ ERROR E0316 attempt to divide by zero
+   │                ──┬──  
+   │                  ╰──── in this constant
+───╯
