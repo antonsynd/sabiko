@@ -551,6 +551,7 @@ impl<'a, 'b, 'c> Evaluator<'a, 'b, 'c> {
             ExprKind::Field(..) => Err(non_const(expr.span, "field accesses")),
             ExprKind::Ref { .. } => Err(non_const(expr.span, "references")),
             ExprKind::Deref(_) => Err(non_const(expr.span, "dereferences")),
+            ExprKind::Try(_) => Err(non_const(expr.span, "the `?` operator")),
             ExprKind::Index(..) | ExprKind::Range(..) => Err(non_const(expr.span, "indexing")),
             ExprKind::Assign(..) | ExprKind::AssignOp(..) | ExprKind::DestructuringAssign(..) => {
                 Err(non_const(expr.span, "assignments"))

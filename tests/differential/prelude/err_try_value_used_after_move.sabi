@@ -1,0 +1,14 @@
+// The value `?` moves out of a `Some` belongs to the new binding; the option is gone.
+struct Token {
+    Id: i32,
+}
+
+fn Get(o: Option<Token>) -> Option<i32> {
+    let t = o?;
+    let again = o;
+    Some(t.Id)
+}
+
+fn Main() {
+    PrintLine(Get(None).is_none());
+}

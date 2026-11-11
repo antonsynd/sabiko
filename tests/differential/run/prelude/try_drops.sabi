@@ -1,0 +1,120 @@
+// `?` and drops: a call argument evaluated before the `?` is dropped on the early return,
+// a value moved out of `Ok`/`Some` belongs to its new owner, the returned error is moved;
+// `?` in methods, on a field of `self`, on an `Option<&T>`, in a loop with `break` and as
+// a `match` scrutinee.
+struct D {
+    N: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.N);
+    }
+}
+
+fn Make(n: i32) -> D {
+    D { N: n }
+}
+
+fn Pair(a: D, b: i32) -> i32 {
+    a.N + b
+}
+
+fn MaybeD(n: i32) -> Option<D> {
+    if n > 0 { Some(D { N: n }) } else { None }
+}
+
+fn ResD(n: i32) -> Result<D, D> {
+    if n > 0 { Ok(D { N: n }) } else { Err(D { N: -n }) }
+}
+
+// A temporary argument evaluated before the `?` is dropped on the early return.
+fn Temps(x: Option<i32>) -> Option<i32> {
+    Some(Pair(Make(100), x?))
+}
+
+// The value moved out of `Some` is dropped by its new owner; the error is returned.
+fn Moves(n: i32) -> Result<i32, D> {
+    let _guard = Make(50);
+    let d = ResD(n)?;
+    Ok(d.N)
+}
+
+fn Nested(n: i32) -> Option<i32> {
+    let d = MaybeD(MaybeD(n)?.N - 1)?;
+    Some(d.N * 10)
+}
+
+struct Holder {
+    Value: Option<i32>,
+    Name: Option<D>,
+}
+
+impl Holder {
+    fn Get(&self) -> Option<i32> {
+        let v = self.Value?;
+        Some(v + 1)
+    }
+
+    fn Take(self) -> Option<i32> {
+        let d = self.Name?;
+        Some(d.N)
+    }
+}
+
+fn Refs(v: &Option<i32>) -> Option<&i32> {
+    let r: &i32 = v.as_ref()?;
+    Some(r)
+}
+
+fn InLoop(xs: &[Option<i32>]) -> Option<i32> {
+    let mut sum = 0;
+    let mut i = 0;
+    while i < xs.len() {
+        let _d = Make(i as i32);
+        if xs[i]? > 5 {
+            break;
+        }
+        sum += xs[i]?;
+        i += 1;
+    }
+    Some(sum)
+}
+
+fn InMatch(o: Option<Option<i32>>) -> Option<i32> {
+    match o? {
+        Some(x) => Some(x),
+        None => Some(-1),
+    }
+}
+
+fn Main() {
+    PrintLine(Temps(Some(1)).unwrap_or(0));
+    PrintLine(Temps(None).unwrap_or(0));
+    match Moves(3) {
+        Ok(n) => PrintLine(n),
+        Err(d) => PrintLine(d.N),
+    }
+    match Moves(-4) {
+        Ok(n) => PrintLine(n),
+        Err(d) => PrintLine(d.N + 1000),
+    }
+    PrintLine(Nested(5).unwrap_or(0));
+    PrintLine(Nested(1).unwrap_or(0));
+    PrintLine(Nested(0).unwrap_or(0));
+    let h = Holder { Value: Some(4), Name: Some(Make(9)) };
+    PrintLine(h.Get().unwrap_or(0));
+    PrintLine(h.Take().unwrap_or(0));
+    let h2 = Holder { Value: None, Name: None };
+    PrintLine(h2.Get().is_none());
+    PrintLine(h2.Take().is_none());
+    let o = Some(3);
+    PrintLine(*Refs(&o).unwrap());
+    PrintLine(Refs(&None).is_none());
+    PrintLine(InLoop(&[Some(1), Some(2), Some(9), None]).unwrap_or(-1));
+    PrintLine(InLoop(&[Some(1), None, Some(2)]).unwrap_or(-1));
+    PrintLine(InMatch(Some(Some(3))).unwrap_or(0));
+    PrintLine(InMatch(Some(None)).unwrap_or(0));
+    PrintLine(InMatch(None).unwrap_or(0));
+}

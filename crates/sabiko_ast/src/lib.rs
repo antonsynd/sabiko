@@ -643,6 +643,9 @@ pub enum ExprKind {
     /// `e.Name`, or `e.0` on a tuple: the name is the index as written (`0`, `01`, `0x1`;
     /// only a plain decimal one names a tuple field).
     Field(Box<Expr>, Ident),
+    /// `e?`: the value inside an `Option`'s `Some` or a `Result`'s `Ok`, or an early
+    /// return of `None` or of the `Err` (decision 93).
+    Try(Box<Expr>),
     Index(Box<Expr>, Box<Expr>),
     /// `a..b`, `a..`, `..b`, `..`, `a..=b`, `..=b` (an inclusive range always has an end).
     /// Only the whole index of an [`ExprKind::Index`] is parsed as a range (#10); its span

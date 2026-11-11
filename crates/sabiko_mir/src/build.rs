@@ -50,7 +50,7 @@ use sabiko_ast::{
     SourceFile, Stmt, StmtKind, UnOp,
 };
 use sabiko_diagnostics::DiagnosticSink;
-use sabiko_resolve::{Builtin, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_resolve::{Builtin, CoreItem, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
 use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
@@ -1495,6 +1495,7 @@ impl<'a> Builder<'a> {
             ExprKind::Break(value) => self.lower_break(value.as_deref(), span),
             ExprKind::Continue => self.lower_continue(span),
             ExprKind::Return(value) => self.lower_return(value.as_deref(), span),
+            ExprKind::Try(operand) => self.lower_try(dest, expr, operand),
             ExprKind::Match { scrutinee, arms } => {
                 self.lower_match(Some(ValueDest::plain(dest)), scrutinee, arms, span);
             }
@@ -1599,12 +1600,34 @@ impl<'a> Builder<'a> {
                 }
                 let ty = Ty::Ref(m, Box::new(place.ty(&self.body)));
                 let temp = self.new_temp(ty, receiver.span);
+                // A borrow unsized at once is used, so activated, right there: an
+                // ordinary one.
                 let kind = match m {
-                    Mutability::Mut => BorrowKind::Mut { two_phase: true },
+                    Mutability::Mut => BorrowKind::Mut {
+                        two_phase: !callee.unsize,
+                    },
                     Mutability::Not => BorrowKind::Shared,
                 };
                 self.assign(Place::local(temp), Rvalue::Ref(kind, place), receiver.span);
-                self.place_operand(Place::local(temp))
+                let borrowed = self.place_operand(Place::local(temp));
+                match self.body.local_decl(temp).ty.clone() {
+                    // `a.get(i)` on an array: the borrow is unsized to the slice the
+                    // method takes, as rustc's probe adjusts it.
+                    Ty::Ref(m, inner) if callee.unsize => {
+                        let Ty::Array(elem, _) = *inner else {
+                            unreachable!("only an array receiver is unsized")
+                        };
+                        let slice = Ty::Ref(m, Box::new(Ty::Slice(elem)));
+                        let unsized_ref = self.new_temp(slice.clone(), receiver.span);
+                        self.assign(
+                            Place::local(unsized_ref),
+                            Rvalue::PointerCoercion(borrowed, slice),
+                            receiver.span,
+                        );
+                        self.place_operand(Place::local(unsized_ref))
+                    }
+                    _ => borrowed,
+                }
             }
             None if callee.autoderefs == 0 => self.as_operand(receiver),
             None => {
@@ -2489,6 +2512,74 @@ impl<'a> Builder<'a> {
         let scope = self.loops.last().expect("`continue` inside a loop");
         let (header, depth) = (scope.header, scope.scope_depth);
         self.exit_to(depth, header, span);
+    }
+
+    /// `e?` into `dest` (decision 93), as rustc's `match Try::branch(e) { Continue(v) =>
+    /// v, Break(r) => return FromResidual::from_residual(r) }` behaves: `e` is evaluated
+    /// into a temporary of the statement, its discriminant is tested, and either the
+    /// `Some`/`Ok` value moves into `dest`, or the function returns `None`/`Err(err)` (the
+    /// error moved out of the temporary; the type checker allows only an error of the
+    /// function's own type, so `From::from` is the identity), dropping every live local
+    /// on the way as `return` does.
+    fn lower_try(&mut self, dest: &Place, expr: &Expr, operand: &Expr) {
+        let span = self.span_of(expr);
+        let question = Span::new(span.file, operand.span.end, span.end);
+        let kind = self.types.try_exprs[&expr.id];
+        let temp = self.as_temp(operand);
+        let Ty::Adt(adt, args) = self.body.local_decl(temp).ty.clone() else {
+            unreachable!("the operand of `?` is an `Option` or a `Result`")
+        };
+        let (continue_index, break_index) = self.resolve.try_variants(kind);
+        let discr = self.new_temp(Ty::Prim(PrimTy::Isize), question);
+        self.assign(
+            Place::local(discr),
+            Rvalue::Discriminant(Place::local(temp)),
+            question,
+        );
+        let value_bb = self.new_block();
+        let break_bb = self.new_block();
+        #[allow(clippy::cast_sign_loss)]
+        let continue_discr = self.typeck.items.adt(adt).variant(continue_index).discr as u128;
+        self.switch_int(
+            Operand::Copy(Place::local(discr)),
+            vec![(continue_discr, value_bb)],
+            break_bb,
+            question,
+        );
+        // The early return: `None`, or `Err` with the error, at the function's own type.
+        self.enter(break_bb);
+        let ret = Place::local(Local::RETURN);
+        let Ty::Adt(ret_adt, ret_args) = ret.ty(&self.body) else {
+            unreachable!("a function using `?` returns an `Option` or a `Result`")
+        };
+        let mut operands = Vec::new();
+        if kind == CoreItem::Result {
+            let err_ty = self
+                .typeck
+                .items
+                .field_tys(&Ty::Adt(adt, args), Some(break_index))
+                .swap_remove(0);
+            let err = Place::local(temp).downcast(break_index).field(0, err_ty);
+            operands.push(self.place_operand(err));
+        }
+        self.assign(
+            ret,
+            Rvalue::Aggregate(
+                AggregateKind::Variant(ret_adt, break_index, ret_args),
+                operands,
+            ),
+            question,
+        );
+        let target = self.return_block();
+        self.leave_to(0, target, question);
+        // The value.
+        self.enter(value_bb);
+        let value_ty = self.ty(expr).clone();
+        let value = Place::local(temp)
+            .downcast(continue_index)
+            .field(0, value_ty);
+        let op = self.place_operand(value);
+        self.assign(dest.clone(), Rvalue::Use(op), span);
     }
 
     fn lower_return(&mut self, value: Option<&Expr>, span: Span) {

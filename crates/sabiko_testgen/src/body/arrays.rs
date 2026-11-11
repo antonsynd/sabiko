@@ -663,6 +663,12 @@ impl BodyGen<'_> {
             let ranged = format!("{base}[{range}]");
             let index = self.index_expr(&ranged, None, false);
             format!("{ranged}[{index}]")
+        } else if self.prog.prelude && self.rng.chance(25) {
+            // Through the slice method `get` (decision 93): the array's borrow unsized, an
+            // `Option<&&T>`, unwrapped and dereferenced (an index out of range panics in
+            // `unwrap`).
+            let index = self.index_expr(&base, Some(n), false);
+            format!("(*{base}.get({index}).unwrap())")
         } else {
             let index = self.index_expr(&base, Some(n), false);
             format!("{base}[{index}]")
@@ -695,6 +701,20 @@ impl BodyGen<'_> {
             let (_, len) = prog.array_of(place.ty).expect("an array");
             let range = self.locked_range(&place, len, false);
             return Some(Expr::value(format!("{receiver}[{range}].len()")));
+        }
+        if self.prog.prelude && self.rng.chance(40) {
+            // A slice method (decision 93) that borrows the place as `.len()` does,
+            // its answer as a `usize`.
+            let (_, len) = prog.array_of(place.ty).expect("an array");
+            let at = self.rng.index(len.unwrap_or(2) + 2);
+            let index = usize_lit(self, at);
+            let probe = match self.rng.index(4) {
+                0 => format!("{receiver}.get({index}).is_some()"),
+                1 => format!("{receiver}.is_empty()"),
+                2 => format!("{receiver}.first().is_none()"),
+                _ => format!("{receiver}.last().is_some()"),
+            };
+            return Some(Expr::value(format!("({probe} as usize)")));
         }
         Some(Expr::value(format!("{receiver}.len()")))
     }

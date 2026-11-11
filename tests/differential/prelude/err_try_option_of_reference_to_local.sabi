@@ -1,0 +1,13 @@
+// The reference `?` takes out of an option borrowing a local cannot be returned.
+fn Get(_anchor: &i32, o: Option<i32>) -> Option<&i32> {
+    let local = o;
+    let r: Option<&i32> = match &local {
+        Some(x) => Some(x),
+        None => None,
+    };
+    Some(r?)
+}
+
+fn Main() {
+    PrintLine(Get(&1, None).is_none());
+}

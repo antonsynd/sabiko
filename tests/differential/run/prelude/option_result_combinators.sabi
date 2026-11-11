@@ -1,0 +1,81 @@
+// The `Option` methods `as_ref`, `as_mut`, `ok_or`, `and`, `or`, `xor` and `zip`, and the
+// `Result` methods `as_ref`, `as_mut`, `and` and `or`, with values that print when they
+// are dropped, so the drops of the discarded operands happen where rustc's do.
+struct D {
+    N: i32,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {
+        Print("drop ");
+        PrintLine(self.N);
+    }
+}
+
+fn Show(o: Option<D>) {
+    match o {
+        Some(d) => {
+            Print("some ");
+            PrintLine(d.N);
+        }
+        None => PrintLine("none"),
+    }
+}
+
+fn Main() {
+    let a: Option<i32> = Some(2);
+    let n: Option<i32> = None;
+    PrintLine(*a.as_ref().unwrap());
+    PrintLine(n.as_ref().is_none());
+    let mut m = Some(5);
+    match m.as_mut() {
+        Some(x) => *x += 10,
+        None => {}
+    }
+    PrintLine(m.unwrap());
+    PrintLine(a.ok_or(7u8).unwrap());
+    PrintLine(n.ok_or(7u8).unwrap_err());
+    PrintLine(a.and(Some(true)).unwrap());
+    PrintLine(n.and(Some(true)).is_none());
+    PrintLine(a.or(Some(9)).unwrap());
+    PrintLine(n.or(Some(9)).unwrap());
+    PrintLine(a.xor(Some(9)).is_none());
+    PrintLine(a.xor(None).unwrap());
+    PrintLine(n.xor(Some(9)).unwrap());
+    PrintLine(n.xor(None).is_none());
+    let z = a.zip(Some(false)).unwrap();
+    PrintLine(z.0);
+    PrintLine(z.1);
+    PrintLine(a.zip(n).is_none());
+
+    Show(Some(D { N: 1 }).and(Some(D { N: 2 })));
+    Show(Some(D { N: 3 }).or(Some(D { N: 4 })));
+    Show(None.or(Some(D { N: 5 })));
+    Show(Some(D { N: 6 }).xor(Some(D { N: 7 })));
+    Show(Some(D { N: 8 }).xor(None));
+    let pair = Some(D { N: 9 }).zip(Some(D { N: 10 }));
+    PrintLine(pair.is_some());
+    let half = Some(D { N: 11 }).zip(None::<D>);
+    PrintLine(half.is_none());
+
+    let r: Result<i32, u8> = Ok(3);
+    let e: Result<i32, u8> = Err(4);
+    PrintLine(*r.as_ref().ok().unwrap());
+    PrintLine(*e.as_ref().err().unwrap());
+    let mut rm: Result<i32, u8> = Err(1);
+    match rm.as_mut() {
+        Ok(v) => *v += 1,
+        Err(x) => *x += 40,
+    }
+    PrintLine(rm.unwrap_err());
+    PrintLine(r.and(Ok::<bool, u8>(true)).unwrap());
+    PrintLine(e.and(Ok::<bool, u8>(true)).unwrap_err());
+    PrintLine(r.or(Err::<i32, bool>(false)).unwrap());
+    PrintLine(e.or(Ok::<i32, bool>(12)).unwrap());
+    let rd: Result<D, D> = Err(D { N: 20 });
+    let rd2 = rd.or(Ok::<D, D>(D { N: 21 }));
+    PrintLine(rd2.is_ok());
+    let rd3: Result<D, D> = Ok(D { N: 22 });
+    let rd4 = rd3.and(Err::<D, D>(D { N: 23 }));
+    PrintLine(rd4.is_err());
+}

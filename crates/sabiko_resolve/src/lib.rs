@@ -266,6 +266,40 @@ impl LangItem {
     }
 }
 
+/// A type of the `core` prelude the compiler itself refers to (rustc's `#[lang]` items
+/// `Option` and `Result`): `e?` matches on one and returns one (decision 93). Found by name
+/// among the prelude's items, so a user type of the same name is never one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CoreItem {
+    /// `enum Option<T> { None, Some(T) }`
+    Option,
+    /// `enum Result<T, E> { Ok(T), Err(E) }`
+    Result,
+}
+
+impl CoreItem {
+    pub const ALL: [CoreItem; 2] = [Self::Option, Self::Result];
+
+    /// The type's name in the prelude.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Option => "Option",
+            Self::Result => "Result",
+        }
+    }
+
+    /// The names of the variant `e?` continues with and of the one it returns early
+    /// with.
+    #[must_use]
+    pub fn try_variant_names(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Option => ("Some", "None"),
+            Self::Result => ("Ok", "Err"),
+        }
+    }
+}
+
 /// A function of the `core` prelude that the compiler implements (decision 90): declared
 /// in Sabiko with `#[intrinsic]` and a placeholder body, so resolution, type checking and
 /// borrow checking treat it as an ordinary generic function; monomorphisation makes no
@@ -275,16 +309,22 @@ pub enum Intrinsic {
     /// `fn PanicDebug<T: Debug>(msg: &str, value: &T) -> !`: panics with `"{msg}:
     /// {value:?}"`, as `Result::unwrap` does (rustc's `unwrap_failed`).
     PanicDebug,
+    /// `<[T]>::len(&self) -> usize`, the slice method (decision 93): the method probe
+    /// finds it as any other, after the methods a user trait gives an array; the type
+    /// checker records a call of it as a length read (`BodyTypes::len_calls`), which MIR
+    /// building lowers to `Len`, so no call of it is ever made.
+    SliceLen,
 }
 
 impl Intrinsic {
-    pub const ALL: [Intrinsic; 1] = [Self::PanicDebug];
+    pub const ALL: [Intrinsic; 2] = [Self::PanicDebug, Self::SliceLen];
 
     /// The function's name in the prelude.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::PanicDebug => "PanicDebug",
+            Self::SliceLen => "len",
         }
     }
 }
@@ -466,8 +506,13 @@ pub struct ResolveResults {
     track_caller: std::collections::HashSet<DefId>,
     /// The prelude's intrinsics (`#[intrinsic]`), whose calls code generation lowers
     /// itself; their bodies are never used.
-    #[allow(clippy::zero_sized_map_values)] // One intrinsic so far; more will come.
     intrinsics: HashMap<DefId, Intrinsic>,
+    /// The prelude's types the compiler refers to (decision 93).
+    core_items: HashMap<CoreItem, DefId>,
+    /// The indices of each one's variants `e?` continues and returns early with.
+    try_variants: HashMap<CoreItem, (usize, usize)>,
+    /// The methods of the prelude's `impl<T> [T]` block, by name (decision 93).
+    slice_methods: HashMap<String, DefId>,
     /// Identifier patterns that name a constant or a unit struct instead of binding
     /// (`LIMIT => ..`), and the path of every path, tuple-struct and struct pattern, keyed
     /// by the `Pat` node.
@@ -580,6 +625,28 @@ impl ResolveResults {
     #[must_use]
     pub fn is_drop_fn(&self, def: DefId) -> bool {
         self.drop_impls.values().any(|&d| d == def)
+    }
+
+    /// The indices of the variants of the prelude's `item` that `e?` continues with
+    /// (`Some`, `Ok`) and returns early with (`None`, `Err`).
+    #[must_use]
+    pub fn try_variants(&self, item: CoreItem) -> (usize, usize) {
+        self.try_variants[&item]
+    }
+
+    /// The method `name` of the prelude's `impl<T> [T]` block, if it has one: an
+    /// inherent method of every slice (and, through unsizing, of every array).
+    #[must_use]
+    pub fn slice_method(&self, name: &str) -> Option<DefId> {
+        self.slice_methods.get(name).copied()
+    }
+
+    /// Which of the prelude's types the compiler refers to `def` is, if any.
+    #[must_use]
+    pub fn core_item_of(&self, def: DefId) -> Option<CoreItem> {
+        CoreItem::ALL
+            .into_iter()
+            .find(|&item| self.core_items.get(&item) == Some(&def))
     }
 
     /// The definition of a language trait (decision 86).
@@ -1151,6 +1218,18 @@ impl Resolver<'_> {
             self.results.item_defs.insert(item.id, id);
             if let ItemKind::Enum(e) = &item.kind {
                 self.collect_variants(id, index, e);
+                let core = CoreItem::ALL.into_iter().find(|c| c.name() == name.name);
+                if let Some(core) = core.filter(|_| index >= self.results.prelude_start) {
+                    self.results.core_items.insert(core, id);
+                    let (cont, brk) = core.try_variant_names();
+                    let at = |name: &str| {
+                        e.variants
+                            .iter()
+                            .position(|v| v.name.name == name)
+                            .expect("the prelude's `Option` and `Result` have their variants")
+                    };
+                    self.results.try_variants.insert(core, (at(cont), at(brk)));
+                }
             }
             if let ItemKind::Trait(t) = &item.kind {
                 self.collect_trait_members(id, index, t);
@@ -1429,21 +1508,24 @@ impl Resolver<'_> {
         self.results.trait_members.insert(tr, members);
     }
 
-    /// A definition for every trait `impl` block, made after every item so the items keep
-    /// their `DefId`s.
+    /// A definition for every trait `impl` block, and for the prelude's inherent block for
+    /// slices, made after every item so the items keep their `DefId`s.
     fn collect_impl_defs(&mut self, file: &SourceFile) {
         for (index, item) in file.items.iter().enumerate() {
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
-            let Some(tr) = &imp.trait_ref else {
-                continue;
+            let name = match &imp.trait_ref {
+                Some(tr) => format!(
+                    "<{} as {}>",
+                    sabiko_ast::pretty::type_str(&imp.self_ty),
+                    sabiko_ast::dump::path_text(&tr.path, "")
+                ),
+                None if self.is_slice_impl(index, imp) => {
+                    format!("<{}>", sabiko_ast::pretty::type_str(&imp.self_ty))
+                }
+                None => continue,
             };
-            let name = format!(
-                "<{} as {}>",
-                sabiko_ast::pretty::type_str(&imp.self_ty),
-                sabiko_ast::dump::path_text(&tr.path, "")
-            );
             let id = self.new_def(DefInfo {
                 kind: DefKind::Impl,
                 name,
@@ -1612,6 +1694,10 @@ impl Resolver<'_> {
                 self.collect_trait_impl(item, index, imp, tr);
                 continue;
             }
+            if self.is_slice_impl(index, imp) {
+                self.collect_slice_impl(item, index, imp);
+                continue;
+            }
             let params = self.impl_param_map(imp);
             self.ty_params.clone_from(&params);
             self.impl_params.insert(index, params);
@@ -1658,6 +1744,50 @@ impl Resolver<'_> {
                     .with_label(other, format!("other definition for `{name}`")),
                 );
             }
+        }
+    }
+
+    /// Whether the item at `index` is the prelude's inherent `impl<T> [T]` block, the
+    /// home of the slice methods (`get`, `first`, ..., decision 93): an inherent block
+    /// for a slice type, which only the prelude may write (a user file's is E0211).
+    fn is_slice_impl(&self, index: usize, imp: &ImplDecl) -> bool {
+        index >= self.results.prelude_start
+            && imp.trait_ref.is_none()
+            && matches!(imp.self_ty.kind, TypeKind::Slice(_))
+    }
+
+    /// The prelude's `impl<T> [T]` block: a block with a definition of its own, like a
+    /// trait `impl` block without a trait, whose `Self` is its type; its methods are
+    /// found by the method probe at a slice receiver ([`ResolveResults::slice_method`]).
+    fn collect_slice_impl(&mut self, item: &Item, index: usize, imp: &ImplDecl) {
+        let imp_def = self.results.def_of_item(item.id);
+        let params: Vec<(String, DefId)> = self
+            .results
+            .generics(imp_def)
+            .iter()
+            .map(|&p| (self.results.def(p).name.clone(), p))
+            .collect();
+        self.impl_params.insert(index, params.clone());
+        self.ty_params = params;
+        self.impl_scope = ImplScope::TraitImpl(imp_def);
+        self.resolve_type(&imp.self_ty, true);
+        self.impl_scope = ImplScope::Outside;
+        self.ty_params.clear();
+        for member in &imp.items {
+            let Some(ident) = member.name() else {
+                continue;
+            };
+            let def = self.results.def_of_item(member.id);
+            self.results.defs[def.0 as usize].parent = Some(imp_def);
+            self.inherit_generics_of(def, imp_def);
+            self.results
+                .impl_items
+                .insert((imp_def, ident.name.clone()), def);
+            let previous = self.results.slice_methods.insert(ident.name.clone(), def);
+            debug_assert!(
+                previous.is_none(),
+                "the prelude names each slice method once"
+            );
         }
     }
 
@@ -1987,8 +2117,9 @@ impl Resolver<'_> {
                 }
                 ItemKind::Impl(imp) => {
                     let params = self.impl_params.get(&index).cloned().unwrap_or_default();
-                    let trait_impl =
-                        imp.trait_ref.is_some() && self.results.item_defs.contains_key(&item.id);
+                    // A trait `impl` block, or the prelude's `impl<T> [T]`: a block with a
+                    // definition of its own, which holds its bounds.
+                    let trait_impl = self.results.item_defs.contains_key(&item.id);
                     self.impl_scope = if trait_impl {
                         ImplScope::TraitImpl(self.results.def_of_item(item.id))
                     } else {
@@ -3570,6 +3701,7 @@ impl Resolver<'_> {
             | ExprKind::Unary(_, e)
             | ExprKind::Deref(e)
             | ExprKind::Field(e, _)
+            | ExprKind::Try(e)
             | ExprKind::Ref { expr: e, .. } => self.resolve_expr(e),
             ExprKind::Binary(_, a, b)
             | ExprKind::Assign(a, b)

@@ -1,0 +1,7 @@
+// `get` out of range is `None`, not a panic; `unwrap` on it panics at the `unwrap`.
+fn Main() {
+    let a = [1, 2, 3];
+    let s: &[i32] = &a;
+    PrintLine(s.get(3).is_none());
+    PrintLine(*a.get(7).unwrap());
+}

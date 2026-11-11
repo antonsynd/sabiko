@@ -16,6 +16,11 @@ SourceFile
         Init
           Path t
       Let
+        Pat r
+        Init
+          Try
+            Path x
+      Let
         Pat t
         Init
           Field 0
@@ -101,15 +106,6 @@ SourceFile
  3 │     for i in xs { }
    │     ─┬─  
    │      ╰─── not supported in this version of Sabiko
-   │ 
-   │ Note: planned for Phase 5; see docs/PLAN.md
-───╯
-[E0107] Error: not yet supported: the `?` operator
-   ╭─[ errors_unsupported.sabi:5:14 ]
-   │
- 5 │     let r = x?;
-   │              ┬  
-   │              ╰── not supported in this version of Sabiko
    │ 
    │ Note: planned for Phase 5; see docs/PLAN.md
 ───╯
