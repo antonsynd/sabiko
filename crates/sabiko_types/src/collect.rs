@@ -510,17 +510,9 @@ fn field_def(
 /// from `lens`; one that failed to evaluate makes the array an error type.
 pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLens) -> Ty {
     match &ty.kind {
-        TypeKind::Path(path) => match resolve.res(ty.id) {
-            Res::Prim(p) => Ty::Prim(p),
-            Res::Def(d) if resolve.def(d).kind == DefKind::TyParam => Ty::Param(d),
-            // `Self` in a trait `impl` block.
-            Res::Def(d) if resolve.def(d).kind == DefKind::Impl => {
-                lens.impl_self.get(&d).cloned().unwrap_or(Ty::Error)
-            }
-            Res::Def(d) => adt_type(d, path, resolve, &mut |t| lower_sig_type(t, resolve, lens)),
-            Res::Local(_) => unreachable!("locals never resolve in type position"),
-            Res::Err => Ty::Error,
-        },
+        TypeKind::Path(path) => lower_path_type(ty, path, resolve, lens, &mut |t| {
+            lower_sig_type(t, resolve, lens)
+        }),
         TypeKind::Ref { mutable, inner } => Ty::Ref(
             Mutability::from_bool(*mutable),
             Box::new(lower_sig_type(inner, resolve, lens)),
@@ -543,6 +535,28 @@ pub(crate) fn lower_sig_type(ty: &Type, resolve: &ResolveResults, lens: &ArrayLe
         TypeKind::Slice(elem) => Ty::Slice(Box::new(lower_sig_type(elem, resolve, lens))),
         TypeKind::Infer => Ty::Error,
         TypeKind::Never => Ty::Never,
+    }
+}
+
+/// The type the path type `ty` (`path`) names, its generic arguments lowered by
+/// `lower_arg`: the signature's lowering or a body's (#137).
+pub(crate) fn lower_path_type(
+    ty: &Type,
+    path: &sabiko_ast::Path,
+    resolve: &ResolveResults,
+    lens: &ArrayLens,
+    lower_arg: &mut dyn FnMut(&Type) -> Ty,
+) -> Ty {
+    match resolve.res(ty.id) {
+        Res::Prim(p) => Ty::Prim(p),
+        Res::Def(d) if resolve.def(d).kind == DefKind::TyParam => Ty::Param(d),
+        // `Self` in a trait `impl` block.
+        Res::Def(d) if resolve.def(d).kind == DefKind::Impl => {
+            lens.impl_self.get(&d).cloned().unwrap_or(Ty::Error)
+        }
+        Res::Def(d) => adt_type(d, path, resolve, lower_arg),
+        Res::Local(_) => unreachable!("locals never resolve in type position"),
+        Res::Err => Ty::Error,
     }
 }
 
@@ -571,16 +585,35 @@ pub(crate) fn adt_type(
     }
 }
 
-/// `str` and `[T]` are only valid behind a reference, not by value nor as a tuple or
-/// array element; a slice's element must be sized. Reports and returns `false` otherwise.
+/// A value of type `ty` must be sized, and so must every type `ty` contains where
+/// `Sized` is required (see [`check_well_formed`]): `str` and `[T]` are only valid behind
+/// a reference. Reports the first unsized type and returns `false` if there is one.
 pub(crate) fn check_sized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> bool {
     match ty {
+        Ty::Prim(PrimTy::Str) | Ty::Slice(_) => report_unsized(ty, span, sink),
+        _ => check_well_formed(ty, span, sink),
+    }
+}
+
+/// Every type inside `ty` that must be sized is: a tuple's elements, an array's or a
+/// slice's element, and every generic argument of a struct or enum (each type parameter
+/// is `Sized`; there is no `?Sized`), at any depth, behind references too (`&W<[i32]>`,
+/// #137). `ty` itself may be unsized (the referent of a reference, an `impl` block's
+/// type). One structural walk for every position a type is written in. Reports the first
+/// unsized type and returns `false` if there is one.
+pub(crate) fn check_well_formed(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> bool {
+    match ty {
         Ty::Tuple(elems) => elems.iter().all(|e| check_sized(e, span, sink)),
-        Ty::Array(elem, _) => check_sized(elem, span, sink),
-        Ty::Ref(_, inner) => match &**inner {
-            Ty::Slice(elem) => check_sized(elem, span, sink),
-            _ => true,
-        },
+        Ty::Array(elem, _) | Ty::Slice(elem) => check_sized(elem, span, sink),
+        Ty::Adt(_, args) => args.iter().all(|a| check_sized(a, span, sink)),
+        Ty::Ref(_, inner) => check_well_formed(inner, span, sink),
+        _ => true,
+    }
+}
+
+/// E0208 for the unsized `ty` (`str` or a slice), as rustc's E0277.
+fn report_unsized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> bool {
+    match ty {
         Ty::Prim(PrimTy::Str) => {
             sink.emit(
                 Diagnostic::error(
@@ -606,7 +639,7 @@ pub(crate) fn check_sized(ty: &Ty, span: Span, sink: &mut DiagnosticSink) -> boo
             );
             false
         }
-        _ => true,
+        _ => unreachable!("only `str` and slices are unsized"),
     }
 }
 
@@ -695,8 +728,10 @@ pub(crate) fn collect(
     let mut lens = lens.clone();
     for item in &file.items {
         if let ItemKind::Impl(imp) = &item.kind {
+            let ty = lower_sig_type(&imp.self_ty, resolve, &lens);
+            // The block's type may be unsized itself, not its arguments: `W<[i32]>`.
+            check_well_formed(&ty, imp.self_ty.span, sink);
             if let Some(def) = resolve.item_def(item.id) {
-                let ty = lower_sig_type(&imp.self_ty, resolve, &lens);
                 lens.impl_self.insert(def, ty);
             }
         }

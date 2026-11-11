@@ -1,0 +1,35 @@
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/let_type_unknown.sabi:10:9 ]
+    │
+ 10 │     let _; //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving this pattern a type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/let_type_unknown.sabi:14:9 ]
+    │
+ 14 │     let (_, _); //~ ERROR E0313 type annotations needed
+    │         ───┬──  
+    │            ╰──── consider giving this pattern a type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/let_type_unknown.sabi:18:12 ]
+    │
+ 18 │     let _: W<_>; //~ ERROR E0313 type annotations needed
+    │            ──┬─  
+    │              ╰─── cannot infer type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/let_type_unknown.sabi:22:17 ]
+    │
+ 22 │     let (_, x): (_, i32); //~ ERROR E0313 type annotations needed
+    │                 ────┬───  
+    │                     ╰───── cannot infer type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/let_type_unknown.sabi:27:10 ]
+    │
+ 27 │     let (a, _); //~ ERROR E0313 type annotations needed
+    │          ┬  
+    │          ╰── consider giving `a` an explicit type
+────╯

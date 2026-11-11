@@ -1,0 +1,79 @@
+// Types written in a body with arrays and `_` among a struct's or enum's generic
+// arguments, at any depth: `let` annotations and turbofish (#137: they lowered to an
+// error type).
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct Pair<A, B> {
+    First: A,
+    Second: B,
+}
+
+const N: usize = 3;
+
+fn Wrap<T>(x: T) -> Opt<T> {
+    Opt::Yes(x)
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Main() {
+    let o: Opt<[i32; 2]> = Opt::Yes([1, 2]);
+    match o {
+        Opt::Yes(a) => PrintLine(a[0] + a[1]),
+        Opt::No => {}
+    }
+    let x: Opt<_> = Wrap(300);
+    if let Opt::Yes(v) = x {
+        PrintLine(v);
+    }
+    let s: Option<[u8; N]> = Some([7; N]);
+    PrintLine(s.unwrap()[2]);
+    let arr = [4, 5, 6];
+    let whole: &[i32] = &arr;
+    let r: Opt<&[i32]> = Opt::Yes(whole);
+    if let Opt::Yes(sl) = r {
+        PrintLine(sl.len());
+    }
+    let t: Pair<(i32, _), Opt<&mut [i32; 3]>> = Pair { First: (1, true), Second: Opt::No };
+    PrintLine(t.First.0);
+    PrintLine(t.First.1);
+    let nested: Opt<Opt<[[i32; 2]; 2]>> = Opt::Yes(Opt::Yes([[1, 2], [3, 4]]));
+    if let Opt::Yes(Opt::Yes(m)) = nested {
+        PrintLine(m[1][0]);
+    }
+    let i = Id::<Opt<[u8; 2]>>(Opt::Yes([9, 8]));
+    if let Opt::Yes(b) = i {
+        PrintLine(b[1]);
+    }
+    let w: Pair<_, [Opt<_>; 2]> = Pair { First: 'c', Second: [Opt::Yes(1u8), Opt::No] };
+    PrintLine(w.First);
+    let mut k = 0;
+    let mut j = 0;
+    while j < 2 {
+        if let Opt::Yes(v) = w.Second[j] {
+            k += v;
+        }
+        j += 1;
+    }
+    PrintLine(k);
+    let p: Option<Result<[i64; 1], ()>> = Some(Ok([42]));
+    if let Some(Ok(z)) = p {
+        PrintLine(z[0]);
+    }
+    // Turbofish on a variant and on its enum, and on a generic call.
+    let b = Opt::<[u8; 2]>::Yes([1, 2]);
+    let c = Opt::Yes::<[i32; 0]>([]);
+    if let Opt::Yes(x) = b {
+        PrintLine(x[1]);
+    }
+    if let Opt::Yes(y) = c {
+        PrintLine(y.len());
+    }
+    let e = None::<[i32; 4]>;
+    PrintLine(e.is_none());
+}

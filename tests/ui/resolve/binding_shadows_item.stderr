@@ -1,0 +1,157 @@
+[E0225] Error: function parameters cannot shadow constants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:17:14 ]
+    │
+  8 │ const N: i32 = 3;
+    │       ┬  
+    │       ╰── the constant `N` is defined here
+    │ 
+ 17 │ fn Param(mut N: i32) {} //~ ERROR E0225 function parameters cannot shadow constants
+    │              ┬  
+    │              ╰── cannot be named the same as a constant
+────╯
+[E0225] Error: function parameters cannot shadow unit structs
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:19:17 ]
+    │
+ 10 │ struct Unit;
+    │        ──┬─  
+    │          ╰─── the unit struct `Unit` is defined here
+    │ 
+ 19 │ fn RefParam(ref Unit: i32) {} //~ ERROR E0225 function parameters cannot shadow unit structs
+    │                 ──┬─  
+    │                   ╰─── cannot be named the same as a unit struct
+────╯
+[E0225] Error: match bindings cannot shadow constants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:23:13 ]
+    │
+  8 │ const N: i32 = 3;
+    │       ┬  
+    │       ╰── the constant `N` is defined here
+    │ 
+ 23 │         mut N => 1, //~ ERROR E0225 match bindings cannot shadow constants
+    │             ┬  
+    │             ╰── cannot be named the same as a constant
+────╯
+[E0225] Error: match bindings cannot shadow constants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:26:9 ]
+    │
+  8 │ const N: i32 = 3;
+    │       ┬  
+    │       ╰── the constant `N` is defined here
+    │ 
+ 26 │         N @ 3 => 1, //~ ERROR E0225 match bindings cannot shadow constants
+    │         ┬  
+    │         ╰── cannot be named the same as a constant
+────╯
+[E0225] Error: let bindings cannot shadow unit variants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:30:17 ]
+    │
+ 30 │         let mut None = 5; //~ ERROR E0225 let bindings cannot shadow unit variants
+    │                 ──┬─  
+    │                   ╰─── cannot be named the same as a unit variant
+    │
+    ├─[ library/core/option.sabi:11:5 ]
+    │
+ 11 │     None,
+    │     ──┬─  
+    │       ╰─── the unit variant `None` is defined here
+────╯
+[E0225] Error: let bindings cannot shadow unit structs
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:33:17 ]
+    │
+ 10 │ struct Unit;
+    │        ──┬─  
+    │          ╰─── the unit struct `Unit` is defined here
+    │ 
+ 33 │         let ref Unit = 1; //~ ERROR E0225 let bindings cannot shadow unit structs
+    │                 ──┬─  
+    │                   ╰─── cannot be named the same as a unit struct
+────╯
+[E0225] Error: let bindings cannot shadow constants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:36:21 ]
+    │
+  8 │ const N: i32 = 3;
+    │       ┬  
+    │       ╰── the constant `N` is defined here
+    │ 
+ 36 │         let ref mut N = 2; //~ ERROR E0225 let bindings cannot shadow constants
+    │                     ┬  
+    │                     ╰── cannot be named the same as a constant
+────╯
+[E0225] Error: let bindings cannot shadow constants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:38:16 ]
+    │
+  8 │ const N: i32 = 3;
+    │       ┬  
+    │       ╰── the constant `N` is defined here
+    │ 
+ 38 │     if let mut N = 4 {} //~ ERROR E0225 let bindings cannot shadow constants
+    │                ┬  
+    │                ╰── cannot be named the same as a constant
+────╯
+[E0225] Error: let bindings cannot shadow unit variants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:39:19 ]
+    │
+ 39 │     while let ref None = 1 { //~ ERROR E0225 let bindings cannot shadow unit variants
+    │                   ──┬─  
+    │                     ╰─── cannot be named the same as a unit variant
+    │
+    ├─[ library/core/option.sabi:11:5 ]
+    │
+ 11 │     None,
+    │     ──┬─  
+    │       ╰─── the unit variant `None` is defined here
+────╯
+[E0225] Error: let bindings cannot shadow constants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:43:22 ]
+    │
+  8 │ const N: i32 = 3;
+    │       ┬  
+    │       ╰── the constant `N` is defined here
+    │ 
+ 43 │         let Some(mut N) = Some(1) else { //~ ERROR E0225 let bindings cannot shadow constants
+    │                      ┬  
+    │                      ╰── cannot be named the same as a constant
+────╯
+[E0225] Error: let bindings cannot shadow tuple variants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:48:13 ]
+    │
+ 48 │         let Some = 1; //~ ERROR E0225 let bindings cannot shadow tuple variants
+    │             ──┬─  
+    │               ╰─── cannot be named the same as a tuple variant
+    │
+    ├─[ library/core/option.sabi:13:5 ]
+    │
+ 13 │     Some(T),
+    │     ──┬─  
+    │       ╰─── the tuple variant `Some` is defined here
+    │ 
+    │ Note: try specifying the pattern arguments: `Some(..)`
+────╯
+[E0225] Error: match bindings cannot shadow tuple variants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:51:9 ]
+    │
+ 51 │         Ok => 0, //~ ERROR E0225 match bindings cannot shadow tuple variants
+    │         ─┬  
+    │          ╰── cannot be named the same as a tuple variant
+    │
+    ├─[ library/core/result.sabi:13:5 ]
+    │
+ 13 │     Ok(T),
+    │     ─┬  
+    │      ╰── the tuple variant `Ok` is defined here
+    │ 
+    │ Note: try specifying the pattern arguments: `Ok(..)`
+────╯
+[E0225] Error: match bindings cannot shadow unit variants
+    ╭─[ tests/ui/resolve/binding_shadows_item.sabi:54:18 ]
+    │
+ 54 │         Some(mut None @ 2) => 0, //~ ERROR E0225 match bindings cannot shadow unit variants
+    │                  ──┬─  
+    │                    ╰─── cannot be named the same as a unit variant
+    │
+    ├─[ library/core/option.sabi:11:5 ]
+    │
+ 11 │     None,
+    │     ──┬─  
+    │       ╰─── the unit variant `None` is defined here
+────╯

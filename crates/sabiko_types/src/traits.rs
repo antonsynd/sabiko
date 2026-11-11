@@ -73,7 +73,7 @@ impl ItemTypes {
     }
 
     fn implements_at(&self, ty: &Ty, tr: DefId, env: &[Predicate], depth: usize) -> Solution {
-        if depth > DEPTH_LIMIT || has_error(ty) {
+        if depth > DEPTH_LIMIT || ty.references_error() {
             return Solution::Yes;
         }
         if let Ty::Param(p) = ty {
@@ -214,16 +214,6 @@ impl ItemTypes {
 #[must_use]
 pub fn is_unsized(ty: &Ty) -> bool {
     matches!(ty, Ty::Prim(sabiko_resolve::PrimTy::Str) | Ty::Slice(_))
-}
-
-pub(crate) fn has_error(ty: &Ty) -> bool {
-    match ty {
-        Ty::Error => true,
-        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => has_error(inner),
-        Ty::Tuple(elems) => elems.iter().any(has_error),
-        Ty::Adt(_, args) => args.iter().any(has_error),
-        _ => false,
-    }
 }
 
 /// Whether `ty` is an instance of the pattern `pat`, whose parameters `params` stand for

@@ -33,7 +33,7 @@ fn Discarded(a: i32, p: &i32) {
     Twice(a);
     a + 1;
     *p;
-    let _;
+    let _: i32;
     let _ = Twice(a) + Twice(*p);
 }
 

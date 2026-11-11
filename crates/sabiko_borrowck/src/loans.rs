@@ -134,6 +134,9 @@ impl Reporter<'_> {
             .collect();
         // Points where a guard's fake borrow was reported.
         let mut guarded: HashSet<Point> = HashSet::new();
+        // Places reported as accessed at a span: one report each, as rustc's
+        // `access_place_error_reported` (an inclusive range's two comparisons).
+        let mut accessed: HashSet<(Span, Place)> = HashSet::new();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {
                 continue;
@@ -147,6 +150,12 @@ impl Reporter<'_> {
             // shallow borrow of `r`: one report is enough, the reborrow's.
             if self.is_shallow(loan) && real.contains(&point) {
                 continue;
+            }
+            if let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) {
+                let key = (self.span_at(location), invalidation.place.clone());
+                if !accessed.insert(key) {
+                    continue;
+                }
             }
             if let Some(diag) = self.loan_error(location, point, loan) {
                 sink.emit(diag);

@@ -1,0 +1,39 @@
+// `?` on an `Option` or a `Result` whose value or error type is an array (#137: an
+// array as a generic argument lowered to an error type, so these were E0107 until then),
+// on both paths of each.
+fn Payload(o: Option<[u8; 2]>) -> Option<u8> {
+    let a = o?;
+    Some(a[0] + a[1])
+}
+
+fn ResultPayload(r: Result<[u8; 2], u8>) -> Result<u8, u8> {
+    let a = r?;
+    Ok(a[0] * a[1])
+}
+
+fn ErrorPayload(r: Result<u8, [u8; 2]>) -> Result<u8, [u8; 2]> {
+    Ok(r? + 1)
+}
+
+fn Nested(o: Option<[Option<i32>; 2]>) -> Option<i32> {
+    let a = o?;
+    let b = a[1]?;
+    Some(b * 10)
+}
+
+fn Main() {
+    PrintLine(Payload(Some([3, 4])).unwrap_or(0));
+    PrintLine(Payload(None).is_none());
+    PrintLine(ResultPayload(Ok([5, 6])).unwrap());
+    PrintLine(ResultPayload(Err(9)).unwrap_err());
+    // (`unwrap` needs `Debug` of the error type, which arrays do not have yet.)
+    match ErrorPayload(Ok(7)) {
+        Ok(v) => PrintLine(v),
+        Err(_) => PrintLine(0),
+    }
+    let e = ErrorPayload(Err([1, 2])).unwrap_err();
+    PrintLine(e[0] + e[1]);
+    PrintLine(Nested(Some([None, Some(4)])).unwrap());
+    PrintLine(Nested(Some([Some(1), None])).is_none());
+    PrintLine(Nested(None).is_none());
+}

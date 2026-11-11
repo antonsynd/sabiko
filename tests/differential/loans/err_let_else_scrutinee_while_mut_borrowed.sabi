@@ -1,0 +1,10 @@
+// A let-else testing the variant of a mutably borrowed enum reads it: E0503 (at the
+// scrutinee).
+enum Opt { No, Yes(i32) }
+
+fn Main() {
+    let mut o = Opt::Yes(1);
+    let r = &mut o;
+    let Opt::Yes(_) = o else { return; };
+    let s = r;
+}

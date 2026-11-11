@@ -209,9 +209,9 @@ fn programs_use_128_bit_integers() {
     coverage(
         "128_bit_integers",
         &[
-            ("i128", signed, 271),
-            ("u128", unsigned, 270),
-            ("the `i128::MIN` literal", min_literal, 3),
+            ("i128", signed, 273),
+            ("u128", unsigned, 272),
+            ("the `i128::MIN` literal", min_literal, 5),
         ],
     );
 }
@@ -264,8 +264,8 @@ fn programs_use_methods() {
         "methods",
         &[
             ("impl block", impls, 302),
-            ("method call", calls, 222),
-            ("argument reading the receiver", reads_receiver, 12),
+            ("method call", calls, 219),
+            ("argument reading the receiver", reads_receiver, 11),
         ],
     );
 }
@@ -310,7 +310,7 @@ fn programs_have_unreachable_patterns() {
     }
     coverage(
         "unreachable_patterns",
-        &[("unreachable pattern (default and borrow-clean)", found, 76)],
+        &[("unreachable pattern (default and borrow-clean)", found, 75)],
     );
 }
 
@@ -347,7 +347,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.starts_with("    ") && l.ends_with(',') && l.contains(" = "))
             },
-            45,
+            46,
         ),
         (
             "`match` statement",
@@ -355,7 +355,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("match ") && l.ends_with('{'))
             },
-            216,
+            217,
         ),
         (
             "`let` = `match`",
@@ -363,10 +363,10 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.contains(" = match ") && l.ends_with('{'))
             },
-            23,
+            22,
         ),
-        ("inline `match`", |s| s.contains("(match "), 199),
-        ("`if let`", |s| s.contains("if let "), 141),
+        ("inline `match`", |s| s.contains("(match "), 195),
+        ("`if let`", |s| s.contains("if let "), 138),
         ("`while let`", |s| s.contains("while let "), 9),
         (
             "`let`-`else`",
@@ -374,7 +374,7 @@ fn programs_use_enums_and_match() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("let ") && l.ends_with(" else {"))
             },
-            92,
+            88,
         ),
         (
             "guard",
@@ -384,9 +384,9 @@ fn programs_use_enums_and_match() {
             },
             123,
         ),
-        ("`ref` binding", |s| s.contains("ref "), 115),
-        ("`ref mut` binding", |s| s.contains("ref mut "), 54),
-        ("`@` binding", |s| s.contains(" @ "), 46),
+        ("`ref` binding", |s| s.contains("ref "), 117),
+        ("`ref mut` binding", |s| s.contains("ref mut "), 56),
+        ("`@` binding", |s| s.contains(" @ "), 45),
         ("range pattern", |s| s.contains("..="), 246),
         (
             "or-pattern",
@@ -494,7 +494,7 @@ fn programs_use_arrays() {
         (
             "array type",
             |s| s.contains(": [") || s.contains("-> ["),
-            308,
+            307,
         ),
         ("nested array type", |s| s.contains("[["), 17),
         ("zero-length array", |s| s.contains("; 0]"), 33),
@@ -506,9 +506,9 @@ fn programs_use_arrays() {
                     .iter()
                     .any(|n| s.contains(&format!("; {n}]")) || s.contains(&format!("; {n} + ")))
             },
-            63,
+            62,
         ),
-        ("slice type", has_slice_type, 95),
+        ("slice type", has_slice_type, 96),
         (
             "array field",
             |s| {
@@ -517,24 +517,24 @@ fn programs_use_arrays() {
             },
             117,
         ),
-        ("array in a tuple", has_array_in_tuple, 31),
+        ("array in a tuple", has_array_in_tuple, 32),
         ("array in an enum payload", has_array_payload, 111),
-        ("array of an `impl Drop` type", has_drop_array, 35),
-        ("`.len()`", |s| s.contains(".len()"), 270),
+        ("array of an `impl Drop` type", has_drop_array, 34),
+        ("`.len()`", |s| s.contains(".len()"), 271),
         (
             "`while i < s.len()`",
             |s| {
                 s.lines()
                     .any(|l| l.trim_start().starts_with("while ") && l.ends_with(".len() {"))
             },
-            42,
+            43,
         ),
         (
             "computed index",
             |s| s.contains("[(") && s.contains(" % "),
             263,
         ),
-        ("element write", |s| writes_element(s, "="), 226),
+        ("element write", |s| writes_element(s, "="), 224),
         (
             "element compound assignment",
             |s| {
@@ -544,11 +544,11 @@ fn programs_use_arrays() {
             },
             8,
         ),
-        ("borrow of an element", borrows_element, 152),
+        ("borrow of an element", borrows_element, 153),
         (
             "repeat expression",
             |s| s.contains("; ") && s.contains("= ["),
-            214,
+            216,
         ),
         (
             "out-of-bounds-prone index",
@@ -663,7 +663,7 @@ fn programs_use_strings_and_ranges() {
             59,
         ),
         ("`-> &str`", |s| s.contains("-> &str {"), 18),
-        ("`&str` local", |s| s.contains(": &str = "), 165),
+        ("`&str` local", |s| s.contains(": &str = "), 162),
         (
             "escape in a string",
             |s| {
@@ -673,18 +673,18 @@ fn programs_use_strings_and_ranges() {
                 .iter()
                 .any(|e| s.contains(e))
             },
-            140,
+            136,
         ),
-        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 186),
+        ("`a..b`", |s| any_range(s, |_, _, _, f| f == "a..b"), 182),
         ("`a..`", |s| any_range(s, |_, _, _, f| f == "a.."), 167),
-        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 133),
-        ("`..`", |s| any_range(s, |_, _, _, f| f == ".."), 82),
-        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 146),
-        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 113),
+        ("`..b`", |s| any_range(s, |_, _, _, f| f == "..b"), 138),
+        ("`..`", |s| any_range(s, |_, _, _, f| f == ".."), 79),
+        ("`a..=b`", |s| any_range(s, |_, _, _, f| f == "a..=b"), 145),
+        ("`..=b`", |s| any_range(s, |_, _, _, f| f == "..=b"), 111),
         (
             "computed bound",
             |s| any_range(s, |l, open, close, _| l[open..close].contains(" % ")),
-            165,
+            166,
         ),
         (
             "bound measuring the base",
@@ -694,7 +694,7 @@ fn programs_use_strings_and_ranges() {
         (
             "slice of a string literal",
             |s| any_range(s, |l, open, _, _| l[..open].ends_with('"')),
-            294,
+            291,
         ),
         (
             "range of a range",
@@ -706,12 +706,12 @@ fn programs_use_strings_and_ranges() {
                         .any(|&(_, close, _)| groups.iter().any(|&(open, _, _)| open == close + 1))
                 })
             },
-            149,
+            144,
         ),
         (
             "`.len()` of a range place",
             |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with(".len()")),
-            184,
+            181,
         ),
         (
             "`&mut` of a range place",
@@ -730,7 +730,7 @@ fn programs_use_strings_and_ranges() {
             |s| any_range(s, |l, _, close, _| l[close + 1..].starts_with('[')),
             195,
         ),
-        ("write through a range place", writes_through_range, 8),
+        ("write through a range place", writes_through_range, 7),
         (
             "`while i < x[..].len()`",
             |s| {
@@ -749,7 +749,7 @@ fn programs_use_strings_and_ranges() {
                     .iter()
                     .any(|op| s.contains(&format!(" {op} \"")) || s.contains(&format!("\" {op} ")))
             },
-            79,
+            81,
         ),
         (
             "`match` arm of string literals",
@@ -757,7 +757,7 @@ fn programs_use_strings_and_ranges() {
                 s.lines()
                     .any(|l| l.trim_start().starts_with('"') && l.contains(" => "))
             },
-            21,
+            22,
         ),
         (
             "string or-pattern",
@@ -864,7 +864,7 @@ fn programs_use_references_to_references() {
         (
             "`&mut` of a reference local",
             |s| line_with_name(s, "let ", ": &mut &"),
-            36,
+            33,
         ),
         (
             "write through `&mut &mut`",
@@ -874,7 +874,7 @@ fn programs_use_references_to_references() {
         (
             "retarget through `&mut &T`",
             |s| line_with_name(s, "*", " = &") || line_with_name(s, "*", " = \""),
-            50,
+            52,
         ),
         (
             "`&&x` argument",
@@ -884,12 +884,12 @@ fn programs_use_references_to_references() {
         (
             "explicit dereferences of a double reference",
             |s| s.lines().any(|l| l.contains("(**")),
-            37,
+            38,
         ),
         (
             "`let` of a borrowed borrow",
             |s| line_with_name(s, "let ", " = &&") || line_with_name(s, "let ", " = &mut &"),
-            13,
+            12,
         ),
     ];
     count_checks("references_to_references", &knobs, &checks);
@@ -918,8 +918,8 @@ fn programs_use_arrays_of_references() {
     coverage(
         "arrays_of_references",
         &[
-            ("index an array of references", any, 67),
-            ("a range of one", ranged, 9),
+            ("index an array of references", any, 62),
+            ("a range of one", ranged, 7),
         ],
     );
 }
@@ -961,8 +961,8 @@ fn programs_extend_temporaries_through_blocks_and_branches() {
         "extended_temporaries",
         &[
             ("extend through a block", block, 66),
-            ("through an `if`", branch, 62),
-            ("through a `match`", arm, 32),
+            ("through an `if`", branch, 60),
+            ("through a `match`", arm, 33),
         ],
     );
 }
@@ -1033,7 +1033,7 @@ fn programs_use_if_let_guards() {
     }
     coverage(
         "if_let_guards",
-        &[("`if let` guard", any, 21), ("one with `&&`", chained, 9)],
+        &[("`if let` guard", any, 18), ("one with `&&`", chained, 8)],
     );
 }
 
@@ -1052,9 +1052,9 @@ fn programs_use_aggregates_of_references() {
         "aggregates_of_references",
         &[
             ("`[&T; N]` local", arrays, 40),
-            ("`&[&T]` local", slices, 24),
-            ("`(&T, U)` local", tuples, 52),
-            ("`[&mut T; 2]` local", muts, 85),
+            ("`&[&T]` local", slices, 27),
+            ("`(&T, U)` local", tuples, 53),
+            ("`[&mut T; 2]` local", muts, 87),
         ],
     );
 }
@@ -1090,13 +1090,13 @@ fn programs_use_trait_helpers() {
     coverage(
         "trait_helpers",
         &[
-            ("`.Keep()`", keeps, 48),
+            ("`.Keep()`", keeps, 49),
             ("`GenKeep::Keep`", paths, 36),
-            ("`GenKept`", kept, 33),
-            ("`.KeepRef()`", refs, 16),
-            ("`.Sign()`", signs, 31),
-            ("`GenSigns`", sums, 34),
-            ("a trait constant", consts, 15),
+            ("`GenKept`", kept, 37),
+            ("`.KeepRef()`", refs, 15),
+            ("`.Sign()`", signs, 35),
+            ("`GenSigns`", sums, 36),
+            ("a trait constant", consts, 16),
             ("`Copy`/`Clone` through a bound", copies, 24),
         ],
     );
@@ -1108,15 +1108,18 @@ fn programs_use_trait_helpers() {
 fn programs_use_the_prelude() {
     let knobs = Knobs::default();
     let patterns = [
-        (").unwrap()", 84),
-        (").expect(\"generated\")", 8),
-        (").unwrap_or(", 36),
-        ("None::<", 39),
-        ("Ok::<", 15),
-        ("Err::<", 22),
-        ("Some(&", 10),
+        (").unwrap()", 90),
+        (").expect(\"generated\")", 4),
+        (").unwrap_or(", 30),
+        ("None::<", 37),
+        ("Ok::<", 14),
+        ("Err::<", 13),
+        ("Some(&", 9),
+        // A type written as a generic argument in an annotation (#137).
+        ("> = Some(", 4),
+        ("> = Ok(", 3),
     ];
-    let mut counts = [0usize; 7];
+    let mut counts = [0usize; 9];
     for seed in coverage_seeds() {
         let src = generate(seed, &knobs);
         for (count, (pattern, _)) in counts.iter_mut().zip(patterns) {
@@ -1137,18 +1140,18 @@ fn programs_use_the_prelude() {
 fn programs_use_try_and_slice_methods() {
     let knobs = Knobs::default();
     let patterns = [
-        ("GenTry(Some(", 9),
+        ("GenTry(Some(", 11),
         ("GenTry(None::<", 7),
-        ("GenTryOk(Ok::<", 4),
+        ("GenTryOk(Ok::<", 5),
         ("GenTryOk(Err::<", 3),
         ("GenTryErr(Err::<", 6),
-        ("GenTryKeep(Some(", 6),
+        ("GenTryKeep(Some(", 7),
         ("GenTryKeep(None::<", 6),
         (".or(Some(", 12),
-        (".and(Some(", 3),
-        (".xor(", 5),
+        (".and(Some(", 4),
+        (".xor(", 6),
         (".ok_or(", 1),
-        (".get(", 11),
+        (".get(", 10),
         (".is_empty()", 4),
         (".first()", 2),
         (".last()", 2),
@@ -1188,11 +1191,11 @@ fn programs_use_generic_helpers() {
         "generic_helpers",
         &[
             ("`GenId`", ids, 75),
-            ("`GenId::<T>`", turbofish, 37),
-            ("`GenPick`", picks, 78),
-            ("`GenFirst`", firsts, 19),
+            ("`GenId::<T>`", turbofish, 36),
+            ("`GenPick`", picks, 76),
+            ("`GenFirst`", firsts, 18),
             ("`GenOr(GenOpt::Yes(..), ..)`", ors, 48),
-            ("`GenOr(GenOpt::No, ..)`", nones, 31),
+            ("`GenOr(GenOpt::No, ..)`", nones, 30),
             ("`GenBox`", boxes, 51),
         ],
     );
@@ -1266,7 +1269,7 @@ fn programs_pass_mut_ref_locals_to_type_parameters() {
         "mut_ref_locals_to_type_parameters",
         &[
             ("moved into a type parameter", moved, 5),
-            ("reborrowed through an annotated `GenId`", reborrowed, 2),
+            ("reborrowed through an annotated `GenId`", reborrowed, 1),
         ],
     );
 }
@@ -1314,10 +1317,10 @@ fn programs_use_reference_open_range_and_float_patterns() {
     coverage(
         "patterns",
         &[
-            ("`&` pattern", deref, 15),
-            ("`&mut` pattern", deref_mut, 4),
+            ("`&` pattern", deref, 17),
+            ("`&mut` pattern", deref_mut, 3),
             ("half-open range pattern", open, 30),
-            ("float pattern", float, 16),
+            ("float pattern", float, 15),
         ],
     );
 }

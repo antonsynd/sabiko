@@ -95,6 +95,19 @@ impl Ty {
         matches!(self, Ty::Error)
     }
 
+    /// Whether the type is `Error` or contains it (an element, a referent, a generic
+    /// argument).
+    #[must_use]
+    pub fn references_error(&self) -> bool {
+        match self {
+            Ty::Error => true,
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => inner.references_error(),
+            Ty::Tuple(elems) => elems.iter().any(Ty::references_error),
+            Ty::Adt(_, args) => args.iter().any(Ty::references_error),
+            _ => false,
+        }
+    }
+
     #[must_use]
     pub fn is_never(&self) -> bool {
         matches!(self, Ty::Never)
@@ -355,5 +368,17 @@ mod tests {
         assert!(tuple(vec![Ty::mut_ref(v)]).has_infer());
         assert!(!tuple(vec![Ty::BOOL, Ty::shared_ref(Ty::Unit)]).has_infer());
         assert!(!Ty::Error.has_infer());
+    }
+
+    #[test]
+    fn references_error_at_any_depth() {
+        let adt = |args: Vec<Ty>| Ty::Adt(DefId(0), args.into());
+        assert!(Ty::Error.references_error());
+        assert!(adt(vec![Ty::I32, Ty::Error]).references_error());
+        assert!(Ty::shared_ref(Ty::Array(Box::new(Ty::Error), 2)).references_error());
+        assert!(Ty::Slice(Box::new(tuple(vec![Ty::BOOL, Ty::Error]))).references_error());
+        assert!(adt(vec![adt(vec![Ty::mut_ref(Ty::Error)])]).references_error());
+        assert!(!adt(vec![Ty::Array(Box::new(Ty::I32), 2), Ty::Unit]).references_error());
+        assert!(!Ty::Infer(TyVid(0)).references_error());
     }
 }

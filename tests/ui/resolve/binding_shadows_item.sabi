@@ -1,0 +1,63 @@
+// Sabiko codes for rustc's: E0225 for E0530.
+// An identifier pattern names the constant, unit struct or unit variant in scope only
+// when it is alone; with `mut`, `ref`, `ref mut` or `@` it can only bind, and a binding may
+// not shadow one of those (#139). Nor may any binding shadow a tuple variant, whose name
+// alone is no pattern. The message names where the pattern binds: `let` (and `if let`,
+// `while let`, let-else), `match` or a parameter. Each case is in a block of its own, as
+// the binding it still makes would shadow the item for the cases after it.
+const N: i32 = 3;
+
+struct Unit;
+
+enum Kind {
+    Small,
+    Big(i32),
+}
+
+fn Param(mut N: i32) {} //~ ERROR E0225 function parameters cannot shadow constants
+
+fn RefParam(ref Unit: i32) {} //~ ERROR E0225 function parameters cannot shadow unit structs
+
+fn Main() {
+    let v = match 5 {
+        mut N => 1, //~ ERROR E0225 match bindings cannot shadow constants
+    };
+    let w = match 3 {
+        N @ 3 => 1, //~ ERROR E0225 match bindings cannot shadow constants
+        _ => 0,
+    };
+    {
+        let mut None = 5; //~ ERROR E0225 let bindings cannot shadow unit variants
+    }
+    {
+        let ref Unit = 1; //~ ERROR E0225 let bindings cannot shadow unit structs
+    }
+    {
+        let ref mut N = 2; //~ ERROR E0225 let bindings cannot shadow constants
+    }
+    if let mut N = 4 {} //~ ERROR E0225 let bindings cannot shadow constants
+    while let ref None = 1 { //~ ERROR E0225 let bindings cannot shadow unit variants
+        break;
+    }
+    {
+        let Some(mut N) = Some(1) else { //~ ERROR E0225 let bindings cannot shadow constants
+            return;
+        };
+    }
+    {
+        let Some = 1; //~ ERROR E0225 let bindings cannot shadow tuple variants
+    }
+    let x = match 1 {
+        Ok => 0, //~ ERROR E0225 match bindings cannot shadow tuple variants
+    };
+    let y = match Some(1) {
+        Some(mut None @ 2) => 0, //~ ERROR E0225 match bindings cannot shadow unit variants
+        _ => 1,
+    };
+    // A variant that no `use` brought into scope is no item of that name: these bind.
+    let mut Small = 1;
+    let k = match Kind::Big(1) {
+        Kind::Small => 0,
+        Kind::Big(ref Big) => *Big,
+    };
+}

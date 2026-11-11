@@ -20,7 +20,7 @@ use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::{has_error, Solution};
+use crate::traits::Solution;
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -245,6 +245,10 @@ pub(crate) struct FnCtxt<'a> {
     local_types: HashMap<LocalId, Ty>,
     /// Pattern spans of locals, for "type annotations needed".
     local_spans: HashMap<LocalId, Span>,
+    /// Each `let`'s declared type, with where to report it if it stays unknown (the
+    /// annotation, else the pattern) and the locals its pattern binds: `let _;` binds none
+    /// that could report it.
+    let_decls: Vec<(Ty, Span, bool, Vec<LocalId>)>,
     field_accesses: HashMap<NodeId, FieldAccess>,
     pat_derefs: HashMap<NodeId, usize>,
     ref_bindings: HashMap<NodeId, Mutability>,
@@ -335,6 +339,7 @@ impl<'a> FnCtxt<'a> {
             expr_spans: HashMap::new(),
             local_types: HashMap::new(),
             local_spans: HashMap::new(),
+            let_decls: Vec::new(),
             field_accesses: HashMap::new(),
             pat_derefs: HashMap::new(),
             ref_bindings: HashMap::new(),
@@ -604,7 +609,16 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             TypeKind::Slice(elem) => Ty::Slice(Box::new(self.lower_type_unchecked(elem))),
-            _ => collect::lower_sig_type(ty, self.resolve, &self.items.sig_cx),
+            // A struct or enum's generic arguments are types in the body too: `_` is an
+            // inference variable and an array length is evaluated here (#137), as at the
+            // top level.
+            TypeKind::Path(path) => {
+                let (resolve, items) = (self.resolve, self.items);
+                collect::lower_path_type(ty, path, resolve, &items.sig_cx, &mut |t| {
+                    self.lower_type_unchecked(t)
+                })
+            }
+            TypeKind::Unit => Ty::Unit,
         }
     }
 
@@ -679,6 +693,12 @@ impl<'a> FnCtxt<'a> {
                     }
                     (None, None) => self.infer.new_var(VarKind::General),
                 };
+                let mut bound = Vec::new();
+                crate::patterns::walk_all_idents(&l.pat, &mut |p| {
+                    bound.extend(self.resolve.local_of_pat(p.id));
+                });
+                let at = l.ty.as_ref().map_or(l.pat.span, |t| t.span);
+                self.let_decls.push((ty.clone(), at, l.ty.is_some(), bound));
                 let init_span = l.init.as_ref().map(|e| e.span);
                 if let Some(els) = &l.els {
                     // The `else` block must diverge: it is checked against `!`, with the
@@ -1880,13 +1900,12 @@ impl<'a> FnCtxt<'a> {
         by_ref: Option<Mutability>,
         init_span: Option<Span>,
     ) {
+        // `..` (no position) matches no one value, so it has no type: an error type would
+        // break the postcondition that one implies a reported error (decision 94).
         for (p, ty) in pats.iter().zip(rest_positions(pats, tys.len())) {
-            match ty {
-                Some(i) => {
-                    let t = tys.get(i).cloned().unwrap_or(Ty::Error);
-                    self.check_pat_in_mode(p, &t, by_ref, init_span);
-                }
-                None => self.pat_types.insert(p.id, Ty::Error).map_or((), |_| ()),
+            if let Some(i) = ty {
+                let t = tys.get(i).cloned().unwrap_or(Ty::Error);
+                self.check_pat_in_mode(p, &t, by_ref, init_span);
             }
         }
     }
@@ -2694,19 +2713,9 @@ impl<'a> FnCtxt<'a> {
             let value = self.infer.resolve_with_defaults(&t.value);
             let from = self.infer.resolve_with_defaults(&t.from);
             let to = self.infer.resolve_with_defaults(&t.to);
-            if has_error(&value) || has_error(&from) || has_error(&to) {
-                if self.sink.error_count() == self.errors_before {
-                    // A type that did not lower with nothing reported in this body: never
-                    // compile the `?` on it.
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::UNSUPPORTED_SYNTAX,
-                            "not yet supported: a type of this `?`",
-                        )
-                        .with_label(t.span, "a type of this `?` could not be lowered")
-                        .with_note("write the types of the `Option` or `Result` out in full"),
-                    );
-                }
+            if value.references_error() || from.references_error() || to.references_error() {
+                // Reported already: an error type implies a reported error (decision 94),
+                // which `typeck` checks before any `?` is lowered.
                 continue;
             }
             if from == to {
@@ -4840,6 +4849,33 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// A declaration whose type is still unknown and whose locals reported nothing
+    /// (`let _;`, `let (_, x): (_, i32);`), as rustc's E0282; `reported` are the locals
+    /// reported already; `quiet` when an earlier error in the body may be the cause (then
+    /// the type becomes an error silently).
+    fn report_unknown_let_types(&mut self, reported: &HashSet<LocalId>, quiet: bool) {
+        for (ty, span, annotated, bound) in std::mem::take(&mut self.let_decls) {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if t.has_infer() && (quiet || bound.iter().any(|l| reported.contains(l))) {
+                self.infer.bind_error(&t);
+            } else if t.has_infer() {
+                let label = if annotated {
+                    "cannot infer type"
+                } else {
+                    "consider giving this pattern a type"
+                };
+                self.error(
+                    Diagnostic::error(
+                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                        "type annotations needed",
+                    )
+                    .with_label(span, label),
+                );
+                self.infer.bind_error(&t);
+            }
+        }
+    }
+
     fn finish(mut self) -> BodyTypes {
         self.select_obligations();
         self.select_try_conversions();
@@ -4858,9 +4894,18 @@ impl<'a> FnCtxt<'a> {
         let mut locals: Vec<(LocalId, Ty)> =
             std::mem::take(&mut self.local_types).into_iter().collect();
         locals.sort_by_key(|(l, _)| *l);
+        // An earlier error in the body may be what left a type unknown (`let x = F(1, 2);`
+        // with the wrong argument count): then, as rustc, nothing more is reported.
+        let quiet = self.sink.error_count() > self.errors_before;
+        let mut reported = HashSet::new();
         for (id, ty) in locals {
             let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() {
+            if t.has_infer() && quiet {
+                reported.insert(id);
+                self.infer.bind_error(&t);
+                t = Ty::Error;
+            } else if t.has_infer() {
+                reported.insert(id);
                 let name = self.resolve.local(id).name.clone();
                 let span = self.local_spans[&id];
                 self.error(
@@ -4876,16 +4921,18 @@ impl<'a> FnCtxt<'a> {
             }
             local_types.insert(id, t);
         }
+        self.report_unknown_let_types(&reported, quiet);
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
         self.check_pending_tries();
         let mut pat_types = HashMap::new();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
-            let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() {
-                t = Ty::Error;
+            let t = self.infer.resolve_with_defaults(&ty);
+            // A pattern of a type nothing constrains was reported above, with its local
+            // or its `let` (`let _;`); it keeps no type rather than an error type.
+            if !t.has_infer() {
+                pat_types.insert(id, t);
             }
-            pat_types.insert(id, t);
         }
         let expr_types = self.resolve_expr_types();
         self.check_pending_negs();

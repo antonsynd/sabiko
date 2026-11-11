@@ -313,12 +313,18 @@ impl InferCtxt {
     }
 
     /// Makes `a` and `b` the same type, binding variables as needed. `Error` unifies with
-    /// anything without binding. `Never` does not unify with other types here: coercion
+    /// anything; a variable unified with it becomes `Error` (as rustc's `ty_error`), so a
+    /// type that only an error determines is not reported again as unknown
+    /// (`fn F() -> Result<i32, Missing> { Ok(1) }`: one E0201, no E0313). `Never` does not unify with other types here: coercion
     /// from `!` is handled by the caller, so that `!` never leaks into a variable.
     pub fn unify(&mut self, a: &Ty, b: &Ty) -> Result<(), UnifyError> {
         let a = self.shallow_resolve(a);
         let b = self.shallow_resolve(b);
         match (&a, &b) {
+            (Ty::Infer(v), Ty::Error) | (Ty::Error, Ty::Infer(v)) => {
+                self.bind(*v, Ty::Error);
+                Ok(())
+            }
             (Ty::Error, _) | (_, Ty::Error) => Ok(()),
             (Ty::Infer(va), Ty::Infer(vb)) => {
                 let (ra, rb) = (self.root(*va), self.root(*vb));

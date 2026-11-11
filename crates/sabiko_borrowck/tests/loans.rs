@@ -1362,13 +1362,11 @@ fn loan_carried_around_a_loop_is_live_at_the_write() {
     mir.goto(bb1, bb1);
     let body = mir.finish();
 
-    // One error per loan: the initial borrow and the one made in the loop.
+    // Both loans, the initial borrow and the one made in the loop, conflict with the
+    // write; it is reported once, as rustc reports an access to a place at a span.
     assert_eq!(
         fx.messages(&body),
-        [
-            "E0410 cannot assign to `x` because it is borrowed",
-            "E0410 cannot assign to `x` because it is borrowed",
-        ]
+        ["E0410 cannot assign to `x` because it is borrowed"]
     );
 }
 

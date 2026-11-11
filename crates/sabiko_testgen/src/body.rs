@@ -901,15 +901,35 @@ impl<'a> BodyGen<'a> {
     /// `Err::<u8, T>(e).unwrap_err()` are `e`; `Some(a).unwrap_or(b)` evaluates (and moves)
     /// both values like a tuple literal and returns `a`, dropping `b` inside the call, as
     /// `GenOr(GenOpt::Yes(a), b)` does; `None::<T>.unwrap_or(b)` is `b`. None of them
-    /// panics. The type is only ever written as a turbofish, never in an annotation:
-    /// TODO(#137): an annotation with an array as a generic argument (`let o:
-    /// Option<[i32; 2]>`) lowers the array to an error type; write one once that is fixed.
+    /// panics. `({ let o: Option<T> = Some(e); o }).unwrap()` is `e` too, its annotation
+    /// writing `T` as a generic argument (an array type among them, #137) or `_`, and
+    /// likewise `Result<T, u8>` or `Result<_, u8>` with `Ok(e)`.
     fn prelude_value(&mut self, ty: ValTy, depth: u32) -> Expr {
         let name = self.prog.val_name(ty);
         if self.rng.chance(50) {
             return self.try_value(ty, &name, depth);
         }
-        match self.rng.weighted(&[30, 10, 10, 10, 20, 20]) {
+        match self.rng.weighted(&[30, 10, 10, 10, 20, 20, 15]) {
+            6 => {
+                let e = self.val_expr(ty, depth);
+                let local = self.fresh_name();
+                let arg = if self.rng.chance(30) { "_" } else { &name };
+                let text = if self.rng.chance(50) {
+                    format!(
+                        "({{ let {local}: Option<{arg}> = Some({}); {local} }}).unwrap()",
+                        e.text
+                    )
+                } else {
+                    format!(
+                        "({{ let {local}: Result<{arg}, u8> = Ok({}); {local} }}).unwrap()",
+                        e.text
+                    )
+                };
+                Expr {
+                    text,
+                    roots: e.roots,
+                }
+            }
             4 => {
                 let a = self.val_expr(ty, depth);
                 let b = self.val_expr(ty, depth);

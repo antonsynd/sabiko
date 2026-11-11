@@ -1,0 +1,35 @@
+// Sabiko codes for rustc's: E0201 for E0412, E0304 for E0061, E0313 for E0282.
+// "Type annotations needed" is not reported where an earlier error may be the cause, as
+// in rustc: a type an unknown type in the signature determines (a variable unified with
+// the error type is the error type), and an unknown type in a body that reported another
+// error (here the argument count, so the call's type parameter stays open).
+trait Df {
+    fn D() -> Self;
+}
+
+fn Make2<T: Df>(a: i32) -> T {
+    T::D()
+}
+
+fn Try(r: Result<i32, Missing>) -> Result<i32, Missing> { //~ ERROR E0201 cannot find type `Missing` in this scope
+    //~^ ERROR E0201 cannot find type `Missing` in this scope
+    Ok(r?)
+}
+
+fn Constructed() -> Result<i32, Missing> { //~ ERROR E0201 cannot find type `Missing` in this scope
+    Ok(1)
+}
+
+fn Wrapped(m: Missing) { //~ ERROR E0201 cannot find type `Missing` in this scope
+    let v = Some(m);
+}
+
+fn Discarded() {
+    let _ = Make2(1, 2); //~ ERROR E0304 this function takes 1 argument but 2 arguments were supplied
+}
+
+fn Named() {
+    let x = Make2(1, 2); //~ ERROR E0304 this function takes 1 argument but 2 arguments were supplied
+}
+
+fn Main() {}

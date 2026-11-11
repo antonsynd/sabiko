@@ -19,3 +19,10 @@
     │         ──┬──  
     │           ╰──── no value can reach this
 ────╯
+[E0331] Warning: irrefutable `if let` pattern
+    ╭─[ tests/ui/typeck/binding_named_like_variant.sabi:20:8 ]
+    │
+ 20 │     if let mut Green = Light::Green {} //~ WARN E0331 irrefutable `if let` pattern
+    │        ──────────────┬─────────────  
+    │                      ╰─────────────── this pattern will always match
+────╯

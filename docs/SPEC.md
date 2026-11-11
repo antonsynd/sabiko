@@ -83,7 +83,9 @@ names which phase owns which section.
   allowed here"); or-patterns
   `p | q` (a leading `|` is allowed in a `match` arm and an `if let`); `(p)` is `p`. A lone
   identifier that names a constant or a unit struct compares instead of binding, as in
-  rustc. A string literal pattern matches a `&str` (#10). A top-level or-pattern in a `let`
+  rustc; with `mut`, `ref`, `ref mut` or `@` it can only bind, and a binding named like a
+  constant, unit struct or unit variant in scope, or like a tuple variant, is E0225
+  (rustc's E0530, "let bindings cannot shadow constants"; #139). A string literal pattern matches a `&str` (#10). A top-level or-pattern in a `let`
   or a parameter needs parentheses (E0100, as in rustc). Not yet supported (E0107): slice
   patterns
 - `match e { p if guard => body, .. }`; the scrutinee may not be a bare struct literal
@@ -131,7 +133,7 @@ with `Ok` and `Err`, named without their enum (`Some(5)`, `None`, `Ok(x)`; `Opti
 and `None::<i32>` work too). A user item of the same name shadows a prelude item silently,
 as in rustc (`const None: i32 = 1;` makes `None` the constant in that file), while the
 prelude's own code keeps its own names; a lone identifier pattern naming an imported unit
-variant compares (`None => ..`), and one naming a tuple variant is E0326 (`Some => ..`,
+variant compares (`None => ..`), and one naming a tuple variant is E0225 (`Some => ..`,
 rustc's E0530); the resolver rewrites such an identifier into the path pattern it is. The
 prelude is a crate of its own to the user's file, so rustc's orphan rule applies to its
 types: an inherent `impl` for `Option` is E0211 (rustc's E0116), `impl Clone for

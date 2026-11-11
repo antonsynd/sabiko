@@ -40,9 +40,9 @@ const TYPES: &[&str] = &[
     "(u8, bool)",
     "(u8, u8)",
     "(u8,)",
-    // TODO(#137): `[u8; 2]`, `[u8; 1]` and `Option<[u8; 2]>`, once an array as a generic
-    // argument lowers; rustc converts `[T; N]` and `(T, .., T)` both ways, and `T` to
-    // `Option<T>` for them (entries to add to `ACCEPTED` then).
+    "[u8; 2]",
+    "[u8; 1]",
+    "Option<[u8; 2]>",
     "Option<u8>",
     "Option<S>",
     "S",
@@ -64,6 +64,11 @@ const ACCEPTED: &[(&str, &str)] = &[
     ("&mut u8", "Option<&mut u8>"),
     ("&u8", "Option<&u8>"),
     ("(u8, u8)", "Option<(u8, u8)>"),
+    ("(u8, u8)", "[u8; 2]"),
+    ("(u8,)", "[u8; 1]"),
+    ("[u8; 1]", "(u8,)"),
+    ("[u8; 2]", "(u8, u8)"),
+    ("[u8; 2]", "Option<[u8; 2]>"),
     ("Option<u8>", "Option<Option<u8>>"),
     ("S", "Option<S>"),
     ("bool", "f32"),

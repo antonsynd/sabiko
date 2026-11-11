@@ -1,0 +1,10 @@
+// A match testing the variant of an uninitialised enum reads it: E0381 (at the scrutinee).
+enum Opt { No, Yes(i32) }
+
+fn Main() {
+    let o: Opt;
+    match o {
+        Opt::No => {}
+        _ => {}
+    }
+}

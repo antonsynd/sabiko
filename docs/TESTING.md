@@ -188,7 +188,10 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   their bodies) wrap a value in `Some(e).unwrap()`, `Some(e).expect("generated")`,
   `Ok::<T, u8>(e).unwrap()` or `Err::<u8, T>(e).unwrap_err()` (all `e`),
   `Some(a).unwrap_or(b)` (both evaluated and moved, `b` dropped inside the call, as
-  `GenOr(GenOpt::Yes(a), b)`) or `None::<T>.unwrap_or(b)`, and a shared reference in
+  `GenOr(GenOpt::Yes(a), b)`) or `None::<T>.unwrap_or(b)`, or a block whose annotation
+  writes the type as a generic argument, `T` (arrays among them) or `_`:
+  `({ let o: Option<T> = Some(e); o }).unwrap()` or the same with `Result<T, u8>` and
+  `Ok(e)` (#137), and a shared reference in
   `Some(r).unwrap()`, an `Option<&T>` instance (`Some(&*r)` for a `&mut` local or call,
   which `Some` would move and return as a `&mut`; the move itself is generated as `let q =
   Some(r).unwrap();`, see the reference locals above, #132). None
@@ -304,147 +307,149 @@ window; re-measure and update after a generator change that moves the counts. Me
 
 | test | count | min | mean | max | threshold |
 | --- | --- | --- | --- | --- | --- |
-| extended_temporaries | extend through a block | 88 | 104.6 | 116 | 66 |
-| extended_temporaries | through an `if` | 83 | 100.4 | 113 | 62 |
-| extended_temporaries | through a `match` | 43 | 51.4 | 60 | 32 |
-| unreachable_patterns | unreachable pattern (default and borrow-clean) | 102 | 120.9 | 148 | 76 |
-| mut_ref_locals_to_type_parameters | moved into a type parameter | 7 | 8.4 | 12 | 5 |
-| mut_ref_locals_to_type_parameters | reborrowed through an annotated `GenId` | 3 | 5.7 | 9 | 2 |
-| 128_bit_integers | i128 | 362 | 379.1 | 388 | 271 |
-| 128_bit_integers | u128 | 361 | 375.2 | 392 | 270 |
-| 128_bit_integers | the `i128::MIN` literal | 5 | 12.7 | 17 | 3 |
-| aggregates_of_references | `[&T; N]` local | 54 | 63.3 | 76 | 40 |
-| aggregates_of_references | `&[&T]` local | 33 | 42.1 | 54 | 24 |
-| aggregates_of_references | `(&T, U)` local | 70 | 79.2 | 93 | 52 |
-| aggregates_of_references | `[&mut T; 2]` local | 114 | 124.4 | 132 | 85 |
-| arrays | array type | 411 | 428.1 | 442 | 308 |
-| arrays | nested array type | 23 | 32.6 | 40 | 17 |
-| arrays | zero-length array | 45 | 58.5 | 68 | 33 |
-| arrays | one-element array | 116 | 129.8 | 139 | 87 |
-| arrays | length from a constant | 85 | 97.3 | 110 | 63 |
-| arrays | slice type | 127 | 138.7 | 149 | 95 |
+| extended_temporaries | extend through a block | 88 | 104.6 | 117 | 66 |
+| extended_temporaries | through an `if` | 80 | 100.7 | 118 | 60 |
+| extended_temporaries | through a `match` | 45 | 53.0 | 62 | 33 |
+| unreachable_patterns | unreachable pattern (default and borrow-clean) | 101 | 120.5 | 152 | 75 |
+| mut_ref_locals_to_type_parameters | moved into a type parameter | 7 | 8.3 | 11 | 5 |
+| mut_ref_locals_to_type_parameters | reborrowed through an annotated `GenId` | 2 | 5.8 | 11 | 1 |
+| 128_bit_integers | i128 | 364 | 377.8 | 389 | 273 |
+| 128_bit_integers | u128 | 363 | 375.4 | 393 | 272 |
+| 128_bit_integers | the `i128::MIN` literal | 7 | 13.0 | 18 | 5 |
+| aggregates_of_references | `[&T; N]` local | 54 | 63.2 | 76 | 40 |
+| aggregates_of_references | `&[&T]` local | 36 | 42.1 | 51 | 27 |
+| aggregates_of_references | `(&T, U)` local | 71 | 77.7 | 89 | 53 |
+| aggregates_of_references | `[&mut T; 2]` local | 117 | 123.8 | 131 | 87 |
+| arrays | array type | 410 | 427.9 | 441 | 307 |
+| arrays | nested array type | 23 | 32.6 | 39 | 17 |
+| arrays | zero-length array | 45 | 58.4 | 67 | 33 |
+| arrays | one-element array | 117 | 129.9 | 140 | 87 |
+| arrays | length from a constant | 83 | 97.1 | 109 | 62 |
+| arrays | slice type | 129 | 139.2 | 150 | 96 |
 | arrays | array field | 157 | 166.7 | 183 | 117 |
-| arrays | array in a tuple | 42 | 57.6 | 68 | 31 |
+| arrays | array in a tuple | 43 | 56.8 | 66 | 32 |
 | arrays | array in an enum payload | 148 | 159.7 | 173 | 111 |
-| arrays | array of an `impl Drop` type | 47 | 62.4 | 76 | 35 |
-| arrays | `.len()` | 360 | 367.2 | 388 | 270 |
-| arrays | `while i < s.len()` | 56 | 66.2 | 72 | 42 |
-| arrays | computed index | 351 | 360.1 | 373 | 263 |
-| arrays | element write | 302 | 319.4 | 338 | 226 |
+| arrays | array of an `impl Drop` type | 46 | 62.6 | 77 | 34 |
+| arrays | `.len()` | 362 | 368.0 | 388 | 271 |
+| arrays | `while i < s.len()` | 58 | 66.2 | 75 | 43 |
+| arrays | computed index | 351 | 361.4 | 374 | 263 |
+| arrays | element write | 299 | 320.4 | 339 | 224 |
 | arrays | element compound assignment | 11 | 22.3 | 27 | 8 |
-| arrays | borrow of an element | 203 | 216.4 | 243 | 152 |
-| arrays | repeat expression | 286 | 310.7 | 326 | 214 |
-| arrays | out-of-bounds-prone index | 163 | 178.5 | 191 | 122 |
-| arrays_of_references | index an array of references | 90 | 98.5 | 105 | 67 |
-| arrays_of_references | a range of one | 12 | 17.5 | 26 | 9 |
+| arrays | borrow of an element | 205 | 216.9 | 246 | 153 |
+| arrays | repeat expression | 289 | 311.8 | 327 | 216 |
+| arrays | out-of-bounds-prone index | 163 | 179.0 | 194 | 122 |
+| arrays_of_references | index an array of references | 83 | 97.5 | 106 | 62 |
+| arrays_of_references | a range of one | 10 | 16.5 | 25 | 7 |
 | drop | `impl Drop` | 218 | 233.0 | 253 | 163 |
 | enums_and_match | enum | 420 | 432.2 | 446 | 315 |
 | enums_and_match | Copy enum | 221 | 229.1 | 240 | 165 |
 | enums_and_match | `impl Drop` for an enum | 109 | 117.1 | 131 | 81 |
-| enums_and_match | explicit discriminant | 61 | 70.2 | 89 | 45 |
-| enums_and_match | `match` statement | 288 | 300.4 | 313 | 216 |
-| enums_and_match | `let` = `match` | 31 | 37.3 | 41 | 23 |
-| enums_and_match | inline `match` | 266 | 291.6 | 322 | 199 |
-| enums_and_match | `if let` | 189 | 215.2 | 234 | 141 |
-| enums_and_match | `while let` | 13 | 18.9 | 25 | 9 |
-| enums_and_match | `let`-`else` | 123 | 140.1 | 157 | 92 |
-| enums_and_match | guard | 164 | 174.3 | 189 | 123 |
-| enums_and_match | `ref` binding | 154 | 178.9 | 198 | 115 |
-| enums_and_match | `ref mut` binding | 72 | 89.5 | 105 | 54 |
-| enums_and_match | `@` binding | 62 | 69.4 | 79 | 46 |
-| enums_and_match | range pattern | 329 | 347.2 | 361 | 246 |
-| enums_and_match | or-pattern | 161 | 177.1 | 195 | 120 |
-| enums_and_match | match on a reference | 231 | 246.7 | 260 | 173 |
+| enums_and_match | explicit discriminant | 62 | 69.9 | 88 | 46 |
+| enums_and_match | `match` statement | 290 | 299.7 | 312 | 217 |
+| enums_and_match | `let` = `match` | 30 | 37.4 | 44 | 22 |
+| enums_and_match | inline `match` | 260 | 290.9 | 321 | 195 |
+| enums_and_match | `if let` | 185 | 213.6 | 233 | 138 |
+| enums_and_match | `while let` | 12 | 18.4 | 24 | 9 |
+| enums_and_match | `let`-`else` | 118 | 140.6 | 161 | 88 |
+| enums_and_match | guard | 164 | 174.0 | 187 | 123 |
+| enums_and_match | `ref` binding | 156 | 178.1 | 195 | 117 |
+| enums_and_match | `ref mut` binding | 75 | 88.8 | 106 | 56 |
+| enums_and_match | `@` binding | 61 | 68.4 | 81 | 45 |
+| enums_and_match | range pattern | 329 | 345.9 | 363 | 246 |
+| enums_and_match | or-pattern | 161 | 176.5 | 193 | 120 |
+| enums_and_match | match on a reference | 231 | 247.2 | 261 | 173 |
 | enums_and_match | `impl` block of an enum | 160 | 188.6 | 199 | 120 |
-| generic_helpers | `GenId` | 101 | 123.7 | 139 | 75 |
-| generic_helpers | `GenId::<T>` | 50 | 54.9 | 66 | 37 |
-| generic_helpers | `GenPick` | 104 | 109.2 | 125 | 78 |
-| generic_helpers | `GenFirst` | 26 | 32.0 | 40 | 19 |
-| generic_helpers | `GenOr(GenOpt::Yes(..), ..)` | 65 | 76.7 | 91 | 48 |
-| generic_helpers | `GenOr(GenOpt::No, ..)` | 42 | 53.7 | 64 | 31 |
-| generic_helpers | `GenBox` | 69 | 87.9 | 99 | 51 |
-| if_let_guards | `if let` guard | 28 | 38.2 | 47 | 21 |
-| if_let_guards | one with `&&` | 12 | 17.2 | 23 | 9 |
-| let_chains | let chain | 30 | 39.6 | 52 | 22 |
-| let_chains | led by a `bool` | 10 | 13.8 | 18 | 7 |
-| let_chains | two `let`s | 18 | 27.1 | 36 | 13 |
-| let_chains | a `bool` after a `let` | 20 | 25.8 | 32 | 15 |
+| generic_helpers | `GenId` | 100 | 124.1 | 141 | 75 |
+| generic_helpers | `GenId::<T>` | 49 | 55.6 | 69 | 36 |
+| generic_helpers | `GenPick` | 102 | 109.2 | 122 | 76 |
+| generic_helpers | `GenFirst` | 25 | 32.0 | 40 | 18 |
+| generic_helpers | `GenOr(GenOpt::Yes(..), ..)` | 65 | 76.3 | 87 | 48 |
+| generic_helpers | `GenOr(GenOpt::No, ..)` | 41 | 53.1 | 64 | 30 |
+| generic_helpers | `GenBox` | 69 | 87.1 | 99 | 51 |
+| if_let_guards | `if let` guard | 25 | 38.0 | 48 | 18 |
+| if_let_guards | one with `&&` | 11 | 17.2 | 24 | 8 |
+| let_chains | let chain | 30 | 39.5 | 51 | 22 |
+| let_chains | led by a `bool` | 10 | 13.9 | 18 | 7 |
+| let_chains | two `let`s | 18 | 27.0 | 35 | 13 |
+| let_chains | a `bool` after a `let` | 20 | 25.7 | 31 | 15 |
 | methods | impl block | 403 | 417.8 | 428 | 302 |
-| methods | method call | 296 | 306.9 | 323 | 222 |
-| methods | argument reading the receiver | 16 | 20.7 | 29 | 12 |
-| patterns | `&` pattern | 21 | 26.1 | 31 | 15 |
-| patterns | `&mut` pattern | 6 | 10.4 | 18 | 4 |
-| patterns | half-open range pattern | 41 | 51.4 | 66 | 30 |
-| patterns | float pattern | 22 | 30.0 | 39 | 16 |
+| methods | method call | 293 | 306.9 | 323 | 219 |
+| methods | argument reading the receiver | 15 | 20.9 | 30 | 11 |
+| patterns | `&` pattern | 23 | 26.6 | 31 | 17 |
+| patterns | `&mut` pattern | 5 | 10.6 | 19 | 3 |
+| patterns | half-open range pattern | 40 | 51.9 | 66 | 30 |
+| patterns | float pattern | 21 | 30.2 | 41 | 15 |
 | references_to_references | `&&T` parameter | 75 | 85.7 | 107 | 56 |
 | references_to_references | `&&mut T` parameter | 15 | 24.1 | 37 | 11 |
 | references_to_references | `&mut &mut T` parameter | 18 | 23.0 | 32 | 13 |
 | references_to_references | `&&str` parameter | 18 | 23.6 | 32 | 13 |
-| references_to_references | annotated double reference local | 104 | 117.4 | 137 | 78 |
-| references_to_references | `&mut` of a reference local | 48 | 59.1 | 79 | 36 |
-| references_to_references | write through `&mut &mut` | 9 | 13.8 | 20 | 6 |
-| references_to_references | retarget through `&mut &T` | 67 | 78.9 | 92 | 50 |
-| references_to_references | `&&x` argument | 9 | 15.7 | 24 | 6 |
-| references_to_references | explicit dereferences of a double reference | 50 | 72.7 | 91 | 37 |
-| references_to_references | `let` of a borrowed borrow | 18 | 23.8 | 32 | 13 |
+| references_to_references | annotated double reference local | 105 | 118.2 | 139 | 78 |
+| references_to_references | `&mut` of a reference local | 45 | 58.5 | 79 | 33 |
+| references_to_references | write through `&mut &mut` | 9 | 13.7 | 19 | 6 |
+| references_to_references | retarget through `&mut &T` | 70 | 78.9 | 89 | 52 |
+| references_to_references | `&&x` argument | 9 | 16.1 | 24 | 6 |
+| references_to_references | explicit dereferences of a double reference | 51 | 73.4 | 91 | 38 |
+| references_to_references | `let` of a borrowed borrow | 17 | 24.1 | 34 | 12 |
 | strings_and_ranges | `&str` parameter | 79 | 89.0 | 108 | 59 |
 | strings_and_ranges | `-> &str` | 25 | 33.3 | 42 | 18 |
-| strings_and_ranges | `&str` local | 220 | 233.8 | 245 | 165 |
-| strings_and_ranges | escape in a string | 187 | 210.9 | 222 | 140 |
-| strings_and_ranges | `a..b` | 248 | 273.6 | 293 | 186 |
-| strings_and_ranges | `a..` | 223 | 238.9 | 263 | 167 |
-| strings_and_ranges | `..b` | 178 | 194.5 | 210 | 133 |
-| strings_and_ranges | `..` | 110 | 126.2 | 144 | 82 |
-| strings_and_ranges | `a..=b` | 195 | 212.3 | 233 | 146 |
-| strings_and_ranges | `..=b` | 151 | 171.9 | 186 | 113 |
-| strings_and_ranges | computed bound | 220 | 241.5 | 257 | 165 |
-| strings_and_ranges | bound measuring the base | 207 | 219.9 | 240 | 155 |
-| strings_and_ranges | slice of a string literal | 393 | 406.5 | 426 | 294 |
-| strings_and_ranges | range of a range | 199 | 209.8 | 239 | 149 |
-| strings_and_ranges | `.len()` of a range place | 246 | 256.4 | 281 | 184 |
-| strings_and_ranges | `&mut` of a range place | 12 | 21.2 | 28 | 9 |
-| strings_and_ranges | element of a range place | 260 | 276.7 | 301 | 195 |
-| strings_and_ranges | write through a range place | 11 | 17.0 | 23 | 8 |
-| strings_and_ranges | `while i < x[..].len()` | 12 | 19.3 | 25 | 9 |
-| strings_and_ranges | string comparison | 106 | 130.7 | 141 | 79 |
-| strings_and_ranges | `match` arm of string literals | 29 | 42.0 | 52 | 21 |
-| strings_and_ranges | string or-pattern | 84 | 95.7 | 102 | 63 |
-| strings_and_ranges | guarded binding of a string | 9 | 14.9 | 21 | 6 |
-| strings_and_ranges | `if let` on a string | 44 | 54.6 | 71 | 33 |
-| strings_and_ranges | `let`-`else` on a string | 45 | 52.7 | 61 | 33 |
-| strings_and_ranges | `while let` on a string | 3 | 7.2 | 10 | 2 |
-| strings_and_ranges | `while i < s.len()` over a string | 21 | 26.8 | 36 | 15 |
-| strings_and_ranges | shrinking a `&str` | 9 | 18.0 | 25 | 6 |
-| prelude | `).unwrap()` | 112 | 131.3 | 146 | 84 |
-| prelude | `).expect("generated")` | 11 | 15.1 | 22 | 8 |
-| prelude | `).unwrap_or(` | 49 | 58.1 | 75 | 36 |
-| prelude | `None::<` | 53 | 61.8 | 76 | 39 |
-| prelude | `Ok::<` | 20 | 26.3 | 35 | 15 |
-| prelude | `Err::<` | 30 | 38.4 | 50 | 22 |
-| prelude | `Some(&` | 14 | 18.6 | 27 | 10 |
-| trait_helpers | `.Keep()` | 65 | 71.9 | 79 | 48 |
-| trait_helpers | `GenKeep::Keep` | 49 | 56.9 | 62 | 36 |
-| trait_helpers | `GenKept` | 45 | 55.8 | 68 | 33 |
-| trait_helpers | `.KeepRef()` | 22 | 28.9 | 37 | 16 |
-| trait_helpers | `.Sign()` | 42 | 51.4 | 60 | 31 |
-| trait_helpers | `GenSigns` | 46 | 54.7 | 64 | 34 |
-| trait_helpers | a trait constant | 21 | 28.0 | 41 | 15 |
-| trait_helpers | `Copy`/`Clone` through a bound | 33 | 45.0 | 52 | 24 |
-| try | `GenTry(Some(` | 13 | 21.5 | 27 | 9 |
-| try | `GenTry(None::<` | 10 | 14.0 | 18 | 7 |
-| try | `GenTryOk(Ok::<` | 6 | 12.4 | 19 | 4 |
-| try | `GenTryOk(Err::<` | 4 | 11.8 | 22 | 3 |
-| try | `GenTryErr(Err::<` | 8 | 13.0 | 20 | 6 |
-| try | `GenTryKeep(Some(` | 9 | 13.7 | 18 | 6 |
-| try | `GenTryKeep(None::<` | 9 | 13.9 | 21 | 6 |
-| try | `.or(Some(` | 16 | 22.1 | 27 | 12 |
-| try | `.and(Some(` | 5 | 12.0 | 19 | 3 |
-| try | `.xor(` | 7 | 12.5 | 22 | 5 |
-| try | `.ok_or(` | 2 | 6.0 | 10 | 1 |
-| try | `.get(` | 15 | 18.7 | 23 | 11 |
-| try | `.is_empty()` | 6 | 10.1 | 17 | 4 |
-| try | `.first()` | 3 | 6.7 | 12 | 2 |
-| try | `.last()` | 3 | 6.3 | 12 | 2 |
+| strings_and_ranges | `&str` local | 217 | 234.1 | 250 | 162 |
+| strings_and_ranges | escape in a string | 182 | 210.9 | 219 | 136 |
+| strings_and_ranges | `a..b` | 243 | 274.2 | 293 | 182 |
+| strings_and_ranges | `a..` | 223 | 238.0 | 264 | 167 |
+| strings_and_ranges | `..b` | 184 | 194.4 | 204 | 138 |
+| strings_and_ranges | `..` | 106 | 124.5 | 143 | 79 |
+| strings_and_ranges | `a..=b` | 194 | 211.3 | 231 | 145 |
+| strings_and_ranges | `..=b` | 148 | 172.0 | 186 | 111 |
+| strings_and_ranges | computed bound | 222 | 240.4 | 255 | 166 |
+| strings_and_ranges | bound measuring the base | 207 | 219.9 | 236 | 155 |
+| strings_and_ranges | slice of a string literal | 389 | 406.5 | 423 | 291 |
+| strings_and_ranges | range of a range | 193 | 208.5 | 232 | 144 |
+| strings_and_ranges | `.len()` of a range place | 242 | 255.5 | 281 | 181 |
+| strings_and_ranges | `&mut` of a range place | 13 | 21.4 | 30 | 9 |
+| strings_and_ranges | element of a range place | 260 | 275.5 | 300 | 195 |
+| strings_and_ranges | write through a range place | 10 | 16.9 | 23 | 7 |
+| strings_and_ranges | `while i < x[..].len()` | 12 | 19.1 | 25 | 9 |
+| strings_and_ranges | string comparison | 109 | 132.1 | 141 | 81 |
+| strings_and_ranges | `match` arm of string literals | 30 | 41.8 | 51 | 22 |
+| strings_and_ranges | string or-pattern | 84 | 94.5 | 103 | 63 |
+| strings_and_ranges | guarded binding of a string | 8 | 14.7 | 21 | 6 |
+| strings_and_ranges | `if let` on a string | 44 | 54.4 | 71 | 33 |
+| strings_and_ranges | `let`-`else` on a string | 45 | 53.2 | 63 | 33 |
+| strings_and_ranges | `while let` on a string | 3 | 6.9 | 10 | 2 |
+| strings_and_ranges | `while i < s.len()` over a string | 20 | 27.0 | 36 | 15 |
+| strings_and_ranges | shrinking a `&str` | 9 | 17.9 | 25 | 6 |
+| prelude | `).unwrap()` | 120 | 135.6 | 155 | 90 |
+| prelude | `).expect("generated")` | 6 | 11.0 | 16 | 4 |
+| prelude | `).unwrap_or(` | 41 | 55.7 | 71 | 30 |
+| prelude | `None::<` | 50 | 61.2 | 77 | 37 |
+| prelude | `Ok::<` | 19 | 23.6 | 28 | 14 |
+| prelude | `Err::<` | 18 | 33.9 | 47 | 13 |
+| prelude | `Some(&` | 13 | 18.0 | 25 | 9 |
+| prelude | `> = Some(` | 6 | 11.0 | 17 | 4 |
+| prelude | `> = Ok(` | 4 | 8.4 | 12 | 3 |
+| trait_helpers | `.Keep()` | 66 | 72.0 | 79 | 49 |
+| trait_helpers | `GenKeep::Keep` | 48 | 55.3 | 61 | 36 |
+| trait_helpers | `GenKept` | 50 | 55.2 | 64 | 37 |
+| trait_helpers | `.KeepRef()` | 21 | 29.4 | 38 | 15 |
+| trait_helpers | `.Sign()` | 47 | 51.9 | 60 | 35 |
+| trait_helpers | `GenSigns` | 48 | 54.4 | 64 | 36 |
+| trait_helpers | a trait constant | 22 | 28.4 | 41 | 16 |
+| trait_helpers | `Copy`/`Clone` through a bound | 33 | 44.6 | 52 | 24 |
+| try | `GenTry(Some(` | 15 | 21.9 | 29 | 11 |
+| try | `GenTry(None::<` | 10 | 14.6 | 23 | 7 |
+| try | `GenTryOk(Ok::<` | 7 | 12.2 | 17 | 5 |
+| try | `GenTryOk(Err::<` | 5 | 11.3 | 20 | 3 |
+| try | `GenTryErr(Err::<` | 8 | 12.9 | 21 | 6 |
+| try | `GenTryKeep(Some(` | 10 | 14.1 | 18 | 7 |
+| try | `GenTryKeep(None::<` | 9 | 14.1 | 22 | 6 |
+| try | `.or(Some(` | 16 | 22.0 | 26 | 12 |
+| try | `.and(Some(` | 6 | 11.5 | 20 | 4 |
+| try | `.xor(` | 8 | 12.7 | 23 | 6 |
+| try | `.ok_or(` | 2 | 6.8 | 11 | 1 |
+| try | `.get(` | 14 | 18.4 | 22 | 10 |
+| try | `.is_empty()` | 6 | 10.0 | 15 | 4 |
+| try | `.first()` | 3 | 7.2 | 13 | 2 |
+| try | `.last()` | 3 | 6.7 | 12 | 2 |
 
 ## Properties
 

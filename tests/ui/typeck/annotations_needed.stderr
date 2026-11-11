@@ -34,18 +34,18 @@
     │                   ╰── cannot infer the type of this expression
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:51:14 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:51:9 ]
     │
  51 │     let _ = ([], []); //~ ERROR E0313 type annotations needed
-    │              ─┬  
-    │               ╰── cannot infer the type of this expression
+    │         ┬  
+    │         ╰── consider giving this pattern a type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:55:14 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:55:9 ]
     │
  55 │     let _ = &[][..]; //~ ERROR E0313 type annotations needed
-    │              ─┬  
-    │               ╰── cannot infer the type of this expression
+    │         ┬  
+    │         ╰── consider giving this pattern a type
 ────╯
 [E0313] Error: type annotations needed
     ╭─[ tests/ui/typeck/annotations_needed.sabi:59:5 ]

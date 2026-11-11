@@ -64,6 +64,11 @@ fn Main() {
     let a = Need(true); //~ ERROR E0341 the trait bound `bool: Show` is not satisfied
     let b = 5i32.Name(); //~ ERROR E0342 multiple applicable items in scope
     let c = bool::Show(&true); //~ ERROR E0212 no function or associated item named `Show` found for type `bool`
-    let d = Make::Make(); //~ ERROR E0313 type annotations needed
     let e: i32 = Make::Make();
+}
+
+// In a body of its own: after another error in the same body, an unknown type is not
+// reported, as in rustc.
+fn Undecided() {
+    let d = Make::Make(); //~ ERROR E0313 type annotations needed
 }
