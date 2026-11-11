@@ -1785,6 +1785,18 @@ Update (2026-11-11), after the third review of #154. Fixed, each checked against
   compound assignment, nesting, result as receiver) matches rustc's; UI test
   `typeck/type_must_be_known`, `differential/traits/ok_operands_decided_by_a_later_use`.
 
+Update (2026-11-11), after the fourth review of #154: overlapping supertrait cycles (`B: A
++ C` with `A: B` and `C: B`) still hung the compiler, because the cycle walk skipped edges
+between traits already reported. Cycles are now strongly connected components of the
+supertrait graph, every edge inside one is dropped (the graph is a DAG by construction),
+one E0354 per component, and elaboration has a defensive bound that reports E0900 rather
+than hang (UI test `typeck/supertrait_cycle_overlapping`, driver test
+`supertrait_cycles.rs` over 300 generated graphs). Filed, not fixed here: #160 (open shift
+results and deferred reference comparisons vs rustc's operator traits; with #117), #161
+(recursion-limit edges of trait chains at 127/128), #162 (monomorphisation's instantiation
+limit rejects valid deep instances), #163 (cleanups); error-count differences added to
+#159.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work

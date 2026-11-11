@@ -287,6 +287,10 @@ pub struct ItemTypes {
     pub(crate) sig_cx: ArrayLens,
     /// What each trait reference elaborated so far implies (`ItemTypes::elaborate`).
     pub(crate) elaborated: crate::traits::ElaborationCache,
+    /// A trait whose elaboration reached [`crate::traits::ELABORATION_BOUND`], which an
+    /// acyclic supertrait graph cannot realistically reach: reported as an internal
+    /// error rather than hanging.
+    pub(crate) elaboration_cut: std::cell::Cell<Option<DefId>>,
 }
 
 impl ItemTypes {
@@ -1070,12 +1074,19 @@ fn collect_trait_defs(
 
 /// A trait whose supertraits lead back to it is E0354 (rustc's E0391, "cycle detected
 /// when computing the super clauses"), by trait whatever the arguments (`trait A: A`,
-/// `trait A<T>: A<(T,)>`, `trait D: E` with `trait E: D`), once per cycle as rustc
-/// reports it: a depth-first walk over the traits in definition order and their
-/// supertraits as written finds the cycle, reported at its first trait's supertrait, and
-/// no other cycle through a trait already reported is. The supertraits between traits of
-/// reported cycles are then dropped, so the supertrait graph the solver elaborates has no
-/// cycle and elaboration ends without a limit.
+/// `trait A<T>: A<(T,)>`, `trait D: E` with `trait E: D`). The cycles are found by trait
+/// definition: the strongly connected components of the supertrait graph (Tarjan's
+/// algorithm), a component being cyclic when it has two traits or more or a trait that is
+/// its own supertrait. Each cyclic component is reported once, with one of its cycles: a
+/// depth-first walk inside it from its first trait in definition order, following the
+/// supertraits as written, as rustc's query reports the first cycle it meets (rustc may
+/// report a component's other cycles too).
+///
+/// Then every supertrait between two traits of one component is dropped, self-loops
+/// included. This is what makes elaboration end: the edges left join different
+/// components, and the graph of components is acyclic, so the supertrait graph the solver
+/// elaborates is a DAG and each trait reference implies finitely many (see
+/// [`ItemTypes::elaborate`]).
 fn check_supertrait_cycles(
     file: &SourceFile,
     resolve: &ResolveResults,
@@ -1105,55 +1116,136 @@ fn check_supertrait_cycles(
         .enumerate()
         .map(|(i, (tr, _))| (*tr, i))
         .collect();
-    let mut cyclic: HashSet<DefId> = HashSet::new();
-    loop {
-        let reported = cyclic.len();
-        // 0: not visited, 1: on the walk's path, 2: done.
-        let mut state = vec![0u8; graph.len()];
-        for root in 0..graph.len() {
-            if state[root] != 0 {
+    let succ: Vec<Vec<usize>> = graph
+        .iter()
+        .map(|(_, sups)| {
+            sups.iter()
+                .filter_map(|(s, _)| index.get(s).copied())
+                .collect()
+        })
+        .collect();
+    let component = strongly_connected_components(&succ);
+    let mut sizes: HashMap<usize, usize> = HashMap::new();
+    for &c in &component {
+        *sizes.entry(c).or_default() += 1;
+    }
+    let mut reported: HashSet<usize> = HashSet::new();
+    for root in 0..graph.len() {
+        let c = component[root];
+        let cyclic = sizes[&c] > 1 || succ[root].contains(&root);
+        if !cyclic || !reported.insert(c) {
+            continue;
+        }
+        if let Some(cycle) = first_cycle(&graph, &index, &component, root) {
+            sink.emit(supertrait_cycle(resolve, &graph, &cycle));
+        }
+    }
+    for (i, (tr, _)) in graph.iter().enumerate() {
+        if !reported.contains(&component[i]) {
+            continue;
+        }
+        if let Some(t) = items.traits.get_mut(tr) {
+            t.supertraits
+                .retain(|(sup, _)| index.get(sup).is_none_or(|&j| component[j] != component[i]));
+        }
+    }
+}
+
+/// The strongly connected component of each node of the graph `succ` (Tarjan's
+/// algorithm, without recursion: a supertrait chain may be thousands long).
+fn strongly_connected_components(succ: &[Vec<usize>]) -> Vec<usize> {
+    let n = succ.len();
+    let mut order = vec![usize::MAX; n];
+    let mut low = vec![0; n];
+    let mut on_stack = vec![false; n];
+    let mut component = vec![usize::MAX; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let (mut counter, mut components) = (0, 0);
+    for root in 0..n {
+        if order[root] != usize::MAX {
+            continue;
+        }
+        // Each node on the walk with the index of its next successor to visit.
+        let mut walk: Vec<(usize, usize)> = vec![(root, 0)];
+        order[root] = counter;
+        low[root] = counter;
+        counter += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(&mut (v, ref mut next)) = walk.last_mut() {
+            if let Some(&w) = succ[v].get(*next) {
+                *next += 1;
+                if order[w] == usize::MAX {
+                    order[w] = counter;
+                    low[w] = counter;
+                    counter += 1;
+                    stack.push(w);
+                    on_stack[w] = true;
+                    walk.push((w, 0));
+                } else if on_stack[w] {
+                    low[v] = low[v].min(order[w]);
+                }
                 continue;
             }
-            // The path: each trait with the index of its next supertrait to follow.
-            let mut path: Vec<(usize, usize)> = vec![(root, 0)];
-            state[root] = 1;
-            while let Some(&mut (node, ref mut next)) = path.last_mut() {
-                let Some(&(sup, _)) = graph[node].1.get(*next) else {
-                    state[node] = 2;
-                    path.pop();
-                    continue;
-                };
-                *next += 1;
-                let Some(&target) = index.get(&sup) else {
-                    continue;
-                };
-                if cyclic.contains(&graph[node].0) && cyclic.contains(&sup) {
-                    continue;
-                }
-                match state[target] {
-                    0 => {
-                        state[target] = 1;
-                        path.push((target, 0));
+            walk.pop();
+            if let Some(&(parent, _)) = walk.last() {
+                low[parent] = low[parent].min(low[v]);
+            }
+            if low[v] == order[v] {
+                while let Some(w) = stack.pop() {
+                    on_stack[w] = false;
+                    component[w] = components;
+                    if w == v {
+                        break;
                     }
-                    1 if !cyclic.contains(&sup) => {
-                        let start = path.iter().position(|&(n, _)| n == target);
-                        let cycle = &path[start.expect("on the path")..];
-                        sink.emit(supertrait_cycle(resolve, &graph, cycle));
-                        cyclic.extend(cycle.iter().map(|&(n, _)| graph[n].0));
-                    }
-                    _ => {}
                 }
+                components += 1;
             }
         }
-        if cyclic.len() == reported {
-            break;
+    }
+    component
+}
+
+/// A cycle of the component of `root` through `root`'s walk: a depth-first walk from
+/// `root` along the supertraits as written, staying inside the component, until a
+/// supertrait leads back to a trait on the walk. Each trait of the cycle comes with one
+/// past the index of the supertrait leading to the next. A walk inside a strongly
+/// connected component with a cycle always meets one.
+fn first_cycle(
+    graph: &[(DefId, Vec<(DefId, Span)>)],
+    index: &HashMap<DefId, usize>,
+    component: &[usize],
+    root: usize,
+) -> Option<Vec<(usize, usize)>> {
+    let mut visited = vec![false; graph.len()];
+    let mut on_path = vec![false; graph.len()];
+    let mut path: Vec<(usize, usize)> = vec![(root, 0)];
+    visited[root] = true;
+    on_path[root] = true;
+    while let Some(&mut (node, ref mut next)) = path.last_mut() {
+        let Some(&(sup, _)) = graph[node].1.get(*next) else {
+            on_path[node] = false;
+            path.pop();
+            continue;
+        };
+        *next += 1;
+        let Some(&target) = index.get(&sup) else {
+            continue;
+        };
+        if component[target] != component[root] {
+            continue;
+        }
+        if on_path[target] {
+            let start = path.iter().position(|&(n, _)| n == target)?;
+            return Some(path[start..].to_vec());
+        }
+        if !visited[target] {
+            visited[target] = true;
+            on_path[target] = true;
+            path.push((target, 0));
         }
     }
-    for tr in &cyclic {
-        if let Some(t) = items.traits.get_mut(tr) {
-            t.supertraits.retain(|(sup, _)| !cyclic.contains(sup));
-        }
-    }
+    None
 }
 
 /// E0354 for the supertrait cycle `cycle` (each trait with one past the index of the

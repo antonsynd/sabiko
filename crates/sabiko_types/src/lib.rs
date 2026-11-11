@@ -177,6 +177,20 @@ pub fn typeck(
         assoc_exprs,
         assoc_values: RefCell::default(),
     };
+    if let Some(tr) = results.items.elaboration_cut.get() {
+        sink.emit(
+            Diagnostic::error(
+                ErrorCode::INTERNAL_ERROR,
+                "internal compiler error: the supertraits of this trait imply too many trait references",
+            )
+            .with_label(resolve.def(tr).span, "elaborating this trait's supertraits")
+            .with_note(format!(
+                "elaboration stopped at {} type nodes",
+                traits::ELABORATION_BOUND
+            ))
+            .with_note("this is a bug in the Sabiko compiler; please report it"),
+        );
+    }
     if !sink.has_errors() {
         check_no_unreported_errors(file, resolve, &results, sink);
     }

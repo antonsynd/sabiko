@@ -1,0 +1,37 @@
+// Overlapping supertrait cycles are found by trait, as strongly connected components:
+// each component is one E0354 (rustc's E0391; rustc may report a component's other
+// cycles too), and every supertrait inside a component is dropped, so elaboration ends
+// (two cycles sharing `B` once hung the compiler).
+trait A<T>: B<T> {} //~ ERROR E0354 cycle detected when computing the supertraits of `A`
+
+trait B<T>: A<T> + C<(T,)> {}
+
+trait C<T>: B<T> {}
+
+trait Foo {}
+
+fn G<Y: Foo>(y: Y) {}
+
+fn F<X: B<i32>>(x: X) {}
+
+// A self-loop beside a cycle through the same trait.
+trait D<T>: D<T> + E<(T,)> {} //~ ERROR E0354 cycle detected when computing the supertraits of `D`
+
+trait E<T>: D<T> {}
+
+// A figure-eight: two cycles through `H`.
+trait H: I + K {} //~ ERROR E0354 cycle detected when computing the supertraits of `H`
+
+trait I: H {}
+
+trait K: H {}
+
+// A cycle reached only through a trait above it, with a self-loop inside: the walk
+// from `M` meets the self-loop first, as rustc's does.
+trait Top: M {}
+
+trait M: N {}
+
+trait N: N + M {} //~ ERROR E0354 cycle detected when computing the supertraits of `N`
+
+fn Main() {}

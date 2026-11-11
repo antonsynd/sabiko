@@ -38,7 +38,28 @@ pub struct Predicate {
 pub type Elaborated = Arc<[(DefId, Vec<Ty>)]>;
 
 /// The trait references elaborated so far, by `(trait, Self, arguments)`.
+/// How many type nodes (`Ty` constructors, summed over the arguments) the trait references
+/// of one elaboration may hold before it stops and the program is reported as an internal
+/// error (`ItemTypes::elaboration_cut`). The supertrait graph is acyclic
+/// (`check_supertrait_cycles` drops every cycle), so elaboration ends; this bound only
+/// guards against a bug there, as a hang is worse than E0900, and counts nodes rather
+/// than references so that a cycle growing its arguments (`A<T>: A<(T,)>`) stops in
+/// milliseconds too. A program reaching it legitimately would need a supertrait graph
+/// about eighteen levels deep using each supertrait at two arguments (rustc takes
+/// seconds there).
+pub(crate) const ELABORATION_BOUND: usize = 1 << 22;
+
 pub(crate) type ElaborationCache = std::cell::RefCell<HashMap<(DefId, Ty, Vec<Ty>), Elaborated>>;
+
+/// How many constructors the type `ty` has.
+fn ty_nodes(ty: &Ty) -> usize {
+    match ty {
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => 1 + ty_nodes(inner),
+        Ty::Tuple(elems) => 1 + elems.iter().map(ty_nodes).sum::<usize>(),
+        Ty::Adt(_, args) => 1 + args.iter().map(ty_nodes).sum::<usize>(),
+        _ => 1,
+    }
+}
 
 /// The answer to "does this type implement that trait?".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,7 +128,12 @@ impl ItemTypes {
         let mut out = vec![(tr, args.to_vec())];
         let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::from([(tr, args.to_vec())]);
         let mut next = 0;
+        let mut nodes = 0;
         while next < out.len() {
+            if nodes >= ELABORATION_BOUND {
+                self.elaboration_cut.set(Some(tr));
+                break;
+            }
             let (current, current_args) = out[next].clone();
             next += 1;
             let Some(t) = self.trait_def(current) else {
@@ -127,6 +153,7 @@ impl ItemTypes {
                     sup_args.iter().map(|a| a.subst(&params, &subst)).collect(),
                 );
                 if seen.insert(implied.clone()) {
+                    nodes += 1 + implied.1.iter().map(ty_nodes).sum::<usize>();
                     out.push(implied);
                 }
             }

@@ -240,16 +240,18 @@ struct PendingCast {
     to: Ty,
 }
 
-/// A binary operation with an operand of type `!` (#87), or typed by a diverging variable
-/// nothing has decided yet (`let y = return; y + 1`), judged in `finish` before the
-/// never-type fallback. rustc types an operator's right operand against a fresh variable
+/// A binary operation (or compound assignment) whose impl its operand types do not select
+/// where it is checked, judged later: one with an operand still a general variable (see
+/// [`FnCtxt::open_operation`]), and one with an operand of type `!` (#87), or typed by a
+/// diverging variable nothing has decided yet (`let y = return; y + 1`), judged in
+/// `finish` before the never-type fallback. rustc types an operator's right operand against a fresh variable
 /// that only the operator trait's impl for the left type decides, so `!` reaches the
 /// trait instead of coercing: no arithmetic, bitwise or shift trait has an impl for `!`
 /// (`i32` has `Add<i32>` and `Add<&i32>`, so nothing decides the variable), and a
 /// comparison takes one only when the left type is known before the literal defaults
 /// and has a single impl. A variable decided by `finish` (`let _: i32 = y;`) makes the
 /// operation an ordinary one, checked then.
-struct NeverOperand {
+struct DeferredOperation {
     op: BinOp,
     /// `a op= b`.
     compound: bool,
@@ -327,10 +329,10 @@ pub(crate) struct FnCtxt<'a> {
     pending_prints: Vec<(Builtin, Span, Ty)>,
     /// Comparisons whose operand type was still an unknown variable: judged in `finish`.
     pending_comparisons: Vec<(BinOp, Ty, Span)>,
-    never_operands: Vec<NeverOperand>,
+    never_operands: Vec<DeferredOperation>,
     /// Operations with an operand of a type still unknown where they were checked (see
     /// [`FnCtxt::open_operation`]).
-    open_operations: Vec<NeverOperand>,
+    open_operations: Vec<DeferredOperation>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
@@ -964,17 +966,24 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// Checks an operand of an operator as [`Self::check_expr`] does, also saying whether
-    /// its type is `!` or a diverging variable still open (see [`NeverOperand`]). Such an
+    /// its type is `!` or a diverging variable still open (see [`DeferredOperation`]). Such an
     /// operand is not coerced to `expected`, which then only guides the checking: the
     /// operator decides what it becomes.
     fn check_operand(&mut self, expr: &Expr, expected: Option<&Ty>) -> (Ty, bool) {
+        self.check_operand_with(expr, expected, false)
+    }
+
+    /// [`Self::check_operand`], also leaving an operand whose type is a general variable
+    /// uncoerced when `open` (see [`Self::check_open_operand`]).
+    fn check_operand_with(&mut self, expr: &Expr, expected: Option<&Ty>, open: bool) -> (Ty, bool) {
         if let ExprKind::Paren(inner) = &expr.kind {
-            let (ty, never) = self.check_operand(inner, expected);
+            let (ty, never) = self.check_operand_with(inner, expected, open);
             return (self.record(expr, ty), never);
         }
         let ty = self.check_expr_kind(expr, expected);
         let never = self.is_never_like(&ty);
-        if !never {
+        let leave_open = open && self.is_open(&ty);
+        if !never && !leave_open {
             self.coerce_to_expected(expr, &ty, expected);
         }
         (self.record(expr, ty), never)
@@ -984,16 +993,7 @@ impl<'a> FnCtxt<'a> {
     /// is still a general variable is not coerced to `expected` (the operator's impl,
     /// which its types select, decides it, see [`Self::open_operation`]).
     fn check_open_operand(&mut self, expr: &Expr, expected: Option<&Ty>) -> (Ty, bool) {
-        if let ExprKind::Paren(inner) = &expr.kind {
-            let (ty, never) = self.check_open_operand(inner, expected);
-            return (self.record(expr, ty), never);
-        }
-        let ty = self.check_expr_kind(expr, expected);
-        let never = self.is_never_like(&ty);
-        if !never && !self.is_open(&ty) {
-            self.coerce_to_expected(expr, &ty, expected);
-        }
-        (self.record(expr, ty), never)
+        self.check_operand_with(expr, expected, true)
     }
 
     /// Whether `ty` is still a general inference variable (not one of a literal).
@@ -1064,7 +1064,7 @@ impl<'a> FnCtxt<'a> {
                 };
                 let (rhs_ty, rhs_never) = self.check_open_operand(rhs, rhs_expected);
                 if !lhs_never && !rhs_never && (lhs_open || self.is_open(&rhs_ty)) {
-                    self.open_operations.push(NeverOperand {
+                    self.open_operations.push(DeferredOperation {
                         op: *op,
                         compound: true,
                         lhs: lhs_ty,
@@ -1073,7 +1073,7 @@ impl<'a> FnCtxt<'a> {
                         out: None,
                     });
                 } else if lhs_never || rhs_never {
-                    self.never_operands.push(NeverOperand {
+                    self.never_operands.push(DeferredOperation {
                         op: *op,
                         compound: true,
                         lhs: lhs_ty,
@@ -3096,7 +3096,7 @@ impl<'a> FnCtxt<'a> {
     fn open_operation(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
         let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
         let ty = out.clone().unwrap_or(Ty::BOOL);
-        self.open_operations.push(NeverOperand {
+        self.open_operations.push(DeferredOperation {
             op,
             compound: false,
             lhs,
@@ -3212,12 +3212,12 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// Records an operation with an operand of type `!` (see [`NeverOperand`]) and
+    /// Records an operation with an operand of type `!` (see [`DeferredOperation`]) and
     /// returns its type for now.
     fn never_operand(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
         let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
         let ty = out.clone().unwrap_or(Ty::BOOL);
-        self.never_operands.push(NeverOperand {
+        self.never_operands.push(DeferredOperation {
             op,
             compound: false,
             lhs,
@@ -3307,7 +3307,7 @@ impl<'a> FnCtxt<'a> {
 
     /// A recorded operation whose operands were decided after all (`let y = return; let
     /// r = y + 1; let _: i32 = y;`): checked as an ordinary one now.
-    fn check_decided_operation(&mut self, n: &NeverOperand, r_never: bool) {
+    fn check_decided_operation(&mut self, n: &DeferredOperation, r_never: bool) {
         let shift = matches!(n.op, BinOp::Shl | BinOp::Shr);
         if n.op.is_comparison() && !n.compound {
             if !r_never {
