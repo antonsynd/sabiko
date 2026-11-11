@@ -1,0 +1,9 @@
+[E0502] Error: reached the recursion limit while instantiating `Grow<((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((i32,),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),)>`
+    ╭─[ tests/ui/codegen/instantiation_limit_through_prelude.sabi:12:9 ]
+    │
+ 12 │         Grow((o.unwrap(),), n - 1); //~ ERROR E0502 reached the recursion limit while instantiating `Grow<((
+    │         ─────────────┬────────────  
+    │                      ╰────────────── instantiated here
+    │ 
+    │ Note: each call instantiates the function at a larger type, without end
+────╯

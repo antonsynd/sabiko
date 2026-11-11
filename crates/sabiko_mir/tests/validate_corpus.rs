@@ -51,7 +51,8 @@ fn lower_resolved(
 )> {
     let mut sink = DiagnosticSink::new();
     let mut sm = sabiko_diagnostics::SourceMap::new();
-    let (ast, resolve) = sabiko_resolve::parse_and_resolve("corpus.sabi", src, &mut sm, &mut sink)?;
+    let (ast, resolve) =
+        sabiko_driver::parse_and_resolve("corpus.sabi", src, &mut sm, &mut sink).program?;
     if sink.has_errors() {
         return None;
     }

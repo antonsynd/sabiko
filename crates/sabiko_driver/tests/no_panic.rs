@@ -241,6 +241,13 @@ fn compile(src: &str) -> Compilation {
         ..Options::default()
     };
     let il_run = compile_str("prop.sabi", src, il);
+    for run in [&mir_run, &il_run] {
+        let stray = run.diagnostics_only_in_prelude();
+        assert!(
+            stray.is_empty(),
+            "diagnostics pointing only into the prelude: {stray:?}"
+        );
+    }
     let front_end = |c: &Compilation| -> Vec<String> {
         c.diagnostics
             .iter()

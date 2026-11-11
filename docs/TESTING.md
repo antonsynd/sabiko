@@ -182,8 +182,11 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   of them panics. `programs_use_the_prelude` counts the programs
   with each form. Every harness that runs the front end itself (the MIR and IL snapshots, the layout
   test, `validate_corpus`, the generator's `reorder` and `validity`) appends the prelude
-  as the driver does, through one helper, `sabiko_resolve::parse_and_resolve`. Compiling a
-  program skips borrow checking and linting the prelude's bodies;
+  as the driver does, through the driver's own front-end step,
+  `sabiko_driver::parse_and_resolve` (which returns the user's `FileId` too). Every
+  harness that compiles through the driver (UI, differential, run corpus, `no_panic`,
+  generated programs) asserts that no diagnostic has all its labels in the prelude's source
+  (`Compilation::diagnostics_only_in_prelude`). Compiling a program skips borrow checking and linting the prelude's bodies;
   `sabiko_driver::check_core_prelude` runs both on them, and the driver's
   `core_prelude_borrow_checks_and_lints_clean` asserts it reports nothing.
 
@@ -273,7 +276,8 @@ through `coverage()`, which prints `coverage <test>: <name> = <count> (min <thre
 The thresholds are measured, not picked: `python3 scripts/measure_coverage.py` counts over
 the 10 windows of 500 seeds from 1 to 5000 (`SABIKO_COVERAGE_BASE_SEED` moves the window,
 `SABIKO_COVERAGE_MEASURE` turns the assertions off) and each threshold is 75% of the
-smallest window's count, rounded down, at least 1. The margin lets a threshold survive the
+smallest window's count, rounded down, at least 1 (a count that is 0 in some window
+fails the script instead: that construct is barely generated). The margin lets a threshold survive the
 reshuffle any change to the generator's draws makes, since the test only counts one
 window; re-measure and update after a generator change that moves the counts. Measured on
 2026-11-11, after #49 and #13's first part:

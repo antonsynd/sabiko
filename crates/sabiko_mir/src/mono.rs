@@ -149,17 +149,27 @@ pub fn monomorphize(
         }
     }
     // Instances to make, with how deep in a chain of instances each was reached.
-    let mut queue: Vec<(DefId, Vec<Ty>, usize, Span)> = Vec::new();
+    let mut queue: Vec<Pending> = Vec::new();
     let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::new();
+    // Where each body of `out` was reached from (aligned with `out`).
+    let mut origins: Vec<Origin> = Vec::new();
     for body in &out {
-        enqueue(body, 0, &mut queue, &mut seen);
+        let origin = Origin::root(body.span);
+        enqueue(body, 0, origin, resolve, &mut queue, &mut seen);
+        origins.push(origin);
     }
+    let mut limits = LimitReports::default();
     let mut drop_seen: HashSet<Ty> = HashSet::new();
     let mut scanned = 0;
     let mut next = 0;
     loop {
         while next < queue.len() {
-            let (def, args, depth, span) = queue[next].clone();
+            let Pending {
+                def,
+                args,
+                depth,
+                origin,
+            } = queue[next].clone();
             next += 1;
             let length: usize = args.iter().map(type_length).sum();
             if depth > RECURSION_LIMIT || length > TYPE_LENGTH_LIMIT {
@@ -172,14 +182,13 @@ pub fn monomorphize(
                     // Too long to print.
                     ("type-length", resolve.def(def).name.clone())
                 };
-                sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::INSTANTIATION_RECURSION_LIMIT,
-                        format!("reached the {limit} limit while instantiating `{shown}`"),
-                    )
-                    .with_label(span, "instantiated here")
-                    .with_note("each call instantiates the function at a larger type, without end"),
-                );
+                let diagnostic = Diagnostic::error(
+                    ErrorCode::INSTANTIATION_RECURSION_LIMIT,
+                    format!("reached the {limit} limit while instantiating `{shown}`"),
+                )
+                .with_label(origin.user_call, "instantiated here")
+                .with_note("each call instantiates the function at a larger type, without end");
+                limits.hit(origin.root, resolve.is_prelude(def), diagnostic, sink);
                 // The chain stops here; other instances are still made.
                 continue;
             }
@@ -194,27 +203,108 @@ pub fn monomorphize(
                 continue;
             };
             let params = &typeck.items.fn_sig(def).generics;
-            let instance = instantiate(template, params, &args, resolve, typeck, sink);
-            enqueue(&instance, depth, &mut queue, &mut seen);
+            let mut own = DiagnosticSink::new();
+            let instance = instantiate(template, params, &args, resolve, typeck, &mut own);
+            for mut d in own.into_vec() {
+                // An error found in a prelude body is the user's call's: point at it.
+                if resolve.is_prelude(def) {
+                    d = d.with_label(origin.user_call, "instantiated here");
+                }
+                sink.emit(d);
+            }
+            enqueue(&instance, depth, origin, resolve, &mut queue, &mut seen);
             out.push(instance);
+            origins.push(origin);
         }
         // Every instance of a generic type with its own `impl Drop` needs that `drop` at
         // its arguments, which no call names: its drop glue calls it.
         let before = queue.len();
         while scanned < out.len() {
             let body = &out[scanned];
+            let origin = origins[scanned];
             scanned += 1;
             let depth = 1;
             for decl in &body.locals {
                 drop_instances(&decl.ty, typeck, &mut drop_seen, &mut |drop_fn, args| {
                     if seen.insert((drop_fn, args.clone())) {
-                        queue.push((drop_fn, args, depth, body.span));
+                        queue.push(Pending {
+                            def: drop_fn,
+                            args,
+                            depth,
+                            origin,
+                        });
                     }
                 });
             }
         }
         if queue.len() == before {
+            limits.finish(sink);
             return out;
+        }
+    }
+}
+
+/// An instance to make.
+#[derive(Clone)]
+struct Pending {
+    def: DefId,
+    args: Vec<Ty>,
+    depth: usize,
+    origin: Origin,
+}
+
+/// Where a chain of instances started, and the call in the user's program nearest to an
+/// instance along it: an error found while instantiating a body of the `core` prelude
+/// (decision 90) points there, never only into the prelude's source.
+#[derive(Clone, Copy)]
+struct Origin {
+    /// The first call of the chain, made from a function that is not generic.
+    root: Span,
+    /// The last call on the way made from a body of the user's program.
+    user_call: Span,
+}
+
+impl Origin {
+    fn root(span: Span) -> Self {
+        Origin {
+            root: span,
+            user_call: span,
+        }
+    }
+}
+
+/// The instantiation limit errors (E0502), one per chain, as rustc stops at the first. A
+/// chain through the prelude's helpers reaches the limit at a helper (`Option::is_none`)
+/// in the same step as at the user's function that keeps growing (`Grow`), which rustc,
+/// counting the depth per function, names; so a hit at a prelude function waits for the
+/// end, and is reported only if no function of the user's program hit the limit in that
+/// chain.
+#[derive(Default)]
+struct LimitReports {
+    reported: HashSet<Span>,
+    waiting: Vec<(Span, Diagnostic)>,
+}
+
+impl LimitReports {
+    fn hit(&mut self, root: Span, in_prelude: bool, d: Diagnostic, sink: &mut DiagnosticSink) {
+        if self.reported.contains(&root) {
+            return;
+        }
+        if in_prelude {
+            if !self.waiting.iter().any(|(r, _)| *r == root) {
+                self.waiting.push((root, d));
+            }
+        } else {
+            self.reported.insert(root);
+            sink.emit(d);
+        }
+    }
+
+    fn finish(&mut self, sink: &mut DiagnosticSink) {
+        for (root, d) in std::mem::take(&mut self.waiting) {
+            if self.reported.insert(root) {
+                sink.emit(d);
+            }
         }
     }
 }
@@ -305,16 +395,28 @@ fn builtin_clone(
     Some((copy, *target))
 }
 
-/// Queues the instances of generic functions `body` calls that are not made yet.
+/// Queues the instances of generic functions `body` calls that are not made yet, `body`
+/// being reached along `origin` (a chain starts at each call of a body at `depth` 0).
 fn enqueue(
     body: &Body,
     depth: usize,
-    queue: &mut Vec<(DefId, Vec<Ty>, usize, Span)>,
+    origin: Origin,
+    resolve: &ResolveResults,
+    queue: &mut Vec<Pending>,
     seen: &mut HashSet<(DefId, Vec<Ty>)>,
 ) {
+    let user_body = !resolve.is_prelude(body.def);
     for (def, args, span) in generic_calls(body) {
         if seen.insert((def, args.clone())) {
-            queue.push((def, args, depth + 1, span));
+            queue.push(Pending {
+                def,
+                args,
+                depth: depth + 1,
+                origin: Origin {
+                    root: if depth == 0 { span } else { origin.root },
+                    user_call: if user_body { span } else { origin.user_call },
+                },
+            });
         }
     }
 }

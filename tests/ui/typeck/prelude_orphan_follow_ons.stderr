@@ -1,0 +1,25 @@
+[E0211] Error: cannot define inherent `impl` for a type outside of the crate where the type is defined
+    ╭─[ tests/ui/typeck/prelude_orphan_follow_ons.sabi:15:13 ]
+    │
+ 15 │ impl<T: Tr> Option<T> { //~ ERROR E0211 cannot define inherent `impl` for a type outside of the crate where the type is defined
+    │             ────┬────  
+    │                 ╰────── impl for type defined outside of this file
+    │ 
+    │ Note: `Option` is defined in Sabiko's `core` library; define a trait and implement it for `Option` instead
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/prelude_orphan_follow_ons.sabi:24:23 ]
+    │
+ 24 │         let y: bool = 1; //~ ERROR E0300 mismatched types
+    │                       ┬  
+    │                       ╰── expected `bool`, found `{integer}`
+────╯
+[E0214] Error: only traits defined in the current crate can be implemented for types defined outside of the crate
+    ╭─[ tests/ui/typeck/prelude_orphan_follow_ons.sabi:31:16 ]
+    │
+ 31 │ impl Clone for Option<S> { //~ ERROR E0214 only traits defined in the current crate
+    │                ────┬────  
+    │                    ╰────── `Option` is not defined in this file
+    │ 
+    │ Note: `Clone` and `Option` both come from outside this file (`Option` from Sabiko's `core` library); implement a trait of this file for it, or wrap it in a struct of this file
+────╯

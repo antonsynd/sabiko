@@ -2,7 +2,8 @@
 """Measures the generator's coverage counts (`crates/sabiko_testgen/tests/validity.rs`,
 the `programs_*` tests) over several windows of 500 seeds, and prints each count's
 minimum, mean and maximum with the threshold the file's rule gives: 75% of the minimum,
-rounded down, at least 1.
+rounded down, at least 1. A construct that some window has none of has no threshold: the
+script lists it and exits with 1.
 
 Usage: python3 scripts/measure_coverage.py [--windows N]   (default 10: seeds 1-5000)
 
@@ -49,12 +50,25 @@ def main():
             current[key] = threshold
     print("| test | count | min | mean | max | threshold now | 75% of min |")
     print("| --- | --- | --- | --- | --- | --- | --- |")
+    absent = []
     for (test, name), counts in seen.items():
         lo = min(counts)
-        suggested = max(1, lo * 3 // 4)
         mean = sum(counts) / len(counts)
+        if lo == 0:
+            # Some window of 500 programs has none: no threshold can hold, and one of 1
+            # would fail on that window. The construct is (nearly) not generated.
+            absent.append(f"{test}: {name} (counts {counts})")
+            suggested = "NONE IN A WINDOW"
+        else:
+            suggested = max(1, lo * 3 // 4)
         print(f"| {test} | {name} | {lo} | {mean:.1f} | {max(counts)} | "
               f"{current[(test, name)]} | {suggested} |")
+    if absent:
+        print("\nERROR: some window of 500 seeds has none of these constructs; fix the "
+              "generator or drop the count before setting thresholds:", file=sys.stderr)
+        for line in absent:
+            print(f"  {line}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

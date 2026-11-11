@@ -67,7 +67,9 @@ fn count_checks(test: &str, knobs: &Knobs, checks: &[Check]) {
 fn front_end_errors(name: &str, src: &str) -> String {
     let mut sm = SourceMap::new();
     let mut sink = DiagnosticSink::new();
-    if let Some((ast, resolve)) = sabiko_resolve::parse_and_resolve(name, src, &mut sm, &mut sink) {
+    if let Some((ast, resolve)) =
+        sabiko_driver::parse_and_resolve(name, src, &mut sm, &mut sink).program
+    {
         if !sink.has_errors() {
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
         }
@@ -294,7 +296,8 @@ fn programs_have_unreachable_patterns() {
             let mut sink = DiagnosticSink::new();
             let mut sm = SourceMap::new();
             let (ast, resolve) =
-                sabiko_resolve::parse_and_resolve("u.sabi", &src, &mut sm, &mut sink)
+                sabiko_driver::parse_and_resolve("u.sabi", &src, &mut sm, &mut sink)
+                    .program
                     .expect("generated programs parse");
             let _ = sabiko_types::typeck(&ast, &resolve, &mut sink);
             let codes: Vec<String> = sink

@@ -72,6 +72,8 @@ impl Default for Options {
 #[derive(Debug)]
 pub struct Compilation {
     pub source_map: SourceMap,
+    /// The user's file in `source_map` (the `core` prelude's files follow it).
+    pub file: sabiko_span::FileId,
     /// Sorted by position.
     pub diagnostics: Vec<Diagnostic>,
     /// Whatever `Options::emit` asked for (empty for `Emit::None`).
@@ -93,6 +95,19 @@ impl Compilation {
             .iter()
             .filter(|d| d.severity == Severity::Error)
             .count()
+    }
+
+    /// The diagnostics that have labels, all inside the `core` prelude's source (decision
+    /// 90). A diagnostic about the user's program must point at the program, since the
+    /// prelude's code means nothing to the user; the test harnesses assert this is empty
+    /// for every compilation they make, where a check in the compiler itself could only
+    /// crash it on the user's input.
+    #[must_use]
+    pub fn diagnostics_only_in_prelude(&self) -> Vec<&Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|d| !d.labels.is_empty() && d.labels.iter().all(|l| l.span.file != self.file))
+            .collect()
     }
 
     #[must_use]
@@ -130,29 +145,16 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
     let output = match options.emit {
         Emit::Tokens => tokens_output(file, src, &mut sink),
         Emit::None | Emit::Ast | Emit::Pretty | Emit::Mir | Emit::MirElaborated | Emit::Il => {
-            let (mut ast, next_id) = sabiko_parser::parse_file_with(
-                file,
-                src,
-                sabiko_parser::ParseOptions::default(),
-                &mut sink,
-            );
+            let (ast, next_id) = parse_user_file(file, src, &mut sink);
             match options.emit {
                 Emit::Ast => sabiko_ast::dump::dump(&ast),
                 Emit::Pretty => sabiko_ast::pretty::pretty(&ast),
                 _ => {
-                    // Semantic analysis only runs on a syntactically complete file:
-                    // recovery drops broken constructs, and reporting "cannot find value"
-                    // for names defined inside them would only add noise.
                     let mut output = String::new();
-                    if options.stop_after > Stage::Parse && !sink.has_errors() {
-                        let prelude_start = sabiko_parser::prelude::add_core_prelude(
-                            &mut ast,
-                            next_id,
-                            &mut source_map,
-                            &mut sink,
-                        );
-                        let resolve =
-                            sabiko_resolve::resolve_program(&mut ast, prelude_start, &mut sink);
+                    let program = (options.stop_after > Stage::Parse)
+                        .then(|| resolve_parsed(ast, next_id, &mut source_map, &mut sink))
+                        .flatten();
+                    if let Some((ast, resolve)) = program {
                         if options.stop_after > Stage::Resolve {
                             let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
                             // Signature elision (E0416) depends on signatures alone, so it
@@ -214,12 +216,64 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
     };
     let mut diagnostics = sink.into_vec();
     sabiko_diagnostics::sort(&mut diagnostics);
-    debug_assert_points_at_program(&diagnostics, file);
     Compilation {
         source_map,
+        file,
         diagnostics,
         output,
     }
+}
+
+/// The result of the front end up to name resolution ([`parse_and_resolve`]).
+#[derive(Debug)]
+pub struct FrontEnd {
+    pub file: sabiko_span::FileId,
+    /// The user's file with the `core` prelude's items appended (decision 90), and its
+    /// resolution; `None` when parsing reported errors.
+    pub program: Option<(sabiko_ast::SourceFile, sabiko_resolve::ResolveResults)>,
+}
+
+/// Adds `src` to `source_map` under `name` and runs the front end on it up to name
+/// resolution, exactly as compiling does: parses it, and only if that reported no errors
+/// appends the `core` prelude and resolves both. Every error is in `sink`. For the
+/// harnesses that drive the later stages themselves.
+pub fn parse_and_resolve(
+    name: &str,
+    src: &str,
+    source_map: &mut SourceMap,
+    sink: &mut DiagnosticSink,
+) -> FrontEnd {
+    let file = source_map.add(name, src);
+    let (ast, next_id) = parse_user_file(file, src, sink);
+    let program = resolve_parsed(ast, next_id, source_map, sink);
+    FrontEnd { file, program }
+}
+
+/// Parses the user's file; returns it with the first node id it did not use.
+fn parse_user_file(
+    file: sabiko_span::FileId,
+    src: &str,
+    sink: &mut DiagnosticSink,
+) -> (sabiko_ast::SourceFile, u32) {
+    sabiko_parser::parse_file_with(file, src, sabiko_parser::ParseOptions::default(), sink)
+}
+
+/// Appends the `core` prelude to the parsed user's file `ast` and resolves the program.
+/// Semantic analysis only runs on a syntactically complete file (`None` when `sink` holds
+/// errors): recovery drops broken constructs, and reporting "cannot find value" for names
+/// defined inside them would only add noise.
+fn resolve_parsed(
+    mut ast: sabiko_ast::SourceFile,
+    next_id: u32,
+    source_map: &mut SourceMap,
+    sink: &mut DiagnosticSink,
+) -> Option<(sabiko_ast::SourceFile, sabiko_resolve::ResolveResults)> {
+    if sink.has_errors() {
+        return None;
+    }
+    let start = sabiko_parser::prelude::add_core_prelude(&mut ast, next_id, source_map, sink);
+    let resolve = sabiko_resolve::resolve_program(&mut ast, start, sink);
+    Some((ast, resolve))
 }
 
 /// The token stream for `--emit=tokens`, one per line.
@@ -238,17 +292,6 @@ fn tokens_output(file: sabiko_span::FileId, src: &str, sink: &mut DiagnosticSink
         );
     }
     out
-}
-
-/// A diagnostic about the user's program points at the program (`file`): one whose labels
-/// are all inside the `core` prelude (decision 90) would show the user only compiler code.
-fn debug_assert_points_at_program(diagnostics: &[Diagnostic], file: sabiko_span::FileId) {
-    debug_assert!(
-        diagnostics
-            .iter()
-            .all(|d| d.labels.is_empty() || d.labels.iter().any(|l| l.span.file == file)),
-        "a diagnostic points only into the prelude: {diagnostics:?}"
-    );
 }
 
 /// The bodies borrow checking and the constant-propagation lints run on: the user's
@@ -272,8 +315,8 @@ fn checked_bodies<'a>(
 pub fn check_core_prelude() -> Compilation {
     let mut source_map = SourceMap::new();
     let mut sink = DiagnosticSink::new();
-    let parsed = sabiko_resolve::parse_and_resolve("empty.sabi", "", &mut source_map, &mut sink);
-    if let Some((ast, resolve)) = parsed {
+    let front = parse_and_resolve("empty.sabi", "", &mut source_map, &mut sink);
+    if let Some((ast, resolve)) = front.program {
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         let mut bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
         check_mir(&bodies, &typeck, &mut sink);
@@ -292,6 +335,7 @@ pub fn check_core_prelude() -> Compilation {
     sabiko_diagnostics::sort(&mut diagnostics);
     Compilation {
         source_map,
+        file: front.file,
         diagnostics,
         output: String::new(),
     }
@@ -411,6 +455,7 @@ mod tests {
     fn error_count_ignores_warnings() {
         let c = Compilation {
             source_map: SourceMap::new(),
+            file: sabiko_span::FileId(0),
             diagnostics: vec![
                 Diagnostic::warning(ErrorCode::UNSUPPORTED_SYNTAX, "w1"),
                 Diagnostic::error(ErrorCode::UNEXPECTED_TOKEN, "e"),
@@ -424,6 +469,7 @@ mod tests {
 
         let clean = Compilation {
             source_map: SourceMap::new(),
+            file: sabiko_span::FileId(0),
             diagnostics: vec![Diagnostic::warning(ErrorCode::UNSUPPORTED_SYNTAX, "w")],
             output: String::new(),
         };

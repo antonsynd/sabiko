@@ -46,6 +46,11 @@ fn scratch(kind: &str, seed: u64) -> PathBuf {
 /// Sabiko's verdict on `src`, with the error codes and the rendered diagnostics.
 fn sabiko_verdict(seed: u64, src: &str) -> (Verdict, Vec<String>, String) {
     let c = compile_str(&format!("generated-{seed}.sabi"), src, Options::default());
+    let stray = c.diagnostics_only_in_prelude();
+    assert!(
+        stray.is_empty(),
+        "{seed}: diagnostics pointing only into the prelude: {stray:?}"
+    );
     let mut codes: Vec<String> = Vec::new();
     for d in &c.diagnostics {
         if d.severity == Severity::Error && !codes.contains(&d.code.to_string()) {

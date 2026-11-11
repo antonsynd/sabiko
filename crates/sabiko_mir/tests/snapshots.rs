@@ -10,7 +10,8 @@ fn fixtures() {
         let mut sm = SourceMap::new();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let mut sink = DiagnosticSink::new();
-        let (ast, resolve) = sabiko_resolve::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
             .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(
@@ -44,7 +45,8 @@ fn fixtures_forwarded() {
         let mut sm = SourceMap::new();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let mut sink = DiagnosticSink::new();
-        let (ast, resolve) = sabiko_resolve::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
             .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
@@ -73,7 +75,8 @@ fn fixtures_elaborated() {
         let mut sm = SourceMap::new();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let mut sink = DiagnosticSink::new();
-        let (ast, resolve) = sabiko_resolve::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
             .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(sink.diagnostics().is_empty(), "fixture must be valid");

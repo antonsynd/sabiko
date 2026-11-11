@@ -53,20 +53,6 @@ pub fn add_core_prelude(
     start
 }
 
-/// Parses the user's file `file` (`src`, already in `source_map`) and appends the prelude
-/// ([`add_core_prelude`]): the program the driver resolves. Returns it with the index of
-/// the prelude's first item, for `sabiko_resolve::resolve_program`.
-pub fn parse_program(
-    file: sabiko_span::FileId,
-    src: &str,
-    source_map: &mut SourceMap,
-    sink: &mut DiagnosticSink,
-) -> (SourceFile, usize) {
-    let (mut parsed, next) = parse_file_with(file, src, ParseOptions::default(), sink);
-    let start = add_core_prelude(&mut parsed, next, source_map, sink);
-    (parsed, start)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

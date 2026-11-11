@@ -2264,9 +2264,12 @@ impl<'a> Builder<'a> {
         let mut assignees = Vec::new();
         pat.walk_assignees(&mut |p, place| assignees.push((p, place)));
         for (p, target) in assignees {
-            let Some(id) = self.resolve.local_of_pat(p.id) else {
-                continue; // A unit struct or variant: it compared.
-            };
+            // The resolver gives every assignee a local: one naming a unit struct or a
+            // variant compares, and is a path pattern by now.
+            let id = self
+                .resolve
+                .local_of_pat(p.id)
+                .expect("an assignee pattern has a local");
             let saved = self.push_temp_scope();
             self.in_operand_scope(None, target.span, |this| {
                 this.assign_part(p.id, id, target);

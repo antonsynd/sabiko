@@ -2735,9 +2735,12 @@ impl<'a> FnCtxt<'a> {
         let mut assignees = Vec::new();
         pat.walk_assignees(&mut |p, place| assignees.push((p, place)));
         for (p, place) in assignees {
-            let Some(local) = self.resolve.local_of_pat(p.id) else {
-                continue; // A unit struct or variant: it compared.
-            };
+            // The resolver gives every assignee a local: one naming a unit struct or a
+            // variant compares, and is a path pattern by now.
+            let local = self
+                .resolve
+                .local_of_pat(p.id)
+                .expect("an assignee pattern has a local");
             let value_ty = self.local_types[&local].clone();
             let place_ty = self.check_place(place);
             self.coerce(place.span, &value_ty, &place_ty);
@@ -3474,6 +3477,12 @@ impl<'a> FnCtxt<'a> {
         );
     }
 
+    /// Whether `ty` is a type of the prelude the user's file has an `impl` block for that
+    /// the orphan rule rejects.
+    fn orphan_adt(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Adt(adt, _) if self.resolve.has_orphan_impl(*adt))
+    }
+
     /// E0319: no method `name` for a receiver of type `recv_ty`.
     fn unknown_method(
         &mut self,
@@ -3483,6 +3492,11 @@ impl<'a> FnCtxt<'a> {
         label: &str,
         trait_methods: &[DefId],
     ) {
+        if adt.is_some_and(|a| self.resolve.has_orphan_impl(a)) {
+            // The method may be one of the block the orphan rule rejected (E0211, E0214),
+            // which was reported.
+            return;
+        }
         let shown = self.ty_str(recv_ty);
         let mut base = self.infer.resolve(recv_ty);
         while let Ty::Ref(_, inner) = base {
@@ -4091,6 +4105,10 @@ impl<'a> FnCtxt<'a> {
                         .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
                     );
                     self.infer.bind_error(&ty);
+                }
+                Solution::No if self.orphan_adt(&ty) => {
+                    // The bound may be the one of a block the orphan rule rejected
+                    // (E0214), which was reported.
                 }
                 Solution::No => {
                     let shown = self.ty_str(&ty);

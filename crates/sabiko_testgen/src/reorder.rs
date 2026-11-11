@@ -72,12 +72,12 @@ pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
     let mut sink = DiagnosticSink::new();
     let mut source_map = sabiko_diagnostics::SourceMap::new();
     // With the `core` prelude, as the driver compiles (decision 90).
-    let Some((ast, resolve)) =
-        sabiko_resolve::parse_and_resolve("program.sabi", program, &mut source_map, &mut sink)
-    else {
+    let front =
+        sabiko_driver::parse_and_resolve("program.sabi", program, &mut source_map, &mut sink);
+    let file = front.file;
+    let Some((ast, resolve)) = front.program else {
         return Err(format!("parse errors: {:?}", sink.diagnostics()));
     };
-    let file = sabiko_span::FileId(0);
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     if sink.has_errors() {
         return Err(format!("front-end errors: {:?}", sink.diagnostics()));

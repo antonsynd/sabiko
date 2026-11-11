@@ -48,7 +48,8 @@ fn compile(path: &Path, overflow_checks: bool) -> Option<(Vec<Body>, String)> {
     let mut sm = SourceMap::new();
     let mut sink = DiagnosticSink::new();
     let name = path.display().to_string();
-    let (ast, resolve) = sabiko_resolve::parse_and_resolve(&name, &src, &mut sm, &mut sink)?;
+    let (ast, resolve) =
+        sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink).program?;
     let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
     if sink.has_errors() {
         return None;

@@ -455,8 +455,12 @@ pub struct ResolveResults {
     /// the trait itself for `Trait::Name`. The type checker takes `Self` from it.
     assoc_self: HashMap<NodeId, Res>,
     /// The index of the first item of the `core` prelude in the file's items (decision
-    /// 89); the number of items when there is no prelude.
+    /// 90); the number of items when there is no prelude.
     prelude_start: usize,
+    /// The prelude's types the user's file has an `impl` block for that the orphan rule
+    /// rejects (E0211, E0214). The block is not used, so a call of its method or a bound
+    /// it would have met fails; the type checker does not report those again.
+    orphan_targets: std::collections::HashSet<DefId>,
     /// The functions marked `#[track_caller]`: their panics report their caller's
     /// location, which code generation passes them as a hidden last argument.
     track_caller: std::collections::HashSet<DefId>,
@@ -753,6 +757,14 @@ impl ResolveResults {
         }
     }
 
+    /// Whether the user's file has an `impl` block for `adt` (a type of the prelude) that
+    /// the orphan rule rejects: errors that only say its methods or trait are missing
+    /// follow from that one.
+    #[must_use]
+    pub fn has_orphan_impl(&self, adt: DefId) -> bool {
+        self.orphan_targets.contains(&adt)
+    }
+
     /// The index of the prelude's first item among the file's items.
     #[must_use]
     pub fn prelude_start(&self) -> usize {
@@ -860,25 +872,6 @@ pub fn resolve_program(
     let results = r.results;
     path_patterns(file, &results);
     results
-}
-
-/// The front end up to name resolution, as the driver runs it: adds `src` to
-/// `source_map` under `name`, parses it, appends the `core` prelude (decision 90) and
-/// resolves both. `None` when parsing reported errors (they are in `sink`); resolution's
-/// errors are in `sink` too. For the harnesses that drive the stages themselves.
-pub fn parse_and_resolve(
-    name: &str,
-    src: &str,
-    source_map: &mut sabiko_diagnostics::SourceMap,
-    sink: &mut DiagnosticSink,
-) -> Option<(SourceFile, ResolveResults)> {
-    let file = source_map.add(name, src);
-    let (mut ast, start) = sabiko_parser::prelude::parse_program(file, src, source_map, sink);
-    if sink.has_errors() {
-        return None;
-    }
-    let resolve = resolve_program(&mut ast, start, sink);
-    Some((ast, resolve))
 }
 
 /// How rustc names a kind of item in "cannot be used on ..." (E0224).
@@ -1627,9 +1620,9 @@ impl Resolver<'_> {
             let Some(adt) = target else {
                 continue;
             };
-            if self.is_foreign(adt) {
+            let foreign = self.is_foreign(adt);
+            if foreign {
                 self.foreign_inherent_impl(adt, &imp.self_ty);
-                continue;
             }
             for member in &imp.items {
                 let Some(ident) = member.name() else {
@@ -1638,6 +1631,11 @@ impl Resolver<'_> {
                 let def = self.results.def_of_item(member.id);
                 self.results.defs[def.0 as usize].parent = Some(adt);
                 self.inherit_generics_of(def, adt);
+                if foreign {
+                    // Its bodies are checked as any block's, but the type gets no new
+                    // members.
+                    continue;
+                }
                 let key = (adt, ident.name.clone());
                 let Some(&(prev, prev_block)) = first.get(&key) else {
                     first.insert(key.clone(), (def, index));
@@ -1864,11 +1862,11 @@ impl Resolver<'_> {
         !self.in_prelude && self.results.is_prelude(def)
     }
 
-    /// E0211 (rustc's E0116): an inherent `impl` block for a type of the prelude. Its type
-    /// is recorded as unresolved, so its members get no parent.
+    /// E0211 (rustc's E0116): an inherent `impl` block for a type of the prelude. Its
+    /// members are not the type's, and calls of them are not reported again.
     fn foreign_inherent_impl(&mut self, adt: DefId, ty: &Type) {
         let name = self.results.def(adt).name.clone();
-        self.results.res.insert(ty.id, Res::Err);
+        self.results.orphan_targets.insert(adt);
         self.sink.emit(
             Diagnostic::error(
                 ErrorCode::INVALID_IMPL_TARGET,
@@ -1881,8 +1879,11 @@ impl Resolver<'_> {
         );
     }
 
-    /// E0214 (rustc's E0117): a language trait implemented for a type of the prelude.
+    /// E0214 (rustc's E0117): a language trait implemented for a type of the prelude. The
+    /// block is left without its trait, and what then fails for lack of it is not
+    /// reported again.
     fn foreign_trait_impl(&mut self, tr: DefId, adt: DefId, ty: &Type) {
+        self.results.orphan_targets.insert(adt);
         let (tr, adt) = (&self.results.def(tr).name, &self.results.def(adt).name);
         self.sink.emit(
             Diagnostic::error(

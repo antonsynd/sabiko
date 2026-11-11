@@ -1,0 +1,45 @@
+// An `impl` block the orphan rule rejects for a type of the `core` prelude (decision 90)
+// is reported once, as rustc reports E0116/E0117 alone: what fails only because the block
+// is not used (a call of its method, a bound it would have met) is not reported again.
+// The rejected block's bodies are still checked, with its `Self` type and bounds.
+trait Tr {
+    fn A(&self) -> i32;
+}
+
+impl Tr for i32 {
+    fn A(&self) -> i32 {
+        *self
+    }
+}
+
+impl<T: Tr> Option<T> { //~ ERROR E0211 cannot define inherent `impl` for a type outside of the crate where the type is defined
+    fn B(&self) -> i32 {
+        match self {
+            Some(x) => x.A(),
+            None => 0,
+        }
+    }
+
+    fn C(&self) -> i32 {
+        let y: bool = 1; //~ ERROR E0300 mismatched types
+        2
+    }
+}
+
+struct S;
+
+impl Clone for Option<S> { //~ ERROR E0214 only traits defined in the current crate
+    fn clone(&self) -> Self {
+        None
+    }
+}
+
+fn Take<T: Clone>(t: T) {}
+
+fn Main() {
+    let o: Option<S> = None;
+    let p = o.clone();
+    Take(o);
+    let q = Some(3);
+    let v = q.B();
+}

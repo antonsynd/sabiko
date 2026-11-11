@@ -1469,7 +1469,9 @@ prelude's bodies out; compiling a program does not borrow-check or lint them
 identifier pattern naming a constant, unit struct or variant (and such an assignee) into a
 path pattern, so no stage special-cases it (a guard after a bare `None` arm could assign
 the scrutinee: E0510 in rustc, now E0419); the orphan rule holds for the prelude's types
-(E0211, E0214 at the user's `impl`); `#[track_caller]`/`#[intrinsic]` on a non-function is
+(E0211, E0214 at the user's `impl`, without follow-on errors from the rejected block);
+E0502 through a prelude helper points at the user's call, once per chain; the harnesses
+assert no diagnostic points only into the prelude; `#[track_caller]`/`#[intrinsic]` on a non-function is
 E0224; diagnostics name `Option<..>`, IL `core::Option<..>`; a file `option.sabi` keeps
 its module class `Option`. Cost: about 0.7-0.9 ms per compilation in a release build (a
 hello-world from about 2.1 to 2.9 ms). Tests: run-time programs in

@@ -134,7 +134,8 @@ rustc's E0530); the resolver rewrites such an identifier into the path pattern i
 prelude is a crate of its own to the user's file, so rustc's orphan rule applies to its
 types: an inherent `impl` for `Option` is E0211 (rustc's E0116), `impl Clone for
 Option<S>` or `impl Drop for Option<T>` is E0214 (E0117/E0120), and a trait of the file may
-be implemented for them. The prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`)
+be implemented for them. The rejected block is not used and is reported once: calls of its
+methods, and bounds it would have met, are not reported again. The prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`)
 are not visible (E0201, E0202), nor is `Debug` anywhere in Rust's prelude. Library files
 may contain `pub use Enum::{A, B};` and write `!` in a signature; in a user file both stay
 E0107 until Phase 9. Diagnostics may point into the prelude (`library/core/option.sabi`,
