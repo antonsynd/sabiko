@@ -1264,7 +1264,9 @@ nightlies' lists can be compared.
   hold is accepted where rustc reports E0277 (#155); with the depth stuck at 0 the mutant
   answers correctly. A test reaching the limit would pin the wrong answer, so these wait
   for #155, with `>` as `==`, `known_nodes`' three `+` as `*` and `field_defs`' field
-  deletion from run 25.
+  deletion from run 25. #154 fixed #155 (the limit is an overflow, rustc's E0275, and the
+  condition is now `depth >= DEPTH_LIMIT`): `crates/sabiko_driver/tests/bound_chains.rs`
+  kills both (`depth * 1` and `>` checked by hand: its nesting and overflow tests fail).
 
 Verified with `cargo mutants --in-place --re` on the crates' test packages: for
 `sabiko_codegen`, every mutant of `type_token`, `print_overload`, `entry_point_or_error`,

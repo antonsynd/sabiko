@@ -3170,7 +3170,7 @@ impl<'a> FnCtxt<'a> {
         let mut checked = false;
         for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
             let t = self.infer.resolve(&ty);
-            if self.has_no_general_var(&t) {
+            if self.printability_known(&t) {
                 checked = true;
                 self.check_printable(builtin, span, &t);
             } else {
@@ -4618,7 +4618,7 @@ impl<'a> FnCtxt<'a> {
         for arg in args {
             let ty = self.check_expr(arg, None);
             let ty = self.infer.resolve(&ty);
-            if !self.has_no_general_var(&ty) {
+            if !self.printability_known(&ty) {
                 // rustc's `T: Display` obligation of the call: decided by a later use, a
                 // pending obligation (`PrintLine(S.Map())`) or the never-type fallback,
                 // and checked then.
@@ -4634,7 +4634,7 @@ impl<'a> FnCtxt<'a> {
     fn check_pending_prints(&mut self) {
         for (builtin, span, ty) in std::mem::take(&mut self.pending_prints) {
             let ty = self.infer.resolve_with_defaults(&ty);
-            if self.has_no_general_var(&ty) {
+            if self.printability_known(&ty) {
                 self.check_printable(builtin, span, &ty);
             } else {
                 self.unknown_print_argument(builtin, span, &ty);
@@ -4697,15 +4697,14 @@ impl<'a> FnCtxt<'a> {
         );
     }
 
-    /// Whether `ty` (resolved) holds no general inference variable: literal variables
-    /// (`{integer}`, `{float}`) count as known.
-    fn has_no_general_var(&mut self, ty: &Ty) -> bool {
+    /// Whether it is known whether a value of type `ty` (resolved) prints:
+    /// behind its references, it is not a general inference variable (a literal's
+    /// variable prints, and a tuple or array never does, whatever its elements: rustc's
+    /// "`(_, i32)` doesn't implement `Display`").
+    fn printability_known(&mut self, ty: &Ty) -> bool {
         match ty {
             Ty::Infer(v) => self.infer.kind(*v) != VarKind::General,
-            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => {
-                self.has_no_general_var(inner)
-            }
-            Ty::Tuple(elems) => elems.iter().all(|e| self.has_no_general_var(e)),
+            Ty::Ref(_, inner) => self.printability_known(inner),
             _ => true,
         }
     }

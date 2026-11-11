@@ -1000,7 +1000,8 @@ fn Bad(s: S) {
                 "E0300 mismatched types [expected `&str`, found `{integer}`]",
                 "E0304 this function takes 1 argument but 2 arguments were supplied [expected 1 argument]",
                 "E0300 mismatched types [expected `i32`, found `()`]",
-                "E0313 type annotations needed [cannot infer the type of this argument to `PrintLine`]",
+                // `PrintLine(y)`'s unknown type is not reported in a body tainted by
+                // errors, as rustc's ambiguity errors are not.
                 "E0300 `PrintLine` cannot print a value of type `S` [expected a printable value, found `S`]",
             ]
         );
@@ -1104,7 +1105,8 @@ fn F(s: S) {
             [
                 "E0300 mismatched types [expected `()`, found a tuple with 2 elements]",
                 "E0300 mismatched types [expected `{integer}`, found a tuple with 2 elements]",
-                "E0313 type annotations needed [cannot infer the type of this argument to `Print`]",
+                // rustc: "`(_, i32)` doesn't implement `std::fmt::Display`".
+                "E0300 `Print` cannot print a value of type `(_, i32)` [expected a printable value, found `(_, i32)`]",
                 "E0301 no field `Missing` on type `S` [unknown field]",
                 "E0336 cannot index into a value of type `i32` [not an array or a slice]",
             ]
