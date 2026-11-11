@@ -1,0 +1,50 @@
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/typeck/no_follow_on_annotations_needed.sabi:14:23 ]
+    │
+ 14 │ fn Try(r: Result<i32, Missing>) -> Result<i32, Missing> { //~ ERROR E0201 cannot find type `Missing` in this scope
+    │                       ───┬───  
+    │                          ╰───── not found in this scope
+────╯
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/typeck/no_follow_on_annotations_needed.sabi:14:48 ]
+    │
+ 14 │ fn Try(r: Result<i32, Missing>) -> Result<i32, Missing> { //~ ERROR E0201 cannot find type `Missing` in this scope
+    │                                                ───┬───  
+    │                                                   ╰───── not found in this scope
+────╯
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/typeck/no_follow_on_annotations_needed.sabi:19:33 ]
+    │
+ 19 │ fn Constructed() -> Result<i32, Missing> { //~ ERROR E0201 cannot find type `Missing` in this scope
+    │                                 ───┬───  
+    │                                    ╰───── not found in this scope
+────╯
+[E0201] Error: cannot find type `Missing` in this scope
+    ╭─[ tests/ui/typeck/no_follow_on_annotations_needed.sabi:23:15 ]
+    │
+ 23 │ fn Wrapped(m: Missing) { //~ ERROR E0201 cannot find type `Missing` in this scope
+    │               ───┬───  
+    │                  ╰───── not found in this scope
+────╯
+[E0304] Error: this function takes 1 argument but 2 arguments were supplied
+    ╭─[ tests/ui/typeck/no_follow_on_annotations_needed.sabi:28:13 ]
+    │
+ 10 │ fn Make2<T: Df>(a: i32) -> T {
+    │    ──┬──  
+    │      ╰──── function `Make2` defined here
+    │ 
+ 28 │     let _ = Make2(1, 2); //~ ERROR E0304 this function takes 1 argument but 2 arguments were supplied
+    │             ─────┬─────  
+    │                  ╰─────── expected 1 argument
+────╯
+[E0304] Error: this function takes 1 argument but 2 arguments were supplied
+    ╭─[ tests/ui/typeck/no_follow_on_annotations_needed.sabi:32:13 ]
+    │
+ 10 │ fn Make2<T: Df>(a: i32) -> T {
+    │    ──┬──  
+    │      ╰──── function `Make2` defined here
+    │ 
+ 32 │     let x = Make2(1, 2); //~ ERROR E0304 this function takes 1 argument but 2 arguments were supplied
+    │             ─────┬─────  
+    │                  ╰─────── expected 1 argument
+────╯

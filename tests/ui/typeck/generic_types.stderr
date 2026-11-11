@@ -21,17 +21,17 @@
     │                  ────────────┬────────────  
     │                              ╰────────────── expected `i32`, found `u8`
 ────╯
-[E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/generic_types.sabi:23:9 ]
-    │
- 23 │     let o = Opt::None; //~ ERROR E0313 type annotations needed
-    │         ┬  
-    │         ╰── consider giving `o` an explicit type
-────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/generic_types.sabi:24:34 ]
+    ╭─[ tests/ui/typeck/generic_types.sabi:23:34 ]
     │
- 24 │     let p: Opt<bool> = Opt::Some(5); //~ ERROR E0300 mismatched types
+ 23 │     let p: Opt<bool> = Opt::Some(5); //~ ERROR E0300 mismatched types
     │                                  ┬  
     │                                  ╰── expected `bool`, found `{integer}`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/generic_types.sabi:29:9 ]
+    │
+ 29 │     let o = Opt::None; //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `o` an explicit type
 ────╯

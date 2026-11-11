@@ -61,9 +61,9 @@
     │ Note: the trait `Show` defines an item `Show`, but `bool` does not implement it
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/trait_bounds.sabi:67:9 ]
+    ╭─[ tests/ui/typeck/trait_bounds.sabi:73:9 ]
     │
- 67 │     let d = Make::Make(); //~ ERROR E0313 type annotations needed
+ 73 │     let d = Make::Make(); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `d` an explicit type
 ────╯

@@ -233,15 +233,20 @@ fn check_no_unreported_errors(
                 .chain(body.coercions.values())
                 .chain(body.generic_args.values().flatten())
         });
-        let mut tys = signature.chain(body_tys);
-        if let Some(ty) = tys.find(|t| t.references_error()) {
+        // The smallest such type's text, so the note does not depend on map order.
+        let shown = signature
+            .chain(body_tys)
+            .filter(|t| t.references_error())
+            .map(|t| t.display(resolve))
+            .min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+        if let Some(shown) = shown {
             sink.emit(
                 Diagnostic::error(
                     ErrorCode::INTERNAL_ERROR,
                     "internal compiler error: a type in this item is unknown, but no error was reported",
                 )
                 .with_label(item.span, "in this item")
-                .with_note(format!("the type is `{}`", ty.display(resolve)))
+                .with_note(format!("the type is `{shown}`"))
                 .with_note("this is a bug in the Sabiko compiler; please report it"),
             );
         }

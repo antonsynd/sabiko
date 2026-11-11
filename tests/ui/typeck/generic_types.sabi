@@ -20,6 +20,11 @@ fn Main() {
     let w = Wrap { Value: true };
     Take(w); //~ ERROR E0300 mismatched types
     let n: i32 = Wrap { Value: 2u8 }.Value; //~ ERROR E0300 mismatched types
-    let o = Opt::None; //~ ERROR E0313 type annotations needed
     let p: Opt<bool> = Opt::Some(5); //~ ERROR E0300 mismatched types
+}
+
+// In a body of its own: after another error in the same body, an unknown type is not
+// reported, as in rustc.
+fn Unknown() {
+    let o = Opt::None; //~ ERROR E0313 type annotations needed
 }

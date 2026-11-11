@@ -20,7 +20,7 @@ use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
-use crate::traits::{has_error, Solution};
+use crate::traits::Solution;
 use crate::ty::{Mutability, Ty, TyVid};
 
 /// A field access `e.f`: which field, and how many references were peeled off `e` first.
@@ -2713,7 +2713,7 @@ impl<'a> FnCtxt<'a> {
             let value = self.infer.resolve_with_defaults(&t.value);
             let from = self.infer.resolve_with_defaults(&t.from);
             let to = self.infer.resolve_with_defaults(&t.to);
-            if has_error(&value) || has_error(&from) || has_error(&to) {
+            if value.references_error() || from.references_error() || to.references_error() {
                 // Reported already: an error type implies a reported error (decision 94),
                 // which `typeck` checks before any `?` is lowered.
                 continue;
@@ -4851,11 +4851,14 @@ impl<'a> FnCtxt<'a> {
 
     /// A declaration whose type is still unknown and whose locals reported nothing
     /// (`let _;`, `let (_, x): (_, i32);`), as rustc's E0282; `reported` are the locals
-    /// reported already.
-    fn report_unknown_let_types(&mut self, reported: &HashSet<LocalId>) {
+    /// reported already; `quiet` when an earlier error in the body may be the cause (then
+    /// the type becomes an error silently).
+    fn report_unknown_let_types(&mut self, reported: &HashSet<LocalId>, quiet: bool) {
         for (ty, span, annotated, bound) in std::mem::take(&mut self.let_decls) {
             let t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() && !bound.iter().any(|l| reported.contains(l)) {
+            if t.has_infer() && (quiet || bound.iter().any(|l| reported.contains(l))) {
+                self.infer.bind_error(&t);
+            } else if t.has_infer() {
                 let label = if annotated {
                     "cannot infer type"
                 } else {
@@ -4891,10 +4894,17 @@ impl<'a> FnCtxt<'a> {
         let mut locals: Vec<(LocalId, Ty)> =
             std::mem::take(&mut self.local_types).into_iter().collect();
         locals.sort_by_key(|(l, _)| *l);
+        // An earlier error in the body may be what left a type unknown (`let x = F(1, 2);`
+        // with the wrong argument count): then, as rustc, nothing more is reported.
+        let quiet = self.sink.error_count() > self.errors_before;
         let mut reported = HashSet::new();
         for (id, ty) in locals {
             let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() {
+            if t.has_infer() && quiet {
+                reported.insert(id);
+                self.infer.bind_error(&t);
+                t = Ty::Error;
+            } else if t.has_infer() {
                 reported.insert(id);
                 let name = self.resolve.local(id).name.clone();
                 let span = self.local_spans[&id];
@@ -4911,7 +4921,7 @@ impl<'a> FnCtxt<'a> {
             }
             local_types.insert(id, t);
         }
-        self.report_unknown_let_types(&reported);
+        self.report_unknown_let_types(&reported, quiet);
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
         self.check_pending_tries();

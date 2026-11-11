@@ -43,53 +43,46 @@
     │ 
     │ Note: inference only runs inside function bodies
 ────╯
-[E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:31:5 ]
-    │
- 31 │     Opt::No //~ ERROR E0313 type annotations needed
-    │     ───┬───  
-    │        ╰───── cannot infer the type of this expression
-────╯
 [E0208] Error: the size for values of type `str` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:35:12 ]
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:37:12 ]
     │
- 35 │     let a: Opt<str> = Opt::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+ 37 │     let a: Opt<str> = Opt::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
     │            ────┬───  
     │                ╰───── doesn't have a size known at compile-time
     │ 
     │ Note: string values are used behind a reference: `&str`
 ────╯
 [E0208] Error: the size for values of type `[u8]` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:36:12 ]
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:38:12 ]
     │
- 36 │     let b: Opt<(i32, [u8])> = Opt::No; //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
+ 38 │     let b: Opt<(i32, [u8])> = Opt::No; //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
     │            ────────┬───────  
     │                    ╰───────── doesn't have a size known at compile-time
     │ 
     │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
 ────╯
 [E0208] Error: the size for values of type `str` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:39:12 ]
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:41:12 ]
     │
- 39 │     let e: &Opt<str> = &Opt::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+ 41 │     let e: &Opt<str> = &Opt::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
     │            ────┬────  
     │                ╰────── doesn't have a size known at compile-time
     │ 
     │ Note: string values are used behind a reference: `&str`
 ────╯
 [E0208] Error: the size for values of type `[u8]` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:40:12 ]
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:42:12 ]
     │
- 40 │     let f: (i32, &W<[u8]>); //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
+ 42 │     let f: (i32, &W<[u8]>); //~ ERROR E0208 the size for values of type `[u8]` cannot be known at compilation time
     │            ───────┬───────  
     │                   ╰───────── doesn't have a size known at compile-time
     │ 
     │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
 ────╯
 [E0208] Error: the size for values of type `str` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:41:19 ]
+    ╭─[ tests/ui/typeck/unsized_generic_argument.sabi:43:19 ]
     │
- 41 │     let g = Opt::<&W<str>>::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+ 43 │     let g = Opt::<&W<str>>::No; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
     │                   ───┬──  
     │                      ╰──── doesn't have a size known at compile-time
     │ 
