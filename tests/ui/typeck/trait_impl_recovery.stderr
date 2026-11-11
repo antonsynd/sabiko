@@ -1,0 +1,29 @@
+[E0201] Error: cannot find type `Nope` in this scope
+    ╭─[ tests/ui/typeck/trait_impl_recovery.sabi:24:14 ]
+    │
+ 24 │     const C: Nope = 1; //~ ERROR E0201 cannot find type `Nope` in this scope
+    │              ──┬─  
+    │                ╰─── not found in this scope
+────╯
+[E0344] Error: impl has stricter requirements than trait
+    ╭─[ tests/ui/typeck/trait_impl_recovery.sabi:28:20 ]
+    │
+ 12 │     fn Other<T: Show, U>(&self, x: T, y: U) -> i32;
+    │        ──┬──  
+    │          ╰──── definition of the method in the trait
+    │ 
+ 28 │     fn Other<T, U: Show>(&self, x: T, y: U) -> i32 { //~ ERROR E0344 impl has stricter requirements than trait
+    │                    ──┬─  
+    │                      ╰─── impl has extra requirement `U: Show`
+────╯
+[E0222] Error: struct takes 1 generic argument but 2 generic arguments were supplied
+    ╭─[ tests/ui/typeck/trait_impl_recovery.sabi:33:17 ]
+    │
+ 15 │ struct Wrap<T> {
+    │        ──┬─  
+    │          ╰─── struct `Wrap` defined here
+    │ 
+ 33 │ fn Arity(w: Wrap<i32, bool>) -> i32 { //~ ERROR E0222 struct takes 1 generic argument but 2 generic arguments were supplied
+    │                 ─────┬─────  
+    │                      ╰─────── expected 1 generic argument
+────╯

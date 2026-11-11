@@ -14,6 +14,10 @@ trait Make {
         let both = (Self::Make(), 1); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
         both.1
     }
+    fn Elems() -> i32 {
+        let two = [Self::Make(), Self::Make()]; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        2
+    }
     fn Peek(&self) -> &Self {
         self
     }

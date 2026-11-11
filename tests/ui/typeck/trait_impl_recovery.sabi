@@ -1,0 +1,42 @@
+// A trait impl's own bounds: the trait's bound on the same parameter is fine, one on
+// another parameter is stricter (rustc's E0276). And recovery: an associated constant of an
+// unknown type, or a generic type with the wrong number of arguments, reports nothing more.
+
+trait Show {
+    fn S(&self) -> i32;
+}
+
+trait Tr {
+    const C: i32;
+    fn Same<T: Show>(&self, x: T) -> i32;
+    fn Other<T: Show, U>(&self, x: T, y: U) -> i32;
+}
+
+struct Wrap<T> {
+    X: T,
+}
+
+struct P {
+    X: i32,
+}
+
+impl Tr for P {
+    const C: Nope = 1; //~ ERROR E0201 cannot find type `Nope` in this scope
+    fn Same<T: Show>(&self, x: T) -> i32 {
+        0
+    }
+    fn Other<T, U: Show>(&self, x: T, y: U) -> i32 { //~ ERROR E0344 impl has stricter requirements than trait
+        0
+    }
+}
+
+fn Arity(w: Wrap<i32, bool>) -> i32 { //~ ERROR E0222 struct takes 1 generic argument but 2 generic arguments were supplied
+    let n: bool = w.X;
+    Take(w)
+}
+
+fn Take(w: Wrap<i32>) -> i32 {
+    w.X
+}
+
+fn Main() {}

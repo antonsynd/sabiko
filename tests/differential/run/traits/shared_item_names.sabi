@@ -1,0 +1,35 @@
+// Two traits with items of the same names: a path through a trait names its item, and a
+// method call, a type path or an associated constant picks the trait the type implements;
+// an integer literal can only be the `i64` of `B`, never the `bool` of `A`.
+trait A {
+    const C: i32;
+    fn M(&self) -> i32;
+    fn Make() -> i32;
+}
+
+trait B {
+    const C: i32;
+    fn M(&self) -> i32;
+    fn Make() -> i32;
+}
+
+impl A for bool {
+    const C: i32 = 10;
+    fn M(&self) -> i32 { 1 }
+    fn Make() -> i32 { 100 }
+}
+
+impl B for i64 {
+    const C: i32 = 20;
+    fn M(&self) -> i32 { 2 }
+    fn Make() -> i32 { 200 }
+}
+
+fn Main() {
+    PrintLine(A::M(&true));
+    PrintLine(B::M(&7i64));
+    PrintLine(5.M());
+    PrintLine(true.M());
+    PrintLine(i64::Make() + bool::Make());
+    PrintLine(i64::C + bool::C);
+}

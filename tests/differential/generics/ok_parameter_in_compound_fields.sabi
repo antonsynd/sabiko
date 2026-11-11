@@ -1,0 +1,11 @@
+// A type parameter used only inside an array or tuple field is used (no E0392).
+struct ArrayOf<T> { X: [T; 2] }
+struct TupleOf<T> { X: (bool, T) }
+struct Nested<T> { X: ([T; 1], i32) }
+
+fn Make() -> i32 {
+    let a = ArrayOf { X: [1, 2] };
+    let t = TupleOf { X: (true, 3) };
+    let n = Nested { X: ([4u8], 5) };
+    a.X[0] + t.X.1 + n.X.1
+}

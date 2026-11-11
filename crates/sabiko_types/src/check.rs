@@ -1354,11 +1354,11 @@ impl<'a> FnCtxt<'a> {
                 let rest = elems.iter().position(|p| matches!(p.kind, PatKind::Rest));
                 let fixed = elems.len() - usize::from(rest.is_some());
                 let field_tys = match self.resolve.pat_res(pat.id) {
-                    Some(Res::Def(def)) if self.resolve.def(def).kind == DefKind::Variant => {
-                        let (adt_def, index) = self.variant_of(def);
+                    Some(Res::Def(ctor)) if self.resolve.def(ctor).kind == DefKind::Variant => {
+                        let (adt_def, index) = self.variant_of(ctor);
                         let adt = self.items.adt(adt_def).clone();
                         let variant = adt.variant(index);
-                        let vname = self.resolve.qualified_name(def);
+                        let vname = self.resolve.qualified_name(ctor);
                         match variant.kind {
                             VariantKind::Tuple => {
                                 let args = self.expect_enum_pat(pat, adt_def, &ty, init_span);
@@ -2910,9 +2910,9 @@ impl<'a> FnCtxt<'a> {
                 VarKind::Float => matches!(pat, Ty::Prim(p) if p.is_float()),
             },
             (_, Ty::Error) => true,
-            (Ty::Ref(m1, a), Ty::Ref(m2, b)) => m1 == m2 && self.could_be(a, params, b),
+            // No block's type holds a reference or a slice (`check_impl_type`, E0107), so
+            // `pat` has no `Ref` or `Slice` part: those arms come back with such blocks.
             (Ty::Array(a, n), Ty::Array(b, m)) => n == m && self.could_be(a, params, b),
-            (Ty::Slice(a), Ty::Slice(b)) => self.could_be(a, params, b),
             (Ty::Tuple(a), Ty::Tuple(b)) => {
                 a.len() == b.len()
                     && a.iter()

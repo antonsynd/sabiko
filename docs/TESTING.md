@@ -405,11 +405,13 @@ seconds). The 44 codegen "timeouts" of run 18 were mutants that the fast tests d
 kill: 37 were cut off in `generated`, before `interop` and `run_pass` ran, and 7 hung in
 `layout`. A timeout counts as caught, so a real survivor among them would have been
 counted as killed. Applied by hand, the one checked (`||` as `&&` in `payload_type_name`)
-is killed by `interop`. The nightly workflow runs each crate as four round-robin shards
-(`scripts/mutants.sh --shard k/4 <crate>`, one runner each, no verdict per shard). A
-`mutants-score` job then judges each crate on the counts of all four `mutants.out`
-directories (`scripts/mutants.sh --score <crate> --shards 4 <dir>...`) and fails when a
-shard's results are missing. The longer timeout let three codegen mutants exhaust a
+is killed by `interop`. The nightly workflow runs each crate as round-robin shards
+(`scripts/mutants.sh --shard k/n <crate>`, one runner each, no verdict per shard): four
+for `sabiko_borrowck` and `sabiko_codegen`, eight for `sabiko_types` since run 25
+(2026-11-10), when its 1786 mutants took up to 2h18m per shard of four and one shard ran
+into the 150-minute job limit (#125). A `mutants-score` job then judges each crate on the
+counts of all its shards' `mutants.out` directories (`scripts/mutants.sh --score <crate>
+--shards n <dir>...`) and fails when a shard's results are missing. The longer timeout let three codegen mutants exhaust a
 runner's memory (run 19): `next += 1` as `next *= 1` in the worklist loops of
 `drop_glues`, `inline_array_structs` and `byref_tuple_structs` never advances, so the
 backend emits the first entry forever. `.cargo/mutants.toml` excludes those three; they
@@ -834,6 +836,93 @@ program, and only `assign_slots`' changes that of a generated one:
 
 The threshold stays at 95. At 672 viable mutants, 647 caught leaves room for eight new
 survivors before the score drops below 95%, and a threshold of 96 would leave room for one.
+
+Nightly run 25 (2026-11-10, Actions run 42748849253, on `a473080`, after the traits work
+of #121–#123) is the first measurement of `sabiko_types` since the traits landed (#125). The
+crate has 1786 mutants; four shards no longer fit in 150 minutes, so it now runs as eight.
+Shard 0 lost its runner ("received a shutdown signal") about two hours in, as in run 24.
+The 62 mutants it had not finished were run locally with the same suites and a 10 GB
+address-space cap. None failed an allocation, timed out or took more than 54 seconds, so
+no single mutant explains the lost runner and nothing is excluded for it. Shards 1–3
+measured 1113 caught, 97 missed and 5 timeouts of 1215 viable: 92.0%. Most of the
+survivors were in the trait code, whose run-time programs only `sabikoc`'s suites build,
+and `sabikoc` is not among this crate's test packages. So `sabiko_driver`'s `run_corpus`
+test now compiles every run-time program (`tests/differential/run`, `tests/run-pass`) to
+IL in process, in about 4 seconds. That and new fixtures kill 56 of the 97, each checked by
+applying the mutant by hand, then confirmed by re-running all 97 with `cargo mutants --re`:
+
+- `ui/typeck/trait_impl_shapes`: overlap and selection over arrays, structs and a
+  repeated parameter (`unify`'s and `match_ty`'s arms and operators, `walk`), a blanket
+  block after a specific one (`unify`'s right-hand parameter), and types holding an error
+  that implement everything (`has_error`'s tuple and struct arms).
+- `differential/traits/ok_selection_rounds`: selection that needs a second round
+  (`known_nodes` as 0 or 1 and its compound arms, `select_obligations`).
+  `ok_selection_by_shape`: one block chosen by a literal's shape (`could_be`), and
+  `clone` through `&mut [_; 2]` (`may_be_copy_like`'s `&mut` arm).
+- `differential/run/traits/shared_item_names` and the MIR fixture `trait_item_paths`:
+  items of two traits with the same names (`select_trait_item`, `may_implement`'s `> 0`,
+  `check_fn_path`'s and `check_trait_const_path`'s `chosen != def`), and trait constants
+  as range bounds. With `PatValues::value`'s `is_assoc_const` guard as `false`, that
+  function lost its body with no diagnostic.
+- `ui/typeck/turbofish_and_unknown_methods`: a turbofish on a variant, an associated
+  function and a method (`check_call`'s path arm, `instantiate`'s segment filter,
+  `check_method_call`), and `unknown_method`'s wording for enums and type parameters.
+- `ui/typeck/trait_impl_recovery`: impl bounds on the trait's parameter or another
+  (`check_impl_types`), an associated constant of an unknown type (`check_impl_const`),
+  and a wrong-arity instance passed on (`adt_type`'s guard; field access cannot tell,
+  since `field_ty` re-checks the arity).
+- `[Self; 2]` in `ui/typeck/trait_self_sized` (`holds_by_value`), the MIR fixture
+  `drop_generic_instances` (`structs_needing_drop`'s probe), a parameter used only inside
+  an array or tuple field (`Ty::mentions`), and an `infer.rs` unit test of the occurs
+  check inside instances (`occurs`, `is_cyclic`). `ItemTypes::impl_def` had no callers
+  and is gone.
+
+That leaves 41 of 1215 (96.6%): the 21 equivalent or older survivors listed above for
+run 23, 16 new equivalent mutants, and 4 not yet killed. Equivalent:
+
+- No trait `impl` block is for a type holding a reference or for an unsized type: such a
+  block is E0107 and `check_impl_type` does not register it. So `unify`'s, `match_ty`'s and
+  `could_be`'s `Ref` and `Slice` arms were dead, and their mutants (`unify`'s `Ref` arm
+  deleted, and its `&&` as `||`, its `Slice` arm deleted, the `Ref` `&&` as `||` of the
+  other two) equivalent. The arms are removed, with a note that they come back with such
+  blocks.
+- The patterns that `unify` and `walk` see hold only the two blocks' own parameters, all
+  in `vars`, and the substitution holds only those. So `unify`'s two `vars.contains`
+  guards (left-hand `p`, right-hand `q`) and `walk`'s guard as `true` change nothing.
+- `may_be_copy_like`'s `Infer` and `Array` arms deleted: the fall-through asks
+  `implements`, which answers "ambiguous" for any type with inference variables, the
+  same `true`.
+- `adt_args`' `*d == adt && args.len() == generics.len()` as `||`: when `Self` names a
+  struct or enum in its trait block, both operands always hold.
+- `builtin_impl`'s `depth + 1` as `depth * 1`: the built-in `Copy`/`Clone` recursion
+  follows a finite type and ends anyway; only bounds on blocks can recurse without end.
+- `Ty::is_copy` as `false` and its `!` deleted: it is only the fallback for when no `Copy`
+  language item exists, and the resolver always defines one (decision 86). `Ty::subst`'s
+  `||` as `&&` only skips a fast path.
+- `PatValues::value`'s `is_assoc_const` guard as `true`: a plain constant evaluated
+  through `trait_const` gives the same value (the IL is identical). `field_defs`'
+  substituted field type deleted: exhaustiveness takes column types from the place being
+  matched, and a wild sub-pattern's type is only checked for errors.
+
+Not killed, and not shown equivalent: `known_nodes`' three `+` as `*` (a variable bound to
+a blanket block's compound of fresh variables, `(?f, ?f)`, would not count as progress,
+but no program found needs the extra round), and `implements_at`'s `depth > DEPTH_LIMIT`
+as `==` (a bound chain 64 levels deep). With about 1620 viable mutants and 37 equivalent
+ones, 98% was out of reach for `sabiko_types` whatever the tests.
+
+So the equivalent `sabiko_types` mutants are now excluded in `.cargo/mutants.toml`
+instead of counted (#125); the threshold stays at 98. Five of the 37 are gone with the
+dead `Ref`/`Slice` arms above. One more appeared: `unify`'s right-hand guard as `true`,
+whose run-25 result was in the lost shard 0. 32 are excluded. Each pattern names the
+file and the mutation, not the line, so it survives edits elsewhere. Where an equivalent
+mutant read exactly like a killable one, the code tells them apart: `unify`'s
+right-hand binding is `q`, the tuple-struct arm of `check_pat_in_mode` binds `ctor`, and
+`binary`'s `(max << 1) | 1` and `cast`'s float guard are matched by column, unique in
+those functions. `cargo mutants --list -p sabiko_types` with and without the patterns
+differs in exactly those 32; check that again when changing them. A pattern that stops
+matching only brings its mutant back as a survivor. `field_defs`' "delete field ty"
+stays counted: cargo-mutants 27.1 does not apply `exclude_re` to struct-field deletions.
+Shard 0's other survivors are unknown until a nightly scores all eight shards.
 
 ## Interop
 

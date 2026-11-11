@@ -1390,6 +1390,18 @@ clauses on types other than parameters, `where Self: Sized`, bounds on struct an
 parameters, `<T as Trait>::` paths, the derived or built-in `clone` of a type that is not
 `Copy` (#117).
 
+Update (2026-11-11), mutation scores after the traits work (#125): nightly run 25 measured
+`sabiko_types` at 92.0% over three of its four shards (the fourth lost its runner, and
+four shards no longer fit the job limit, so the crate now runs as eight). New tests kill 56
+of the 97 survivors, chiefly `sabiko_driver`'s `run_corpus`, which compiles every run-time
+program to IL in process (the trait programs were only built by `sabikoc`, which this
+crate's mutants do not run). That gives 96.6% on those shards. The 41 left are 37
+equivalent mutants and 4 not yet killed (`docs/TESTING.md`, Mutation testing). At about
+1620 viable mutants, 98% was not reachable with 37 equivalent ones. So the equivalent
+mutants are now excluded in `.cargo/mutants.toml`, and dead `Ref`/`Slice` arms in
+`could_be`, `match_ty` and `unify` are removed (no trait block's type holds a reference
+or a slice). The threshold stays at 98.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work

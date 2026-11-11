@@ -1,0 +1,138 @@
+---
+source: crates/sabiko_mir/tests/snapshots.rs
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+input_file: crates/sabiko_mir/tests/fixtures/drop_generic_instances.sabi
+---
+fn <D as Drop>::drop(_1: &mut D) {
+    let mut _0: ();
+    let mut _2: ();
+    let mut _3: i32;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = copy (*_1).Id;
+        _2 = PrintLine(copy _3) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn <Guard<T> as Drop>::drop<T>(_1: &mut Guard<T>) {
+    let mut _0: ();
+    let mut _2: ();
+
+    bb0: {
+        StorageLive(_2);
+        _2 = PrintLine(const 0_i32) -> bb1;
+    }
+
+    bb1: {
+        StorageDead(_2);
+        _0 = const ();
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+fn Scopes() {
+    let mut _0: ();
+    let _1: HoldsWrap;                   // a
+    let mut _2: Wrap<D>;
+    let mut _3: D;
+    let _4: HoldsGuard;                  // b
+    let mut _5: Guard<i32>;
+    let _6: Plain;                       // c
+    let mut _7: Wrap<i32>;
+    cleanup c0: _3 => drop(_3);
+    cleanup c1: _2 => drop(_2);
+    cleanup c2: _1 => drop(_1);
+    cleanup c3 in c2: _5 => drop(_5);
+    cleanup c4 in c2: _4 => drop(_4);
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = D { Id: const 1_i32 };
+        goto -> bb1;
+    }
+
+    bb1 (cleanup c0): {
+        _2 = Wrap { X: move _3 };
+        goto -> bb2;
+    }
+
+    bb2 (cleanup c1): {
+        drop(_3) -> bb3;
+    }
+
+    bb3 (cleanup c1): {
+        StorageDead(_3);
+        _1 = HoldsWrap { W: move _2 };
+        goto -> bb4;
+    }
+
+    bb4 (cleanup c2): {
+        drop(_2) -> bb5;
+    }
+
+    bb5 (cleanup c2): {
+        StorageDead(_2);
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = Guard { X: const 2_i32 };
+        goto -> bb6;
+    }
+
+    bb6 (cleanup c3): {
+        _4 = HoldsGuard { G: move _5 };
+        goto -> bb7;
+    }
+
+    bb7 (cleanup c4): {
+        drop(_5) -> bb8;
+    }
+
+    bb8 (cleanup c4): {
+        StorageDead(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = Wrap { X: const 3_i32 };
+        _6 = Plain { W: move _7 };
+        StorageDead(_7);
+        _0 = const ();
+        StorageDead(_6);
+        goto -> bb9;
+    }
+
+    bb9 (cleanup c2): {
+        drop(_4) -> bb10;
+    }
+
+    bb10: {
+        StorageDead(_4);
+        drop(_1) -> bb11;
+    }
+
+    bb11: {
+        StorageDead(_1);
+        goto -> bb12;
+    }
+
+    bb12: {
+        return;
+    }
+}

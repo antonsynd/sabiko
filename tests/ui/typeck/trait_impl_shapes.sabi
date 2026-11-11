@@ -1,0 +1,125 @@
+// Which trait `impl` blocks overlap (rustc's E0119) and which one a type selects, for
+// array, struct and tuple types and a parameter that occurs twice; and a type holding an
+// error implements everything, so a bound on it is not reported again.
+
+trait Show {
+    fn Show(&self) -> i32;
+}
+
+trait Pairs {
+    fn Pairs(&self) -> i32;
+}
+
+trait Rev {
+    fn Rev(&self) -> i32;
+}
+
+trait Late {
+    fn Late(&self) -> i32;
+}
+
+struct Wrap<T> {
+    X: T,
+}
+
+struct Other<T> {
+    X: T,
+}
+
+impl<T> Show for [T; 2] {
+    fn Show(&self) -> i32 {
+        1
+    }
+}
+
+impl Show for [i32; 2] { //~ ERROR E0215 conflicting implementations of trait `Show` for type `[i32; 2]`
+    fn Show(&self) -> i32 {
+        2
+    }
+}
+
+impl Show for [i32; 3] {
+    fn Show(&self) -> i32 {
+        3
+    }
+}
+
+impl<T> Show for Wrap<T> {
+    fn Show(&self) -> i32 {
+        4
+    }
+}
+
+impl Show for Wrap<i32> { //~ ERROR E0215 conflicting implementations of trait `Show` for type `Wrap<i32>`
+    fn Show(&self) -> i32 {
+        5
+    }
+}
+
+impl Show for Other<i32> {
+    fn Show(&self) -> i32 {
+        6
+    }
+}
+
+// A parameter that occurs twice stands for one type, so neither pair overlaps, whichever
+// block comes first.
+impl<T> Pairs for (T, T) {
+    fn Pairs(&self) -> i32 {
+        1
+    }
+}
+
+impl Pairs for (i32, bool) {
+    fn Pairs(&self) -> i32 {
+        2
+    }
+}
+
+impl Rev for (i32, bool) {
+    fn Rev(&self) -> i32 {
+        1
+    }
+}
+
+impl<T> Rev for (T, T) {
+    fn Rev(&self) -> i32 {
+        2
+    }
+}
+
+// The blanket block after the specific one overlaps it too.
+impl Late for Other<i32> {
+    fn Late(&self) -> i32 {
+        1
+    }
+}
+
+impl<T> Late for Other<T> { //~ ERROR E0215 conflicting implementations of trait `Late` for type `Other<T>`
+    fn Late(&self) -> i32 {
+        2
+    }
+}
+
+fn Need<T: Show>(x: T) -> i32 {
+    x.Show()
+}
+
+fn NeedPairs<T: Pairs>(x: T) -> i32 {
+    x.Pairs()
+}
+
+fn Unknown(o: Other<Nope>) -> i32 { //~ ERROR E0201 cannot find type `Nope` in this scope
+    Need(o)
+}
+
+fn Main() {
+    let a = Need([1u8, 2u8]);
+    let b = Need([1, 2, 3, 4]); //~ ERROR E0341 the trait bound `[i32; 4]: Show` is not satisfied
+    let c = Need(Other { X: true }); //~ ERROR E0341 the trait bound `Other<bool>: Show` is not satisfied
+    let d = NeedPairs((1u8, 2u8));
+    let e = NeedPairs((1u8, true)); //~ ERROR E0341 the trait bound `(u8, bool): Pairs` is not satisfied
+    let t = (true.X, 2); //~ ERROR E0301
+    let f = Need(t);
+    let g = Need(Other { X: true.X }); //~ ERROR E0301
+}

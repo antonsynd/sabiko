@@ -1,0 +1,43 @@
+// Selection repeats while it learns: `(a, b): First` has two candidate blocks until a
+// later bound fixes `a` to `i64` through a bare variable, an array, a tuple or a struct;
+// then one block is left and `b` becomes `i8`.
+trait First { fn F(&self) -> i32; }
+trait Second { fn S(&self) -> i32; }
+trait SecondArray { fn S(&self) -> i32; }
+trait SecondTuple { fn S(&self) -> i32; }
+trait SecondWrap { fn S(&self) -> i32; }
+
+struct Wrap<T> { X: T }
+
+impl First for (i64, i8) { fn F(&self) -> i32 { 1 } }
+impl First for (u64, i8) { fn F(&self) -> i32 { 2 } }
+impl Second for i64 { fn S(&self) -> i32 { 3 } }
+impl SecondArray for [i64; 2] { fn S(&self) -> i32 { 4 } }
+impl SecondTuple for (i64,) { fn S(&self) -> i32 { 5 } }
+impl SecondWrap for Wrap<i64> { fn S(&self) -> i32 { 6 } }
+
+fn NeedFirst<T: First>(x: T) -> i32 { x.F() }
+fn NeedSecond<T: Second>(x: T) -> i32 { x.S() }
+fn NeedArray<T: SecondArray>(x: T) -> i32 { x.S() }
+fn NeedTuple<T: SecondTuple>(x: T) -> i32 { x.S() }
+fn NeedWrap<T: SecondWrap>(x: T) -> i32 { x.S() }
+
+fn Bare() -> i32 {
+    let (a, b) = (1, 2);
+    NeedFirst((a, b)) + NeedSecond(a)
+}
+
+fn Array() -> i32 {
+    let (a, b) = (1, 2);
+    NeedFirst((a, b)) + NeedArray([a, a])
+}
+
+fn Tuple() -> i32 {
+    let (a, b) = (1, 2);
+    NeedFirst((a, b)) + NeedTuple((a,))
+}
+
+fn Struct() -> i32 {
+    let (a, b) = (1, 2);
+    NeedFirst((a, b)) + NeedWrap(Wrap { X: a })
+}

@@ -1,0 +1,44 @@
+// A turbofish fixes a type argument: `Opt::<u8>::Some(5)` is an `Opt<u8>`,
+// `Pair::<u8, u8>::New(1, 2)` a `Pair<u8, u8>` and `w.Id::<u8>(5)` a `u8`, whatever the
+// expected type. A method not found is reported for
+// what the receiver is: an enum, a struct, a type parameter.
+
+enum Opt<T> {
+    None,
+    Some(T),
+}
+
+struct W {
+    X: i32,
+}
+
+struct Pair<A, B> {
+    L: A,
+    R: B,
+}
+
+impl<A, B> Pair<A, B> {
+    fn New(l: A, r: B) -> Self {
+        Pair { L: l, R: r }
+    }
+}
+
+impl W {
+    fn Id<T>(&self, x: T) -> T {
+        x
+    }
+}
+
+fn Param<T>(x: T) {
+    x.Nope(); //~ ERROR E0319 no method named `Nope` found for type parameter `T`
+}
+
+fn Main() {
+    let o: Opt<i32> = Opt::<u8>::Some(5); //~ ERROR E0300 mismatched types
+    let p: Pair<i32, i32> = Pair::<u8, u8>::New(1, 2); //~ ERROR E0300 mismatched types
+    let w = W { X: 0 };
+    let r: i32 = w.Id::<u8>(5); //~ ERROR E0300 mismatched types
+    let e: Opt<i32> = Opt::None;
+    e.Nope(); //~ ERROR E0319 no method named `Nope` found for enum `Opt<i32>`
+    w.Nope(); //~ ERROR E0319 no method named `Nope` found for struct `W`
+}

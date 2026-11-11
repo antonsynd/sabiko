@@ -1,0 +1,37 @@
+// A bound on a type with literals selects the one block whose type it could be: an
+// integer literal only an integer type, a float literal only a float type, an array only
+// one of its length, a tuple or struct only one whose other parts match exactly. And
+// `clone` on `&mut [_; 2]` derefs to the array: `&mut T` is never `Clone`.
+trait Pick { fn P(&self) -> i32; }
+
+struct Wrap<T> { X: T }
+struct Other<T> { X: T }
+
+impl Pick for i64 { fn P(&self) -> i32 { 1 } }
+impl Pick for bool { fn P(&self) -> i32 { 2 } }
+impl Pick for f32 { fn P(&self) -> i32 { 3 } }
+impl Pick for [u8; 2] { fn P(&self) -> i32 { 4 } }
+impl Pick for [u16; 3] { fn P(&self) -> i32 { 5 } }
+impl Pick for (u32, bool) { fn P(&self) -> i32 { 6 } }
+impl Pick for (bool, bool) { fn P(&self) -> i32 { 7 } }
+impl Pick for Wrap<u64> { fn P(&self) -> i32 { 8 } }
+impl Pick for Wrap<bool> { fn P(&self) -> i32 { 9 } }
+impl Pick for Other<u8> { fn P(&self) -> i32 { 10 } }
+
+fn Need<T: Pick>(x: T) -> i32 { x.P() }
+
+fn Int() -> i32 { Need(5) }
+
+fn Float() -> i32 { Need(1.5) }
+
+fn Array() -> i32 { Need([1, 2]) }
+
+fn Tuple() -> i32 { Need((1, true)) }
+
+fn Struct() -> i32 { Need(Wrap { X: 1 }) }
+
+fn CloneThroughMut() -> i32 {
+    let m = &mut [1, 2];
+    let c: [i32; 2] = m.clone();
+    c[0]
+}

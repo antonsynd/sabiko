@@ -1,0 +1,4 @@
+// Printing `*mm` would move a `&mut` out from behind a reference.
+fn Show(mm: &mut &mut i32) {
+    PrintLine(*mm);
+}

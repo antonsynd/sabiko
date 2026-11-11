@@ -1,0 +1,32 @@
+// Drop glue through instances of generic types (decision 82): a struct whose field is an
+// instance holding a `Drop` value, or an instance of a type with a generic `impl Drop`,
+// needs drop itself, so its locals are dropped at the end of their scope.
+struct D { Id: i32 }
+
+impl Drop for D {
+    fn drop(&mut self) {
+        PrintLine(self.Id);
+    }
+}
+
+struct Wrap<T> { X: T }
+
+struct Guard<T> { X: T }
+
+impl<T> Drop for Guard<T> {
+    fn drop(&mut self) {
+        PrintLine(0);
+    }
+}
+
+struct HoldsWrap { W: Wrap<D> }
+
+struct HoldsGuard { G: Guard<i32> }
+
+struct Plain { W: Wrap<i32> }
+
+fn Scopes() {
+    let a = HoldsWrap { W: Wrap { X: D { Id: 1 } } };
+    let b = HoldsGuard { G: Guard { X: 2 } };
+    let c = Plain { W: Wrap { X: 3 } };
+}

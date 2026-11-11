@@ -1,0 +1,11 @@
+// Exhaustiveness over a generic struct sees its fields at the instance's types, also for a
+// field a row leaves out: `L` is `bool` here, so `true` and `false` cover it.
+struct Pair<A, B> { L: A, R: B }
+
+fn Pick(p: Pair<bool, i32>) -> i32 {
+    match p {
+        Pair { R: 0, .. } => 0,
+        Pair { L: true, .. } => 1,
+        Pair { L: false, .. } => 2,
+    }
+}

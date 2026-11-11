@@ -1,0 +1,28 @@
+// Printing through `&mut` (#124): a printed `&mut` is moved, a reborrow of it is not, and
+// the value printed is the one written last, through any number of references.
+fn Bump(m: &mut i32) -> i32 {
+    *m += 1;
+    PrintLine(&mut *m);
+    *m += 1;
+    PrintLine(&*m);
+    let v = *m;
+    PrintLine(m);
+    v
+}
+
+fn Main() {
+    let mut a = 4;
+    PrintLine(Bump(&mut a));
+    let m = &mut &mut a;
+    **m += 10;
+    PrintLine(&**m);
+    PrintLine(&mut **m);
+    PrintLine(m);
+    let mut b: u8 = 250;
+    let mb = &mut b;
+    *mb += 5;
+    Print(&mut *mb);
+    Print(' ');
+    PrintLine(mb);
+    PrintLine(a);
+}
