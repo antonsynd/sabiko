@@ -479,10 +479,13 @@ fn stackable_locals(body: &Body) -> Vec<bool> {
             other[l.index()] += 1;
         }
     });
-    // Cleanup handlers read drop flags and borrow the places they drop.
+    // Cleanup handlers read drop flags and the discriminants guarding a drop, and borrow
+    // the places they drop.
     for cleanup in &body.cleanups {
         for drop in &cleanup.drops {
-            other[drop.place.local.index()] += 1;
+            for place in drop.places() {
+                other[place.local.index()] += 1;
+            }
             if let Some(flag) = drop.flag {
                 other[flag.index()] += 1;
             }

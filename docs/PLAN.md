@@ -1211,6 +1211,14 @@ New: `differential/run/drops/extended_enums_written_through` (`if`/`else`, `matc
 nested blocks, tuples and arrays of borrows, nested enums, `&`, no drop glue),
 `differential/run/enums/{,unwind_}drop_flags_written_through` (all three failed before) and
 the MIR fixture `drop_variants`. 400 generated seeds at bases 50000, 7000 and 123456 agree.
+After review: `drop_flags_{moves_and_rewrites,nested_and_generic}` (moves, reassignments
+and writes in any order and in loops; nested and generic enums, enums in struct fields,
+tuples and arrays) joined them, `CleanupDrop::places` makes every pass that walks, counts
+or substitutes places see the guards too, and the validator checks each guard's
+discriminant against the variant the dropped place selects. Left, as for #51's tag loads:
+each part of an open drop reads its enum's discriminant again, and a `fault` handler loads
+the tag once per guarded drop; one switch per enum, as rustc's `open_drop_for_multivariant`
+makes, would read it once (a size and speed cost only where a drop is already open).
 
 ### Phase 5: Data types
 

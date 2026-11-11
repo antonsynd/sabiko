@@ -925,6 +925,13 @@ impl Rewriter<'_> {
         stmts: &mut Vec<Statement>,
         span: sabiko_span::Span,
     ) -> (Vec<Action>, Vec<Option<Local>>) {
+        debug_assert!(
+            !place
+                .projection
+                .iter()
+                .any(|e| matches!(e, PlaceElem::Downcast(_))),
+            "MIR building writes no place inside a variant: {place:?}"
+        );
         let ty = place.ty(self.body);
         let old = self.new_temp(ty, span);
         let mut flags = Vec::new();
@@ -945,22 +952,16 @@ impl Rewriter<'_> {
                 None => None,
             };
             flags.push(flag);
-            // The enums at or under `place` move into `old` with the value; those that
-            // enclose `place` stay where they are.
+            // The enums at or under `place` move into `old` with the value, and their tests
+            // follow it. An enum enclosing `place` would mean a write into a variant's
+            // field, which holds that variant by construction: its test is dropped, so
+            // every guard stays on the dropped place's local. MIR building never writes
+            // under a `Downcast` (variants are built whole), so none is today.
             let variants = action
                 .variants
                 .iter()
-                .map(|(e, discr)| {
-                    let moved = e.projection.starts_with(&place.projection);
-                    (
-                        if moved {
-                            rebase(e, place, old)
-                        } else {
-                            e.clone()
-                        },
-                        *discr,
-                    )
-                })
+                .filter(|(e, _)| e.projection.starts_with(&place.projection))
+                .map(|(e, discr)| (rebase(e, place, old), *discr))
                 .collect();
             rebased.push(Action {
                 place: rebase(&action.place, place, old),

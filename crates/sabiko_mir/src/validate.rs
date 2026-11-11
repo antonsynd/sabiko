@@ -133,18 +133,30 @@ impl Validator<'_> {
                 ));
             }
         }
-        for (enum_place, _) in &drop.variants {
-            let is_enum = matches!(
-                self.place_ty(bb, enum_place),
-                Some(Ty::Adt(def, _)) if self.typeck.items.adt(def).is_enum()
-            );
-            let encloses = enum_place.local == drop.place.local
-                && drop.place.projection.starts_with(&enum_place.projection)
-                && enum_place.projection.len() < drop.place.projection.len();
-            if !is_enum || !encloses {
+        // Each guard is an enum the dropped place is inside, paired with the discriminant
+        // of the variant the place's next projection selects: a wrong pairing would skip
+        // the drop when the value is there (a silent leak).
+        for (enum_place, discr) in &drop.variants {
+            let adt = match self.place_ty(bb, enum_place) {
+                Some(Ty::Adt(def, _)) if self.typeck.items.adt(def).is_enum() => {
+                    Some(self.typeck.items.adt(def))
+                }
+                _ => None,
+            };
+            let selected = (enum_place.local == drop.place.local
+                && drop.place.projection.starts_with(&enum_place.projection))
+            .then(|| drop.place.projection.get(enum_place.projection.len()))
+            .flatten();
+            let ok = match (adt, selected) {
+                (Some(adt), Some(PlaceElem::Downcast(v))) => {
+                    *v < adt.variants().len() && adt.variant(*v).discr == *discr
+                }
+                _ => false,
+            };
+            if !ok {
                 self.errors.push(format!(
-                    "cleanup c{i} drops {:?} on the variant of {enum_place:?}, \
-                     which is not an enum it is inside",
+                    "cleanup c{i} drops {:?} if {enum_place:?} holds discriminant {discr}, \
+                     which is not the variant of an enum the place is inside",
                     drop.place
                 ));
             }

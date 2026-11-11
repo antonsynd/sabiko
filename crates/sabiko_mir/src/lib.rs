@@ -164,6 +164,19 @@ pub struct CleanupDrop {
     pub variants: Vec<(Place, i128)>,
 }
 
+impl CleanupDrop {
+    /// Every place the drop reads: the dropped place, then the enums whose discriminants
+    /// guard it. Passes that walk, rename or substitute places go through this (or
+    /// [`Self::places_mut`]) so they never miss the guards.
+    pub fn places(&self) -> impl Iterator<Item = &Place> {
+        std::iter::once(&self.place).chain(self.variants.iter().map(|(e, _)| e))
+    }
+
+    pub fn places_mut(&mut self) -> impl Iterator<Item = &mut Place> {
+        std::iter::once(&mut self.place).chain(self.variants.iter_mut().map(|(e, _)| e))
+    }
+}
+
 /// The MIR of one function.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Body {
@@ -214,7 +227,8 @@ impl Body {
     }
 
     /// Calls `f` on every place the body's statements, terminators and cleanup scopes
-    /// mention (operands, destinations, borrowed, dropped and mentioned places).
+    /// mention (operands, destinations, borrowed, dropped and mentioned places, and the
+    /// enums whose discriminants guard a cleanup scope's drop).
     pub fn for_each_place(&self, mut f: impl FnMut(&Place)) {
         let operand = |op: &Operand, f: &mut dyn FnMut(&Place)| {
             if let Some(p) = op.place() {
@@ -277,7 +291,7 @@ impl Body {
         }
         for cleanup in &self.cleanups {
             for drop in &cleanup.drops {
-                f(&drop.place);
+                drop.places().for_each(&mut f);
             }
         }
     }
