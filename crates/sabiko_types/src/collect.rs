@@ -1182,6 +1182,10 @@ fn strongly_connected_components(succ: &[Vec<usize>]) -> Vec<usize> {
                     stack.push(w);
                     on_stack[w] = true;
                     walk.push((w, 0));
+                    // Each node is pushed once, and the walk is part of the stack. A walk
+                    // that re-entered visited nodes would grow both until the machine ran
+                    // out of memory (a mutant did, #165); a debug build stops here instead.
+                    debug_assert!(stack.len() <= n, "Tarjan's stack outgrew the graph");
                 } else if on_stack[w] {
                     low[v] = low[v].min(order[w]);
                 }
@@ -2525,4 +2529,22 @@ fn find_cycle(
     }
     done.insert(current);
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strongly_connected_components;
+
+    /// A cycle and a node outside it: the walk meets visited nodes, which it must not
+    /// enter again (a mutant that did ran away, #165).
+    #[test]
+    fn strongly_connected_components_of_a_cycle() {
+        let component = strongly_connected_components(&[vec![1], vec![0], vec![0, 2]]);
+        assert_eq!(component[0], component[1]);
+        assert_ne!(component[0], component[2]);
+        let component = strongly_connected_components(&[vec![1], vec![2], vec![]]);
+        assert_ne!(component[0], component[1]);
+        assert_ne!(component[1], component[2]);
+        assert_eq!(strongly_connected_components(&[vec![0]]), vec![0]);
+    }
 }

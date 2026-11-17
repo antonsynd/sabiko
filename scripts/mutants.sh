@@ -22,6 +22,30 @@
 # --score sums the counts of the given mutants.out directories (one per shard; with
 # --shards n, exactly n of them) and judges the crate, as an unsharded run does.
 #
+# Only complete results are judged (#165). A mutants.out holds the mutants cargo-mutants
+# was given (mutants.json, written before the baseline) and the outcomes so far
+# (outcomes.json, rewritten after every mutant; its total_mutants counts the mutants
+# tested). A shard cancelled at the job's time limit, or whose runner died, still uploads
+# both, with fewer outcomes than mutants: the run and --score then fail with "shard k
+# finished m of n mutants" rather than judge the part that finished. Reading the JSON
+# takes python3. A run also fails when cargo-mutants exits with anything but 0, 2
+# (missed mutants) or 3 (timeouts): 1 when interrupted, 4 when the unmutated tree fails
+# its tests (no mutant tested).
+#
+# Every finished mutant is printed (--caught --unviable), not only the missed and the
+# timed-out ones: when a runner dies, the last line names the mutant before the one that
+# killed it.
+#
+# Each test process runs under a memory cap, MUTANTS_MEMORY_LIMIT_GIB (default in
+# memory_limit_gib; 0 turns it off): a mutant that removes a loop's exit can grow a test
+# binary by gigabytes in seconds and exhaust a runner's 16 GB long before the test timeout
+# (runs 19 and 27 to 32, #165). The cap is `prlimit --as`, applied through cargo's target
+# runner, so it covers the test binaries and what they start (sabikoc, ilasm, dotnet: .NET
+# sizes its heap reservation to the limit) but not rustc or the linker, whose failure
+# would count a mutant as unviable. A test process that reaches it aborts on a failed
+# allocation, which cargo-mutants counts as caught. Without prlimit (util-linux; macOS has
+# none) the tests run uncapped, with a warning.
+#
 # The mutation score of a crate is (caught + timeout) / (caught + missed + timeout): a
 # mutant that makes the suite hang is killed too, and mutants that do not compile are not
 # counted. The exit status is non-zero when a crate scores below minimum_score (set just
@@ -80,6 +104,13 @@ test_timeout() {
     esac
 }
 
+# Gibibytes of address space per test process (see the header). Measured 2026-11-17 on the
+# unmutated tree: the largest Rust test binary peaks at 1.8 GiB of address space (under
+# 0.1 GiB resident), a rustc that a differential test starts at 0.9 GiB; dotnet reserves
+# 54 GiB uncapped and sizes that to the cap (6.8 GiB under 8). All suites of the three
+# crates pass under 8 GiB, and a runaway stops at half a 16 GB runner's memory.
+memory_limit_gib() { echo "${MUTANTS_MEMORY_LIMIT_GIB:-8}"; }
+
 # count <file>: its number of lines, 0 when it does not exist.
 count() { if [ -f "$1" ]; then grep -c . "$1" || true; else echo 0; fi; }
 
@@ -96,10 +127,59 @@ list() {
     fi
 }
 
-# report <crate> <label> <elapsed seconds> <judge: yes|no> <mutants.out dir>...: prints the
-# summed counts of the directories, and the missed and the timed-out mutants; with
-# judge=yes, sets status=1 when the score is below the crate's minimum. Appends the line to
-# summary.
+# progress <mutants.out dir>: prints "<tested> <listed>", the number of mutants with an
+# outcome (outcomes.json's total_mutants) and the number cargo-mutants was given
+# (mutants.json), or "? ?" when either file is missing or unreadable. cargo-mutants writes
+# no outcomes.json when it was given no mutants.
+progress() {
+    python3 -I -c '
+import json, os, sys
+try:
+    with open(os.path.join(sys.argv[1], "mutants.json")) as f:
+        listed = len(json.load(f))
+    outcomes = os.path.join(sys.argv[1], "outcomes.json")
+    if listed == 0 and not os.path.exists(outcomes):
+        tested = 0
+    else:
+        with open(outcomes) as f:
+            tested = json.load(f)["total_mutants"]
+    print(tested, listed)
+except (OSError, ValueError, KeyError, TypeError):
+    print("? ?")
+' "$1"
+}
+
+# complete <label> <mutants.out dir>: succeeds when every mutant cargo-mutants was given
+# has an outcome; otherwise says how far it got, on stderr.
+complete() {
+    local label=$1 dir=$2 tested listed
+    read -r tested listed <<<"$(progress "$dir")"
+    if [ "$tested" = "?" ]; then
+        echo "mutants.sh: $label: no readable outcomes.json and mutants.json:" \
+            "not a mutants.out" >&2
+        return 1
+    fi
+    if [ "$tested" -lt "$listed" ]; then
+        echo "mutants.sh: $label finished $tested of $listed mutants: cancelled at the" \
+            "job's time limit, interrupted, its runner died, or the baseline failed" >&2
+        return 1
+    fi
+}
+
+# shard_label <mutants.out dir>: "shard k (<dir>)" for the nightly's shard directories
+# (mutants-<crate>-<k>), else the directory.
+shard_label() {
+    if [[ "$1" =~ -([0-9]+)/?$ ]]; then
+        echo "shard ${BASH_REMATCH[1]} ($1)"
+    else
+        echo "$1"
+    fi
+}
+
+# report <crate> <label> <elapsed seconds> <judge> <mutants.out dir>...: prints the summed
+# counts of the directories, and the missed and the timed-out mutants. With judge=yes, sets
+# status=1 when the score is below the crate's minimum; otherwise judge is the reason the
+# counts are not judged. Appends the line to summary.
 report() {
     local crate=$1 label=$2 elapsed=$3 judge=$4
     shift 4
@@ -128,7 +208,7 @@ report() {
             status=1
         fi
     else
-        verdict="not judged (one shard)"
+        verdict="not judged ($judge)"
     fi
     local line
     line=$(printf '%-16s %4d mutants: %4d caught, %4d missed, %3d timeout, %3d unviable; score %d.%d%% (minimum %d%%) %s' \
@@ -164,18 +244,28 @@ if [ "${1:-}" = "--score" ]; then
         expected=$2
         shift 2
     fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "mutants.sh: python3 is needed to read outcomes.json and mutants.json" >&2
+        exit 1
+    fi
+    # Every problem is reported before failing, with the counts of what did finish.
+    problems=0
     for dir in "$@"; do
-        if [ ! -f "$dir/outcomes.json" ]; then
-            echo "mutants.sh: $dir has no outcomes.json: not a finished mutants.out" >&2
-            exit 1
+        if ! complete "$(shard_label "$dir")" "$dir"; then
+            problems=$((problems + 1))
         fi
     done
     if [ -n "$expected" ] && [ $# -ne "$expected" ]; then
         echo "mutants.sh: $crate has $# of $expected shard results; a shard job failed or" \
             "timed out before uploading its mutants.out" >&2
-        exit 1
+        problems=$((problems + 1))
     fi
     echo "== mutation score of $crate over $# result director$([ $# -eq 1 ] && echo y || echo ies)"
+    if [ "$problems" -gt 0 ]; then
+        report "$crate" "$crate" "" "incomplete results" "$@"
+        echo "mutants.sh: $crate is not judged on incomplete results (see above)" >&2
+        exit 1
+    fi
     report "$crate" "$crate" "" yes "$@"
     exit "$status"
 fi
@@ -208,8 +298,27 @@ elif ! cargo --version | grep -q "^cargo $channel "; then
         "(rust-toolchain.toml); install rustup to get the pinned toolchain" >&2
 fi
 if ! cargo mutants --version >/dev/null 2>&1; then
-    echo "cargo-mutants is not installed: cargo install cargo-mutants --locked" >&2
+    echo "cargo-mutants is not installed: cargo install cargo-mutants --locked --version 27.1.0" >&2
     exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "mutants.sh: python3 is needed to read outcomes.json and mutants.json" >&2
+    exit 1
+fi
+
+# The memory cap (see the header): cargo runs each test binary through the host target's
+# runner, and the binary's children inherit prlimit's limit.
+limit_gib=$(memory_limit_gib)
+if [ "$limit_gib" != 0 ]; then
+    if command -v prlimit >/dev/null 2>&1; then
+        host=$(rustc -vV | sed -n 's/^host: //p')
+        runner_var="CARGO_TARGET_$(printf '%s' "$host" | tr 'a-z.-' 'A-Z__')_RUNNER"
+        export "$runner_var=prlimit --as=$((limit_gib << 30)) --"
+        echo "== each test process capped at $limit_gib GiB of address space ($runner_var)"
+    else
+        echo "mutants.sh: warning: prlimit (util-linux) not found: the tests run without a" \
+            "memory cap, so a runaway mutant can exhaust the machine's memory" >&2
+    fi
 fi
 
 # shellcheck disable=SC2206
@@ -237,21 +346,35 @@ for crate in "${crates[@]}"; do
     echo "-- $(count "$out/excluded.txt") of $(count "$out/all.txt") mutants excluded by .cargo/mutants.toml:"
     sed 's/^/   /' "$out/excluded.txt"
     start=$(date +%s)
-    # Exit codes 2 (missed), 3 (timeouts) and 4 (unviable) are outcomes, not failures.
+    # Exit codes 2 (missed mutants) and 3 (timeouts) are outcomes, not failures; 1 is an
+    # error or an interruption, 4 a failing baseline (no mutant tested). Until #165 the
+    # script took 4 for "unviable mutants" and passed a shard whose baseline failed.
     # The build timeout is fixed rather than derived from the baseline: with a warm
     # target/ the baseline builds in no time and the derived limit kills every mutant build.
     rc=0
     cargo mutants --in-place --build-timeout 900 --timeout "$timeout" -p "$crate" \
-        --test-package "$packages" -o "$out" ${extra_args[@]+"${extra_args[@]}"} || rc=$?
-    if [ "$rc" -ne 0 ] && [ "$rc" -lt 2 ] || [ "$rc" -gt 4 ]; then
+        --test-package "$packages" -o "$out" --caught --unviable \
+        ${extra_args[@]+"${extra_args[@]}"} || rc=$?
+    elapsed=$(( $(date +%s) - start ))
+    judge=yes
+    if [ -n "$shard" ]; then
+        judge="one shard"
+    fi
+    finished=yes
+    if ! complete "$crate${shard:+ shard $shard}" "$out/mutants.out"; then
+        finished=no
+        judge=incomplete
+    fi
+    # The counts of what finished, also after an interruption.
+    if [ -f "$out/mutants.out/outcomes.json" ]; then
+        report "$crate" "$crate${shard:+ $shard}" "$elapsed" "$judge" "$out/mutants.out"
+    fi
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ] && [ "$rc" -ne 3 ]; then
         echo "mutants.sh: cargo mutants failed for $crate (exit $rc)" >&2
         exit "$rc"
     fi
-    elapsed=$(( $(date +%s) - start ))
-    if [ -n "$shard" ]; then
-        report "$crate" "$crate $shard" "$elapsed" no "$out/mutants.out"
-    else
-        report "$crate" "$crate" "$elapsed" yes "$out/mutants.out"
+    if [ "$finished" = no ]; then
+        status=1
     fi
 done
 

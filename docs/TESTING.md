@@ -599,7 +599,7 @@ each mutant with the suites that exercise the crate, and fails when a crate's sc
 below its threshold. Scores and the list of known equivalent mutants are recorded below;
 the nightly workflow runs it and uploads `mutants.out`.
 
-Setup: `cargo install cargo-mutants --locked`, then `source tools/env.sh` and export
+Setup: `cargo install cargo-mutants --locked --version 27.1.0` (the version the nightly pins: the script reads its `mutants.out` files), then `source tools/env.sh` and export
 `SABIKO_REQUIRE_DOTNET=1` so the .NET suites fail rather than skip (a skipped suite lowers
 the `sabiko_codegen` score). The script runs on macOS's stock bash 3.2 and, when rustup is
 installed, puts the pinned toolchain's `bin/` first on `PATH`, so a Homebrew `cargo` does
@@ -622,13 +622,55 @@ for `sabiko_borrowck` and `sabiko_codegen`, eight for `sabiko_types` since run 2
 (2026-11-10), when its 1786 mutants took up to 2h18m per shard of four and one shard ran
 into the 150-minute job limit (#125). A `mutants-score` job then judges each crate on the
 counts of all its shards' `mutants.out` directories (`scripts/mutants.sh --score <crate>
---shards n <dir>...`) and fails when a shard's results are missing. The longer timeout let three codegen mutants exhaust a
+--shards n <dir>...`) and fails when a shard's results are missing or incomplete (see
+below). The longer timeout let three codegen mutants exhaust a
 runner's memory (run 19): `next += 1` as `next *= 1` in the worklist loops of
 `drop_glues`, `inline_array_structs` and `byref_tuple_structs` never advances, so the
 backend emits the first entry forever. `.cargo/mutants.toml` excludes those three; they
 hang every test that reaches them, so they are killed, not survivors. Unsharded, run 18 took 137 minutes for `sabiko_codegen`
 (685 mutants), and `sabiko_types` had tested 827 of its 1209 mutants (634 on 2026-11-05) when
 it hit the job's 180-minute limit, at 12.6 rather than 7.5 seconds each.
+
+Incomplete results and runaway mutants (#165). From nightly run 27 (2026-11-12, after
+#154 made every compilation about five times slower, #153) most `sabiko_types` and
+`sabiko_codegen` shards were cancelled at the 150-minute limit, yet `--score` passed
+`sabiko_codegen` on the 468 to 585 of its 720 mutants that had finished: a cancelled
+shard still uploads its `mutants.out`, and the score only checked that each had an
+`outcomes.json`. Now the script compares, for each `mutants.out`, the mutants
+cargo-mutants was given (`mutants.json`, written before the baseline) with those that
+have an outcome (`total_mutants` in `outcomes.json`, which cargo-mutants 27 rewrites after
+every mutant), and a shard run or `--score` fails with "shard k finished m of n mutants",
+printing the counts of what finished but no verdict. A shard run also fails when
+cargo-mutants exits with 1 (an error or an interruption) or 4 (the unmutated tree fails
+its tests: the script took 4 for "unviable" before and passed such a shard).
+Two `sabiko_types` shards lost their runner mid-shard night after night, to two mutants
+that grew a test binary to 11 GB in under three minutes, long before the 300-second test
+timeout. `<=` as `>` in `select_trait_item`'s padding loop (`while args.len() <= n`)
+pushed inference variables forever for a trait without parameters; the padding is now a
+`saturating_sub` and an `extend`, with no loop condition to mutate. `==` as `!=` in
+`strongly_connected_components` (the supertrait cycle check) re-entered visited nodes
+forever; a `debug_assert!` that the Tarjan stack never outgrows the graph now panics in
+the first step past the bound, and a unit test on a cycle reaches it in the crate's own
+tests. Applied by hand (2026-11-17), the new padding's two mutants (`n + 1` as `n - 1`
+and `n * 1`) fail `differential` within 35 seconds, and the Tarjan mutant fails
+`no_panic` after 131 seconds (the test binaries before it take that long) with under
+0.4 GB resident in all, where it reached 11 GB before. The old padding mutant, put back
+by hand under a 4 GiB cap, aborted `differential` with a failed allocation 30 seconds
+in. The other padding loops cannot run away: `lower_trait_args`
+truncates its arguments first, `usefulness.rs`' `ids` loop's `<` as `>` is excluded, and
+`out.len() < tys.len()` is test code, which cargo-mutants does not mutate. The log names
+such a mutant now: the script passes `--caught --unviable`, so every finished mutant is
+printed, where only the missed and the timed-out ones were and the last line was 12 to
+25 mutants before the killer. And each test process runs under `prlimit --as`
+(`MUTANTS_MEMORY_LIMIT_GIB`, default 8 GiB, 0 turns it off), set as cargo's target runner
+so that it covers the test binaries and the `sabikoc` and `dotnet` processes they start
+but not the `rustc` and linker that build a mutant, whose failure would count it as
+unviable: a test that reaches the cap aborts on a failed allocation, which counts as
+caught, instead of taking the runner down. Measured on the unmutated tree, the largest
+Rust test binary peaks at 1.8 GiB of address space (under 0.1 GiB resident) and every
+suite of the three crates passes under the cap; `dotnet` reserves 54 GiB of address
+space uncapped and sizes its reservation to the limit. Without `prlimit` (macOS) the
+tests run uncapped, with a warning. The time budget (part 1 of #165) waits for #153.
 
 The first sharded run (run 20, 2026-11-06, on `1ede489`) took 7 to 17 minutes per
 `sabiko_borrowck` shard, 28 to 39 per `sabiko_codegen` shard and 41 to 69 per `sabiko_types`
