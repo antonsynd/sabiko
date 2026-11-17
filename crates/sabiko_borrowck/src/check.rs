@@ -13,6 +13,7 @@ use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use crate::dataflow::{self, Location, ResultsCursor};
+use crate::index::index_base_reads;
 use crate::init::{InitAnalysis, InitKind};
 use crate::mutability::{place_mutability, PlaceMutability};
 
@@ -101,12 +102,13 @@ impl Checker<'_> {
                 self.check_write(place, statement.span);
             }
             // `let _ = place;` needs no initialised or mutable place: it touches nothing,
-            // except that each index reads its base for the bounds check (rustc's
-            // `FakeRead(ForIndex, base)`, decision 96), so `let a: [i32; 2]; let _ = a[1];`
-            // is E0381. Every base has the place's root, the only thing this checks.
+            // except that each index reads its base for the bounds check (decision 96),
+            // so `let a: [i32; 2]; let _ = a[1];` is E0381. Every base has the place's
+            // root, the only thing this checks, so the first one is enough; rustc's label
+            // names the place read (`*s` for a `&mut [T]`, `s` for a `&[T]`).
             StatementKind::PlaceMention(place) => {
-                if let Some(base) = place.index_bases().next() {
-                    self.check_read(&base, statement.span);
+                if let Some(read) = index_base_reads(place, self.body).next() {
+                    self.check_initialised(place.local, statement.span, Some(&read.place));
                 }
             }
             StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
@@ -177,7 +179,12 @@ impl Checker<'_> {
     /// A read of `place`, or of the base of a projected place being written: the root
     /// local must be definitely initialised.
     fn check_read(&mut self, place: &Place, span: Span) {
-        let local = place.local;
+        self.check_initialised(place.local, span, None);
+    }
+
+    /// `local` must be definitely initialised at a use at `span`. The label names `used`
+    /// (rustc's used place), or else the local.
+    fn check_initialised(&mut self, local: Local, span: Span, used: Option<&Place>) {
         if self.body.local_decl(local).kind != LocalKind::User
             || self.reported_uninit.contains(&local)
             || self.definitely_init.get().contains(local.index())
@@ -186,15 +193,19 @@ impl Checker<'_> {
         }
         self.reported_uninit.insert(local);
         let name = self.local_name(local);
+        let used = used.map_or_else(
+            || name.clone(),
+            |place| describe_place(place, self.body, self.typeck),
+        );
         let (message, label) = if self.maybe_init.get().contains(local.index()) {
             (
                 format!("used binding `{name}` is possibly-uninitialized"),
-                format!("`{name}` used here but it is possibly-uninitialized"),
+                format!("`{used}` used here but it is possibly-uninitialized"),
             )
         } else {
             (
                 format!("used binding `{name}` isn't initialized"),
-                format!("`{name}` used here but it isn't initialized"),
+                format!("`{used}` used here but it isn't initialized"),
             )
         };
         self.sink.emit(

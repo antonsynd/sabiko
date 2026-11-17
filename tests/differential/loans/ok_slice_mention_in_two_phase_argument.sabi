@@ -1,0 +1,15 @@
+// A slice's length read is a read: in the argument of `s.get_mut(..)`, whose `&mut *s` is
+// only reserved (two-phase) until the call, `let _ = s[i]` may read the length.
+struct P { X: i32 }
+
+fn F(s: &mut [P]) {
+    let _ = s.get_mut({
+        let _ = s[0usize];
+        0usize
+    });
+}
+
+fn Main() {
+    let mut v = [P { X: 1 }];
+    F(&mut v);
+}

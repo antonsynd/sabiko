@@ -309,7 +309,18 @@ UI fixture `borrowck/index_mention_reads_base`, and hand-built MIR tests in
 `sabiko_borrowck`'s `checks.rs`, `moves.rs` and `loans.rs`. A table of 64 programs
 (the issue's, plus deref chains, guards, `while let`, slices under loans) agrees with
 rustc's verdict on every row. 2000 generated seeds from base 1 agree with rustc, seed 804
-included.
+included. After review: the mentions MIR building puts before `&a[i]`, `let ref x = a[i]`,
+`m[i][j]`, `*a[i]` and match scrutinees are checked too, which turned "borrow of moved
+value" into "use of moved value" for borrows of an element of a moved array; E0406 now
+follows rustc's `buffer_move_error` (one error per set of moves, replaced by a later use
+unless that use is of a prefix of the reported place), which restores rustc's wording and
+spans there and matches rustc's choice of the reported use elsewhere (`&t.0; &t.1;` after
+a move reports `&t.1`). A slice `*s` of a local `s: &[T]` has its length read from `s`
+(rustc's `copy s`), so diagnostics name `s`, and an uninitialised `&mut [T]` is labelled
+`*s`. Gaps (issues to file): a write `s[i] = v` without drop glue and a plain read of
+`s[i]` do not read the slice's length (rustc reports "borrow of moved value" for the
+first after a move, a second E0503 for the second under a loan), and E0406 names the
+closest move path (`t.0`, `o.0`) where rustc names the moved place (`t`, `o`).
 
 ### Phase 4: CIL code generation v1 and the runtime library
 

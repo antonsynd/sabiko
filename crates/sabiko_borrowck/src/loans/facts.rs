@@ -45,6 +45,7 @@ use super::regions::{
     SigRegions, SiteElem, Variable,
 };
 use crate::dataflow::{self, Dominators, Location};
+use crate::index::{index_base_reads, BaseRead};
 
 /// The atom types the engine is instantiated with.
 #[derive(Clone, Copy, Debug)]
@@ -472,9 +473,15 @@ impl Generator<'_> {
             // known, and rustc's `FakeRead(ForIndex, a)` conflicts with no loan.
             StatementKind::PlaceMention(place) => {
                 self.use_local(place.local, location);
-                for base in place.index_bases() {
-                    if matches!(base.ty(self.body), Ty::Slice(_)) {
-                        self.access(&base, AccessKind::SliceLen, location);
+                for read in index_base_reads(place, self.body) {
+                    match read.kind {
+                        BaseRead::Array => {}
+                        BaseRead::SharedSliceRef => {
+                            self.access(&read.place, AccessKind::Read, location);
+                        }
+                        BaseRead::SliceFakeBorrow => {
+                            self.access(&read.place, AccessKind::SliceLen, location);
+                        }
                     }
                 }
             }
