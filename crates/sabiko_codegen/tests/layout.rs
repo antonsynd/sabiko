@@ -6,12 +6,12 @@
 //! for every program in the IL fixtures, the run-pass and run-time differential corpora and
 //! the benchmarks, in debug and release builds.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sabiko_codegen::{Options, OutputKind};
 use sabiko_diagnostics::{DiagnosticSink, SourceMap};
 use sabiko_mir::{BasicBlock, Body};
+use sabiko_span::fx::HashMap;
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -60,7 +60,7 @@ fn compile(path: &Path, overflow_checks: bool) -> Option<(Vec<Body>, String)> {
     if sink.has_errors() {
         return None;
     }
-    let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
+    let mut bodies = sabiko_mir::mono::monomorphize(bodies, &ast, &resolve, &typeck, &mut sink);
     let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
     assert!(
         errors.is_empty(),
@@ -144,7 +144,7 @@ fn methods(il: &str) -> Vec<(String, Vec<&str>)> {
 /// `(line index, target label)` of every branch, and the line index of every label.
 fn branches<'a>(lines: &[&'a str]) -> (Vec<(usize, &'a str)>, HashMap<&'a str, usize>) {
     let mut jumps = Vec::new();
-    let mut labels = HashMap::new();
+    let mut labels = HashMap::default();
     for (i, line) in lines.iter().enumerate() {
         if let Some(label) = line.strip_suffix(':') {
             labels.insert(label, i);

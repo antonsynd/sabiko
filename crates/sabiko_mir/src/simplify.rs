@@ -7,7 +7,7 @@
 //! the rest, keeping their relative order, and does the same for the cleanup scopes no
 //! block is in any more.
 
-use std::collections::HashSet;
+use sabiko_span::fx::HashSet;
 
 use crate::{BasicBlock, Body, CleanupScope, StatementKind, TerminatorKind};
 
@@ -76,7 +76,7 @@ fn forwarding_target(body: &Body, bb: BasicBlock) -> Option<BasicBlock> {
 
 /// Follows a chain of forwarding blocks to its end, stopping at a cycle.
 fn resolve_target(body: &Body, mut bb: BasicBlock) -> BasicBlock {
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     while let Some(next) = forwarding_target(body, bb) {
         if !seen.insert(bb) {
             break;

@@ -20,12 +20,13 @@
 pub mod facts;
 pub mod regions;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use polonius_engine::{Algorithm, Output};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{Body, FakeBorrowKind, Local, LocalKind, Place, TerminatorKind, Ty};
 use sabiko_resolve::{DefKind, ResolveResults};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::{FnSig, TypeckResults};
 
@@ -78,8 +79,8 @@ pub fn check_loans(
         );
     }
     let output = Output::compute(&facts.all, Algorithm::DatafrogOpt, true);
-    let mut successors: HashMap<Point, Vec<Point>> = HashMap::new();
-    let mut predecessors: HashMap<Point, Vec<Point>> = HashMap::new();
+    let mut successors: HashMap<Point, Vec<Point>> = HashMap::default();
+    let mut predecessors: HashMap<Point, Vec<Point>> = HashMap::default();
     for &(from, to) in &facts.all.cfg_edge {
         successors.entry(from).or_default().push(to);
         predecessors.entry(to).or_default().push(from);
@@ -144,10 +145,10 @@ impl Reporter<'_> {
             .map(|&(_, p, _)| p)
             .collect();
         // Points where a guard's fake borrow was reported.
-        let mut guarded: HashSet<Point> = HashSet::new();
+        let mut guarded: HashSet<Point> = HashSet::default();
         // Places reported as accessed at a span: one report each, as rustc's
         // `access_place_error_reported` (an inclusive range's two comparisons).
-        let mut accessed: HashSet<(Span, Place)> = HashSet::new();
+        let mut accessed: HashSet<(Span, Place)> = HashSet::default();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {
                 continue;
@@ -419,7 +420,7 @@ impl Reporter<'_> {
     /// Breadth-first over the CFG from `from`: the first point where a local whose type
     /// holds one of `origins` is used.
     fn later_use(&self, from: Point, origins: &HashSet<Origin>) -> Option<(Location, Local)> {
-        let mut seen = HashSet::from([from]);
+        let mut seen: HashSet<_> = std::iter::once(from).collect();
         let mut queue = VecDeque::from([from]);
         while let Some(point) = queue.pop_front() {
             if let Some(locals) = self.facts.uses_at.get(&point) {

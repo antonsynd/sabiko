@@ -6,13 +6,12 @@
 // Discriminants are `isize` values carried as `i128`.
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
-use std::collections::HashMap;
-
 use sabiko_ast::{
     EnumDecl, Expr, ExprKind, ItemKind, Lit, Pat, PatKind, RangeEnd, SourceFile, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, PrimTy, Res, ResolveResults};
+use sabiko_span::fx::HashMap;
 use sabiko_span::Span;
 
 use crate::check::{BodyTypes, PatConst};
@@ -125,35 +124,48 @@ pub(crate) fn pattern_values(
     sink: &mut DiagnosticSink,
 ) {
     let resolve = consts.resolve;
-    let mut cache = HashMap::new();
+    let mut cache = HashMap::default();
     for item in file.all_items() {
         let ItemKind::Fn(f) = &item.kind else {
             continue;
         };
         let def = resolve.def_of_item(item.id);
+        // A deferred body of the prelude (decision 98) is done where it is checked.
         let Some(body) = bodies.get_mut(&def) else {
             continue;
         };
-        if body.has_errors {
-            continue;
-        }
-        let mut cx = PatValues {
-            resolve,
-            consts,
-            cache: &mut cache,
-            body,
-            sink,
-            failed: false,
-        };
-        for p in &f.params {
-            cx.pat(&p.pat);
-        }
-        if let Some(b) = &f.body {
-            cx.block(b);
-        }
-        if cx.failed {
-            body.has_errors = true;
-        }
+        pattern_values_of(f, consts, &mut cache, body, sink);
+    }
+}
+
+/// [`pattern_values`] for the function `f`, whose body table is `body`; `cache` holds the
+/// trait constants evaluated so far.
+pub(crate) fn pattern_values_of(
+    f: &sabiko_ast::FnDecl,
+    consts: &ConstCx,
+    cache: &mut crate::consts::InstanceCache,
+    body: &mut BodyTypes,
+    sink: &mut DiagnosticSink,
+) {
+    if body.has_errors {
+        return;
+    }
+    let mut cx = PatValues {
+        resolve: consts.resolve,
+        consts,
+        cache,
+        body,
+        sink,
+        failed: false,
+    };
+    for p in &f.params {
+        cx.pat(&p.pat);
+    }
+    if let Some(b) = &f.body {
+        cx.block(b);
+    }
+    if cx.failed {
+        body.has_errors = true;
     }
 }
 
@@ -628,28 +640,40 @@ pub(crate) fn exhaustiveness(
             continue;
         };
         let def = resolve.def_of_item(item.id);
+        // A deferred body of the prelude (decision 98) is done where it is checked.
         let Some(body) = bodies.get_mut(&def) else {
             continue;
         };
-        if body.has_errors {
-            continue;
-        }
-        let errors_before = sink.error_count();
-        let mut cx = Exhaustive {
-            resolve,
-            items,
-            body,
-            sink,
-        };
-        for p in &f.params {
-            cx.refutable(&p.pat, "function argument");
-        }
-        if let Some(b) = &f.body {
-            cx.block(b);
-        }
-        if sink.error_count() > errors_before {
-            body.has_errors = true;
-        }
+        exhaustiveness_of(f, resolve, items, body, sink);
+    }
+}
+
+/// [`exhaustiveness`] for the function `f`, whose body table is `body`.
+pub(crate) fn exhaustiveness_of(
+    f: &sabiko_ast::FnDecl,
+    resolve: &ResolveResults,
+    items: &ItemTypes,
+    body: &mut BodyTypes,
+    sink: &mut DiagnosticSink,
+) {
+    if body.has_errors {
+        return;
+    }
+    let errors_before = sink.error_count();
+    let mut cx = Exhaustive {
+        resolve,
+        items,
+        body,
+        sink,
+    };
+    for p in &f.params {
+        cx.refutable(&p.pat, "function argument");
+    }
+    if let Some(b) = &f.body {
+        cx.block(b);
+    }
+    if sink.error_count() > errors_before {
+        body.has_errors = true;
     }
 }
 

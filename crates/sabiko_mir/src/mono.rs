@@ -8,10 +8,12 @@
 //! more, with their arguments substituted. A generic function no root reaches gets no
 //! instance and no code, as in rustc.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 
+use sabiko_ast::{Item, ItemKind, SourceFile};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, Intrinsic, ResolveResults};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::{ConstValue, ItemTypes, Ty, TypeckResults};
 
@@ -158,14 +160,20 @@ fn instance_name_as(
 /// with generic arguments longer than [`TYPE_LENGTH_LIMIT`], is E0502 (rustc's "reached
 /// the recursion limit while instantiating"), and the bodies returned are then
 /// incomplete.
+///
+/// The bodies of the `core` prelude's functions that type checking deferred (decision 98)
+/// are type-checked and built from `file` when an instance first needs them, so a
+/// compilation pays only for the prelude functions it reaches.
 pub fn monomorphize(
     bodies: Vec<Body>,
+    file: &SourceFile,
     resolve: &ResolveResults,
     typeck: &TypeckResults,
     sink: &mut DiagnosticSink,
 ) -> Vec<Body> {
     let is_generic = |def: DefId| made_on_demand(def, resolve, typeck);
-    let mut generic: HashMap<DefId, Body> = HashMap::new();
+    let mut generic: HashMap<DefId, Body> = HashMap::default();
+    let mut deferred = DeferredBodies::new(file, resolve, typeck);
     let mut out = Vec::new();
     for mut body in bodies {
         if is_generic(body.def) {
@@ -177,7 +185,7 @@ pub fn monomorphize(
     }
     // Instances to make, with how deep in a chain of instances each was reached.
     let mut queue: Vec<Pending> = Vec::new();
-    let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::new();
+    let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::default();
     // Where each body of `out` was reached from (aligned with `out`).
     let mut origins: Vec<Origin> = Vec::new();
     for body in &out {
@@ -186,7 +194,7 @@ pub fn monomorphize(
         origins.push(origin);
     }
     let mut limits = LimitReports::default();
-    let mut drop_seen: HashSet<Ty> = HashSet::new();
+    let mut drop_seen: HashSet<Ty> = HashSet::default();
     let mut scanned = 0;
     let mut next = 0;
     loop {
@@ -198,23 +206,7 @@ pub fn monomorphize(
                 origin,
             } = queue[next].clone();
             next += 1;
-            let length: usize = args.iter().map(type_length).sum();
-            if depth > RECURSION_LIMIT || length > TYPE_LENGTH_LIMIT {
-                let (limit, shown) = if depth > RECURSION_LIMIT {
-                    (
-                        "recursion",
-                        instance_name(resolve, &typeck.items, def, &args),
-                    )
-                } else {
-                    // Too long to print.
-                    ("type-length", resolve.def(def).name.clone())
-                };
-                let diagnostic = Diagnostic::error(
-                    ErrorCode::INSTANTIATION_RECURSION_LIMIT,
-                    format!("reached the {limit} limit while instantiating `{shown}`"),
-                )
-                .with_label(origin.user_call, "instantiated here")
-                .with_note("each call instantiates the function at a larger type, without end");
+            if let Some(diagnostic) = limit_reached(def, &args, depth, origin, resolve, typeck) {
                 limits.hit(origin.root, resolve.is_prelude(def), diagnostic, sink);
                 // The chain stops here; other instances are still made.
                 continue;
@@ -229,9 +221,14 @@ pub fn monomorphize(
                 continue;
             }
             // A generic function whose body has errors was not built; nothing calls it
-            // then, since the caller's errors stop compilation too.
-            let Some(template) = generic.get(&def) else {
-                continue;
+            // then, since the caller's errors stop compilation too. A prelude function's
+            // deferred body is built when first reached.
+            let template = match generic.entry(def) {
+                Entry::Occupied(built) => &*built.into_mut(),
+                Entry::Vacant(slot) => match deferred.build(def, origin, sink) {
+                    Some(body) => &*slot.insert(body),
+                    None => continue,
+                },
             };
             let params = &typeck.items.fn_sig(def).generics;
             let mut own = DiagnosticSink::new();
@@ -272,6 +269,90 @@ pub fn monomorphize(
             limits.finish(sink);
             return out;
         }
+    }
+}
+
+/// E0502 for the instance of `def` at `args`, reached `depth` instances deep, when it is
+/// past [`RECURSION_LIMIT`] or its arguments past [`TYPE_LENGTH_LIMIT`].
+fn limit_reached(
+    def: DefId,
+    args: &[Ty],
+    depth: usize,
+    origin: Origin,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+) -> Option<Diagnostic> {
+    let length: usize = args.iter().map(type_length).sum();
+    if depth <= RECURSION_LIMIT && length <= TYPE_LENGTH_LIMIT {
+        return None;
+    }
+    let (limit, shown) = if depth > RECURSION_LIMIT {
+        (
+            "recursion",
+            instance_name(resolve, &typeck.items, def, args),
+        )
+    } else {
+        // Too long to print.
+        ("type-length", resolve.def(def).name.clone())
+    };
+    let diagnostic = Diagnostic::error(
+        ErrorCode::INSTANTIATION_RECURSION_LIMIT,
+        format!("reached the {limit} limit while instantiating `{shown}`"),
+    )
+    .with_label(origin.user_call, "instantiated here")
+    .with_note("each call instantiates the function at a larger type, without end");
+    Some(diagnostic)
+}
+
+/// The functions of the `core` prelude whose bodies type checking deferred (decision 98),
+/// type-checked and built the first time monomorphisation reaches each.
+struct DeferredBodies<'a> {
+    file: &'a SourceFile,
+    resolve: &'a ResolveResults,
+    typeck: &'a TypeckResults,
+    /// The deferred functions by definition, found on first use.
+    items: Option<HashMap<DefId, &'a Item>>,
+    /// The functions already built (or found to have errors), never built twice.
+    built: HashSet<DefId>,
+}
+
+impl<'a> DeferredBodies<'a> {
+    fn new(file: &'a SourceFile, resolve: &'a ResolveResults, typeck: &'a TypeckResults) -> Self {
+        Self {
+            file,
+            resolve,
+            typeck,
+            items: None,
+            built: HashSet::default(),
+        }
+    }
+
+    /// The body of `def` if it is a deferred function of the prelude reached for the first
+    /// time and its body builds. Its diagnostics (none, unless the compiler has a bug) go
+    /// to `sink` with the user's call that reached it, as an instance's do.
+    fn build(&mut self, def: DefId, origin: Origin, sink: &mut DiagnosticSink) -> Option<Body> {
+        if !self.resolve.is_prelude(def) || !self.built.insert(def) {
+            return None;
+        }
+        let (resolve, typeck) = (self.resolve, self.typeck);
+        let items = self.items.get_or_insert_with(|| {
+            self.file
+                .all_items()
+                .filter(|item| matches!(item.kind, ItemKind::Fn(_)))
+                .filter_map(|item| {
+                    let def = resolve.item_def(item.id)?;
+                    (resolve.is_prelude(def) && typeck.try_body(def).is_none())
+                        .then_some((def, item))
+                })
+                .collect()
+        });
+        let item = items.get(&def)?;
+        let mut own = DiagnosticSink::new();
+        let body = crate::build::build_deferred_body(item, resolve, typeck, &mut own);
+        for d in own.into_vec() {
+            sink.emit(d.with_label(origin.user_call, "instantiated here"));
+        }
+        body
     }
 }
 

@@ -7,6 +7,7 @@
 
 use std::fmt::{self, Write as _};
 
+use sabiko_span::fx::HashSet;
 pub use sabiko_span::SourceMap;
 use sabiko_span::Span;
 use serde::Serialize;
@@ -466,8 +467,19 @@ pub fn render(diagnostics: &[Diagnostic], sm: &SourceMap, format: Format) -> Str
         }
         Format::Human | Format::HumanPlain => {
             // ariadne wants a cache of `Source`s it can borrow from; build one per render
-            // call, keyed by file name, borrowing the text from the source map.
-            let mut cache = ariadne::sources(sm.files().map(|f| (f.name.clone(), f.src.as_str())));
+            // call, keyed by file name, borrowing the text from the source map. Only the
+            // files a label names: indexing the lines of the `core` prelude's files for
+            // every compilation cost more than a debug build's whole type check (#153).
+            let named: HashSet<&str> = diagnostics
+                .iter()
+                .flat_map(|d| &d.labels)
+                .map(|l| sm.get(l.span.file).name.as_str())
+                .collect();
+            let mut cache = ariadne::sources(
+                sm.files()
+                    .filter(|f| named.contains(f.name.as_str()))
+                    .map(|f| (f.name.clone(), f.src.as_str())),
+            );
             for d in diagnostics {
                 render_human(d, sm, &mut cache, format == Format::Human, &mut out);
             }

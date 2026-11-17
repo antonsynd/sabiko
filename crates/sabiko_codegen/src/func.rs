@@ -531,7 +531,7 @@ impl FnCx<'_, '_> {
 
     fn assign_slots(&mut self) {
         let body = self.body;
-        let mut name_counts = std::collections::HashMap::new();
+        let mut name_counts = sabiko_span::fx::HashMap::default();
         for decl in &body.locals {
             if let Some(n) = &decl.name {
                 *name_counts.entry(n.clone()).or_insert(0usize) += 1;

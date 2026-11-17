@@ -1606,6 +1606,53 @@ test process runs under a memory cap (per process, not per run), and the
 log prints every finished mutant. Open: the shards still run into the 150-minute limit,
 because every compilation got about five times slower with the core prelude (#153).
 
+Update (2026-11-17), the prelude's bodies checked only where reached (#153, decision 98):
+a compilation type-checked and built MIR for every body of `library/core` (93 blocks of
+`From` alone), whatever the program used. Now `sabiko_types::typeck` leaves the prelude's
+function bodies out (`TypeckResults::try_body` is `None` for them) and
+`mir::mono::monomorphize`, which takes the AST, type-checks, builds and simplifies one
+(`build::build_deferred_body`, through `TypeckResults::check_deferred_body`) the first
+time an instance needs it; signatures, trait and `impl` headers, bounds, coherence and
+the prelude's constants are still collected for every item. Nothing before
+monomorphisation reads a prelude body (borrow checking and the lints run on the program's
+own bodies, region links on headers), and the instances made are the same as before, so
+`--emit=mir`, `--emit=mir-elaborated` and `--emit=il` print exactly what they did: the old
+and new compilers agree byte for byte (exit code, stdout, stderr) on all 1523 `.sabi`
+files of the repository in seven modes, but one (below). `check_core_prelude` checks every
+prelude body with `typeck_with_prelude_bodies`, and a driver unit test requires each
+deferred body to equal (`Body` equality) the one the eager path builds. Two fixed costs
+went too: the compiler's hash maps and sets use rustc's `FxHasher` (`sabiko_span::fx`;
+`clippy.toml` disallows std's; debug builds seed it per thread, so the tests still see
+two compilations hash differently), SipHash having been a fifth of what was left; and
+human-readable diagnostics index the lines of only the files a label names, not the
+prelude's in every compilation (a debug build spent a fifth of a hello-world there).
+Measured on the development machine, four cores, with another agent's mutation testing
+running alongside for the wall times (best of N; instruction counts are callgrind's and
+do not depend on load):
+
+| `fn Main() { PrintLine(1); }` and suites | before (f8bfee1) | after |
+| --- | --- | --- |
+| release `sabikoc`, instructions, check / `--emit=il` | 30.36 / 30.56 million | 11.98 / 12.08 million |
+| (bodies deferred only; plus `FxHasher`; plus the diagnostics fix) | | 15.98; 12.59; 12.00 million (`--emit=il`) |
+| release `sabikoc`, best of 200 | 5.74 ms quiet, 6.8 to 7.3 ms loaded | 3.66 to 3.9 ms loaded |
+| debug `sabikoc`, instructions (`--emit=il`) | 147.9 million | 58.4 million |
+| debug `sabikoc`, best of 200 | 24.1 ms quiet, 27.2 to 28.4 ms loaded | 11.9 to 12.6 ms loaded |
+| `cargo test -p sabiko_types -p sabiko_driver -p sabiko_mir -- --test-threads=2` | 150.5 to 167.3 s | 91.3 to 108.7 s |
+| `cargo test -p sabiko_driver --test differential` | 25.3 to 25.6 s | 14.0 to 17.9 s |
+| `cargo test -p sabikoc --test differential_run` | 49.2 to 67.4 s | 45.7 to 61.7 s (rustc and `dotnet` dominate) |
+
+A hello-world now costs less than before `convert.sabi` (12.3 million). What is left is
+the prelude's front end, the same in every compilation: parsing (3 million), resolution
+(4 million) and collecting item types twice (the first time with array lengths unknown),
+whose coherence and `impl` method checks grow with the prelude's blocks;
+#117's operator impls will add there, not to the bodies. In the mutant test command,
+`no_panic.rs` (two compilations per program) is now about half the time. The one
+difference: a program defining its own `trait From<T>` with `impl<T> From<T> for T` made
+the prelude's `Into` body's `U::from(self)` ambiguous (E0342 inside the prelude, which
+rustc does not report: its where-clause candidate wins). That error used to fail every
+compilation of such a program; now it is reported, with the program's call labelled,
+only where the program reaches `Into::into` and is compiled to IL.
+
 Status (2026-11-11): reborrow or move of a `&mut` decided as rustc does (#132, decision
 92). Sabiko reborrowed every `&mut` call or constructor argument, so it accepted `Id(r);
 *r += 1;` for `fn Id<T>(x: T)`, `Opt::Yes(r)` and `W { F: r }` of generic types, which

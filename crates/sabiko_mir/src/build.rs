@@ -43,14 +43,13 @@
 //! Lowering itself never reports diagnostics: the type checker already rejected every
 //! invalid program, and bodies with type errors are skipped.
 
-use std::collections::{HashMap, HashSet};
-
 use sabiko_ast::{
     BinOp, Block, Expr, ExprKind, FnDecl, Item, ItemKind, Lit, NodeId, Pat, PatKind, RangeEnd,
     SourceFile, Stmt, StmtKind, UnOp,
 };
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{Builtin, CoreItem, DefId, DefKind, LocalId, PrimTy, Res, ResolveResults};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::{BodyTypes, ConstValue, Mutability, Ty, TypeckResults};
 
@@ -66,7 +65,9 @@ use crate::{
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
 /// order. Constants have no bodies. A function that refers to a constant whose evaluation
-/// failed is skipped as well: its errors were reported with the constant.
+/// failed is skipped as well: its errors were reported with the constant. The functions
+/// of the `core` prelude whose bodies type checking deferred (decision 98) are left to
+/// [`build_deferred_body`], which monomorphisation calls for those a program reaches.
 ///
 /// `sink` receives the failures of evaluating the trait constants a body names at a
 /// type (#116); lowering itself never reports, the validator does.
@@ -87,16 +88,54 @@ pub fn build_bodies(
             continue;
         }
         let def = resolve.def_of_item(item.id);
-        let types = typeck.body(def);
-        if types.has_errors {
+        let Some(types) = typeck.try_body(def) else {
             continue;
-        }
-        if let Some(mut body) = Builder::new(resolve, typeck, types, def, item, f).build(f) {
-            crate::mono::eval_assoc_consts(&mut body, resolve, typeck, false, sink);
+        };
+        if let Some(body) = build_body(item, f, def, types, resolve, typeck, sink) {
             bodies.push(body);
         }
     }
     bodies
+}
+
+/// Type-checks and lowers the body of `item`, a function of the `core` prelude whose body
+/// type checking deferred (decision 98), as [`build_bodies`] and the driver's
+/// simplification would have: monomorphisation calls this for the bodies a program
+/// reaches. `None` for a function without a body, or one whose body has errors, which
+/// are in `sink` (the prelude is valid, so that is a compiler bug).
+pub fn build_deferred_body(
+    item: &Item,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) -> Option<Body> {
+    let ItemKind::Fn(f) = &item.kind else {
+        return None;
+    };
+    f.body.as_ref()?;
+    let def = resolve.def_of_item(item.id);
+    let types = typeck.check_deferred_body(item, resolve, sink);
+    let mut body = build_body(item, f, def, &types, resolve, typeck, sink)?;
+    crate::simplify::simplify_body(&mut body);
+    Some(body)
+}
+
+/// Lowers one function's body from its type table; `None` when it has errors.
+fn build_body(
+    item: &Item,
+    f: &FnDecl,
+    def: DefId,
+    types: &BodyTypes,
+    resolve: &ResolveResults,
+    typeck: &TypeckResults,
+    sink: &mut DiagnosticSink,
+) -> Option<Body> {
+    if types.has_errors {
+        return None;
+    }
+    let mut body = Builder::new(resolve, typeck, types, def, item, f).build(f)?;
+    crate::mono::eval_assoc_consts(&mut body, resolve, typeck, false, sink);
+    Some(body)
 }
 
 /// Where an `if`, `if let` or `match` writes its value, and whether that value is in an
@@ -182,7 +221,7 @@ struct Builder<'a> {
     paren_spans: HashMap<NodeId, Span>,
     /// Expressions whose pointer coercion (`BodyTypes::coercions`) is being applied: inside,
     /// the expression is lowered as its own type.
-    coercing: std::collections::HashSet<NodeId>,
+    coercing: sabiko_span::fx::HashSet<NodeId>,
     /// While a match guard is lowered: the place each of its arm's bindings denotes (a
     /// shared reference to its part of the scrutinee, see `matches`).
     guard_places: HashMap<LocalId, Place>,
@@ -228,7 +267,7 @@ impl<'a> Builder<'a> {
             source: None,
             match_span: None,
         }];
-        let mut local_map = HashMap::new();
+        let mut local_map = HashMap::default();
         let mut inputs = sig.inputs.iter();
         if let Some(sp) = &f.self_param {
             let ty = inputs
@@ -302,20 +341,20 @@ impl<'a> Builder<'a> {
             temp_scope: 0,
             operand_scope: None,
             tail_scope: None,
-            pending: HashSet::new(),
+            pending: HashSet::default(),
             chain: Vec::new(),
             extend_at: None,
-            extended: HashMap::new(),
+            extended: HashMap::default(),
             loops: Vec::new(),
             return_block: None,
             current: BasicBlock::START,
             failed: false,
-            paren_spans: HashMap::new(),
-            coercing: std::collections::HashSet::new(),
-            guard_places: HashMap::new(),
+            paren_spans: HashMap::default(),
+            coercing: sabiko_span::fx::HashSet::default(),
+            guard_places: HashMap::default(),
             bound_for_guard: Vec::new(),
             guard_held: Vec::new(),
-            prepared_lets: HashMap::new(),
+            prepared_lets: HashMap::default(),
             place_mutability: Mutability::Not,
             binding_scrutinee: None,
             tests: matches::TestCache::default(),
@@ -348,7 +387,7 @@ impl<'a> Builder<'a> {
                 self.bind_pat(
                     &param.pat,
                     Place::local(arg),
-                    &matches::Choice::new(),
+                    &matches::Choice::default(),
                     BindMode::Declare,
                 );
                 self.close_temp_scope(saved, param_span(f));
@@ -2725,7 +2764,7 @@ impl<'a> Builder<'a> {
             self.declare_pattern_locals(pat);
             return;
         }
-        self.bind_pat(pat, place, &matches::Choice::new(), BindMode::Declare);
+        self.bind_pat(pat, place, &matches::Choice::default(), BindMode::Declare);
     }
 
     /// Lowers one statement. Temporaries it creates die when it ends.

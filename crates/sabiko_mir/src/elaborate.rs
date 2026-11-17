@@ -44,9 +44,10 @@
 //! forwarding and code generation. Run [`crate::simplify`] after it: removed drops leave
 //! blocks that only jump.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use sabiko_resolve::Builtin;
+use sabiko_span::fx::HashMap;
 use sabiko_span::Span;
 use sabiko_types::{Mutability, TypeckResults};
 
@@ -543,8 +544,8 @@ impl Plan {
         let leaves = paths.leaf_nodes.len();
         // The union of the states at the points that may panic in each cleanup scope.
         let mut panic_states = vec![State::bottom(leaves); body.cleanups.len()];
-        let mut drops = HashMap::new();
-        let mut old_values = HashMap::new();
+        let mut drops = HashMap::default();
+        let mut old_values = HashMap::default();
         let panic_at = |panic_states: &mut Vec<State>, chain: &[CleanupScope], state: &State| {
             for scope in chain {
                 panic_states[scope.index()].join(state);

@@ -26,13 +26,12 @@
 //! user [`DefId`]s are unaffected. A user item of the same name shadows the builtin
 //! silently.
 
-use std::collections::HashMap;
-
 use sabiko_ast::{
     Block, Expr, ExprKind, FieldDef, FnDecl, ImplDecl, Item, ItemKind, NodeId, Pat, PatKind, Path,
     SourceFile, Stmt, StmtKind, StructKind, Type, TypeKind, VariantData,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
+use sabiko_span::fx::HashMap;
 use sabiko_span::Span;
 
 /// Identifies an item definition within one compilation.
@@ -494,12 +493,12 @@ pub struct ResolveResults {
     /// The members of each trait, in declaration order.
     trait_members: HashMap<DefId, Vec<DefId>>,
     /// The required methods of the traits (declared without a body).
-    required: std::collections::HashSet<DefId>,
+    required: sabiko_span::fx::HashSet<DefId>,
     /// The supertraits of each trait, as written.
     supertraits: HashMap<DefId, Vec<DefId>>,
     /// The functions and trait `impl` blocks a bound of which was dropped as not supported
     /// (E0107): what fails for lack of it is not reported again.
-    incomplete_bounds: std::collections::HashSet<DefId>,
+    incomplete_bounds: sabiko_span::fx::HashSet<DefId>,
     /// How many of each generic trait's own parameters (after `Self`) have no default:
     /// a bound or `impl` header must give at least these.
     trait_required_params: HashMap<DefId, usize>,
@@ -521,10 +520,10 @@ pub struct ResolveResults {
     /// The prelude's types the user's file has an `impl` block for that the orphan rule
     /// rejects (E0211, E0214). The block is not used, so a call of its method or a bound
     /// it would have met fails; the type checker does not report those again.
-    orphan_targets: std::collections::HashSet<DefId>,
+    orphan_targets: sabiko_span::fx::HashSet<DefId>,
     /// The functions marked `#[track_caller]`: their panics report their caller's
     /// location, which code generation passes them as a hidden last argument.
-    track_caller: std::collections::HashSet<DefId>,
+    track_caller: sabiko_span::fx::HashSet<DefId>,
     /// The prelude's intrinsics (`#[intrinsic]`), whose calls code generation lowers
     /// itself; their bodies are never used.
     intrinsics: HashMap<DefId, Intrinsic>,
@@ -955,19 +954,19 @@ pub fn resolve_program(
             prelude_start,
             ..ResolveResults::default()
         },
-        ctors: HashMap::new(),
-        items: HashMap::new(),
-        other_items: HashMap::new(),
+        ctors: HashMap::default(),
+        items: HashMap::default(),
+        other_items: HashMap::default(),
         in_prelude: false,
         scopes: Vec::new(),
         sink,
         current_fn: None,
         ty_params: Vec::new(),
         dropped_bound: false,
-        impl_params: HashMap::new(),
+        impl_params: HashMap::default(),
         impl_scope: ImplScope::Outside,
         const_floor: None,
-        impl_adts: HashMap::new(),
+        impl_adts: HashMap::default(),
         assoc_self: None,
     };
     r.collect_items(file);
@@ -1685,7 +1684,7 @@ impl Resolver<'_> {
             return;
         }
         let parent = self.results.def_of_item(node);
-        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut seen: HashMap<&str, Span> = HashMap::default();
         let mut ids = Vec::new();
         for g in params {
             if let Some(&prev) = seen.get(g.name.name.as_str()) {
@@ -1723,7 +1722,7 @@ impl Resolver<'_> {
     /// variant of one name is E0200 (rustc's E0428) and gets no definition.
     fn collect_variants(&mut self, adt: DefId, index: usize, e: &sabiko_ast::EnumDecl) {
         let mut ids = Vec::new();
-        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut seen: HashMap<&str, Span> = HashMap::default();
         for v in &e.variants {
             if let Some(&prev) = seen.get(v.name.name.as_str()) {
                 self.sink.emit(
@@ -1777,7 +1776,7 @@ impl Resolver<'_> {
     /// one when they are in different blocks.
     fn collect_impls(&mut self, file: &SourceFile) {
         // The first definition of each `(struct, name)`, with the index of its block.
-        let mut first: HashMap<(DefId, String), (DefId, usize)> = HashMap::new();
+        let mut first: HashMap<(DefId, String), (DefId, usize)> = HashMap::default();
         for (index, item) in file.items.iter().enumerate() {
             self.enter(index);
             let ItemKind::Impl(imp) = &item.kind else {
@@ -2547,7 +2546,7 @@ impl Resolver<'_> {
             }
             return Vec::new();
         }
-        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut seen: HashMap<&str, Span> = HashMap::default();
         for g in &imp.generics {
             if let Some(&prev) = seen.get(g.name.name.as_str()) {
                 self.sink.emit(
@@ -2795,7 +2794,7 @@ impl Resolver<'_> {
 
     /// The fields of a struct or a struct variant: unique names (E0204) and their types.
     fn resolve_fields(&mut self, fields: &[FieldDef]) {
-        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut seen: HashMap<&str, Span> = HashMap::default();
         for field in fields {
             if let Some(&prev) = seen.get(field.name.name.as_str()) {
                 self.sink.emit(
@@ -2853,7 +2852,7 @@ impl Resolver<'_> {
                 .expect("a scope is open")
                 .push(("self".to_owned(), id));
         }
-        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut seen: HashMap<&str, Span> = HashMap::default();
         for p in &f.params {
             self.resolve_type(&p.ty, true);
             let mut names = Vec::new();
@@ -3176,7 +3175,7 @@ impl Resolver<'_> {
     /// once per pattern (E0209, rustc's E0416), or-pattern alternatives aside.
     fn bind_let_pat(&mut self, pat: &Pat, source: PatSource) {
         let bindings = self.bind_pat(pat, source);
-        let mut seen: HashMap<&str, Span> = HashMap::new();
+        let mut seen: HashMap<&str, Span> = HashMap::default();
         for b in &bindings {
             if let Some(&prev) = seen.get(b.name.as_str()) {
                 self.sink.emit(

@@ -12,11 +12,10 @@
     clippy::cast_precision_loss
 )]
 
-use std::collections::{HashMap, HashSet};
-
 use sabiko_ast::{BinOp, Expr, ExprKind, Lit, UnOp};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, PrimConst, PrimTy, Res, ResolveResults};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 
 use crate::check::BodyTypes;
@@ -239,9 +238,9 @@ impl<'a, 'b, 'c> Evaluator<'a, 'b, 'c> {
         Evaluator {
             cx,
             after,
-            done: HashMap::new(),
-            visiting: HashSet::new(),
-            failed: HashSet::new(),
+            done: HashMap::default(),
+            visiting: HashSet::default(),
+            failed: HashSet::default(),
             subst: (Vec::new(), Vec::new()),
             sink,
         }

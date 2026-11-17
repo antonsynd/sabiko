@@ -1,0 +1,6 @@
+# The compiler's hash maps and sets hash with rustc's FxHasher (decision 98): use
+# `sabiko_span::fx::{HashMap, HashSet}`, made with `default()`.
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "use sabiko_span::fx::HashMap (decision 98)" },
+    { path = "std::collections::HashSet", reason = "use sabiko_span::fx::HashSet (decision 98)" },
+]

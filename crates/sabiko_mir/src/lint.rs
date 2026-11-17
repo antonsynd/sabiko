@@ -47,10 +47,11 @@
 //! (checked against rustc on generated programs, `crates/sabikoc/tests/generated.rs`).
 //! Each lint is reported once, at the statement, with rustc's message and label.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::PrimTy;
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::{ConstValue, Ty, TypeckResults};
 
@@ -166,7 +167,7 @@ pub fn check_body(
     crate::simplify::remove_false_edges(&mut built);
     let mut elaborated = built.clone();
     crate::elaborate::elaborate_body(&mut elaborated, typeck);
-    let mut dropped = HashSet::new();
+    let mut dropped = HashSet::default();
     let mut drop = |place: &Place| {
         if place.projection.first() != Some(&PlaceElem::Deref) {
             dropped.insert(place.local);
@@ -209,7 +210,7 @@ pub fn check_body(
 /// here, not even a constant one: rustc keeps both arms of `if false` at this point.
 fn kept_by_tests(body: &Body, typeck: &TypeckResults, options: LintOptions) -> Vec<bool> {
     let all = vec![true; body.blocks.len()];
-    let mut walk = Lints::new(body, typeck, &options, &HashSet::new(), &all, true);
+    let mut walk = Lints::new(body, typeck, &options, &HashSet::default(), &all, true);
     walk.modes = vec![Mode::None; body.locals.len()];
     walk.facts_only = true;
     walk.walk();
@@ -415,17 +416,17 @@ impl<'a> Lints<'a> {
             written: Vec::new(),
             preds,
             found: Vec::new(),
-            reported: HashSet::new(),
+            reported: HashSet::default(),
             facts: Facts::new(),
             visited: vec![false; body.blocks.len()],
             entry: vec![None; body.blocks.len()],
             revisit,
-            taken: HashSet::new(),
+            taken: HashSet::default(),
             current: BasicBlock::START,
-            tests: HashMap::new(),
-            checked: HashSet::new(),
+            tests: HashMap::default(),
+            checked: HashSet::default(),
             facts_only: false,
-            strings: std::cell::RefCell::new(HashMap::new()),
+            strings: std::cell::RefCell::new(HashMap::default()),
         };
         cx.modes = cx.modes(dropped, kept);
         cx
@@ -678,7 +679,7 @@ impl<'a> Lints<'a> {
             return;
         }
         let saved = std::mem::replace(&mut self.values, vec![None; self.body.locals.len()]);
-        let mut done = HashSet::new();
+        let mut done = HashSet::default();
         for root in roots {
             self.promoted(root, &mut done);
         }

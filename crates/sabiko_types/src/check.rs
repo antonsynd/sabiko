@@ -5,8 +5,6 @@
 //! unification flows information back up. The only coercions are `!` to anything and
 //! `&mut T` to `&T`.
 
-use std::collections::{HashMap, HashSet};
-
 use sabiko_ast::{
     Arm, BinOp, Block, Expr, ExprKind, FnDecl, Lit, NodeId, Pat, PatKind, Stmt, StmtKind, Type,
     TypeKind, UnOp,
@@ -15,6 +13,7 @@ use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{
     Builtin, CoreItem, DefId, DefKind, Intrinsic, LangItem, LocalId, PrimTy, Res, ResolveResults,
 };
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
@@ -381,22 +380,22 @@ impl<'a> FnCtxt<'a> {
             items,
             sink,
             infer: InferCtxt::new(),
-            expr_types: HashMap::new(),
-            expr_spans: HashMap::new(),
-            local_types: HashMap::new(),
-            local_spans: HashMap::new(),
+            expr_types: HashMap::default(),
+            expr_spans: HashMap::default(),
+            local_types: HashMap::default(),
+            local_spans: HashMap::default(),
             let_decls: Vec::new(),
-            field_accesses: HashMap::new(),
-            pat_derefs: HashMap::new(),
-            ref_bindings: HashMap::new(),
-            reborrows: HashMap::new(),
+            field_accesses: HashMap::default(),
+            pat_derefs: HashMap::default(),
+            ref_bindings: HashMap::default(),
+            reborrows: HashMap::default(),
             deferred_mismatch: None,
-            method_calls: HashMap::new(),
-            generic_args: HashMap::new(),
-            pat_types: HashMap::new(),
-            pat_variants: HashMap::new(),
-            variant_exprs: HashMap::new(),
-            or_bindings: HashSet::new(),
+            method_calls: HashMap::default(),
+            generic_args: HashMap::default(),
+            pat_types: HashMap::default(),
+            pat_variants: HashMap::default(),
+            variant_exprs: HashMap::default(),
+            or_bindings: HashSet::default(),
             in_assignee: false,
             ret_ty,
             loops: Vec::new(),
@@ -413,20 +412,20 @@ impl<'a> FnCtxt<'a> {
             never_operands: Vec::new(),
             open_operations: Vec::new(),
             consts: None,
-            index_derefs: HashMap::new(),
-            len_calls: HashMap::new(),
-            coercions: HashMap::new(),
-            repeat_counts: HashMap::new(),
+            index_derefs: HashMap::default(),
+            len_calls: HashMap::default(),
+            coercions: HashMap::default(),
+            repeat_counts: HashMap::default(),
             pending_repeats: Vec::new(),
             errors_before,
             ambiguities_reported: 0,
             env: Vec::new(),
             self_ty: None,
             obligations: Vec::new(),
-            path_defs: HashMap::new(),
-            try_exprs: HashMap::new(),
+            path_defs: HashMap::default(),
+            try_exprs: HashMap::default(),
             pending_tries: Vec::new(),
-            try_roots: HashMap::new(),
+            try_roots: HashMap::default(),
             incomplete_bounds: false,
             fn_span: None,
         }
@@ -2785,7 +2784,7 @@ impl<'a> FnCtxt<'a> {
     /// obligation `check_obligations` judged. Without the prelude's `From` the error moves
     /// unconverted, which the error types then must allow (`try_exprs` alone).
     fn check_pending_tries(&mut self) -> HashMap<NodeId, (DefId, Vec<Ty>)> {
-        let mut conversions = HashMap::new();
+        let mut conversions = HashMap::default();
         let from_fn = self
             .resolve
             .core_item(CoreItem::From)
@@ -5102,7 +5101,7 @@ impl<'a> FnCtxt<'a> {
     /// The expressions' final types, after reporting those still unknown.
     fn resolve_expr_types(&mut self) -> HashMap<NodeId, Ty> {
         self.report_unknown_exprs();
-        let mut expr_types = HashMap::new();
+        let mut expr_types = HashMap::default();
         for (id, ty) in std::mem::take(&mut self.expr_types) {
             let mut t = self.infer.resolve_with_defaults(&ty);
             // Anything still unknown was reported (with a local, or above).
@@ -5120,7 +5119,7 @@ impl<'a> FnCtxt<'a> {
         let mut uses: Vec<(NodeId, GenericUse)> =
             std::mem::take(&mut self.generic_args).into_iter().collect();
         uses.sort_by_key(|(_, (_, _, span))| (span.start, span.end));
-        let mut out = HashMap::new();
+        let mut out = HashMap::default();
         for (id, (args, def, span)) in uses {
             let mut resolved = Vec::new();
             for (i, arg) in args.iter().enumerate() {
@@ -5198,7 +5197,7 @@ impl<'a> FnCtxt<'a> {
     /// error conversion of `?`), once inference is done. A type inference left unknown is
     /// E0313 (rustc's E0283, E0282), unless an error about it was reported.
     fn check_obligations(&mut self) {
-        let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::new();
+        let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::default();
         let obligations = std::mem::take(&mut self.obligations);
         let uses_reported_impls = self.uses_reported_impls(&obligations);
         for ob in obligations {
@@ -5502,14 +5501,14 @@ impl<'a> FnCtxt<'a> {
         }
         self.check_pending_prints();
         // Report locals whose type is still unknown, then apply literal defaults.
-        let mut local_types = HashMap::new();
+        let mut local_types = HashMap::default();
         let mut locals: Vec<(LocalId, Ty)> =
             std::mem::take(&mut self.local_types).into_iter().collect();
         locals.sort_by_key(|(l, _)| *l);
         // An earlier error in the body may be what left a type unknown (`let x = F(1, 2);`
         // with the wrong argument count): then, as rustc, nothing more is reported.
         let quiet = self.sink.error_count() > self.errors_before;
-        let mut reported = HashSet::new();
+        let mut reported = HashSet::default();
         for (id, ty) in locals {
             let mut t = self.infer.resolve_with_defaults(&ty);
             if t.has_infer() && (quiet || self.tied_to_reported_impl(&t)) {
@@ -5537,7 +5536,7 @@ impl<'a> FnCtxt<'a> {
         let generic_args = self.resolve_generic_args();
         self.check_obligations();
         let try_conversions = self.check_pending_tries();
-        let mut pat_types = HashMap::new();
+        let mut pat_types = HashMap::default();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
             let t = self.infer.resolve_with_defaults(&ty);
             // A pattern of a type nothing constrains was reported above, with its local
@@ -5590,7 +5589,7 @@ impl<'a> FnCtxt<'a> {
             pat_types,
             pat_variants: self.pat_variants,
             variant_exprs: self.variant_exprs,
-            pat_consts: HashMap::new(),
+            pat_consts: HashMap::default(),
             index_derefs: self.index_derefs,
             len_calls: self.len_calls,
             coercions: Self::resolved_coercions(&mut self.infer, self.coercions),
