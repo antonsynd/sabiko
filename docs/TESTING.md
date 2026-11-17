@@ -642,7 +642,11 @@ have an outcome (`total_mutants` in `outcomes.json`, which cargo-mutants 27 rewr
 every mutant), and a shard run or `--score` fails with "shard k finished m of n mutants",
 printing the counts of what finished but no verdict. A shard run also fails when
 cargo-mutants exits with 1 (an error or an interruption) or 4 (the unmutated tree fails
-its tests: the script took 4 for "unviable" before and passed such a shard).
+its tests: the script took 4 for "unviable" before and passed such a shard). A
+`mutants.out` without a readable `mutants.json`, or whose `total_mutants` is not a count
+no larger than that list, fails as well; a missing `outcomes.json` counts as 0 tested (a
+shard cancelled during its baseline), or as complete for an empty shard. cargo-mutants is
+pinned to 27.1.0 in the nightly, the version whose files and exit codes this reads.
 Two `sabiko_types` shards lost their runner mid-shard night after night, to two mutants
 that grew a test binary to 11 GB in under three minutes, long before the 300-second test
 timeout. `<=` as `>` in `select_trait_item`'s padding loop (`while args.len() <= n`)
@@ -669,8 +673,17 @@ unviable: a test that reaches the cap aborts on a failed allocation, which count
 caught, instead of taking the runner down. Measured on the unmutated tree, the largest
 Rust test binary peaks at 1.8 GiB of address space (under 0.1 GiB resident) and every
 suite of the three crates passes under the cap; `dotnet` reserves 54 GiB of address
-space uncapped and sizes its reservation to the limit. Without `prlimit` (macOS) the
-tests run uncapped, with a warning. The time budget (part 1 of #165) waits for #153.
+space uncapped and sizes its reservation to the limit. Core dumps are off under the cap.
+The cap is per process, not per run. It reliably contains a runaway inside one test
+process, which both `sabiko_types` killers were, but `sabikoc`'s suites run up to eight
+`sabikoc` and `dotnet` processes at once (`parallel_map` in
+`crates/sabikoc/tests/common/mod.rs`, at `--test-threads=2`), each allowed the full 8 GiB,
+so a `sabiko_codegen` runaway reached only through them could still exhaust a 16 GB
+runner. A cap on the whole run, a cgroup's `MemoryMax` (`systemd-run --scope -p
+MemoryMax=…` around `cargo mutants`), is a possible follow-up once it is shown to work
+non-interactively on a GitHub ubuntu runner (it needs a user systemd instance or `sudo`).
+Without `prlimit` (macOS) the tests run uncapped, with a warning. The time budget (part 1
+of #165) waits for #153.
 
 The first sharded run (run 20, 2026-11-06, on `1ede489`) took 7 to 17 minutes per
 `sabiko_borrowck` shard, 28 to 39 per `sabiko_codegen` shard and 41 to 69 per `sabiko_types`

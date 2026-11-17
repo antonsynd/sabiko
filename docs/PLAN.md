@@ -1558,13 +1558,14 @@ kill 8, one is gone, one is equivalent, and two wait for #155: past the trait so
 depth limit an unsatisfied bound is accepted. Estimated from run 26's counts, about 100%
 and 99.6%; the next nightly measures the full crates. The thresholds stay.
 
-Update (2026-11-17), the nightly mutation runs 27 to 32 (#165): the score no longer
-judges partial results. `scripts/mutants.sh` fails a shard, and `--score` a crate, when a
-`mutants.out` has fewer outcomes than mutants (a shard cancelled at the time limit had
-passed `sabiko_codegen` on 468 of its 720 mutants), or when cargo-mutants reports an
+Update (2026-11-17), the nightly mutation runs 27 to 32 (#165, decision 97): the score no
+longer judges partial results. `scripts/mutants.sh` fails a shard, and `--score` a crate,
+when a `mutants.out` has fewer outcomes than mutants (a shard cancelled at the time limit
+had passed `sabiko_codegen` on 468 of its 720 mutants), or when cargo-mutants reports an
 interruption or a failing baseline. The two mutants that took down runners by exhausting
 memory (`select_trait_item`'s padding loop, `strongly_connected_components`' visited
-check) are caught within seconds now, each test process runs under a memory cap, and the
+check) are now caught without growing (their tests fail after 35 and 131 seconds); each
+test process runs under a memory cap (per process, not per run), and the
 log prints every finished mutant. Open: the shards still run into the 150-minute limit,
 because every compilation got about five times slower with the core prelude (#153).
 

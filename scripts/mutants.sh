@@ -29,8 +29,9 @@
 # both, with fewer outcomes than mutants: the run and --score then fail with "shard k
 # finished m of n mutants" rather than judge the part that finished. Reading the JSON
 # takes python3. A run also fails when cargo-mutants exits with anything but 0, 2
-# (missed mutants) or 3 (timeouts): 1 when interrupted, 4 when the unmutated tree fails
-# its tests (no mutant tested).
+# (missed mutants) or 3 (timeouts): 1 when interrupted (it stops there), 4 when the
+# unmutated tree fails its tests (no mutant tested; it goes on to the next crate). A
+# mutants.out that cannot be read, or whose total_mutants is not a count, fails too.
 #
 # Every finished mutant is printed (--caught --unviable), not only the missed and the
 # timed-out ones: when a runner dies, the last line names the mutant before the one that
@@ -39,12 +40,17 @@
 # Each test process runs under a memory cap, MUTANTS_MEMORY_LIMIT_GIB (default in
 # memory_limit_gib; 0 turns it off): a mutant that removes a loop's exit can grow a test
 # binary by gigabytes in seconds and exhaust a runner's 16 GB long before the test timeout
-# (runs 19 and 27 to 32, #165). The cap is `prlimit --as`, applied through cargo's target
-# runner, so it covers the test binaries and what they start (sabikoc, ilasm, dotnet: .NET
-# sizes its heap reservation to the limit) but not rustc or the linker, whose failure
-# would count a mutant as unviable. A test process that reaches it aborts on a failed
-# allocation, which cargo-mutants counts as caught. Without prlimit (util-linux; macOS has
-# none) the tests run uncapped, with a warning.
+# (runs 19 and 27 to 32, #165). The cap is `prlimit --as` (with core dumps off), applied
+# through cargo's target runner, so it covers the test binaries and what they start
+# (sabikoc, ilasm, dotnet: .NET sizes its heap reservation to the limit) but not rustc or
+# the linker, whose failure would count a mutant as unviable. A test process that reaches
+# it aborts on a failed allocation, which cargo-mutants counts as caught. The cap is per
+# process, not per run: it reliably contains a runaway inside one test process, as both
+# sabiko_types killers of #165 were, but sabikoc's suites run up to eight sabikoc and
+# dotnet processes at once (parallel_map in crates/sabikoc/tests/common), each allowed the
+# full cap, so a runaway reached only through those could still exhaust a runner. A cap
+# on the whole run (a cgroup's MemoryMax) is a possible follow-up, docs/TESTING.md.
+# Without prlimit (util-linux; macOS has none) the tests run uncapped, with a warning.
 #
 # The mutation score of a crate is (caught + timeout) / (caught + missed + timeout): a
 # mutant that makes the suite hang is killed too, and mutants that do not compile are not
@@ -108,7 +114,8 @@ test_timeout() {
 # unmutated tree: the largest Rust test binary peaks at 1.8 GiB of address space (under
 # 0.1 GiB resident), a rustc that a differential test starts at 0.9 GiB; dotnet reserves
 # 54 GiB uncapped and sizes that to the cap (6.8 GiB under 8). All suites of the three
-# crates pass under 8 GiB, and a runaway stops at half a 16 GB runner's memory.
+# crates pass under 8 GiB, and one runaway process stops at half a 16 GB runner's memory
+# (several capped processes at once can still add up to more, see the header).
 memory_limit_gib() { echo "${MUTANTS_MEMORY_LIMIT_GIB:-8}"; }
 
 # count <file>: its number of lines, 0 when it does not exist.
@@ -129,20 +136,30 @@ list() {
 
 # progress <mutants.out dir>: prints "<tested> <listed>", the number of mutants with an
 # outcome (outcomes.json's total_mutants) and the number cargo-mutants was given
-# (mutants.json), or "? ?" when either file is missing or unreadable. cargo-mutants writes
-# no outcomes.json when it was given no mutants.
+# (mutants.json). Without an outcomes.json, tested is 0: cargo-mutants writes none when it
+# was given no mutants, and none before the baseline finishes. Prints "? ?" when
+# mutants.json is missing or not a list, or outcomes.json is unreadable or its
+# total_mutants is not a count no larger than the list: such a directory is not judged.
 progress() {
     python3 -I -c '
 import json, os, sys
+
+def count(v):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
 try:
     with open(os.path.join(sys.argv[1], "mutants.json")) as f:
-        listed = len(json.load(f))
+        mutants = json.load(f)
+    if not isinstance(mutants, list):
+        raise ValueError("mutants.json is not a list")
+    listed = len(mutants)
     outcomes = os.path.join(sys.argv[1], "outcomes.json")
-    if listed == 0 and not os.path.exists(outcomes):
-        tested = 0
-    else:
+    tested = 0
+    if os.path.exists(outcomes):
         with open(outcomes) as f:
             tested = json.load(f)["total_mutants"]
+    if not count(tested) or tested > listed:
+        raise ValueError("total_mutants is not a count of the listed mutants")
     print(tested, listed)
 except (OSError, ValueError, KeyError, TypeError):
     print("? ?")
@@ -150,13 +167,14 @@ except (OSError, ValueError, KeyError, TypeError):
 }
 
 # complete <label> <mutants.out dir>: succeeds when every mutant cargo-mutants was given
-# has an outcome; otherwise says how far it got, on stderr.
+# has an outcome; otherwise says how far it got, on stderr. Fails closed: anything but two
+# counts from progress is a failure.
 complete() {
     local label=$1 dir=$2 tested listed
     read -r tested listed <<<"$(progress "$dir")"
-    if [ "$tested" = "?" ]; then
-        echo "mutants.sh: $label: no readable outcomes.json and mutants.json:" \
-            "not a mutants.out" >&2
+    if ! [[ "$tested" =~ ^[0-9]+$ && "$listed" =~ ^[0-9]+$ ]]; then
+        echo "mutants.sh: $label: no readable mutants.json, or an outcomes.json without a" \
+            "valid total_mutants: not a mutants.out" >&2
         return 1
     fi
     if [ "$tested" -lt "$listed" ]; then
@@ -228,6 +246,11 @@ report() {
 status=0
 summary=()
 
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "mutants.sh: python3 is needed to read mutants.out's outcomes.json and mutants.json" >&2
+    exit 1
+fi
+
 if [ "${1:-}" = "--score" ]; then
     if [ $# -lt 3 ]; then
         echo "usage: scripts/mutants.sh --score <crate> [--shards n] <mutants.out dir>..." >&2
@@ -243,10 +266,6 @@ if [ "${1:-}" = "--score" ]; then
     if [ "${1:-}" = "--shards" ]; then
         expected=$2
         shift 2
-    fi
-    if ! command -v python3 >/dev/null 2>&1; then
-        echo "mutants.sh: python3 is needed to read outcomes.json and mutants.json" >&2
-        exit 1
     fi
     # Every problem is reported before failing, with the counts of what did finish.
     problems=0
@@ -301,19 +320,26 @@ if ! cargo mutants --version >/dev/null 2>&1; then
     echo "cargo-mutants is not installed: cargo install cargo-mutants --locked --version 27.1.0" >&2
     exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "mutants.sh: python3 is needed to read outcomes.json and mutants.json" >&2
-    exit 1
-fi
 
 # The memory cap (see the header): cargo runs each test binary through the host target's
-# runner, and the binary's children inherit prlimit's limit.
+# runner, and the binary's children inherit prlimit's limits. No core dumps: a process
+# aborting at the cap would write gigabytes.
 limit_gib=$(memory_limit_gib)
+if ! [[ "$limit_gib" =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "mutants.sh: MUTANTS_MEMORY_LIMIT_GIB must be a whole number of GiB, or 0 for no" \
+        "cap, not '$limit_gib'" >&2
+    exit 1
+fi
 if [ "$limit_gib" != 0 ]; then
     if command -v prlimit >/dev/null 2>&1; then
         host=$(rustc -vV | sed -n 's/^host: //p')
         runner_var="CARGO_TARGET_$(printf '%s' "$host" | tr 'a-z.-' 'A-Z__')_RUNNER"
-        export "$runner_var=prlimit --as=$((limit_gib << 30)) --"
+        if [ -n "$(printenv "$runner_var" || true)" ]; then
+            echo "mutants.sh: $runner_var is already set; unset it, or set" \
+                "MUTANTS_MEMORY_LIMIT_GIB=0 to run without the memory cap" >&2
+            exit 1
+        fi
+        export "$runner_var=prlimit --as=$((limit_gib << 30)) --core=0 --"
         echo "== each test process capped at $limit_gib GiB of address space ($runner_var)"
     else
         echo "mutants.sh: warning: prlimit (util-linux) not found: the tests run without a" \
@@ -360,25 +386,28 @@ for crate in "${crates[@]}"; do
     if [ -n "$shard" ]; then
         judge="one shard"
     fi
-    finished=yes
     if ! complete "$crate${shard:+ shard $shard}" "$out/mutants.out"; then
-        finished=no
         judge=incomplete
+        status=1
     fi
-    # The counts of what finished, also after an interruption.
-    if [ -f "$out/mutants.out/outcomes.json" ]; then
+    # The counts of what finished, also after an interruption, and of an empty selection.
+    if [ -f "$out/mutants.out/mutants.json" ]; then
         report "$crate" "$crate${shard:+ $shard}" "$elapsed" "$judge" "$out/mutants.out"
     fi
-    if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ] && [ "$rc" -ne 3 ]; then
+    if [ "$rc" -eq 4 ]; then
+        # No mutant was tested; complete above has already failed the crate.
+        echo "mutants.sh: the unmutated tree fails the tests of $crate (cargo mutants" \
+            "exit 4); see $out/mutants.out/log/baseline.log" >&2
+        status=1
+    elif [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ] && [ "$rc" -ne 3 ]; then
         echo "mutants.sh: cargo mutants failed for $crate (exit $rc)" >&2
         exit "$rc"
-    fi
-    if [ "$finished" = no ]; then
-        status=1
     fi
 done
 
 echo
 echo "== mutation testing summary"
-printf '%s\n' "${summary[@]}"
+if [ ${#summary[@]} -gt 0 ]; then
+    printf '%s\n' "${summary[@]}"
+fi
 exit "$status"
