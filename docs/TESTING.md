@@ -1467,8 +1467,11 @@ killed survivors and every mutant on a line changed since `c3dd241` (`cargo muta
 14 minutes. The changes remove 23 mutants (the 11 survivors above and 12 caught ones) and
 add 2 (both caught), and `.cargo/mutants.toml` excludes 14 more. Listed with and without
 `--no-config`, the crate's mutants differ in exactly those 14 and the 15 older patterns'.
-Estimated from run 32's counts, no `sabiko_borrowck` survivor remains (about 390 of 390;
-the four fixpoint hangs still count as caught). The threshold stays at 93.
+The whole crate, run locally on the branch before merging #172 (`scripts/mutants.sh --shard
+k/2 sabiko_borrowck`, then `--score --shards 2`, 88 minutes): 462 mutants, 393 caught, 0
+missed, 4 timeouts (the four fixpoint hangs above, real hangs), 65 unviable, 100.0%. The
+threshold stays at 93; by the rule in `scripts/mutants.sh` (just under the score
+achieved) it could rise, which is left to a decision of its own.
 
 ## Interop
 
