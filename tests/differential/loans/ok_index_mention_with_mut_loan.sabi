@@ -1,0 +1,16 @@
+// An array's bounds check reads nothing a loan protects (rustc's `FakeRead(ForIndex, a)`
+// conflicts with no loan): `let _ = a[i]` while `a` is mutably borrowed is accepted.
+struct Point { Inner: f32 }
+
+fn Idx() -> usize { 0usize }
+
+fn Main() {
+    let mut cur = [Point { Inner: 1.0f32 }];
+    let r = &mut cur;
+    let _ = cur[Idx()];
+    r[0usize].Inner = 2.0f32;
+    let mut m = [[Point { Inner: 3.0f32 }]];
+    let e = &mut m[0usize];
+    let _ = m[0usize][Idx()];
+    e[0usize].Inner = 4.0f32;
+}

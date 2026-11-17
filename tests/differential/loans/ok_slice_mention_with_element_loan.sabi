@@ -1,0 +1,13 @@
+// A loan of one element leaves the slice's length readable: `let _ = s[i]` while `s[0]`
+// is mutably borrowed is accepted (the element is only mentioned).
+struct Point { Inner: f32 }
+
+fn Idx() -> usize { 0usize }
+
+fn Main() {
+    let mut v = [Point { Inner: 1.0f32 }];
+    let s: &mut [Point] = &mut v;
+    let r = &mut s[0usize];
+    let _ = s[Idx()];
+    r.Inner = 2.0f32;
+}

@@ -1,0 +1,13 @@
+// A slice's bounds check reads its length from the slice: `let _ = s[i]` while `*s` is
+// mutably borrowed is E0503.
+struct Point { Inner: f32 }
+
+fn Idx() -> usize { 0usize }
+
+fn Main() {
+    let mut v = [Point { Inner: 1.0f32 }];
+    let s: &mut [Point] = &mut v;
+    let r = &mut *s;
+    let _ = s[Idx()];
+    r[0usize].Inner = 2.0f32;
+}

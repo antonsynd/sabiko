@@ -20,6 +20,8 @@
 //! - `check`: the walk that turns the above into diagnostics (`E0400`..`E0405`).
 //! - [`moves`]: move paths and the maybe-moved analysis (`E0406`, `E0407`).
 //! - [`loans`]: regions, Polonius facts and loan diagnostics (`E0408`..`E0416`).
+//! - `index`: the reads rustc emits for an index's bounds check, which a mention through
+//!   an index stands for (decision 96).
 
 pub mod dataflow;
 pub mod init;
@@ -28,6 +30,7 @@ pub mod moves;
 pub mod mutability;
 
 mod check;
+mod index;
 
 pub use check::{describe_any_place, describe_place, user_place};
 use sabiko_diagnostics::DiagnosticSink;

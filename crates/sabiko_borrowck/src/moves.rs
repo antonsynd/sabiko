@@ -13,14 +13,17 @@
 //!   place (an assignment or a call destination) re-initialises its path and descendants;
 //!   storage markers reset a local's whole subtree.
 //! - The checker walks the body with a [`ResultsCursor`] and, for every read, asks whether
-//!   the read path or any of its descendants is maybe moved. To point at the move site it
+//!   the read path or any of its descendants is maybe moved. A mention is no read, but a
+//!   mention through an index reads each indexed base for the bounds check (rustc's
+//!   `FakeRead(ForIndex, base)`, decision 96). To point at the move site it
 //!   searches backwards from the use through predecessors, stopping at moves and
 //!   re-initialisations of the path (or of one of its ancestors); an edge taken against
 //!   the dominance order is a loop back edge and changes the label to "in previous
-//!   iteration of loop". A diagnostic is suppressed when the same set of move sites was
-//!   already reported, so one move does not cascade into an error at every later use.
+//!   iteration of loop". One diagnostic is reported per set of move sites, so one move
+//!   does not cascade into an error at every later use; as in rustc, a later use replaces
+//!   the earlier one's report unless it uses a prefix of the place reported (decision 96).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{
@@ -33,6 +36,7 @@ use sabiko_types::TypeckResults;
 
 use crate::check::{describe_any_place, user_place};
 use crate::dataflow::{self, Analysis, BitSet, Dominators, Location, ResultsCursor};
+use crate::index::{index_base_reads, BaseRead};
 
 /// Index into [`MovePaths`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -190,7 +194,13 @@ fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
                 StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                     f(&Place::local(*local));
                 }
-                StatementKind::PlaceMention(_) | StatementKind::Nop => {}
+                // A mention through an index reads the indexed bases (decision 96).
+                StatementKind::PlaceMention(place) => {
+                    if place.has_index() {
+                        f(place);
+                    }
+                }
+                StatementKind::Nop => {}
             }
         }
         if let Some(terminator) = &data.terminator {
@@ -376,11 +386,13 @@ pub fn check_moves(
         cursor: ResultsCursor::new(body, &analysis, &results),
         predecessors,
         dominators,
-        reported: HashSet::new(),
+        move_errors: BTreeMap::new(),
         binding: None,
         drop_moves: Vec::new(),
     };
-    for bb in body.block_ids() {
+    // In rustc's order (`visit_results` walks reverse postorder): a later use replaces an
+    // earlier one's error, so the order decides which use is reported.
+    for bb in body.reverse_postorder() {
         let data = body.block(bb);
         for (index, statement) in data.statements.iter().enumerate() {
             let location = Location::new(bb, index);
@@ -394,6 +406,9 @@ pub fn check_moves(
         }
     }
     checker.report_pattern_drop_moves();
+    for error in std::mem::take(&mut checker.move_errors).into_values() {
+        checker.sink.emit(error.diagnostic);
+    }
 }
 
 /// How a place is being used; selects the wording of `E0406`.
@@ -444,14 +459,22 @@ struct MoveChecker<'a> {
     cursor: ResultsCursor<'a, MaybeMovedAnalysis<'a>>,
     predecessors: Vec<Vec<BasicBlock>>,
     dominators: Dominators,
-    /// The sets of move sites already reported, as sorted `(location, path)` pairs.
-    reported: HashSet<Vec<(Location, MovePathIndex)>>,
+    /// The `E0406` errors, one per set of move sites (as sorted `(location, path)`
+    /// pairs), emitted after the walk; see [`MoveChecker::report_use_of_moved`].
+    move_errors: BTreeMap<Vec<(Location, MovePathIndex)>, BufferedMoveError>,
     /// While the operand of a by-value pattern binding is checked: the binding.
     binding: Option<Local>,
     /// Pattern bindings that move out of a type implementing `Drop`, grouped by the
     /// scrutinee they are bound out of: E0418 is reported once per scrutinee, as rustc
     /// reports E0509, after the walk.
     drop_moves: Vec<PatternMoves>,
+}
+
+/// A use-of-moved-value error waiting for the end of the walk, with the place whose use
+/// it reports (rustc's `buffered_move_errors`).
+struct BufferedMoveError {
+    used: Place,
+    diagnostic: Diagnostic,
 }
 
 /// The bindings of one scrutinee that move out of one place whose type implements `Drop`
@@ -490,11 +513,18 @@ impl MoveChecker<'_> {
                 }
                 self.check_write(dest, location, statement.span);
             }
-            // A mention is not a use: `let _ = p;` after a move of `p` is fine.
-            StatementKind::StorageLive(_)
-            | StatementKind::StorageDead(_)
-            | StatementKind::PlaceMention(_)
-            | StatementKind::Nop => {}
+            // A mention is not a use: `let _ = p;` after a move of `p` is fine. Each index
+            // in the place reads its base for the bounds check, though (decision 96).
+            StatementKind::PlaceMention(place) => {
+                for read in index_base_reads(place, self.body) {
+                    let kind = match read.kind {
+                        BaseRead::Array | BaseRead::SharedSliceRef => UseKind::Use,
+                        BaseRead::SliceFakeBorrow => UseKind::Borrow,
+                    };
+                    self.check_use(&read.place, kind, location, statement.span);
+                }
+            }
+            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
         }
     }
 
@@ -533,7 +563,7 @@ impl MoveChecker<'_> {
         if self.cursor.get().contains(closest.0) {
             // Like rustc, name the move path (for `r.X` read through a moved `r`: `r`).
             let described = self.paths.path(closest).place.clone();
-            self.report_use_of_moved(&described, closest, kind, location, span);
+            self.report_use_of_moved(&described, place, closest, kind, location, span);
             return;
         }
         if place.projection.contains(&PlaceElem::Deref) {
@@ -546,7 +576,7 @@ impl MoveChecker<'_> {
             .into_iter()
             .find(|child| state.contains(child.0));
         if let Some(child) = moved_child {
-            self.report_use_of_moved(place, child, kind, location, span);
+            self.report_use_of_moved(place, place, child, kind, location, span);
         }
     }
 
@@ -560,6 +590,14 @@ impl MoveChecker<'_> {
                 projection: place.projection[..cut].to_vec(),
             };
             let kind = match place.projection[cut] {
+                // A field behind a reference is the referent's: `(*r).F = ..` uses `r`,
+                // which the `Deref` cut checks (rustc's `check_if_assigned_path_is_moved`
+                // skips the field of a base behind a `Deref`).
+                PlaceElem::Field(..) | PlaceElem::Downcast(_)
+                    if base.projection.contains(&PlaceElem::Deref) =>
+                {
+                    continue;
+                }
                 PlaceElem::Field(..) | PlaceElem::Downcast(_) => UseKind::PartialAssign,
                 // Writing an element uses the array (rustc: "use of moved value").
                 PlaceElem::Deref | PlaceElem::Index(_) => UseKind::Use,
@@ -567,7 +605,9 @@ impl MoveChecker<'_> {
             if let Some(index) = self.paths.closest(&base) {
                 if self.cursor.get().contains(index.0) {
                     let described = self.paths.path(index).place.clone();
-                    self.report_use_of_moved(&described, index, kind, location, span);
+                    // rustc's used place is the base: `a` for `a[i] = ..` (its bounds
+                    // check's read), `p` for `p.F = ..`, `r` for `(*r).F = ..`.
+                    self.report_use_of_moved(&described, &base, index, kind, location, span);
                     return;
                 }
             }
@@ -709,16 +749,8 @@ impl MoveChecker<'_> {
     /// `E0420` (rustc's E0508): a move out of an array or slice element, at any depth
     /// (`a[i]`, `a[i].Inner`, `s[0]` through a reference). Returns whether it reported.
     fn check_move_out_of_index(&mut self, place: &Place, span: Span) -> bool {
-        let Some(index) = place
-            .projection
-            .iter()
-            .position(|elem| matches!(elem, PlaceElem::Index(_)))
-        else {
+        let Some(base) = place.index_bases().next() else {
             return false;
-        };
-        let base = Place {
-            local: place.local,
-            projection: place.projection[..index].to_vec(),
         };
         let base_ty = base.ty(self.body);
         let what = match base_ty {
@@ -796,10 +828,19 @@ impl MoveChecker<'_> {
     }
 
     /// `E0406` for a use of `used` (a deref-free place: the move path read, or the place
-    /// whose descendant `moved` is maybe-moved) at `location`.
+    /// whose descendant `moved` is maybe-moved) at `location`. `used_place` is the place
+    /// the statement uses, as rustc's `used_place`: the whole place read or borrowed, the
+    /// base of a place written, the indexed place of a bounds check.
+    ///
+    /// One error is reported per set of move sites, as rustc's `buffer_move_error` does:
+    /// a later use with the same moves is dropped when its place is a prefix of the place
+    /// already reported (`p.X` then `p`; `a` read for a bounds check after `a[i].X`), and
+    /// otherwise replaces the earlier error (`a` read for the bounds check of `&a[i]`, then
+    /// the borrow of `a[i]`: "borrow of moved value", at the borrow).
     fn report_use_of_moved(
         &mut self,
         used: &Place,
+        used_place: &Place,
         moved: MovePathIndex,
         kind: UseKind,
         location: Location,
@@ -820,8 +861,10 @@ impl MoveChecker<'_> {
         let mut key: Vec<_> = sites.iter().map(|s| (s.location, s.path)).collect();
         key.sort_unstable();
         key.dedup();
-        if !self.reported.insert(key) {
-            return;
+        if let Some(earlier) = self.move_errors.get(&key) {
+            if used_place.is_prefix_of(&earlier.used) {
+                return;
+            }
         }
 
         let is_partial = sites
@@ -878,15 +921,19 @@ impl MoveChecker<'_> {
                 ));
             }
         }
-        self.sink.emit(diag);
+        self.move_errors.insert(
+            key,
+            BufferedMoveError {
+                used: used_place.clone(),
+                diagnostic: diag,
+            },
+        );
     }
 
     /// Whether `path` is a strict descendant of `used`: a part of it was moved.
     fn is_strict_descendant(&self, path: MovePathIndex, used: &Place) -> bool {
         let place = &self.paths.path(path).place;
-        place.local == used.local
-            && place.projection.len() > used.projection.len()
-            && place.projection.starts_with(&used.projection)
+        place.projection.len() > used.projection.len() && used.is_prefix_of(place)
     }
 
     /// Whether the move at `site` is `let s = r;` of a `&mut T` local: a reborrow would

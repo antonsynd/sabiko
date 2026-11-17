@@ -1,0 +1,10 @@
+// A pattern that binds nothing only mentions the element, but the index still reads the
+// moved array (generated seed 804, #164): E0382.
+struct Point { Inner: f32 }
+
+fn Main() {
+    let cur = [Point { Inner: 1.0f32 }, Point { Inner: 2.0f32 }];
+    let m = cur;
+    let Point { .. } = cur[1usize];
+    PrintLine(m[0usize].Inner);
+}

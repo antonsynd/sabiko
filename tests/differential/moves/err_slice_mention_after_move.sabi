@@ -1,0 +1,11 @@
+// Indexing a slice reads its length through the reference: `let _ = s[i]` after `s` (a
+// `&mut [T]`, not Copy) moved is E0382 ("borrow of moved value").
+struct Point { Inner: f32 }
+
+fn Main() {
+    let mut v = [Point { Inner: 1.0f32 }];
+    let s: &mut [Point] = &mut v;
+    let t = s;
+    let _ = s[0usize];
+    t[0usize].Inner = 2.0f32;
+}

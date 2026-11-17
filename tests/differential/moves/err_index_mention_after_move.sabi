@@ -1,0 +1,12 @@
+// `let _ = a[i]` reads `a` for the bounds check (rustc's `FakeRead(ForIndex, a)`), so it
+// is a use of a moved array: E0382, although the element itself is only mentioned (#164).
+struct Point { Inner: f32 }
+
+fn Idx() -> usize { 0usize }
+
+fn Main() {
+    let cur = [Point { Inner: 1.0f32 }, Point { Inner: 2.0f32 }];
+    let m = cur;
+    let _ = cur[Idx()];
+    PrintLine(m[0usize].Inner);
+}

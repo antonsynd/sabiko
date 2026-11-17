@@ -1,0 +1,10 @@
+// An array initialised on one path only may not be indexed, even by a mention: E0381.
+fn Cond() -> bool { true }
+
+fn Main() {
+    let cur: [i32; 1];
+    if Cond() {
+        cur = [1];
+    }
+    let _ = cur[0usize];
+}

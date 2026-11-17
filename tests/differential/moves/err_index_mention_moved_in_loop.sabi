@@ -1,0 +1,12 @@
+// The array moved in one iteration is indexed by a mention in the next: E0382.
+struct Point { Inner: f32 }
+
+fn Main() {
+    let cur = [Point { Inner: 1.0f32 }];
+    let mut n = 0;
+    while n < 2 {
+        let _ = cur[0usize];
+        let m = cur;
+        n += 1;
+    }
+}

@@ -285,7 +285,7 @@ impl Reporter<'_> {
                 format!("assignment to borrowed {accessed} occurs here"),
             )
             .with_label(data.span, format!("{borrowed} is borrowed here")),
-            AccessKind::Read => Diagnostic::error(
+            AccessKind::Read | AccessKind::SliceLen => Diagnostic::error(
                 ErrorCode::USE_WHILE_MUTABLY_BORROWED,
                 format!("cannot use {accessed} because it was mutably borrowed"),
             )
@@ -632,5 +632,27 @@ mod tests {
             Mutability::Not
         ));
         assert_eq!(deref.projection, [PlaceElem::Deref]);
+    }
+
+    /// A slice's length conflicts with mutable loans of the slice or of a prefix, never
+    /// with a loan of an element or with a shared loan.
+    #[test]
+    fn slice_length_read_is_shallow() {
+        let s = Place::local(Local(1));
+        let slice = s.clone().deref();
+        let element = slice.clone().index(Local(2));
+        let conflicts = |borrowed: &Place, mutability| {
+            facts::places_conflict(&slice, AccessKind::SliceLen, borrowed, mutability)
+        };
+        assert!(conflicts(&s, Mutability::Mut));
+        assert!(conflicts(&slice, Mutability::Mut));
+        assert!(!conflicts(&element, Mutability::Mut));
+        assert!(!conflicts(&slice, Mutability::Not));
+        assert!(facts::places_conflict(
+            &slice,
+            AccessKind::Read,
+            &element,
+            Mutability::Mut
+        ));
     }
 }

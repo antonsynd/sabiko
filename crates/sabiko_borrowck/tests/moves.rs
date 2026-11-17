@@ -12,7 +12,7 @@ use sabiko_mir::{
     LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
     TerminatorKind, Ty,
 };
-use sabiko_resolve::{DefId, DefKind, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, PrimTy, ResolveResults};
 use sabiko_span::{FileId, Span};
 use sabiko_types::TypeckResults;
 
@@ -1280,6 +1280,345 @@ fn place_mention_is_not_a_use_or_a_move() {
     mir.stmt(bb0, StatementKind::PlaceMention(point_x(local(p))));
     mir.dead(bb0, q);
     mir.dead(bb0, p);
+    mir.ret(bb0);
+    fx.assert_clean(&mir.finish());
+}
+
+fn usize_ty() -> Ty {
+    Ty::Prim(PrimTy::Usize)
+}
+
+/// `a = [Point { .. }]` and `i = 0`, with both live.
+fn init_point_array(fx: &Fixture, mir: &mut BodyBuilder, bb: BasicBlock, a: Local, i: Local) {
+    let elem = mir.temp(fx.point_ty());
+    mir.assign(bb, local(elem), point_aggregate(fx));
+    mir.live(bb, a);
+    mir.assign(
+        bb,
+        local(a),
+        Rvalue::Aggregate(AggregateKind::Array(fx.point_ty()), vec![mv(local(elem))]),
+    );
+    mir.assign(
+        bb,
+        local(i),
+        Rvalue::Use(Operand::Constant(Constant {
+            ty: usize_ty(),
+            value: ConstValue::Int(0),
+            span: Span::new(FileId(0), 0, 0),
+        })),
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_uses_the_moved_base() {
+    // let a = [Point {..}]; let b = a; let _ = a[i];  -- rustc's `FakeRead(ForIndex, a)`
+    // before the bounds check is a use of `a` (#164).
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.user("a", array.clone(), Mutability::Not);
+    let b = mir.user("b", array, Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, b);
+    let moved = mir.assign(bb0, local(b), use_move(local(a)));
+    let used = mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    // A second mention, nested this time, repeats the same move: not reported again.
+    mir.stmt(
+        bb0,
+        StatementKind::PlaceMention(local(a).index(i).field(0, Ty::I32)),
+    );
+    mir.ret(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `a`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn a_borrow_after_the_bounds_check_replaces_its_error() {
+    // let b = a; PlaceMention(a[i]); r = &a[i];  -- `&a[i]` is mentioned first (the bounds
+    // check reads `a`), then borrowed; as in rustc, the borrow's error replaces the
+    // mention's for the same move: "borrow of moved value", at the borrow.
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.user("a", array.clone(), Mutability::Not);
+    let b = mir.user("b", array, Mutability::Not);
+    let r = mir.user("r", Ty::shared_ref(fx.point_ty()), Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, b);
+    let moved = mir.assign(bb0, local(b), use_move(local(a)));
+    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    let borrowed = mir.assign(
+        bb0,
+        local(r),
+        Rvalue::Ref(Mutability::Not.into(), local(a).index(i)),
+    );
+    // A later mention reads `a`, a prefix of the borrowed place: no new report.
+    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    mir.ret(bb0);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 borrow of moved value: `a`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (borrowed, "value borrowed here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn a_later_use_of_another_part_replaces_the_error_and_a_prefix_does_not() {
+    // let l = MakeLine(); TakeLine(l); x = l.A.X; y = l.B.X; Take(l.B);
+    // One error per set of moves, as rustc's `buffer_move_error`: `l.B.X` is no prefix of
+    // `l.A.X`, so its error replaces the first; `l.B` is a prefix of `l.B.X`, so its use
+    // is not reported again.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let (bb2, bb3) = (mir.block(), mir.block());
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), bb2);
+    mir.assign(
+        bb2,
+        local(x),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 0)))),
+    );
+    let second = mir.assign(
+        bb2,
+        local(y),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 1)))),
+    );
+    mir.call(bb2, fx.take, vec![mv(line_field(&fx, l, 1))], local(t), bb3);
+    mir.ret(bb3);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `l.B.X`"]
+    );
+    assert_eq!(diags[0].primary_span(), Some(second));
+}
+
+/// `switchInt(discr) -> [0: els, otherwise: then]`, the shape MIR building gives an `if`
+/// or a `while` condition (unlike [`BodyBuilder::branch`]).
+fn branch_as_lowered(
+    mir: &mut BodyBuilder,
+    bb: BasicBlock,
+    discr: Operand,
+    then: BasicBlock,
+    els: BasicBlock,
+) {
+    mir.terminate(
+        bb,
+        TerminatorKind::SwitchInt {
+            discr,
+            targets: vec![(0, els)],
+            otherwise: then,
+        },
+    );
+}
+
+#[test]
+fn the_walk_visits_the_else_branch_before_the_then_branch() {
+    // let l = MakeLine(); TakeLine(l); if flag { x = l.A.X } else { y = l.B.X }
+    // rustc walks the blocks in reverse postorder, where the `else` block (the first
+    // target) comes before the `then` block (`otherwise`): the `then` use is the later
+    // one and its error replaces the other's, although its block is numbered first.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let (bb2, then, els, end) = (mir.block(), mir.block(), mir.block(), mir.block());
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), bb2);
+    branch_as_lowered(&mut mir, bb2, copy(local(flag)), then, els);
+    let in_then = mir.assign(
+        then,
+        local(x),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 0)))),
+    );
+    mir.goto(then, end);
+    mir.assign(
+        els,
+        local(y),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 1)))),
+    );
+    mir.goto(els, end);
+    mir.ret(end);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `l.A.X`"]
+    );
+    assert_eq!(diags[0].primary_span(), Some(in_then));
+}
+
+#[test]
+fn the_walk_visits_the_code_after_a_loop_before_its_body() {
+    // let l = MakeLine(); TakeLine(l); while flag { x = l.A.X } y = l.B.X;
+    // In reverse postorder the loop's exit (the first target) comes before its body, so
+    // the use in the body is the later one and its error is reported.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let (header, body, exit) = (mir.block(), mir.block(), mir.block());
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), header);
+    branch_as_lowered(&mut mir, header, copy(local(flag)), body, exit);
+    let in_body = mir.assign(
+        body,
+        local(x),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 0)))),
+    );
+    mir.goto(body, header);
+    mir.assign(
+        exit,
+        local(y),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 1)))),
+    );
+    mir.ret(exit);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `l.A.X`"]
+    );
+    assert_eq!(diags[0].primary_span(), Some(in_body));
+}
+
+#[test]
+fn a_write_to_a_field_behind_a_moved_reference_uses_the_reference() {
+    // fn f(r: &mut Point) { let s = r; (*r).X = 1; }  -- rustc checks the reference `r`
+    // the write goes through ("use of moved value"), not the field ("assign to part of").
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let ref_ty = Ty::Ref(Mutability::Mut, Box::new(fx.point_ty()));
+    let r = mir.arg("r", ref_ty.clone(), Mutability::Not);
+    let s = mir.user("s", ref_ty, Mutability::Not);
+    let bb0 = mir.block();
+    let moved = mir.assign(bb0, local(s), use_move(local(r)));
+    let used = mir.assign(bb0, point_x(local(r).deref()), Rvalue::Use(int(1)));
+    mir.ret(bb0);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `r`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_of_a_moved_field_names_the_field() {
+    // let t = ([Point {..}], 1); let u = t.0; let _ = t.0[i];
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let tuple = Ty::Tuple(Box::new(vec![array.clone(), Ty::I32]));
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.temp(array.clone());
+    let t = mir.user("t", tuple, Mutability::Not);
+    let u = mir.user("u", array.clone(), Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, t);
+    mir.assign(
+        bb0,
+        local(t),
+        Rvalue::Aggregate(AggregateKind::Tuple, vec![mv(local(a)), int(1)]),
+    );
+    mir.live(bb0, u);
+    mir.assign(bb0, local(u), use_move(local(t).field(0, array.clone())));
+    mir.stmt(
+        bb0,
+        StatementKind::PlaceMention(local(t).field(0, array).index(i)),
+    );
+    mir.ret(bb0);
+    assert_eq!(
+        fx.messages(&mir.finish()),
+        ["E0406 use of moved value: `t.0`"]
+    );
+}
+
+#[test]
+fn place_mention_through_a_slice_index_borrows_the_moved_reference() {
+    // fn F(s: &mut [Point]) { let t = s; let _ = (*s)[i]; }  -- a slice's length is read
+    // through a fake borrow of `*s`: "borrow of moved value".
+    let fx = Fixture::new();
+    let slice_ref = Ty::mut_ref(Ty::Slice(Box::new(fx.point_ty())));
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let s = mir.arg("s", slice_ref.clone(), Mutability::Not);
+    let t = mir.user("t", slice_ref, Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    mir.assign(bb0, local(i), Rvalue::Use(int(0)));
+    mir.live(bb0, t);
+    let moved = mir.assign(bb0, local(t), use_move(local(s)));
+    let used = mir.stmt(bb0, StatementKind::PlaceMention(local(s).deref().index(i)));
+    mir.ret(bb0);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 borrow of moved value: `s`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value borrowed here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_after_reinitialisation_is_accepted() {
+    // let mut a = [Point {..}]; let b = a; a = [Point {..}]; let _ = a[i];
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.user("a", array.clone(), Mutability::Mut);
+    let b = mir.user("b", array.clone(), Mutability::Not);
+    let c = mir.temp(array);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, b);
+    mir.assign(bb0, local(b), use_move(local(a)));
+    init_point_array(&fx, &mut mir, bb0, c, i);
+    mir.assign(bb0, local(a), use_move(local(c)));
+    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
     mir.ret(bb0);
     fx.assert_clean(&mir.finish());
 }

@@ -1,0 +1,13 @@
+// Without an index nothing is read: mentioning a moved struct, or a field of a moved
+// tuple, is accepted (`let Point { .. } = cur;` binds and reads nothing).
+struct Point { Inner: f32 }
+
+fn Main() {
+    let cur = Point { Inner: 1.0f32 };
+    let m = cur;
+    let Point { .. } = cur;
+    let pair = (Point { Inner: 2.0f32 }, 1i32);
+    let n = pair;
+    let Point { .. } = pair.0;
+    PrintLine(m.Inner);
+}

@@ -1,0 +1,11 @@
+// A moved array assigned whole again may be indexed by a mention.
+struct Point { Inner: f32 }
+
+fn Main() {
+    let mut cur = [Point { Inner: 1.0f32 }];
+    let m = cur;
+    cur = [Point { Inner: 2.0f32 }];
+    let _ = cur[0usize];
+    let Point { .. } = cur[0usize];
+    PrintLine(m[0usize].Inner);
+}

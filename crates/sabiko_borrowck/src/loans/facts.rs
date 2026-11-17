@@ -45,6 +45,7 @@ use super::regions::{
     SigRegions, SiteElem, Variable,
 };
 use crate::dataflow::{self, Dominators, Location};
+use crate::index::{index_base_reads, BaseRead};
 
 /// The atom types the engine is instantiated with.
 #[derive(Clone, Copy, Debug)]
@@ -158,6 +159,11 @@ impl LoanData {
 pub enum AccessKind {
     /// A `copy` operand (deep read).
     Read,
+    /// The read of a slice's length for an index's bounds check (rustc's
+    /// `&raw const (fake) *s`, a shallow read of the length, decision 96): like
+    /// [`Self::Read`] it conflicts with mutable loans, but only with a loan of the slice
+    /// place or of a prefix of it; a loan of an element leaves the length readable.
+    SliceLen,
     /// A `move` operand (deep write).
     Move,
     /// An assignment or call destination (shallow write).
@@ -193,7 +199,9 @@ impl AccessKind {
     pub fn conflicts_with(self, loan_mutability: Mutability) -> bool {
         match self {
             // Readers (and reservations) only clash with mutable loans.
-            Self::Read | Self::SharedBorrow | Self::Reservation => loan_mutability.is_mut(),
+            Self::Read | Self::SliceLen | Self::SharedBorrow | Self::Reservation => {
+                loan_mutability.is_mut()
+            }
             Self::Move
             | Self::Write
             | Self::MutBorrow
@@ -460,8 +468,23 @@ impl Generator<'_> {
             }
             // `let _ = place;`: a use of the local for liveness only (rustc's
             // `PlaceMention`), so a reference mentioned there keeps its loans live, but no
-            // access: nothing is read, so no loan is invalidated.
-            StatementKind::PlaceMention(place) => self.use_local(place.local, location),
+            // access: the place is not read, so no loan is invalidated. Only a slice's
+            // length is read for an index's bounds check (decision 96): an array's is
+            // known, and rustc's `FakeRead(ForIndex, a)` conflicts with no loan.
+            StatementKind::PlaceMention(place) => {
+                self.use_local(place.local, location);
+                for read in index_base_reads(place, self.body) {
+                    match read.kind {
+                        BaseRead::Array => {}
+                        BaseRead::SharedSliceRef => {
+                            self.access(&read.place, AccessKind::Read, location);
+                        }
+                        BaseRead::SliceFakeBorrow => {
+                            self.access(&read.place, AccessKind::SliceLen, location);
+                        }
+                    }
+                }
+            }
             StatementKind::Nop => {}
         }
     }
@@ -828,7 +851,10 @@ impl Generator<'_> {
             if loan.fake.is_some() && place.projection.len() > loan.place.projection.len() {
                 continue;
             }
-            let reading = matches!(kind, AccessKind::Read | AccessKind::SharedBorrow);
+            let reading = matches!(
+                kind,
+                AccessKind::Read | AccessKind::SliceLen | AccessKind::SharedBorrow
+            );
             let mutability = if reading && loan.is_reserved_at(location, &self.dominators) {
                 Mutability::Not
             } else {
@@ -932,8 +958,9 @@ fn is_behind_shared_ref(body: &Body, place: &Place) -> bool {
 ///
 /// Two places rooted at different locals never conflict, nor do two that reach different
 /// fields of the same struct. Otherwise one is a prefix of the other: a shallow access
-/// cannot reach a loan that extends past it through a `Deref`, and the remaining cases are
-/// decided by [`AccessKind::conflicts_with`].
+/// cannot reach a loan that extends past it through a `Deref`, a slice's length read
+/// cannot reach one that extends past it at all, and the remaining cases are decided by
+/// [`AccessKind::conflicts_with`].
 #[must_use]
 pub fn places_conflict(
     access: &Place,
@@ -951,6 +978,11 @@ pub fn places_conflict(
             (PlaceElem::Downcast(va), PlaceElem::Downcast(vb)) if va != vb => return false,
             _ => {}
         }
+    }
+    // A slice's length is no part of its elements: a loan below the slice place leaves
+    // it readable (rustc's `ArtificialField::ArrayLength`).
+    if kind == AccessKind::SliceLen && borrowed.projection.len() > access.projection.len() {
+        return false;
     }
     if kind.is_shallow() && borrowed.projection.len() > access.projection.len() {
         let rest = &borrowed.projection[access.projection.len()..];

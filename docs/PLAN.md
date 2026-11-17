@@ -293,6 +293,43 @@ between references are still rejected; `check_loans` only runs for bodies that r
 MIR, so a signature-elision error inside a body with type errors is reported once the
 type errors are fixed.
 
+Update (2026-11-17), index mentions (#164, decision 96): `let _ = a[i]`, and any pattern
+that binds nothing (`let P { .. } = a[i]`, `match a[i] { _ => .. }`, `if let`/`while
+let`/`let`-`else` scrutinees), was accepted after `a` was moved or while it was
+uninitialised, where rustc reports E0382/E0381 (generated seed 804 failed every nightly
+since run 27). rustc reads the indexed place for each bounds check (`FakeRead(ForIndex,
+a)` for an array, a fake borrow of `*s` for a slice's length); the borrow checker now
+derives those reads from a `PlaceMention` through an index (`Place::index_bases`): the
+base must be initialised (E0405) and not moved (E0406), and a slice's length read
+conflicts with a live `&mut` of the slice or of the reference holding it (E0411, rustc's
+E0503), never with a loan of an element, while an array's conflicts with no loan. Tests:
+18 differential programs (`moves/`, `mutability/`, `loans/`: arrays, nested and `*a[i]`
+indices, slices through `&`/`&mut`, loops, reinitialisation, `let`-`else`, `match`), the
+UI fixture `borrowck/index_mention_reads_base`, and hand-built MIR tests in
+`sabiko_borrowck`'s `checks.rs`, `moves.rs` and `loans.rs`. A table of 64 programs
+(the issue's, plus deref chains, guards, `while let`, slices under loans) agrees with
+rustc's verdict on every row. 2000 generated seeds from base 1 agree with rustc, seed 804
+included. After review: the mentions MIR building puts before `&a[i]`, `let ref x = a[i]`,
+`m[i][j]`, `*a[i]` and match scrutinees are checked too, which turned "borrow of moved
+value" into "use of moved value" for borrows of an element of a moved array; E0406 now
+follows rustc's `buffer_move_error` (one error per set of moves, replaced by a later use
+unless that use is of a prefix of the reported place), which restores rustc's wording and
+spans there and matches rustc's choice of the reported use elsewhere (`&t.0; &t.1;` after
+a move reports `&t.1`). A slice `*s` of a local `s: &[T]` has its length read from `s`
+(rustc's `copy s`), so diagnostics name `s`, and an uninitialised `&mut [T]` is labelled
+`*s`. Second review: the move and initialisation checks walk blocks in rustc's reverse
+postorder (`Body::reverse_postorder`), which decides the reported use where several use
+the same moves (the `then` branch over the `else`, a loop's body over the code after it)
+and the reported first use of an uninitialised local; `(*r).F = v` after `r` moved is
+"use of moved value: `r`" (it was "assign to part of"); E0405 names `t.0` for
+`t.0[i]`. UI fixture `borrowck/move_error_reported_use` pins these against rustc. Gaps:
+#169 (an E0503 label naming the accessed place; E0406 naming the closest move path `t.0`,
+`a.V` where rustc names the moved `t`, `a`; no slice length read before a plain read or a
+write `s[i] = v` without drop glue, so rustc's "borrow of moved value" wording and second
+E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe-moved;
+an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
+rustc accepts).
+
 ### Phase 4: CIL code generation v1 and the runtime library
 
 Work

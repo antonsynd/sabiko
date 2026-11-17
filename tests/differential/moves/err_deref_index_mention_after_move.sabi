@@ -1,0 +1,9 @@
+// `let _ = *a[i]` indexes `a`, so `a` must not have been moved: E0382.
+struct Point { Inner: f32 }
+
+fn Main() {
+    let mut p = Point { Inner: 1.0f32 };
+    let a = [&mut p];
+    let b = a;
+    let _ = *a[0usize];
+}

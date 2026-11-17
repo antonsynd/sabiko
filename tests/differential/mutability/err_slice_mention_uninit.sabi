@@ -1,0 +1,5 @@
+// Indexing an uninitialised slice reference reads its length: E0381.
+fn Main() {
+    let s: &[i32];
+    let _ = s[0usize];
+}

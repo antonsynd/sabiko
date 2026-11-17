@@ -1,0 +1,15 @@
+// A `match` on an element of a slice reads the slice's length, which a `&mut` of the
+// slice reference covers: E0503.
+struct Point { Inner: f32 }
+
+fn Idx() -> usize { 0usize }
+
+fn Main() {
+    let mut v = [Point { Inner: 1.0f32 }];
+    let mut s: &mut [Point] = &mut v;
+    let r = &mut s;
+    match s[Idx()] {
+        _ => {}
+    }
+    r[0usize].Inner = 2.0f32;
+}

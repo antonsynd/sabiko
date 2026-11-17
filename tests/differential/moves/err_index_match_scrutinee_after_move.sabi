@@ -1,0 +1,12 @@
+// A `match` on an element whose arm binds and tests nothing still indexes the moved
+// array: E0382.
+struct Point { Inner: f32 }
+
+fn Main() {
+    let cur = [Point { Inner: 1.0f32 }];
+    let m = cur;
+    match cur[0usize] {
+        Point { Inner: _ } => PrintLine(1),
+    }
+    PrintLine(m[0usize].Inner);
+}
