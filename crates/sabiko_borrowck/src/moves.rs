@@ -23,7 +23,7 @@
 //!   does not cascade into an error at every later use; as in rustc, a later use replaces
 //!   the earlier one's report unless it uses a prefix of the place reported (decision 96).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{
@@ -31,6 +31,7 @@ use sabiko_mir::{
     StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::ResolveResults;
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
@@ -881,7 +882,7 @@ impl MoveChecker<'_> {
             span,
             format!("value {} here after {partial}move", kind.verb()),
         );
-        let mut labelled = HashSet::new();
+        let mut labelled = HashSet::default();
         for site in &sites {
             let site_span = self.span_of(site.location);
             if !labelled.insert(site_span) {
@@ -993,7 +994,7 @@ impl MoveChecker<'_> {
         targets.extend(self.paths.ancestors(moved));
 
         let mut sites = Vec::new();
-        let mut visited = HashSet::new();
+        let mut visited = HashSet::default();
         let mut stack = Vec::new();
         let mut back_edge_stack = Vec::new();
         self.push_predecessors(use_location, &mut stack, &mut back_edge_stack);

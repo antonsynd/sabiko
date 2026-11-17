@@ -683,7 +683,10 @@ runner. A cap on the whole run, a cgroup's `MemoryMax` (`systemd-run --scope -p
 MemoryMax=…` around `cargo mutants`), is a possible follow-up once it is shown to work
 non-interactively on a GitHub ubuntu runner (it needs a user systemd instance or `sudo`).
 Without `prlimit` (macOS) the tests run uncapped, with a warning. The time budget (part 1
-of #165) waits for #153.
+of #165): since #153 (decision 98) a `sabiko_types` mutant's test command (`cargo test -p
+sabiko_types -p sabiko_driver -p sabiko_mir -- --test-threads=2`) takes 91 to 109 s on the
+development machine under load, against 151 to 167 s before; the shard counts are judged
+after the next nightly.
 
 The first sharded run (run 20, 2026-11-06, on `1ede489`) took 7 to 17 minutes per
 `sabiko_borrowck` shard, 28 to 39 per `sabiko_codegen` shard and 41 to 69 per `sabiko_types`

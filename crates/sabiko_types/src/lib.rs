@@ -16,7 +16,6 @@ pub mod ty;
 pub mod usefulness;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 pub use check::{rest_positions, BodyTypes, FieldAccess, MethodCallee, PatConst};
 pub use collect::{
@@ -28,6 +27,7 @@ pub use sabiko_ast::SelfKind;
 use sabiko_ast::{ItemKind, SourceFile};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, PrimTy, ResolveResults};
+use sabiko_span::fx::HashMap;
 pub use traits::Solution;
 pub use ty::{Mutability, Ty, TyVid};
 
@@ -53,11 +53,7 @@ impl TypeckResults {
         args: Vec<Ty>,
         sink: &mut DiagnosticSink,
     ) -> Option<ConstValue> {
-        let bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = self
-            .assoc_exprs
-            .iter()
-            .map(|(&d, e)| (d, (e, &self.bodies[&d])))
-            .collect();
+        let bodies = self.assoc_const_bodies();
         let cx = consts::ConstCx {
             resolve,
             items: &self.items,
@@ -67,10 +63,89 @@ impl TypeckResults {
         consts::eval_instance(&cx, def, args, &mut self.assoc_values.borrow_mut(), sink)
     }
 
+    /// The values and body tables of the constants of traits and trait `impl` blocks, which
+    /// are evaluated at each instance a use names (#116).
+    fn assoc_const_bodies(&self) -> HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> {
+        self.assoc_exprs
+            .iter()
+            .map(|(&d, e)| (d, (e, &self.bodies[&d])))
+            .collect()
+    }
+
     /// The body table of a function or constant.
+    ///
+    /// # Panics
+    ///
+    /// For a function of the `core` prelude whose body [`typeck`] deferred (decision 98):
+    /// use [`Self::try_body`] where one may be asked for.
     #[must_use]
     pub fn body(&self, def: DefId) -> &BodyTypes {
-        &self.bodies[&def]
+        self.bodies.get(&def).unwrap_or_else(|| {
+            panic!(
+                "no body table for {def:?}: a deferred body of the `core` prelude \
+                 (decision 98) has none; use `try_body`"
+            )
+        })
+    }
+
+    /// The body table of a function or constant; `None` for a function of the `core`
+    /// prelude whose body [`typeck`] deferred to [`Self::check_deferred_body`]
+    /// (decision 98).
+    #[must_use]
+    pub fn try_body(&self, def: DefId) -> Option<&BodyTypes> {
+        self.bodies.get(&def)
+    }
+
+    /// Type-checks the body of `item`, a function of the `core` prelude whose body
+    /// [`typeck`] deferred (decision 98), as [`typeck`] checks every other function's: its
+    /// inference, its pattern constants, its patterns' exhaustiveness, and the
+    /// postcondition that a type left unknown had its error reported. Monomorphisation
+    /// calls this for the bodies a program reaches. The prelude is the compiler's own,
+    /// valid code ([`typeck_with_prelude_bodies`] checks every body of it, in a test), so
+    /// `sink` receives nothing unless the compiler has a bug, or a program's trait makes
+    /// the prelude's method resolution ambiguous (#173).
+    ///
+    /// # Panics
+    ///
+    /// When `item` is not a function.
+    pub fn check_deferred_body(
+        &self,
+        item: &sabiko_ast::Item,
+        resolve: &ResolveResults,
+        sink: &mut DiagnosticSink,
+    ) -> BodyTypes {
+        let ItemKind::Fn(f) = &item.kind else {
+            panic!("only a function has a deferred body");
+        };
+        let def = resolve.def_of_item(item.id);
+        let const_bodies = self.assoc_const_bodies();
+        let cut_before = self.items.elaboration_cut.get();
+        let cx = consts::ConstCx {
+            resolve,
+            items: &self.items,
+            bodies: &const_bodies,
+            values: &self.consts,
+        };
+        let errors_before = sink.error_count();
+        let ret = self.items.fn_sig(def).output.clone();
+        let mut body = check::FnCtxt::new(resolve, &self.items, sink, ret)
+            .with_consts(&cx)
+            .check_fn(f, def);
+        patterns::pattern_values_of(f, &cx, &mut HashMap::default(), &mut body, sink);
+        patterns::exhaustiveness_of(f, resolve, &self.items, &mut body, sink);
+        // As `typeck` reports it after the eager bodies: elaboration cut short here.
+        if let (None, Some(tr)) = (cut_before, self.items.elaboration_cut.get()) {
+            sink.emit(elaboration_cut_error(resolve, tr));
+        }
+        if sink.error_count() == errors_before {
+            if let Some(shown) = unreported_error_type(std::iter::empty(), [&body], resolve) {
+                sink.emit(unreported_error(
+                    item.span,
+                    format!("the type is `{shown}`"),
+                ));
+            }
+        }
+        body
     }
 
     /// The evaluated value of a constant, if evaluation succeeded.
@@ -80,7 +155,34 @@ impl TypeckResults {
     }
 }
 
-/// Type-checks every item in `file`.
+/// Type-checks every item in `file` but the bodies of the `core` prelude's functions
+/// (decision 98): those are checked only where monomorphisation reaches them
+/// ([`TypeckResults::check_deferred_body`]), so what a compilation costs does not grow
+/// with the prelude. The prelude's signatures, and every `impl` block's header and
+/// coherence, are checked as any other item's. [`typeck_with_prelude_bodies`] checks the
+/// prelude's bodies as well.
+#[must_use]
+pub fn typeck(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> TypeckResults {
+    typeck_bodies(file, resolve, false, sink)
+}
+
+/// [`typeck`], checking the bodies of the `core` prelude's functions as well: what
+/// `sabiko_driver::check_core_prelude` runs to check the prelude once, in a test.
+#[must_use]
+pub fn typeck_with_prelude_bodies(
+    file: &SourceFile,
+    resolve: &ResolveResults,
+    sink: &mut DiagnosticSink,
+) -> TypeckResults {
+    typeck_bodies(file, resolve, true, sink)
+}
+
+/// Type-checks every item in `file`, the bodies of the `core` prelude's functions only
+/// with `prelude_bodies`.
 ///
 /// Array lengths in item signatures are constants, so constants come first: the
 /// signatures are collected once with every array type unknown (diagnostics discarded),
@@ -88,10 +190,10 @@ impl TypeckResults {
 /// not constants yet); then each signature length is checked and evaluated as a `usize`
 /// constant, the signatures are collected again with the lengths, and function bodies are
 /// checked against them, evaluating the lengths they write on the way.
-#[must_use]
-pub fn typeck(
+fn typeck_bodies(
     file: &SourceFile,
     resolve: &ResolveResults,
+    prelude_bodies: bool,
     sink: &mut DiagnosticSink,
 ) -> TypeckResults {
     let no_lens = collect::ArrayLens::new();
@@ -99,7 +201,7 @@ pub fn typeck(
     // The bodies of the constants, kept apart from the functions' while the constants of
     // traits and trait `impl` blocks are evaluated from them (#116).
     let const_types = check_const_bodies(file, resolve, &items0, sink);
-    let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::new();
+    let mut const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = HashMap::default();
     for item in file.all_items() {
         match &item.kind {
             ItemKind::Const(c) => {
@@ -121,7 +223,7 @@ pub fn typeck(
             _ => {}
         }
     }
-    let no_values = HashMap::new();
+    let no_values = HashMap::default();
     let consts = consts::eval_all(
         &consts::ConstCx {
             resolve,
@@ -145,7 +247,7 @@ pub fn typeck(
         sink,
     );
     let mut items = collect::collect(file, resolve, &lens, sink);
-    let mut bodies = HashMap::new();
+    let mut bodies = HashMap::default();
     {
         let cx = consts::ConstCx {
             resolve,
@@ -156,6 +258,9 @@ pub fn typeck(
         for item in file.all_items() {
             if let ItemKind::Fn(f) = &item.kind {
                 let def = resolve.def_of_item(item.id);
+                if !prelude_bodies && resolve.is_prelude(def) {
+                    continue;
+                }
                 let ret = items.fn_sig(def).output.clone();
                 let fcx = check::FnCtxt::new(resolve, &items, sink, ret).with_consts(&cx);
                 bodies.insert(def, fcx.check_fn(f, def));
@@ -178,23 +283,26 @@ pub fn typeck(
         assoc_values: RefCell::default(),
     };
     if let Some(tr) = results.items.elaboration_cut.get() {
-        sink.emit(
-            Diagnostic::error(
-                ErrorCode::INTERNAL_ERROR,
-                "internal compiler error: the supertraits of this trait imply too many trait references",
-            )
-            .with_label(resolve.def(tr).span, "elaborating this trait's supertraits")
-            .with_note(format!(
-                "elaboration stopped at {} type nodes",
-                traits::ELABORATION_BOUND
-            ))
-            .with_note("this is a bug in the Sabiko compiler; please report it"),
-        );
+        sink.emit(elaboration_cut_error(resolve, tr));
     }
     if !sink.has_errors() {
         check_no_unreported_errors(file, resolve, &results, sink);
     }
     results
+}
+
+/// The internal error for elaboration stopped at its bound in the supertraits of `tr`.
+fn elaboration_cut_error(resolve: &ResolveResults, tr: DefId) -> Diagnostic {
+    Diagnostic::error(
+        ErrorCode::INTERNAL_ERROR,
+        "internal compiler error: the supertraits of this trait imply too many trait references",
+    )
+    .with_label(resolve.def(tr).span, "elaborating this trait's supertraits")
+    .with_note(format!(
+        "elaboration stopped at {} type nodes",
+        traits::ELABORATION_BOUND
+    ))
+    .with_note("this is a bug in the Sabiko compiler; please report it")
 }
 
 /// The type checker's postcondition (decision 94): `Ty::Error` stands for a type an error
@@ -239,39 +347,52 @@ fn check_no_unreported_errors(
             ItemKind::Enum(e) => &e.variants[..],
             _ => &[],
         };
+        // A deferred body of the prelude (decision 98) is checked where it is reached.
         let bodies = results.bodies.get(&def).into_iter().chain(
             discriminants
                 .iter()
                 .filter_map(|v| variant_def(resolve, def, v))
                 .filter_map(|v| results.bodies.get(&v)),
         );
-        let body_tys = bodies.flat_map(|body| {
-            body.expr_types
-                .values()
-                .chain(body.local_types.values())
-                .chain(body.pat_types.values())
-                .chain(body.coercions.values())
-                .chain(body.generic_args.values().flatten())
-        });
-        // The smallest such type's text, so the note does not depend on map order.
-        let shown = signature
-            .chain(bounds)
-            .chain(body_tys)
-            .filter(|t| t.references_error())
-            .map(|t| t.display(resolve))
-            .min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
-        if let Some(shown) = shown {
-            sink.emit(
-                Diagnostic::error(
-                    ErrorCode::INTERNAL_ERROR,
-                    "internal compiler error: a type in this item is unknown, but no error was reported",
-                )
-                .with_label(item.span, "in this item")
-                .with_note(format!("the type is `{shown}`"))
-                .with_note("this is a bug in the Sabiko compiler; please report it"),
-            );
+        if let Some(shown) = unreported_error_type(signature.chain(bounds), bodies, resolve) {
+            sink.emit(unreported_error(
+                item.span,
+                format!("the type is `{shown}`"),
+            ));
         }
     }
+}
+
+/// The text of the smallest type among `tys` and the types in `bodies` that contains
+/// `Ty::Error`, if any (the smallest, so the note does not depend on map order).
+fn unreported_error_type<'t>(
+    tys: impl Iterator<Item = &'t Ty>,
+    bodies: impl IntoIterator<Item = &'t BodyTypes>,
+    resolve: &ResolveResults,
+) -> Option<String> {
+    let body_tys = bodies.into_iter().flat_map(|body| {
+        body.expr_types
+            .values()
+            .chain(body.local_types.values())
+            .chain(body.pat_types.values())
+            .chain(body.coercions.values())
+            .chain(body.generic_args.values().flatten())
+    });
+    tys.chain(body_tys)
+        .filter(|t| t.references_error())
+        .map(|t| t.display(resolve))
+        .min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)))
+}
+
+/// The internal error [`check_no_unreported_errors`] reports for the item at `span`.
+fn unreported_error(span: sabiko_span::Span, note: String) -> Diagnostic {
+    Diagnostic::error(
+        ErrorCode::INTERNAL_ERROR,
+        "internal compiler error: a type in this item is unknown, but no error was reported",
+    )
+    .with_label(span, "in this item")
+    .with_note(note)
+    .with_note("this is a bug in the Sabiko compiler; please report it")
 }
 
 /// [`check_no_unreported_errors`] for a trait (its defaults and supertraits' arguments)
@@ -301,25 +422,13 @@ fn check_trait_items_lowered(
             None => dropped = true,
         }
     }
-    let shown = tys
-        .into_iter()
-        .filter(|t| t.references_error())
-        .map(|t| t.display(resolve))
-        .min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    let shown = unreported_error_type(tys.into_iter(), [], resolve);
     let note = match (shown, dropped) {
         (Some(shown), _) => format!("the type is `{shown}`"),
         (None, true) => "the `impl` block was left out without an error".to_owned(),
         (None, false) => return,
     };
-    sink.emit(
-        Diagnostic::error(
-            ErrorCode::INTERNAL_ERROR,
-            "internal compiler error: a type in this item is unknown, but no error was reported",
-        )
-        .with_label(item.span, "in this item")
-        .with_note(note)
-        .with_note("this is a bug in the Sabiko compiler; please report it"),
-    );
+    sink.emit(unreported_error(item.span, note));
 }
 
 /// Type-checks the value of every constant and explicit discriminant.
@@ -329,7 +438,7 @@ fn check_const_bodies(
     items0: &ItemTypes,
     sink: &mut DiagnosticSink,
 ) -> HashMap<DefId, BodyTypes> {
-    let mut const_types: HashMap<DefId, BodyTypes> = HashMap::new();
+    let mut const_types: HashMap<DefId, BodyTypes> = HashMap::default();
     for item in file.all_items() {
         let def = match &item.kind {
             ItemKind::Const(_) | ItemKind::Enum(_) => resolve.def_of_item(item.id),

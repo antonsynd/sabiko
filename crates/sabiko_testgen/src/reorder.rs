@@ -47,11 +47,12 @@
 //! `let c = a;` when `r` borrows `a` would turn an accepted program into a rejected one
 //! (and change its result), although the two statements name different locals.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 use sabiko_ast::{BinOp, Block, Expr, ExprKind, ItemKind, Lit, PatKind, Stmt, StmtKind, UnOp};
 use sabiko_diagnostics::DiagnosticSink;
 use sabiko_resolve::{LocalId, Res, ResolveResults};
+use sabiko_span::fx::HashSet;
 use sabiko_span::Span;
 use sabiko_types::{BodyTypes, Ty, TypeckResults};
 
@@ -97,8 +98,8 @@ pub fn independent_pairs(program: &str) -> Result<Vec<usize>, String> {
             resolve: &resolve,
             typeck: &typeck,
             types: typeck.body(def),
-            address_taken: HashSet::new(),
-            mut_derived: HashSet::new(),
+            address_taken: HashSet::default(),
+            mut_derived: HashSet::default(),
             lines: &lines,
             pairs: &mut pairs,
         };

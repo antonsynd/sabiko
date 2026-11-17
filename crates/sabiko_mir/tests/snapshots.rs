@@ -50,7 +50,7 @@ fn fixtures_forwarded() {
             .expect("fixture parses");
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
-        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
+        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &ast, &resolve, &typeck, &mut sink);
         sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
         sabiko_mir::simplify::simplify_all(&mut bodies);
         sabiko_mir::forward::forward_all(&mut bodies);
@@ -81,7 +81,7 @@ fn fixtures_elaborated() {
         let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
         assert!(sink.diagnostics().is_empty(), "fixture must be valid");
         let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
-        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut sink);
+        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &ast, &resolve, &typeck, &mut sink);
         sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
         let errors = sabiko_mir::validate::validate_all(&bodies, &typeck);
         assert!(

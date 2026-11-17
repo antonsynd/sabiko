@@ -1,11 +1,10 @@
 //! Collects item signatures: function types, struct shapes and constant types. Runs
 //! before any body is checked so bodies may refer to items in any order.
 
-use std::collections::{HashMap, HashSet};
-
 use sabiko_ast::{ItemKind, NodeId, SelfKind, SourceFile, StructKind, Type, TypeKind, VariantData};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{Builtin, DefId, DefKind, LangItem, PrimTy, Res, ResolveResults};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 
 use crate::traits::Predicate;
@@ -529,7 +528,7 @@ fn lower_fields(
     sink: &mut DiagnosticSink,
 ) -> Vec<FieldDef> {
     let mut out = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     for f in fields {
         if !seen.insert(f.name.name.as_str()) {
             continue;
@@ -848,7 +847,7 @@ pub(crate) fn collect(
             }
             ItemKind::Enum(e) => {
                 let mut variants = Vec::new();
-                let mut seen = HashSet::new();
+                let mut seen = HashSet::default();
                 let mut explicit_base = false;
                 for v in &e.variants {
                     explicit_base |= v.discriminant.is_some();
@@ -968,7 +967,7 @@ pub(crate) fn collect(
     }
     collect_traits(file, resolve, lens, &mut items, sink);
     items.sig_cx = ArrayLens {
-        lens: HashMap::new(),
+        lens: HashMap::default(),
         impl_self: lens.impl_self.clone(),
     };
     check_recursive_structs(resolve, &items, sink);
@@ -1125,11 +1124,11 @@ fn check_supertrait_cycles(
         })
         .collect();
     let component = strongly_connected_components(&succ);
-    let mut sizes: HashMap<usize, usize> = HashMap::new();
+    let mut sizes: HashMap<usize, usize> = HashMap::default();
     for &c in &component {
         *sizes.entry(c).or_default() += 1;
     }
-    let mut reported: HashSet<usize> = HashSet::new();
+    let mut reported: HashSet<usize> = HashSet::default();
     for root in 0..graph.len() {
         let c = component[root];
         let cyclic = sizes[&c] > 1 || succ[root].contains(&root);
@@ -1299,7 +1298,7 @@ fn collect_predicates(
     refs: &HashMap<NodeId, &sabiko_ast::TraitRef>,
     sink: &mut DiagnosticSink,
 ) {
-    let mut reported: HashSet<Span> = HashSet::new();
+    let mut reported: HashSet<Span> = HashSet::default();
     let bounded = resolve
         .defs_of_kind(DefKind::Fn)
         .chain(resolve.defs_of_kind(DefKind::Impl))
@@ -1446,7 +1445,7 @@ fn trait_refs(file: &SourceFile) -> HashMap<NodeId, &sabiko_ast::TraitRef> {
             out.insert(b.id, b);
         }
     }
-    let mut out = HashMap::new();
+    let mut out = HashMap::default();
     for item in file.all_items() {
         match &item.kind {
             ItemKind::Fn(f) => params(&f.generics, &f.where_clause, &mut out),
@@ -1600,7 +1599,7 @@ fn check_overlap(
     items: &ItemTypes,
     sink: &mut DiagnosticSink,
 ) -> HashSet<DefId> {
-    let mut conflicting = HashSet::new();
+    let mut conflicting = HashSet::default();
     for (j, later) in items.impls.iter().enumerate() {
         for earlier in &items.impls[..j] {
             // A block whose bound was dropped (E0107) may look wider than it is.
@@ -1723,8 +1722,8 @@ fn check_bound_overflow(
     conflicting: &HashSet<DefId>,
     sink: &mut DiagnosticSink,
 ) -> HashSet<DefId> {
-    let mut overflowing = HashSet::new();
-    let mut seen: HashSet<Span> = HashSet::new();
+    let mut overflowing = HashSet::default();
+    let mut seen: HashSet<Span> = HashSet::default();
     let bounded = resolve
         .defs_of_kind(DefKind::Fn)
         .chain(resolve.defs_of_kind(DefKind::Impl))
@@ -1838,7 +1837,7 @@ fn check_supertraits(resolve: &ResolveResults, items: &ItemTypes, sink: &mut Dia
 /// the trait's do not imply (E0344, E0276).
 fn check_impl_methods(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
     // The members of each block, in definition order, found in one pass.
-    let mut members: HashMap<DefId, Vec<DefId>> = HashMap::new();
+    let mut members: HashMap<DefId, Vec<DefId>> = HashMap::default();
     for (i, info) in resolve.defs.iter().enumerate() {
         if let Some(parent) = info.parent {
             members
@@ -2426,8 +2425,8 @@ fn check_drop_impl(
 /// A struct that contains itself by value has infinite size. Mutually recursive structs
 /// are reported once, together.
 fn check_recursive_structs(resolve: &ResolveResults, items: &ItemTypes, sink: &mut DiagnosticSink) {
-    let mut reported: HashSet<DefId> = HashSet::new();
-    let mut done = HashSet::new();
+    let mut reported: HashSet<DefId> = HashSet::default();
+    let mut done = HashSet::default();
     for def in adt_defs(resolve) {
         if reported.contains(&def) || done.contains(&def) {
             continue;

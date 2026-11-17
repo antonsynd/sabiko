@@ -49,10 +49,9 @@
 //! drop elaboration, after borrow checking, turns them into `goto`s and simplifies, which
 //! removes that code.
 
-use std::collections::{HashMap, HashSet};
-
 use sabiko_ast::{Arm, Block, Expr, ExprKind, NodeId, Pat, PatKind};
 use sabiko_resolve::{DefKind, LocalId, Res};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 
@@ -105,17 +104,19 @@ pub(super) enum BindMode {
 /// Every choice of one alternative per or-pattern in `pat`, in source order.
 pub(super) fn choices(pat: &Pat) -> Vec<Choice> {
     let product = |parts: Vec<Vec<Choice>>| {
-        parts.into_iter().fold(vec![Choice::new()], |acc, part| {
-            let mut out = Vec::with_capacity(acc.len() * part.len());
-            for a in &acc {
-                for p in &part {
-                    let mut c = a.clone();
-                    c.extend(p.iter().map(|(k, v)| (*k, *v)));
-                    out.push(c);
+        parts
+            .into_iter()
+            .fold(vec![Choice::default()], |acc, part| {
+                let mut out = Vec::with_capacity(acc.len() * part.len());
+                for a in &acc {
+                    for p in &part {
+                        let mut c = a.clone();
+                        c.extend(p.iter().map(|(k, v)| (*k, *v)));
+                        out.push(c);
+                    }
                 }
-            }
-            out
-        })
+                out
+            })
     };
     match &pat.kind {
         PatKind::Ident { sub: Some(sub), .. } => choices(sub),
@@ -140,7 +141,7 @@ pub(super) fn choices(pat: &Pat) -> Vec<Choice> {
         | PatKind::Rest
         | PatKind::Path(_)
         | PatKind::Lit(_)
-        | PatKind::Range(..) => vec![Choice::new()],
+        | PatKind::Range(..) => vec![Choice::default()],
     }
 }
 
@@ -483,7 +484,7 @@ impl Builder<'_> {
         discr_span: Span,
         value_span: Option<Span>,
     ) -> TestCache {
-        let mut counts: HashMap<Place, usize> = HashMap::new();
+        let mut counts: HashMap<Place, usize> = HashMap::default();
         for pat in pats {
             for choice in choices(pat) {
                 let mut places = Vec::new();

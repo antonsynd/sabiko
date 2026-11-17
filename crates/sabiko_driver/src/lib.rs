@@ -185,7 +185,7 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                     // (decision 55), and on the instances of generic
                                     // functions (decision 82).
                                     bodies = sabiko_mir::mono::monomorphize(
-                                        bodies, &resolve, &typeck, &mut sink,
+                                        bodies, &ast, &resolve, &typeck, &mut sink,
                                     );
                                     sabiko_mir::elaborate::elaborate_all(&mut bodies, &typeck);
                                     check_mir(&bodies, &typeck, &mut sink);
@@ -198,7 +198,7 @@ fn run_pipeline(name: &str, src: &str, options: Options) -> Compilation {
                                 if options.emit == Emit::Il && !sink.has_errors() {
                                     output = lint_and_emit_il(
                                         bodies,
-                                        &resolve,
+                                        (&ast, &resolve),
                                         &typeck,
                                         &source_map,
                                         name,
@@ -296,9 +296,11 @@ fn tokens_output(file: sabiko_span::FileId, src: &str, sink: &mut DiagnosticSink
 
 /// The bodies borrow checking and the constant-propagation lints run on: the user's
 /// program's, not the `core` prelude's (decision 90), as rustc never checks `core` again
-/// when it compiles a program. The prelude's generic bodies are the same in every
-/// compilation, and checking them would cost about as much as the rest of a
-/// hello-world's compilation; [`check_core_prelude`] checks them once, in a test.
+/// when it compiles a program. The prelude's bodies are the same in every compilation;
+/// [`check_core_prelude`] checks them once, in a test. Compiling a program does not even
+/// type-check or build them up front, only those monomorphisation reaches (decision 98),
+/// so a program's bodies are all its own; harnesses that build every body
+/// ([`check_core_prelude`]) rely on this filter.
 fn checked_bodies<'a>(
     bodies: &'a [sabiko_mir::Body],
     resolve: &'a sabiko_resolve::ResolveResults,
@@ -306,18 +308,20 @@ fn checked_bodies<'a>(
     bodies.iter().filter(move |b| !resolve.is_prelude(b.def))
 }
 
-/// Borrow-checks and lints the `core` prelude's own bodies, which compiling a program
-/// skips ([`checked_bodies`]): the pipeline up to the constant-propagation lints on an
-/// empty program, keeping only the prelude's bodies, with the MIR validator after every
-/// pass as usual. The prelude is the compiler's own code, so any diagnostic is a bug; a
-/// test asserts there is none.
+/// Type-checks, borrow-checks and lints every one of the `core` prelude's own bodies,
+/// which compiling a program skips ([`checked_bodies`]) or type-checks and builds only
+/// where monomorphisation reaches them (decision 98): the pipeline up to the
+/// constant-propagation lints on an empty program, with every prelude body type-checked
+/// ([`sabiko_types::typeck_with_prelude_bodies`]), keeping only the prelude's bodies,
+/// with the MIR validator after every pass as usual. The prelude is the compiler's own
+/// code, so any diagnostic is a bug; a test asserts there is none.
 #[must_use]
 pub fn check_core_prelude() -> Compilation {
     let mut source_map = SourceMap::new();
     let mut sink = DiagnosticSink::new();
     let front = parse_and_resolve("empty.sabi", "", &mut source_map, &mut sink);
     if let Some((ast, resolve)) = front.program {
-        let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+        let typeck = sabiko_types::typeck_with_prelude_bodies(&ast, &resolve, &mut sink);
         let mut bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
         check_mir(&bodies, &typeck, &mut sink);
         sabiko_mir::simplify::simplify_all(&mut bodies);
@@ -343,10 +347,11 @@ pub fn check_core_prelude() -> Compilation {
 
 /// The end of the pipeline for `--emit=il` (and assemblies): rustc's constant-propagation
 /// lints, which rustc runs only when it generates code, then monomorphisation (decision
-/// 82), the lowering passes and code generation. Empty when a step reports errors.
+/// 82), which builds the `core` prelude bodies it reaches from the program's AST (decision
+/// 98), the lowering passes and code generation. Empty when a step reports errors.
 fn lint_and_emit_il(
     mut bodies: Vec<sabiko_mir::Body>,
-    resolve: &sabiko_resolve::ResolveResults,
+    (ast, resolve): (&sabiko_ast::SourceFile, &sabiko_resolve::ResolveResults),
     typeck: &sabiko_types::TypeckResults,
     source_map: &SourceMap,
     name: &str,
@@ -365,7 +370,7 @@ fn lint_and_emit_il(
     }
     // Code is generated for the instances of generic functions, not for their generic
     // bodies (decision 82).
-    bodies = sabiko_mir::mono::monomorphize(bodies, resolve, typeck, sink);
+    bodies = sabiko_mir::mono::monomorphize(bodies, ast, resolve, typeck, sink);
     check_mir(&bodies, typeck, sink);
     if sink.has_errors() {
         return String::new();
@@ -456,9 +461,90 @@ pub fn compile_file(path: &Path, options: Options) -> std::io::Result<Compilatio
 
 #[cfg(test)]
 mod tests {
+    use sabiko_ast::ItemKind;
     use sabiko_diagnostics::ErrorCode;
 
     use super::*;
+
+    /// Compiling a program type-checks and builds the prelude's bodies only where
+    /// monomorphisation reaches them (decision 98); each comes out exactly as when
+    /// [`check_core_prelude`] checks and builds them all at once, simplified as the
+    /// pipeline simplifies a program's bodies.
+    #[test]
+    fn deferred_prelude_bodies_match_eager_ones() {
+        deferred_bodies_match("fn Main() { PrintLine(1); }", &["Main"]);
+        // With the program's own traits, blocks of the prelude's `From` and of its own
+        // trait, a provided method, a generic function and `?`.
+        let src = "struct Meters { V: i64 }\n\
+            impl From<i32> for Meters { fn from(v: i32) -> Meters { Meters { V: v as i64 } } }\n\
+            trait Show { fn Show(&self) -> i64; fn Twice(&self) -> i64 { self.Show() * 2 } }\n\
+            impl Show for Meters { fn Show(&self) -> i64 { self.V } }\n\
+            fn Pick<T: Show>(o: Option<T>) -> i64 { match o { Some(t) => t.Twice(), None => 0 } }\n\
+            fn Conv(x: i32) -> Result<Meters, u8> {\n\
+                let r: Result<i32, u8> = Ok(x); let v = r?; Ok(Meters::from(v))\n\
+            }\n\
+            fn Main() {\n\
+                let m: Meters = 3i32.into(); PrintLine(Pick(Some(m)));\n\
+                PrintLine(Conv(4).unwrap().V); let w: i64 = 7u8.into(); PrintLine(w);\n\
+            }\n";
+        deferred_bodies_match(src, &["from", "Twice", "Show", "Pick", "Conv", "Main"]);
+    }
+
+    /// [`deferred_prelude_bodies_match_eager_ones`] for the program `src`, whose functions
+    /// are `user_fns` in source order.
+    fn deferred_bodies_match(src: &str, user_fns: &[&str]) {
+        let mut source_map = SourceMap::new();
+        let mut sink = DiagnosticSink::new();
+        let (ast, resolve) = parse_and_resolve("main.sabi", src, &mut source_map, &mut sink)
+            .program
+            .expect("parses");
+        let eager = sabiko_types::typeck_with_prelude_bodies(&ast, &resolve, &mut sink);
+        let mut eager_bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &eager, &mut sink);
+        sabiko_mir::simplify::simplify_all(&mut eager_bodies);
+        let lazy = sabiko_types::typeck(&ast, &resolve, &mut sink);
+        let mut user_bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &lazy, &mut sink);
+        assert_eq!(
+            user_bodies
+                .iter()
+                .map(|b| resolve.def(b.def).name.as_str())
+                .collect::<Vec<_>>(),
+            user_fns,
+            "only the program's own bodies are built up front"
+        );
+        // The program's own bodies are the same either way too.
+        sabiko_mir::simplify::simplify_all(&mut user_bodies);
+        let eager_user: Vec<_> = eager_bodies
+            .iter()
+            .filter(|b| !resolve.is_prelude(b.def))
+            .collect();
+        assert_eq!(user_bodies.iter().collect::<Vec<_>>(), eager_user);
+        let mut deferred = 0;
+        for item in ast.all_items() {
+            let ItemKind::Fn(f) = &item.kind else {
+                continue;
+            };
+            let def = resolve.def_of_item(item.id);
+            if !resolve.is_prelude(def) {
+                continue;
+            }
+            assert!(
+                lazy.try_body(def).is_none(),
+                "{} was checked up front",
+                f.name.name
+            );
+            let built = sabiko_mir::build::build_deferred_body(item, &resolve, &lazy, &mut sink);
+            let expected = eager_bodies.iter().find(|b| b.def == def);
+            assert_eq!(built.as_ref(), expected, "{}", f.name.name);
+            deferred += usize::from(built.is_some());
+        }
+        assert!(deferred > 100, "only {deferred} prelude bodies built");
+        assert_eq!(deferred + user_fns.len(), eager_bodies.len());
+        assert!(
+            sink.diagnostics().is_empty(),
+            "{}",
+            sabiko_diagnostics::render(sink.diagnostics(), &source_map, Format::HumanPlain)
+        );
+    }
 
     /// The prelude's bodies pass borrow checking and the lints, which compiling a program
     /// skips (decision 90).

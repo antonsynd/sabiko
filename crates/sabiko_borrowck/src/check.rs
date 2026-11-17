@@ -1,6 +1,5 @@
 //! The per-body walk that applies the mutability and initialisation rules.
 
-use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
@@ -9,6 +8,7 @@ use sabiko_mir::{
     StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::ResolveResults;
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
@@ -36,7 +36,7 @@ pub fn check_body(
         maybe_init: ResultsCursor::new(body, &maybe_analysis, &maybe_results),
         definitely_init: ResultsCursor::new(body, &definite_analysis, &definite_results),
         first_assignment: first_assignments(body),
-        reported_uninit: HashSet::new(),
+        reported_uninit: HashSet::default(),
     };
     // In rustc's order: the first use of an uninitialised local is the one reported.
     for bb in body.reverse_postorder() {
@@ -55,7 +55,7 @@ pub fn check_body(
 /// The span of the earliest whole-local write to each local, in block order. Used for
 /// the "first assignment" label of the assign-twice error.
 fn first_assignments(body: &Body) -> HashMap<Local, Span> {
-    let mut first = HashMap::new();
+    let mut first = HashMap::default();
     for data in &body.blocks {
         for statement in &data.statements {
             if let StatementKind::Assign(place, _) = &statement.kind {

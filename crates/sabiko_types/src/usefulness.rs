@@ -32,10 +32,10 @@
 //! - `isize` and `usize` have no observable minimum and maximum: as in rustc, only
 //!   half-open ranges ([`PatKind::OpenRange`]) cover their ends.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use sabiko_resolve::{DefId, PrimTy};
+use sabiko_span::fx::HashMap;
 use sabiko_span::Span;
 
 use crate::ty::Ty;
@@ -767,8 +767,8 @@ impl<'a> Checker<'a> {
     fn new(cx: &'a dyn PatCx) -> Self {
         Self {
             cx,
-            adts: HashMap::new(),
-            uninhabited: HashMap::new(),
+            adts: HashMap::default(),
+            uninhabited: HashMap::default(),
             pats: Vec::new(),
             useful: Vec::new(),
             next_opaque: 0,
