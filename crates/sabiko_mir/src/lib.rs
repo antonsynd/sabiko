@@ -296,6 +296,46 @@ impl Body {
         }
     }
 
+    /// The blocks in rustc's reverse postorder (`rustc_middle::mir::traversal`): a
+    /// depth-first walk from the start block that takes each block's successors last
+    /// first (a `switchInt`'s `otherwise`, a false edge's imaginary target), reversed. A
+    /// block comes before its successors except along back edges, and of two branches the
+    /// first successor comes first (`[0: else, otherwise: then]` puts `else` first, as in
+    /// rustc). The borrow checker walks blocks in this order wherever the first or last
+    /// error decides what is reported, as rustc does. Blocks the walk does not reach
+    /// follow, in index order.
+    #[must_use]
+    pub fn reverse_postorder(&self) -> Vec<BasicBlock> {
+        let n = self.blocks.len();
+        let mut visited = vec![false; n];
+        let mut postorder = Vec::with_capacity(n);
+        let successors = |bb: BasicBlock| {
+            self.block(bb)
+                .terminator
+                .as_ref()
+                .map_or_else(Vec::new, |t| t.kind.successors())
+        };
+        let mut stack: Vec<(BasicBlock, Vec<BasicBlock>)> = Vec::new();
+        if n > 0 {
+            visited[BasicBlock::START.index()] = true;
+            stack.push((BasicBlock::START, successors(BasicBlock::START)));
+        }
+        while let Some((bb, pending)) = stack.last_mut() {
+            if let Some(next) = pending.pop() {
+                if !visited[next.index()] {
+                    visited[next.index()] = true;
+                    stack.push((next, successors(next)));
+                }
+            } else {
+                postorder.push(*bb);
+                stack.pop();
+            }
+        }
+        postorder.reverse();
+        postorder.extend(self.block_ids().filter(|bb| !visited[bb.index()]));
+        postorder
+    }
+
     /// The cleanup scopes protecting `bb`, innermost first.
     #[must_use]
     pub fn cleanup_chain(&self, bb: BasicBlock) -> Vec<CleanupScope> {
@@ -414,6 +454,13 @@ impl Place {
         self.projection
             .iter()
             .any(|e| matches!(e, PlaceElem::Index(_)))
+    }
+
+    /// Whether the place is `other` or one of its prefixes: the same local, and a
+    /// projection `other`'s starts with (rustc's `PrefixSet::All`).
+    #[must_use]
+    pub fn is_prefix_of(&self, other: &Place) -> bool {
+        self.local == other.local && other.projection.starts_with(&self.projection)
     }
 
     /// The places indexed by the place's `Index` projections, in the order the indices are
@@ -842,5 +889,83 @@ impl TerminatorKind {
             } => vec![real_target, imaginary_target],
             TerminatorKind::Return | TerminatorKind::Unreachable => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sabiko_resolve::DefId;
+    use sabiko_span::Span;
+
+    use crate::{
+        BasicBlock, BasicBlockData, Body, ConstValue, Constant, LocalDecl, LocalKind, Mutability,
+        Operand, Terminator, TerminatorKind, Ty,
+    };
+
+    fn block(kind: TerminatorKind) -> BasicBlockData {
+        BasicBlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator {
+                kind,
+                span: Span::dummy(),
+            }),
+            cleanup: None,
+        }
+    }
+
+    fn goto(target: u32) -> BasicBlockData {
+        block(TerminatorKind::Goto {
+            target: BasicBlock(target),
+        })
+    }
+
+    /// `switchInt(true) -> [0: els, otherwise: then]`, as MIR building lowers a condition.
+    fn branch(then: u32, els: u32) -> BasicBlockData {
+        block(TerminatorKind::SwitchInt {
+            discr: Operand::Constant(Constant {
+                ty: Ty::BOOL,
+                value: ConstValue::Bool(true),
+                span: Span::dummy(),
+            }),
+            targets: vec![(0, BasicBlock(els))],
+            otherwise: BasicBlock(then),
+        })
+    }
+
+    #[test]
+    fn reverse_postorder_matches_rustc() {
+        // bb0: if { bb1 } else { bb2 }; bb3: while { bb4 }; bb5: return; bb6 unreachable.
+        let body = Body {
+            def: DefId(0),
+            name: "F".to_owned(),
+            instance: Vec::new(),
+            locals: vec![LocalDecl {
+                ty: Ty::Unit,
+                mutability: Mutability::Mut,
+                kind: LocalKind::Return,
+                name: None,
+                span: Span::dummy(),
+                source: None,
+                match_span: None,
+            }],
+            arg_count: 0,
+            blocks: vec![
+                branch(1, 2),
+                goto(3),
+                goto(3),
+                branch(4, 5),
+                goto(3),
+                block(TerminatorKind::Return),
+                block(TerminatorKind::Return),
+            ],
+            cleanups: Vec::new(),
+            span: Span::dummy(),
+        };
+        // The `else` before the `then`, the loop's exit before its body, then the block
+        // the walk does not reach.
+        assert_eq!(
+            body.reverse_postorder(),
+            [0, 2, 1, 3, 5, 4, 6].map(BasicBlock)
+        );
     }
 }

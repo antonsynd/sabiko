@@ -1270,6 +1270,11 @@ Moves (E0406, E0407):
   reported. So after `let m = a;`, `let r = &a[i];` is "borrow of moved value" at the
   borrow, not "use of" at the bounds check before it; after `let m = t;`, `&t.0; &t.1;`
   is reported at `&t.1`, and `p.X; p;` after a move of `p` at `p.X`.
+  "Later" is in rustc's order: blocks are walked in reverse postorder, so of an `if`'s
+  branches the `then` use is reported over the `else` use, and a use in a loop's body
+  over a use after the loop. An uninitialised local is reported at its first use in the
+  same order (the `else` branch's, the use after a loop). A write `(*r).F = v` through a
+  moved reference is "use of moved value: `r`".
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).

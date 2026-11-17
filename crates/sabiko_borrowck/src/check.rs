@@ -13,7 +13,7 @@ use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use crate::dataflow::{self, Location, ResultsCursor};
-use crate::index::index_base_reads;
+use crate::index::{index_base_reads, BaseRead, IndexBaseRead};
 use crate::init::{InitAnalysis, InitKind};
 use crate::mutability::{place_mutability, PlaceMutability};
 
@@ -38,7 +38,8 @@ pub fn check_body(
         first_assignment: first_assignments(body),
         reported_uninit: HashSet::new(),
     };
-    for bb in body.block_ids() {
+    // In rustc's order: the first use of an uninitialised local is the one reported.
+    for bb in body.reverse_postorder() {
         let data = body.block(bb);
         for (index, statement) in data.statements.iter().enumerate() {
             checker.seek(Location::new(bb, index));
@@ -104,11 +105,10 @@ impl Checker<'_> {
             // `let _ = place;` needs no initialised or mutable place: it touches nothing,
             // except that each index reads its base for the bounds check (decision 96),
             // so `let a: [i32; 2]; let _ = a[1];` is E0381. Every base has the place's
-            // root, the only thing this checks, so the first one is enough; rustc's label
-            // names the place read (`*s` for a `&mut [T]`, `s` for a `&[T]`).
+            // root, the only thing this checks, so the first one is enough.
             StatementKind::PlaceMention(place) => {
                 if let Some(read) = index_base_reads(place, self.body).next() {
-                    self.check_initialised(place.local, statement.span, Some(&read.place));
+                    self.check_initialised(place.local, statement.span, Some(&read));
                 }
             }
             StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
@@ -182,9 +182,12 @@ impl Checker<'_> {
         self.check_initialised(place.local, span, None);
     }
 
-    /// `local` must be definitely initialised at a use at `span`. The label names `used`
-    /// (rustc's used place), or else the local.
-    fn check_initialised(&mut self, local: Local, span: Span, used: Option<&Place>) {
+    /// `local` must be definitely initialised at a use at `span`. For the read of an
+    /// index's bounds check (`index`), the message and label name what rustc's do: the
+    /// move path of an array's base (`t.0` for `t.0[i]`; rustc's `FakeRead` creates one)
+    /// or else the local, and the place read (`t.0`, `*s` for a `&mut [T]`, `s` for a
+    /// `&[T]`). Otherwise both name the local.
+    fn check_initialised(&mut self, local: Local, span: Span, index: Option<&IndexBaseRead>) {
         if self.body.local_decl(local).kind != LocalKind::User
             || self.reported_uninit.contains(&local)
             || self.definitely_init.get().contains(local.index())
@@ -192,11 +195,30 @@ impl Checker<'_> {
             return;
         }
         self.reported_uninit.insert(local);
-        let name = self.local_name(local);
-        let used = used.map_or_else(
-            || name.clone(),
-            |place| describe_place(place, self.body, self.typeck),
-        );
+        let (name, used) = match index {
+            None => (self.local_name(local), self.local_name(local)),
+            Some(read) => {
+                let named = match read.kind {
+                    BaseRead::Array => {
+                        let len = read
+                            .place
+                            .projection
+                            .iter()
+                            .position(|elem| *elem == PlaceElem::Deref)
+                            .unwrap_or(read.place.projection.len());
+                        Place {
+                            local,
+                            projection: read.place.projection[..len].to_vec(),
+                        }
+                    }
+                    BaseRead::SharedSliceRef | BaseRead::SliceFakeBorrow => Place::local(local),
+                };
+                (
+                    describe_place(&named, self.body, self.typeck),
+                    describe_place(&read.place, self.body, self.typeck),
+                )
+            }
+        };
         let (message, label) = if self.maybe_init.get().contains(local.index()) {
             (
                 format!("used binding `{name}` is possibly-uninitialized"),

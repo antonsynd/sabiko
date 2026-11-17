@@ -1,0 +1,99 @@
+[E0406] Error: borrow of moved value: `a.V`
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:20:17 ]
+    │
+ 18 │     let m = a;
+    │             ┬  
+    │             ╰── value moved here
+    │ 
+ 20 │         let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+    │                 ──┬─  
+    │                   ╰─── value borrowed here after move
+    │ 
+    │ Note: move occurs because `a` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `a.V`
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:29:17 ]
+    │
+ 29 │         let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+    │                 ──┬─  
+    │                   ╰─── value borrowed here after move
+ 30 │         let m = a;
+    │                 ┬  
+    │                 ╰── value moved here, in previous iteration of loop
+    │ 
+    │ Note: move occurs because `a` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `a.V`
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:40:21 ]
+    │
+ 37 │     let m = a;
+    │             ┬  
+    │             ╰── value moved here
+    │ 
+ 40 │             let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+    │                     ──┬─  
+    │                       ╰─── value borrowed here after move
+    │ 
+    │ Note: move occurs because `a` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0405] Error: used binding `a` isn't initialized
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:52:17 ]
+    │
+ 48 │     let a: [i32; 2];
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+    │ 
+ 52 │         let _ = a[1usize]; //~ ERROR E0405 used binding `a` isn't initialized
+    │                 ────┬────  
+    │                     ╰────── `a` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `a` isn't initialized
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:61:13 ]
+    │
+ 57 │     let a: [i32; 2];
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+    │ 
+ 61 │     let _ = a[1usize]; //~ ERROR E0405 used binding `a` isn't initialized
+    │             ────┬────  
+    │                 ╰────── `a` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `t.0` isn't initialized
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:66:13 ]
+    │
+ 65 │     let t: ([i32; 2], i32);
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+ 66 │     let _ = t.0[0usize]; //~ ERROR E0405 used binding `t.0` isn't initialized
+    │             ─────┬─────  
+    │                  ╰─────── `t.0` used here but it isn't initialized
+────╯
+[E0406] Error: use of moved value: `r`
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:71:5 ]
+    │
+ 70 │     let s = r;
+    │             ┬  
+    │             ╰── value moved here
+ 71 │     (*r).V = 1; //~ ERROR E0406 use of moved value: `r`
+    │     ─────┬────  
+    │          ╰────── value used here after move
+    │ 
+    │ Note 1: move occurs because `r` has type `&mut S`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *r`
+────╯
+[E0406] Error: borrow of moved value: `r`
+    ╭─[ tests/ui/borrowck/move_error_reported_use.sabi:77:13 ]
+    │
+ 75 │     let s = r;
+    │             ┬  
+    │             ╰── value moved here
+    │ 
+ 77 │     let y = &*r; //~ ERROR E0406 borrow of moved value: `r`
+    │             ─┬─  
+    │              ╰─── value borrowed here after move
+    │ 
+    │ Note 1: move occurs because `r` has type `&mut S`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *r`
+────╯

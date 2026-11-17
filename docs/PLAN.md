@@ -303,7 +303,7 @@ derives those reads from a `PlaceMention` through an index (`Place::index_bases`
 base must be initialised (E0405) and not moved (E0406), and a slice's length read
 conflicts with a live `&mut` of the slice or of the reference holding it (E0411, rustc's
 E0503), never with a loan of an element, while an array's conflicts with no loan. Tests:
-17 differential programs (`moves/`, `mutability/`, `loans/`: arrays, nested and `*a[i]`
+18 differential programs (`moves/`, `mutability/`, `loans/`: arrays, nested and `*a[i]`
 indices, slices through `&`/`&mut`, loops, reinitialisation, `let`-`else`, `match`), the
 UI fixture `borrowck/index_mention_reads_base`, and hand-built MIR tests in
 `sabiko_borrowck`'s `checks.rs`, `moves.rs` and `loans.rs`. A table of 64 programs
@@ -317,10 +317,18 @@ unless that use is of a prefix of the reported place), which restores rustc's wo
 spans there and matches rustc's choice of the reported use elsewhere (`&t.0; &t.1;` after
 a move reports `&t.1`). A slice `*s` of a local `s: &[T]` has its length read from `s`
 (rustc's `copy s`), so diagnostics name `s`, and an uninitialised `&mut [T]` is labelled
-`*s`. Gaps (issues to file): a write `s[i] = v` without drop glue and a plain read of
-`s[i]` do not read the slice's length (rustc reports "borrow of moved value" for the
-first after a move, a second E0503 for the second under a loan), and E0406 names the
-closest move path (`t.0`, `o.0`) where rustc names the moved place (`t`, `o`).
+`*s`. Second review: the move and initialisation checks walk blocks in rustc's reverse
+postorder (`Body::reverse_postorder`), which decides the reported use where several use
+the same moves (the `then` branch over the `else`, a loop's body over the code after it)
+and the reported first use of an uninitialised local; `(*r).F = v` after `r` moved is
+"use of moved value: `r`" (it was "assign to part of"); E0405 names `t.0` for
+`t.0[i]`. UI fixture `borrowck/move_error_reported_use` pins these against rustc. Gaps:
+#169 (an E0503 label naming the accessed place; E0406 naming the closest move path `t.0`,
+`a.V` where rustc names the moved `t`, `a`; no slice length read before a plain read or a
+write `s[i] = v` without drop glue, so rustc's "borrow of moved value" wording and second
+E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe-moved;
+an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
+rustc accepts).
 
 ### Phase 4: CIL code generation v1 and the runtime library
 

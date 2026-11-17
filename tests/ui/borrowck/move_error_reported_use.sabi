@@ -1,0 +1,78 @@
+// Which use rustc reports for one set of moves (decision 96): the borrow checker walks the
+// blocks in reverse postorder (an `if`'s `else` before its `then`, the code after a loop
+// before the loop's body), and a later use replaces the error of an earlier one unless it
+// uses a prefix of the place reported. The first use of an uninitialised local, in the
+// same order, is the one reported. A write through a reference uses the reference.
+// rustc names the moved `a` where Sabiko names the closest move path `a.V` (#169).
+struct S {
+    V: i32,
+    W: i32,
+}
+
+fn C() -> bool {
+    true
+}
+
+fn IfElse() {
+    let a = S { V: 1, W: 2 };
+    let m = a;
+    if C() {
+        let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+    } else {
+        let q = &a.W;
+    }
+}
+
+fn LoopThenAfter() {
+    let a = S { V: 1, W: 2 };
+    while C() {
+        let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+        let m = a;
+    }
+    let q = &a.W;
+}
+
+fn LoopBreakValue() {
+    let a = S { V: 1, W: 2 };
+    let m = a;
+    let k = loop {
+        if C() {
+            let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+            break 1;
+        }
+        let q = &a.W;
+    };
+}
+
+fn UninitIfElse() {
+    let a: [i32; 2];
+    if C() {
+        let _ = a[0usize];
+    } else {
+        let _ = a[1usize]; //~ ERROR E0405 used binding `a` isn't initialized
+    }
+}
+
+fn UninitLoopThenAfter() {
+    let a: [i32; 2];
+    while C() {
+        let _ = a[0usize];
+    }
+    let _ = a[1usize]; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn UninitArrayField() {
+    let t: ([i32; 2], i32);
+    let _ = t.0[0usize]; //~ ERROR E0405 used binding `t.0` isn't initialized
+}
+
+fn WriteThroughMovedReference(r: &mut S) {
+    let s = r;
+    (*r).V = 1; //~ ERROR E0406 use of moved value: `r`
+}
+
+fn WriteThenBorrowThroughMovedReference(r: &mut S) {
+    let s = r;
+    (*r).V = 1;
+    let y = &*r; //~ ERROR E0406 borrow of moved value: `r`
+}

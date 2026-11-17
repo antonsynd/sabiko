@@ -1420,6 +1420,126 @@ fn a_later_use_of_another_part_replaces_the_error_and_a_prefix_does_not() {
     assert_eq!(diags[0].primary_span(), Some(second));
 }
 
+/// `switchInt(discr) -> [0: els, otherwise: then]`, the shape MIR building gives an `if`
+/// or a `while` condition (unlike [`BodyBuilder::branch`]).
+fn branch_as_lowered(
+    mir: &mut BodyBuilder,
+    bb: BasicBlock,
+    discr: Operand,
+    then: BasicBlock,
+    els: BasicBlock,
+) {
+    mir.terminate(
+        bb,
+        TerminatorKind::SwitchInt {
+            discr,
+            targets: vec![(0, els)],
+            otherwise: then,
+        },
+    );
+}
+
+#[test]
+fn the_walk_visits_the_else_branch_before_the_then_branch() {
+    // let l = MakeLine(); TakeLine(l); if flag { x = l.A.X } else { y = l.B.X }
+    // rustc walks the blocks in reverse postorder, where the `else` block (the first
+    // target) comes before the `then` block (`otherwise`): the `then` use is the later
+    // one and its error replaces the other's, although its block is numbered first.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let (bb2, then, els, end) = (mir.block(), mir.block(), mir.block(), mir.block());
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), bb2);
+    branch_as_lowered(&mut mir, bb2, copy(local(flag)), then, els);
+    let in_then = mir.assign(
+        then,
+        local(x),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 0)))),
+    );
+    mir.goto(then, end);
+    mir.assign(
+        els,
+        local(y),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 1)))),
+    );
+    mir.goto(els, end);
+    mir.ret(end);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `l.A.X`"]
+    );
+    assert_eq!(diags[0].primary_span(), Some(in_then));
+}
+
+#[test]
+fn the_walk_visits_the_code_after_a_loop_before_its_body() {
+    // let l = MakeLine(); TakeLine(l); while flag { x = l.A.X } y = l.B.X;
+    // In reverse postorder the loop's exit (the first target) comes before its body, so
+    // the use in the body is the later one and its error is reported.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let flag = mir.arg("flag", Ty::BOOL, Mutability::Not);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let x = mir.user("x", Ty::I32, Mutability::Not);
+    let y = mir.user("y", Ty::I32, Mutability::Not);
+    let t = mir.temp(Ty::Unit);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let (header, body, exit) = (mir.block(), mir.block(), mir.block());
+    mir.call(bb1, fx.take_line, vec![mv(local(l))], local(t), header);
+    branch_as_lowered(&mut mir, header, copy(local(flag)), body, exit);
+    let in_body = mir.assign(
+        body,
+        local(x),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 0)))),
+    );
+    mir.goto(body, header);
+    mir.assign(
+        exit,
+        local(y),
+        Rvalue::Use(copy(point_x(line_field(&fx, l, 1)))),
+    );
+    mir.ret(exit);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `l.A.X`"]
+    );
+    assert_eq!(diags[0].primary_span(), Some(in_body));
+}
+
+#[test]
+fn a_write_to_a_field_behind_a_moved_reference_uses_the_reference() {
+    // fn f(r: &mut Point) { let s = r; (*r).X = 1; }  -- rustc checks the reference `r`
+    // the write goes through ("use of moved value"), not the field ("assign to part of").
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let ref_ty = Ty::Ref(Mutability::Mut, Box::new(fx.point_ty()));
+    let r = mir.arg("r", ref_ty.clone(), Mutability::Not);
+    let s = mir.user("s", ref_ty, Mutability::Not);
+    let bb0 = mir.block();
+    let moved = mir.assign(bb0, local(s), use_move(local(r)));
+    let used = mir.assign(bb0, point_x(local(r).deref()), Rvalue::Use(int(1)));
+    mir.ret(bb0);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `r`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
 #[test]
 fn place_mention_through_an_index_of_a_moved_field_names_the_field() {
     // let t = ([Point {..}], 1); let u = t.0; let _ = t.0[i];
