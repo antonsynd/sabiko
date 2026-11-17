@@ -100,11 +100,16 @@ impl Checker<'_> {
                 self.check_rvalue(rvalue, statement.span);
                 self.check_write(place, statement.span);
             }
-            // `let _ = place;` needs no initialised or mutable place: it touches nothing.
-            StatementKind::StorageLive(_)
-            | StatementKind::StorageDead(_)
-            | StatementKind::PlaceMention(_)
-            | StatementKind::Nop => {}
+            // `let _ = place;` needs no initialised or mutable place: it touches nothing,
+            // except that each index reads its base for the bounds check (rustc's
+            // `FakeRead(ForIndex, base)`, decision 96), so `let a: [i32; 2]; let _ = a[1];`
+            // is E0381. Every base has the place's root, the only thing this checks.
+            StatementKind::PlaceMention(place) => {
+                if let Some(base) = place.index_bases().next() {
+                    self.check_read(&base, statement.span);
+                }
+            }
+            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
         }
     }
 

@@ -12,7 +12,7 @@ use sabiko_mir::{
     LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
     TerminatorKind, Ty,
 };
-use sabiko_resolve::{DefId, DefKind, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, PrimTy, ResolveResults};
 use sabiko_span::{FileId, Span};
 use sabiko_types::TypeckResults;
 
@@ -1280,6 +1280,151 @@ fn place_mention_is_not_a_use_or_a_move() {
     mir.stmt(bb0, StatementKind::PlaceMention(point_x(local(p))));
     mir.dead(bb0, q);
     mir.dead(bb0, p);
+    mir.ret(bb0);
+    fx.assert_clean(&mir.finish());
+}
+
+fn usize_ty() -> Ty {
+    Ty::Prim(PrimTy::Usize)
+}
+
+/// `a = [Point { .. }]` and `i = 0`, with both live.
+fn init_point_array(fx: &Fixture, mir: &mut BodyBuilder, bb: BasicBlock, a: Local, i: Local) {
+    let elem = mir.temp(fx.point_ty());
+    mir.assign(bb, local(elem), point_aggregate(fx));
+    mir.live(bb, a);
+    mir.assign(
+        bb,
+        local(a),
+        Rvalue::Aggregate(AggregateKind::Array(fx.point_ty()), vec![mv(local(elem))]),
+    );
+    mir.assign(
+        bb,
+        local(i),
+        Rvalue::Use(Operand::Constant(Constant {
+            ty: usize_ty(),
+            value: ConstValue::Int(0),
+            span: Span::new(FileId(0), 0, 0),
+        })),
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_uses_the_moved_base() {
+    // let a = [Point {..}]; let b = a; let _ = a[i];  -- rustc's `FakeRead(ForIndex, a)`
+    // before the bounds check is a use of `a` (#164).
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.user("a", array.clone(), Mutability::Not);
+    let b = mir.user("b", array, Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, b);
+    let moved = mir.assign(bb0, local(b), use_move(local(a)));
+    let used = mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    // A second mention, nested this time, repeats the same move: not reported again.
+    mir.stmt(
+        bb0,
+        StatementKind::PlaceMention(local(a).index(i).field(0, Ty::I32)),
+    );
+    mir.ret(bb0);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of moved value: `a`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_of_a_moved_field_names_the_field() {
+    // let t = ([Point {..}], 1); let u = t.0; let _ = t.0[i];
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let tuple = Ty::Tuple(Box::new(vec![array.clone(), Ty::I32]));
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.temp(array.clone());
+    let t = mir.user("t", tuple, Mutability::Not);
+    let u = mir.user("u", array.clone(), Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, t);
+    mir.assign(
+        bb0,
+        local(t),
+        Rvalue::Aggregate(AggregateKind::Tuple, vec![mv(local(a)), int(1)]),
+    );
+    mir.live(bb0, u);
+    mir.assign(bb0, local(u), use_move(local(t).field(0, array.clone())));
+    mir.stmt(
+        bb0,
+        StatementKind::PlaceMention(local(t).field(0, array).index(i)),
+    );
+    mir.ret(bb0);
+    assert_eq!(
+        fx.messages(&mir.finish()),
+        ["E0406 use of moved value: `t.0`"]
+    );
+}
+
+#[test]
+fn place_mention_through_a_slice_index_borrows_the_moved_reference() {
+    // fn F(s: &mut [Point]) { let t = s; let _ = (*s)[i]; }  -- a slice's length is read
+    // through a fake borrow of `*s`: "borrow of moved value".
+    let fx = Fixture::new();
+    let slice_ref = Ty::mut_ref(Ty::Slice(Box::new(fx.point_ty())));
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let s = mir.arg("s", slice_ref.clone(), Mutability::Not);
+    let t = mir.user("t", slice_ref, Mutability::Not);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    mir.assign(bb0, local(i), Rvalue::Use(int(0)));
+    mir.live(bb0, t);
+    let moved = mir.assign(bb0, local(t), use_move(local(s)));
+    let used = mir.stmt(bb0, StatementKind::PlaceMention(local(s).deref().index(i)));
+    mir.ret(bb0);
+    let diags = fx.check(&mir.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 borrow of moved value: `s`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value borrowed here after move"),
+            (moved, "value moved here"),
+        ]
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_after_reinitialisation_is_accepted() {
+    // let mut a = [Point {..}]; let b = a; a = [Point {..}]; let _ = a[i];
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(fx.point_ty()), 1);
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let a = mir.user("a", array.clone(), Mutability::Mut);
+    let b = mir.user("b", array.clone(), Mutability::Not);
+    let c = mir.temp(array);
+    let i = mir.temp(usize_ty());
+    let bb0 = mir.block();
+    init_point_array(&fx, &mut mir, bb0, a, i);
+    mir.live(bb0, b);
+    mir.assign(bb0, local(b), use_move(local(a)));
+    init_point_array(&fx, &mut mir, bb0, c, i);
+    mir.assign(bb0, local(a), use_move(local(c)));
+    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
     mir.ret(bb0);
     fx.assert_clean(&mir.finish());
 }

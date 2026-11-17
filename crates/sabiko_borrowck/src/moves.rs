@@ -13,7 +13,9 @@
 //!   place (an assignment or a call destination) re-initialises its path and descendants;
 //!   storage markers reset a local's whole subtree.
 //! - The checker walks the body with a [`ResultsCursor`] and, for every read, asks whether
-//!   the read path or any of its descendants is maybe moved. To point at the move site it
+//!   the read path or any of its descendants is maybe moved. A mention is no read, but a
+//!   mention through an index reads each indexed base for the bounds check (rustc's
+//!   `FakeRead(ForIndex, base)`, decision 96). To point at the move site it
 //!   searches backwards from the use through predecessors, stopping at moves and
 //!   re-initialisations of the path (or of one of its ancestors); an edge taken against
 //!   the dominance order is a loop back edge and changes the label to "in previous
@@ -190,7 +192,13 @@ fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
                 StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                     f(&Place::local(*local));
                 }
-                StatementKind::PlaceMention(_) | StatementKind::Nop => {}
+                // A mention through an index reads the indexed bases (decision 96).
+                StatementKind::PlaceMention(place) => {
+                    if place.has_index() {
+                        f(place);
+                    }
+                }
+                StatementKind::Nop => {}
             }
         }
         if let Some(terminator) = &data.terminator {
@@ -490,12 +498,29 @@ impl MoveChecker<'_> {
                 }
                 self.check_write(dest, location, statement.span);
             }
-            // A mention is not a use: `let _ = p;` after a move of `p` is fine.
-            StatementKind::StorageLive(_)
-            | StatementKind::StorageDead(_)
-            | StatementKind::PlaceMention(_)
-            | StatementKind::Nop => {}
+            // A mention is not a use: `let _ = p;` after a move of `p` is fine. Each index
+            // in the place reads its base for the bounds check, though (decision 96).
+            StatementKind::PlaceMention(place) => {
+                for base in place.index_bases() {
+                    self.check_index_base(&base, location, statement.span);
+                }
+            }
+            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
         }
+    }
+
+    /// The read of an indexed place for its index's bounds check: rustc's
+    /// `FakeRead(ForIndex, base)` before an array's ("use of moved value"), the fake
+    /// borrow `&raw const (fake) *s` whose metadata is a slice's length ("borrow of moved
+    /// value"). Either requires the base not to be moved, and so `let m = a; let _ = a[i];`
+    /// is E0382 although the element itself is only mentioned.
+    fn check_index_base(&mut self, base: &Place, location: Location, span: Span) {
+        let kind = if matches!(base.ty(self.body), Ty::Slice(_)) {
+            UseKind::Borrow
+        } else {
+            UseKind::Use
+        };
+        self.check_use(base, kind, location, span);
     }
 
     fn check_terminator(&mut self, terminator: &Terminator, location: Location) {

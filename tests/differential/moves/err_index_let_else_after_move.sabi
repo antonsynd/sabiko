@@ -1,0 +1,12 @@
+// The scrutinee of a `let`-`else` (and of `if let`, `while let`) indexes the moved array
+// although the pattern binds nothing: E0382.
+struct Point { Inner: f32 }
+
+fn Main() {
+    let cur = [Point { Inner: 1.0f32 }];
+    let m = cur;
+    let Point { .. } = cur[0usize] else {
+        return;
+    };
+    PrintLine(m[0usize].Inner);
+}

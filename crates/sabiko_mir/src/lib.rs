@@ -338,10 +338,20 @@ pub enum StatementKind {
     StorageLive(Local),
     /// The local's storage ends. Drop elaboration (Phase 3) inserts drops before this.
     StorageDead(Local),
-    /// `let _ = place;`: the place is only mentioned (rustc's `PlaceMention`). Nothing is
-    /// read, moved or required to be initialised; the borrow checker counts it as a use
-    /// of the local for liveness only, so a loan held by a reference that is mentioned is
-    /// live there. Code generation emits nothing.
+    /// `let _ = place;`: the place is only mentioned (rustc's `PlaceMention`). The place
+    /// itself is not read, moved or required to be initialised; the borrow checker counts
+    /// it as a use of the local for liveness, so a loan held by a reference that is
+    /// mentioned is live there. Code generation emits nothing, apart from the bounds check
+    /// of each index in the place.
+    ///
+    /// A place through an `Index` also stands for the reads rustc's MIR builder emits
+    /// before each bounds check (decision 96), of each indexed base
+    /// ([`Place::index_bases`]): an array's is `FakeRead(ForIndex, base)`, a slice's the
+    /// read of its length (`&raw const (fake) *s`). The borrow checker requires each base
+    /// to be initialised and not moved (`let m = a; let _ = a[i];` is E0382 in rustc); a
+    /// slice's length read also conflicts with a mutable loan of the slice place or of a
+    /// prefix of it (not of an element), an array's with no loan at all
+    /// (`let r = &mut a; let _ = a[i]; r[0] = ..` is accepted).
     PlaceMention(Place),
     Nop,
 }
@@ -401,6 +411,22 @@ impl Place {
         self.projection
             .iter()
             .any(|e| matches!(e, PlaceElem::Index(_)))
+    }
+
+    /// The places indexed by the place's `Index` projections, outermost first: for
+    /// `(*a[i]).F[j]`, `a` and `(*a[i]).F`. Each is read for its index's bounds check (an
+    /// array's length is part of its type, a slice's is read from the place), so a use of
+    /// the place, even a mere mention, requires each to be initialised and not moved
+    /// (rustc's `FakeRead(ForIndex, base)`; see [`StatementKind::PlaceMention`]).
+    pub fn index_bases(&self) -> impl Iterator<Item = Place> + '_ {
+        self.projection
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| matches!(e, PlaceElem::Index(_)))
+            .map(|(at, _)| Place {
+                local: self.local,
+                projection: self.projection[..at].to_vec(),
+            })
     }
 
     /// `(place as V)`: the place viewed as the variant `index` of its enum.

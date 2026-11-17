@@ -293,6 +293,24 @@ between references are still rejected; `check_loans` only runs for bodies that r
 MIR, so a signature-elision error inside a body with type errors is reported once the
 type errors are fixed.
 
+Update (2026-11-17), index mentions (#164, decision 96): `let _ = a[i]`, and any pattern
+that binds nothing (`let P { .. } = a[i]`, `match a[i] { _ => .. }`, `if let`/`while
+let`/`let`-`else` scrutinees), was accepted after `a` was moved or while it was
+uninitialised, where rustc reports E0382/E0381 (generated seed 804 failed every nightly
+since run 27). rustc reads the indexed place for each bounds check (`FakeRead(ForIndex,
+a)` for an array, a fake borrow of `*s` for a slice's length); the borrow checker now
+derives those reads from a `PlaceMention` through an index (`Place::index_bases`): the
+base must be initialised (E0405) and not moved (E0406), and a slice's length read
+conflicts with a live `&mut` of the slice or of the reference holding it (E0411, rustc's
+E0503), never with a loan of an element, while an array's conflicts with no loan. Tests:
+17 differential programs (`moves/`, `mutability/`, `loans/`: arrays, nested and `*a[i]`
+indices, slices through `&`/`&mut`, loops, reinitialisation, `let`-`else`, `match`), the
+UI fixture `borrowck/index_mention_reads_base`, and hand-built MIR tests in
+`sabiko_borrowck`'s `checks.rs`, `moves.rs` and `loans.rs`. A table of 64 programs
+(the issue's, plus deref chains, guards, `while let`, slices under loans) agrees with
+rustc's verdict on every row. 2000 generated seeds from base 1 agree with rustc, seed 804
+included.
+
 ### Phase 4: CIL code generation v1 and the runtime library
 
 Work

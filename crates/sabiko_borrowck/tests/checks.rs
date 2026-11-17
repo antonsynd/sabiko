@@ -11,7 +11,7 @@ use sabiko_mir::{
     LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
     TerminatorKind, Ty,
 };
-use sabiko_resolve::{DefId, DefKind, LocalId, ResolveResults};
+use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, ResolveResults};
 use sabiko_span::{FileId, Span};
 use sabiko_types::TypeckResults;
 
@@ -388,6 +388,75 @@ fn place_mention_of_an_uninitialised_local_is_accepted() {
     b.live(bb0, x);
     b.stmt(bb0, StatementKind::PlaceMention(local(x)));
     b.dead(bb0, x);
+    b.ret(bb0);
+    fx.assert_clean(&b.finish());
+}
+
+#[test]
+fn place_mention_through_an_index_requires_an_initialised_base() {
+    // let a: [i32; 2]; let i = 1; let _ = a[i];  -- the bounds check reads `a` (#164)
+    let fx = Fixture::new();
+    let mut b = BodyBuilder::new(&fx, Ty::Unit);
+    let a = b.user(&fx, "a", Ty::Array(Box::new(Ty::I32), 2), Mutability::Not);
+    let i = b.temp(Ty::Prim(PrimTy::Usize));
+    let bb0 = b.block();
+    b.live(bb0, a);
+    b.assign(bb0, local(i), use_int(1));
+    let span = b.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    b.dead(bb0, a);
+    b.ret(bb0);
+    let diags = fx.check(&b.finish());
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0405 used binding `a` isn't initialized"]
+    );
+    assert_eq!(
+        labels(&diags[0])[0],
+        (span, "`a` used here but it isn't initialized")
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_behind_a_reference_requires_an_initialised_root() {
+    // let s: &[i32]; let i = 0; let _ = (*s)[i];  -- the slice's length is read through `s`
+    let fx = Fixture::new();
+    let mut b = BodyBuilder::new(&fx, Ty::Unit);
+    let s = b.user(
+        &fx,
+        "s",
+        Ty::shared_ref(Ty::Slice(Box::new(Ty::I32))),
+        Mutability::Not,
+    );
+    let i = b.temp(Ty::Prim(PrimTy::Usize));
+    let bb0 = b.block();
+    b.live(bb0, s);
+    b.assign(bb0, local(i), use_int(0));
+    b.stmt(bb0, StatementKind::PlaceMention(local(s).deref().index(i)));
+    b.dead(bb0, s);
+    b.ret(bb0);
+    assert_eq!(
+        fx.messages(&b.finish()),
+        ["E0405 used binding `s` isn't initialized"]
+    );
+}
+
+#[test]
+fn place_mention_through_an_index_of_an_initialised_base_is_accepted() {
+    // let a = [1, 2]; let i = 1; let _ = a[i];
+    let fx = Fixture::new();
+    let mut b = BodyBuilder::new(&fx, Ty::Unit);
+    let a = b.user(&fx, "a", Ty::Array(Box::new(Ty::I32), 2), Mutability::Not);
+    let i = b.temp(Ty::Prim(PrimTy::Usize));
+    let bb0 = b.block();
+    b.live(bb0, a);
+    b.assign(
+        bb0,
+        local(a),
+        Rvalue::Aggregate(AggregateKind::Array(Ty::I32), vec![int(1), int(2)]),
+    );
+    b.assign(bb0, local(i), use_int(1));
+    b.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    b.dead(bb0, a);
     b.ret(bb0);
     fx.assert_clean(&b.finish());
 }

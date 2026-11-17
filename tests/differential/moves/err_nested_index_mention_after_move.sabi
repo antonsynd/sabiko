@@ -1,0 +1,11 @@
+// `let _ = m[i][j]` reads `m` and `m[i]` for the two bounds checks: E0382 after `m`
+// moved.
+struct Point { Inner: f32 }
+
+fn Idx() -> usize { 0usize }
+
+fn Main() {
+    let m = [[Point { Inner: 1.0f32 }]];
+    let n = m;
+    let _ = m[0usize][Idx()];
+}

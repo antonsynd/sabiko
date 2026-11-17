@@ -1,0 +1,73 @@
+[E0406] Error: use of moved value: `cur`
+    ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:16:13 ]
+    │
+ 15 │     let m = cur;
+    │             ─┬─  
+    │              ╰─── value moved here
+ 16 │     let _ = cur[Idx()]; //~ ERROR E0406 use of moved value: `cur`
+    │             ─────┬────  
+    │                  ╰────── value used here after move
+    │ 
+    │ Note: move occurs because `cur` has type `[Point; 1]`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `cur`
+    ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:22:24 ]
+    │
+ 21 │     let m = cur;
+    │             ─┬─  
+    │              ╰─── value moved here
+ 22 │     let Point { .. } = cur[0usize]; //~ ERROR E0406 use of moved value: `cur`
+    │                        ─────┬─────  
+    │                             ╰─────── value used here after move
+    │ 
+    │ Note: move occurs because `cur` has type `[Point; 1]`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `m`
+    ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:28:11 ]
+    │
+ 27 │     let n = m;
+    │             ┬  
+    │             ╰── value moved here
+ 28 │     match m[0usize][Idx()] { //~ ERROR E0406 use of moved value: `m`
+    │           ────────┬───────  
+    │                   ╰───────── value used here after move
+    │ 
+    │ Note: move occurs because `m` has type `[[Point; 1]; 1]`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:35:13 ]
+    │
+ 34 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 35 │     let _ = s[0usize]; //~ ERROR E0406 borrow of moved value: `s`
+    │             ────┬────  
+    │                 ╰────── value borrowed here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [Point]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0405] Error: used binding `cur` isn't initialized
+    ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:40:13 ]
+    │
+ 39 │     let cur: [i32; 2];
+    │         ─┬─  
+    │          ╰─── binding declared here but left uninitialized
+ 40 │     let _ = cur[1usize]; //~ ERROR E0405 used binding `cur` isn't initialized
+    │             ─────┬─────  
+    │                  ╰─────── `cur` used here but it isn't initialized
+────╯
+[E0411] Error: cannot use `*s` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:45:13 ]
+    │
+ 44 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 45 │     let _ = s[Idx()]; //~ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    │             ────┬───  
+    │                 ╰───── use of borrowed `*s`
+ 46 │     r[0usize].Inner = 2.0f32;
+    │     ────────────┬───────────  
+    │                 ╰───────────── borrow later used here
+────╯

@@ -1248,7 +1248,16 @@ Moves (E0406, E0407):
   the local for liveness only: a reference mentioned there keeps its loans live up to it
   (`let r = &x; x = 2; let _ = r;` and `let _ = *r;` there are E0410), but the mention
   itself conflicts with no loan. A value initialiser (`let _ = F();`) is evaluated into a
-  temporary that dies at the end of the statement.
+  temporary that dies at the end of the statement. A mention through an index
+  (`let _ = a[i];`, `let _ = m[i][j];`, `let _ = *a[i];`, and any pattern that binds
+  nothing: `let P { .. } = a[i];`, `match a[i] { _ => .. }`, the scrutinee of `if let`,
+  `while let` and `let`-`else`) still reads each indexed place for its bounds check
+  (#164, decision 96, rustc's `FakeRead(ForIndex, a)`): that place must be initialised
+  (E0405) and not moved (E0406, "use of moved value", or "borrow of moved value" for a
+  slice, whose length rustc reads through a fake borrow). An array's read conflicts with
+  no loan (`let r = &mut a; let _ = a[i]; r[0] = ..;` is fine); a slice's length read
+  conflicts with a live `&mut` of the slice or of the reference holding it (E0411, rustc's
+  E0503), not with a loan of one of its elements.
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).

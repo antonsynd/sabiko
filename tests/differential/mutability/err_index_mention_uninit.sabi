@@ -1,0 +1,5 @@
+// `let _ = a[i]` reads `a` for the bounds check, so `a` must be initialised: E0381 (#164).
+fn Main() {
+    let cur: [i32; 2];
+    let _ = cur[1usize];
+}

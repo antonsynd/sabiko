@@ -1,0 +1,60 @@
+// A mention through an index reads the indexed place for the bounds check (rustc's
+// `FakeRead(ForIndex, base)`, decision 96): the place must be initialised and not moved,
+// and a slice's length read conflicts with a mutable loan of the slice. An array's
+// conflicts with no loan, and a loan of an element leaves a slice's length readable.
+struct Point {
+    Inner: f32,
+}
+
+fn Idx() -> usize {
+    0usize
+}
+
+fn Moved() {
+    let cur = [Point { Inner: 1.0f32 }];
+    let m = cur;
+    let _ = cur[Idx()]; //~ ERROR E0406 use of moved value: `cur`
+}
+
+fn PatternBindsNothing() {
+    let cur = [Point { Inner: 1.0f32 }];
+    let m = cur;
+    let Point { .. } = cur[0usize]; //~ ERROR E0406 use of moved value: `cur`
+}
+
+fn NestedMoved() {
+    let m = [[Point { Inner: 1.0f32 }]];
+    let n = m;
+    match m[0usize][Idx()] { //~ ERROR E0406 use of moved value: `m`
+        _ => {}
+    }
+}
+
+fn SliceMoved(s: &mut [Point]) {
+    let t = s;
+    let _ = s[0usize]; //~ ERROR E0406 borrow of moved value: `s`
+}
+
+fn Uninit() {
+    let cur: [i32; 2];
+    let _ = cur[1usize]; //~ ERROR E0405 used binding `cur` isn't initialized
+}
+
+fn SliceWhileMutablyBorrowed(s: &mut [Point]) {
+    let r = &mut *s;
+    let _ = s[Idx()]; //~ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    r[0usize].Inner = 2.0f32;
+}
+
+fn ArrayWhileMutablyBorrowed() {
+    let mut cur = [Point { Inner: 1.0f32 }];
+    let r = &mut cur;
+    let _ = cur[Idx()];
+    r[0usize].Inner = 2.0f32;
+}
+
+fn SliceElementMutablyBorrowed(s: &mut [Point]) {
+    let r = &mut s[0usize];
+    let _ = s[Idx()];
+    r.Inner = 2.0f32;
+}
