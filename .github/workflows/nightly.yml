@@ -82,7 +82,9 @@ jobs:
           dotnet-version: 10.0.x
       - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
         run: scripts/setup-dotnet.sh
-      - run: cargo test --workspace
+      # Every test binary runs even after one fails, so one failing generated seed does
+      # not hide the suites after it (#165).
+      - run: cargo test --workspace --no-fail-fast
 
   # RustSec advisories against the dependency graph (`deny.toml`). Nightly rather than per
   # push (decision 45): a new advisory is news about a dependency, not about the change
@@ -225,8 +227,10 @@ jobs:
           dotnet-version: 10.0.x
       - name: Install ilasm, ildasm, ILVerify, csc and build Sabiko.Runtime
         run: scripts/setup-dotnet.sh
+      # Pinned: scripts/mutants.sh reads mutants.out's mutants.json and outcomes.json, and
+      # relies on cargo-mutants' exit codes, as 27.1.0 writes them.
       - name: Install cargo-mutants
-        run: cargo install cargo-mutants --locked
+        run: cargo install cargo-mutants --locked --version 27.1.0
       - name: Mutation testing (one shard; mutants-score judges the crate)
         run: scripts/mutants.sh --shard ${{ matrix.shard }}/${{ matrix.crate == 'sabiko_types' && 8 || 4 }} ${{ matrix.crate }}
       - name: Upload mutants.out
@@ -240,7 +244,8 @@ jobs:
   mutants-score:
     name: mutation score (${{ matrix.crate }})
     needs: mutants
-    # Judge whatever the shards uploaded; a shard that failed to upload fails the score.
+    # Judge whatever the shards uploaded; a shard that failed to upload, or that uploaded
+    # fewer outcomes than mutants (cancelled at the time limit, runner died), fails the score.
     if: always()
     runs-on: ubuntu-latest
     strategy:

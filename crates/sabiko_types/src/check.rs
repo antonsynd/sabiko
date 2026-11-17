@@ -3625,9 +3625,11 @@ impl<'a> FnCtxt<'a> {
             if let Some(written) = written {
                 args.extend(written.args.iter().map(|t| self.lower_type(t)));
             }
-            while args.len() <= n {
-                args.push(self.infer.new_var(VarKind::General));
-            }
+            // Pads to `Self` and the trait's `n` parameters. No loop: a mutated `while`
+            // condition pushed inference variables until the runner ran out of memory
+            // (#165).
+            let missing = (n + 1).saturating_sub(args.len());
+            args.extend((0..missing).map(|_| self.infer.new_var(VarKind::General)));
             return Some((def, args));
         }
         let name = self.resolve.def(def).name.clone();
