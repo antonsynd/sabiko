@@ -116,4 +116,20 @@ exclude_re = [
     "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace \\|\\| with && in Ty::subst$",
     # #142: the trait's default `generics` already returns an empty vector.
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace PatCx::generics -> Vec<DefId> with vec!\\[\\]$",
+    # sabiko_borrowck: equivalent mutants (#166), each argued in docs/TESTING.md, Mutation
+    # testing (nightly runs 27 to 32). A region type without origins taken for `Other`
+    # (`holds_ref` as `true`, and the guards that call it); `walk`'s implied bounds, which
+    # no signature without named lifetimes needs (Phase 9); the placeholder loans'
+    # numbering, which only Polonius' location-insensitive pass reads; the two-phase
+    # reservation's first point, where no read happens; a tuple field's type in a
+    # signature place, which naming it never reads; and the partial-assignment walk
+    # past an initialised base, which finds nothing a reported error has not.
+    "sabiko_borrowck/src/loans/regions\\.rs:\\d+:\\d+: replace Params<'a>::holds_ref -> bool with true$",
+    "sabiko_borrowck/src/loans/regions\\.rs:\\d+:\\d+: replace match guard self\\.holds_ref\\(ty\\) with true in Params<'a>::(fresh|uniform)$",
+    "sabiko_borrowck/src/loans/regions\\.rs:\\d+:\\d+: replace SigRegions::implied_bounds -> Vec<\\(Origin, Origin\\)> with vec!\\[\\]$",
+    "sabiko_borrowck/src/loans/regions\\.rs:\\d+:\\d+: replace SigRegions::implied_bounds::walk with \\(\\)$",
+    "sabiko_borrowck/src/loans/facts\\.rs:\\d+:46: replace \\+ with \\* in Generator<'_>::universal_regions$",
+    "sabiko_borrowck/src/loans/facts\\.rs:\\d+:\\d+: replace \\+ with [-*] in LoanData::is_reserved_at$",
+    "sabiko_borrowck/src/loans\\.rs:\\d+:\\d+: delete match arm Ty::Tuple\\(elems\\) in Reporter<'_>::universal_place$",
+    "sabiko_borrowck/src/moves\\.rs:\\d+:\\d+: replace == with != in MoveChecker<'_>::check_write$",
 ]

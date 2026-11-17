@@ -5,6 +5,9 @@
 //! [`BodyBuilder`] and run through `loans::check_loans` alone, so these tests depend
 //! neither on MIR lowering nor on the other borrow checks.
 
+use std::fmt::Write as _;
+
+use sabiko_borrowck::loans::regions::{bound_region_links, OriginSupply, RegionTy};
 use sabiko_borrowck::loans::{check_loans, check_signatures};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
@@ -2463,5 +2466,82 @@ fn drop_conflicts_with_a_live_shared_loan_of_a_field() {
             ["E0413 `g.Id` does not live long enough"],
             "mutable loan: {mutable_loan}"
         );
+    }
+}
+
+type Links = Vec<(RegionTy, RegionTy)>;
+
+/// `bound_region_links` for the call `G::<B<&i32>, &i32>` of `fn G<X: L{n}<T>, T>`, with
+/// `impl<T> L0<T> for B<T>` and `impl<T, U: L{i-1}<T>> L{i}<T> for U` up to `n`: the
+/// bound is proved through `n + 1` blocks, the last of which names `T` twice. The program
+/// is only type-checked (rustc's E0275 from `n == DEPTH_LIMIT` on), so the borrow
+/// checker's own depth limit can be reached. The call passes `regions` region types for
+/// its two generic arguments.
+fn chain_links(n: usize, regions: usize) -> Result<Links, String> {
+    let mut src = String::from(
+        "struct B<T> {\n    T: T,\n}\n\ntrait L0<T> {}\n\nimpl<T> L0<T> for B<T> {}\n",
+    );
+    for i in 1..=n {
+        let _ = write!(
+            src,
+            "\ntrait L{i}<T> {{}}\n\nimpl<T, U: L{}<T>> L{i}<T> for U {{}}\n",
+            i - 1
+        );
+    }
+    let _ = write!(src, "\nfn G<X: L{n}<T>, T>(x: X, t: T) {{}}\n");
+    let mut sink = DiagnosticSink::new();
+    let mut ast = sabiko_parser::parse_file(FileId(0), &src, &mut sink);
+    let resolve = sabiko_resolve::resolve(&mut ast, &mut sink);
+    let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+    let def = |kind: DefKind, name: &str| {
+        resolve
+            .defs_of_kind(kind)
+            .find(|&d| resolve.def(d).name == name)
+            .unwrap_or_else(|| panic!("no {kind:?} named {name}"))
+    };
+    let g = def(DefKind::Fn, "G");
+    let b = def(DefKind::Struct, "B");
+    let items = &typeck.items;
+    let args = [
+        Ty::Adt(b, Box::new([Ty::shared_ref(Ty::I32)])),
+        Ty::shared_ref(Ty::I32),
+    ];
+    let mut supply = OriginSupply::default();
+    let generic_regions: Vec<RegionTy> = args
+        .iter()
+        .take(regions)
+        .map(|t| RegionTy::fresh(t, items, &mut supply))
+        .collect();
+    bound_region_links(
+        items,
+        &items.fn_sig(g).generics,
+        items.param_env(g),
+        &args,
+        &generic_regions,
+        &[],
+        &mut supply,
+    )
+}
+
+#[test]
+fn bound_links_follow_a_proof_up_to_the_recursion_limit() {
+    let limit = sabiko_types::traits::DEPTH_LIMIT;
+    // `L0`'s block names `T` in `B<T>` and in `L0<T>`: the two references are related,
+    // however many blanket blocks lead to it.
+    let links = chain_links(limit - 1, 2).expect("a proof as deep as the type checker's");
+    assert_eq!(links.len(), 1, "{links:?}");
+    // One block deeper is past the depth the type checker stops at (E0275): an internal
+    // error, never a proof cut short that relates less.
+    let err = chain_links(limit, 2).expect_err("a proof past the recursion limit");
+    assert!(err.contains("deeper than the recursion limit"), "{err}");
+}
+
+#[test]
+fn bound_links_reject_generic_arguments_without_their_region_types() {
+    // Two generic arguments with one region type, or none: an internal error (E0900 at
+    // the call), not a relation of whatever the arguments line up with.
+    for regions in [0, 1] {
+        let err = chain_links(1, regions).expect_err("mismatched generic arguments");
+        assert!(err.contains("generic arguments"), "{err}");
     }
 }

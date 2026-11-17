@@ -547,15 +547,10 @@ fn link_pattern(
                 link_pattern(t, r, params, bound, header, out);
             }
         }
-        // A part without references: the parameters in it hold none either.
-        (pat, RegionTy::Other) => {
-            let _ = pat.map_params(&mut |p| {
-                if let Some(i) = params.iter().position(|&q| q == p) {
-                    bound[i].get_or_insert(RegionTy::Other);
-                }
-                None
-            });
-        }
+        // A part without references (`RegionTy::Other`): the parameters in it hold none
+        // either, which an unbound parameter's `Other` already says. Each occurrence of a
+        // parameter has a region type of the same type, so one in such a part is `Other`
+        // everywhere, and its later occurrences relate nothing.
         _ => {}
     }
 }

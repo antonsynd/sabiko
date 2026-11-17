@@ -137,29 +137,20 @@ impl Reporter<'_> {
         errors.sort_unstable();
         errors.dedup();
         let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
-        // Points where a loan other than a compared reference's shallow borrow conflicts.
-        let real: HashSet<Point> = errors
-            .iter()
-            .filter(|&&(_, _, l)| !self.is_shallow(l))
-            .map(|&(_, p, _)| p)
-            .collect();
-        // Points where a guard's fake borrow was reported.
-        let mut guarded: HashSet<Point> = HashSet::new();
-        // Places reported as accessed at a span: one report each, as rustc's
-        // `access_place_error_reported` (an inclusive range's two comparisons).
+        // Places reported as accessed at a span: one report each, the first loan's, as
+        // rustc's `access_place_error_reported` (an inclusive range's two comparisons).
+        // An access that conflicts with several loans is reported once: `&mut m` in a
+        // guard over `*m` with the fake borrows of `*m` and of `m`, `r == { let t = r; t }`
+        // with the reborrow `&*r` and the shallow borrow of `r` (the reborrow's, made
+        // first). Those fake borrows conflict with writes, moves and mutable borrows, of
+        // which a statement makes at most one (MIR building writes a borrow, a call's
+        // result or an operand into a temporary first), so no further deduplication is
+        // needed for them (decision 99). Distinct places at one point are distinct
+        // errors, as in rustc: a `return` ends the storage of each parameter it returns a
+        // loan of.
         let mut accessed: HashSet<(Span, Place)> = HashSet::new();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {
-                continue;
-            }
-            // `&mut m` in a guard over `*m` conflicts with the fake borrows of `*m` and of
-            // `m`: one report is enough, as in rustc, the first fake borrow's.
-            if self.is_guard(loan) && !guarded.insert(point) {
-                continue;
-            }
-            // `r == { let t = r; t }` conflicts with both the reborrow `&*r` and the
-            // shallow borrow of `r`: one report is enough, the reborrow's.
-            if self.is_shallow(loan) && real.contains(&point) {
                 continue;
             }
             if let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) {
@@ -172,22 +163,6 @@ impl Reporter<'_> {
                 sink.emit(diag);
             }
         }
-    }
-
-    /// Whether the loan is a match guard's fake borrow.
-    fn is_guard(&self, loan: Loan) -> bool {
-        self.facts
-            .loans
-            .get(loan.index())
-            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Guard))
-    }
-
-    /// Whether the loan is a compared reference's shallow fake borrow.
-    fn is_shallow(&self, loan: Loan) -> bool {
-        self.facts
-            .loans
-            .get(loan.index())
-            .is_some_and(|data| data.fake == Some(FakeBorrowKind::Shallow))
     }
 
     /// Whether the error is the activation of a two-phase borrow conflicting with a loan

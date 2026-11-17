@@ -1,0 +1,24 @@
+// An impl header names one parameter only inside a part without references (`Opt<T>` at
+// `Opt<i32>`) and another twice, beside it and in the trait: `Make::Make(&x)`'s result
+// holds the loan of `x`, whatever the other parameter is.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+trait Make<U> {
+    fn Make(u: U) -> Self;
+}
+
+impl<U, T> Make<U> for (Opt<T>, U) {
+    fn Make(u: U) -> (Opt<T>, U) {
+        (Opt::No, u)
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let w: (Opt<i32>, &i32) = Make::Make(&x);
+    x = 2;
+    PrintLine(*w.1);
+}
