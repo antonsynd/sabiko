@@ -472,9 +472,29 @@ mod tests {
     /// pipeline simplifies a program's bodies.
     #[test]
     fn deferred_prelude_bodies_match_eager_ones() {
+        deferred_bodies_match("fn Main() { PrintLine(1); }", &["Main"]);
+        // With the program's own traits, blocks of the prelude's `From` and of its own
+        // trait, a provided method, a generic function and `?`.
+        let src = "struct Meters { V: i64 }\n\
+            impl From<i32> for Meters { fn from(v: i32) -> Meters { Meters { V: v as i64 } } }\n\
+            trait Show { fn Show(&self) -> i64; fn Twice(&self) -> i64 { self.Show() * 2 } }\n\
+            impl Show for Meters { fn Show(&self) -> i64 { self.V } }\n\
+            fn Pick<T: Show>(o: Option<T>) -> i64 { match o { Some(t) => t.Twice(), None => 0 } }\n\
+            fn Conv(x: i32) -> Result<Meters, u8> {\n\
+                let r: Result<i32, u8> = Ok(x); let v = r?; Ok(Meters::from(v))\n\
+            }\n\
+            fn Main() {\n\
+                let m: Meters = 3i32.into(); PrintLine(Pick(Some(m)));\n\
+                PrintLine(Conv(4).unwrap().V); let w: i64 = 7u8.into(); PrintLine(w);\n\
+            }\n";
+        deferred_bodies_match(src, &["from", "Twice", "Show", "Pick", "Conv", "Main"]);
+    }
+
+    /// [`deferred_prelude_bodies_match_eager_ones`] for the program `src`, whose functions
+    /// are `user_fns` in source order.
+    fn deferred_bodies_match(src: &str, user_fns: &[&str]) {
         let mut source_map = SourceMap::new();
         let mut sink = DiagnosticSink::new();
-        let src = "fn Main() { PrintLine(1); }";
         let (ast, resolve) = parse_and_resolve("main.sabi", src, &mut source_map, &mut sink)
             .program
             .expect("parses");
@@ -482,15 +502,22 @@ mod tests {
         let mut eager_bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &eager, &mut sink);
         sabiko_mir::simplify::simplify_all(&mut eager_bodies);
         let lazy = sabiko_types::typeck(&ast, &resolve, &mut sink);
-        let user_bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &lazy, &mut sink);
+        let mut user_bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &lazy, &mut sink);
         assert_eq!(
             user_bodies
                 .iter()
-                .map(|b| b.name.as_str())
+                .map(|b| resolve.def(b.def).name.as_str())
                 .collect::<Vec<_>>(),
-            ["Main"],
+            user_fns,
             "only the program's own bodies are built up front"
         );
+        // The program's own bodies are the same either way too.
+        sabiko_mir::simplify::simplify_all(&mut user_bodies);
+        let eager_user: Vec<_> = eager_bodies
+            .iter()
+            .filter(|b| !resolve.is_prelude(b.def))
+            .collect();
+        assert_eq!(user_bodies.iter().collect::<Vec<_>>(), eager_user);
         let mut deferred = 0;
         for item in ast.all_items() {
             let ItemKind::Fn(f) = &item.kind else {
@@ -511,7 +538,7 @@ mod tests {
             deferred += usize::from(built.is_some());
         }
         assert!(deferred > 100, "only {deferred} prelude bodies built");
-        assert_eq!(deferred + 1, eager_bodies.len());
+        assert_eq!(deferred + user_fns.len(), eager_bodies.len());
         assert!(
             sink.diagnostics().is_empty(),
             "{}",

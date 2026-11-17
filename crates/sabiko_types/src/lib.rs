@@ -53,11 +53,7 @@ impl TypeckResults {
         args: Vec<Ty>,
         sink: &mut DiagnosticSink,
     ) -> Option<ConstValue> {
-        let bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = self
-            .assoc_exprs
-            .iter()
-            .map(|(&d, e)| (d, (e, &self.bodies[&d])))
-            .collect();
+        let bodies = self.assoc_const_bodies();
         let cx = consts::ConstCx {
             resolve,
             items: &self.items,
@@ -67,11 +63,29 @@ impl TypeckResults {
         consts::eval_instance(&cx, def, args, &mut self.assoc_values.borrow_mut(), sink)
     }
 
-    /// The body table of a function or constant. Panics for a function of the `core`
-    /// prelude whose body [`typeck`] deferred ([`Self::try_body`]).
+    /// The values and body tables of the constants of traits and trait `impl` blocks, which
+    /// are evaluated at each instance a use names (#116).
+    fn assoc_const_bodies(&self) -> HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> {
+        self.assoc_exprs
+            .iter()
+            .map(|(&d, e)| (d, (e, &self.bodies[&d])))
+            .collect()
+    }
+
+    /// The body table of a function or constant.
+    ///
+    /// # Panics
+    ///
+    /// For a function of the `core` prelude whose body [`typeck`] deferred (decision 98):
+    /// use [`Self::try_body`] where one may be asked for.
     #[must_use]
     pub fn body(&self, def: DefId) -> &BodyTypes {
-        &self.bodies[&def]
+        self.bodies.get(&def).unwrap_or_else(|| {
+            panic!(
+                "no body table for {def:?}: a deferred body of the `core` prelude \
+                 (decision 98) has none; use `try_body`"
+            )
+        })
     }
 
     /// The body table of a function or constant; `None` for a function of the `core`
@@ -88,7 +102,8 @@ impl TypeckResults {
     /// postcondition that a type left unknown had its error reported. Monomorphisation
     /// calls this for the bodies a program reaches. The prelude is the compiler's own,
     /// valid code ([`typeck_with_prelude_bodies`] checks every body of it, in a test), so
-    /// `sink` receives nothing unless the compiler has a bug.
+    /// `sink` receives nothing unless the compiler has a bug, or a program's trait makes
+    /// the prelude's method resolution ambiguous (#173).
     ///
     /// # Panics
     ///
@@ -103,11 +118,8 @@ impl TypeckResults {
             panic!("only a function has a deferred body");
         };
         let def = resolve.def_of_item(item.id);
-        let const_bodies: HashMap<DefId, (&sabiko_ast::Expr, &BodyTypes)> = self
-            .assoc_exprs
-            .iter()
-            .map(|(&d, e)| (d, (e, &self.bodies[&d])))
-            .collect();
+        let const_bodies = self.assoc_const_bodies();
+        let cut_before = self.items.elaboration_cut.get();
         let cx = consts::ConstCx {
             resolve,
             items: &self.items,
@@ -121,6 +133,10 @@ impl TypeckResults {
             .check_fn(f, def);
         patterns::pattern_values_of(f, &cx, &mut HashMap::default(), &mut body, sink);
         patterns::exhaustiveness_of(f, resolve, &self.items, &mut body, sink);
+        // As `typeck` reports it after the eager bodies: elaboration cut short here.
+        if let (None, Some(tr)) = (cut_before, self.items.elaboration_cut.get()) {
+            sink.emit(elaboration_cut_error(resolve, tr));
+        }
         if sink.error_count() == errors_before {
             if let Some(shown) = unreported_error_type(std::iter::empty(), [&body], resolve) {
                 sink.emit(unreported_error(
@@ -267,23 +283,26 @@ fn typeck_bodies(
         assoc_values: RefCell::default(),
     };
     if let Some(tr) = results.items.elaboration_cut.get() {
-        sink.emit(
-            Diagnostic::error(
-                ErrorCode::INTERNAL_ERROR,
-                "internal compiler error: the supertraits of this trait imply too many trait references",
-            )
-            .with_label(resolve.def(tr).span, "elaborating this trait's supertraits")
-            .with_note(format!(
-                "elaboration stopped at {} type nodes",
-                traits::ELABORATION_BOUND
-            ))
-            .with_note("this is a bug in the Sabiko compiler; please report it"),
-        );
+        sink.emit(elaboration_cut_error(resolve, tr));
     }
     if !sink.has_errors() {
         check_no_unreported_errors(file, resolve, &results, sink);
     }
     results
+}
+
+/// The internal error for elaboration stopped at its bound in the supertraits of `tr`.
+fn elaboration_cut_error(resolve: &ResolveResults, tr: DefId) -> Diagnostic {
+    Diagnostic::error(
+        ErrorCode::INTERNAL_ERROR,
+        "internal compiler error: the supertraits of this trait imply too many trait references",
+    )
+    .with_label(resolve.def(tr).span, "elaborating this trait's supertraits")
+    .with_note(format!(
+        "elaboration stopped at {} type nodes",
+        traits::ELABORATION_BOUND
+    ))
+    .with_note("this is a bug in the Sabiko compiler; please report it")
 }
 
 /// The type checker's postcondition (decision 94): `Ty::Error` stands for a type an error

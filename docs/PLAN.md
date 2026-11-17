@@ -1647,11 +1647,21 @@ the prelude's front end, the same in every compilation: parsing (3 million), res
 whose coherence and `impl` method checks grow with the prelude's blocks;
 #117's operator impls will add there, not to the bodies. In the mutant test command,
 `no_panic.rs` (two compilations per program) is now about half the time. The one
-difference: a program defining its own `trait From<T>` with `impl<T> From<T> for T` made
-the prelude's `Into` body's `U::from(self)` ambiguous (E0342 inside the prelude, which
-rustc does not report: its where-clause candidate wins). That error used to fail every
-compilation of such a program; now it is reported, with the program's call labelled,
-only where the program reaches `Into::into` and is compiled to IL.
+difference (#173): a program with a trait of its own, of any name, that has an associated
+function `from` and an unbounded blanket block (`trait Conv<T> { fn from(v: T) -> Self;
+}` with `impl<T> Conv<T> for T`) makes the prelude's `Into` body's `U::from(self)`
+ambiguous (E0342 inside the prelude, which rustc does not report: its where-clause
+candidate wins). That error used to fail every compilation of such a program; now it is
+reported, with the program's call labelled "instantiated here", only where the program
+reaches `Into::into` and is monomorphised, that is with `--emit=il` (and assemblies) or
+`--emit=mir-elaborated`. A check (no `--emit`, or `--emit=mir`), which the compile-time
+`tests/differential` harness uses for its `ok_`/`err_` verdicts, accepts such a program
+while building it rejects it; rustc accepts both. `no_panic.rs` therefore leaves the
+diagnostics of monomorphisation (those labelled "instantiated here") out of its comparison
+of a `--emit=mir` and an IL run, and keeps the program above as a case
+(`deferred_prelude_body_errors_are_monomorphisations`). `build_bodies` still panics for
+a program's function without a type table, so only prelude bodies are ever skipped; a
+deferred check reports an elaboration cut short (E0900) as the eager one does.
 
 Status (2026-11-11): reborrow or move of a `&mut` decided as rustc does (#132, decision
 92). Sabiko reborrowed every `&mut` call or constructor argument, so it accepted `Id(r);

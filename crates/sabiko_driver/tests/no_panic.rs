@@ -226,9 +226,13 @@ fn config() -> ProptestConfig {
 /// Runs the pipeline to IL (and, since it is a separate code path over the same bodies,
 /// the MIR printer). Returns the IL compilation.
 ///
-/// The two runs share every stage before code generation, so their diagnostics up to
-/// borrow checking must be identical, in the same order: a determinism check for free
-/// (each run hashes with its own random state).
+/// The two runs share every stage up to borrow checking, so their diagnostics from those
+/// stages must be identical, in the same order: a determinism check for free (each run
+/// hashes with its own random state). Only the IL run monomorphises, so the diagnostics
+/// of monomorphisation are left out of the comparison: code generation's and the lints'
+/// (E05xx, E06xx), and any found in an instance or in a `core` prelude body type-checked
+/// where the program reaches it (decision 98), which carry the program's call as
+/// "instantiated here" ([`from_monomorphisation`]).
 fn compile(src: &str) -> Compilation {
     let mir = Options {
         emit: Emit::Mir,
@@ -251,7 +255,7 @@ fn compile(src: &str) -> Compilation {
     let front_end = |c: &Compilation| -> Vec<String> {
         c.diagnostics
             .iter()
-            .filter(|d| !(500..700).contains(&d.code.0))
+            .filter(|d| !(500..700).contains(&d.code.0) && !from_monomorphisation(d))
             .map(|d| format!("{d:?}"))
             .collect()
     };
@@ -261,6 +265,35 @@ fn compile(src: &str) -> Compilation {
         "diagnostics differ between two runs of the same front end:\n{src}"
     );
     il_run
+}
+
+/// Whether monomorphisation reported `d`: it labels the program's call that reached the
+/// instance or the deferred prelude body "instantiated here".
+fn from_monomorphisation(d: &sabiko_diagnostics::Diagnostic) -> bool {
+    d.labels.iter().any(|l| l.message == "instantiated here")
+}
+
+/// A prelude body is type-checked only where monomorphisation reaches it (decision 98),
+/// so an error in it appears in the IL run and not the MIR run, and `compile` must not
+/// count that as the front end differing. The error itself is #173: a program's trait
+/// with an associated `from` and an unbounded blanket block makes the prelude `Into`
+/// body's `U::from(self)` ambiguous, which rustc accepts (it prints 5).
+#[test]
+fn deferred_prelude_body_errors_are_monomorphisations() {
+    let src = "trait Conv<T> { fn from(v: T) -> Self; }\n\
+               impl<T> Conv<T> for T { fn from(v: T) -> T { v } }\n\
+               fn Main() { let x: i64 = 5i32.into(); PrintLine(x); }\n";
+    let il_run = compile(src);
+    // TODO(#173): once the prelude's method resolution prefers the where clause, this
+    // program compiles and the case needs another error inside a deferred body.
+    assert!(
+        il_run
+            .diagnostics
+            .iter()
+            .any(|d| d.code.0 == 342 && from_monomorphisation(d)),
+        "{:?}",
+        il_run.diagnostics
+    );
 }
 
 fn check(src: &str) {

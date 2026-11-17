@@ -310,10 +310,9 @@ struct DeferredBodies<'a> {
     file: &'a SourceFile,
     resolve: &'a ResolveResults,
     typeck: &'a TypeckResults,
-    /// The deferred functions by definition, found on first use.
+    /// The deferred functions not built yet, by definition, found on first use; each is
+    /// taken out when it is built (or found to have errors), so none is built twice.
     items: Option<HashMap<DefId, &'a Item>>,
-    /// The functions already built (or found to have errors), never built twice.
-    built: HashSet<DefId>,
 }
 
 impl<'a> DeferredBodies<'a> {
@@ -323,18 +322,18 @@ impl<'a> DeferredBodies<'a> {
             resolve,
             typeck,
             items: None,
-            built: HashSet::default(),
         }
     }
 
     /// The body of `def` if it is a deferred function of the prelude reached for the first
-    /// time and its body builds. Its diagnostics (none, unless the compiler has a bug) go
-    /// to `sink` with the user's call that reached it, as an instance's do.
+    /// time and its body builds. Its diagnostics (none, unless the compiler has a bug or a
+    /// program confuses the prelude's method resolution, #173) go to `sink` with the
+    /// user's call that reached it, as an instance's do.
     fn build(&mut self, def: DefId, origin: Origin, sink: &mut DiagnosticSink) -> Option<Body> {
-        if !self.resolve.is_prelude(def) || !self.built.insert(def) {
+        let (resolve, typeck) = (self.resolve, self.typeck);
+        if !resolve.is_prelude(def) {
             return None;
         }
-        let (resolve, typeck) = (self.resolve, self.typeck);
         let items = self.items.get_or_insert_with(|| {
             self.file
                 .all_items()
@@ -346,7 +345,7 @@ impl<'a> DeferredBodies<'a> {
                 })
                 .collect()
         });
-        let item = items.get(&def)?;
+        let item = items.remove(&def)?;
         let mut own = DiagnosticSink::new();
         let body = crate::build::build_deferred_body(item, resolve, typeck, &mut own);
         for d in own.into_vec() {

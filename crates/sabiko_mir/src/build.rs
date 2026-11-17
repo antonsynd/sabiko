@@ -89,6 +89,13 @@ pub fn build_bodies(
         }
         let def = resolve.def_of_item(item.id);
         let Some(types) = typeck.try_body(def) else {
+            // Only a prelude function's body is deferred; any other function without a
+            // table is a type checker bug, never code silently left out.
+            assert!(
+                resolve.is_prelude(def),
+                "the function `{}` has no type table",
+                resolve.def(def).name
+            );
             continue;
         };
         if let Some(body) = build_body(item, f, def, types, resolve, typeck, sink) {
