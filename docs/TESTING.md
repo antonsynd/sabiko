@@ -1342,6 +1342,131 @@ kills 8, excludes 1 and loses 1, about 1571 of 1578 (99.6%). The thresholds stay
 and 98. `scripts/mutants.sh --score` now lists the timed-out mutants as well as the missed
 ones.
 
+Nightly runs 27 to 32 (2026-11-12 to 2026-11-17, all on `c3dd241`) scored `sabiko_borrowck`
+at 92.4% against 93 from four complete shards: 486 mutants, 386 caught, 32 missed, 4
+timeouts (the fixpoint hangs of `iterate_to_fixpoint` and the two `join -> true`), 64
+unviable (#166). Eleven survivors came with #141, #148 and #154; the other 21 were older
+and untriaged (the 2026-10-22 list above argued some of them, without excluding any).
+#168 then moved `moves.rs` and `check.rs`, so the list was re-checked on `f8bfee1`: the
+first eight, run again with `cargo mutants --re`, were all still missed, and every name
+maps to a mutant of today's code. Programs were checked against rustc 1.99 and, for each
+mutant whose effect was unclear, against a `sabikoc` built with the mutant.
+
+- Killed by tests (7):
+  - `ResultsCursor::seek_before`'s incremental guard as `false` (replaying the block from
+    its entry state every time gives the same state) and `applied + i` as `*` (the
+    location passed to `apply_statement`, which neither analysis reads): the dataflow test
+    `cursor_applies_each_statement_once_seeking_forwards`, whose analysis records where
+    it is applied, pins the documented contract (forward seeks are incremental, each
+    statement at its own location).
+  - `InitAnalysis::is_tracked` as `true`: a temporary is initialised throughout, also
+    across its storage markers (`init_treats_temporaries_as_initialised_throughout`). No
+    program could tell, since the checks read only user bindings' state.
+  - `bound_region_links`' length check `||` as `&&` and `links_at`'s `depth + 1` as
+    `depth * 1`: both guard internal errors (E0900) no type-checked program reaches, so
+    the unit tests `bound_links_reject_generic_arguments_without_their_region_types` and
+    `bound_links_follow_a_proof_up_to_the_recursion_limit` call `bound_region_links`
+    directly, the second on a bound chain one block past `DEPTH_LIMIT` (the type checker
+    stops there with E0275, so no body reaches it).
+  - `link_pattern`'s array and slice arm deleted: `impl<T> Wrap<T> for [T; 1]` relates
+    the element's reference to the trait argument's, so the mutant accepted
+    `let w: [&i32; 1] = Wrap::Wrap(&x); x = 2; use w`, which rustc rejects with E0506
+    (`differential/traits/err_array_impl_links_loan`, `ok_array_impl_loan_ends`). A
+    soundness hole under the mutant; the compiler gets it right.
+  - `Generator::rvalue`'s `*t == RegionTy::Other` as `!=` for a tuple literal: a tuple
+    whose every element is a reference became `Other`, so `let t = (&a, &b); a = 3; use
+    t` was accepted (rustc: E0506). No test had a tuple of references only, used after
+    a conflicting write (`differential/loans/err_tuple_of_refs_only_keeps_loans`).
+- Dead code removed (11):
+  - `Reporter::report_errors`' guard and shallow deduplications (`is_guard`, `is_shallow`,
+    the `guarded` and `real` sets; 5 mutants), decision 99. The `accessed` set of #148
+    (one report per place and span, rustc's `access_place_error_reported`) subsumes them:
+    both candidate programs of #166 (`&mut m` in a guard over `*m`, `r == { let t = r; t
+    }`) are already UI tests (`guard_assigns_deref_scrutinee_ref`,
+    `loan_compare_reassign_operand`), and in both the two loans are invalidated by one
+    access of one place. Fake borrows conflict only with writes, moves and mutable borrows
+    (a guard's not with moves), and a statement makes at most one of those on a place a
+    loan covers: MIR building puts a borrow, an operand and a call's result into a
+    temporary first, and a compound assignment reads and writes the same place. Where one
+    point does have errors on two places, a `return` of loans of two parameters, rustc
+    reports both and so does Sabiko; `is_guard -> true` would have reported one
+    (`borrowck/return_loans_of_two_parameters`). No `.stderr` changed.
+  - `link_pattern`'s `(pat, RegionTy::Other)` arm (2 mutants: the arm deleted, and `q ==
+    p` as `!=`). It bound the parameters inside a part without references to `Other`,
+    which an unbound parameter becomes anyway; every occurrence of a parameter has a region
+    type of the same type, so a later one is `Other` too and relates nothing. The `!=`
+    mutant was not equivalent: it bound another parameter to `Other`, so `impl<U, T>
+    Make<U> for (Opt<T>, U)` lost the link between `U`'s two references and `Make::Make(&x)`
+    no longer held `x`'s loan. That program is now
+    `differential/traits/err_impl_header_part_without_references_links_loan`.
+  - `Generator::write_dest`'s `[] | [Deref]` arm: a fast path computing the loans a write
+    kills, the loans of the local, which `places_conflict` with a `Move` access gives for
+    those places too.
+  - `operand_uses`' `SwitchInt` arm: the uses only find the activation of a two-phase
+    borrow, whose temporary is a reference, never a discriminant.
+  - `places_conflict`'s `>` before the shallow access' tail (`>=` inspected an empty
+    tail): the tail is now `skip`ped, which is empty when the loan's place is no longer.
+  - `is_mut_ref_moved_into_call`'s `!dest.is_local() || kind != Temp` (`||` as `&&`):
+    call arguments are always temporaries, so a destination some call moves is one, and
+    `let s = r;` into a binding is `is_plain_let_of_mut_ref`'s, asked first. (#166's
+    reading, a generic parameter against an inferred type, is the reborrow-or-move
+    decision of #132, which the 41 programs of `differential/moves/reborrow/` cover.)
+- Equivalent, excluded in `.cargo/mutants.toml` (14):
+  - `Params::holds_ref` as `true`, and its six guards in `Params::fresh` and
+    `Params::uniform` as `true` (7): a tuple, array or instance without references
+    becomes a tuple (or an instance) of `Other` instead of `Other`. Every reader treats a
+    region type without origins as `Other`: `relate` relates origins only, `origins` and
+    `sites` find none, `project` yields origin-free parts, `RegionTy::adt` of origin-free
+    arguments has origin-free fields, and `link_pattern` binds nothing that carries an
+    origin. (The run-20 argument above, for the older `RegionTy::fresh` and `uniform`.)
+  - `SigRegions::implied_bounds` as `vec![]` and its `walk` as `()` (2): an implied bound
+    (`'b: 'a` inside `&'a &'b T`) only excuses a flow from a parameter's inner region into
+    its outer one, and without named lifetimes nothing else has the outer region: a
+    return type takes `self`'s origin (whose referent, `Self`, holds no reference) or the
+    one parameter origin, and a parameter writing two references has two. The Phase 9
+    hook of the 2026-10-22 list.
+  - `Generator::universal_regions`' placeholder loan `self.loans.len() + universal.len()`
+    as `*`: Polonius reads `placeholder` only in its location-insensitive pass
+    (`placeholder_loan`, `known_contains`), which `Algorithm::DatafrogOpt` does not run;
+    its `subset_errors` come from the origins (`placeholder_origin`). The other `+` of
+    the function, the parameter's local, names the place in E0415's message and is caught.
+  - `LoanData::is_reserved_at`'s `statement_index + 1` as `- 1` and `* 1` (2): they also
+    count the reservation statement itself and the one before it as reserved. Only reads
+    ask (`access_except`), and neither point reads: the statement before is the
+    temporary's `StorageLive` (MIR building takes the temporary right before the borrow),
+    and the reservation's own accesses are the reservation and the write of its temporary.
+  - `Reporter::universal_place`'s `Ty::Tuple` arm deleted: it types a tuple field of a
+    signature place, which `describe_place` never reads. A site path enters a tuple
+    through `Field` and an instance only through `Arg`, where the walk stops, so a field's
+    type is only consulted to name a struct field, and every field on the path is a tuple's
+    (named by index).
+  - `MoveChecker::check_write`'s `kind == UseKind::Use` as `!=`, which stops a partial
+    assignment's walk at the innermost base and continues a write through a reference or
+    an index outwards. Moving a place marks its descendants moved too, so an outer base
+    is moved while an inner one is not only after the inner one was written again, and
+    that write was reported with the same move sites and the same outer base, which
+    `move_errors` keeps once. (Writing this found a wording difference: for `p.A.B = 1`
+    after `let q = p;` Sabiko names `p.A`, rustc the shortest moved prefix, `p`.)
+
+`sabiko_codegen`, the survivor of runs 28 to 32: `intrinsic_call`'s guard
+`p.int_bits().is_some() || *p == PrimTy::Bool` as `true` (#135). `PanicDebug<T: Debug>` is
+its only caller, and `library/core/fmt.sabi` implements `Debug` for the twelve integer types,
+`bool` and `()` only (`()` is handled before). The guard is now a pattern listing exactly
+`Panic::FailDebug`'s overloads, rather than the comment's `debug_assert!`: `prim_type` gives
+`char` and the floats a CIL type, so an unconditional match would call an overload the
+runtime lacks if `Debug` ever gained them, silently in a release build. Deleting the arm
+fails every `unwrap` of an `Err` in the run-time programs. When `Debug` gains `char`, floats
+or `&str` (#117), add the overload and its pattern together.
+
+Verified with `scripts/mutants.sh sabiko_borrowck` and `--re` on the final tree: the seven
+killed survivors and every mutant on a line changed since `c3dd241` (`cargo mutants
+--in-diff`, #168's and this triage's), 58 mutants: 54 caught, 4 unviable, none missed, in
+14 minutes. The changes remove 23 mutants (the 11 survivors above and 12 caught ones) and
+add 2 (both caught), and `.cargo/mutants.toml` excludes 14 more. Listed with and without
+`--no-config`, the crate's mutants differ in exactly those 14 and the 15 older patterns'.
+Estimated from run 32's counts, no `sabiko_borrowck` survivor remains (about 390 of 390;
+the four fixpoint hangs still count as caught). The threshold stays at 93.
+
 ## Interop
 
 `tests/interop/<name>/` checks what C# sees of a Sabiko library

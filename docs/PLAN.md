@@ -1606,6 +1606,26 @@ test process runs under a memory cap (per process, not per run), and the
 log prints every finished mutant. Open: the shards still run into the 150-minute limit,
 because every compilation got about five times slower with the core prelude (#153).
 
+Update (2026-11-17), the `sabiko_borrowck` survivors of nightly runs 27 to 32 (#166): the
+crate scored 92.4% against 93 with 32 survivors, 11 of them from #141, #148 and #154. Tests
+kill 7: two were soundness holes under the mutant (a header pattern over an array of
+references, `impl<T> Wrap<T> for [T; 1]`, and a tuple literal of references only, whose
+loans were dropped), two pin the dataflow cursor's incremental seek and one the
+initialisation analysis' untracked temporaries, and two unit tests reach
+`bound_region_links`' internal errors (a proof one block past the recursion limit, generic
+arguments without their region types). Eleven were dead code and are gone: the loan
+reporter's per-point guard and shallow-borrow deduplications, which #148's per-place one
+subsumes (decision 99), `link_pattern`'s arm for parts without references (its `!=`
+mutant was a real hole, now a differential test), a fast path in `write_dest`, an unused
+`switchInt` use count, a length comparison and a redundant destination check. Fourteen are
+equivalent and excluded in `.cargo/mutants.toml`, each argued in `docs/TESTING.md`.
+`sabiko_codegen`'s one survivor, `intrinsic_call`'s guard, is now a pattern of
+`FailDebug`'s overloads. A targeted run on the result (the seven and every mutant on a line
+changed since the nightly's commit, 58) misses none; estimated from run 32's counts, no
+survivor remains. Found on the way: for `p.A.B = 1` after `p` moved, Sabiko names `p.A`
+where rustc names `p` (rustc reports the shortest moved prefix); the wording is pinned by
+`partial_assign_to_a_nested_field_of_a_moved_value`. The threshold stays at 93.
+
 Status (2026-11-11): reborrow or move of a `&mut` decided as rustc does (#132, decision
 92). Sabiko reborrowed every `&mut` call or constructor argument, so it accepted `Id(r);
 *r += 1;` for `fn Id<T>(x: T)`, `Opt::Yes(r)` and `W { F: r }` of generic types, which
