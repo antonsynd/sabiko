@@ -4,6 +4,8 @@
 //! identified by a [`FileId`]. A [`SourceMap`] owns the files and converts byte
 //! offsets into line/column positions for diagnostics.
 
+pub mod fx;
+
 use std::fmt;
 
 /// Identifies a file registered in a [`SourceMap`].

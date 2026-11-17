@@ -1,7 +1,6 @@
 //! The validator accepts every program in the test corpus that type-checks, before and
 //! after simplification, and lowering upholds a few structural properties.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use sabiko_diagnostics::DiagnosticSink;
@@ -9,6 +8,7 @@ use sabiko_mir::{
     AggregateKind, Body, Constant, LocalKind, Operand, Place, PlaceElem, Rvalue, Statement,
     StatementKind, TerminatorKind,
 };
+use sabiko_span::fx::HashSet;
 use sabiko_types::{ConstValue, Ty};
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -38,16 +38,18 @@ fn corpus() -> Vec<PathBuf> {
 
 /// Lowers a file, or returns `None` when any front-end stage reported a diagnostic.
 fn lower(src: &str) -> Option<(Vec<Body>, sabiko_types::TypeckResults)> {
-    lower_resolved(src).map(|(bodies, typeck, _)| (bodies, typeck))
+    lower_resolved(src).map(|(bodies, typeck, _, _)| (bodies, typeck))
 }
 
-/// [`lower`], with the resolver's results too.
+/// [`lower`], with the resolver's results and the AST too (monomorphisation builds the
+/// `core` prelude's bodies it reaches from the AST, decision 98).
 fn lower_resolved(
     src: &str,
 ) -> Option<(
     Vec<Body>,
     sabiko_types::TypeckResults,
     sabiko_resolve::ResolveResults,
+    sabiko_ast::SourceFile,
 )> {
     let mut sink = DiagnosticSink::new();
     let mut sm = sabiko_diagnostics::SourceMap::new();
@@ -72,7 +74,7 @@ fn lower_resolved(
         );
         return None;
     }
-    Some((bodies, typeck, resolve))
+    Some((bodies, typeck, resolve, ast))
 }
 
 #[test]
@@ -80,7 +82,7 @@ fn validator_accepts_corpus() {
     let mut lowered = 0;
     for path in corpus() {
         let src = std::fs::read_to_string(&path).unwrap();
-        let Some((mut bodies, typeck, resolve)) = lower_resolved(&src) else {
+        let Some((mut bodies, typeck, resolve, ast)) = lower_resolved(&src) else {
             continue;
         };
         lowered += bodies.len();
@@ -99,8 +101,13 @@ fn validator_accepts_corpus() {
         );
         // Monomorphisation, drop elaboration, copy forwarding and the rest, as before code
         // generation.
-        let mut bodies =
-            sabiko_mir::mono::monomorphize(bodies, &resolve, &typeck, &mut DiagnosticSink::new());
+        let mut bodies = sabiko_mir::mono::monomorphize(
+            bodies,
+            &ast,
+            &resolve,
+            &typeck,
+            &mut DiagnosticSink::new(),
+        );
         let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
         assert!(
             errors.is_empty(),
@@ -126,8 +133,8 @@ fn structural_properties() {
             checked += 1;
             let what = format!("{}::{}", path.display(), body.name);
             assert!(!body.blocks.is_empty(), "{what}: no bb0");
-            let mut live = HashSet::new();
-            let mut dead = HashSet::new();
+            let mut live = HashSet::default();
+            let mut dead = HashSet::default();
             for (i, block) in body.blocks.iter().enumerate() {
                 assert!(
                     block.terminator.is_some(),

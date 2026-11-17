@@ -29,14 +29,13 @@
 //!   place against every other live loan. "In between" is rustc's dominance test: the
 //!   point is dominated by the reservation's successor but not by the activation.
 
-use std::collections::HashMap;
-
 use polonius_engine::{AllFacts, FactTypes};
 use sabiko_mir::{
     AggregateKind, BasicBlock, Body, FakeBorrowKind, Local, LocalKind, Mutability, Operand, Place,
     PlaceElem, Rvalue, StatementKind, TerminatorKind, Ty,
 };
 use sabiko_resolve::Builtin;
+use sabiko_span::fx::HashMap;
 use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
@@ -304,12 +303,12 @@ pub fn generate(body: &Body, typeck: &TypeckResults) -> Result<Facts, FactsError
         table: LocationTable::new(body),
         dominators: Dominators::new(body, &predecessors),
         loans: Vec::new(),
-        loan_at: HashMap::new(),
-        activations: HashMap::new(),
+        loan_at: HashMap::default(),
+        activations: HashMap::default(),
         locals,
         all: AllFacts::default(),
-        invalidations: HashMap::new(),
-        uses_at: HashMap::new(),
+        invalidations: HashMap::default(),
+        uses_at: HashMap::default(),
         unrelated_bounds: Vec::new(),
     };
     generator.collect_loans();
@@ -886,7 +885,7 @@ impl Generator<'_> {
 /// The locations where each local is used as an operand or as the base of a borrowed
 /// place.
 fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
-    let mut uses: HashMap<Local, Vec<Location>> = HashMap::new();
+    let mut uses: HashMap<Local, Vec<Location>> = HashMap::default();
     let mut add = |place: &Place, at: Location| uses.entry(place.local).or_default().push(at);
     for bb in body.block_ids() {
         let data = body.block(bb);

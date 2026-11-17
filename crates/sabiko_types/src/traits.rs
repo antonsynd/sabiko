@@ -12,10 +12,10 @@
 //! candidate assembly (bounds in scope, `impl` blocks, the built-in `Copy` and `Clone`),
 //! then confirmation of the one candidate, whose bounds become new goals.
 
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use sabiko_resolve::{DefId, LangItem, PrimTy, ResolveResults};
+use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 
 use crate::collect::{ImplDef, ItemTypes};
@@ -83,7 +83,7 @@ impl ItemTypes {
     #[must_use]
     pub fn trait_closure(&self, tr: DefId) -> Vec<DefId> {
         let mut out = vec![tr];
-        let mut seen: HashSet<DefId> = HashSet::from([tr]);
+        let mut seen: HashSet<DefId> = std::iter::once(tr).collect();
         let mut next = 0;
         while next < out.len() {
             let current = out[next];
@@ -126,7 +126,7 @@ impl ItemTypes {
 
     fn elaborate_uncached(&self, tr: DefId, self_ty: &Ty, args: &[Ty]) -> Vec<(DefId, Vec<Ty>)> {
         let mut out = vec![(tr, args.to_vec())];
-        let mut seen: HashSet<(DefId, Vec<Ty>)> = HashSet::from([(tr, args.to_vec())]);
+        let mut seen: HashSet<(DefId, Vec<Ty>)> = std::iter::once((tr, args.to_vec())).collect();
         let mut next = 0;
         let mut nodes = 0;
         while next < out.len() {
@@ -590,7 +590,7 @@ pub(crate) fn match_ty(pat: &Ty, ty: &Ty, params: &[DefId], bound: &mut [Option<
 /// exists: their parameters (`vars`, distinct between them) stand for any types. Two
 /// trait `impl` blocks of one trait overlap when their headers unify (rustc's E0119).
 pub(crate) fn unify_headers(a: &[Ty], b: &[Ty], vars: &[DefId]) -> Option<HashMap<DefId, Ty>> {
-    let mut subst = HashMap::new();
+    let mut subst = HashMap::default();
     let ok = a.len() == b.len() && a.iter().zip(b).all(|(l, r)| unify(l, r, vars, &mut subst));
     ok.then_some(subst)
 }
