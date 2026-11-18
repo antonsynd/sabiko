@@ -1,0 +1,21 @@
+// An open index whose element feeds an operation whose left type is known: one
+// ambiguity, the index's (rustc's E0283), not one more for the operation (#183).
+//@ rustc: E0283
+//@ sabiko: E0313
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Literals() {
+    let a = [1, 2];
+    let v = Mk();
+    let x = a[v];
+    let y = 1u8 + x;
+}
+
+fn Bytes() {
+    let a = [1u8, 2];
+    let v = Mk();
+    let x = a[v];
+    let y = 1u8 + x;
+}

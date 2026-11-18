@@ -443,10 +443,11 @@ pub(crate) struct FnCtxt<'a> {
     /// (`A: PartialEq<!>`), which only `!` itself has, whatever `A` becomes (see
     /// [`FnCtxt::check_never_referents`]).
     never_referents: Vec<(BinOp, Ty, Span)>,
-    /// The results of the open operations and indexes found ambiguous in `finish`: each is
-    /// the same problem as its ambiguity, so it becomes an error type, and a local holding
-    /// it is reported no further ([`FnCtxt::bind_ambiguous_results`]).
-    ambiguous_results: Vec<Ty>,
+    /// The results of the open operations and indexes found ambiguous in `finish`, each
+    /// with the types its ambiguity names: a result is the same problem as its ambiguity,
+    /// so it becomes an error type, and a local or an operation holding it is reported no
+    /// further ([`FnCtxt::bind_ambiguous_results`]).
+    ambiguous_results: Vec<(Ty, Vec<Ty>)>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
@@ -1835,7 +1836,7 @@ impl<'a> FnCtxt<'a> {
                 "an array or a slice is indexed by a `usize` or a range of them: give the index a type annotation",
             );
             // The element is the same problem (see `ambiguous_results`).
-            self.ambiguous_results.push(n.out);
+            self.ambiguous_results.push((n.out, vec![n.index.clone()]));
             // rustc's obligation is `_: SliceIndex<[T]>`, whose `Self` is the index: one
             // report per body however many indexes stay open. It is registered once the
             // index is checked, after the obligations of the index expression itself
@@ -1862,23 +1863,57 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// Makes the [`Self::ambiguous_results`] error types, once every ambiguity of the open
-    /// operations and indexes is recorded, except the variables an ambiguity names, which
-    /// its report needs open (`v = a[v];`, `v = v + 1;`, `let x = a[v]; v = a[x];`): they
-    /// become error types once reported ([`Self::report_ambiguities`]).
+    /// operations and indexes is recorded, so that one fed by another's result is not
+    /// reported again (`let x = 1u8 + w; let y = 1u8 + x;` is one report, at `w`). Only a
+    /// result that reaches back to its own ambiguity's types, through the results of
+    /// others, stays open for its report (`v = a[v];`, `v = v + 1;`, `let x = a[v]; v =
+    /// a[x];`, `v = a[w]; w = a[v];`): binding it would leave no ambiguity of the cycle
+    /// anything to report. Those become error types once reported
+    /// ([`Self::report_ambiguities`]).
     fn bind_ambiguous_results(&mut self) {
         let results = std::mem::take(&mut self.ambiguous_results);
         if results.is_empty() {
             return;
         }
-        let named: Vec<Ty> = self
-            .ambiguities
+        let outs: Vec<Vec<Ty>> = results
             .iter()
-            .flat_map(|a| a.tys.iter().cloned())
+            .map(|(out, _)| self.open_vars(std::slice::from_ref(out)))
             .collect();
-        let named = self.open_vars(&named);
-        for var in self.open_vars(&results) {
-            if !named.contains(&var) {
-                self.infer.bind_error(&var);
+        let ins: Vec<Vec<Ty>> = results.iter().map(|(_, tys)| self.open_vars(tys)).collect();
+        // A result feeds every ambiguity that names one of its variables.
+        let mut readers: HashMap<Ty, Vec<usize>> = HashMap::default();
+        for (j, vars) in ins.iter().enumerate() {
+            for v in vars {
+                readers.entry(v.clone()).or_default().push(j);
+            }
+        }
+        let feeds: Vec<Vec<usize>> = outs
+            .iter()
+            .map(|vars| {
+                let mut next: Vec<usize> = vars
+                    .iter()
+                    .filter_map(|v| readers.get(v))
+                    .flatten()
+                    .copied()
+                    .collect();
+                next.sort_unstable();
+                next.dedup();
+                next
+            })
+            .collect();
+        let cyclic = on_cycles(&feeds);
+        let kept: HashSet<Ty> = (0..results.len())
+            .filter(|&i| cyclic[i])
+            .flat_map(|i| ins[i].iter().chain(&outs[i]).cloned())
+            .collect();
+        for (i, vars) in outs.iter().enumerate() {
+            if cyclic[i] {
+                continue;
+            }
+            for v in vars {
+                if !kept.contains(v) {
+                    self.infer.bind_error(v);
+                }
             }
         }
     }
@@ -3646,8 +3681,9 @@ impl<'a> FnCtxt<'a> {
             && !self.is_never_like(&left)
             && !(ordering && self.comparison_decided(op, &left) == Some(true))
         {
+            // Its own report, whether `A` is comparable or not (rustc's E0277 "can't compare
+            // `S` with `!`" for a struct `S` without `PartialEq`).
             self.never_referents.push((op, left.clone(), span));
-            self.pending_comparisons.push((op, lhs_ty.clone(), span));
             return;
         }
         // When the left referent does not decide the right one, the comparison of the
@@ -3848,7 +3884,8 @@ impl<'a> FnCtxt<'a> {
                 "the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation",
             );
             if let Some(out) = n.out {
-                self.ambiguous_results.push(out);
+                self.ambiguous_results
+                    .push((out, vec![n.lhs.clone(), n.rhs.clone()]));
             }
             // rustc's `L: Add<R>`: its `Self` is the left operand.
             let known_self = !self.is_open(&n.lhs);
@@ -4000,14 +4037,13 @@ impl<'a> FnCtxt<'a> {
             }
             let defaulted = self.infer.resolve_with_defaults(&left);
             // A left referent that is a reference itself (`x = &5u8;`) has no impl for a
-            // right one that is not, `!` included: judged by what it refers to.
+            // right one that is not, `!` included, whatever it refers to.
             let mut referent = &defaulted;
             while let Ty::Ref(_, inner) = referent {
                 referent = inner;
             }
-            // An unknown type is reported with its local, an incomparable one with the
-            // comparison (`pending_comparisons`).
-            if *referent == Ty::Error || defaulted.has_infer() || !is_comparable(referent) {
+            // An unknown type is reported with its local.
+            if *referent == Ty::Error || defaulted.has_infer() {
                 continue;
             }
             // Named before the literal defaults, as rustc's obligation is (`{integer}`).
@@ -6989,6 +7025,65 @@ fn contains_ty(ty: &Ty, needle: &Ty) -> bool {
 
 /// Whether `==`, `<` and the other comparisons apply to values of type `ty` (resolved at
 /// the top level): the primitives but `str`, and `()`.
+/// Which nodes of the graph whose successors `next` lists lie on a cycle: a node with an
+/// edge to itself, or in a strongly connected component of more than one (Kosaraju's
+/// algorithm, iterative: a body may hold thousands of nodes in a chain).
+fn on_cycles(next: &[Vec<usize>]) -> Vec<bool> {
+    let n = next.len();
+    let mut seen = vec![false; n];
+    let mut finished = Vec::with_capacity(n);
+    for start in 0..n {
+        if seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        let mut stack = vec![(start, 0)];
+        while let Some(top) = stack.last_mut() {
+            let v = top.0;
+            if let Some(&w) = next[v].get(top.1) {
+                top.1 += 1;
+                if !seen[w] {
+                    seen[w] = true;
+                    stack.push((w, 0));
+                }
+            } else {
+                finished.push(v);
+                stack.pop();
+            }
+        }
+    }
+    let mut prev = vec![Vec::new(); n];
+    for (v, ws) in next.iter().enumerate() {
+        for &w in ws {
+            prev[w].push(v);
+        }
+    }
+    let mut component = vec![usize::MAX; n];
+    let mut sizes = Vec::new();
+    for &start in finished.iter().rev() {
+        if component[start] != usize::MAX {
+            continue;
+        }
+        let c = sizes.len();
+        component[start] = c;
+        let mut size = 0;
+        let mut stack = vec![start];
+        while let Some(v) = stack.pop() {
+            size += 1;
+            for &w in &prev[v] {
+                if component[w] == usize::MAX {
+                    component[w] = c;
+                    stack.push(w);
+                }
+            }
+        }
+        sizes.push(size);
+    }
+    (0..n)
+        .map(|v| sizes[component[v]] > 1 || next[v].contains(&v))
+        .collect()
+}
+
 fn is_comparable(ty: &Ty) -> bool {
     // `str` is compared behind its reference (#10): `s == t` for `s, t: &str`.
     matches!(

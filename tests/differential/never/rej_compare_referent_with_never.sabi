@@ -89,3 +89,21 @@ fn OrderedDecidedAsReference() {
     let c = &x < &return;
     x = &5u8;
 }
+
+struct S {
+    F: i32,
+}
+
+fn DecidedAsReferenceToStruct() {
+    let s = S { F: 1 };
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &s;
+}
+
+fn DecidedAsSlice() {
+    let arr = [1, 2];
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &arr[..];
+}

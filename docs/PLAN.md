@@ -2182,8 +2182,8 @@ nothing new, since every `!` index is now rejected. Tests: differential `never/`
 run-time `run/arrays/{unsized_place_mentions, range_mention_out_of_range,
 range_mention_match_out_of_range, index_decided_later}` and
 `run/compare/compare_literal_decided_later`, UI `typeck/never_index_and_comparison` and
-`typeck/unsized_place_mentions` (27 and 8 errors after the review rounds below; rustc
-reports 27 and 9, its borrow checker giving E0161 and E0508 for `{ *s }`). Still different: `{ *s }` and `*s;` are one
+`typeck/unsized_place_mentions` (29 and 8 errors after the review rounds below; rustc
+reports 29 and 9, its borrow checker giving E0161 and E0508 for `{ *s }`). Still different: `{ *s }` and `*s;` are one
 E0208 where rustc reports E0161 and E0508; `let _: (i32, [i32]);` is E0208 (unsized
 tuples are not supported); codes, rustc's E0277/E0283/E0282/E0271 for an index are
 E0335/E0313/E0313/E0300.
@@ -2257,6 +2257,18 @@ and `rej_compare_referent_with_never` (more functions), the new
 `rej_operation_holding_its_own_result`, and three more UI cases (27 errors, rustc's 27).
 `v = 1 + v;` still compiles where rustc reports E0284 (the literal's default decides
 `v`; the same on `mainline`).
+The fourth review round: keeping every variable an ambiguity names open reported an
+operation fed by another's result again (`let x = 1u8 + w; let y = 1u8 + x;` was two
+E0313, rustc's one E0284, and a chain of three was three); now only the results on a
+cycle through the open operations and indexes stay open, the others becoming error
+types as before. A left referent compared with `!` that is not comparable (`x = &s;`
+for a struct without `PartialEq`, a tuple, an array or a slice) gets the `!` report
+("can't compare `&S` with `!`", rustc's E0277), not the incomparable one (it was E0306
+naming `&&S`, or E0107). Tests: differential `never/rej_operation_result_feeding_another`,
+`rej_index_element_feeding_operation`, two more functions in
+`rej_compare_referent_with_never`, and two more UI cases (29 errors, rustc's 29). Still
+different: a crossed cycle (`v = a[w]; w = a[v];`) is reported at `v`, where rustc names
+`w`, the `Self` of the obligation it registered first.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

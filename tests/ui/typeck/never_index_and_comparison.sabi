@@ -189,4 +189,24 @@ fn OperationHoldsItsResult() {
     v = v + 1;
 }
 
+// An operation fed by another's result is not reported again: one ambiguity, at the
+// first operand's local (rustc's E0284).
+fn OperationResultFeedsAnother() {
+    let w = Mk(); //~ ERROR E0313 type annotations needed
+    let x = 1u8 + w;
+    let y = 1u8 + x;
+}
+
+struct NotComparable {
+    F: i32,
+}
+
+// The `!` referent is the report, whatever the left referent refers to (rustc's E0277).
+fn NeverReferentOfStruct() {
+    let s = NotComparable { F: 1 };
+    let mut x = Mk();
+    let b = &x == &return; //~ ERROR E0306 can't compare `&NotComparable` with `!`
+    x = &s;
+}
+
 fn Main() {}

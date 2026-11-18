@@ -219,3 +219,19 @@
      │         ──┬──  
      │           ╰──── consider giving `v` an explicit type
 ─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:195:9 ]
+     │
+ 195 │     let w = Mk(); //~ ERROR E0313 type annotations needed
+     │         ┬  
+     │         ╰── consider giving `w` an explicit type
+─────╯
+[E0306] Error: can't compare `&NotComparable` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:208:13 ]
+     │
+ 208 │     let b = &x == &return; //~ ERROR E0306 can't compare `&NotComparable` with `!`
+     │             ──────┬──────  
+     │                   ╰──────── no implementation for `&NotComparable == !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
