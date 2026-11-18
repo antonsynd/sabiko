@@ -1,8 +1,9 @@
 //! `Debug`, Rust's `core::fmt::Debug`, so far only as the bound of the methods that
 //! print a value when they panic (`Result::unwrap` and the like). It is implemented for
 //! the types whose `{:?}` output Sabiko's printing already writes exactly: the integers,
-//! `bool` and `()`, and for `!`, which has no value to print. `Debug` is not exported, as in Rust, where it is `std::fmt::Debug`
-//! and outside the prelude; deriving it waits for #117.
+//! `bool` and `()`, and for `!`, which has no value to print. `Debug` is not exported, as
+//! in Rust, where it is `std::fmt::Debug` and outside the prelude; deriving it waits for
+//! #117.
 
 /// Formatting with `{:?}`.
 trait Debug {}

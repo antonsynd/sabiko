@@ -9,7 +9,10 @@
 
 use sabiko_span::fx::HashSet;
 
-use crate::{BasicBlock, Body, CleanupScope, StatementKind, TerminatorKind};
+use crate::{
+    BasicBlock, Body, BorrowKind, CleanupScope, Operand, Place, Rvalue, Statement, StatementKind,
+    Terminator, TerminatorKind,
+};
 
 pub fn simplify_all(bodies: &mut [Body]) {
     for body in bodies {
@@ -37,6 +40,90 @@ pub fn strip_storage_markers(bodies: &mut [Body]) {
             });
         }
         simplify_body(body);
+    }
+}
+
+/// Ends each block at its first read of a value of an uninhabited type (`!`, `&!`, a tuple
+/// holding one), which never runs: no such value exists (decision 103). The statement or
+/// call that reads it becomes a mention of each indexed place it reads up to that operand,
+/// so the bounds checks before it still run in order (`let y = e[i]` for `e: [!; 0]`
+/// panics), and the block ends in `unreachable`. Such reads are left in reachable MIR by
+/// the arm of a match on a payload of type `!` (`Some(x) => PrintLine(x)` on an
+/// `Option<!>`) and in an instance at `!` (`Some(v) => Consume((1, v))` in `Pair::<!>`);
+/// code generation has no value to give them. A two-phase borrow whose call is removed
+/// becomes an ordinary mutable borrow. Runs after borrow checking and copy forwarding;
+/// simplification then drops the blocks only the removed code reached.
+pub fn cut_uninhabited_reads(body: &mut Body) {
+    let mut changed = false;
+    for bb in 0..body.blocks.len() {
+        let data = &body.blocks[bb];
+        let reads = |ops: &[&Operand]| -> Option<Vec<Place>> {
+            let mut mentions = Vec::new();
+            for op in ops {
+                if let Some(place) = op.place().filter(|p| p.has_index()) {
+                    mentions.push(place.clone());
+                }
+                if op.ty(body).is_uninhabited() {
+                    return Some(mentions);
+                }
+            }
+            None
+        };
+        let in_statement = data.statements.iter().enumerate().find_map(|(i, s)| {
+            let StatementKind::Assign(_, rvalue) = &s.kind else {
+                return None;
+            };
+            reads(&rvalue.operands()).map(|m| (i, m, s.span))
+        });
+        let cut = in_statement.or_else(|| {
+            let term = data.terminator();
+            let ops: Vec<&Operand> = match &term.kind {
+                TerminatorKind::Call { args, .. } => args.iter().collect(),
+                TerminatorKind::SwitchInt { discr, .. } => vec![discr],
+                _ => return None,
+            };
+            reads(&ops).map(|m| (data.statements.len(), m, term.span))
+        });
+        let Some((at, mentions, span)) = cut else {
+            continue;
+        };
+        let data = &mut body.blocks[bb];
+        data.statements.truncate(at);
+        data.statements
+            .extend(mentions.into_iter().map(|place| Statement {
+                kind: StatementKind::PlaceMention(place),
+                span,
+            }));
+        data.terminator = Some(Terminator {
+            kind: TerminatorKind::Unreachable,
+            span,
+        });
+        changed = true;
+    }
+    if !changed {
+        return;
+    }
+    simplify_body(body);
+    // A two-phase borrow is activated by the call that takes it; with the call gone, it is
+    // an ordinary mutable borrow nothing uses.
+    let mut call_args = vec![false; body.locals.len()];
+    for data in &body.blocks {
+        if let TerminatorKind::Call { args, .. } = &data.terminator().kind {
+            for p in args.iter().filter_map(Operand::place) {
+                call_args[p.local.index()] = true;
+            }
+        }
+    }
+    for data in &mut body.blocks {
+        for stmt in &mut data.statements {
+            if let StatementKind::Assign(dest, Rvalue::Ref(BorrowKind::Mut { two_phase }, _)) =
+                &mut stmt.kind
+            {
+                if *two_phase && !call_args[dest.local.index()] {
+                    *two_phase = false;
+                }
+            }
+        }
     }
 }
 

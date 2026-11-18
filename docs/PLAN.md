@@ -1932,18 +1932,26 @@ whose generic argument has no value (`Option<&!>` from `Some(&Panic("x"))` in a 
 not taken, `Option<!>` and `Result<i32, !>` from `let x = Panic(..)`, `return`, `loop {}`
 or `break`, a user `W<!>` or `Stack<!>`) compiled to E0500, reported inside
 `library/core/option.sabi`. A field, payload field or parameter of a type without a value
-is now a `Unit`, as `()` is; an argument of such a type is a default `Unit`; and the code
-an instance holds for values that cannot exist (`Some(x) => Consume(x)` at `!`, `r.0` for
-`r: &(i32, !)`, `a.len()` for `a: [!; 2]`) reads and writes a scratch local where the
-uninhabited place has no storage, so the IL verifies and never runs. The prelude
-implements `Debug` for `!` (`Result<!, i32>::unwrap_err`). Six programs in
+is now a `Unit`, as `()` is. A new pass after copy forwarding
+(`simplify::cut_uninhabited_reads`) ends each block at its first read of a value of an
+uninhabited type, keeping the bounds checks before it (`e[i]` on an `[!; 0]` panics) and
+turning a two-phase borrow whose call it removes into a plain one: the arm of a match on a
+`!` payload (`Some(x) => PrintLine(x)`, `x == x`, `*q as i64` for `q: &!`) and the code an
+instance holds for values that cannot exist (`Some(v) => Consume((1, v))` at `!`) are
+`unreachable`, so no operand of an uninhabited type reaches code generation. A part with a
+value of an uninhabited place without storage (`r.0` for `r: &(i32, !)`, `a.len()` for
+`a: [!; 2]`) is reached through a scratch local, so the IL verifies and never runs. The
+prelude implements `Debug` for `!` (`Result<!, i32>::unwrap_err`). Eight programs in
 `differential/run/generics/never_*` agree with rustc (prelude methods, `?`, user structs
-and enums, a `Drop` impl, tuples, arrays and references through instances at `!`); IL
-fixture `never_instances`; run-pass `panics/unwrap_option_of_never`; the UI test
+and enums, a `Drop` impl, tuples, arrays, references, uses of a `!` payload, unsizing a
+`&[!; 2]`, two-phase calls and the bounds check of an `[!; 0]` through instances at `!`);
+IL fixture `never_instances`; run-pass `panics/unwrap_option_of_never`; the UI test
 `codegen/ref_never_payload` is gone with its error. Not fixed here: most ways of writing
-`Option<!>` without a `let` (`Some(Panic("x"))`, `Some(return 3)`) are still E0313 (#151),
-and a `match` that leaves out an arm only an uninhabited payload could reach (`Ok(v) => v`
-alone on a `Result<i32, !>`) is E0328 where rustc accepts it.
+`Option<!>` without a `let` (`Some(Panic("x"))`, `Some(return 3)`) are still E0313 (#151);
+a `match` that leaves out an arm only an uninhabited payload could reach (`Ok(v) => v`
+alone on a `Result<i32, !>`) is E0328 where rustc accepts it (#178); `s.Push(Panic("y"))`
+through an autoref'd `&mut self` fails MIR validation (#177); and `a[*q]` for `q: &!` is
+accepted and fails MIR validation where rustc rejects it (E0277).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

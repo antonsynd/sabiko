@@ -1202,7 +1202,7 @@ impl FnCx<'_, '_> {
                 }
                 _ => {}
             }
-            if place.has_index() && !ty.is_uninhabited() {
+            if place.has_index() {
                 self.addr(place, span);
                 self.op("pop", 1, 0);
             }
@@ -1507,7 +1507,7 @@ impl FnCx<'_, '_> {
     fn load(&mut self, place: &Place, span: Span) {
         let ty = place.ty(self.body);
         if types::has_no_value(&ty) {
-            if place.has_index() && !ty.is_uninhabited() {
+            if place.has_index() {
                 // Nothing to read, but the index is still checked.
                 self.addr(place, span);
                 self.op("pop", 1, 0);
@@ -1585,8 +1585,8 @@ impl FnCx<'_, '_> {
                 Slot::Arg(i) => self.short("ldarga", i, 0, 1),
                 Slot::Local(i) => self.ldloca(i),
                 Slot::None if self.body.locals[place.local.index()].ty.is_uninhabited() => {
-                    let ty = place.ty(self.body);
-                    self.phantom_addr(&ty, span);
+                    let body = self.body;
+                    self.phantom_addr(&body.locals[place.local.index()].ty, span);
                 }
                 Slot::None => {
                     self.cx.unsupported("a borrow of a `()` value", span);
@@ -1711,11 +1711,10 @@ impl FnCx<'_, '_> {
 
     /// Like [`Self::operand`], for a position that needs a value even for `()` (a call
     /// argument, a tuple element): a `()` operand pushes a default `Sabiko.Runtime.Unit`
-    /// instead of nothing. Reading a `()` place has no effect, so none is read. So does an
-    /// operand of an uninhabited type, which only an instance at `!` reaches and nothing
-    /// runs (decision 103).
+    /// instead of nothing. Reading a `()` place has no effect, so none is read. No operand
+    /// of an uninhabited type gets here: MIR ends a block before reading one (decision 103).
     fn operand_value(&mut self, operand: &Operand, span: Span) {
-        if types::has_no_value(&operand.ty(self.body)) {
+        if types::is_unit_like(&operand.ty(self.body)) {
             let unit = self.scratch(&Ty::Unit, span);
             self.ldloc(unit);
         } else {

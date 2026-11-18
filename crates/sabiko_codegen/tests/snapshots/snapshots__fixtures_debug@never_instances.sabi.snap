@@ -9,6 +9,16 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
 .assembly 'never_instances' { .ver 0:0:0:0 }
 .module 'never_instances.dll'
 
+.class public sequential ansi sealed beforefieldinit 'core::Option<!>' extends [System.Runtime]System.ValueType
+{
+  .class nested public sequential ansi sealed beforefieldinit 'SomePayload' extends [System.Runtime]System.ValueType
+  {
+    .field public valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit 'Item1'
+  }
+  .field public int32 'Tag'
+  .field public valuetype 'core::Option<!>'/'SomePayload' 'Some'
+}
+
 .class public sequential ansi sealed beforefieldinit 'core::Option<&!>' extends [System.Runtime]System.ValueType
 {
   .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor() = ( 01 00 00 00 )
@@ -67,16 +77,6 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
 
 }
 
-.class public sequential ansi sealed beforefieldinit 'core::Option<!>' extends [System.Runtime]System.ValueType
-{
-  .class nested public sequential ansi sealed beforefieldinit 'SomePayload' extends [System.Runtime]System.ValueType
-  {
-    .field public valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit 'Item1'
-  }
-  .field public int32 'Tag'
-  .field public valuetype 'core::Option<!>'/'SomePayload' 'Some'
-}
-
 .class public sequential ansi sealed beforefieldinit 'core::Option<&(i32, !)>' extends [System.Runtime]System.ValueType
 {
   .custom instance void [System.Runtime]System.Runtime.CompilerServices.IsByRefLikeAttribute::.ctor() = ( 01 00 00 00 )
@@ -91,6 +91,56 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
 
 .class public abstract auto ansi sealed beforefieldinit 'NeverInstances' extends [System.Runtime]System.Object
 {
+  .method public hidebysig static void 'PrintPayload'(bool 'c') cil managed
+  {
+    .maxstack 2
+    .locals init (
+      [0] valuetype 'core::Option<!>' 'o',
+      [1] native int '_7'
+    )
+  BB0:
+    ldarg.0
+    brfalse BB2
+  BB1:
+    ldstr "x"
+    call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
+    ldstr "never_instances.sabi:28:17"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
+  BB2:
+    ldloca.s 0
+    initobj 'core::Option<!>'
+    ldloca.s 0
+    ldc.i4.0
+    stfld int32 'core::Option<!>'::'Tag'
+  BB3:
+    ldloca.s 0
+    ldfld int32 'core::Option<!>'::'Tag'
+    conv.i
+    stloc.1
+    ldloc.1
+    ldc.i4.1
+    conv.i
+    beq BB5
+  BB4:
+    ldloc.1
+    brfalse BB6
+  BB7:
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
+  BB6:
+    ldc.i4.0
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
+    ret
+  BB5:
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
+  }
+
   .method public hidebysig static void 'Main'() cil managed
   {
     .maxstack 2
@@ -98,7 +148,9 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
       [0] bool 'c',
       [1] valuetype 'core::Option<&!>' 'o',
       [2] valuetype 'core::Option<!>' 'n',
-      [3] valuetype 'core::Option<&(i32, !)>' 'b'
+      [3] valuetype 'core::Option<&(i32, !)>' 'b',
+      [4] valuetype '[!; 0]' 'e',
+      [5] valuetype '[!; 0]' '$tmp0'
     )
   BB0:
     ldc.i4.0
@@ -108,7 +160,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
   BB1:
     ldstr "x"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
-    ldstr "never_instances.sabi:26:26"
+    ldstr "never_instances.sabi:46:26"
     call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
     ldnull
@@ -130,7 +182,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
   BB6:
     ldstr "x"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
-    ldstr "never_instances.sabi:29:17"
+    ldstr "never_instances.sabi:49:17"
     call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
     ldnull
@@ -152,7 +204,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
   BB11:
     ldstr "x"
     call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
-    ldstr "never_instances.sabi:36:17"
+    ldstr "never_instances.sabi:56:17"
     call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
     ldnull
@@ -169,6 +221,37 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
   BB14:
     call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
   BB15:
+    ldloc.0
+    call void 'NeverInstances'::'PrintPayload'(bool)
+  BB16:
+    ldloc.0
+    brfalse BB18
+  BB17:
+    ldstr "x"
+    call valuetype [System.Runtime]System.ReadOnlySpan`1<char> [System.Runtime]System.String::op_Implicit(string)
+    ldstr "never_instances.sabi:64:17"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Panic::Fail(valuetype [System.Runtime]System.ReadOnlySpan`1<char>, string)
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
+  BB18:
+    ldloca.s 5
+    initobj '[!; 0]'
+    ldloc.s 5
+    stloc.s 4
+  BB19:
+    ldloc.0
+    brfalse BB21
+  BB20:
+    ldloc.s 4
+    ldc.i4.0
+    conv.u
+    call int32 'NeverInstances'::'Index<!>'(valuetype '[!; 0]', native uint)
+  BB22:
+    call void [Sabiko.Runtime]Sabiko.Runtime.Console::PrintLine(int32)
+  BB23:
+    ret
+  BB21:
     ret
   }
 
@@ -176,8 +259,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
   {
     .maxstack 2
     .locals init (
-      [0] native int '_3',
-      [1] valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit '$tmp0'
+      [0] native int '_3'
     )
   BB0:
     ldarga.s 0
@@ -187,31 +269,28 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
     ldloc.0
     ldc.i4.1
     conv.i
-    beq BB3
-  BB2:
+    beq BB2
+  BB1:
     ldloc.0
-    brfalse BB4
-  BB5:
+    brfalse BB3
+  BB4:
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
     ldnull
     throw
-  BB4:
+  BB3:
     ldc.i4.2
     ret
-  BB3:
-  BB1:
-  BB6:
-    ldloc.1
-    call int32 'NeverInstances'::'Consume<!>'(valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit)
-    ret
+  BB2:
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
   }
 
   .method public hidebysig static int32 'FirstOf<!>'(valuetype 'core::Option<&(i32, !)>' 'o') cil managed
   {
     .maxstack 2
     .locals init (
-      [0] native int '_3',
-      [1] valuetype [System.Runtime]System.ValueTuple`2<int32, valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit> '$tmp0'
+      [0] native int '_3'
     )
   BB0:
     ldarga.s 0
@@ -221,22 +300,59 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
     ldloc.0
     ldc.i4.1
     conv.i
-    beq BB3
-  BB2:
+    beq BB2
+  BB1:
     ldloc.0
-    brfalse BB4
-  BB5:
+    brfalse BB3
+  BB4:
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
     ldnull
     throw
-  BB4:
+  BB3:
     ldc.i4.6
     ret
-  BB3:
-  BB1:
+  BB2:
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
+  }
+
+  .method public hidebysig static int32 'Index<!>'(valuetype '[!; 0]' 'a', native uint 'i') cil managed
+  {
+    .maxstack 3
+    .locals init (
+      [0] native uint '_4',
+      [1] valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit> '$tmp0'
+    )
+  BB0:
+    ldarg.1
+    stloc.0
+    ldarga.s 0
+    pop
     ldloca.s 1
-    ldfld !0 valuetype [System.Runtime]System.ValueTuple`2<int32, valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>::Item1
-    ret
+    initobj valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>
+    ldloc.1
+    stloc.1
+    ldloc.0
+    ldc.i4.0
+    conv.i
+    blt.un L1
+    ldc.i4.0
+    conv.u
+    ldloc.0
+    ldstr "never_instances.sabi:40:13"
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::IndexOutOfBounds(native uint, native uint, string)
+    ldnull
+    throw
+  L1:
+    ldloca.s 1
+    ldloc.0
+    conv.i4
+    call instance !0& valuetype [System.Runtime]System.Span`1<valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit>::get_Item(int32)
+    pop
+    call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
+    ldnull
+    throw
   }
 
   .method public hidebysig static int32 'Consume<!>'(valuetype [Sabiko.Runtime]Sabiko.Runtime.Unit 'x') cil managed
@@ -274,4 +390,10 @@ input_file: crates/sabiko_codegen/tests/fixtures/never_instances.sabi
     ldloc.0
     ret
   }
+}
+
+.class public sequential ansi sealed beforefieldinit '[!; 0]' extends [System.Runtime]System.ValueType
+{
+  .pack 0
+  .size 1
 }

@@ -481,13 +481,18 @@ local, is a `Unit` as a parameter or tuple element and `void` as a return type, 
 through it reads nothing. `!` and references to it are lowered the same way where a
 generic instance needs storage for one (decision 103): the `Some` payload of an
 `Option<&!>` or `Option<!>`, the `Err` payload of a `Result<i32, !>`, a field of a user
-`W<!>` and a parameter of `F::<!>` are `Unit`s nothing writes or reads, and an argument of
-such a type is a default `Unit`. A tuple or array with an uninhabited element keeps its
-layout there (`(i32, !)` is ``ValueTuple`2<int32, Unit>``). Code an instance holds for a
-value that cannot exist (the `Some(x)` arm of `Visit::<!>`) still verifies: a part with a
-value of an uninhabited place without storage (`p.0` for a local `p: (i32, !)`, `r.0` for
-`r: &(i32, !)`) is read and written through a scratch local of the place's type; it never
-runs.
+`W<!>` and a parameter of `F::<!>` are `Unit`s nothing writes or reads. A tuple or array
+with an uninhabited element keeps its layout there (`(i32, !)` is
+``ValueTuple`2<int32, Unit>``, `[!; 2]` an inline array of `Unit`). Code that reads a value
+of an uninhabited type never runs, and a block ends at the first such read (MIR, after
+copy forwarding): the read becomes a mention of the indexed places read up to it, so their
+bounds checks still run (`e[i]` for `e: [!; 0]` panics, as in rustc), then `unreachable`.
+That covers the arm of a match on a `!` payload (`Some(x) => PrintLine(x)` on an
+`Option<!>`) and the code an instance at `!` holds for a value that cannot exist
+(`Some(v) => Consume((1, v))`); no argument, operand or call of an uninhabited type reaches
+code generation. A part with a value of an uninhabited place without storage (`p.0` for a
+local `p: (i32, !)`, `r.0` for `r: &(i32, !)`, `a.len()` for `a: [!; 2]`) is reached
+through a scratch local of the place's type; it never runs either.
 
 References to references (#11, decision 64). The CLR has no pointer to a managed pointer,
 and a managed pointer can be neither a generic argument nor a field of anything but a
