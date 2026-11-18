@@ -2199,7 +2199,13 @@ at an unannotated `let`, a literal or tuple statement, an operator (`{ x + 1 }`,
 }`, `{ !c }`), an index, a field of a type with a variable (`{ p.0 }`), and a tuple,
 array, reference or struct literal as the value (`{ (t, t) }`, `{ &t }`), so with
 `T: Mk<i32>` and a blanket `Mk<A>` block, `Mk::Mk(&t, { (t, t) })` is E0308 in rustc and
-compiles here. Error counts: several mismatching `match` arms are one error per arm
+compiles here. Also as on mainline (#204): an unsuffixed integer literal and an operator
+take the parameter's variable as their type while they are checked (`check_lit` takes the
+expectation eagerly), so with `T: Mk<bool>` the arguments `5`, `(5)`, `-5`, `{ 5 }`,
+`loop { break 5; }` and `x + 1` compile where rustc reports E0308; and a tuple argument
+is checked against a bare variable, so `Mk::Mk(&s, (sl, &arr))` under `impl<U: Copy>
+Mk<(U, U)> for S` does not unsize `&arr` (E0300, mainline E0341; rustc accepts). Error
+counts: several mismatching `match` arms are one error per arm
 where rustc reports the first (older). Not supported, as before: `<T as
 From<_>>::from(t)` and `where i32: From<T>` (E0107).
 

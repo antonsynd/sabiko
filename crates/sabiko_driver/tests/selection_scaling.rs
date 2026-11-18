@@ -11,7 +11,7 @@
 //! of hanging the test run.
 
 use std::fmt::Write as _;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use sabiko_driver::{compile_str, Options, Stage};
@@ -19,10 +19,11 @@ use sabiko_driver::{compile_str, Options, Stage};
 const BOUND: Duration = Duration::from_secs(20);
 
 /// Type-checks `src`, which must compile, on a thread of its own: fails when it reports
-/// a diagnostic or takes longer than [`BOUND`] (a loop is left running, detached).
+/// a diagnostic or takes longer than [`BOUND`] (a loop is left running, detached). A
+/// panic in the type checker is passed on as it is.
 fn type_check_within_bound(what: &str, src: String) {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let worker = std::thread::spawn(move || {
         let options = Options {
             stop_after: Stage::Typeck,
             ..Options::default()
@@ -36,8 +37,14 @@ fn type_check_within_bound(what: &str, src: String) {
             .collect();
         let _ = tx.send((codes, start.elapsed()));
     });
-    let Ok((codes, elapsed)) = rx.recv_timeout(BOUND) else {
-        panic!("{what} did not type-check within {BOUND:?}");
+    let (codes, elapsed) = match rx.recv_timeout(BOUND) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => panic!("{what} did not type-check within {BOUND:?}"),
+        // The worker ended without sending: it panicked.
+        Err(RecvTimeoutError::Disconnected) => match worker.join() {
+            Err(payload) => std::panic::resume_unwind(payload),
+            Ok(()) => panic!("{what}: the type checker ended without a result"),
+        },
     };
     assert!(codes.is_empty(), "{what}: {codes:?}");
     assert!(elapsed < BOUND, "{what} took {elapsed:?} to type-check");
