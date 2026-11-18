@@ -365,6 +365,9 @@ pub(crate) struct FnCtxt<'a> {
     /// The function's signature, from its name to its return type, while a function's
     /// body is checked; `None` for a constant.
     fn_span: Option<Span>,
+    /// Whether the body is the `core` prelude's: the traits in scope are the prelude's
+    /// (decision 100), so a user trait never changes what prelude code calls.
+    in_prelude: bool,
 }
 
 impl<'a> FnCtxt<'a> {
@@ -428,7 +431,22 @@ impl<'a> FnCtxt<'a> {
             try_roots: HashMap::default(),
             incomplete_bounds: false,
             fn_span: None,
+            in_prelude: false,
         }
+    }
+
+    /// Checks a body of the item `def`: with the traits in scope where `def` is defined,
+    /// the user's file or the prelude (decision 100).
+    pub(crate) fn for_item(self, def: DefId) -> Self {
+        let in_prelude = self.resolve.is_prelude(def);
+        self.in_prelude(in_prelude)
+    }
+
+    /// Checks a body of the prelude (`true`) or of the program: which traits are in scope
+    /// (decision 100). A checker without it or [`Self::for_item`] checks a program's.
+    pub(crate) fn in_prelude(mut self, in_prelude: bool) -> Self {
+        self.in_prelude = in_prelude;
+        self
     }
 
     /// Gives the checker the evaluated constants, so array lengths can be evaluated.
@@ -457,6 +475,7 @@ impl<'a> FnCtxt<'a> {
             .with_consts(consts);
         cx.env.clone_from(&self.env);
         cx.self_ty.clone_from(&self.self_ty);
+        cx.in_prelude = self.in_prelude;
         let body = cx.check_const(len);
         if body.has_errors {
             return None;
@@ -465,6 +484,7 @@ impl<'a> FnCtxt<'a> {
     }
 
     pub(crate) fn check_fn(mut self, f: &FnDecl, def: DefId) -> BodyTypes {
+        self.in_prelude = self.resolve.is_prelude(def);
         let Some(body) = &f.body else {
             // A required method of a trait has nothing to check.
             return self.finish();
@@ -502,6 +522,7 @@ impl<'a> FnCtxt<'a> {
     /// The value of the constant `def` of a trait or of a trait `impl` block (#116),
     /// checked where the bounds of its trait (`Self: Trait`) or block hold.
     pub(crate) fn check_assoc_const(mut self, value: &Expr, def: DefId) -> BodyTypes {
+        self.in_prelude = self.resolve.is_prelude(def);
         self.env = self.items.param_env(def).to_vec();
         if self.resolve.parent_kind(def) == Some(DefKind::Impl) {
             let imp = self.resolve.def(def).parent.expect("a parent");
@@ -1504,7 +1525,12 @@ impl<'a> FnCtxt<'a> {
         if !matches!(ty, Ty::Array(..) | Ty::Slice(_) | Ty::Prim(PrimTy::Str)) {
             return None;
         }
-        if method.name != "len" && !self.resolve.trait_items_named(&method.name).is_empty() {
+        if method.name != "len"
+            && !self
+                .resolve
+                .trait_items_in_scope(&method.name, self.in_prelude)
+                .is_empty()
+        {
             // A trait's method, which the probe finds (or reports).
             return None;
         }
@@ -3602,7 +3628,10 @@ impl<'a> FnCtxt<'a> {
     /// first): for `Trait::Name` the resolver's, at a `Self` inference finds and the
     /// arguments written after the trait (`From::<u8>::from`) or inferred; for a type `A`,
     /// the one among the traits with a member `Name` that `A` may implement at some
-    /// arguments (E0319 when none does, E0342, rustc's E0034, when several do).
+    /// arguments (E0319 when none does, E0342, rustc's E0034, when several do). As in
+    /// rustc's probe, a type parameter's bounds come first (its inherent candidates), then
+    /// the traits in scope where the body is (decision 100): in a prelude body
+    /// `U::from(self)` is the bound `U: From<T>`'s, whatever traits the user's file has.
     fn select_trait_item(
         &mut self,
         node: NodeId,
@@ -3632,14 +3661,20 @@ impl<'a> FnCtxt<'a> {
             return Some((def, args));
         }
         let name = self.resolve.def(def).name.clone();
-        let mut found: Vec<(DefId, Vec<Ty>)> = Vec::new();
-        for m in self.resolve.trait_items_named(&name) {
-            let tr = self.resolve.def(m).parent.expect("a trait member");
-            let args = self.fresh_trait_args(tr);
-            if self.may_implement(&self_ty, tr, &args) {
-                let mut all = vec![self_ty.clone()];
-                all.extend(args);
-                found.push((m, all));
+        let named = self.resolve.trait_items_named(&name);
+        let mut found = self.bound_candidates(&named, &self_ty);
+        if found.is_empty() {
+            for m in named {
+                let tr = self.resolve.def(m).parent.expect("a trait member");
+                if !self.resolve.trait_in_scope(tr, self.in_prelude) {
+                    continue;
+                }
+                let args = self.fresh_trait_args(tr);
+                if self.may_implement(&self_ty, tr, &args) {
+                    let mut all = vec![self_ty.clone()];
+                    all.extend(args);
+                    found.push((m, all));
+                }
             }
         }
         let shown = self.ty_str(&self_ty);
@@ -3664,6 +3699,36 @@ impl<'a> FnCtxt<'a> {
                 None
             }
         }
+    }
+
+    /// The members among `members` that a bound in scope on the type parameter `self_ty`
+    /// provides (elaborated through supertraits), with `Self` and fresh trait arguments:
+    /// rustc's inherent candidates of a type parameter, which its probe tries before the
+    /// traits in scope. Empty when `self_ty` is no type parameter.
+    fn bound_candidates(&mut self, members: &[DefId], self_ty: &Ty) -> Vec<(DefId, Vec<Ty>)> {
+        if !matches!(self_ty, Ty::Param(_)) {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        for &m in members {
+            let tr = self.resolve.def(m).parent.expect("a trait member");
+            let args = self.fresh_trait_args(tr);
+            let bounds = self.env_candidates(self_ty, tr, &args);
+            if !bounds.is_empty() {
+                // One bound of the trait fixes its arguments, as rustc's where-clause
+                // candidate does: `T::from(t)` under `T: From<i32>` takes an `i32` (#181).
+                if let [only] = bounds.as_slice() {
+                    for (arg, bound) in args.iter().zip(only) {
+                        // The probe in `env_candidates` showed these unify.
+                        let _ = self.infer.unify(arg, bound);
+                    }
+                }
+                let mut all = vec![self_ty.clone()];
+                all.extend(args);
+                found.push((m, all));
+            }
+        }
+        found
     }
 
     /// A fresh inference variable for each of the trait `tr`'s own parameters: a trait
@@ -4026,19 +4091,39 @@ impl<'a> FnCtxt<'a> {
             "multiple applicable items in scope",
         )
         .with_label(span, format!("multiple `{name}` found"));
-        for (i, &m) in candidates.iter().enumerate() {
-            let tr = self.resolve.def(m).parent.expect("a trait member");
+        let traits: Vec<DefId> = candidates
+            .iter()
+            .map(|&m| self.resolve.def(m).parent.expect("a trait member"))
+            .collect();
+        for (i, (&m, &tr)) in candidates.iter().zip(&traits).enumerate() {
             let trait_name = &self.resolve.def(tr).name;
+            // A prelude trait beside a program trait of the same name, which hides its name
+            // in the program (decision 100): Sabiko has no path to it yet.
+            let hidden = !self.in_prelude
+                && self.resolve.is_prelude(tr)
+                && traits.iter().any(|&other| {
+                    !self.resolve.is_prelude(other) && self.resolve.def(other).name == *trait_name
+                });
+            let (whose, note) = if hidden {
+                (
+                    "the prelude's trait",
+                    format!(
+                        "the prelude's `{trait_name}` cannot be named here: the program's `{trait_name}` hides its name"
+                    ),
+                )
+            } else {
+                (
+                    "the trait",
+                    format!(
+                        "disambiguate it with the trait's path: `{trait_name}::{name}(..)` for `{shown}`"
+                    ),
+                )
+            };
             d = d.with_label(
                 self.resolve.def(m).span,
-                format!(
-                    "candidate #{} is defined in the trait `{trait_name}`",
-                    i + 1
-                ),
+                format!("candidate #{} is defined in {whose} `{trait_name}`", i + 1),
             );
-            d = d.with_note(format!(
-                "disambiguate it with the trait's path: `{trait_name}::{name}(..)` for `{shown}`"
-            ));
+            d = d.with_note(note);
         }
         self.error(d);
     }
@@ -4316,11 +4401,12 @@ impl<'a> FnCtxt<'a> {
     /// the receiver is dereferenced step by step (`&&P`, `&P`, `P`), and at each step the
     /// step's type is tried by value, then as `&step`, then as `&mut step`, against the
     /// receiver type of each candidate: the inherent method of the innermost struct or
-    /// enum first, then the methods named `name` of every trait the candidate's `Self`
-    /// implements (a bound in scope for a type parameter), decision 84. Several traits at
-    /// one step are E0342 (rustc's E0034). Returns the callee and the generic arguments
-    /// of its block or trait: the receiver type's for an inherent method, `Self` for a
-    /// trait's. Reports and returns `None` when nothing matches.
+    /// enum first, then those of the bounds on a type parameter, then the methods named
+    /// `name` of every trait in scope (decision 100) the candidate's `Self` implements,
+    /// decision 84. Several traits at one step are E0342 (rustc's E0034). Returns the
+    /// callee and the generic arguments of its block or trait: the receiver type's for an
+    /// inherent method, `Self` for a trait's. Reports and returns `None` when nothing
+    /// matches.
     #[allow(clippy::too_many_lines)]
     fn probe_method(
         &mut self,
@@ -4337,11 +4423,21 @@ impl<'a> FnCtxt<'a> {
             steps.push(*inner);
         }
         let base = steps.last().expect("one step").clone();
-        let trait_methods: Vec<DefId> = self
+        // The methods of that name: of any trait for a type parameter's bounds, of the
+        // traits in scope otherwise.
+        let bound_methods: Vec<DefId> = self
             .resolve
             .trait_items_named(&name.name)
             .into_iter()
             .filter(|&m| self.items.fn_sig(m).self_kind.is_some())
+            .collect();
+        let trait_methods: Vec<DefId> = bound_methods
+            .iter()
+            .copied()
+            .filter(|&m| {
+                let tr = self.resolve.def(m).parent.expect("a trait member");
+                self.resolve.trait_in_scope(tr, self.in_prelude)
+            })
             .collect();
         match base {
             Ty::Error => return None,
@@ -4411,23 +4507,26 @@ impl<'a> FnCtxt<'a> {
                     // needs a block for an unsized type, which is not supported yet.
                     continue;
                 }
-                let mut found: Vec<(DefId, Vec<Ty>)> = Vec::new();
-                for &m in &trait_methods {
-                    let tr = self.resolve.def(m).parent.expect("a trait member");
-                    let self_ty = match self.items.fn_sig(m).self_kind {
-                        Some(sabiko_ast::SelfKind::Ref { mutable }) => match &adjusted {
-                            Ty::Ref(mm, inner) if *mm == Mutability::from_bool(mutable) => {
-                                (**inner).clone()
-                            }
-                            _ => continue,
-                        },
-                        _ => adjusted.clone(),
-                    };
-                    let args = self.fresh_trait_args(tr);
-                    if self.may_implement(&self_ty, tr, &args) {
-                        let mut all = vec![self_ty];
-                        all.extend(args);
-                        found.push((m, all));
+                // A type parameter's bounds are inherent candidates in rustc's probe:
+                // tried before the traits in scope at each step.
+                let mut found = Vec::new();
+                for &m in &bound_methods {
+                    if let Some(self_ty) = self.method_self_ty(m, &adjusted) {
+                        found.extend(self.bound_candidates(&[m], &self_ty));
+                    }
+                }
+                if found.is_empty() {
+                    for &m in &trait_methods {
+                        let tr = self.resolve.def(m).parent.expect("a trait member");
+                        let Some(self_ty) = self.method_self_ty(m, &adjusted) else {
+                            continue;
+                        };
+                        let args = self.fresh_trait_args(tr);
+                        if self.may_implement(&self_ty, tr, &args) {
+                            let mut all = vec![self_ty];
+                            all.extend(args);
+                            found.push((m, all));
+                        }
                     }
                 }
                 match found.as_slice() {
@@ -4444,6 +4543,21 @@ impl<'a> FnCtxt<'a> {
         }
         self.method_not_found(recv_ty, &base, name, &trait_methods);
         None
+    }
+
+    /// The `Self` the trait method `m` has when called on a receiver of type `adjusted`:
+    /// the type itself for `self`, the referent for `&self` (`&mut self`) when `adjusted`
+    /// is such a reference; `None` when the receiver does not fit.
+    fn method_self_ty(&self, m: DefId, adjusted: &Ty) -> Option<Ty> {
+        match self.items.fn_sig(m).self_kind {
+            Some(sabiko_ast::SelfKind::Ref { mutable }) => match adjusted {
+                Ty::Ref(mm, inner) if *mm == Mutability::from_bool(mutable) => {
+                    Some((**inner).clone())
+                }
+                _ => None,
+            },
+            _ => Some(adjusted.clone()),
+        }
     }
 
     /// The inherent method `name` of `base` taking a receiver (`self`, `&self`, ...), with

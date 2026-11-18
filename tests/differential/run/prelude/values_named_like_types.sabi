@@ -1,0 +1,34 @@
+// A function takes only the value namespace (#152, decision 100): `Option`, `Result`,
+// `From` and `Into` stay the prelude's types and traits beside functions of those names,
+// and a struct with named fields named like a builtin leaves the builtin callable.
+fn Option() -> i32 {
+    3
+}
+
+fn Result() -> i32 {
+    4
+}
+
+fn From() -> i64 {
+    20
+}
+
+fn Into() -> i64 {
+    30
+}
+
+struct PrintLine {
+    a: i32,
+}
+
+fn Main() {
+    let x: Option<i32> = Some(Option());
+    PrintLine(x.unwrap());
+    let r: Result<i32, bool> = Ok(Result());
+    PrintLine(r.unwrap());
+    let w = i64::from(5i32);
+    let v: i64 = 6i32.into();
+    PrintLine(w + v + From() + Into());
+    let p = PrintLine { a: 7 };
+    PrintLine(p.a);
+}

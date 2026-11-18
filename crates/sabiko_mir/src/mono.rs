@@ -326,9 +326,9 @@ impl<'a> DeferredBodies<'a> {
     }
 
     /// The body of `def` if it is a deferred function of the prelude reached for the first
-    /// time and its body builds. Its diagnostics (none, unless the compiler has a bug or a
-    /// program confuses the prelude's method resolution, #173) go to `sink` with the
-    /// user's call that reached it, as an instance's do.
+    /// time and its body builds. Its diagnostics (none, unless the compiler has a bug: a
+    /// program's items do not change what prelude code calls, decision 100) go to `sink`
+    /// with the user's call that reached it, as an instance's do.
     fn build(&mut self, def: DefId, origin: Origin, sink: &mut DiagnosticSink) -> Option<Body> {
         let (resolve, typeck) = (self.resolve, self.typeck);
         if !resolve.is_prelude(def) {
