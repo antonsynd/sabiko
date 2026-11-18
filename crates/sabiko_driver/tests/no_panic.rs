@@ -274,26 +274,20 @@ fn from_monomorphisation(d: &sabiko_diagnostics::Diagnostic) -> bool {
 }
 
 /// A prelude body is type-checked only where monomorphisation reaches it (decision 98),
-/// so an error in it appears in the IL run and not the MIR run, and `compile` must not
-/// count that as the front end differing. The error itself is #173: a program's trait
-/// with an associated `from` and an unbounded blanket block makes the prelude `Into`
-/// body's `U::from(self)` ambiguous, which rustc accepts (it prints 5).
+/// so an error in it would appear in the IL run and not the MIR run, and `compile` must
+/// not count that as the front end differing. The one known program that caused such an
+/// error was #173's: a program's trait with an associated `from` and an unbounded blanket
+/// block made the prelude `Into` body's `U::from(self)` ambiguous. Since decision 100 a
+/// prelude body sees only the prelude's traits and prefers its bounds, so it compiles, as
+/// in rustc (which prints 5).
 #[test]
-fn deferred_prelude_body_errors_are_monomorphisations() {
+fn deferred_prelude_bodies_ignore_program_traits() {
     let src = "trait Conv<T> { fn from(v: T) -> Self; }\n\
                impl<T> Conv<T> for T { fn from(v: T) -> T { v } }\n\
                fn Main() { let x: i64 = 5i32.into(); PrintLine(x); }\n";
     let il_run = compile(src);
-    // TODO(#173): once the prelude's method resolution prefers the where clause, this
-    // program compiles and the case needs another error inside a deferred body.
-    assert!(
-        il_run
-            .diagnostics
-            .iter()
-            .any(|d| d.code.0 == 342 && from_monomorphisation(d)),
-        "{:?}",
-        il_run.diagnostics
-    );
+    assert!(il_run.diagnostics.is_empty(), "{:?}", il_run.diagnostics);
+    assert!(!il_run.output.is_empty());
 }
 
 fn check(src: &str) {

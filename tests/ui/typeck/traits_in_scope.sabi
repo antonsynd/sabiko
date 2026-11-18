@@ -1,0 +1,54 @@
+// Sabiko codes for rustc's: E0342 for E0034.
+// The traits in scope in a program are its own and the prelude's, even one whose name a
+// program item hides, as in rustc (decision 100): a program trait `From` with a blanket
+// impl makes `i64::from` ambiguous with the prelude's `From`, and a program trait with a
+// method `into` makes `.into()` ambiguous with the prelude's `Into`. On a type parameter,
+// the bounds come first, and two bounds providing one name are ambiguous between them.
+trait From<T> {
+    fn from(value: T) -> Self;
+}
+
+impl<T> From<T> for T {
+    fn from(t: T) -> T {
+        t
+    }
+}
+
+trait MyInto {
+    fn into(self) -> i64;
+}
+
+impl<T> MyInto for T {
+    fn into(self) -> i64 {
+        7
+    }
+}
+
+trait A {
+    fn Val(&self) -> i32;
+}
+
+trait B {
+    fn Val(&self) -> i32;
+}
+
+impl<T> A for T {
+    fn Val(&self) -> i32 {
+        1
+    }
+}
+
+impl<T> B for T {
+    fn Val(&self) -> i32 {
+        2
+    }
+}
+
+fn Both<T: A + B>(x: T) -> i32 {
+    x.Val() //~ ERROR E0342 multiple applicable items in scope
+}
+
+fn Main() {
+    let x = i64::from(5i32); //~ ERROR E0342 multiple applicable items in scope
+    let y: i64 = 5i32.into(); //~ ERROR E0342 multiple applicable items in scope
+}

@@ -1,0 +1,71 @@
+// A type parameter is only a type (decision 100): a value of its name in scope, the
+// prelude's `None`, `Ok` or `Some`, a function, a constant, a unit struct or a builtin, is
+// still that value inside the item, in expressions and in patterns.
+trait Tr {
+    fn M(&self) -> Option<i32>;
+}
+
+impl<Some> Tr for Option<Some> {
+    fn M(&self) -> Option<i32> {
+        Some(3)
+    }
+}
+
+fn X() -> i32 {
+    4
+}
+
+const C: i32 = 6;
+
+struct U;
+
+fn NoneParam<None>(x: None) -> i32 {
+    let y: Option<i32> = None;
+    y.unwrap_or(7)
+}
+
+fn OkParam<Ok>(x: Ok) -> i32 {
+    let y: Result<i32, i32> = Ok(1);
+    y.unwrap()
+}
+
+fn SomeParam<Some>(x: Some, o: Option<i32>) -> i32 {
+    match o {
+        Some(v) => v,
+        None => 0,
+    }
+}
+
+fn SomeType<Some>(x: Some) -> Option<Some> {
+    Some(x)
+}
+
+fn FnParam<X>(x: X) -> i32 {
+    X()
+}
+
+fn ConstParam<C>(x: C) -> i32 {
+    C
+}
+
+fn UnitParam<U>(x: U) -> i32 {
+    let u = U;
+    8
+}
+
+fn BuiltinParam<PrintLine>(x: PrintLine) {
+    PrintLine(9);
+}
+
+fn Main() {
+    PrintLine(NoneParam(true));
+    PrintLine(OkParam(2u8));
+    PrintLine(SomeParam(1, Some(5)));
+    let o: Option<bool> = None;
+    PrintLine(o.M().unwrap());
+    PrintLine(SomeType(11).unwrap());
+    PrintLine(FnParam(true));
+    PrintLine(ConstParam(true));
+    PrintLine(UnitParam(true));
+    BuiltinParam(1);
+}

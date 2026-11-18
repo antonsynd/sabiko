@@ -102,8 +102,8 @@ impl TypeckResults {
     /// postcondition that a type left unknown had its error reported. Monomorphisation
     /// calls this for the bodies a program reaches. The prelude is the compiler's own,
     /// valid code ([`typeck_with_prelude_bodies`] checks every body of it, in a test), so
-    /// `sink` receives nothing unless the compiler has a bug, or a program's trait makes
-    /// the prelude's method resolution ambiguous (#173).
+    /// `sink` receives nothing unless the compiler has a bug: a program's items do not
+    /// change what the prelude's code names or calls (decision 100).
     ///
     /// # Panics
     ///
@@ -450,7 +450,7 @@ fn check_const_bodies(
                     continue;
                 };
                 let ty = items0.const_ty(def).clone();
-                let cx = check::FnCtxt::new(resolve, items0, sink, ty);
+                let cx = check::FnCtxt::new(resolve, items0, sink, ty).for_item(def);
                 let body = if consts::is_assoc_const(resolve, def) {
                     cx.check_assoc_const(value, def)
                 } else {
@@ -465,7 +465,8 @@ fn check_const_bodies(
                         continue;
                     };
                     if let Some(vdef) = variant_def(resolve, def, v) {
-                        let cx = check::FnCtxt::new(resolve, items0, sink, Ty::Prim(PrimTy::Isize));
+                        let cx = check::FnCtxt::new(resolve, items0, sink, Ty::Prim(PrimTy::Isize))
+                            .for_item(def);
                         const_types.insert(vdef, cx.check_const(d));
                     }
                 }
@@ -503,76 +504,99 @@ fn signature_lens(
 ) -> collect::ArrayLens {
     let (resolve, items0) = (consts.resolve, consts.items);
     let mut types: Vec<&sabiko_ast::Type> = Vec::new();
-    for item in file.all_items() {
-        match &item.kind {
-            ItemKind::Fn(f) => {
-                types.extend(f.params.iter().map(|p| &p.ty));
-                types.extend(f.ret.iter());
-                types.extend(bound_args(&f.generics, &f.where_clause));
-            }
-            ItemKind::Struct(s) => {
-                if let sabiko_ast::StructKind::Named(fields) = &s.kind {
-                    types.extend(fields.iter().map(|f| &f.ty));
-                }
-            }
-            ItemKind::Enum(e) => {
-                for v in &e.variants {
-                    match &v.data {
-                        sabiko_ast::VariantData::Unit => {}
-                        sabiko_ast::VariantData::Tuple(tys) => types.extend(tys.iter()),
-                        sabiko_ast::VariantData::Named(fields) => {
-                            types.extend(fields.iter().map(|f| &f.ty));
-                        }
-                    }
-                }
-            }
-            ItemKind::Const(c) => types.push(&c.ty),
-            ItemKind::Impl(imp) => {
-                types.push(&imp.self_ty);
-                types.extend(imp.trait_ref.iter().flat_map(trait_args));
-                types.extend(bound_args(&imp.generics, &imp.where_clause));
-            }
-            ItemKind::Trait(t) => {
-                types.extend(t.generics.iter().filter_map(|g| g.default.as_ref()));
-                types.extend(t.supertraits.iter().flat_map(trait_args));
-            }
-            ItemKind::Use(_) => {}
+    // Where the prelude's types start in `types`: their lengths are checked with the
+    // prelude's traits in scope (decision 100).
+    let mut prelude_types = None;
+    for (index, top) in file.items.iter().enumerate() {
+        if index == resolve.prelude_start() {
+            prelude_types = Some(types.len());
+        }
+        let members: &[sabiko_ast::Item] = match &top.kind {
+            ItemKind::Impl(imp) => &imp.items,
+            ItemKind::Trait(t) => &t.items,
+            _ => &[],
+        };
+        for item in std::iter::once(top).chain(members) {
+            signature_types(item, &mut types);
         }
     }
+    let prelude_types = prelude_types.unwrap_or(types.len());
     let mut lens = collect::ArrayLens::new();
-    let mut stack: Vec<&sabiko_ast::Type> = types.into_iter().rev().collect();
-    while let Some(ty) = stack.pop() {
-        match &ty.kind {
-            sabiko_ast::TypeKind::Array(elem, len) => {
-                let cx = check::FnCtxt::new(resolve, items0, sink, Ty::Prim(PrimTy::Usize))
-                    .with_consts(consts);
-                let body = cx.check_const(len);
-                if !body.has_errors {
-                    if let Some(n) = consts::eval_len(consts, len, &body, sink) {
-                        lens.insert(len.id, n);
+    for (index, &root) in types.iter().enumerate() {
+        let in_prelude = index >= prelude_types;
+        let mut stack = vec![root];
+        while let Some(ty) = stack.pop() {
+            match &ty.kind {
+                sabiko_ast::TypeKind::Array(elem, len) => {
+                    let cx = check::FnCtxt::new(resolve, items0, sink, Ty::Prim(PrimTy::Usize))
+                        .with_consts(consts)
+                        .in_prelude(in_prelude);
+                    let body = cx.check_const(len);
+                    if !body.has_errors {
+                        if let Some(n) = consts::eval_len(consts, len, &body, sink) {
+                            lens.insert(len.id, n);
+                        }
                     }
+                    stack.push(elem);
                 }
-                stack.push(elem);
+                sabiko_ast::TypeKind::Slice(inner) | sabiko_ast::TypeKind::Ref { inner, .. } => {
+                    stack.push(inner);
+                }
+                sabiko_ast::TypeKind::Tuple(elems) => stack.extend(elems.iter().rev()),
+                // The generic arguments of a struct or enum: `Option<[i32; 3]>` (#137).
+                sabiko_ast::TypeKind::Path(path) => {
+                    stack.extend(
+                        path.generic_args
+                            .iter()
+                            .rev()
+                            .flat_map(|a| a.args.iter().rev()),
+                    );
+                }
+                sabiko_ast::TypeKind::Unit
+                | sabiko_ast::TypeKind::Never
+                | sabiko_ast::TypeKind::Infer => {}
             }
-            sabiko_ast::TypeKind::Slice(inner) | sabiko_ast::TypeKind::Ref { inner, .. } => {
-                stack.push(inner);
-            }
-            sabiko_ast::TypeKind::Tuple(elems) => stack.extend(elems.iter().rev()),
-            // The generic arguments of a struct or enum: `Option<[i32; 3]>` (#137).
-            sabiko_ast::TypeKind::Path(path) => {
-                stack.extend(
-                    path.generic_args
-                        .iter()
-                        .rev()
-                        .flat_map(|a| a.args.iter().rev()),
-                );
-            }
-            sabiko_ast::TypeKind::Unit
-            | sabiko_ast::TypeKind::Never
-            | sabiko_ast::TypeKind::Infer => {}
         }
     }
     lens
+}
+
+/// The types written in `item`'s signature, in source order (see [`signature_lens`]).
+fn signature_types<'a>(item: &'a sabiko_ast::Item, types: &mut Vec<&'a sabiko_ast::Type>) {
+    match &item.kind {
+        ItemKind::Fn(f) => {
+            types.extend(f.params.iter().map(|p| &p.ty));
+            types.extend(f.ret.iter());
+            types.extend(bound_args(&f.generics, &f.where_clause));
+        }
+        ItemKind::Struct(s) => {
+            if let sabiko_ast::StructKind::Named(fields) = &s.kind {
+                types.extend(fields.iter().map(|f| &f.ty));
+            }
+        }
+        ItemKind::Enum(e) => {
+            for v in &e.variants {
+                match &v.data {
+                    sabiko_ast::VariantData::Unit => {}
+                    sabiko_ast::VariantData::Tuple(tys) => types.extend(tys.iter()),
+                    sabiko_ast::VariantData::Named(fields) => {
+                        types.extend(fields.iter().map(|f| &f.ty));
+                    }
+                }
+            }
+        }
+        ItemKind::Const(c) => types.push(&c.ty),
+        ItemKind::Impl(imp) => {
+            types.push(&imp.self_ty);
+            types.extend(imp.trait_ref.iter().flat_map(trait_args));
+            types.extend(bound_args(&imp.generics, &imp.where_clause));
+        }
+        ItemKind::Trait(t) => {
+            types.extend(t.generics.iter().filter_map(|g| g.default.as_ref()));
+            types.extend(t.supertraits.iter().flat_map(trait_args));
+        }
+        ItemKind::Use(_) => {}
+    }
 }
 
 /// The definition of a variant of enum `def`; `None` for a variant whose name repeats an

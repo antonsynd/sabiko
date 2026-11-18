@@ -1,0 +1,36 @@
+// Sabiko codes for rustc's: E0225 for E0530.
+// A struct with named fields or an enum hides the prelude's item of its name only as a
+// type (#152, decision 100): the prelude's tuple variants `Ok` and `Some` stay in scope
+// as values, so a binding of their name is still E0225, as in rustc. A unit struct is a
+// value too, and hides the prelude's `None` in both namespaces.
+struct Ok {
+    A: i32,
+}
+
+enum Some {
+    B,
+}
+
+struct None;
+
+fn Param(Ok: i32) {} //~ ERROR E0225 function parameters cannot shadow tuple variants
+
+fn Main() {
+    {
+        let Ok = 1; //~ ERROR E0225 let bindings cannot shadow tuple variants
+    }
+    {
+        let Some = 2; //~ ERROR E0225 let bindings cannot shadow tuple variants
+    }
+    let x = match 3 {
+        Ok => 0, //~ ERROR E0225 match bindings cannot shadow tuple variants
+    };
+    // The program's own items, in the type namespace.
+    let s: Ok = Ok { A: 1 };
+    let b: Some = Some::B;
+    // The unit struct is the value `None` here: a path pattern, not a binding.
+    let n = None;
+    match n {
+        None => {}
+    }
+}

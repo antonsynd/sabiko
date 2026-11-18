@@ -135,19 +135,24 @@ The `core` prelude (#13, decision 90): every program is compiled with Sabiko sou
 Rust's `std` prelude: `Option<T>` with its variants `Some` and `None`, and `Result<T, E>`
 with `Ok` and `Err`, named without their enum (`Some(5)`, `None`, `Ok(x)`; `Option::Some`
 and `None::<i32>` work too). A user item of the same name shadows a prelude item silently,
-as in rustc (`const None: i32 = 1;` makes `None` the constant in that file), while the
-prelude's own code keeps its own names; a lone identifier pattern naming an imported unit
-variant compares (`None => ..`), and one naming a tuple variant is E0225 (`Some => ..`,
-rustc's E0530); the resolver rewrites such an identifier into the path pattern it is. The
-prelude is a crate of its own to the user's file, so rustc's orphan rule applies to its
-types: an inherent `impl` for `Option` is E0211 (rustc's E0116), `impl Clone for
-Option<S>` or `impl Drop for Option<T>` is E0214 (E0117/E0120), and a trait of the file may
-be implemented for them. The rejected block is not used and is reported once: calls of its
-methods, and bounds it would have met, are not reported again. The prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`)
-are not visible (E0201, E0202), nor is `Debug` anywhere in Rust's prelude. Library files
-may contain `pub use Enum::{A, B};` and write `!` in a signature; in a user file both stay
-E0107 until Phase 9. Diagnostics may point into the prelude (`library/core/option.sabi`,
-"variant defined here").
+as in rustc (`const None: i32 = 1;` makes `None` the constant in that file), in the
+namespaces the user item is in (decision 100): a struct with named fields, an enum and a
+trait are types, a function and a constant values, a unit struct both, so with `struct Ok
+{ A: i32 }` the type `Ok` is the struct while `Ok(1)` is still the prelude's variant (and
+`let Ok = 1;` E0225), and with `fn Option()` the type `Option<i32>` is still the
+prelude's. The prelude's own code keeps its own names; a lone identifier pattern naming an
+imported unit variant compares (`None => ..`), and one naming a tuple variant is E0225
+(`Some => ..`, rustc's E0530); the resolver rewrites such an identifier into the path
+pattern it is. The prelude is a crate of its own to the user's file, so rustc's orphan
+rule applies to its types: an inherent `impl` for `Option` is E0211 (rustc's E0116), `impl
+Clone for Option<S>` or `impl Drop for Option<T>` is E0214 (E0117/E0120), and a trait of
+the file may be implemented for them. The rejected block is not used and is reported
+once: calls of its methods, and bounds it would have met, are not reported again. The
+prelude's private items (the trait `Debug`, the intrinsic `PanicDebug`) are not visible
+(E0201, E0202), nor is `Debug` anywhere in Rust's prelude. Library files may contain `pub
+use Enum::{A, B};` and write `!` in a signature; in a user file both stay E0107 until
+Phase 9. Diagnostics may point into the prelude (`library/core/option.sabi`, "variant
+defined here").
 
 Methods, with Rust's names and panic messages (a panic reports the caller's location, as
 `#[track_caller]` makes rustc's do):
@@ -741,6 +746,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
 - Items share one namespace: a struct, function and constant may not have the same name
   (E0200). Field names must be unique within a struct (E0204) and parameter names within
   a parameter list (E0205).
+- Names are looked up as rustc does, in a type namespace (structs with named fields,
+  enums, traits) and a value namespace (functions, constants, locals), a unit struct and
+  an imported variant being in both: this decides which of the file's items and the
+  prelude's a name means (decision 100). A type parameter is a type only: it hides an
+  item of its name where a type is expected, never a value, so `None`, `Some(v)` or a
+  function `X()` still name the value inside `fn F<None>`, `fn F<Some>` or `fn F<X>`;
+  a type parameter named where a value is expected and no value of that name is in scope
+  is E0203 (rustc's E0423).
 - A name may be bound once per pattern: `let (x, x) = t;` is E0209 (rustc's E0416), and
   in a parameter list, across all parameters' patterns, E0205.
 - A `let` binding is visible from the statement after it to the end of its block and
@@ -858,12 +871,21 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   take and return `Self`); `where Self: Sized`, rustc's way out, is E0107 for now.
 - Method calls through traits: the receiver is dereferenced step by step, and at each
   step its type is tried by value, then behind `&`, then behind `&mut`, against the
-  inherent method of the innermost struct or enum first and then every trait method of
-  that name whose `Self` the step's type implements (rustc's probe). Two traits at one
-  step are E0342 (rustc's E0034); none at any step is E0319, with a note naming a trait
+  inherent method of the innermost struct or enum first, then (for a type parameter) the
+  methods of its bounds, elaborated through supertraits (the only bound of a trait fixes
+  the trait's arguments, so under `T: From<i32>` the call `T::from(t)` takes an `i32`;
+  `Into::into(t)` named through the trait is not judged so yet, #181), and then every
+  method of that name of a trait in scope whose `Self` the step's type implements
+  (rustc's probe). The
+  traits in scope in a program are its own and the prelude's `pub` ones (`From`, `Into`),
+  even one whose name a program item hides, as in rustc, and the language traits; in the
+  prelude's code they are the prelude's and the language traits, so a program's trait
+  never changes what prelude code calls (decision 100, #173). Two traits at one step are
+  E0342 (rustc's E0034); none at any step is E0319, with a note naming a trait
   that has the method (and, for a type parameter, the bound to add). `Type::Name` and
-  `Self::Name` name an inherent item first, then the method of the trait among those with
-  a member `Name` that the type implements (E0212 when none does, E0342 when several do);
+  `Self::Name` name an inherent item first, then the member of the trait among those with
+  a member `Name` that the type implements, a type parameter's bounds before the traits in
+  scope (E0212 when none does, E0342 when several do);
   `Trait::Name(..)` names the trait's member and infers `Self` from the arguments and the
   expected type (E0313 when nothing decides it). Each use of a function with bounds
   requires its generic arguments to implement them, judged when the body is done (E0341,
