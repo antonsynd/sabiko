@@ -1,0 +1,28 @@
+// A guard of an arm that tests something moves part of the scrutinee; the last arm tests
+// nothing and has a guard, which rustc's false edges reach from the first guard on the
+// way to `otherwise`: E0382, though a later arm catches the moved-from values.
+enum Void {}
+
+struct N { A: i32 }
+
+enum E { A(N), B(Void) }
+
+fn Mv(n: N) -> bool { false }
+
+fn Enum(t: (N, E), c: bool) -> i32 {
+    match t {
+        (_, E::A(_)) if Mv(t.0) => 1,
+        (_, E::A(_)) => 2,
+        (_, _) if c => 3,
+    }
+}
+
+fn Generic(t: (N, Option<Void>), c: bool) -> i32 {
+    match t {
+        (_, None) if Mv(t.0) => 1,
+        (_, None) => 2,
+        (_, _) if c => 3,
+    }
+}
+
+fn Main() {}

@@ -2357,21 +2357,25 @@ thing that changes the place on the way to rustc's read; reading where every arm
 sees it, but Sabiko's re-tests after a failed guard have failure edges no value takes, on
 which a tested candidate's guard's move is seen and a later tested guard's write is
 skipped where rustc's paths differ. So guards' moves and writes to places that overlap the
-scrutinee are classified by whether their candidate tests something: a match that leaves
-out a variant (type checking records such scrutinees in `BodyTypes::omits_empty`) reads
-where every arm failed when some guard touches the place and no tested candidate's guard
-moves from it, before its tests otherwise; a match with no arms or only guarded ones
-reads where every arm failed unless a tested candidate's guard writes to a part of the
-place that a tested candidate's guard of an earlier arm moved from (`(_, _) if { Take(t.0);
-c } => 1, (_, None) => 2`, `(_, _, F2::A(_)) if Mv(t.0) => 1, (_, _, F2::C(_)) if { t.1 =
-N { A: 1 }; c } => 2` and `(_, _) if {
-Take(t.0); c } => 1, (_, _) if d => 2` are E0406, rustc's E0382; `_ if { t = u; false } =>
-1` and `(_, F2::A(_)) if Mv(t.0) => 1, (_, F2::A(_)) if { t.0 = N { A: 1 }; false } => 2`
-are accepted, as by rustc). An irrefutable `let` or destructuring assignment, which has
-no tests or guards, reads its initialiser by the first rule. `let v:
-Void; match v {}` is E0405 (rustc's E0381; it was accepted); `Take(t.0); match t { (_,
-None) => 1 }` and `Take(t.0); let (_, None) = t;` for `t: (N, Option<Void>)` are E0406
-(rustc's E0382; they were accepted, a hole that leaving out empty variants opened). About 150 programs were compared with rustc 1.99 (the PR has the
+scrutinee are classified by whether their candidate tests something. When the last
+candidate tests nothing and has a guard, every way to `otherwise` runs that guard, in
+rustc (through its false edges) and in Sabiko alike, and the read goes where every arm
+failed (`(_, E::A(_)) if Mv(t.0) => 1, (_, E::A(_)) => 2, (_, _) if c => 3` is E0406,
+rustc's E0382). Otherwise a match that leaves out a variant (type checking records such
+scrutinees in `BodyTypes::omits_empty`) reads where every arm failed when some guard
+touches the place and no tested candidate's guard moves from it, before its tests
+otherwise; a match with no arms or only guarded ones reads where every arm failed unless a
+tested candidate's guard writes to a part of the place that a tested candidate's guard of
+an earlier arm moved from (`(_, _) if { Take(t.0); c } => 1, (_, None) => 2`, `(_, _,
+F2::A(_)) if Mv(t.0) => 1, (_, _, F2::C(_)) if { t.1 = N { A: 1 }; c } => 2` and `(_, _)
+if { Take(t.0); c } => 1, (_, _) if d => 2` are E0406, rustc's E0382; `_ if { t = u; false
+} => 1` and `(_, F2::A(_)) if Mv(t.0) => 1, (_, F2::A(_)) if { t.0 = N { A: 1 }; false }
+=> 2` are accepted, as by rustc). An irrefutable `let` or destructuring assignment, which
+has no tests or guards, reads its initialiser by the rule for a match that leaves out a
+variant. `let v: Void; match v {}` is E0405 (rustc's E0381; it was accepted); `Take(t.0);
+match t { (_, None) => 1 }` and `Take(t.0); let (_, None) = t;` for `t: (N, Option<Void>)`
+are E0406 (rustc's E0382; they were accepted, a hole that leaving out empty variants
+opened). About 150 programs were compared with rustc 1.99 (the PR has the
 table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `never/rej_uninhabited_payload_behind_reference`, `never/ok_never_place_scrutinee`,
 `never/err_never_place_scrutinee`, `enums/ok_empty_payloads_omitted`,
@@ -2397,8 +2401,9 @@ after review: differential
 `moves/ok_match_tested_guard_moves_scrutinee_omitted_variant`,
 `moves/ok_match_all_guarded_tested_guard_moves_then_reinitialises`,
 `moves/err_match_all_guarded_tested_guard_moves_other_part_written`,
-`moves/err_match_all_guarded_tested_guard_writes_then_moves`, the UI test
-`borrowck/match_omitted_variant_premoved_last_guard_reinitialises` (a gap, below),
+`moves/err_match_all_guarded_tested_guard_writes_then_moves`,
+`moves/err_match_tested_guard_moves_scrutinee_last_arm_untested`,
+`moves/ok_match_last_untested_guard_reinitialises_premoved`,
 `moves/err_match_guard_moves_scrutinee_later_arm_binds`,
 `moves/err_match_guard_moves_scrutinee_sibling_field_moved`,
 `moves/err_match_guard_moves_scrutinee_tested_guard_writes`,
@@ -2421,8 +2426,8 @@ needs drop) is not modelled: `Option<P<..128 P..<Void>>>` is accepted where rust
 it, on mainline with every arm and now also with only a `None` arm.
 When statics land, `known_valid` must take a place through a static as not valid, as
 rustc does for `Deref(StaticRef)`. Where the matched place is read is #201: when a tested
-candidate's guard moves part of the scrutinee in a match that leaves out a variant, the
-guards' moves on rustc's way to `otherwise` are missed (`(true, _, _) if Mv(t.1) => 1,
+candidate's guard moves part of the scrutinee in a match that leaves out a variant and
+whose last candidate tests something, the guards' moves on rustc's way to `otherwise` are missed (`(true, _, _) if Mv(t.1) => 1,
 (_, _, None) => 2`, where mainline gave E0328; `(_, _, _) if { Take(t.0); c } => 1, (_,
 _, E::A(_)) if Mv(t.1) => 2, (_, _, E::A(_)) => 3`; a move through a downcast, `H::P(_,
 _) if match h { H::P(n, _) => Mv(n), H::Q => false } => 1, H::P(_, None) => 2, H::Q => 3`,
@@ -2430,22 +2435,15 @@ where mainline gave E0328), and so are they in a match whose arms all have guard
 later tested guard writes back what an earlier one moved (`(_, true, _) if Mv(t.0) => 1,
 (_, true, _) if { t.0 = N { A: 1 }; false } => 2, (_, false, _) if c => 3`; `_ if
 Mv(t.1) => 0, (_, _, F2::A(_)) if Mv(t.0) => 1, (_, _, F2::A(_)) if { t.0 = N { A: 1 };
-false } => 2`); a guard
-reached through a false edge after a covered arm (`(_, E::A(_)) if Mv(t.0) => 1, (_,
-E::A(_)) => 3, (_, _) if c => 2`) and a scrutinee moved in part before a match whose
+false } => 2`); and a scrutinee moved in part before a match whose
 `otherwise` block rustc reaches only through a failed switch, comparison or range test on
 inhabited values (`Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }` for
 `Option<i32>`) are still accepted where rustc gives E0382, as before. rustc's verdicts
-for these shapes are not pinned by tests (the PR's tables and #201 have them). The read
-before the tests also rejects a program that rustc and mainline accept: a scrutinee
-moved in part before the match, which a tested guard moves again and a later untested
-guard gives back on rustc's way to `otherwise` (`Take(t.0); match t { (_, E::A(_)) if {
-t.0 = N { A: 1 }; Mv(t.0) } => 1, (_, E::A(_)) => 2, (_, _) if { t.0 = N { A: 2 }; false }
-=> 3 }`, E0406; the UI test above pins it, and the generic form is E0328 on mainline). A
-program
+for these shapes are not pinned by tests (the PR's tables and #201 have them). A program
 with exponentially many generic instances (`E0<T>` of `E1<(T, T)>` and `E1<(T, i32)>`,
 nine levels or more) reaches the budget and is E0328 where rustc accepts it (#208). Two
-compile-time gaps met in review: a match with many guarded arms compiles in roughly cubic time (#202),
+compile-time gaps met in review: a match with many guarded arms compiles in roughly
+cubic time (#202),
 and an executable whose generic instances nest deeply (each level doubling its argument)
 fails in ilasm on class names over 1023 characters, without an E0500 (#203).
 

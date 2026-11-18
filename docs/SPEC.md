@@ -1187,18 +1187,16 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   initialised and not moved, even in part (`let v: Void; match v {}` is E0405, rustc's
   E0381; `Take(t.0); match t { (_, None) => 1 }` for an `Option<Void>` in `t.1` is E0406,
   rustc's E0382). The read comes where every arm failed, after the guards, so a guard
-  may initialise the scrutinee first or move part of it (E0406), when the match has no
-  arms or only guarded ones, unless a guard of an arm that tests something writes to a
-  part of the scrutinee that such a guard of an earlier arm moved, and when it leaves out
-  a variant and some guard
-  moves from or writes to the scrutinee, none of them a guard of an arm that tests
-  something and moves from it; otherwise it comes before any test or guard. The read
+  may initialise the scrutinee first or move part of it (E0406), when the last arm tests
+  nothing and has a guard; when the match has no arms or only guarded ones, unless a
+  guard of an arm that tests something writes to a part of the scrutinee that such a
+  guard of an earlier arm moved; and when it leaves out a variant and some guard moves
+  from or writes to the scrutinee, none of them a guard of an arm that tests something
+  and moves from it. Otherwise it comes before any test or guard. The read
   conflicts with no loan, and a `_` arm only mentions the place. rustc reads in its
   `otherwise` block, so it also rejects a guard's move that a read before the guards
   misses, and a scrutinee moved in part before a match that reaches it through a failed
-  test; Sabiko accepts both (#201). It accepts a scrutinee moved in part before the match
-  when a guard on the way to `otherwise` gives it back, which a read before the guards
-  rejects (E0406). A `let` or
+  test; Sabiko accepts both (#201). A `let` or
   parameter pattern must be irrefutable (E0329, rustc's E0005). Warnings: a pattern no
   value reaches (E0330, also a single alternative of an or-pattern), and an `if let`,
   `while let` or `let`-`else` whose pattern always matches (E0331); a `let` of a let chain

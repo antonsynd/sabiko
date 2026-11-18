@@ -1107,11 +1107,16 @@ impl Builder<'_> {
     ///   Mv(t.0) => 1, (_, F::A(_)) if { t.0 = N { A: 1 }; false } => 2`).
     /// - Before any test or guard misses what the guards do.
     ///
-    /// So a match that leaves out a variant reads before its tests when a guard of a
-    /// tested candidate moves from the place (missing guards' moves, #201) or when no
-    /// guard touches it, and where every arm failed otherwise; a match whose arms all
-    /// have guards, where every failed guard leads to rustc's read, reads where every
-    /// arm failed unless a tested candidate's guard writes to a part of the place that a
+    /// When the last candidate tests nothing and has a guard, every way to rustc's
+    /// `otherwise` block runs that guard, and so does every way to where every arm failed
+    /// in Sabiko's lowering: the edges no value takes lead on to later candidates, which
+    /// rustc's false edges reach too (`(_, E::A(_)) if Mv(t.0) => 1, (_, E::A(_)) => 2,
+    /// (_, _) if c => 3` is E0382). The read goes where every arm failed. Otherwise a
+    /// match that leaves out a variant reads before its tests when a guard of a tested
+    /// candidate moves from the place (missing guards' moves, #201) or when no guard
+    /// touches it, and where every arm failed otherwise; a match whose arms all have
+    /// guards, where every failed guard leads to rustc's read, reads where every arm
+    /// failed unless a tested candidate's guard writes to a part of the place that a
     /// tested candidate's guard of an earlier arm moved from (then before, missing the
     /// moves, #201). A guard of a candidate that tests nothing runs on rustc's way to
     /// `otherwise` (for the left-out variant, or for every value) and has no failure edge
@@ -1133,8 +1138,9 @@ impl Builder<'_> {
         place: &Place,
     ) -> GuardEffects {
         let mut effects = GuardEffects::default();
-        // The places tested candidates' guards moved from, with their arms.
-        let mut earlier_moves: Vec<(usize, &Place)> = Vec::new();
+        // Each guard's arm, whether it tests something, and the parts of the place it
+        // moves from and writes to.
+        let mut found: Vec<(usize, bool, Vec<&Place>, Vec<&Place>)> = Vec::new();
         for (index, guard) in guards.iter().enumerate() {
             let arm = arm_starts.partition_point(|&start| start <= index);
             let blocks = std::iter::once(guard.block.index()).chain(guard.first..guard.end);
@@ -1190,14 +1196,17 @@ impl Builder<'_> {
                 }
             }
             effects.any |= moves || writes;
-            if guard.tested {
-                effects.tested_moves |= moves;
-                effects.tested_rewrites |= written.iter().any(|w| {
-                    earlier_moves
-                        .iter()
-                        .any(|&(earlier, m)| earlier < arm && overlaps(w, m))
-                });
-                earlier_moves.extend(moves_here.into_iter().map(|m| (arm, m)));
+            found.push((arm, guard.tested, moves_here, written));
+        }
+        let later_writes = |arm: usize, moved: &Place| {
+            found.iter().any(|(later, tested, _, written)| {
+                *later > arm && *tested && written.iter().any(|w| overlaps(w, moved))
+            })
+        };
+        for (arm, tested, moved, _) in &found {
+            if *tested {
+                effects.tested_moves |= !moved.is_empty();
+                effects.tested_rewrites |= moved.iter().any(|m| later_writes(*arm, m));
             }
         }
         effects
@@ -1261,11 +1270,16 @@ impl Builder<'_> {
         self.guard_held = outer_held;
         let guards = std::mem::replace(&mut self.tests, saved).guards;
         let effects = self.guard_effects(&guards, &arm_starts, &place);
-        let at_end = if all_guarded {
-            !effects.tested_rewrites
-        } else {
-            effects.any && !effects.tested_moves
-        };
+        // The last candidate has a guard and tests nothing: every way to rustc's
+        // `otherwise` block, and to where every arm failed here, runs its guard.
+        let last_untested = arms.last().is_some_and(|arm| arm.guard.is_some())
+            && guards.last().is_some_and(|guard| !guard.tested);
+        let at_end = last_untested
+            || if all_guarded {
+                !effects.tested_rewrites
+            } else {
+                effects.any && !effects.tested_moves
+            };
         if (all_guarded || omits_empty) && at_end {
             // Where every arm failed: rustc's `otherwise` block.
             self.read_matched_place(&place, scrutinee.span);
