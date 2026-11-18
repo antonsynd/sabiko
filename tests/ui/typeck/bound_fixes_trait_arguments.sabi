@@ -1,9 +1,10 @@
 // Sabiko codes for rustc's: E0300 for E0308.
-// A type parameter's only bound of a trait fixes the trait's arguments for a path or a
-// method call through the bound, as rustc's where-clause candidate does (part of #181):
-// under `T: From<i32>`, `T::from` takes an `i32`, not the `T` the prelude's reflexive
-// block would also accept. `Into::into(t)` through the trait is not judged this way yet
-// (#181).
+// A type parameter's only bound of a trait fixes the trait's arguments, as rustc's
+// where-clause candidate does (#181, decisions 100 and 105): under `T: From<i32>`,
+// `T::from` takes an `i32`, not the `T` the prelude's reflexive block would also accept.
+// The probe of a path or a method call and the solver's selection of a member named
+// through the trait (`Into::into(t)`) agree: the bound decides before the call's result
+// meets its expected type, and before a later argument is checked.
 trait Mk<T> {
     fn Make(v: T) -> Self;
 }
@@ -14,7 +15,19 @@ impl<T> Mk<T> for T {
     }
 }
 
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
 trait Sub: From<i32> {}
+
+trait IntoSub: Into<i64> {}
 
 fn PathThroughBound<T: From<i32>>(t: T) -> T {
     T::from(t) //~ ERROR E0300 mismatched types
@@ -30,6 +43,23 @@ fn ProgramTrait<T: Mk<i32>>(t: T) -> T {
 
 fn ThroughSupertrait<T: Sub>(t: T) -> T {
     T::from(t) //~ ERROR E0300 mismatched types
+}
+
+fn ThroughTrait<T: Into<i64>>(t: T) -> T {
+    Into::into(t) //~ ERROR E0300 mismatched types
+}
+
+fn ThroughTraitAndSupertrait<T: IntoSub>(t: T) -> T {
+    let u = t;
+    Into::into(u) //~ ERROR E0300 mismatched types
+}
+
+fn BeforeTheExpectedType<T: Into<i64>>(t: T) -> i32 {
+    Into::into(t) //~ ERROR E0300 mismatched types
+}
+
+fn BeforeTheNextArgument<T: Two<i32, i64> + Copy>(t: T) -> i64 {
+    Two::Two(&t, t) //~ ERROR E0300 mismatched types
 }
 
 fn Main() {}

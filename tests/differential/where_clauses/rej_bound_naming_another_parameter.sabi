@@ -1,0 +1,6 @@
+// `t.into()` under `T: Into<U>` is a `U`, though `T: Into<T>` would also hold.
+//@ rustc: E0308
+//@ sabiko: E0300
+fn F<T: Into<U>, U>(t: T) -> T {
+    t.into()
+}

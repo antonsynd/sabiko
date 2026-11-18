@@ -1,0 +1,9 @@
+// `t.into()` under `where T: Into<i64>` is an `i64`, which is not the `T` returned.
+//@ rustc: E0308
+//@ sabiko: E0300
+fn F<T>(t: T) -> T
+where
+    T: Into<i64>,
+{
+    t.into()
+}

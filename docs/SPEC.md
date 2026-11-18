@@ -890,7 +890,7 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   inherent method of the innermost struct or enum first, then (for a type parameter) the
   methods of its bounds, elaborated through supertraits (the only bound of a trait fixes
   the trait's arguments, so under `T: From<i32>` the call `T::from(t)` takes an `i32`;
-  `Into::into(t)` named through the trait is not judged so yet, #181), and then every
+  see "Selection" below for a member named through the trait), and then every
   method of that name of a trait in scope whose `Self` the step's type implements
   (rustc's probe). The
   traits in scope in a program are its own and the prelude's `pub` ones (`From`, `Into`),
@@ -908,6 +908,16 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   rustc's E0277). As in rustc, a bound on a type with inference variables that only one
   block's type could match makes it that type: with only `impl Show for i64`, `5.Show()`
   is an `i64`; with two integer blocks the literal falls back to `i32`.
+  Selection (decision 105): a bound in scope on a type parameter that could prove an
+  obligation is preferred to every block, as rustc's where-clause candidate is. When
+  exactly one bound of the trait applies, it fixes the trait's arguments. Several leave
+  the obligation to inference: the arguments decide, else E0313 (rustc's E0283). The
+  pending obligations are selected before each argument of a call whose parameter type
+  is not yet known, and after the last, before the result meets the expected type. So
+  under `T: Into<i64>`, `Into::into(t)` is an `i64` even where a `T` is expected (E0300,
+  rustc's E0308), though the blanket `impl<T, U: From<T>> Into<U> for T` would also
+  give `T: Into<T>`. `From::from(t)` names no `Self` before its result meets the
+  expected type, so there the blocks decide (`T: From<T>` holds).
 - Associated constants of traits (#116, decision 85): a trait `impl` block defines each
   required constant (E0216, rustc's E0046) and may override a provided one, with the
   trait's type at the block's type (E0321, rustc's E0326); a constant where the trait

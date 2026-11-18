@@ -1,0 +1,6 @@
+// `T::from(t)` under `T: From<i32>` takes the bound's `i32`, not a `T`.
+//@ rustc: E0308
+//@ sabiko: E0300
+fn F<T: From<i32>>(t: T) -> T {
+    T::from(t)
+}

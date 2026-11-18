@@ -1765,7 +1765,8 @@ lengths did not); a type parameter's only bound of a trait fixes the trait's arg
 the probe, as rustc's where-clause candidate does, so `fn C<T: From<i32>>(t: T) -> T {
 T::from(t) }` and `t.into()` under `T: Into<i64>` returning a `T` are E0300 (rustc's
 E0308) instead of compiling through the prelude's reflexive block (part of #181: the
-same through `Into::into(t)`, which the solver selects, is still accepted;
+same through `Into::into(t)`, which the solver selects, was still accepted, since fixed,
+decision 105;
 `typeck/bound_fixes_trait_arguments`, `differential/run/traits/bound_fixes_trait_arguments`);
 an ambiguity between a prelude trait and a program trait of its name says the prelude's
 cannot be named there.
@@ -2121,6 +2122,30 @@ alone on a `Result<i32, !>`) is E0328 where rustc accepts it (#178); `s.Push(Pan
 through an autoref'd `&mut self` fails MIR validation (#177); `a[*q]` for `q: &!` is
 accepted and fails MIR validation where rustc rejects it (E0277, #183); and
 `match e[i] { _ => 3 }` for `e: [!; 0]` is E0330 and E0405 where rustc accepts it (#184).
+
+Update (2026-11-18), a type parameter's bound decides the trait's arguments in selection
+(#181, decision 105). `fn W2<T: Into<i64>>(t: T) -> T { Into::into(t) }` compiled as the
+identity through the prelude's blanket `Into` block; rustc reports E0308. The call's
+result met its expected `T` before the obligation `T: Into<?X>` was selected, so it was
+`T: Into<T>`. As in rustc's `check_argument_types`, the pending obligations are now
+selected before each argument whose parameter type has a variable and after the last
+argument. A bound in scope that applies is preferred to every block
+(`select_from_bounds`, shared with the probe of #179): one fixes the arguments, and
+several wait for inference. It is now E0300, as is the same through a supertrait, a
+program trait with a blanket block, a two-parameter trait (`Two::Two(&t, t)`), a nested
+call argument and an expected `i32`. `From::from(t)`, `Into::<T>::into(t)`, a bound on
+another parameter, and two bounds that neither fit still compile, as in rustc.
+Selecting at every call made bodies quadratic in their obligations: settled ones
+(no variables left) are skipped from a prefix, so 6000 lines of bounded calls check
+faster than before (4.0 s against 4.4 s, debug). "Required for" notes show a confirmed
+block's types as inference finally decided them. Tests: `differential/where_clauses/`
+(14 `rej_` programs pinning both compilers' codes, 4 `ok_` programs of valid
+neighbours), `differential/run/traits/where_clause_preference` (a literal argument made a
+`u8` by the bound overflows as in rustc), UI test `typeck/bound_fixes_trait_arguments`.
+Known difference: a block argument whose tail its own coercion unifies with the
+parameter (`Two::Two(&t, { t })`, `loop { break t; }`) is accepted by rustc, which
+checks the argument before selecting; Sabiko selects first and reports E0300. Not
+supported, as before: `<T as From<_>>::from(t)` and `where i32: From<T>` (E0107).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

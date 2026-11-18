@@ -1,0 +1,7 @@
+// Two bounds of `Into` and no use deciding between them: the type stays unknown.
+//@ rustc: E0283
+//@ sabiko: E0313
+fn F<T: Into<i64> + Into<i32>>(t: T) {
+    let v = t.into();
+    PrintLine(v);
+}

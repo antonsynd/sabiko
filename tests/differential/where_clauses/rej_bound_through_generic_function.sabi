@@ -1,0 +1,10 @@
+// A called function's bound `U: Into<X>` at `U = T` is selected by `T: Into<i64>`.
+//@ rustc: E0308
+//@ sabiko: E0300
+fn G<U: Into<X>, X>(u: U) -> X {
+    u.into()
+}
+
+fn F<T: Into<i64>>(t: T) -> T {
+    G(t)
+}

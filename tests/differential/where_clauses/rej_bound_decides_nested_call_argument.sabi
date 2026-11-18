@@ -1,0 +1,20 @@
+// The bound fixes `A` before a nested call's argument meets it, not after.
+//@ rustc: E0308
+//@ sabiko: E0300
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+fn Id<U>(u: U) -> U {
+    u
+}
+
+fn F<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, Id(t))
+}

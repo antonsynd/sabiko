@@ -1,0 +1,52 @@
+// A type parameter's only bound of a trait decides the trait's arguments before an
+// `impl` block or the expected type can (#181, decision 105): through the trait's path
+// (`Into::into(t)`), a program trait with a blanket block, a trait with two parameters,
+// and a literal argument, whose type the bound makes a `u8` (so adding to it overflows).
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+impl Two<i32, i64> for u8 {
+    fn Two(&self, a: i32) -> i64 {
+        a as i64 * 10 + *self as i64
+    }
+}
+
+fn IntoPath<T: Into<i64>>(t: T) -> i64 {
+    let v = Into::into(t);
+    v * 1000000000000
+}
+
+fn Pair<T: Two<i32, i64> + Copy>(t: T) -> i64 {
+    let v = Two::Two(&t, 4);
+    v + 1
+}
+
+fn Reflexive<T: Copy>(t: T) -> T {
+    Two::Two(&t, t)
+}
+
+fn Literal<T: From<u8>>(n: u8) -> T {
+    let v = 250;
+    let t = T::from(v);
+    let w = v + n;
+    PrintLine(w);
+    t
+}
+
+fn Main() {
+    PrintLine(IntoPath(3u8));
+    PrintLine(IntoPath(-2i32));
+    PrintLine(Pair(7u8));
+    PrintLine(Reflexive(9u16));
+    let a: u16 = Literal(5);
+    PrintLine(a);
+    let b: i64 = Literal(6);
+    PrintLine(b);
+}

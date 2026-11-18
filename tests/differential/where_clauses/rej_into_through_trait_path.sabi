@@ -1,0 +1,6 @@
+// `Into::into(t)` under `T: Into<i64>` is the bound's: an `i64`, never `T: Into<T>`.
+//@ rustc: E0308
+//@ sabiko: E0300
+fn F<T: Into<i64>>(t: T) -> T {
+    Into::into(t)
+}

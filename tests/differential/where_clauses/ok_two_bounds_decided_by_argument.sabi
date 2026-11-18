@@ -1,0 +1,16 @@
+// With two bounds of one trait the arguments or the expected type choose between them.
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+fn ByArgument<T: From<u8> + From<u16>>() -> T { T::from(5u8) }
+fn ThroughTrait<T: From<u8> + From<u16>>() -> T { From::from(5u16) }
+fn ByExpected<T: Into<i64> + Into<i32>>(t: T) -> i64 { let v: i64 = t.into(); v }
+fn ByFirst<T: Two<i32, i64> + Two<u8, u16> + Copy>(t: T) -> i64 { t.Two(5i32) }
+fn ByTrait<T: Two<i32, i64> + Two<u8, u16> + Copy>(t: T) -> u16 { Two::Two(&t, 5u8) }
