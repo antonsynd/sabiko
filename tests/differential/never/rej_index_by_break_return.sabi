@@ -1,0 +1,14 @@
+// `break return` gives the `loop` a diverging type, `!` when nothing decides it, which
+// no `SliceIndex` impl takes (#183).
+//@ rustc: E0277
+//@ sabiko: E0335
+fn Main() {
+    let c = true;
+    let a = [1, 2];
+    let v = loop {
+        if c {
+            break return;
+        }
+    };
+    let y = a[v];
+}

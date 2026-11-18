@@ -65,10 +65,12 @@ fn DivergingVariable() -> i32 {
     1 + y //~ ERROR E0306 cannot add `!` to `i32`
 }
 
+// The literal's `i32` (its default) has one `PartialEq` impl, which wants `y` to be an
+// `i32` (rustc's E0308); `x == return true` has no variable to coerce: E0306 (E0277).
 fn DivergingCompared() -> bool {
     let y = return true;
     let x = 1;
-    x == y //~ ERROR E0306 can't compare `i32` with `!`
+    x == y //~ ERROR E0300 mismatched types
 }
 
 // `-` has no impl for `!`; on a diverging variable rustc needs its type at once.

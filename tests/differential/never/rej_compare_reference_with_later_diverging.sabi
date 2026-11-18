@@ -1,0 +1,14 @@
+// `&n != x` with `x` diverging later: `&i32` has `PartialEq<&B>` and
+// `PartialEq<&mut B>`, so nothing decides `x` before it falls back to `!` (#183).
+//@ rustc: E0277
+//@ sabiko: E0306
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let mut x = Mk();
+    let n = 1;
+    let b = &n != x;
+    x = return;
+}

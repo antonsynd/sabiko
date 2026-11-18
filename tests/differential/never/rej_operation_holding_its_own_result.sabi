@@ -1,0 +1,36 @@
+// An operation nothing decides whose result reaches its own operand (`v = v + 1;`):
+// rustc's E0284 (`<_ as Add<i32>>::Output == _`), once per function. Its result used to
+// become an error type before the ambiguity was reported, an internal error (#183).
+//@ rustc: E0284
+//@ sabiko: E0313
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Direct() {
+    let mut v = Mk();
+    v = v + 1;
+}
+
+fn Squared() {
+    let mut v = Mk();
+    v = v * v;
+}
+
+fn ThroughALocal() {
+    let mut v = Mk();
+    let w = v + 1;
+    v = w + 2;
+}
+
+fn Crossed() {
+    let mut x = Mk();
+    let mut y = Mk();
+    x = y + 1;
+    y = x + 1;
+}
+
+fn Shifted() {
+    let mut v = Mk();
+    v = v << 1;
+}

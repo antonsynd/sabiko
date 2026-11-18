@@ -1,0 +1,13 @@
+// An index whose variable a later assignment makes diverging falls back to `!` (#183).
+//@ rustc: E0277
+//@ sabiko: E0335
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let y = a[v];
+    v = return;
+}

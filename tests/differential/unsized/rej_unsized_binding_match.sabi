@@ -1,0 +1,11 @@
+// A binding by value in a `match` or `if let` on an unsized place needs a size, next to
+// arms that bind nothing (#170).
+//@ rustc: E0277
+//@ sabiko: E0208
+fn F(s: &[i32], c: bool) {
+    match *s {
+        _ if c => {}
+        x => {}
+    }
+    if let y = s[1..] {}
+}

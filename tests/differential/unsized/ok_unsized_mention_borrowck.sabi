@@ -1,0 +1,26 @@
+// A mention of `*s` reads nothing: not `s` uninitialised or moved, nor a place another
+// loan borrows mutably (#170). A range reads its base (`err_unsized_range_mention_*`).
+fn Take(m: &mut [i32]) {}
+
+fn Uninitialised() {
+    let s: &[i32];
+    let _ = *s;
+    match *s {
+        _ => {}
+    }
+}
+
+fn Borrowed(a: &mut [i32]) {
+    let r = &mut *a;
+    let _ = *a;
+    match *a {
+        _ => {}
+    }
+    if let _ = *a {}
+    r[0] = 1;
+}
+
+fn Moved(m: &mut [i32]) {
+    Take(m);
+    let _ = *m;
+}

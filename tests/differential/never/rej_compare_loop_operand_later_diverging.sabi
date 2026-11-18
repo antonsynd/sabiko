@@ -1,0 +1,15 @@
+// A `loop` as the right operand of a literal's comparison: the left type does not reach
+// the `break` value, so `x` stays open and then diverges (#183).
+//@ rustc: E0308
+//@ sabiko: E0300
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let mut x = Mk();
+    let b = 1 == loop {
+        break x;
+    };
+    x = return;
+}

@@ -1,0 +1,27 @@
+// `&1 == &x`: the referents are the parameters of `{integer}: PartialEq<_>`, which a
+// literal does not decide; `x` falls back to `!` (#183).
+//@ rustc: E0277
+//@ sabiko: E0306
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Single() {
+    let mut x = Mk();
+    if false {
+        let b = &1 == &x;
+    }
+    x = return;
+}
+
+fn Double() {
+    let mut x = Mk();
+    let b = &&1 != &&x;
+    x = return;
+}
+
+fn LeftOpen() {
+    let mut x = Mk();
+    let b = &x == &1;
+    x = return;
+}

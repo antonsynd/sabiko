@@ -1,0 +1,13 @@
+// `1 == x` with `x` diverging later: the literal's `i32` (its default) has one
+// `PartialEq` impl, which wants `x`, now `!`, to be an `i32` (#183).
+//@ rustc: E0308
+//@ sabiko: E0300
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let mut x = Mk();
+    let b = 1 == x;
+    x = return;
+}

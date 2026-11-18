@@ -24,13 +24,15 @@ codes reported, without duplicates. Sabiko's E0107 (syntax not supported yet), E
 compared (the two compilers number their diagnostics differently), nor are positions. One
 concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` pairs side
 by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`,
-`never/` (borrows of diverging expressions, typed `&!`, variants with a `!` payload left
-out of a match, scrutinee places of type `!`), and `enums/` (programs with enums and
-patterns: casts, `..` in tuple and variant patterns, struct patterns, a `match` whose arms
-all diverge, `&` patterns, half-open and float ranges, variants with an empty-enum payload
-left out where the place is valid and required where it is reached through a
-reference, nesting of empty generic instances). `moves/` also pins the read of a match's or
-`let`'s scrutinee where no pattern matched, which a partly moved scrutinee fails.
+`never/` (borrows of diverging expressions, typed `&!`, operators and indexes with `!` or
+diverging operands, variants with a `!` payload left out of a match, scrutinee places of
+type `!`), `unsized/` (mentions and bindings of unsized places, #170), and `enums/`
+(programs with enums and patterns: casts, `..` in tuple and variant patterns, struct
+patterns, a `match` whose arms all diverge, `&` patterns, half-open and float ranges,
+variants with an empty-enum payload left out where the place is valid and required where
+it is reached through a reference, nesting of empty generic instances). `moves/` also pins
+the read of a match's or `let`'s scrutinee where no pattern matched, which a partly moved
+scrutinee fails.
 
 The harness prepends this prelude, which defines Sabiko's builtin functions for rustc:
 

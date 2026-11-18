@@ -1,0 +1,237 @@
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:14:21 ]
+    │
+ 14 │         PrintLine(a[*q]); //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │                     ─┬  
+    │                      ╰── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:19:7 ]
+    │
+ 19 │     a[return 1] //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │       ────┬───  
+    │           ╰───── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:25:15 ]
+    │
+ 25 │     let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:26:15 ]
+    │
+ 26 │     let z = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `u8`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:33:15 ]
+    │
+ 33 │     let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u8`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:39:9 ]
+    │
+ 39 │     let v = Mk(); //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `v` an explicit type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:47:15 ]
+    │
+ 47 │     let y = a[Mk()]; //~ ERROR E0313 type annotations needed
+    │               ─┬  
+    │                ╰── cannot infer type of the type parameter `T` declared on the function `Mk`
+    │ 
+    │ Note: specify it with a turbofish: `Mk::<..>`
+────╯
+[E0335] Error: the type `[{integer}]` cannot be indexed by `bool`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:55:15 ]
+    │
+ 55 │     let y = a[v]; //~ ERROR E0335 the type `[{integer}]` cannot be indexed by `bool`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:66:18 ]
+    │
+ 66 │     let w: i64 = v; //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `i64`, found `usize`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:72:13 ]
+    │
+ 72 │     let n = a[v][0]; //~ ERROR E0313 type annotations needed
+    │             ──┬─  
+    │               ╰─── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:80:19 ]
+    │
+ 80 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:86:18 ]
+    │
+ 86 │     let b = 1 == x; //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `i32`, found `!`
+────╯
+[E0306] Error: can't compare `f64` with `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:91:5 ]
+    │
+ 91 │     1.5 < return true //~ ERROR E0306 can't compare `f64` with `!`
+    │     ────────┬────────  
+    │             ╰────────── no implementation for `f64 < !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `&i32` with `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:97:13 ]
+    │
+ 97 │     let b = &n == x; //~ ERROR E0306 can't compare `&i32` with `!`
+    │             ───┬───  
+    │                ╰───── no implementation for `&i32 == !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:103:9 ]
+     │
+ 103 │     let x = Mk(); //~ ERROR E0313 type annotations needed
+     │         ┬  
+     │         ╰── consider giving `x` an explicit type
+─────╯
+[E0306] Error: can't compare `i32` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:112:13 ]
+     │
+ 112 │     let c = x == return; //~ ERROR E0306 can't compare `i32` with `!`
+     │             ─────┬─────  
+     │                  ╰─────── no implementation for `i32 == !`
+     │ 
+     │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+─────╯
+[E0300] Error: mismatched types
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:120:19 ]
+     │
+ 120 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+     │                   ┬  
+     │                   ╰── expected `bool`, found `{integer}`
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:127:14 ]
+     │
+ 127 │     let c = -x; //~ ERROR E0313 type annotations needed
+     │              ┬  
+     │              ╰── type must be known at this point
+     │ 
+     │ Note: the trait bounds on it leave its type open: give it a type annotation
+─────╯
+[E0306] Error: can't compare `u8` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:134:13 ]
+     │
+ 134 │     let c = &x == &return; //~ ERROR E0306 can't compare `u8` with `!`
+     │             ──────┬──────  
+     │                   ╰──────── no implementation for `u8 == !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
+[E0306] Error: can't compare `{integer}` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:141:13 ]
+     │
+ 141 │     let c = &1 < &return; //~ ERROR E0306 can't compare `{integer}` with `!`
+     │             ──────┬─────  
+     │                   ╰─────── no implementation for `{integer} < !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
+[E0300] Error: mismatched types
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:142:19 ]
+     │
+ 142 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+     │                   ┬  
+     │                   ╰── expected `bool`, found `{integer}`
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:149:9 ]
+     │
+ 149 │     let mut v = Mk(); //~ ERROR E0313 type annotations needed
+     │         ──┬──  
+     │           ╰──── consider giving `v` an explicit type
+─────╯
+[E0335] Error: the type `[{integer}]` cannot be indexed by `i64`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:156:15 ]
+     │
+ 156 │     let y = a[1i64]; //~ ERROR E0335 the type `[{integer}]` cannot be indexed by `i64`
+     │               ──┬─  
+     │                 ╰─── slice indices are of type `usize`
+     │ 
+     │ Note: convert the index with `as usize`
+─────╯
+[E0300] Error: mismatched types
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:167:9 ]
+     │
+ 167 │         v //~ ERROR E0300 mismatched types
+     │         ┬  
+     │         ╰── expected `i64`, found `usize`
+─────╯
+[E0306] Error: can't compare `&u8` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:174:13 ]
+     │
+ 174 │     let b = &x == &return; //~ ERROR E0306 can't compare `&u8` with `!`
+     │             ──────┬──────  
+     │                   ╰──────── no implementation for `&u8 == !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:182:9 ]
+     │
+ 182 │     let mut v = Mk(); //~ ERROR E0313 type annotations needed
+     │         ──┬──  
+     │           ╰──── consider giving `v` an explicit type
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:188:9 ]
+     │
+ 188 │     let mut v = Mk(); //~ ERROR E0313 type annotations needed
+     │         ──┬──  
+     │           ╰──── consider giving `v` an explicit type
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:195:9 ]
+     │
+ 195 │     let w = Mk(); //~ ERROR E0313 type annotations needed
+     │         ┬  
+     │         ╰── consider giving `w` an explicit type
+─────╯
+[E0306] Error: can't compare `&NotComparable` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:208:13 ]
+     │
+ 208 │     let b = &x == &return; //~ ERROR E0306 can't compare `&NotComparable` with `!`
+     │             ──────┬──────  
+     │                   ╰──────── no implementation for `&NotComparable == !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯

@@ -1,0 +1,23 @@
+// A block or an `if` as the right operand of a literal's comparison: the left type does
+// not reach the branches, so `x` stays open and then diverges (#183).
+//@ rustc: E0308
+//@ sabiko: E0300
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Block() {
+    let mut x = Mk();
+    if false {
+        let b = 1 == { x };
+    }
+    x = return;
+}
+
+fn Branches(c: bool) {
+    let mut x = Mk();
+    if false {
+        let b = 1 == if c { x } else { x };
+    }
+    x = return;
+}

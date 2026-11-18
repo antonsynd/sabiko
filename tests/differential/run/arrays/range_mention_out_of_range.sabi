@@ -1,0 +1,13 @@
+// A range index that is only mentioned (`let _ = s[i..]`) still checks its bounds, and
+// panics with "range start index 4 out of range for slice of length 3" (#170).
+fn Mention(s: &[i32], i: usize) {
+    let _ = s[i..];
+    PrintLine(i);
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    Mention(&a, 3);
+    Mention(&a, 4);
+    PrintLine("not reached");
+}

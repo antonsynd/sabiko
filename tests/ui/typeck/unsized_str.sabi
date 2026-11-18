@@ -14,7 +14,7 @@ const Name: str = //~ ERROR E0208 the size for values of type `str` cannot be kn
 
 fn Main(s: &str) {
     let a: str = //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
-        *s; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+        *s;
     let b = s;
     let t: &str = b;
     let c = "literal";

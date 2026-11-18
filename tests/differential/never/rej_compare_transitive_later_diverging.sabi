@@ -1,0 +1,15 @@
+// `x == y` with `x` decided only by `1 == x`'s default and `y` diverging later: the
+// `i32` impl, selected after the fallback, wants `y`, now `!`, to be an `i32` (#183).
+//@ rustc: E0308
+//@ sabiko: E0300
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let x = Mk();
+    let b = 1 == x;
+    let mut y = Mk();
+    let c = x == y;
+    y = return;
+}
