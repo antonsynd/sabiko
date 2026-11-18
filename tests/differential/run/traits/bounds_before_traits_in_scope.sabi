@@ -1,0 +1,137 @@
+// On a type parameter, a member its bounds provide (through supertraits too) is chosen
+// before a trait in scope with a member of the same name, as rustc's probe takes the
+// bounds as inherent candidates (#173, decision 100). Here every `Other*` trait has a
+// blanket impl that covers the parameter, and `Conv` shares `from` with the prelude's
+// `From`. A method whose receiver fits only after an autoref loses to one that fits by
+// value, bound or not.
+trait Conv<T> {
+    fn from(v: T) -> Self;
+}
+
+impl<T> Conv<T> for T {
+    fn from(v: T) -> T {
+        v
+    }
+}
+
+trait Val {
+    fn Get(&self) -> i32;
+    fn Make() -> Self;
+}
+
+trait OtherVal {
+    fn Get(&self) -> i32;
+    fn Make() -> Self;
+}
+
+impl Val for i32 {
+    fn Get(&self) -> i32 {
+        1
+    }
+    fn Make() -> i32 {
+        10
+    }
+}
+
+impl<T> OtherVal for T {
+    fn Get(&self) -> i32 {
+        2
+    }
+    fn Make() -> T {
+        loop {}
+    }
+}
+
+trait Base {
+    fn Level(&self) -> i32;
+}
+
+trait Sub: Base {}
+
+trait OtherLevel {
+    fn Level(&self) -> i32;
+}
+
+impl Base for i32 {
+    fn Level(&self) -> i32 {
+        3
+    }
+}
+
+impl Sub for i32 {}
+
+impl<T> OtherLevel for T {
+    fn Level(&self) -> i32 {
+        4
+    }
+}
+
+trait ByRef {
+    fn Pick(&self) -> i32;
+}
+
+trait ByValue {
+    fn Pick(self) -> i32;
+}
+
+impl ByRef for i32 {
+    fn Pick(&self) -> i32 {
+        5
+    }
+}
+
+impl<T> ByValue for T {
+    fn Pick(self) -> i32 {
+        6
+    }
+}
+
+trait MyInto {
+    fn into(self) -> i64;
+}
+
+impl<T> MyInto for T {
+    fn into(self) -> i64 {
+        7
+    }
+}
+
+fn Convert<T, U: From<T>>(t: T) -> U {
+    U::from(t)
+}
+
+fn Get<T: Val>(x: T) -> i32 {
+    x.Get()
+}
+
+fn GetThroughRef<T: Val>(x: &T) -> i32 {
+    x.Get()
+}
+
+fn Make<T: Val>() -> T {
+    T::Make()
+}
+
+fn Level<T: Sub>(x: T) -> i32 {
+    x.Level()
+}
+
+fn Pick<T: ByRef>(x: T) -> i32 {
+    x.Pick()
+}
+
+fn Widen<T: Into<i64>>(t: T) -> i64 {
+    t.into()
+}
+
+fn Main() {
+    let a: u32 = Convert(8u8);
+    PrintLine(a);
+    PrintLine(Get(0));
+    PrintLine(GetThroughRef(&0));
+    let m: i32 = Make();
+    PrintLine(m);
+    PrintLine(Level(0));
+    PrintLine(Pick(0));
+    PrintLine(Widen(11u8));
+}

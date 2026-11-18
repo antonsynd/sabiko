@@ -1,0 +1,60 @@
+[E0225] Error: function parameters cannot shadow tuple variants
+    ╭─[ tests/ui/resolve/prelude_names_per_namespace.sabi:16:10 ]
+    │
+ 16 │ fn Param(Ok: i32) {} //~ ERROR E0225 function parameters cannot shadow tuple variants
+    │          ─┬  
+    │           ╰── cannot be named the same as a tuple variant
+    │
+    ├─[ library/core/result.sabi:13:5 ]
+    │
+ 13 │     Ok(T),
+    │     ─┬  
+    │      ╰── the tuple variant `Ok` is defined here
+    │ 
+    │ Note: try specifying the pattern arguments: `Ok(..)`
+────╯
+[E0225] Error: let bindings cannot shadow tuple variants
+    ╭─[ tests/ui/resolve/prelude_names_per_namespace.sabi:20:13 ]
+    │
+ 20 │         let Ok = 1; //~ ERROR E0225 let bindings cannot shadow tuple variants
+    │             ─┬  
+    │              ╰── cannot be named the same as a tuple variant
+    │
+    ├─[ library/core/result.sabi:13:5 ]
+    │
+ 13 │     Ok(T),
+    │     ─┬  
+    │      ╰── the tuple variant `Ok` is defined here
+    │ 
+    │ Note: try specifying the pattern arguments: `Ok(..)`
+────╯
+[E0225] Error: let bindings cannot shadow tuple variants
+    ╭─[ tests/ui/resolve/prelude_names_per_namespace.sabi:23:13 ]
+    │
+ 23 │         let Some = 2; //~ ERROR E0225 let bindings cannot shadow tuple variants
+    │             ──┬─  
+    │               ╰─── cannot be named the same as a tuple variant
+    │
+    ├─[ library/core/option.sabi:13:5 ]
+    │
+ 13 │     Some(T),
+    │     ──┬─  
+    │       ╰─── the tuple variant `Some` is defined here
+    │ 
+    │ Note: try specifying the pattern arguments: `Some(..)`
+────╯
+[E0225] Error: match bindings cannot shadow tuple variants
+    ╭─[ tests/ui/resolve/prelude_names_per_namespace.sabi:26:9 ]
+    │
+ 26 │         Ok => 0, //~ ERROR E0225 match bindings cannot shadow tuple variants
+    │         ─┬  
+    │          ╰── cannot be named the same as a tuple variant
+    │
+    ├─[ library/core/result.sabi:13:5 ]
+    │
+ 13 │     Ok(T),
+    │     ─┬  
+    │      ╰── the tuple variant `Ok` is defined here
+    │ 
+    │ Note: try specifying the pattern arguments: `Ok(..)`
+────╯

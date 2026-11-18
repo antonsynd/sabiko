@@ -1,0 +1,35 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// A type parameter's only bound of a trait fixes the trait's arguments for a path or a
+// method call through the bound, as rustc's where-clause candidate does (part of #181):
+// under `T: From<i32>`, `T::from` takes an `i32`, not the `T` the prelude's reflexive
+// block would also accept. `Into::into(t)` through the trait is not judged this way yet
+// (#181).
+trait Mk<T> {
+    fn Make(v: T) -> Self;
+}
+
+impl<T> Mk<T> for T {
+    fn Make(v: T) -> T {
+        v
+    }
+}
+
+trait Sub: From<i32> {}
+
+fn PathThroughBound<T: From<i32>>(t: T) -> T {
+    T::from(t) //~ ERROR E0300 mismatched types
+}
+
+fn MethodThroughBound<T: Into<i64>>(t: T) -> T {
+    t.into() //~ ERROR E0300 mismatched types
+}
+
+fn ProgramTrait<T: Mk<i32>>(t: T) -> T {
+    T::Make(t) //~ ERROR E0300 mismatched types
+}
+
+fn ThroughSupertrait<T: Sub>(t: T) -> T {
+    T::from(t) //~ ERROR E0300 mismatched types
+}
+
+fn Main() {}

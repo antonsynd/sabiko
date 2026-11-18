@@ -1,0 +1,39 @@
+// A type parameter's only bound of a trait fixes the trait's arguments for a path or a
+// method call through it, as rustc's where-clause candidate does (#181, decision 100):
+// `T::from(x)` under `T: From<i32>` takes an `i32`, also through a supertrait; with two
+// bounds of the trait the argument's type decides between them.
+trait Sub: From<i32> {}
+
+impl Sub for i64 {}
+
+fn FromBound<T: From<i32>>(x: i32) -> T {
+    T::from(x)
+}
+
+fn Convert<T, U: From<T>>(t: T) -> U {
+    U::from(t)
+}
+
+fn TwoBounds<T: From<u8> + From<u16>>(x: u16) -> T {
+    T::from(x)
+}
+
+fn IntoBound<T: Into<i64>>(t: T) -> i64 {
+    let v = t.into();
+    v + 1
+}
+
+fn ThroughSupertrait<T: Sub>(x: i32) -> T {
+    T::from(x)
+}
+
+fn Main() {
+    let a: i64 = FromBound(4);
+    let b: i64 = Convert(5u8);
+    PrintLine(a + b);
+    let c: u32 = TwoBounds(6);
+    PrintLine(c);
+    PrintLine(IntoBound(7u8));
+    let d: i64 = ThroughSupertrait(9);
+    PrintLine(d);
+}
