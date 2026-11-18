@@ -45,11 +45,14 @@ pub struct InferCtxt {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Change {
     /// The root `v` was bound, or its kind changed (a general variable joined with a
-    /// literal's): what depends on its variables may be decided now.
+    /// literal's, logged for whichever of the two was the general one): what depends on
+    /// its variables may be decided now.
     Decided(TyVid),
-    /// The root `from` was joined under `into` without either being decided (two
-    /// general variables, or two literals' of a kind): what waits on `from` waits on
-    /// `into` now.
+    /// The root `from` was joined under `into`, the older of the two: what waits on
+    /// `from` waits on `into` now. A kind either changes is logged as [`Change::Decided`]
+    /// too, of `from` before this entry and of `into` after it. A join of a variable
+    /// created after another under that one, of a general kind, therefore logs nothing
+    /// about the older one (selection's fresh `impl` parameters, decision 105).
     Joined { from: TyVid, into: TyVid },
 }
 
@@ -181,6 +184,12 @@ impl InferCtxt {
             self.var_mut(v).parent = r;
         }
         r
+    }
+
+    /// How many variables there are: the next one created is numbered this.
+    #[must_use]
+    pub fn var_count(&self) -> usize {
+        self.vars.len()
     }
 
     #[must_use]
@@ -387,14 +396,27 @@ impl InferCtxt {
                     (k1, k2) if k1 == k2 => k1,
                     _ => return Err(UnifyError),
                 };
-                // Joined first, so that a reader moves what waits on `rb` to `ra`, which a
-                // general variable joining a literal's then decides.
+                // The older variable stays the root, so a variable created since (an
+                // `impl` block's parameter in selection) joins under it without changing
+                // it. A root whose kind changes is logged as decided: the joined one
+                // before the join (what waits on it sees a literal's variable now), the
+                // root after it.
+                let (ra, rb, ka, kb) = if ra.0 <= rb.0 {
+                    (ra, rb, ka, kb)
+                } else {
+                    (rb, ra, kb, ka)
+                };
+                if kb != kind {
+                    self.changes.push(Change::Decided(rb));
+                }
                 self.changes.push(Change::Joined { from: rb, into: ra });
-                if ka != kb {
+                if ka != kind {
                     self.changes.push(Change::Decided(ra));
                 }
                 self.var_mut(rb).parent = ra;
-                self.var_mut(ra).kind = kind;
+                if self.vars[ra.0 as usize].kind != kind {
+                    self.var_mut(ra).kind = kind;
+                }
                 Ok(())
             }
             (Ty::Infer(v), other) | (other, Ty::Infer(v)) => {
@@ -669,5 +691,44 @@ mod tests {
         assert!(cx.unify(&v, &Ty::Never).is_err());
         assert!(cx.unify(&Ty::Never, &v).is_err());
         assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
+    }
+
+    /// A newer variable joins under an older one, whichever side it is on, and the log
+    /// says nothing of the older one while its kind stays: selection's fresh `impl`
+    /// parameters must not wake what waits on it (decision 105). A kind that changes is
+    /// logged as decided, the joined root's before the join, the root's after it.
+    #[test]
+    fn joins_keep_the_older_root_unchanged() {
+        let mut cx = InferCtxt::new();
+        let old = cx.new_var(VarKind::Int);
+        let fresh = cx.new_var(VarKind::General);
+        let cursor = cx.changes_len();
+        cx.unify(&fresh, &old).unwrap();
+        assert_eq!(cx.shallow_resolve(&fresh), old);
+        assert_eq!(
+            cx.changes_since(cursor),
+            [
+                Change::Decided(TyVid(1)),
+                Change::Joined {
+                    from: TyVid(1),
+                    into: TyVid(0)
+                }
+            ]
+        );
+        let general = cx.new_var(VarKind::General);
+        let int = cx.new_var(VarKind::Int);
+        let cursor = cx.changes_len();
+        cx.unify(&general, &int).unwrap();
+        assert_eq!(
+            cx.changes_since(cursor),
+            [
+                Change::Joined {
+                    from: TyVid(3),
+                    into: TyVid(2)
+                },
+                Change::Decided(TyVid(2))
+            ]
+        );
+        assert_eq!(cx.kind(TyVid(3)), VarKind::Int);
     }
 }

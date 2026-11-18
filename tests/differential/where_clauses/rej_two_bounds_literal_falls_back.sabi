@@ -1,0 +1,6 @@
+// Two bounds do not decide a literal, which falls back to `i32` and fits neither.
+//@ rustc: E0277
+//@ sabiko: E0341
+fn F<T: From<u8> + From<u16>>() -> T {
+    T::from(5)
+}

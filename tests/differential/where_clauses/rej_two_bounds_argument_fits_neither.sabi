@@ -1,0 +1,6 @@
+// Two bounds of `From` leave the argument to decide; an `i32` fits neither.
+//@ rustc: E0277
+//@ sabiko: E0341
+fn F<T: From<u8> + From<u16>>(x: i32) -> T {
+    T::from(x)
+}

@@ -1,28 +1,56 @@
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:20:13 ]
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:33:13 ]
     │
- 20 │     T::from(t) //~ ERROR E0300 mismatched types
+ 33 │     T::from(t) //~ ERROR E0300 mismatched types
     │             ┬  
     │             ╰── expected `i32`, found `T`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:24:5 ]
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:37:5 ]
     │
- 24 │     t.into() //~ ERROR E0300 mismatched types
+ 37 │     t.into() //~ ERROR E0300 mismatched types
     │     ────┬───  
     │         ╰───── expected `T`, found `i64`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:28:13 ]
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:41:13 ]
     │
- 28 │     T::Make(t) //~ ERROR E0300 mismatched types
+ 41 │     T::Make(t) //~ ERROR E0300 mismatched types
     │             ┬  
     │             ╰── expected `i32`, found `T`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:32:13 ]
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:45:13 ]
     │
- 32 │     T::from(t) //~ ERROR E0300 mismatched types
+ 45 │     T::from(t) //~ ERROR E0300 mismatched types
     │             ┬  
     │             ╰── expected `i32`, found `T`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:49:5 ]
+    │
+ 49 │     Into::into(t) //~ ERROR E0300 mismatched types
+    │     ──────┬──────  
+    │           ╰──────── expected `T`, found `i64`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:54:5 ]
+    │
+ 54 │     Into::into(u) //~ ERROR E0300 mismatched types
+    │     ──────┬──────  
+    │           ╰──────── expected `T`, found `i64`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:58:5 ]
+    │
+ 58 │     Into::into(t) //~ ERROR E0300 mismatched types
+    │     ──────┬──────  
+    │           ╰──────── expected `i32`, found `i64`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/bound_fixes_trait_arguments.sabi:62:18 ]
+    │
+ 62 │     Two::Two(&t, t) //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `i32`, found `T`
 ────╯

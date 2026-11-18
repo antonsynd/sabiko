@@ -1,0 +1,9 @@
+// A call with the wrong number of arguments is one error, also when an argument has the
+// wrong type (rustc's E0061 lists it).
+//@ rustc: E0061
+//@ sabiko: E0304
+fn H(a: i32, b: i32) {}
+
+fn F() {
+    H(true, 1, 2)
+}

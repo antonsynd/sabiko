@@ -1,0 +1,6 @@
+// The bound `Into<i64>` decides the call before the expected `i32` can.
+//@ rustc: E0308
+//@ sabiko: E0300
+fn F<T: Into<i64>>(t: T) -> i32 {
+    Into::into(t)
+}

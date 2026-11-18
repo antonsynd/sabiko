@@ -1,0 +1,8 @@
+// A bound and a supertrait naming the same `From<i32>` are one candidate, which decides.
+//@ rustc: E0308
+//@ sabiko: E0300
+trait Sub: From<i32> {}
+
+fn F<T: Sub + From<i32>>(t: T) -> T {
+    T::from(t)
+}

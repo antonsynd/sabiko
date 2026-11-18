@@ -29,7 +29,9 @@ with `!` or diverging operands), `unsized/` (mentions and bindings of unsized pl
 #170), and `enums/` (programs with enums
 and patterns that both compilers must accept: casts, `..` in tuple and variant patterns,
 struct patterns, a `match` whose arms all diverge, `&` patterns, half-open and float
-ranges).
+ranges), and `where_clauses/` (a type parameter's bound deciding a trait's arguments
+before an `impl` block or the expected type can, decision 105: mostly `rej_` programs,
+since rustc rejects what the blanket blocks would otherwise accept).
 
 The harness prepends this prelude, which defines Sabiko's builtin functions for rustc:
 

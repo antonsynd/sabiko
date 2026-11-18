@@ -1,0 +1,29 @@
+// A block's tail or a `loop`'s `break` value is coerced into the parameter while the
+// argument is checked, before rustc selects: the parameter is a `T` by then, the bound
+// `Two<i32, i64>` no longer applies, and the blanket block gives `Two<T, T>`.
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+struct W<U> {
+    X: U,
+}
+
+fn Block<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, { t }) }
+fn Nested<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, ({ { t } })) }
+fn Statements<T: Two<i32, i64> + Copy>(t: T, c: bool) -> T { Two::Two(&t, { c; t; t }) }
+fn Loop<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, loop { break t; }) }
+fn LoopBlock<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, loop { break { t }; }) }
+fn Bound<T: Two<i32, i64> + Copy>(t: T) -> T { let r = Two::Two(&t, { t }); r }
+fn Decided<T: Two<i32, i64> + Copy>(t: T) -> i64 { Two::Two(&t, { 4 }) }
+fn Annotated<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, { let u: T = t; u }) }
+fn While<T: Two<i32, i64> + Copy>(t: T, c: bool) -> T { Two::Two(&t, { while c {} t }) }
+fn LoopIf<T: Two<i32, i64> + Copy>(t: T, c: bool) -> T { Two::Two(&t, loop { if c { break t; } }) }
+fn LoopEmpty<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, loop { ; break t; }) }
+fn Struct<T: Two<i32, i64> + Copy>(t: T, w: W<T>) -> T { Two::Two(&t, { w.X }) }

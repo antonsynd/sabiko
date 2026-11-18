@@ -1,0 +1,16 @@
+// A program trait's blanket block would give `T: Conv<T>`; the bound `Conv<i32>` wins.
+//@ rustc: E0308
+//@ sabiko: E0300
+trait Conv<A> {
+    fn Conv(&self) -> A;
+}
+
+impl<A: Copy> Conv<A> for A {
+    fn Conv(&self) -> A {
+        *self
+    }
+}
+
+fn F<T: Conv<i32> + Copy>(t: T) -> T {
+    Conv::Conv(&t)
+}
