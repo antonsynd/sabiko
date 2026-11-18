@@ -40,6 +40,32 @@ fn IndexNeverDecided(a: [i32; 2]) {
     let y = a[v];
 }
 
+// One report per body (rustc's E0283 for `_: SliceIndex<[i32]>`, whose `Self` is
+// unknown), at the first unknown type.
+fn IndexesNeverDecided() {
+    let a = [1, 2];
+    let y = a[Mk()]; //~ ERROR E0313 type annotations needed
+    let z = a[Mk()];
+}
+
+// The element is named as the literal default leaves it.
+fn IndexDecidedWrongLiteral() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `bool`
+    v = true;
+}
+
+// The index is judged by the next statement, so the `i64` is the mismatch (rustc's
+// E0308 at `v`), not the index.
+fn IndexDecidedThenUsed() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let y = a[v];
+    v = 1;
+    let w: i64 = v; //~ ERROR E0300 mismatched types
+}
+
 // The element is unknown until the index is (rustc's E0282).
 fn ElementNeededFirst(a: [[i32; 1]; 2]) {
     let mut v = Mk();
@@ -76,6 +102,22 @@ fn ReferenceWithLaterDiverging() {
 fn ReferenceNeverDecided() {
     let x = Mk(); //~ ERROR E0313 type annotations needed
     let b = "a" == x;
+}
+
+// `x` is an `i32` only by the literal's default, which comes with the never-type
+// fallback: `return` is `!` by then, and `i32 == !` has no impl (rustc's E0277).
+fn DefaultedThenNever() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = x == return; //~ ERROR E0306 can't compare `i32` with `!`
+}
+
+// In a body with another error, that is the only report, as rustc's.
+fn DefaultedThenNeverTainted() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = x == return;
+    let z: bool = 1; //~ ERROR E0300 mismatched types
 }
 
 // A unary operator needs its operand's type where it is (rustc's E0282).

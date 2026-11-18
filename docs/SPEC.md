@@ -1015,7 +1015,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   binding, at the binding) or `*s` as a value is E0208, and its element type must be
   sized. A pattern that binds nothing by value only mentions its place, which may be
   unsized: `let _ = *s;`, `let _: [i32] = *s;`, `match *s { _ => .. }`, `if let _ =
-  s[1..]`, `_ = *s;` and `let ref r = *s;` compile (#170, decision 104).
+  s[1..]`, `_ = *s;` and `let ref r = *s;` compile (#170, decision 104). A `let` may be
+  annotated with an unsized type only when its initialiser is such a place or absent
+  (`let _: [i32] = return;` is E0208, rustc's E0161).
   `[a, b, c]` has type `[T; 3]`, every element checked against the element type (the
   expected one, else the first element's), so `[1, true]` is E0300 at `true`; `[]` takes
   its element type from the context. `[x; N]` checks `x` against the element type and
@@ -1029,7 +1031,7 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   type. An index whose type is still unknown where it is checked (`a[v]` for `let v =
   Mk();`) is not made a `usize`: as rustc's `[T]: Index<I>`, it waits for a later use to
   decide it, and the element is unknown until then (`a[v].F` is E0313, rustc's E0282);
-  one nothing decides is E0313 (rustc's E0283). An index of type `!`, or one that is
+  indexes nothing decides are one E0313 per body (rustc's E0283). An index of type `!`, or one that is
   diverging when the body is done (`a[return]`, `a[*q]` for `q: &!`, `a[v]` before `v =
   return;`), is E0335 "cannot be indexed by `!`" (rustc's E0277; #183, decision 104). `e.len()` on an array or slice (through references) is a `usize`; the methods of
   `library/core/slice.sabi` are found as section 3 says; any other method of one is E0319, `e.len`
@@ -1211,7 +1213,12 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     else for the literal's default (`1 == Mk()` compares `i32`s); one that is diverging
     when the body is done is E0300 against a literal ("expected `i32`, found `!`",
     rustc's E0308) and E0306 against a reference (E0277), and a reference's operand
-    nothing decides is E0313 (E0283; #183, decision 104).
+    nothing decides is E0313 (E0283; #183, decision 104). The same holds for the
+    referents of `&a op &b` (`&1 == &x; x = return;` is E0306, `&1 < &x` E0300), and the
+    expected type of an operand does not reach a block's tail or a branch (`1 + { x }`
+    leaves `x` open). A left type that only the literal defaults decide comes with the
+    never-type fallback, too late to take a `!` right operand (`let x = Mk(); 1 == x; x
+    == return` is E0306).
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an
   operator whose other operand fixed the type is E0300.
 - Casts `e as T`, with Rust semantics (integer casts wrap, float to integer saturates):

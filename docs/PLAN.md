@@ -2155,6 +2155,25 @@ E0508 from its borrow checker for `{ *s }`). Still different: `{ *s }` and `*s;`
 E0208 where rustc reports E0161 and E0508; `let _: (i32, [i32]);` is E0208 (unsized
 tuples are not supported); codes, rustc's E0277/E0283/E0282/E0271 for an index are
 E0335/E0313/E0313/E0300.
+The review round (about 1000 programs) found what the first version missed: the literal
+defaults decided `x` before the operations on `!` were judged, so `let x = Mk(); 1 == x;
+x == return` compiled (rustc's E0277; it was rejected on `mainline`); an operator's
+expected type reached a block's tail or a branch (`1 == { x }`, `1 + { x }`) and a
+literal referent decided an open one (`&1 == &x`), so `x` diverging later compiled; `let
+_: [i32] = return;` compiled (rustc's E0161); `&a[v]` used through `r[0]` after `v` was
+decided was E0313; each undecided index was its own E0313 (rustc reports one). Now the
+operations on `!` whose left type only the defaults decide get no impl, an operand's
+expectation stops at blocks and branches, referents a literal or an open left referent
+does not decide wait as an open comparison, an unsized annotation needs a place
+initialiser, autoderef steps of an index base are resolved, open indexes are judged at
+every statement and form one ambiguity per body, and `break return` gives its `loop` a
+diverging variable (`a[v]` with `v` such a loop's value was E0313, rustc's E0277).
+Tests: differential `never/rej_compare_{defaulted_with_never, transitive_later_diverging,
+block_operand_later_diverging, referents_later_diverging,
+referents_ordered_later_diverging}`, `rej_arith_block_operand_later_diverging`,
+`rej_index_by_break_return`, `ok_compare_referents_decided`, `ok_break_return_value`,
+`unsized/rej_unsized_annotation_value_init`, run-time
+`run/arrays/index_element_through_reference`, and more cases in both UI tests.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

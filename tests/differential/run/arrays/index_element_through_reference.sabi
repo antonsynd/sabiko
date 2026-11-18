@@ -1,0 +1,13 @@
+// The element of an index decided after the index is checked, reached through a
+// reference: `r[0]` for `r = &a[v]` once `v` is a `usize` (#183).
+fn Main() {
+    let a = [[1, 2], [3, 4]];
+    let v = 1u8.into();
+    let r = &a[v];
+    let w: usize = v;
+    PrintLine(r[0]);
+    let rows = &a[..];
+    PrintLine(rows[w][1]);
+    PrintLine(r[1..].len());
+    PrintLine(w);
+}

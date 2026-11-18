@@ -51,59 +51,100 @@
     │         ╰── consider giving `v` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:46:13 ]
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:47:15 ]
     │
- 46 │     let n = a[v][0]; //~ ERROR E0313 type annotations needed
+ 47 │     let y = a[Mk()]; //~ ERROR E0313 type annotations needed
+    │               ─┬  
+    │                ╰── cannot infer type of the type parameter `T` declared on the function `Mk`
+    │ 
+    │ Note: specify it with a turbofish: `Mk::<..>`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `bool`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:55:15 ]
+    │
+ 55 │     let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `bool`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:66:18 ]
+    │
+ 66 │     let w: i64 = v; //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `i64`, found `usize`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:72:13 ]
+    │
+ 72 │     let n = a[v][0]; //~ ERROR E0313 type annotations needed
     │             ──┬─  
     │               ╰─── type must be known at this point
     │ 
     │ Note: the trait bounds on it leave its type open: give it a type annotation
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:54:19 ]
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:80:19 ]
     │
- 54 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+ 80 │     let z: bool = 1; //~ ERROR E0300 mismatched types
     │                   ┬  
     │                   ╰── expected `bool`, found `{integer}`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:60:18 ]
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:86:18 ]
     │
- 60 │     let b = 1 == x; //~ ERROR E0300 mismatched types
+ 86 │     let b = 1 == x; //~ ERROR E0300 mismatched types
     │                  ┬  
     │                  ╰── expected `i32`, found `!`
 ────╯
 [E0306] Error: can't compare `f64` with `!`
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:65:5 ]
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:91:5 ]
     │
- 65 │     1.5 < return true //~ ERROR E0306 can't compare `f64` with `!`
+ 91 │     1.5 < return true //~ ERROR E0306 can't compare `f64` with `!`
     │     ────────┬────────  
     │             ╰────────── no implementation for `f64 < !`
     │ 
     │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
 ────╯
 [E0306] Error: can't compare `&i32` with `!`
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:71:13 ]
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:97:13 ]
     │
- 71 │     let b = &n == x; //~ ERROR E0306 can't compare `&i32` with `!`
+ 97 │     let b = &n == x; //~ ERROR E0306 can't compare `&i32` with `!`
     │             ───┬───  
     │                ╰───── no implementation for `&i32 == !`
     │ 
     │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:77:9 ]
-    │
- 77 │     let x = Mk(); //~ ERROR E0313 type annotations needed
-    │         ┬  
-    │         ╰── consider giving `x` an explicit type
-────╯
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:103:9 ]
+     │
+ 103 │     let x = Mk(); //~ ERROR E0313 type annotations needed
+     │         ┬  
+     │         ╰── consider giving `x` an explicit type
+─────╯
+[E0306] Error: can't compare `i32` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:112:13 ]
+     │
+ 112 │     let c = x == return; //~ ERROR E0306 can't compare `i32` with `!`
+     │             ─────┬─────  
+     │                  ╰─────── no implementation for `i32 == !`
+     │ 
+     │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+─────╯
+[E0300] Error: mismatched types
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:120:19 ]
+     │
+ 120 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+     │                   ┬  
+     │                   ╰── expected `bool`, found `{integer}`
+─────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:85:14 ]
-    │
- 85 │     let c = -x; //~ ERROR E0313 type annotations needed
-    │              ┬  
-    │              ╰── type must be known at this point
-    │ 
-    │ Note: the trait bounds on it leave its type open: give it a type annotation
-────╯
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:127:14 ]
+     │
+ 127 │     let c = -x; //~ ERROR E0313 type annotations needed
+     │              ┬  
+     │              ╰── type must be known at this point
+     │ 
+     │ Note: the trait bounds on it leave its type open: give it a type annotation
+─────╯

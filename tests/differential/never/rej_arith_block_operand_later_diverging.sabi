@@ -1,0 +1,21 @@
+// The expected type of an arithmetic operator's operands does not reach a block's tail:
+// `{ x }` stays open, then diverges, and no impl adds `!` (#183).
+//@ rustc: E0277
+//@ sabiko: E0306
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Right() {
+    let mut x = Mk();
+    if false {
+        let b = 1 + { x };
+    }
+    x = return;
+}
+
+fn Left() {
+    let mut x = Mk();
+    let y: u8 = { x } + 1;
+    x = return;
+}
