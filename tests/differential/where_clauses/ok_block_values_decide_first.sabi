@@ -1,0 +1,23 @@
+// A block's value is coerced into its parameter before the bound `Mk<i32>` is selected:
+// once the parameter is an `i64`, a `bool` or a `&str`, only the blanket block applies.
+trait Mk<A> {
+    fn Mk(&self, a: A) -> i32;
+}
+
+impl<S, A> Mk<A> for S {
+    fn Mk(&self, a: A) -> i32 { 1 }
+}
+
+struct W<U> {
+    X: U,
+}
+
+fn Typed<T: Mk<i32> + Copy>(t: T) -> i32 { Mk::Mk(&t, { 5i64 }) }
+fn Literal<T: Mk<i32> + Copy>(t: T) -> i32 { Mk::Mk(&t, { 5 }) }
+fn Bool<T: Mk<i32> + Copy>(t: T) -> i32 { Mk::Mk(&t, { true }) }
+fn Str<T: Mk<i32> + Copy>(t: T) -> i32 { Mk::Mk(&t, { "s" }) }
+fn Cast<T: Mk<i32> + Copy>(t: T, x: i64) -> i32 { Mk::Mk(&t, { x as u8 }) }
+fn Field<T: Mk<i32> + Copy>(t: T, w: W<T>) -> i32 { Mk::Mk(&t, { w.X }) }
+fn Deref<T: Mk<i32> + Copy>(t: T, r: &T) -> i32 { Mk::Mk(&t, { *r }) }
+fn Local<T: Mk<i32> + Copy>(t: T) -> i32 { let x = 5i64; Mk::Mk(&t, { x }) }
+fn LoopValue<T: Mk<i32> + Copy>(t: T, x: i64) -> i32 { Mk::Mk(&t, loop { break x; }) }

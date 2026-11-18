@@ -26,11 +26,14 @@ concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` p
 by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`,
 `never/` (borrows of diverging expressions, typed `&!`, operators and indexes with `!` or
 diverging operands, variants with a `!` payload left out of a match, scrutinee places of
-type `!`), `unsized/` (mentions and bindings of unsized places, #170), and `enums/`
+type `!`), `unsized/` (mentions and bindings of unsized places, #170), `enums/`
 (programs with enums and patterns: casts, `..` in tuple and variant patterns, struct
 patterns, a `match` whose arms all diverge, `&` patterns, half-open and float ranges,
 variants with an empty-enum payload left out where the place is valid and required where
-it is reached through a reference, nesting of empty generic instances). `moves/` also pins
+it is reached through a reference, nesting of empty generic instances), and
+`where_clauses/` (a type parameter's bound deciding a trait's arguments before an `impl`
+block or the expected type can, decision 105: mostly `rej_` programs, since rustc rejects
+what the blanket blocks would otherwise accept). `moves/` also pins
 the read of a match's or `let`'s scrutinee where no pattern matched, which a partly moved
 scrutinee fails.
 

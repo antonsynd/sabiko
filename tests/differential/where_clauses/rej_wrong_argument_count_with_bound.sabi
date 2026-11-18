@@ -1,0 +1,15 @@
+// With an argument too many, the arguments' mismatches are part of the count error
+// (rustc's E0061); the result still mismatches the return type.
+//@ rustc: E0061 E0308
+//@ sabiko: E0304 E0300
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+fn F<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, t, t) }

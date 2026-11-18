@@ -1,0 +1,90 @@
+// `Copy` and `Clone` obligations on a program's generic struct with a single `impl`
+// block, whose argument is still a literal's or an unknown variable: selection unifies
+// the block's header with them without confirming it, and must stop there (decision 105;
+// it once looped forever, joining a fresh parameter at every attempt).
+struct W<T> {
+    X: T,
+}
+
+impl<T: Clone> Clone for W<T> {
+    fn clone(&self) -> W<T> {
+        W { X: self.X.clone() }
+    }
+}
+
+struct C<T> {
+    X: T,
+}
+
+impl<T: Copy> Clone for C<T> {
+    fn clone(&self) -> C<T> {
+        C { X: self.X }
+    }
+}
+
+impl<T: Copy> Copy for C<T> {}
+
+struct P<A, B> {
+    X: A,
+    Y: B,
+}
+
+impl<A: Clone, B: Clone> Clone for P<A, B> {
+    fn clone(&self) -> P<A, B> {
+        P { X: self.X.clone(), Y: self.Y.clone() }
+    }
+}
+
+fn Need<T: Clone>(t: T) -> T {
+    t
+}
+
+fn NeedC<T: Copy>(t: T) -> T {
+    t
+}
+
+fn Make<T>(c: bool, t: T) -> T {
+    if c {
+        t
+    } else {
+        Panic("not reached")
+    }
+}
+
+fn Default<T>() -> T {
+    Panic("never called")
+}
+
+// Type-checked, never run: the field is an unknown variable until the annotation.
+fn Unknown() -> i32 {
+    let o = W { X: Default() };
+    let q = Need(o);
+    let p: W<i32> = q;
+    p.X
+}
+
+fn Main() {
+    let w = W { X: 5 };
+    let q = w.clone();
+    PrintLine(q.X);
+    let r = Clone::clone(&w);
+    PrintLine(r.X + 1);
+    let n = Need(W { X: 7 });
+    PrintLine(n.X);
+    let c = NeedC(C { X: 8 });
+    let d = c;
+    PrintLine(c.X + d.X);
+    let f = W { X: 2.5 };
+    PrintLine(f.clone().X);
+    let p = Need(P { X: 9, Y: 2.0 });
+    PrintLine(p.X);
+    PrintLine(p.Y);
+    let o = W { X: Make(true, 10) };
+    let m = Need(o);
+    let k: W<i64> = m;
+    PrintLine(k.X);
+    let nested = W { X: W { X: 11 } };
+    PrintLine(nested.clone().X.X);
+    let a = [C { X: 12 }; 3];
+    PrintLine(a[2].X);
+}

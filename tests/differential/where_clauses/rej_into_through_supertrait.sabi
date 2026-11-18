@@ -1,0 +1,8 @@
+// A bound's supertrait `Into<i64>` decides `Into::into(t)` as a direct bound would.
+//@ rustc: E0308
+//@ sabiko: E0300
+trait Sub: Into<i64> {}
+
+fn F<T: Sub>(t: T) -> T {
+    Into::into(t)
+}

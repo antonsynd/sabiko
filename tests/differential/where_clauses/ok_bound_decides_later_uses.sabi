@@ -1,0 +1,23 @@
+// The only bound of a trait types the result for the uses after it: arithmetic, a
+// comparison, a print, a field, a method, a literal argument.
+struct S {
+    V: i32,
+}
+
+impl From<i32> for S {
+    fn from(v: i32) -> S {
+        S { V: v }
+    }
+}
+
+fn Add<T: Into<i64>>(t: T) -> i64 { let v = t.into(); v + 1 }
+fn AddPath<T: Into<i64>>(t: T) -> i64 { let v = Into::into(t); v * 1000000000000 }
+fn Compare<T: Into<i64>>(t: T) -> bool { let v = t.into(); v == 5 }
+fn Show<T: Into<u64>>(t: T) { let v = t.into(); PrintLine(v); }
+fn Field<T: Into<S>>(t: T) -> i32 { t.into().V }
+fn Method<T: Into<Option<i32>>>(t: T) -> bool { let v = t.into(); v.is_some() }
+fn Literal<T: From<u8>>() -> T { T::from(200) }
+fn Local<T: From<i32>>() -> T { let v = 5; T::from(v) }
+fn Twice<T: Into<i64> + Copy>(t: T) -> i64 { let a = t.into(); let b: i64 = t.into(); a + b }
+trait Sub: Into<i64> {}
+fn Super<T: Sub>(t: T) -> i64 { let v = t.into(); v + 1 }

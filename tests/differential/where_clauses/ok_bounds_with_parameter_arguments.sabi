@@ -1,0 +1,11 @@
+// A bound whose trait arguments are type parameters fixes them to those parameters.
+fn FromParameter<T, U: From<T>>(t: T) -> U { U::from(t) }
+fn ThroughTrait<T: From<U>, U>(u: U) -> T { From::from(u) }
+fn IntoParameter<T: Into<U>, U>(t: T) -> U { t.into() }
+fn Local<T: From<U>, U>(u: U) -> T { let v = u; T::from(v) }
+fn Errors<E: Into<i64>, T>(r: Result<T, E>) -> Result<T, i64> {
+    match r {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}

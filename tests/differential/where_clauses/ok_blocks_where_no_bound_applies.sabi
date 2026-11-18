@@ -1,0 +1,17 @@
+// The `impl` blocks decide where no bound applies: `Self` unknown at the call, a bound of
+// another trait or parameter, two bounds neither of which fits, or an argument the
+// expected type decided first.
+fn SelfFromResult<T: From<i32>>(t: T) -> T { From::from(t) }
+fn SelfFromLet<T: From<i32>>(t: T) -> T { let u: T = From::from(t); u }
+fn Written<T: Into<i64>>(t: T) -> T { Into::<T>::into(t) }
+fn OtherTrait<T: From<i32>>(t: T) -> T { t.into() }
+fn OtherParameter<T, U: From<i32>>(t: T) -> T { T::from(t) }
+fn OtherIntoParameter<T: Into<i64>, U>(u: U) -> U { u.into() }
+fn TwoFrom<T: From<u8> + From<u16>>(t: T) -> T { T::from(t) }
+fn TwoInto<T: Into<i64> + Into<i32>>(t: T) -> T { t.into() }
+fn TwoIntoPath<T: Into<i64> + Into<i32>>(t: T) -> T { Into::into(t) }
+trait Sub: From<i32> {}
+fn SuperAndBound<T: Sub + From<u8>>(t: T) -> T { T::from(t) }
+fn Concrete(t: i32) -> i32 { Into::into(t) }
+fn G<U, X>(u: U, x: X) -> X where U: Into<X> { x }
+fn ExpectedFirst<T: Into<i64> + Copy>(t: T) -> T { G(t, t) }

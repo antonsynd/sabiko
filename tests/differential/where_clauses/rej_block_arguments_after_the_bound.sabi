@@ -1,0 +1,27 @@
+// A block or `loop` argument whose parameter the bound decides before the value is
+// coerced to it (the `Self` of `Into::into` is unknown until the argument is checked, a
+// called function's bound selects first), or whose value diverges.
+//@ rustc: E0308
+//@ sabiko: E0300
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+fn G<U: Into<X>, X>(u: U, x: X) -> X { x }
+fn Id<U>(u: U) -> U { u }
+
+fn IntoBlock<T: Into<i64>>(t: T) -> T { Into::into({ t }) }
+fn IntoLoop<T: Into<i64>>(t: T) -> T { Into::into(loop { break t; }) }
+fn IntoNested<T: Into<i64>>(t: T) -> T { Id(Into::into({ t })) }
+fn LetBlock<T: Into<i64>>(t: T) -> T { let x = { t }; Into::into(x) }
+fn Written<T: Into<i64> + Copy>(t: T) -> T { G::<T, _>({ t }, { t }) }
+fn WrittenLoop<T: Into<i64> + Copy>(t: T) -> T { G::<T, _>(t, loop { break t; }) }
+fn Method<T: Two<i32, i64> + Copy>(t: T) -> T { t.Two({ t }) }
+fn Diverging<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, { Panic("x") }) }
+fn Endless<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, loop {}) }
