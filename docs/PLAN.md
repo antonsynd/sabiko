@@ -397,7 +397,10 @@ rustc's "use of borrowed `*s`" label. Move errors name the closest of rustc's mo
 (every local, places assigned, moved or dropped, arrays read by an index): `t` for `t.0.X`
 after `t` moved, `t.0` for `t.0[i]`; a field write is "assign to part of" the shortest
 moved prefix, "assign of" for a field of a `Drop` type, and a use rustc reports as moved is
-not also reported as uninitialised. A write or `&mut` of a binding never initialised is E0405
+not also reported as uninitialised. As in rustc's `get_moved_indexes`, moves from an
+earlier iteration of a loop count only when no path from the start reaches the use
+uninitialised (after review: `let mut a: P; loop { if c { a = .. } let m = a; }` is E0405,
+not a move "in previous iteration of loop"). A write or `&mut` of a binding never initialised is E0405
 alone (no E0401). A returned loan of a local is reported as rustc's E0515: "cannot return
 value referencing" at the returned value (a tuple, `Some(&a)`, a binding, the whole `e?`)
 with "`a` is borrowed here", "cannot return reference to" when the value is the borrow.

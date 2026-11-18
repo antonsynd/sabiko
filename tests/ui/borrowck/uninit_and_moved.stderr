@@ -88,3 +88,103 @@
     │             ─┬─  
     │              ╰─── `r` used here but it isn't initialized
 ────╯
+[E0405] Error: used binding `a` is possibly-uninitialized
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:95:17 ]
+    │
+ 90 │     let mut a: P;
+    │             ┬  
+    │             ╰── binding declared here but left uninitialized
+    │ 
+ 95 │         let m = a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+    │                 ┬  
+    │                 ╰── `a` used here but it is possibly-uninitialized
+────╯
+[E0405] Error: used binding `a` is possibly-uninitialized
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:105:17 ]
+     │
+ 100 │     let mut a: P;
+     │             ┬  
+     │             ╰── binding declared here but left uninitialized
+     │ 
+ 105 │         let r = &a.X; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+     │                 ──┬─  
+     │                   ╰─── `a` used here but it is possibly-uninitialized
+─────╯
+[E0405] Error: used binding `a` is possibly-uninitialized
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:116:9 ]
+     │
+ 111 │     let mut a: [P; 2];
+     │             ┬  
+     │             ╰── binding declared here but left uninitialized
+     │ 
+ 116 │         a[0usize].X = 3; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+     │         ────┬────  
+     │             ╰────── `a` used here but it is possibly-uninitialized
+─────╯
+[E0400] Error: cannot assign twice to immutable variable `a`
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:125:13 ]
+     │
+ 122 │     let a: [P; 2];
+     │         ┬  
+     │         ╰── help: consider making this binding mutable: `mut a`
+     │ 
+ 125 │             a = [P { X: 1 }, P { X: 2 }]; //~ ERROR E0400 cannot assign twice to immutable variable `a`
+     │             ──────────────┬─────────────  
+     │                           ╰─────────────── cannot assign twice to immutable variable
+─────╯
+[E0405] Error: used binding `a` is possibly-uninitialized
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:127:9 ]
+     │
+ 122 │     let a: [P; 2];
+     │         ┬  
+     │         ╰── binding declared here but left uninitialized
+     │ 
+ 127 │         a[0usize].X = 3;
+     │         ────┬────  
+     │             ╰────── `a` used here but it is possibly-uninitialized
+─────╯
+[E0401] Error: cannot assign to `a[_].X`, as `a` is not declared as mutable
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:127:9 ]
+     │
+ 122 │     let a: [P; 2];
+     │         ┬  
+     │         ╰── help: consider changing this to be mutable: `mut a`
+     │ 
+ 127 │         a[0usize].X = 3;
+     │         ───────┬───────  
+     │                ╰───────── cannot assign
+─────╯
+[E0405] Error: used binding `a` is possibly-uninitialized
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:140:17 ]
+     │
+ 136 │         let a: P;
+     │             ┬  
+     │             ╰── binding declared here but left uninitialized
+     │ 
+ 140 │         let m = a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+     │                 ┬  
+     │                 ╰── `a` used here but it is possibly-uninitialized
+─────╯
+[E0406] Error: use of moved value: `a`
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:152:17 ]
+     │
+ 152 │         let m = a; //~ ERROR E0406 use of moved value: `a`
+     │                 ┬  
+     │                 ╰── value used here after move
+     │                 │  
+     │                 ╰── value moved here, in previous iteration of loop
+     │ 
+     │ Note: move occurs because `a` has type `P`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: borrow of moved value: `a`
+     ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:161:17 ]
+     │
+ 161 │         let r = &a.X; //~ ERROR E0406 borrow of moved value: `a`
+     │                 ──┬─  
+     │                   ╰─── value borrowed here after move
+ 162 │         let m = a;
+     │                 ┬  
+     │                 ╰── value moved here, in previous iteration of loop
+     │ 
+     │ Note: move occurs because `a` has type `P`, which does not implement the `Copy` trait
+─────╯

@@ -1064,22 +1064,39 @@ impl MoveChecker<'_> {
 
     /// The moves of `moved` or of one of its ancestors that reach `use_location`, by a
     /// backward search through predecessors that stops at moves and re-initialisations of
-    /// those paths. Forward edges are explored before back edges, as in rustc, so a move
-    /// reachable both ways is attributed to the current iteration.
+    /// those paths (rustc's `get_moved_indexes`). Forward edges are explored first, so a
+    /// move reachable both ways is attributed to the current iteration. Back edges (moves
+    /// in an earlier iteration of a loop) are explored only when the forward search found
+    /// no move and never reached the start of the body, or the local's declaration, with
+    /// the place uninitialised: otherwise the place may be uninitialised on entry to the
+    /// loop, and rustc reports E0381 rather than a move from a previous iteration.
     fn find_move_sites(&self, use_location: Location, moved: MovePathIndex) -> Vec<MoveSite> {
         let mut targets = vec![moved];
         targets.extend(self.paths.ancestors(moved));
+        let root = self.paths.path(moved).place.local;
+        let is_argument = self.body.local_decl(root).kind == LocalKind::Arg;
 
         let mut sites = Vec::new();
         let mut visited = HashSet::default();
         let mut stack = Vec::new();
         let mut back_edge_stack = Vec::new();
         self.push_predecessors(use_location, &mut stack, &mut back_edge_stack);
+        let mut reached_start = false;
         let mut is_back_edge = false;
-        while let Some(location) = stack.pop().or_else(|| {
-            is_back_edge = true;
-            back_edge_stack.pop()
-        }) {
+        loop {
+            let location = if let Some(location) = stack.pop() {
+                location
+            } else if !is_back_edge && (is_argument || !reached_start) && sites.is_empty() {
+                is_back_edge = true;
+                continue;
+            } else if is_back_edge {
+                match back_edge_stack.pop() {
+                    Some(location) => location,
+                    None => break,
+                }
+            } else {
+                break;
+            };
             if !visited.insert(location) {
                 continue;
             }
@@ -1100,22 +1117,37 @@ impl MoveChecker<'_> {
                 .and_then(|place| self.paths.exact(&place))
                 .is_some_and(|path| targets.contains(&path));
             if reinitialised {
+                // A storage marker is no initialisation: before the local's `StorageLive`
+                // it is uninitialised, as at the start of the body in rustc, which walks
+                // past it.
+                if let Some(StatementKind::StorageLive(_)) = self
+                    .body
+                    .block(location.block)
+                    .statements
+                    .get(location.statement_index)
+                    .map(|s| &s.kind)
+                {
+                    reached_start = true;
+                }
                 continue;
             }
-            self.push_predecessors(location, &mut stack, &mut back_edge_stack);
+            if !self.push_predecessors(location, &mut stack, &mut back_edge_stack) {
+                reached_start = true;
+            }
         }
         sites.sort_unstable();
         sites
     }
 
     /// Pushes the locations just before `location`, split by whether the edge from them
-    /// goes against the dominance order (a loop back edge).
+    /// goes against the dominance order (a loop back edge). Returns whether there was one:
+    /// `false` at the start of the body.
     fn push_predecessors(
         &self,
         location: Location,
         stack: &mut Vec<Location>,
         back_edge_stack: &mut Vec<Location>,
-    ) {
+    ) -> bool {
         let preds: Vec<Location> = if location.statement_index > 0 {
             vec![Location::new(location.block, location.statement_index - 1)]
         } else {
@@ -1124,6 +1156,7 @@ impl MoveChecker<'_> {
                 .map(|&bb| Location::terminator_of(self.body, bb))
                 .collect()
         };
+        let any = !preds.is_empty();
         for pred in preds {
             if self.dominates(location, pred) {
                 back_edge_stack.push(pred);
@@ -1131,6 +1164,7 @@ impl MoveChecker<'_> {
                 stack.push(pred);
             }
         }
+        any
     }
 
     /// Whether every path from the start to `b` passes through `a`.

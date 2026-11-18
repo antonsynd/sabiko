@@ -961,7 +961,8 @@ impl<'a> Lints<'a> {
                 self.forget(*local);
             }
             StatementKind::PlaceMention(place) => self.check_place(place, span),
-            // A fake read's place is checked where it is used.
+            // The lint runs on a copy without fake reads (`remove_false_edges`); a fake
+            // read would read nothing the place's real use does not.
             StatementKind::FakeRead(..) | StatementKind::Nop => {}
         }
     }

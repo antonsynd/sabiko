@@ -1349,7 +1349,9 @@ Moves (E0406, E0407):
   moved reference is "use of moved value: `r`"; `p.A.B = v` after `p` moved is "assign to
   part of moved value: `p`" (the shortest moved prefix), and a field of a value whose
   type implements `Drop` is "assign of moved value" (`g.X = 1` after `Take(g)`). A use of
-  a value that may be moved and may be uninitialised is only the move error, and a write
+  a value that may be moved and may be uninitialised is only the move error; a move from
+  an earlier iteration of a loop counts only when the value is initialised on every path
+  into the loop (`let mut a: P; loop { if c { a = .. } let m = a; }` is E0405), and a write
   or `&mut` of a binding that was never initialised only E0405 (no E0401).
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or

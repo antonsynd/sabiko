@@ -81,3 +81,84 @@ fn FieldThroughUninitReference() {
     let r: &P;
     let x = r.X; //~ ERROR E0405 used binding `r` isn't initialized
 }
+
+// A use in a loop that the loop's entry reaches uninitialised is E0405, not a move in an
+// earlier iteration: as rustc's `get_moved_indexes`, the search for moves follows the
+// loop's back edge only when no path from the start reaches the use without an
+// initialisation.
+fn MaybeUninitInLoop() {
+    let mut a: P;
+    loop {
+        if C() {
+            a = P { X: 1 };
+        }
+        let m = a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+    }
+}
+
+fn MaybeUninitBorrowInLoop() {
+    let mut a: P;
+    loop {
+        if C() {
+            a = P { X: 1 };
+        }
+        let r = &a.X; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+        let m = a;
+    }
+}
+
+fn MaybeUninitElementWriteInLoop() {
+    let mut a: [P; 2];
+    loop {
+        if C() {
+            a = [P { X: 1 }, P { X: 2 }];
+        }
+        a[0usize].X = 3; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+        let m = a;
+    }
+}
+
+fn ImmutableMaybeUninitInLoop() {
+    let a: [P; 2];
+    loop {
+        if C() {
+            a = [P { X: 1 }, P { X: 2 }]; //~ ERROR E0400 cannot assign twice to immutable variable `a`
+        }
+        a[0usize].X = 3;
+        //~^ ERROR E0405 used binding `a` is possibly-uninitialized
+        //~^^ ERROR E0401 cannot assign to `a[_].X`, as `a` is not declared as mutable
+        let m = a;
+    }
+}
+
+fn DeclaredInLoop() {
+    loop {
+        let a: P;
+        if C() {
+            a = P { X: 1 };
+        }
+        let m = a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+    }
+}
+
+// Initialised before the loop: the move is from the previous iteration.
+fn InitialisedBeforeLoop() {
+    let mut a: P;
+    a = P { X: 0 };
+    loop {
+        if C() {
+            a = P { X: 1 };
+        }
+        let m = a; //~ ERROR E0406 use of moved value: `a`
+    }
+}
+
+fn ParameterMovedInLoop(mut a: P) {
+    loop {
+        if C() {
+            a = P { X: 2 };
+        }
+        let r = &a.X; //~ ERROR E0406 borrow of moved value: `a`
+        let m = a;
+    }
+}
