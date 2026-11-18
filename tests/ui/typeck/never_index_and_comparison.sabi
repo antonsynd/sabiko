@@ -1,0 +1,88 @@
+// An index or a comparison whose operand is `!`, or a variable that is diverging when
+// the body is done, as rustc judges them (#183). rustc indexes an array or a slice by
+// itself only with a `usize` or an `{integer}`; any other index goes through `[T]:
+// Index<I>`, and `!` does not coerce to `usize` there. A comparison's right operand is
+// decided by the left type's impl, when it has one: not a literal's (one per integer
+// type) nor a reference's under `==` (`PartialEq<&B>` and `PartialEq<&mut B>`).
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn IndexByNeverPlace(a: [i32; 2], c: bool) {
+    if c {
+        let q = &Panic("y");
+        PrintLine(a[*q]); //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    }
+}
+
+fn IndexByDivergingExpression(a: [i32; 2]) -> i32 {
+    a[return 1] //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+}
+
+// One error per index (rustc: two E0277).
+fn IndexByLaterDiverging(a: [i32; 2]) {
+    let mut v = Mk();
+    let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    let z = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    v = return;
+}
+
+// rustc's E0277 for `u8: SliceIndex<[i32]>`, at the index.
+fn IndexDecidedWrong(a: [i32; 2]) {
+    let mut v = Mk();
+    let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u8`
+    v = 1u8;
+}
+
+// rustc's E0283, at the local.
+fn IndexNeverDecided(a: [i32; 2]) {
+    let v = Mk(); //~ ERROR E0313 type annotations needed
+    let y = a[v];
+}
+
+// The element is unknown until the index is (rustc's E0282).
+fn ElementNeededFirst(a: [[i32; 1]; 2]) {
+    let mut v = Mk();
+    let n = a[v][0]; //~ ERROR E0313 type annotations needed
+    v = 0usize;
+}
+
+// In a body with another error the index falls back to an error type: only the
+// mismatch is reported, as by rustc.
+fn IndexTainted(a: [i32; 2]) {
+    let y = a[return];
+    let z: bool = 1; //~ ERROR E0300 mismatched types
+}
+
+// rustc's E0308: the literal's default `i32` has one impl, wanting `x` to be an `i32`.
+fn LiteralWithLaterDiverging() {
+    let mut x = Mk();
+    let b = 1 == x; //~ ERROR E0300 mismatched types
+    x = return;
+}
+
+fn LiteralWithDivergingExpression() -> bool {
+    1.5 < return true //~ ERROR E0306 can't compare `f64` with `!`
+}
+
+fn ReferenceWithLaterDiverging() {
+    let n = 1;
+    let mut x = Mk();
+    let b = &n == x; //~ ERROR E0306 can't compare `&i32` with `!`
+    x = return;
+}
+
+// rustc's E0283, at the local.
+fn ReferenceNeverDecided() {
+    let x = Mk(); //~ ERROR E0313 type annotations needed
+    let b = "a" == x;
+}
+
+// A unary operator needs its operand's type where it is (rustc's E0282).
+fn LiteralComparedThenNegated() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = -x; //~ ERROR E0313 type annotations needed
+}
+
+fn Main() {}

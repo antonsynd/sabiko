@@ -1,0 +1,13 @@
+// An index whose type nothing decides is ambiguous: `[T]: Index<_>` has an impl for
+// `usize` and for each range (#183; Sabiko made it a `usize`).
+//@ rustc: E0283
+//@ sabiko: E0313
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let a = [1, 2];
+    let v = Mk();
+    let y = a[v];
+}

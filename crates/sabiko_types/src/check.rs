@@ -293,8 +293,28 @@ struct DeferredOperation {
     lhs: Ty,
     rhs: Ty,
     span: Span,
+    /// The right operand's span: a comparison whose right operand fails against the left
+    /// operand's type is reported there.
+    rhs_span: Span,
     /// The result of an arithmetic or shift operation, unknown until it is judged.
     out: Option<Ty>,
+}
+
+/// `base[index]` whose index type does not decide the indexing where it is checked: a
+/// general variable, `!`, or a diverging variable. rustc indexes an array or a slice by
+/// itself only with a `usize` or an `{integer}` index (`try_index_step`); any other index
+/// goes through `[T]: Index<I>`, coerced to a fresh `I`, with the element as its `Output`.
+/// Nothing unifies the index with `usize` here, then: it is judged once a later use
+/// decides it (`v = 0usize;`), with the operations on `!` when it is still `!` or
+/// diverging at the fallback (rustc's E0277, `!: SliceIndex<[T]>` having no impl), and
+/// as an ambiguity when nothing decides it (rustc's E0283). The element is `out` until
+/// then, so a use that needs its type (`a[v].F`) is E0313 (rustc's E0282; #183).
+struct DeferredIndex {
+    elem: Ty,
+    index: Ty,
+    index_span: Span,
+    span: Span,
+    out: Ty,
 }
 
 /// A failed coercion: where, the expected type and the type found.
@@ -368,6 +388,9 @@ pub(crate) struct FnCtxt<'a> {
     /// Operations with an operand of a type still unknown where they were checked (see
     /// [`FnCtxt::open_operation`]).
     open_operations: Vec<DeferredOperation>,
+    /// Indexing whose index type was still unknown or `!` where it was checked (see
+    /// [`DeferredIndex`]).
+    open_indexes: Vec<DeferredIndex>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
@@ -462,6 +485,7 @@ impl<'a> FnCtxt<'a> {
             pending_comparisons: Vec::new(),
             never_operands: Vec::new(),
             open_operations: Vec::new(),
+            open_indexes: Vec::new(),
             consts: None,
             index_derefs: HashMap::default(),
             len_calls: HashMap::default(),
@@ -819,7 +843,14 @@ impl<'a> FnCtxt<'a> {
     fn check_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Let(l) => {
-                let annot = l.ty.as_ref().map(|t| self.lower_type(t));
+                // The annotation is the type of the place the pattern matches, not of a
+                // value: `let _: [i32] = *s;` binds nothing, and only a binding needs a
+                // sized type (rustc's `VariableType` obligation; #170).
+                let annot = l.ty.as_ref().map(|t| {
+                    let ty = self.lower_type_unchecked(t);
+                    collect::check_well_formed(&ty, t.span, self.sink);
+                    ty
+                });
                 if self.unsized_self.is_some() {
                     if let (Some(t), Some(a)) = (&l.ty, &annot) {
                         self.sized_annotations.push((t.span, a.clone()));
@@ -828,10 +859,12 @@ impl<'a> FnCtxt<'a> {
                         self.let_bound_inits.insert(strip_parens(init).id);
                     }
                 }
-                let init_ty = l
-                    .init
-                    .as_ref()
-                    .map(|init| self.check_expr(init, annot.as_ref()));
+                let init_ty = l.init.as_ref().map(|init| {
+                    // `let _ = *s;` only mentions the place `*s` (see
+                    // `check_sized_bindings`).
+                    self.unsized_place = true;
+                    self.check_expr(init, annot.as_ref())
+                });
                 let ty = match (annot, init_ty) {
                     (Some(a), _) => a,
                     (None, Some(i)) => {
@@ -872,6 +905,7 @@ impl<'a> FnCtxt<'a> {
                     self.diverges = before;
                 }
                 self.check_pat(&l.pat, &ty, init_span);
+                self.check_sized_bindings(&l.pat, &ty);
             }
             StmtKind::Expr { expr, semi } => {
                 if *semi {
@@ -1190,6 +1224,7 @@ impl<'a> FnCtxt<'a> {
                         lhs: lhs_ty,
                         rhs: rhs_ty,
                         span: expr.span,
+                        rhs_span: rhs.span,
                         out: None,
                     });
                 } else if lhs_never || rhs_never {
@@ -1199,6 +1234,7 @@ impl<'a> FnCtxt<'a> {
                         lhs: lhs_ty,
                         rhs: rhs_ty,
                         span: expr.span,
+                        rhs_span: rhs.span,
                         out: None,
                     });
                 } else if matches!(op, BinOp::Shl | BinOp::Shr) {
@@ -1398,9 +1434,11 @@ impl<'a> FnCtxt<'a> {
             }
             ExprKind::Let(pat, scrutinee) => {
                 // Only in the condition of an `if` or `while`, where it is a `bool`.
+                self.unsized_place = true;
                 let ty = self.check_expr(scrutinee, None);
                 let ty = self.scrutinee_ty(ty, [&**pat]);
                 self.check_pat(pat, &ty, Some(scrutinee.span));
+                self.check_sized_bindings(pat, &ty);
                 Ty::BOOL
             }
         }
@@ -1530,21 +1568,126 @@ impl<'a> FnCtxt<'a> {
                 return Ty::Error;
             }
         };
+        self.index_derefs.insert(expr.id, autoderefs);
+        if self.is_open(&index_ty) || self.shallow(&index_ty).is_never() {
+            let out = self.infer.new_var(VarKind::General);
+            self.open_indexes.push(DeferredIndex {
+                elem,
+                index: index_ty,
+                index_span: index.span,
+                span: expr.span,
+                out: out.clone(),
+            });
+            return out;
+        }
+        self.check_index_type(&elem, &index_ty, index.span);
+        elem
+    }
+
+    /// An index of type `index_ty` into a slice or an array of `elem`s must be a `usize`
+    /// (an `{integer}` becomes one). Returns whether it is.
+    fn check_index_type(&mut self, elem: &Ty, index_ty: &Ty, span: Span) -> bool {
         let usize_ty = Ty::Prim(PrimTy::Usize);
-        if !self.shallow(&index_ty).is_never() && self.infer.unify(&index_ty, &usize_ty).is_err() {
-            let slice = self.ty_str(&Ty::Slice(Box::new(elem.clone())));
-            let found = self.ty_str(&index_ty);
+        if self.infer.unify(index_ty, &usize_ty).is_ok() {
+            return true;
+        }
+        let slice = self.ty_str(&Ty::Slice(Box::new(elem.clone())));
+        let found = self.ty_str(index_ty);
+        self.error(
+            Diagnostic::error(
+                ErrorCode::INVALID_INDEX_TYPE,
+                format!("the type `{slice}` cannot be indexed by `{found}`"),
+            )
+            .with_label(span, "slice indices are of type `usize`")
+            .with_note("convert the index with `as usize`"),
+        );
+        false
+    }
+
+    /// A [`DeferredIndex`] whose index a later use decided: checked as an ordinary index,
+    /// its element becoming the result.
+    fn check_decided_index(&mut self, n: &DeferredIndex) {
+        if !self.check_index_type(&n.elem, &n.index, n.index_span) {
+            self.infer.bind_error(&n.out);
+            return;
+        }
+        if self.infer.unify(&n.out, &n.elem).is_err() {
+            // The element was used as another type before the index was decided (`let
+            // y: bool = a[v]; v = 0usize;`, rustc's E0271 at the index expression).
+            let (out, elem) = (self.infer.resolve(&n.out), self.infer.resolve(&n.elem));
+            self.mismatch(n.span, &out, &elem);
+        }
+    }
+
+    /// Judges the indexes ([`DeferredIndex`]) a later use decided. Returns whether one was.
+    fn judge_open_indexes(&mut self) -> bool {
+        let mut judged = false;
+        for n in std::mem::take(&mut self.open_indexes) {
+            if self.is_open(&n.index) || self.shallow(&n.index).is_never() {
+                self.open_indexes.push(n);
+                continue;
+            }
+            judged = true;
+            self.check_decided_index(&n);
+        }
+        judged
+    }
+
+    /// The indexes ([`DeferredIndex`]) still open when the body is done and not
+    /// diverging: nothing decided the index, which is E0313 (rustc's E0283, `[T]:
+    /// Index<_>`) among the body's ambiguities. The diverging ones stay for
+    /// [`Self::check_never_indexes`].
+    fn collect_open_indexes(&mut self) {
+        for n in std::mem::take(&mut self.open_indexes) {
+            if self.is_never_like(&n.index) {
+                self.open_indexes.push(n);
+                continue;
+            }
+            let report = Diagnostic::error(
+                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                "type annotations needed",
+            )
+            .with_label(n.index_span, "cannot infer the type of the index")
+            .with_note(
+                "an array or a slice is indexed by a `usize` or a range of them: give the index a type annotation",
+            );
+            self.ambiguities.push(Ambiguity {
+                at: n.span,
+                known_self: true,
+                local: false,
+                tys: vec![n.index, n.out],
+                report: Some(report),
+            });
+        }
+    }
+
+    /// Judges the indexes [`Self::collect_open_indexes`] left, with the operations on `!`
+    /// before the fallback: an index still `!` or diverging is `!`, which no `SliceIndex`
+    /// impl takes (rustc's E0277). rustc coerces the index to a fresh variable, which the
+    /// fallback makes an error type in a body tainted by errors (`tainted`): nothing is
+    /// reported there.
+    fn check_never_indexes(&mut self, tainted: bool) {
+        for n in std::mem::take(&mut self.open_indexes) {
+            if !self.is_never_like(&n.index) {
+                self.check_decided_index(&n);
+                continue;
+            }
+            self.infer.bind_error(&n.out);
+            if tainted {
+                continue;
+            }
+            let slice = self.ty_str(&Ty::Slice(Box::new(n.elem.clone())));
             self.error(
                 Diagnostic::error(
                     ErrorCode::INVALID_INDEX_TYPE,
-                    format!("the type `{slice}` cannot be indexed by `{found}`"),
+                    format!("the type `{slice}` cannot be indexed by `!`"),
                 )
-                .with_label(index.span, "slice indices are of type `usize`")
-                .with_note("convert the index with `as usize`"),
+                .with_label(n.index_span, "slice indices are of type `usize`")
+                .with_note(
+                    "`!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`",
+                ),
             );
         }
-        self.index_derefs.insert(expr.id, autoderefs);
-        elem
     }
 
     /// `e[a..b]` (and the other range forms, #10): `e` is a string, an array or a slice,
@@ -2345,6 +2488,29 @@ impl<'a> FnCtxt<'a> {
         self.new_diverging_var()
     }
 
+    /// A pattern matched against a place of type `ty` (a `let`, a scrutinee, the right
+    /// side of `_ = e`): only its bindings need a sized type (rustc's `VariableType`
+    /// obligation, once per binding), so a pattern binding nothing, or binding by `ref`,
+    /// leaves `*s` or `s[1..]` a place that is only mentioned (`let _ = *s;`, `match *s {
+    /// _ => {} }`; #170). The scrutinee itself is checked with an unsized place allowed.
+    fn check_sized_bindings(&mut self, pat: &Pat, ty: &Ty) {
+        if !matches!(self.shallow(ty), Ty::Slice(_) | Ty::Prim(PrimTy::Str)) {
+            return;
+        }
+        let mut bindings = Vec::new();
+        crate::patterns::walk_all_idents(pat, &mut |p| {
+            if let Some(local) = self.resolve.local_of_pat(p.id) {
+                bindings.push((p.span, local));
+            }
+        });
+        for (span, local) in bindings {
+            if let Some(t) = self.local_types.get(&local).cloned() {
+                let t = self.infer.resolve(&t);
+                collect::check_sized(&t, span, self.sink);
+            }
+        }
+    }
+
     /// `match scrutinee { arms }`. The arms' bodies are checked against the expectation,
     /// or else against each other (the first that does not diverge decides); guards are
     /// `bool`. The match diverges when its scrutinee does or every arm's body does; a
@@ -2356,6 +2522,7 @@ impl<'a> FnCtxt<'a> {
         arms: &[Arm],
         expected: Option<&Ty>,
     ) -> Ty {
+        self.unsized_place = true;
         let scrut_ty = self.check_expr(scrutinee, None);
         let scrut_ty = if arms.is_empty() {
             scrut_ty
@@ -2373,6 +2540,7 @@ impl<'a> FnCtxt<'a> {
         for arm in arms {
             self.diverges = false;
             self.check_pat(&arm.pat, &scrut_ty, Some(scrutinee.span));
+            self.check_sized_bindings(&arm.pat, &scrut_ty);
             if let Some(g) = &arm.guard {
                 self.check_expr(g, Some(&Ty::BOOL));
             }
@@ -3073,15 +3241,15 @@ impl<'a> FnCtxt<'a> {
                 if l_never {
                     // Only `!: PartialEq<!>` and `!: PartialOrd<!>` exist.
                     let (r, _) = self.check_operand(rhs, None);
-                    self.never_operand(op, l, r, span);
+                    self.never_operand(op, l, r, span, rhs.span);
                     return Ty::BOOL;
                 }
                 if self.is_open(&l) {
                     let (r, r_never) = self.check_open_operand(rhs, None);
                     if r_never {
-                        self.never_operand(op, l, r, span);
+                        self.never_operand(op, l, r, span, rhs.span);
                     } else {
-                        self.open_operation(op, l, r, span);
+                        self.open_operation(op, l, r, span, rhs.span);
                     }
                     return Ty::BOOL;
                 }
@@ -3090,10 +3258,23 @@ impl<'a> FnCtxt<'a> {
                     return Ty::BOOL;
                 }
                 let errors_before = self.sink.error_count();
-                let (r, r_never) = self.check_operand(rhs, Some(&l));
+                // A literal's left type (`{integer}: PartialEq<_>`) has an impl per
+                // integer type, so an open right operand is not decided by it: the
+                // comparison waits for a use of that operand, or the literal default
+                // (`1 == x; x = return;` is rustc's E0308, #183).
+                let (r, r_never) = if self.comparison_decided(op, &l).is_none() {
+                    let (r, r_never) = self.check_open_operand(rhs, Some(&l));
+                    if !r_never && self.is_open(&r) {
+                        self.open_operation(op, l, r, span, rhs.span);
+                        return Ty::BOOL;
+                    }
+                    (r, r_never)
+                } else {
+                    self.check_operand(rhs, Some(&l))
+                };
                 if r_never {
                     if self.comparison_decided(op, &l) != Some(true) {
-                        self.never_operand(op, l, r, span);
+                        self.never_operand(op, l, r, span, rhs.span);
                         return Ty::BOOL;
                     }
                     self.coerce(rhs.span, &r, &l);
@@ -3117,10 +3298,10 @@ impl<'a> FnCtxt<'a> {
                 let (l, l_never) = self.check_open_operand(lhs, expected);
                 let (r, r_never) = self.check_open_operand(rhs, None);
                 if l_never || r_never {
-                    return self.never_operand(op, l, r, span);
+                    return self.never_operand(op, l, r, span, rhs.span);
                 }
                 if self.is_open(&l) || self.is_open(&r) {
-                    return self.open_operation(op, l, r, span);
+                    return self.open_operation(op, l, r, span, rhs.span);
                 }
                 if self.check_shift_operands(op, &l, &r, span) {
                     l
@@ -3134,10 +3315,10 @@ impl<'a> FnCtxt<'a> {
                 let (r, r_never) =
                     self.check_open_operand(rhs, (!l_never && !l_open).then_some(&l));
                 if l_never || r_never {
-                    return self.never_operand(op, l, r, span);
+                    return self.never_operand(op, l, r, span, rhs.span);
                 }
                 if l_open || self.is_open(&r) {
-                    return self.open_operation(op, l, r, span);
+                    return self.open_operation(op, l, r, span, rhs.span);
                 }
                 if self.check_arith_operands(op, &l, &r, span) {
                     l
@@ -3162,15 +3343,36 @@ impl<'a> FnCtxt<'a> {
             if self.comparison_decided(op, lhs_ty) == Some(true) {
                 self.coerce(rhs.span, &rhs_ty, lhs_ty);
             } else {
-                self.never_operand(op, lhs_ty.clone(), rhs_ty, span);
+                self.never_operand(op, lhs_ty.clone(), rhs_ty, span, rhs.span);
             }
             return;
         }
-        let r_res = self.shallow(&rhs_ty);
+        if self.is_open(&rhs_ty) && self.comparison_decided(op, lhs_ty) != Some(true) {
+            // `&A` has `PartialEq<&B>` and `PartialEq<&mut B>`: the comparison waits for a
+            // use of the right operand (`&n == x; x = return;` is rustc's E0277, and
+            // nothing deciding `x` its E0283, #183).
+            self.open_operation(op, lhs_ty.clone(), rhs_ty, span, rhs.span);
+            return;
+        }
+        self.check_ref_comparison_types(op, lhs_ty, &rhs_ty, rhs.span, span);
+    }
+
+    /// The types of [`Self::check_ref_comparison`], once the right operand's is known: for
+    /// a comparison judged when a later use decides its right operand too.
+    fn check_ref_comparison_types(
+        &mut self,
+        op: BinOp,
+        lhs_ty: &Ty,
+        rhs_ty: &Ty,
+        rhs_span: Span,
+        span: Span,
+    ) {
+        let r_res = self.shallow(rhs_ty);
         match r_res {
             Ty::Error => return,
+            // The one `PartialOrd` impl decides an open right operand.
             Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {
-                self.coerce(rhs.span, &rhs_ty, lhs_ty);
+                self.coerce(rhs_span, rhs_ty, lhs_ty);
                 return;
             }
             _ => {}
@@ -3195,7 +3397,7 @@ impl<'a> FnCtxt<'a> {
             || open(self, &right);
         if outer || !depth_ok || !mutability_ok {
             // Different depths (`&i32 == i32`), or a mutability `PartialOrd` lacks.
-            let (ls, rs) = (self.ty_str(lhs_ty), self.ty_str(&rhs_ty));
+            let (ls, rs) = (self.ty_str(lhs_ty), self.ty_str(rhs_ty));
             let mut diag = Diagnostic::error(
                 ErrorCode::INVALID_BINARY_OP,
                 format!("can't compare `{ls}` with `{rs}`"),
@@ -3213,7 +3415,7 @@ impl<'a> FnCtxt<'a> {
             return;
         }
         if self.infer.unify(&left, &right).is_err() {
-            self.mismatch(rhs.span, lhs_ty, &rhs_ty);
+            self.mismatch(rhs_span, lhs_ty, rhs_ty);
             return;
         }
         // An open side unified with a reference above: peel what it became.
@@ -3243,7 +3445,7 @@ impl<'a> FnCtxt<'a> {
     /// E0313 in `finish` if none does (rustc's E0283), before the literal defaults. When
     /// #117 brings the operator traits, this record becomes the obligation `L: Add<R>`
     /// with its `Output`, and judging it is selecting that obligation.
-    fn open_operation(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
+    fn open_operation(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span, rhs_span: Span) -> Ty {
         // A left type with no impl of the operator's trait at all fails at once, whatever
         // the right one becomes (`S + w`, rustc's E0369; #159).
         if !op.is_comparison() && self.lacks_arith_impls(&lhs) {
@@ -3258,6 +3460,7 @@ impl<'a> FnCtxt<'a> {
             lhs,
             rhs,
             span,
+            rhs_span,
             out,
         });
         ty
@@ -3294,8 +3497,25 @@ impl<'a> FnCtxt<'a> {
                 let _ = self.infer.unify(&n.lhs, &l);
             }
             let literal_lhs = matches!(self.shallow(&n.lhs), Ty::Infer(_));
+            let comparison = n.op.is_comparison() && !n.compound;
+            if defaults
+                && comparison
+                && literal_lhs
+                && !self.is_open(&n.lhs)
+                && self.is_open(&n.rhs)
+                && !self.is_never_like(&n.rhs)
+            {
+                // rustc's integer fallback makes `{integer}: PartialEq<_>` select its
+                // `i32` impl, which decides the right operand (`1 == x` with `x` open).
+                let l = self.infer.resolve_with_defaults(&n.lhs);
+                let _ = self.infer.unify(&n.lhs, &l);
+            }
+            // A comparison selects its impl once its left type has a single one; the
+            // other operations, and a comparison whose left type is a literal's or a
+            // reference compared with `==`, once the right type is known too.
             let selects = !self.is_open(&n.lhs)
-                && (n.op.is_comparison() && !n.compound || !self.is_open(&n.rhs))
+                && (comparison && self.comparison_decided(n.op, &n.lhs) == Some(true)
+                    || !self.is_open(&n.rhs))
                 && !(shift_out && literal_lhs);
             if !selects {
                 self.open_operations.push(n);
@@ -3308,7 +3528,7 @@ impl<'a> FnCtxt<'a> {
                 continue;
             }
             self.check_decided_operation(&n, false);
-            if n.op.is_comparison() && !n.compound {
+            if comparison && !matches!(self.shallow(&n.lhs), Ty::Ref(..)) {
                 self.pending_comparisons.push((n.op, n.lhs.clone(), n.span));
             }
         }
@@ -3329,8 +3549,9 @@ impl<'a> FnCtxt<'a> {
         loop {
             self.select_obligations();
             let ops = self.judge_open_operations(defaults);
+            let indexes = self.judge_open_indexes();
             let prints = self.check_known_prints();
-            if !ops && !prints {
+            if !ops && !indexes && !prints {
                 return;
             }
         }
@@ -3391,7 +3612,7 @@ impl<'a> FnCtxt<'a> {
 
     /// Records an operation with an operand of type `!` (see [`DeferredOperation`]) and
     /// returns its type for now.
-    fn never_operand(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
+    fn never_operand(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span, rhs_span: Span) -> Ty {
         let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
         let ty = out.clone().unwrap_or(Ty::BOOL);
         self.never_operands.push(DeferredOperation {
@@ -3400,6 +3621,7 @@ impl<'a> FnCtxt<'a> {
             lhs,
             rhs,
             span,
+            rhs_span,
             out,
         });
         ty
@@ -3449,6 +3671,18 @@ impl<'a> FnCtxt<'a> {
             if let Some(out) = &n.out {
                 self.infer.bind_error(out);
             }
+            let comparison = n.op.is_comparison() && !n.compound;
+            let literal_lhs = matches!(self.shallow(&n.lhs), Ty::Infer(v) if self.infer.kind(v) != VarKind::General);
+            if comparison && literal_lhs && matches!(self.shallow(&n.rhs), Ty::Infer(_)) {
+                // `1 == x` with `x` diverging: rustc's fallback makes the literal `i32`,
+                // whose one impl `i32: PartialEq<i32>` then wants `x`, now `!`, to be an
+                // `i32` (E0308; `1 == return` has no such variable: E0277, below).
+                if !tainted {
+                    let expected = self.infer.resolve_with_defaults(&n.lhs);
+                    self.mismatch(n.rhs_span, &expected, &Ty::Never);
+                }
+                continue;
+            }
             // In a body tainted by errors rustc's fallback makes an open diverging
             // variable an error type, not `!`: only an operand typed `!` itself fails.
             let open_var = [&n.lhs, &n.rhs]
@@ -3497,7 +3731,12 @@ impl<'a> FnCtxt<'a> {
     fn check_decided_operation(&mut self, n: &DeferredOperation, r_never: bool) {
         let shift = matches!(n.op, BinOp::Shl | BinOp::Shr);
         if n.op.is_comparison() && !n.compound {
-            if !r_never {
+            if r_never {
+                return;
+            }
+            if let Ty::Ref(..) = self.shallow(&n.lhs) {
+                self.check_ref_comparison_types(n.op, &n.lhs, &n.rhs, n.rhs_span, n.span);
+            } else {
                 self.coerce(n.span, &n.rhs, &n.lhs);
             }
             return;
@@ -3636,6 +3875,7 @@ impl<'a> FnCtxt<'a> {
     /// binding modes), then each assignment of a fresh local to its place, in order. A
     /// pointer coercion of such an assignment is recorded under the assignee's pattern.
     fn check_destructuring_assign(&mut self, pat: &Pat, rhs: &Expr) {
+        self.unsized_place = true;
         let mut ty = self.check_expr(rhs, None);
         if self.shallow(&ty).is_never() {
             // `(a, b) = return;`: as for `let (x, y) = return;`, the pattern gets a fresh
@@ -3645,6 +3885,7 @@ impl<'a> FnCtxt<'a> {
         let saved = std::mem::replace(&mut self.in_assignee, true);
         self.check_pat(pat, &ty, Some(rhs.span));
         self.in_assignee = saved;
+        self.check_sized_bindings(pat, &ty);
         let mut assignees = Vec::new();
         pat.walk_assignees(&mut |p, place| assignees.push((p, place)));
         for (p, place) in assignees {
@@ -4077,6 +4318,7 @@ impl<'a> FnCtxt<'a> {
                     .iter()
                     .flat_map(|n| [&n.lhs, &n.rhs].into_iter().chain(&n.out)),
             )
+            .chain(self.open_indexes.iter().flat_map(|n| [&n.index, &n.out]))
             .cloned()
             .collect();
         pending.iter().any(|t| {
@@ -6125,6 +6367,7 @@ impl<'a> FnCtxt<'a> {
         self.select_where_possible();
         self.select_judging(true);
         self.collect_open_operations();
+        self.collect_open_indexes();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021). In a body tainted by
         // errors it becomes an error type, as in rustc, so nothing more is reported
@@ -6132,6 +6375,7 @@ impl<'a> FnCtxt<'a> {
         // obligations, reported after its fallback: they do not taint it.
         let tainted = self.sink.error_count() > self.errors_before;
         self.check_never_operands();
+        self.check_never_indexes(tainted);
         for v in std::mem::take(&mut self.diverging_vars) {
             if tainted {
                 self.infer.fall_back_to_error(&Ty::Infer(v));

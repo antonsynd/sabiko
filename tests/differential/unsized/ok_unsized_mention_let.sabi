@@ -1,0 +1,24 @@
+// `let _ = <place>` only mentions the place: an unsized one (`*s`, `s[1..]`, a `str`) needs
+// no size, with or without an annotation, and neither does `_ = *s` (#170).
+fn Slices(s: &[i32], m: &mut [i32]) {
+    let _ = *s;
+    let _ = s[1..];
+    let _ = (*s);
+    let _: [i32] = *s;
+    let _ = *m;
+    let _ = m[..1];
+    _ = *s;
+    m[0] = 1;
+}
+
+fn Strings(t: &str, r: &&str) {
+    let _ = *t;
+    let _ = t[1..];
+    let _: str = **r;
+}
+
+fn Arrays(a: [i32; 2], n: [[i32; 2]; 1]) {
+    let _ = a[..1];
+    let _ = n[0][1..];
+    let _: [i32];
+}

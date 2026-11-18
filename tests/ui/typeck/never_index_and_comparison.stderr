@@ -1,0 +1,109 @@
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:14:21 ]
+    │
+ 14 │         PrintLine(a[*q]); //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │                     ─┬  
+    │                      ╰── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:19:7 ]
+    │
+ 19 │     a[return 1] //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │       ────┬───  
+    │           ╰───── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:25:15 ]
+    │
+ 25 │     let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:26:15 ]
+    │
+ 26 │     let z = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: `!` does not coerce to `usize` here: the index goes through `Index`, which has no implementation for `!`
+────╯
+[E0335] Error: the type `[i32]` cannot be indexed by `u8`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:33:15 ]
+    │
+ 33 │     let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u8`
+    │               ┬  
+    │               ╰── slice indices are of type `usize`
+    │ 
+    │ Note: convert the index with `as usize`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:39:9 ]
+    │
+ 39 │     let v = Mk(); //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `v` an explicit type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:46:13 ]
+    │
+ 46 │     let n = a[v][0]; //~ ERROR E0313 type annotations needed
+    │             ──┬─  
+    │               ╰─── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:54:19 ]
+    │
+ 54 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+    │                   ┬  
+    │                   ╰── expected `bool`, found `{integer}`
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:60:18 ]
+    │
+ 60 │     let b = 1 == x; //~ ERROR E0300 mismatched types
+    │                  ┬  
+    │                  ╰── expected `i32`, found `!`
+────╯
+[E0306] Error: can't compare `f64` with `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:65:5 ]
+    │
+ 65 │     1.5 < return true //~ ERROR E0306 can't compare `f64` with `!`
+    │     ────────┬────────  
+    │             ╰────────── no implementation for `f64 < !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `&i32` with `!`
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:71:13 ]
+    │
+ 71 │     let b = &n == x; //~ ERROR E0306 can't compare `&i32` with `!`
+    │             ───┬───  
+    │                ╰───── no implementation for `&i32 == !`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:77:9 ]
+    │
+ 77 │     let x = Mk(); //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `x` an explicit type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:85:14 ]
+    │
+ 85 │     let c = -x; //~ ERROR E0313 type annotations needed
+    │              ┬  
+    │              ╰── type must be known at this point
+    │ 
+    │ Note: the trait bounds on it leave its type open: give it a type annotation
+────╯

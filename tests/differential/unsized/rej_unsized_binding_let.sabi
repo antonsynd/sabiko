@@ -1,0 +1,6 @@
+// A binding by value of an unsized place needs a size: one error per binding (#170).
+//@ rustc: E0277
+//@ sabiko: E0208
+fn F(s: &[i32]) {
+    let x = *s;
+}

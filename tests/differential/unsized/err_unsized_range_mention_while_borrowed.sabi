@@ -1,0 +1,7 @@
+// A range of a slice that is only mentioned still borrows the slice, which conflicts
+// with a live mutable loan (#170).
+fn F(m: &mut [i32]) {
+    let r = &mut *m;
+    let _ = m[1..];
+    r[0] = 1;
+}

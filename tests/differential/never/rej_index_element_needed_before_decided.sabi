@@ -1,0 +1,18 @@
+// The element of an index not decided yet is `Index`'s `Output`, unknown until the index
+// is: a field access on it needs its type at once (#183).
+//@ rustc: E0282
+//@ sabiko: E0313
+struct P {
+    X: i32,
+}
+
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let ps = [P { X: 1 }];
+    let mut v = Mk();
+    let x = ps[v].X;
+    v = 0usize;
+}

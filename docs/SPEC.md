@@ -1011,7 +1011,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `-1` E0307, a local E0220); the constants are evaluated first, so a signature may use
   them (`fn F(a: [i32; N])`). A constant of array type, and an array expression inside a
   constant, are not supported yet (E0315). `[T]` is unsized: only `&[T]` and `&mut [T]`
-  exist, a `[T]` parameter, `let` or `*s` is E0208, and its element type must be sized.
+  exist, a `[T]` parameter, a binding of one by value (`let x = *s;`, one E0208 per
+  binding, at the binding) or `*s` as a value is E0208, and its element type must be
+  sized. A pattern that binds nothing by value only mentions its place, which may be
+  unsized: `let _ = *s;`, `let _: [i32] = *s;`, `match *s { _ => .. }`, `if let _ =
+  s[1..]`, `_ = *s;` and `let ref r = *s;` compile (#170, decision 104).
   `[a, b, c]` has type `[T; 3]`, every element checked against the element type (the
   expected one, else the first element's), so `[1, true]` is E0300 at `true`; `[]` takes
   its element type from the context. `[x; N]` checks `x` against the element type and
@@ -1022,7 +1026,12 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   references to an array or slice (E0336 for anything else, rustc's E0608) and needs a
   `usize` index (E0335 "the type `[i32]` cannot be indexed by `i32`", rustc's E0277); an
   unsuffixed literal or an integer variable becomes `usize`. It is a place of the element
-  type. `e.len()` on an array or slice (through references) is a `usize`; the methods of
+  type. An index whose type is still unknown where it is checked (`a[v]` for `let v =
+  Mk();`) is not made a `usize`: as rustc's `[T]: Index<I>`, it waits for a later use to
+  decide it, and the element is unknown until then (`a[v].F` is E0313, rustc's E0282);
+  one nothing decides is E0313 (rustc's E0283). An index of type `!`, or one that is
+  diverging when the body is done (`a[return]`, `a[*q]` for `q: &!`, `a[v]` before `v =
+  return;`), is E0335 "cannot be indexed by `!`" (rustc's E0277; #183, decision 104). `e.len()` on an array or slice (through references) is a `usize`; the methods of
   `library/core/slice.sabi` are found as section 3 says; any other method of one is E0319, `e.len`
   E0320, an argument E0304. `&[T; N]` coerces to `&[T]`
   and `&mut [T; N]` to `&mut [T]` or `&[T]` (unsizing) at every coercion site, and
@@ -1042,8 +1051,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `e[r]` for a range `r` looks through references to a `str`, an array or a slice and is
   a place of type `str` or `[T]`; each bound is checked against `usize` (E0300). The
   place is unsized: it may be borrowed (`&s[1..]`, `&mut a[..2]`), indexed
-  (`a[1..][0] = 5`) or measured (`s[2..].len()`), and is E0208 anywhere else (a `let`, an
-  argument, an operand). `== != < <= > >=` compare two `&str` (references of the same depth
+  (`a[1..][0] = 5`), measured (`s[2..].len()`) or mentioned by a pattern that binds
+  nothing by value (`let _ = s[1..];`, `match t[..j] { _ => .. }`, whose bounds are still
+  checked), and is E0208 anywhere else (a binding by value, an argument, an operand). `== != < <= > >=` compare two `&str` (references of the same depth
   otherwise compare their referents, so `&&str` operands compare the strings, decision
   63); comparing `str` places (`*s == *t`) is
   E0208. Equality is by code unit, and so is the order, which is Rust's order (by Unicode
@@ -1194,7 +1204,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     as `!` if nothing decides it later either (a literal does: `let mut y = return; y =
     5; y + 1` adds integers), and so is an open variable a later
     diverging assignment makes diverging (`let y = x + 1; x = return;` is E0306, rustc's
-    E0277); a unary operator on one is E0313, as rustc needs its type at once.
+    E0277); a unary operator on one is E0313, as rustc needs its type at once. The
+    right operand of a comparison whose left type has more than one impl (a literal's, a
+    reference's under `==`/`!=`) is not decided by it either: when it is open the
+    comparison waits for a use that decides it (`1 == x; x = 5i64;` compares `i64`s), or
+    else for the literal's default (`1 == Mk()` compares `i32`s); one that is diverging
+    when the body is done is E0300 against a literal ("expected `i32`, found `!`",
+    rustc's E0308) and E0306 against a reference (E0277), and a reference's operand
+    nothing decides is E0313 (E0283; #183, decision 104).
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an
   operator whose other operand fixed the type is E0300.
 - Casts `e as T`, with Rust semantics (integer casts wrap, float to integer saturates):

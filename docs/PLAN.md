@@ -328,7 +328,7 @@ and the reported first use of an uninitialised local; `(*r).F = v` after `r` mov
 write `s[i] = v` without drop glue, so rustc's "borrow of moved value" wording and second
 E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe-moved;
 an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
-rustc accepts).
+rustc accepts; fixed by decision 104).
 
 Update (2026-11-18), two-phase constructor arguments, one error per escaping loan, and
 two-phase borrows that are never activated (#145, #174, #177, decision 101). A tuple
@@ -2081,7 +2081,7 @@ a local holding the types of two obligations (`let w = (S.Mk(), S.Mk());`) stand
 the first only, so the second is reported too (2 errors, as rustc; 1 on `mainline`).
 Still different from rustc, over about 760 programs, all as on `mainline` unless noted:
 verdicts, `a[v]` and `1 == x` with `v` or `x` diverging later are accepted where rustc
-rejects them (#183), and `&x + 1`, `&x + &y`, `z += &y` and `-&x` for `x: i32` are
+rejects them (#183, fixed by decision 104), and `&x + 1`, `&x + &y`, `z += &y` and `-&x` for `x: i32` are
 rejected (E0306/E0307, no operator impls on references before #117); counts, the move of
 an unsized `Self` result is one error per call where rustc's E0161 is one per
 temporary (`if c { self.Get() } else { self.Get() };` is 2 for rustc's 1; new with this
@@ -2119,8 +2119,42 @@ before a read of `!`, through instances at `!`); MIR fixture `uninhabited_reads`
 a `match` that leaves out an arm only an uninhabited payload could reach (`Ok(v) => v`
 alone on a `Result<i32, !>`) is E0328 where rustc accepts it (#178); `s.Push(Panic("y"))`
 through an autoref'd `&mut self` fails MIR validation (#177); `a[*q]` for `q: &!` is
-accepted and fails MIR validation where rustc rejects it (E0277, #183); and
-`match e[i] { _ => 3 }` for `e: [!; 0]` is E0330 and E0405 where rustc accepts it (#184).
+accepted and fails MIR validation where rustc rejects it (E0277, #183, fixed by decision
+104); and `match e[i] { _ => 3 }` for `e: [!; 0]` is E0330 and E0405 where rustc accepts
+it (#184).
+
+Update (2026-11-18), `!` index and comparison operands, and unsized place mentions (#183,
+#170, decision 104). An index whose type is still a general variable, `!` or a diverging
+variable is no longer unified with `usize` where it is checked: as rustc's `[T]:
+Index<I>`, it waits for a use that decides it (`v = 1usize;`, `v = 1;`), the element
+being unknown until then (`a[v].F`, `a[v][0]` are E0313, rustc's E0282); at the fallback
+an index still `!` or diverging is E0335 "cannot be indexed by `!`" (rustc's E0277, one
+per index, none in a body tainted by errors), and one nothing decides is E0313 at its
+local (rustc's E0283). `a[*q]` for `q: &!` and `a[return]` were internal errors (MIR
+validation), `let v = Mk(); a[v]` and `a[x.into()]` compiled. A comparison whose left
+type has several impls (a literal's, a reference's under `==`/`!=`) no longer decides an
+open right operand: it is an open operation until a use decides the operand, the
+literal's default `i32` deciding it at the end; diverging by then, it is E0300 against a
+literal (rustc's E0308; the UI test `typeck/never_operands` had pinned E0306 for `x ==
+y`) and E0306 against a reference (E0277), and a reference's operand nothing decides is
+E0313 (E0283). A pattern that binds nothing by value only mentions its place: `let _ =
+*s;`, `let _ = s[1..];`, `let _: [i32] = *s;`, `match *s { _ if c => .. }`, `if let _`,
+`while let _`, `_ = *s;` and `ref` bindings compile; a binding by value of an unsized
+type is E0208 at the binding, once per binding, as rustc's E0277 (it was one E0208 at the
+place), and a `let` annotation need only be well formed (`let _: str;`). Mentions build to
+`PlaceMention`s as before: a range still checks its bounds and borrows its base, a
+mention of `*s` reads nothing; `cut_uninhabited_reads` and `uninhabited_operands` see
+nothing new, since every `!` index is now rejected. Tests: differential `never/` (five
+`rej_` index files, four `rej_` comparison files, `ok_index_decided_later`,
+`ok_compare_decided_later`) and the new `unsized/` (four `ok_`, two `err_`, three `rej_`),
+run-time `run/arrays/{unsized_place_mentions, range_mention_out_of_range,
+range_mention_match_out_of_range, index_decided_later}` and
+`run/compare/compare_literal_decided_later`, UI `typeck/never_index_and_comparison` and
+`typeck/unsized_place_mentions` (rustc's counts: 13 and 7, where rustc's 8 has E0161 and
+E0508 from its borrow checker for `{ *s }`). Still different: `{ *s }` and `*s;` are one
+E0208 where rustc reports E0161 and E0508; `let _: (i32, [i32]);` is E0208 (unsized
+tuples are not supported); codes, rustc's E0277/E0283/E0282/E0271 for an index are
+E0335/E0313/E0313/E0300.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

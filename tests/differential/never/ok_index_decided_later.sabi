@@ -1,0 +1,34 @@
+// An index whose type a later use decides (#183): a `usize`, an `{integer}`, or a
+// diverging variable given a `usize` before the fallback. The element's uses wait for it.
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn LaterUsize(a: [i32; 2]) -> i32 {
+    let mut v = Mk();
+    let y = a[v] + 1;
+    PrintLine(a[v]);
+    v = 1usize;
+    y
+}
+
+fn LaterLiteral(s: &[i32]) -> i32 {
+    let mut v = Mk();
+    let y: i32 = s[v];
+    v = 1;
+    y
+}
+
+fn DivergingDecided(mut a: [i32; 2]) -> i32 {
+    let v = return 1;
+    a[v] = 5;
+    let r = &a[v];
+    let z: usize = v;
+    *r
+}
+
+fn LiteralThenDiverging(a: [i32; 2]) -> i32 {
+    let mut i = 1;
+    let y = a[i];
+    i = return y;
+}

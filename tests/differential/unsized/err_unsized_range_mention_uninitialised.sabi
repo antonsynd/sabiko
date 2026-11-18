@@ -1,0 +1,5 @@
+// A range of a `str` that is only mentioned reads the reference (#170).
+fn F() {
+    let t: &str;
+    let _ = t[1..];
+}
