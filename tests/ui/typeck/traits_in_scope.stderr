@@ -1,0 +1,61 @@
+[E0342] Error: multiple applicable items in scope
+    ╭─[ tests/ui/typeck/traits_in_scope.sabi:48:7 ]
+    │
+ 28 │     fn Val(&self) -> i32;
+    │        ─┬─  
+    │         ╰─── candidate #1 is defined in the trait `A`
+    │ 
+ 32 │     fn Val(&self) -> i32;
+    │        ─┬─  
+    │         ╰─── candidate #2 is defined in the trait `B`
+    │ 
+ 48 │     x.Val() //~ ERROR E0342 multiple applicable items in scope
+    │       ─┬─  
+    │        ╰─── multiple `Val` found
+    │ 
+    │ Note 1: disambiguate it with the trait's path: `A::Val(..)` for `T`
+    │ 
+    │ Note 2: disambiguate it with the trait's path: `B::Val(..)` for `T`
+────╯
+[E0342] Error: multiple applicable items in scope
+    ╭─[ tests/ui/typeck/traits_in_scope.sabi:52:18 ]
+    │
+  8 │     fn from(value: T) -> Self;
+    │        ──┬─  
+    │          ╰─── candidate #1 is defined in the trait `From`
+    │ 
+ 52 │     let x = i64::from(5i32); //~ ERROR E0342 multiple applicable items in scope
+    │                  ──┬─  
+    │                    ╰─── multiple `from` found
+    │
+    ├─[ library/core/convert.sabi:13:8 ]
+    │
+ 13 │     fn from(value: T) -> Self;
+    │        ──┬─  
+    │          ╰─── candidate #2 is defined in the prelude's trait `From`
+    │ 
+    │ Note 1: disambiguate it with the trait's path: `From::from(..)` for `i64`
+    │ 
+    │ Note 2: the prelude's `From` cannot be named here: the program's `From` hides its name
+────╯
+[E0342] Error: multiple applicable items in scope
+    ╭─[ tests/ui/typeck/traits_in_scope.sabi:53:23 ]
+    │
+ 18 │     fn into(self) -> i64;
+    │        ──┬─  
+    │          ╰─── candidate #1 is defined in the trait `MyInto`
+    │ 
+ 53 │     let y: i64 = 5i32.into(); //~ ERROR E0342 multiple applicable items in scope
+    │                       ──┬─  
+    │                         ╰─── multiple `into` found
+    │
+    ├─[ library/core/convert.sabi:20:8 ]
+    │
+ 20 │     fn into(self) -> T;
+    │        ──┬─  
+    │          ╰─── candidate #2 is defined in the trait `Into`
+    │ 
+    │ Note 1: disambiguate it with the trait's path: `MyInto::into(..)` for `i32`
+    │ 
+    │ Note 2: disambiguate it with the trait's path: `Into::into(..)` for `i32`
+────╯

@@ -1,0 +1,33 @@
+// A trait of the program named `From`, with a blanket impl over every type, is not the
+// prelude's (#173, decision 100): the prelude's `Into` body calls `U::from` through its
+// bound `U: From<T>`, the prelude's trait, and `?` converts with the prelude's `From`.
+trait From<T> {
+    fn from(value: T) -> Self;
+}
+
+impl<T> From<T> for T {
+    fn from(t: T) -> T {
+        t
+    }
+}
+
+fn Widen<T: Into<i64>>(t: T) -> i64 {
+    t.into()
+}
+
+fn Lift(r: Result<i32, i32>) -> Result<i32, i64> {
+    let v = r?;
+    Ok(v)
+}
+
+fn Main() {
+    let x: i64 = 5i32.into();
+    PrintLine(x);
+    PrintLine(Widen(6u8));
+    let same: bool = From::from(true);
+    PrintLine(same);
+    match Lift(Err(7)) {
+        Ok(v) => PrintLine(v),
+        Err(e) => PrintLine(e),
+    }
+}

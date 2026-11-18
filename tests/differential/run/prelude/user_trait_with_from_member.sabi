@@ -1,0 +1,22 @@
+// A trait of the program with an associated function `from` and a blanket impl over
+// every type (#173's reproducer): the prelude's `Into` body still calls its bound's
+// `From::from`, so `into` converts as in rustc, and a call through the program's trait
+// names it.
+trait Conv<T> {
+    fn from(v: T) -> Self;
+}
+
+impl<T> Conv<T> for T {
+    fn from(v: T) -> T {
+        v
+    }
+}
+
+fn Main() {
+    let x: i64 = 5i32.into();
+    PrintLine(x);
+    let o: Option<u16> = 6u16.into();
+    PrintLine(o.unwrap());
+    let same: u8 = Conv::from(7u8);
+    PrintLine(same);
+}
