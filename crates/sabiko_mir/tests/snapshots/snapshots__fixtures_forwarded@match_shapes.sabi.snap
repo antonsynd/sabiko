@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/match_shapes.sabi
 ---
 fn Statement(_1: E) -> i32 {

@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
+expression: "print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/prelude.sabi
 ---
 fn Describe(_1: Option<i32>) -> i32 {
@@ -12,13 +12,13 @@ fn Describe(_1: Option<i32>) -> i32 {
         PlaceMention(_1);
         StorageLive(_3);
         _3 = discriminant(_1);
-        switchInt(copy _3) -> [1: bb3, otherwise: bb7];
+        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
     }
 
     bb1: {
         _0 = copy _2;
         StorageDead(_2);
-        goto -> bb8;
+        goto -> bb7;
     }
 
     bb2: {
@@ -37,7 +37,7 @@ fn Describe(_1: Option<i32>) -> i32 {
 
     bb5: {
         _0 = const -1_i32;
-        goto -> bb8;
+        goto -> bb7;
     }
 
     bb6: {
@@ -45,16 +45,11 @@ fn Describe(_1: Option<i32>) -> i32 {
     }
 
     bb7: {
-        FakeRead(ForMatchedPlace, _1);
-        goto -> bb2;
+        StorageDead(_3);
+        goto -> bb8;
     }
 
     bb8: {
-        StorageDead(_3);
-        goto -> bb9;
-    }
-
-    bb9: {
         return;
     }
 }

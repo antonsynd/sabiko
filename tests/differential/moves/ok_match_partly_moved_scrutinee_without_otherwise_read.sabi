@@ -1,0 +1,58 @@
+// Matches that rustc accepts although the scrutinee is partly moved, before the match or
+// by a guard: no path reaches its `otherwise` block after the move (tests branch both
+// ways, or a later arm catches what a failed guard leaves), so no read sees it. Sabiko
+// reads only where an arm is left out because it is empty, or every arm has a guard.
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn Mv(n: N) -> bool {
+    false
+}
+
+fn BoolThrough(t: (Option<i32>, bool, N)) -> i32 {
+    Take(t.2);
+    match t { (Some(_), _, _) => 1, (_, true, _) => 2, (_, false, _) => 3 }
+}
+
+fn BoolUnionAfterGuard(t: (N, Option<bool>)) -> i32 {
+    match t {
+        (_, Some(_)) if Mv(t.0) => 1,
+        (_, Some(true)) => 2,
+        (_, Some(false)) => 3,
+        (_, None) => 4,
+    }
+}
+
+fn FreshTestAfterGuard(t: (N, Option<i32>, Option<i32>)) -> i32 {
+    match t {
+        (_, Some(_), _) if Mv(t.0) => 1,
+        (_, Some(_), None) => 2,
+        (_, Some(_), _) => 3,
+        (_, None, _) => 4,
+    }
+}
+
+fn OrAfterGuard(t: (N, Option<i32>)) -> i32 {
+    match t { (_, Some(1)) if Mv(t.0) => 1, (_, Some(1) | None) => 2, (_, Some(_)) => 3 }
+}
+
+fn RangeAfterGuard(t: (N, Option<u8>)) -> i32 {
+    match t {
+        (_, Some(0..=9)) if Mv(t.0) => 1,
+        (_, Some(10..=255)) => 2,
+        (_, None) => 3,
+        (_, Some(_)) => 4,
+    }
+}
+
+fn ValueAfterGuard(t: (N, bool, u8)) -> i32 {
+    match t {
+        (_, true, 0) if Mv(t.0) => 1,
+        (_, true, 1..=255) => 2,
+        (_, false, _) => 3,
+        (_, true, _) => 4,
+    }
+}
+
+fn Main() {}

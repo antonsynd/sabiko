@@ -50,7 +50,11 @@ const MAX_SELF_NESTING: usize = 128;
 
 /// The largest instance, in nodes of its type, whose inhabitedness is decided (see
 /// [`Checker::empty_variants`]).
-const MAX_INSTANCE_SIZE: usize = 1 << 16;
+const MAX_INSTANCE_SIZE: usize = 512;
+
+/// How many struct and enum instances one check decides at most (see
+/// [`Checker::empty_variants`]).
+const MAX_INSTANCES: usize = 512;
 
 // ---------------------------------------------------------------------------------------
 // Public interface
@@ -185,6 +189,9 @@ pub struct Report {
     /// Witnesses of non-exhaustiveness (empty when exhaustive), formatted and ordered as
     /// rustc prints them in E0004/E0005.
     pub witnesses: Vec<String>,
+    /// Whether an uninhabited constructor was left out of a column because its place is
+    /// known valid: a precondition of [`omits_empty`], which is costly to decide.
+    pub left_out_empty: bool,
 }
 
 /// Checks a `match` whose scrutinee place is known to hold a valid value: anything but a
@@ -195,6 +202,20 @@ pub struct Report {
 #[must_use]
 pub fn check_match(cx: &dyn PatCx, scrut_ty: &Ty, arms: &[Arm]) -> Report {
     check_match_with_validity(cx, scrut_ty, arms, true)
+}
+
+/// Whether `arms`, exhaustive on a valid scrutinee place (with `report`), are so only because an
+/// uninhabited constructor of a valid place may be left out (decision 106): they are not
+/// exhaustive on a place that may be invalid, where every constructor counts. rustc's MIR
+/// switches on such a place with an `otherwise` edge for the constructor left out, and
+/// reads the scrutinee there (`FakeRead(ForMatchedPlace)`).
+#[must_use]
+pub fn omits_empty(cx: &dyn PatCx, scrut_ty: &Ty, arms: &[Arm], report: &Report) -> bool {
+    report.witnesses.is_empty()
+        && report.left_out_empty
+        && !check_match_with_validity(cx, scrut_ty, arms, false)
+            .witnesses
+            .is_empty()
 }
 
 /// [`check_match`], saying whether the scrutinee place is known to hold a valid value.
@@ -265,6 +286,7 @@ pub fn check_match_with_validity(
     Report {
         unreachable,
         witnesses,
+        left_out_empty: checker.left_out_empty,
     }
 }
 
@@ -798,12 +820,17 @@ struct Checker<'a> {
     cut_off_variants: HashMap<Ty, Rc<[bool]>>,
     /// How many decisions a cut-off has made so far.
     cut_offs: usize,
+    /// How many instances have been decided (or begun) so far, against
+    /// [`MAX_INSTANCES`].
+    decided: usize,
     /// The structs and enums whose inhabitedness is being decided, outermost first.
     deciding: Vec<DefId>,
     pats: Vec<DPat>,
     useful: Vec<bool>,
     next_opaque: u32,
     saw_error: bool,
+    /// For [`Report::left_out_empty`].
+    left_out_empty: bool,
 }
 
 impl<'a> Checker<'a> {
@@ -814,11 +841,13 @@ impl<'a> Checker<'a> {
             empty_variants: HashMap::default(),
             cut_off_variants: HashMap::default(),
             cut_offs: 0,
+            decided: 0,
             deciding: Vec::new(),
             pats: Vec::new(),
             useful: Vec::new(),
             next_opaque: 0,
             saw_error: false,
+            left_out_empty: false,
         }
     }
 
@@ -865,13 +894,15 @@ impl<'a> Checker<'a> {
     ///
     /// A type that reaches itself by value has infinite size and is reported elsewhere
     /// (E0206); the cycle is taken as inhabited. Such a type may also grow without
-    /// bound (`S<T>` holding an `S<(T, T)>`), each instance a new one: deciding stops at
-    /// an instance nested in its own struct or enum [`MAX_SELF_NESTING`] times, or larger
-    /// than [`MAX_INSTANCE_SIZE`], and takes it as inhabited, which only ever asks for
-    /// more arms. A valid program reaches the cut-off only with a type that deep or that
-    /// large. What was decided with a cut-off is kept only for the rest of the outermost
-    /// query, since the same instance reached from elsewhere may be decided in full
-    /// (decision 106).
+    /// bound (`S<T>` holding an `S<(T, T)>`), each instance a new one, and a valid
+    /// program's instances may be exponentially many (`E0<T>` with variants of `E1<(T, T)>`
+    /// and `E1<(T, i32)>`, and so on). Deciding stops at an instance nested in its own
+    /// struct or enum [`MAX_SELF_NESTING`] times, larger than [`MAX_INSTANCE_SIZE`], or
+    /// past the [`MAX_INSTANCES`]th instance of the check, and takes it as inhabited,
+    /// which only ever asks for more arms (E0328, as before decision 106). A valid program
+    /// reaches the cut-off only with a type that deep or that large. What was decided
+    /// with a cut-off is kept only for the rest of the outermost query, since the same
+    /// instance reached from elsewhere may be decided in full (decision 106).
     fn empty_variants(&mut self, ty: &Ty) -> Rc<[bool]> {
         let Ty::Adt(def, args) = ty else {
             unreachable!("only a struct or enum has variants")
@@ -889,10 +920,14 @@ impl<'a> Checker<'a> {
             AdtShape::Enum { variants, .. } => vec![false; variants.len()].into(),
         };
         let nesting = self.deciding.iter().filter(|d| *d == def).count();
-        if nesting >= MAX_SELF_NESTING || ty_size(ty, MAX_INSTANCE_SIZE + 1) > MAX_INSTANCE_SIZE {
+        if nesting >= MAX_SELF_NESTING
+            || self.decided >= MAX_INSTANCES
+            || ty_size(ty, MAX_INSTANCE_SIZE + 1) > MAX_INSTANCE_SIZE
+        {
             self.cut_offs += 1;
             return inhabited;
         }
+        self.decided += 1;
         let cut_offs = self.cut_offs;
         // Provisional, for a cycle.
         self.empty_variants
@@ -1199,6 +1234,8 @@ impl<'a> Checker<'a> {
         let mut missing_ctors = split.missing;
         if !can_omit_empty_arms {
             missing_ctors.extend(split.missing_empty);
+        } else if place.valid && !split.missing_empty.is_empty() {
+            self.left_out_empty = true;
         }
         // List the missing constructors at the scrutinee and next to present ones;
         // elsewhere a column that mentions nothing is reported as `_`.

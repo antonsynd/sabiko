@@ -58,8 +58,7 @@ use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope, ValueDest};
 use crate::{
     BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, FakeReadCause, Local, LocalDecl,
-    LocalKind, Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, Terminator,
-    TerminatorKind,
+    LocalKind, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
 };
 
 /// An enum and the index of one of its variants.
@@ -89,23 +88,6 @@ pub(super) struct TestCache {
     /// top-level pattern (#150), however deep the compared sub-pattern. Range, float and
     /// string tests read at their own sub-pattern everywhere. `None` for a fresh cache.
     value_span: Option<Span>,
-    /// The failure edges (`from` the test or guard, `to` the next candidate) after which
-    /// rustc's MIR may reach the `otherwise` block of the match, where it reads the
-    /// scrutinee ([`Builder::read_unmatched`]): those of a test that reads its place
-    /// afresh (a switch on a discriminant, a comparison of an integer, `char`, float or
-    /// string, a range test) and of a guard whose arm no later arm without a guard covers.
-    /// A `bool` test branches on both values, without an `otherwise`. A test that reuses
-    /// an earlier test's read is not among them: in rustc's decision tree its outcome is
-    /// known, so a guard that failed before it never leads to the `otherwise` block
-    /// through it.
-    read_points: Vec<(BasicBlock, BasicBlock)>,
-    /// The blocks that jump to the next candidate after a failed guard.
-    guard_fails: HashSet<BasicBlock>,
-    /// Whether an arm without a guard after the one being lowered matches every value its
-    /// pattern matches ([`Builder::pat_subsumes`]).
-    guard_covered: bool,
-    /// The number of blocks when the tests started: the blocks they create come after.
-    first_block: usize,
 }
 
 /// How a candidate's bindings are made.
@@ -306,7 +288,6 @@ impl Builder<'_> {
         #[allow(clippy::cast_sign_loss)]
         let discr = def.variant(index).discr as u128;
         let key = (place.clone(), true);
-        let fresh = !self.tests.known.contains_key(&key);
         let temp = if let Some(&temp) = self.tests.known.get(&key) {
             temp
         } else {
@@ -322,9 +303,6 @@ impl Builder<'_> {
         };
         let ok = self.new_block();
         self.note_fail();
-        if fresh {
-            self.tests.read_points.push((self.current, fail));
-        }
         self.switch_int(
             Operand::Copy(Place::local(temp)),
             vec![(discr, ok)],
@@ -434,7 +412,6 @@ impl Builder<'_> {
         fail: BasicBlock,
         span: Span,
     ) {
-        let fresh = !self.tests.known.contains_key(&(place.clone(), false));
         let lhs = self.tested_value(place, span);
         let temp = self.new_temp(Ty::BOOL, span);
         let constant = Operand::Constant(Constant {
@@ -449,9 +426,6 @@ impl Builder<'_> {
         );
         let ok = self.new_block();
         self.note_fail();
-        if fresh {
-            self.tests.read_points.push((self.current, fail));
-        }
         // rustc switches on an integer or `char` itself, the failure its `otherwise`, and
         // branches on the comparison otherwise (a range, a float, a string), the failure
         // first; the order matters to the constant-propagation lints (decision 73).
@@ -539,7 +513,6 @@ impl Builder<'_> {
                 shared,
                 discr_span: Some(discr_span),
                 value_span,
-                first_block: self.body.blocks.len(),
                 ..TestCache::default()
             },
         )
@@ -670,38 +643,6 @@ impl Builder<'_> {
     /// Whether a variant pattern of `adt` reads the discriminant ([`Self::test_variant`]).
     fn tests_discriminant(&self, adt: sabiko_resolve::DefId) -> bool {
         self.typeck.items.adt(adt).variants().len() > 1
-    }
-
-    /// Whether the irrefutable pattern `pat` (of a `let` or destructuring assignment
-    /// without or-patterns) names a variant of an enum with other variants, all of them
-    /// uninhabited (`let (_, None) = t;` for `t: (N, Option<Void>)`): rustc's MIR switches
-    /// on the discriminant there, with an `otherwise` block that reads the initialiser
-    /// ([`Self::read_matched_place`]).
-    pub(super) fn tests_a_variant(&self, pat: &Pat) -> bool {
-        let variant = || {
-            self.types
-                .pat_variants
-                .get(&pat.id)
-                .is_some_and(|&(adt, _)| self.tests_discriminant(adt))
-        };
-        match &pat.kind {
-            PatKind::Ident { sub, .. } => sub.as_deref().is_some_and(|p| self.tests_a_variant(p)),
-            PatKind::Ref { pat: sub, .. } => self.tests_a_variant(sub),
-            PatKind::Tuple(subs) => subs.iter().any(|p| self.tests_a_variant(p)),
-            PatKind::Or(alts) => alts.iter().any(|p| self.tests_a_variant(p)),
-            PatKind::Path(_) => variant(),
-            PatKind::TupleStruct(_, subs) => {
-                variant() || subs.iter().any(|p| self.tests_a_variant(p))
-            }
-            PatKind::Struct { fields, .. } => {
-                variant() || fields.iter().any(|f| self.tests_a_variant(&f.pat))
-            }
-            PatKind::Wild
-            | PatKind::Rest
-            | PatKind::Lit(_)
-            | PatKind::Range(..)
-            | PatKind::Assignee(_) => false,
-        }
     }
 
     // ----- bindings -----
@@ -1006,10 +947,6 @@ impl Builder<'_> {
         let bound = self.bound_for_guard.clone();
         self.storage_dead(&bound, span);
         self.note_fail();
-        self.tests.guard_fails.insert(self.current);
-        if !self.tests.guard_covered {
-            self.tests.read_points.push((self.current, fail));
-        }
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
         // The fake borrows, and the references a by-value binding is seen through (rustc's
@@ -1099,83 +1036,19 @@ impl Builder<'_> {
         self.enter(dead);
     }
 
-    /// rustc's `FakeRead(ForMatchedPlace)` of the scrutinee `place` in the `otherwise`
-    /// block of a match (or of an irrefutable `let` with an or-pattern), reached where no
-    /// pattern matched: the borrow checker requires the whole place to be initialised and
-    /// not moved out of, even in part (`Take(t.0); match t { (_, Some(x)) => x, (_, None)
-    /// => 0 }` is E0382 in rustc), and it conflicts with no loan. Called once the
-    /// candidates are lowered, with the builder at the last candidate's failure, `end`.
-    ///
-    /// Sabiko's candidates fall through to one another, a failed guard included, where
-    /// rustc's decision tree branches; so the read goes on each failure edge after which
-    /// rustc's MIR reaches its `otherwise` block ([`TestCache::read_points`]), where a
-    /// path of failures without a guard leads to `end`, and not at `end` itself, which a
-    /// guard that moved the scrutinee may reach on paths rustc does not have (decision
-    /// 106). The state of the scrutinee is the same on that edge as in rustc's
-    /// `otherwise` block: only a guard changes it. With no arms, `end` is the `otherwise`
-    /// block.
-    fn read_unmatched(&mut self, tests: &TestCache, place: &Place, span: Span, no_arms: bool) {
-        let end = self.current;
-        if no_arms {
-            self.read_matched_place(place, span);
-            return;
-        }
-        for &(from, to) in &tests.read_points {
-            if !self.fails_through_to(to, end, tests) {
-                continue;
-            }
-            let read = self.new_block();
-            let cleanup = self.body.blocks[from.index()].cleanup;
-            let data = &mut self.body.blocks[read.index()];
-            data.statements.push(Statement {
-                kind: StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place.clone()),
-                span,
-            });
-            data.terminator = Some(Terminator {
-                kind: TerminatorKind::Goto { target: to },
-                span,
-            });
-            data.cleanup = cleanup;
-            if let Some(terminator) = &mut self.body.blocks[from.index()].terminator {
-                for target in terminator.kind.successors_mut() {
-                    if *target == to {
-                        *target = read;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Whether `end` is reachable from `start` through the blocks these tests created,
-    /// without a failed guard (whose read is its own) or an imaginary edge.
-    fn fails_through_to(&self, start: BasicBlock, end: BasicBlock, tests: &TestCache) -> bool {
-        let mut seen = HashSet::default();
-        let mut stack = vec![start];
-        while let Some(bb) = stack.pop() {
-            if bb == end {
-                return true;
-            }
-            if bb.index() < tests.first_block || tests.guard_fails.contains(&bb) || !seen.insert(bb)
-            {
-                continue;
-            }
-            match self.body.blocks[bb.index()]
-                .terminator
-                .as_ref()
-                .map(|t| &t.kind)
-            {
-                Some(TerminatorKind::FalseEdge { real_target, .. }) => stack.push(*real_target),
-                Some(kind) => stack.extend(kind.successors()),
-                None => {}
-            }
-        }
-        false
-    }
-
-    /// `FakeRead(ForMatchedPlace, place)` here: an irrefutable `let` whose pattern names a
-    /// variant of an enum with other variants switches on the discriminant in rustc, and
-    /// reads its initialiser in that switch's `otherwise` block, which no guard precedes
-    /// ([`Self::read_unmatched`]).
+    /// rustc's `FakeRead(ForMatchedPlace)` of the scrutinee `place`, which its MIR makes in
+    /// the `otherwise` block of a match, where no pattern matched: the borrow checker
+    /// requires the whole place to be initialised and not moved, even in part, and it
+    /// conflicts with no loan (decision 106). Sabiko's match lowering does not follow
+    /// rustc's decision tree, so it cannot tell exactly where rustc reaches that block
+    /// (#201). It reads once, here, before any test or guard, in the two cases where
+    /// rustc's block is surely reached: a match with no arms or only guarded ones, and a
+    /// match, irrefutable `let` or destructuring assignment that is exhaustive only by
+    /// leaving out an uninhabited variant ([`Self::reads_omitted_empty`]), whose switch
+    /// has an `otherwise` edge for it. `Take(t.0); match t { (_, None) => 1 }` for `t: (N,
+    /// Option<Void>)` is then E0382-equivalent, as in rustc. Reading before the guards
+    /// misses a guard that moves the scrutinee before rustc's read (it accepts where rustc
+    /// reports E0382, as mainline did).
     pub(super) fn read_matched_place(&mut self, place: &Place, span: Span) {
         self.push_stmt(
             StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place.clone()),
@@ -1183,96 +1056,11 @@ impl Builder<'_> {
         );
     }
 
-    /// Whether every value `specific` matches is matched by `general` too, every variant
-    /// taken as inhabited (rustc's decision tree does not know which are empty): a failed
-    /// guard on an arm of `specific` then reaches `general`'s arm, never the `otherwise`
-    /// block. `false` where unsure, which only adds reads.
-    fn pat_subsumes(&self, general: &Pat, specific: &Pat) -> bool {
-        match &specific.kind {
-            PatKind::Or(alts) => return alts.iter().all(|alt| self.pat_subsumes(general, alt)),
-            PatKind::Ident { sub: Some(sub), .. } => return self.pat_subsumes(general, sub),
-            _ => {}
-        }
-        let same_variant = || {
-            self.types.pat_variants.get(&general.id) == self.types.pat_variants.get(&specific.id)
-        };
-        let same_value = || {
-            let consts = (
-                self.types.pat_consts.get(&general.id),
-                self.types.pat_consts.get(&specific.id),
-            );
-            match consts {
-                (Some(g), Some(s)) => g == s,
-                (None, None) => same_variant(),
-                _ => false,
-            }
-        };
-        match &general.kind {
-            PatKind::Wild => true,
-            PatKind::Ident { sub: Some(sub), .. } => self.pat_subsumes(sub, specific),
-            PatKind::Ident { sub: None, .. } if self.resolve.local_of_pat(general.id).is_some() => {
-                true
-            }
-            PatKind::Or(alts) => alts.iter().any(|alt| self.pat_subsumes(alt, specific)),
-            PatKind::Ref { pat: g, .. } => {
-                matches!(&specific.kind, PatKind::Ref { pat: s, .. } if self.pat_subsumes(g, s))
-            }
-            PatKind::Tuple(gs) => {
-                matches!(&specific.kind, PatKind::Tuple(ss) if self.all_subsume(gs, ss))
-            }
-            PatKind::TupleStruct(_, gs) => matches!(
-                &specific.kind,
-                PatKind::TupleStruct(_, ss) if same_variant() && self.all_subsume(gs, ss)
-            ),
-            PatKind::Struct { fields: gs, .. } => {
-                let PatKind::Struct { fields: ss, .. } = &specific.kind else {
-                    return false;
-                };
-                same_variant()
-                    && gs
-                        .iter()
-                        .all(|g| match ss.iter().find(|s| s.name.name == g.name.name) {
-                            Some(s) => self.pat_subsumes(&g.pat, &s.pat),
-                            None => self.matches_anything(&g.pat),
-                        })
-            }
-            PatKind::Ident { sub: None, .. } | PatKind::Path(_) | PatKind::Lit(_) => {
-                matches!(
-                    &specific.kind,
-                    PatKind::Ident { sub: None, .. } | PatKind::Path(_) | PatKind::Lit(_)
-                ) && self.resolve.local_of_pat(specific.id).is_none()
-                    && same_value()
-            }
-            PatKind::Range(..) => matches!(&specific.kind, PatKind::Range(..)) && same_value(),
-            PatKind::Rest | PatKind::Assignee(_) => false,
-        }
-    }
-
-    /// Whether `pat` matches every value of its type: `_`, a binding, and tuples of them.
-    fn matches_anything(&self, pat: &Pat) -> bool {
-        match &pat.kind {
-            PatKind::Wild => true,
-            PatKind::Ident { sub, .. } if self.resolve.local_of_pat(pat.id).is_some() => {
-                sub.as_deref().is_none_or(|sub| self.matches_anything(sub))
-            }
-            PatKind::Tuple(pats) => pats.iter().all(|p| self.matches_anything(p)),
-            PatKind::Or(alts) => alts.iter().any(|alt| self.matches_anything(alt)),
-            _ => false,
-        }
-    }
-
-    /// [`Self::pat_subsumes`] element by element; a `..` only against a `..` at the same
-    /// position.
-    fn all_subsume(&self, general: &[Pat], specific: &[Pat]) -> bool {
-        general.len() == specific.len()
-            && general
-                .iter()
-                .zip(specific)
-                .all(|(g, s)| match (&g.kind, &s.kind) {
-                    (PatKind::Rest, PatKind::Rest) => true,
-                    (PatKind::Rest, _) | (_, PatKind::Rest) => false,
-                    _ => self.pat_subsumes(g, s),
-                })
+    /// Whether exhaustiveness checking found the patterns on `scrutinee` (a match's, or a
+    /// `let`'s initialiser) exhaustive only by leaving out an uninhabited constructor of a
+    /// valid place ([`Self::read_matched_place`]).
+    pub(super) fn reads_omitted_empty(&self, scrutinee: &Expr) -> bool {
+        self.types.omits_empty.contains(&scrutinee.id)
     }
 
     /// `match scrutinee { arms }`, writing the arms' values into `dest`.
@@ -1290,6 +1078,9 @@ impl Builder<'_> {
         }
         let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
         let place = self.scrutinee_place(scrutinee, &pats);
+        if arms.iter().all(|arm| arm.guard.is_some()) || self.reads_omitted_empty(scrutinee) {
+            self.read_matched_place(&place, scrutinee.span);
+        }
         let fakes = self.guard_fake_places(arms, &place);
         let match_start = Span::point(span.file, span.start).to(scrutinee.span);
         let saved = self.start_tests(&pats, &place, scrutinee.span, Some(match_start));
@@ -1308,9 +1099,6 @@ impl Builder<'_> {
             let body = self.new_block();
             let guard = arm.guard.as_ref().map(|g| (g, &fakes[..]));
             let is_last = index + 1 == arms.len();
-            self.tests.guard_covered = arms[index + 1..]
-                .iter()
-                .any(|later| later.guard.is_none() && self.pat_subsumes(&later.pat, &arm.pat));
             self.lower_candidates(&arm.pat, guard, &place, scrutinee.span, body, !is_last);
             // What the guard's `let`s hold lives through the body, after the pattern's
             // bindings, so it is dropped first (rustc's order).
@@ -1318,8 +1106,7 @@ impl Builder<'_> {
             entries.push((body, locals));
         }
         self.guard_held = outer_held;
-        let unmatched = std::mem::replace(&mut self.tests, saved);
-        self.read_unmatched(&unmatched, &place, scrutinee.span, arms.is_empty());
+        self.tests = saved;
         // Exhaustiveness was checked: no value gets here.
         self.terminate(TerminatorKind::Unreachable, span);
         let join = self.new_block();
@@ -1602,13 +1389,13 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
+        if els.is_none() && self.reads_omitted_empty(init) {
+            // An irrefutable `let` with an or-pattern: as for a `match`.
+            self.read_matched_place(&place, init.span);
+        }
         let saved = self.start_tests(&[pat], &place, init.span, Some(pat.span));
         self.lower_candidates(pat, None, &place, span, ok, els.is_some());
-        let unmatched = std::mem::replace(&mut self.tests, saved);
-        if els.is_none() {
-            // An irrefutable `let` with an or-pattern: as for a `match`.
-            self.read_unmatched(&unmatched, &place, init.span, false);
-        }
+        self.tests = saved;
         if let Some(els) = els {
             // The failure path ends the initialiser's temporaries (its own value first, then
             // those made while computing it) before `else`; they stay in their scopes for

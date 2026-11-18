@@ -2785,7 +2785,8 @@ impl<'a> Builder<'a> {
             self.declare_pattern_locals(pat);
             return;
         }
-        if self.tests_a_variant(pat) {
+        if self.reads_omitted_empty(init) {
+            // `let (_, None) = t;` for `t: (N, Option<Void>)` (decision 106).
             self.read_matched_place(&place, init.span);
         }
         self.bind_pat(pat, place, &matches::Choice::default(), BindMode::Declare);

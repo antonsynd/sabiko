@@ -2160,8 +2160,9 @@ its enum's declaration, where the payload of `Result`'s `Err` is a type paramete
 `match r { Ok(v) => v }` on a `Result<i32, !>` and `match o { None => 3 }` on an
 `Option<!>` were E0328 where rustc accepts them. Inhabitedness is now decided at the
 instance (cached per instance type; an instance nested in its own struct or enum 128
-times, or of more than 65536 type nodes, is taken as inhabited, and what was decided
-through that cut-off is not cached past the outermost query), and arrays count: `[!; 1]` is empty, `[!; 0]` and
+times, of more than 512 type nodes, or past the 512th that one check decides, is taken as
+inhabited, as every instance was before, and what was decided through that cut-off is not
+cached past the outermost query; `inhabitedness_scaling` bounds the time), and arrays count: `[!; 1]` is empty, `[!; 0]` and
 `&!` are not. The scrutinee validity rule is rustc's `is_known_valid_scrutinee` in full:
 besides `*r` and `r.F`, an index through a reference (`r[i]`, `s[i]` on a slice), an index
 of a sub-slice and any field or element of such a place are not valid, and the rule now
@@ -2173,20 +2174,20 @@ is a place no longer counts as diverging: its arms are lowered and entered after
 bounds check, as in rustc, so `match e[i] { _ => 3 }` compiles and panics on the check,
 a move in such an arm is E0406 (it was accepted; rustc's E0382), and `match e[i] {}` ends
 in `unreachable`; a block whose tail is a `!` place (`match { e[i] } {}`) diverges, and
-the code after it is unreachable (what the match would have assigned was E0405). A match
-now reads its scrutinee where no pattern matched, in rustc's `otherwise` block, with a
-`FakeRead(ForMatchedPlace)` (after a failed discriminant switch, comparison, range test or
-guard, or with no arms; not after a `bool` test or when a later arm that tests nothing
-catches the value), and so does an irrefutable `let` or destructuring assignment that
-names a variant of an enum with other variants: the place must be initialised and not
-moved, even in part. `let v: Void; match v {}` is E0405 (rustc's E0381; it was accepted);
-`Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }` and `Take(t.0); let (_, None) =
-t;` are E0406 (rustc's E0382; they were accepted, which leaving out an empty variant had
-made reachable from valid-looking code). The read conflicts with no loan. Since Sabiko's
-candidates fall through to one another where rustc's decision tree branches, it goes on
-each failure edge after which rustc reaches its `otherwise` block, not at the end of the
-candidates: a guard that moves the scrutinee before a later arm that covers it stays
-accepted, as in rustc. About 150 programs were compared with rustc 1.99 (the PR has the
+the code after it is unreachable (what the match would have assigned was E0405). The matched place
+is read by a `FakeRead(ForMatchedPlace)`, a use of the whole place that conflicts with no
+loan: it must be initialised and not moved, even in part. rustc reads in the `otherwise`
+block of the match, which Sabiko's candidate-by-candidate lowering cannot locate exactly
+(#201); Sabiko reads once, at the start of the match, only where rustc certainly reaches that
+block: when exhaustiveness relied on leaving out an uninhabited constructor (type checking
+records such scrutinees in `BodyTypes::omits_empty`), and when the match has no arms or
+every arm has a guard; an irrefutable `let` or destructuring assignment reads its
+initialiser by the first rule. `let v: Void; match v {}` is E0405 (rustc's E0381; it was
+accepted); `Take(t.0); match t { (_, None) => 1 }` and `Take(t.0); let (_, None) = t;` for
+`t: (N, Option<Void>)` are E0406 (rustc's E0382; they were accepted, a hole that leaving
+out empty variants opened). The read rejects nothing rustc accepts, since before any test
+or guard the place is in the state rustc's `otherwise` block sees unless a guard moved part
+of it. About 150 programs were compared with rustc 1.99 (the PR has the
 table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `never/rej_uninhabited_payload_behind_reference`, `never/ok_never_place_scrutinee`,
 `never/err_never_place_scrutinee`, `enums/ok_empty_payloads_omitted`,
@@ -2195,22 +2196,20 @@ table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `matches/never_place_wild_arm`, `matches/never_place_empty_match`, UI
 `typeck/uninhabited_generic_instances`, `typeck/uninhabited_variant_places`,
 `typeck/never_place_scrutinee`, and the unit test `empty_variants_of_generic_instances`;
-after review: differential `moves/err_match_partially_moved_switch_otherwise`,
-`moves/err_match_partially_moved_struct_field_switch`,
+after review: differential
 `moves/err_match_partially_moved_empty_variant_omitted`,
 `moves/err_match_partially_moved_generic_empty_variant`,
-`moves/err_match_partially_moved_range_otherwise`,
 `moves/err_match_partially_moved_guard_otherwise`, `moves/err_let_partially_moved_variant_test`,
-`moves/err_let_or_partially_moved_variant_test`,
 `moves/err_destructuring_assign_partially_moved_variant_test`,
-`moves/ok_match_partially_moved_no_otherwise`,
-`loans/ok_match_otherwise_read_conflicts_with_no_loan`,
-`moves/err_match_guard_moves_scrutinee_then_otherwise`,
 `moves/err_match_guard_moves_scrutinee_later_arm_tests`,
+`moves/ok_match_partially_moved_no_otherwise`,
 `moves/ok_match_guard_moves_scrutinee_covered`,
+`moves/ok_match_partly_moved_scrutinee_without_otherwise_read`,
+`loans/ok_match_otherwise_read_conflicts_with_no_loan`,
 `enums/ok_deeply_nested_empty_instances`, run `matches/never_block_scrutinee` and
-`matches/never_block_scrutinee_wild_arm`, and the borrow checker unit tests
-`partial_move_then_matched_place_read` and `matched_place_read_conflicts_with_no_loan`.
+`matches/never_block_scrutinee_wild_arm`, the driver test `inhabitedness_scaling`, and the
+unit tests `deeply_nested_instances`, `partial_move_then_matched_place_read` and
+`matched_place_read_conflicts_with_no_loan`.
 Gaps: rustc's `unreachable_patterns` lint also covers `let`, `if let`, `let`-`else`,
 `while let`, let chains and parameters (an or-pattern alternative such as the second `1`
 of `if let 1 | 1 = x`, or `_` on a valid `!` place); Sabiko reports it for `match` only.
@@ -2221,7 +2220,16 @@ the code after it as unreachable, accepts the program. The scrutinee read makes 
 further: with `struct S { A: N, V: Void }` and `fn Make() -> S { loop {} }`,
 `let s = Make(); Take(s.A); match s { _ if c => 1 }` is E0406 where rustc accepts it.
 When statics land, `known_valid` must take a place through a static as not valid, as
-rustc does for `Deref(StaticRef)`.
+rustc does for `Deref(StaticRef)`. Where the matched place is read is #201: a guard that
+moves part of the scrutinee before an omitted-uninhabited-variant `otherwise` path, or
+before the last guard of a match whose arms all have guards, is accepted where rustc gives
+E0382, since Sabiko reads before the first guard; and a scrutinee moved in part before a
+match whose `otherwise` block rustc reaches only through a failed switch, comparison or
+range test on inhabited values (`Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }`
+for `Option<i32>`) is still accepted where rustc gives E0382, as before. Two compile-time
+gaps met in review: a match with many guarded arms compiles in roughly cubic time (#202),
+and an executable whose generic instances nest deeply (each level doubling its argument)
+fails in ilasm on class names over 1023 characters, without an E0500 (#203).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

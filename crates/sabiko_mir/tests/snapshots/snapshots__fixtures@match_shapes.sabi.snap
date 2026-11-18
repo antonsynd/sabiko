@@ -16,12 +16,12 @@ fn Statement(_1: E) -> i32 {
         PlaceMention(_1);
         StorageLive(_3);
         _3 = discriminant(_1);
-        switchInt(copy _3) -> [0: bb3, otherwise: bb7];
+        switchInt(copy _3) -> [0: bb3, otherwise: bb2];
     }
 
     bb1: {
         _2 = const 1_i32;
-        goto -> bb8;
+        goto -> bb7;
     }
 
     bb2: {
@@ -38,7 +38,7 @@ fn Statement(_1: E) -> i32 {
         _2 = copy _5;
         StorageDead(_5);
         StorageDead(_4);
-        goto -> bb8;
+        goto -> bb7;
     }
 
     bb5: {
@@ -52,18 +52,13 @@ fn Statement(_1: E) -> i32 {
     }
 
     bb7: {
-        FakeRead(ForMatchedPlace, _1);
-        goto -> bb2;
-    }
-
-    bb8: {
         StorageDead(_3);
         _0 = copy _2;
         StorageDead(_2);
-        goto -> bb9;
+        goto -> bb8;
     }
 
-    bb9: {
+    bb8: {
         return;
     }
 }

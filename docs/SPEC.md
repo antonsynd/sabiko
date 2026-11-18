@@ -1155,19 +1155,19 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `e: [!; 0]`) does not diverge by being named: its arms are lowered like any others and
   entered after the place's bounds check (which panics, since no such element exists),
   so the borrow checker sees them, and `match e[i] {}` is exhaustive. A match reads its
-  scrutinee where no arm matched (after a failed test on a discriminant, a value or range,
-  or a failed last guard, and with no arms; not after a `bool` test or when the last arm
-  tests nothing), and so does an irrefutable `let` or destructuring assignment that names
-  a variant of an enum with other variants: the place must be initialised and not moved,
-  even in part (`let v: Void; match v {}` is E0405, rustc's E0381;
-  `Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }` is E0406, rustc's E0382).
-  The read conflicts with no loan, and a `_` arm only mentions the place. A guard that
-  moves the scrutinee and fails is followed by no read when a later arm without a guard
-  matches everything its arm does. A `let` or parameter pattern must be
-  irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
-  single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
-  pattern always matches (E0331); a `let` of a let chain may be refutable or not, without
-  a warning either way (as rustc 1.99).
+  scrutinee before any test or guard when it is exhaustive only because an uninhabited
+  variant or value was left out, when it has no arms, and when every arm has a guard; an
+  irrefutable `let` or destructuring assignment reads its initialiser by the first rule.
+  The place must be initialised and not moved, even in part (`let v: Void; match v {}` is
+  E0405, rustc's E0381; `Take(t.0); match t { (_, None) => 1 }` for an `Option<Void>` in
+  `t.1` is E0406, rustc's E0382). The read conflicts with no loan, and a `_` arm only
+  mentions the place. rustc reads in its `otherwise` block instead, so it also rejects a
+  guard that moves the scrutinee before that block, and a scrutinee moved in part before a
+  match that reaches it through a failed test; Sabiko accepts both (#201). A `let` or
+  parameter pattern must be irrefutable (E0329, rustc's E0005). Warnings: a pattern no
+  value reaches (E0330, also a single alternative of an or-pattern), and an `if let`,
+  `while let` or `let`-`else` whose pattern always matches (E0331); a `let` of a let chain
+  may be refutable or not, without a warning either way (as rustc 1.99).
 - Coercions: `!` to any type, and `&mut T` to `&T`. Nothing else: no `&T` to `&mut T`, no
   numeric widening, no autoref outside method receivers.
 - Method calls `e.Name(args)` (#7, decision 53). The receiver is checked first. Only

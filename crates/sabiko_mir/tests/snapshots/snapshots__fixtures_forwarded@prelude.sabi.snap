@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
+expression: "print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/prelude.sabi
 ---
 fn Describe(_1: Option<i32>) -> i32 {

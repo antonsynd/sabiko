@@ -7,7 +7,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
 use sabiko_ast::{
-    EnumDecl, Expr, ExprKind, ItemKind, Lit, Pat, PatKind, RangeEnd, SourceFile, UnOp,
+    EnumDecl, Expr, ExprKind, ItemKind, Lit, NodeId, Pat, PatKind, RangeEnd, SourceFile, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, PrimTy, Res, ResolveResults};
@@ -665,6 +665,7 @@ pub(crate) fn exhaustiveness_of(
         items,
         body,
         sink,
+        omits_empty: Vec::new(),
     };
     for p in &f.params {
         cx.refutable(&p.pat, None, "function argument");
@@ -672,6 +673,8 @@ pub(crate) fn exhaustiveness_of(
     if let Some(b) = &f.body {
         cx.block(b);
     }
+    let omits_empty = cx.omits_empty;
+    body.omits_empty.extend(omits_empty);
     if sink.error_count() > errors_before {
         body.has_errors = true;
     }
@@ -682,6 +685,8 @@ struct Exhaustive<'a, 'b> {
     items: &'a ItemTypes,
     body: &'b BodyTypes,
     sink: &'a mut DiagnosticSink,
+    /// For [`BodyTypes::omits_empty`].
+    omits_empty: Vec<NodeId>,
 }
 
 impl Exhaustive<'_, '_> {
@@ -844,14 +849,13 @@ impl Exhaustive<'_, '_> {
             })
             .collect();
         let cx = Shapes { items: self.items };
-        let report = usefulness::check_match_with_validity(
-            &cx,
-            &ty,
-            &lowered,
-            known_valid(scrutinee, self.body),
-        );
+        let valid = known_valid(scrutinee, self.body);
+        let report = usefulness::check_match_with_validity(&cx, &ty, &lowered, valid);
         self.unreachable(&report.unreachable);
         if report.witnesses.is_empty() {
+            if valid && usefulness::omits_empty(&cx, &ty, &lowered, &report) {
+                self.omits_empty.push(scrutinee.id);
+            }
             return;
         }
         let message = if usefulness::reports_type_non_empty(&cx, &ty, &lowered) {
@@ -877,6 +881,11 @@ impl Exhaustive<'_, '_> {
     fn refutable(&mut self, pat: &Pat, scrutinee: Option<&Expr>, what: &str) {
         let report = self.check_one(pat, scrutinee);
         if report.witnesses.is_empty() {
+            if let Some(scrutinee) = scrutinee {
+                if known_valid(scrutinee, self.body) && self.omits_empty_one(pat, &report) {
+                    self.omits_empty.push(scrutinee.id);
+                }
+            }
             return;
         }
         self.sink.emit(
@@ -940,6 +949,25 @@ impl Exhaustive<'_, '_> {
         let cx = Shapes { items: self.items };
         let valid = scrutinee.is_none_or(|s| known_valid(s, self.body));
         usefulness::check_match_with_validity(&cx, &ty, &[arm], valid)
+    }
+
+    /// [`usefulness::omits_empty`] for the single pattern `pat`.
+    fn omits_empty_one(&self, pat: &Pat, report: &usefulness::Report) -> bool {
+        if !report.left_out_empty {
+            return false;
+        }
+        let ty = self
+            .body
+            .pat_types
+            .get(&pat.id)
+            .cloned()
+            .unwrap_or(Ty::Error);
+        let arm = usefulness::Arm {
+            pat: self.lower(pat),
+            has_guard: false,
+        };
+        let cx = Shapes { items: self.items };
+        usefulness::omits_empty(&cx, &ty, &[arm], report)
     }
 
     fn unreachable(&mut self, spans: &[sabiko_span::Span]) {

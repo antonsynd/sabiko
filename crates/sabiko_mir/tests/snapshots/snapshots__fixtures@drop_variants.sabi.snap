@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/drop_variants.sabi
 ---
 fn <D as Drop>::drop(_1: &mut D) {
@@ -164,20 +164,20 @@ fn PartlyMoved(_1: bool) {
         PlaceMention(_2);
         StorageLive(_6);
         _6 = discriminant(_2);
-        switchInt(copy _6) -> [1: bb8, otherwise: bb11];
+        switchInt(copy _6) -> [1: bb8, otherwise: bb7];
     }
 
     bb5 (cleanup c1): {
         StorageDead(_4);
-        goto -> bb14;
+        goto -> bb13;
     }
 
     bb6 (cleanup c1): {
-        drop(_5) -> bb13;
+        drop(_5) -> bb12;
     }
 
     bb7 (cleanup c1): {
-        switchInt(copy _6) -> [0: bb12, otherwise: bb10];
+        switchInt(copy _6) -> [0: bb11, otherwise: bb10];
     }
 
     bb8 (cleanup c1): {
@@ -195,41 +195,36 @@ fn PartlyMoved(_1: bool) {
     }
 
     bb11 (cleanup c1): {
-        FakeRead(ForMatchedPlace, _2);
-        goto -> bb7;
+        StorageDead(_6);
+        goto -> bb13;
     }
 
     bb12 (cleanup c1): {
-        StorageDead(_6);
-        goto -> bb14;
+        StorageDead(_5);
+        goto -> bb11;
     }
 
     bb13 (cleanup c1): {
-        StorageDead(_5);
-        goto -> bb12;
+        StorageLive(_7);
+        _7 = Touch() -> bb14;
     }
 
     bb14 (cleanup c1): {
-        StorageLive(_7);
-        _7 = Touch() -> bb15;
-    }
-
-    bb15 (cleanup c1): {
         StorageDead(_7);
         _0 = const ();
-        goto -> bb16;
+        goto -> bb15;
+    }
+
+    bb15: {
+        drop(_2) -> bb16;
     }
 
     bb16: {
-        drop(_2) -> bb17;
+        StorageDead(_2);
+        goto -> bb17;
     }
 
     bb17: {
-        StorageDead(_2);
-        goto -> bb18;
-    }
-
-    bb18: {
         return;
     }
 }

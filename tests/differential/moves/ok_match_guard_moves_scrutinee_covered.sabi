@@ -1,6 +1,6 @@
 // A guard may move the scrutinee and fail when a later arm without a guard covers its arm:
 // rustc's decision tree goes there without testing again or reaching the `otherwise`
-// block, whose read of the scrutinee happens only where a test failed, before any guard.
+// block, where it reads the scrutinee.
 struct N { A: i32 }
 
 fn Consume(o: Option<N>) -> bool {

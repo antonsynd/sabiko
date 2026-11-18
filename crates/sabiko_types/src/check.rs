@@ -165,6 +165,13 @@ pub struct BodyTypes {
     /// How many references an index expression's base looks through to reach the array
     /// or slice (`r[1]` for `r: &[T; 2]`), keyed by the `ExprKind::Index` node.
     pub index_derefs: HashMap<NodeId, usize>,
+    /// The scrutinees of matches, and the initialisers of irrefutable `let`s and the right
+    /// sides of destructuring assignments, whose patterns are exhaustive only by leaving
+    /// out an uninhabited constructor of a valid place (`match o { None => 1 }` for `o:
+    /// Option<Void>`), keyed by the expression; filled in by exhaustiveness checking
+    /// (`crate::patterns`, decision 106). MIR building reads such a scrutinee before its
+    /// tests, as rustc does in the `otherwise` block of the switch that leaves it out.
+    pub omits_empty: HashSet<NodeId>,
     /// `e.len()` on an array or slice, with how many references `e` looks through first,
     /// keyed by the `ExprKind::MethodCall` node.
     pub len_calls: HashMap<NodeId, usize>,
@@ -6220,6 +6227,7 @@ impl<'a> FnCtxt<'a> {
             variant_exprs: self.variant_exprs,
             pat_consts: HashMap::default(),
             index_derefs: self.index_derefs,
+            omits_empty: HashSet::default(),
             len_calls: self.len_calls,
             coercions: Self::resolved_coercions(&mut self.infer, self.coercions),
             repeat_counts: self.repeat_counts,

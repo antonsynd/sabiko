@@ -47,12 +47,12 @@ fn Area(_1: &Shape) -> i32 {
         PlaceMention(_1);
         StorageLive(_2);
         _2 = discriminant((*_1));
-        switchInt(copy _2) -> [0: bb3, otherwise: bb17];
+        switchInt(copy _2) -> [0: bb3, otherwise: bb2];
     }
 
     bb1: {
         _0 = const 0_i32;
-        goto -> bb18;
+        goto -> bb17;
     }
 
     bb2: {
@@ -66,7 +66,7 @@ fn Area(_1: &Shape) -> i32 {
     bb4: {
         _0 = const 100_i32;
         StorageDead(_3);
-        goto -> bb18;
+        goto -> bb17;
     }
 
     bb5: {
@@ -115,7 +115,7 @@ fn Area(_1: &Shape) -> i32 {
         StorageDead(_12);
         StorageDead(_11);
         StorageDead(_8);
-        goto -> bb18;
+        goto -> bb17;
     }
 
     bb11: {
@@ -142,7 +142,7 @@ fn Area(_1: &Shape) -> i32 {
         StorageDead(_13);
         StorageDead(_10);
         StorageDead(_9);
-        goto -> bb18;
+        goto -> bb17;
     }
 
     bb15: {
@@ -158,18 +158,13 @@ fn Area(_1: &Shape) -> i32 {
     }
 
     bb17: {
-        FakeRead(ForMatchedPlace, _1);
-        goto -> bb2;
-    }
-
-    bb18: {
         StorageDead(_5);
         StorageDead(_4);
         StorageDead(_2);
-        goto -> bb19;
+        goto -> bb18;
     }
 
-    bb19: {
+    bb18: {
         return;
     }
 }
@@ -282,12 +277,12 @@ fn Take(_1: Slot) -> i32 {
         PlaceMention(_1);
         StorageLive(_3);
         _3 = discriminant(_1);
-        switchInt(copy _3) -> [1: bb3, otherwise: bb7];
+        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
     }
 
     bb1 (cleanup c1): {
         _0 = copy _2.Id;
-        goto -> bb9;
+        goto -> bb8;
     }
 
     bb2 (cleanup c0): {
@@ -306,33 +301,28 @@ fn Take(_1: Slot) -> i32 {
 
     bb5 (cleanup c0): {
         _0 = const 0_i32;
-        goto -> bb8;
+        goto -> bb7;
     }
 
     bb6 (cleanup c0): {
         unreachable;
     }
 
-    bb7 (cleanup c0): {
-        FakeRead(ForMatchedPlace, _1);
-        goto -> bb2;
+    bb7: {
+        StorageDead(_3);
+        drop(_1) -> bb10;
     }
 
-    bb8: {
-        StorageDead(_3);
-        drop(_1) -> bb11;
+    bb8 (cleanup c0): {
+        drop(_2) -> bb9;
     }
 
     bb9 (cleanup c0): {
-        drop(_2) -> bb10;
-    }
-
-    bb10 (cleanup c0): {
         StorageDead(_2);
-        goto -> bb8;
+        goto -> bb7;
     }
 
-    bb11: {
+    bb10: {
         return;
     }
 }
