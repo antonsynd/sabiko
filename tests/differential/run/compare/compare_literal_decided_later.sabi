@@ -1,0 +1,19 @@
+// A comparison of a literal with an operand a later statement decides (#183): the
+// literal takes the operand's type (`i64`), or its default when nothing decides it.
+fn Main() {
+    let mut slot = None;
+    let mut k = 0;
+    while k < 4 {
+        if k > 0 && 2 == slot.unwrap() {
+            PrintLine("two");
+        }
+        slot = Some(k as i64 * 2 / 2);
+        k += 1;
+    }
+    let mut other = None;
+    if 1 < other.unwrap_or(5) {
+        PrintLine("default");
+    }
+    other = Some(3);
+    PrintLine(other.unwrap());
+}

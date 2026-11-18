@@ -31,13 +31,29 @@ pub struct InferCtxt {
     undo: Vec<(TyVid, VarData)>,
     /// How many snapshots are open; writes are logged while it is positive.
     snapshots: usize,
-    /// The variables written since [`Self::take_changed`] last took them (each a root
-    /// when it was written: bound, joined under another, or given another kind), for the
-    /// type checker to wake the obligations stalled on them (rustc's `stalled_on`). A
-    /// write a rollback undoes is dropped from it; path compression is not one, nor is a
-    /// variable that another joins under keeping its kind (nothing of it a reader sees
-    /// changes).
-    changed: Vec<TyVid>,
+    /// What the bindings and unions changed, oldest first ([`Change`]): an append-only log
+    /// that each reader follows with its own cursor ([`Self::changes_since`]), so that
+    /// several can share it (a reader draining it would take what another has not read:
+    /// the open indexes read it here, and other waiting obligations may). A rollback
+    /// drops what it undoes, as nothing reads the log while a snapshot is open (the type
+    /// checker probes with closures over the table).
+    changes: Vec<Change>,
+}
+
+/// One entry of the [`InferCtxt`] change log. Path compression, which changes no meaning,
+/// is none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+    /// The root `v` was bound, or its kind changed (a general variable joined with a
+    /// literal's, logged for whichever of the two was the general one): what depends on
+    /// its variables may be decided now.
+    Decided(TyVid),
+    /// The root `from` was joined under `into`, the older of the two: what waits on
+    /// `from` waits on `into` now. A kind either changes is logged as [`Change::Decided`]
+    /// too, of `from` before this entry and of `into` after it. A join of a variable
+    /// created after another under that one, of a general kind, therefore logs nothing
+    /// about the older one (selection's fresh `impl` parameters, decision 105).
+    Joined { from: TyVid, into: TyVid },
 }
 
 /// The state of an [`InferCtxt`] to roll back to: see [`InferCtxt::probe`].
@@ -46,7 +62,7 @@ pub struct InferCtxt {
 pub struct Snapshot {
     vars: usize,
     undo: usize,
-    changed: usize,
+    changes: usize,
 }
 
 /// Why two types did not unify.
@@ -77,7 +93,7 @@ impl InferCtxt {
         Snapshot {
             vars: self.vars.len(),
             undo: self.undo.len(),
-            changed: self.changed.len(),
+            changes: self.changes.len(),
         }
     }
 
@@ -88,9 +104,9 @@ impl InferCtxt {
         let Snapshot {
             vars,
             undo,
-            changed,
+            changes,
         } = s;
-        self.changed.truncate(changed);
+        self.changes.truncate(changes);
         while self.undo.len() > undo {
             let (v, data) = self.undo.pop().expect("checked above");
             if let Some(slot) = self.vars.get_mut(v.0 as usize) {
@@ -136,16 +152,20 @@ impl InferCtxt {
         out
     }
 
-    /// The data of `v`, to write, with its old value logged while a snapshot is open, and
-    /// `v` recorded as changed.
-    fn var_mut(&mut self, v: TyVid) -> &mut VarData {
-        self.changed.push(v);
-        self.logged_mut(v)
+    /// The length of the change log: a reader's cursor once it has read everything.
+    #[must_use]
+    pub fn changes_len(&self) -> usize {
+        self.changes.len()
     }
 
-    /// [`Self::var_mut`] for a write that changes nothing a reader sees (path
-    /// compression): not recorded as a change.
-    fn logged_mut(&mut self, v: TyVid) -> &mut VarData {
+    /// The changes logged since a reader's `cursor` (see the `changes` field).
+    #[must_use]
+    pub fn changes_since(&self, cursor: usize) -> &[Change] {
+        self.changes.get(cursor..).unwrap_or_default()
+    }
+
+    /// The data of `v`, to write, with its old value logged while a snapshot is open.
+    fn var_mut(&mut self, v: TyVid) -> &mut VarData {
         if self.snapshots > 0 {
             let old = self.vars[v.0 as usize].clone();
             self.undo.push((v, old));
@@ -161,14 +181,9 @@ impl InferCtxt {
         let r = self.root(parent);
         if parent != r {
             // Path compression is a write too: undone with the union it depends on.
-            self.logged_mut(v).parent = r;
+            self.var_mut(v).parent = r;
         }
         r
-    }
-
-    /// The variables written since the last call (see the `changed` field), oldest first.
-    pub fn take_changed(&mut self) -> Vec<TyVid> {
-        std::mem::take(&mut self.changed)
     }
 
     /// How many variables there are: the next one created is numbered this.
@@ -270,6 +285,7 @@ impl InferCtxt {
     fn bind(&mut self, v: TyVid, ty: Ty) {
         let r = self.root(v);
         debug_assert!(self.vars[r.0 as usize].value.is_none());
+        self.changes.push(Change::Decided(r));
         self.var_mut(r).value = Some(ty);
     }
 
@@ -374,16 +390,29 @@ impl InferCtxt {
                 if ra == rb {
                     return Ok(());
                 }
-                let kind = match (self.vars[ra.0 as usize].kind, self.vars[rb.0 as usize].kind) {
+                let (ka, kb) = (self.vars[ra.0 as usize].kind, self.vars[rb.0 as usize].kind);
+                let kind = match (ka, kb) {
                     (k, VarKind::General) | (VarKind::General, k) => k,
                     (k1, k2) if k1 == k2 => k1,
                     _ => return Err(UnifyError),
                 };
                 // The older variable stays the root, so a variable created since (an
                 // `impl` block's parameter in selection) joins under it without changing
-                // it: only the joined one is recorded as changed, and the root only when
-                // its kind changes (see `changed`).
-                let (ra, rb) = if ra.0 <= rb.0 { (ra, rb) } else { (rb, ra) };
+                // it. A root whose kind changes is logged as decided: the joined one
+                // before the join (what waits on it sees a literal's variable now), the
+                // root after it.
+                let (ra, rb, ka, kb) = if ra.0 <= rb.0 {
+                    (ra, rb, ka, kb)
+                } else {
+                    (rb, ra, kb, ka)
+                };
+                if kb != kind {
+                    self.changes.push(Change::Decided(rb));
+                }
+                self.changes.push(Change::Joined { from: rb, into: ra });
+                if ka != kind {
+                    self.changes.push(Change::Decided(ra));
+                }
                 self.var_mut(rb).parent = ra;
                 if self.vars[ra.0 as usize].kind != kind {
                     self.var_mut(ra).kind = kind;
@@ -664,24 +693,42 @@ mod tests {
         assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
     }
 
-    /// A newer variable joins under an older one, whichever side it is on, and only the
-    /// joined one is recorded as changed while the root keeps its kind: selection's
-    /// fresh `impl` parameters must not wake what waits on the older one (decision 105).
+    /// A newer variable joins under an older one, whichever side it is on, and the log
+    /// says nothing of the older one while its kind stays: selection's fresh `impl`
+    /// parameters must not wake what waits on it (decision 105). A kind that changes is
+    /// logged as decided, the joined root's before the join, the root's after it.
     #[test]
     fn joins_keep_the_older_root_unchanged() {
         let mut cx = InferCtxt::new();
         let old = cx.new_var(VarKind::Int);
-        let _ = cx.take_changed();
         let fresh = cx.new_var(VarKind::General);
+        let cursor = cx.changes_len();
         cx.unify(&fresh, &old).unwrap();
         assert_eq!(cx.shallow_resolve(&fresh), old);
-        assert_eq!(cx.take_changed(), vec![TyVid(1)]);
-        // A join that changes the root's kind records it.
+        assert_eq!(
+            cx.changes_since(cursor),
+            [
+                Change::Decided(TyVid(1)),
+                Change::Joined {
+                    from: TyVid(1),
+                    into: TyVid(0)
+                }
+            ]
+        );
         let general = cx.new_var(VarKind::General);
-        let _ = cx.take_changed();
         let int = cx.new_var(VarKind::Int);
+        let cursor = cx.changes_len();
         cx.unify(&general, &int).unwrap();
-        assert_eq!(cx.take_changed(), vec![TyVid(3), TyVid(2)]);
+        assert_eq!(
+            cx.changes_since(cursor),
+            [
+                Change::Joined {
+                    from: TyVid(3),
+                    into: TyVid(2)
+                },
+                Change::Decided(TyVid(2))
+            ]
+        );
         assert_eq!(cx.kind(TyVid(3)), VarKind::Int);
     }
 }

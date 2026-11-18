@@ -1,0 +1,36 @@
+// `x == return` where only `1 == x` decides `x`, through the literal's default: rustc's
+// integer and never-type fallbacks run together, so the `!` operand is `!` already when
+// the `i32` impl is selected, in whichever order and branch the comparisons are (#183).
+//@ rustc: E0277
+//@ sabiko: E0306
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn After() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = x == return;
+}
+
+fn Before() {
+    let x = Mk();
+    let c = x < return;
+    let b = 1 < x;
+}
+
+fn InBranch() {
+    let x = Mk();
+    let b = 1 == x;
+    if false {
+        let c = x == return;
+    }
+}
+
+fn InArms() {
+    let x = Mk();
+    let b = match 3 {
+        1 => 1 == x,
+        _ => x == return,
+    };
+}

@@ -1,0 +1,13 @@
+// A `ref` binding of an unsized place borrows it, which needs no size (#170).
+fn Refs(s: &[i32], m: &mut [i32]) -> usize {
+    let ref x = *s;
+    let ref mut y = *m;
+    y[0] = 1;
+    let n = match s[1..] {
+        ref z => z.len(),
+    };
+    if let ref w @ _ = *s {
+        PrintLine(w.len());
+    }
+    x.len() + n
+}

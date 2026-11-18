@@ -1,0 +1,24 @@
+// Referents a known left type decides (`&n == &x` for `n: i32`), or that a later use or
+// the literal default decides (#183).
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Known() {
+    let n: i32 = 1;
+    let x = return;
+    let b = &n == &x;
+}
+
+fn Later() {
+    let mut x = Mk();
+    let b = &1 == &x;
+    x = 5i64;
+}
+
+fn Default() -> bool {
+    let x = Mk();
+    let a = &1 == &x;
+    let b = &1 < &x;
+    a && b
+}

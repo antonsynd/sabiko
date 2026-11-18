@@ -1,0 +1,21 @@
+// A `let` annotated with an unsized type takes a place, not a value: a diverging
+// initialiser would move an unsized value (rustc's borrow checker, E0161; #170).
+//@ rustc: E0161
+//@ sabiko: E0208
+fn Return() {
+    let _: [i32] = return;
+}
+
+fn Panics() {
+    let _: [i32] = Panic("q");
+}
+
+fn Loops() {
+    let _: [i32] = loop {};
+}
+
+fn Matches(b: bool) {
+    let _: str = match b {
+        _ => return,
+    };
+}

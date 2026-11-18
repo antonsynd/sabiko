@@ -51,20 +51,11 @@
     │      ╰─── expected `str`, found `&str`
 ────╯
 [E0208] Error: the size for values of type `str` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_str.sabi:16:12 ]
+    ╭─[ tests/ui/typeck/unsized_str.sabi:16:9 ]
     │
  16 │     let a: str = //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
-    │            ─┬─  
-    │             ╰─── doesn't have a size known at compile-time
-    │ 
-    │ Note: string values are used behind a reference: `&str`
-────╯
-[E0208] Error: the size for values of type `str` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_str.sabi:17:9 ]
-    │
- 17 │         *s; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
-    │         ─┬  
-    │          ╰── doesn't have a size known at compile-time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
     │ 
     │ Note: string values are used behind a reference: `&str`
 ────╯

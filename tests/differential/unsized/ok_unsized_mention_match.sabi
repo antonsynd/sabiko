@@ -1,0 +1,20 @@
+// A `match`, `if let` or `while let` whose patterns bind nothing only mentions its
+// scrutinee, which may then be unsized (#170).
+fn Matches(s: &[i32], t: &str, c: bool) -> i32 {
+    match *s {
+        _ if c => {}
+        _ => {}
+    }
+    match t[1..] {
+        _ | _ => {}
+    }
+    if let _ = *s {
+        PrintLine(1);
+    }
+    while let _ = s[..] {
+        break;
+    }
+    match *s {
+        _ => 5,
+    }
+}

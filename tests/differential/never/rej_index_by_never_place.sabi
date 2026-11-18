@@ -1,0 +1,13 @@
+// An index of type `!` goes through `[T]: Index<!>`, which has no impl: `*q` for
+// `q: &!` does not coerce to `usize` (#183; it was an internal error).
+//@ rustc: E0277
+//@ sabiko: E0335
+fn Main() {
+    let c = false;
+    let a = [10, 20];
+    if c {
+        let q = &Panic("y");
+        PrintLine(a[*q]);
+    }
+    PrintLine(1);
+}

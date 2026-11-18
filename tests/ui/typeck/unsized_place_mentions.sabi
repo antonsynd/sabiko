@@ -1,0 +1,40 @@
+// A pattern matched against an unsized place needs a size only for its bindings by
+// value, one error at each (rustc's E0277, #170): `let _ = *s`, `match *s { _ => .. }`
+// and `ref` bindings only mention or borrow the place.
+fn Mentions(s: &[i32], t: &str, c: bool) -> usize {
+    let _ = *s;
+    let _: [i32] = *s;
+    let _ = t[1..];
+    let _: str;
+    match *s {
+        _ if c => {}
+        _ => {}
+    }
+    let ref r = s[1..];
+    r.len()
+}
+
+fn Bindings(s: &[i32], t: &str, c: bool) {
+    let x = *s; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    let y: str = *t; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    let z: [i32]; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    match *s {
+        a if c => {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+        _ if c => {}
+        b => {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    }
+    if let w @ _ = t[1..] {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+}
+
+// A value, not a place: a block's tail moves it (rustc's borrow checker: E0161, E0508).
+fn Block(s: &[i32]) {
+    let _ = { *s }; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+}
+
+// An unsized annotation takes a place: a diverging value would be moved (rustc's E0161,
+// from its borrow checker, which a body with another error does not reach).
+fn ValueInitialiser() {
+    let _: [i32] = return; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+}
+
+fn Main() {}

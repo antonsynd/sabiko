@@ -1,0 +1,48 @@
+// Comparisons whose right operand a later use decides (#183): a known left type with one
+// impl decides it at once (`n == x`, `&n < x`, `true == x`); a literal's waits for the
+// operand (`x = 5i64`) or else becomes `i32`, its default, and so does the operand.
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Known() {
+    let n: i32 = 1;
+    let mut x = Mk();
+    let a = n == x;
+    x = return;
+}
+
+fn KnownReference() {
+    let n = 1;
+    let mut x = Mk();
+    let a = &n < x;
+    x = return;
+}
+
+fn KnownBool() {
+    let mut x = Mk();
+    let a = true == x;
+    x = return;
+}
+
+fn LiteralDecided() -> bool {
+    let mut x = Mk();
+    let a = 1 == x;
+    x = 5i64;
+    a
+}
+
+fn LiteralDefault() -> bool {
+    let x = Mk();
+    let a = 1 == x;
+    let c = x + 1;
+    a
+}
+
+fn ReferenceDecided() -> bool {
+    let n = 1;
+    let mut x = Mk();
+    let a = &n == x;
+    x = &n;
+    a
+}

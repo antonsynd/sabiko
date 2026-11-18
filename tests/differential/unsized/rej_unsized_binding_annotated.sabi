@@ -1,0 +1,7 @@
+// An annotated binding of an unsized type needs a size, initialised or not (#170).
+//@ rustc: E0277
+//@ sabiko: E0208
+fn F(s: &str) {
+    let x: str = *s;
+    let y: [i32];
+}

@@ -1,0 +1,11 @@
+// `"a" == x` with nothing deciding `x`: `&str` compares with several types (#183).
+//@ rustc: E0283
+//@ sabiko: E0313
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Main() {
+    let x = Mk();
+    let b = "a" == x;
+}

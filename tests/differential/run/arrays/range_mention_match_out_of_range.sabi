@@ -1,0 +1,13 @@
+// A `match` on a range of a `str` that binds nothing still checks the range's end, and
+// panics (#170).
+fn Mention(t: &str, j: usize) {
+    match t[..j] {
+        _ => PrintLine(j),
+    }
+}
+
+fn Main() {
+    Mention("abc", 3);
+    Mention("abc", 5);
+    PrintLine("not reached");
+}

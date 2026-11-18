@@ -1,0 +1,28 @@
+// Referents compared with `!` that are fine: a left referent that is `!` too, and right
+// referents that are variables `!` was coerced to, which the left one decides (#183).
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn BothNever() {
+    let x = return;
+    let c = &x == &return;
+}
+
+fn BothNeverOrdered() {
+    let x = return;
+    let c = &x < &return;
+}
+
+fn RightDiverging() {
+    let n: u8 = 1;
+    let x = return;
+    let c = &n == &x;
+}
+
+fn RightDivergingDecidedLater() {
+    let x = Mk();
+    let y = return;
+    let c = &x < &y;
+    let q: u8 = x;
+}
