@@ -1,0 +1,18 @@
+// Leaving out a variant with an empty payload does not remove the read where no arm
+// matched: the switch on the discriminant still has an `otherwise` edge.
+enum Void {}
+
+enum E { A, B(Void) }
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, E)) -> i32 {
+    Take(t.0);
+    match t {
+        (_, E::A) => 1,
+    }
+}
+
+fn Main() {}

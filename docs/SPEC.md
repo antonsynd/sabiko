@@ -1154,10 +1154,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   value expression are valid. A scrutinee place of type `!` (`match e[i]` for
   `e: [!; 0]`) does not diverge by being named: its arms are lowered like any others and
   entered after the place's bounds check (which panics, since no such element exists),
-  so the borrow checker sees them, and `match e[i] {}` is exhaustive. A match whose arms
-  all have guards (or that has none) reads its scrutinee where no arm matched, so the
-  place must be initialised (`let v: Void; match v {}` is E0405, rustc's E0381); a `_` arm
-  only mentions it. A `let` or parameter pattern must be
+  so the borrow checker sees them, and `match e[i] {}` is exhaustive. A match reads its
+  scrutinee where no arm matched (after a failed test on a discriminant, a value or range,
+  or a failed last guard, and with no arms; not after a `bool` test or when the last arm
+  tests nothing), and so does an irrefutable `let` or destructuring assignment that names
+  a variant of an enum with other variants: the place must be initialised and not moved,
+  even in part (`let v: Void; match v {}` is E0405, rustc's E0381;
+  `Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }` is E0406, rustc's E0382).
+  The read conflicts with no loan, and a `_` arm only mentions the place. A `let` or parameter pattern must be
   irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
   single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
   pattern always matches (E0331); a `let` of a let chain may be refutable or not, without

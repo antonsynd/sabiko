@@ -1,0 +1,16 @@
+// The read where no arm matched covers the whole struct, not only the field the arms test.
+struct N { A: i32 }
+
+struct P { A: N, B: Result<i32, i32> }
+
+fn Take(n: N) {}
+
+fn F(p: P) -> i32 {
+    Take(p.A);
+    match p {
+        P { B: Ok(x), .. } => x,
+        P { B: Err(y), .. } => y,
+    }
+}
+
+fn Main() {}

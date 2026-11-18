@@ -1,0 +1,34 @@
+// A partly moved scrutinee is fine where no failed test reaches the `otherwise` block: the
+// last arm tests nothing, `bool` tests branch both ways, a full range, a single variant,
+// and `if let`/let-else, whose failure goes to `else`.
+enum Void {}
+
+enum One { A(i32) }
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn Wild(t: (N, Option<i32>)) -> i32 { Take(t.0); match t { (_, Some(x)) => x, _ => 2 } }
+
+fn Bind(t: (N, i32)) -> i32 { Take(t.0); match t { (_, 1) => 1, (_, x) => x } }
+
+fn GuardThenBind(t: (N, i32), c: bool) -> i32 { Take(t.0); match t { (_, x) if c => x, (_, y) => y } }
+
+fn Bool(t: (N, bool)) -> i32 { Take(t.0); match t { (_, true) => 1, (_, false) => 2 } }
+
+fn FullRange(t: (N, u8)) -> i32 { Take(t.0); match t { (_, 0..=255) => 1 } }
+
+fn Single(t: (N, One)) -> i32 { Take(t.0); let (_, One::A(x)) = t; x }
+
+fn Field(t: (N, Option<i32>)) -> i32 { Take(t.0); match t.1 { Some(x) => x, None => 2 } }
+
+fn IfLet(t: (N, Option<Void>)) -> i32 { Take(t.0); if let (_, None) = t { 1 } else { 2 } }
+
+fn LetElse(t: (N, Result<i32, Void>)) -> i32 {
+    Take(t.0);
+    let (_, Ok(x)) = t else { return 0; };
+    x
+}
+
+fn Main() {}

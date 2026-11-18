@@ -2776,6 +2776,9 @@ impl<'a> Builder<'a> {
             self.declare_pattern_locals(pat);
             return;
         }
+        if self.tests_a_variant(pat) {
+            self.read_scrutinee(&place, init.span);
+        }
         self.bind_pat(pat, place, &matches::Choice::default(), BindMode::Declare);
     }
 

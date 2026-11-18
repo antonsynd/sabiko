@@ -1,0 +1,15 @@
+// A destructuring assignment is a `let`: naming a variant reads the partly moved right side
+// where the switch on the discriminant fails.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Option<Void>)) -> i32 {
+    Take(t.0);
+    (_, None) = t;
+    1
+}
+
+fn Main() {}

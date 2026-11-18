@@ -45,8 +45,12 @@ use sabiko_span::Span;
 use crate::ty::Ty;
 
 /// How often one struct or enum may be nested in itself while its inhabitedness is
-/// decided (see [`Checker::is_uninhabited`]).
-const MAX_SELF_NESTING: usize = 8;
+/// decided (rustc's default recursion limit; see [`Checker::empty_variants`]).
+const MAX_SELF_NESTING: usize = 128;
+
+/// The largest instance, in nodes of its type, whose inhabitedness is decided (see
+/// [`Checker::empty_variants`]).
+const MAX_INSTANCE_SIZE: usize = 1 << 16;
 
 // ---------------------------------------------------------------------------------------
 // Public interface
@@ -315,6 +319,25 @@ fn joined_list(witnesses: &[String]) -> String {
             format!("`{}` and {} more", head.join("`, `"), tail.len())
         }
     }
+}
+
+/// The number of nodes of `ty`, counted up to `limit`.
+fn ty_size(ty: &Ty, limit: usize) -> usize {
+    fn count(ty: &Ty, left: &mut usize) {
+        if *left == 0 {
+            return;
+        }
+        *left -= 1;
+        match ty {
+            Ty::Adt(_, args) => args.iter().for_each(|a| count(a, left)),
+            Ty::Tuple(elems) => elems.iter().for_each(|e| count(e, left)),
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => count(inner, left),
+            _ => {}
+        }
+    }
+    let mut left = limit;
+    count(ty, &mut left);
+    limit - left
 }
 
 /// Whether the type mentions an error or inference type, through references and tuples.
@@ -768,8 +791,13 @@ type WitStack = Vec<Wit>;
 struct Checker<'a> {
     cx: &'a dyn PatCx,
     adts: HashMap<DefId, Rc<AdtShape>>,
-    /// Inhabitedness of the struct and enum instances seen so far.
-    uninhabited: HashMap<Ty, bool>,
+    /// The struct and enum instances decided so far ([`Self::empty_variants`]).
+    empty_variants: HashMap<Ty, Rc<[bool]>>,
+    /// Instances decided in the current outermost query that depended on a cut-off;
+    /// cleared when it ends.
+    cut_off_variants: HashMap<Ty, Rc<[bool]>>,
+    /// How many decisions a cut-off has made so far.
+    cut_offs: usize,
     /// The structs and enums whose inhabitedness is being decided, outermost first.
     deciding: Vec<DefId>,
     pats: Vec<DPat>,
@@ -783,7 +811,9 @@ impl<'a> Checker<'a> {
         Self {
             cx,
             adts: HashMap::default(),
-            uninhabited: HashMap::default(),
+            empty_variants: HashMap::default(),
+            cut_off_variants: HashMap::default(),
+            cut_offs: 0,
             deciding: Vec::new(),
             pats: Vec::new(),
             useful: Vec::new(),
@@ -818,39 +848,80 @@ impl<'a> Checker<'a> {
             Ty::Never => true,
             Ty::Tuple(elems) => elems.iter().any(|e| self.is_uninhabited(e)),
             Ty::Array(elem, len) => *len > 0 && self.is_uninhabited(elem),
-            Ty::Adt(def, args) => {
-                if let Some(&known) = self.uninhabited.get(ty) {
-                    return known;
+            Ty::Adt(def, _) => {
+                let empty = self.empty_variants(ty);
+                match &*self.adt(*def) {
+                    AdtShape::Struct { .. } => empty[0],
+                    AdtShape::Enum { .. } => empty.iter().all(|&e| e),
                 }
-                // A type that reaches itself by value is reported elsewhere; treat the
-                // cycle as inhabited. So is an instance nested in itself too often, which
-                // only such a type growing without bound reaches (`S<T>` holding an
-                // `S<(T, T)>`): taking a type as inhabited only ever asks for more arms.
-                let nesting = self.deciding.iter().filter(|d| *d == def).count();
-                if nesting >= MAX_SELF_NESTING {
-                    return false;
-                }
-                self.uninhabited.insert(ty.clone(), false);
-                self.deciding.push(*def);
-                let shape = self.adt(*def);
-                let empty = match &*shape {
-                    AdtShape::Struct { fields, .. } => fields.iter().any(|f| {
-                        let field = self.instance_field(*def, &f.ty, args);
-                        self.is_uninhabited(&field)
-                    }),
-                    AdtShape::Enum { variants, .. } => variants
-                        .iter()
-                        .all(|v| self.variant_is_uninhabited(*def, &v.fields, args)),
-                };
-                self.deciding.pop();
-                self.uninhabited.insert(ty.clone(), empty);
-                empty
             }
             _ => false,
         }
     }
 
-    /// Whether a variant of `def` at the instance `args` has an uninhabited field.
+    /// Whether the struct instance `ty` is uninhabited (one entry), or which variants of
+    /// the enum instance `ty` are (one entry per variant): those with an uninhabited
+    /// field. Cached per instance.
+    ///
+    /// A type that reaches itself by value has infinite size and is reported elsewhere
+    /// (E0206); the cycle is taken as inhabited. Such a type may also grow without
+    /// bound (`S<T>` holding an `S<(T, T)>`), each instance a new one: deciding stops at
+    /// an instance nested in its own struct or enum [`MAX_SELF_NESTING`] times, or larger
+    /// than [`MAX_INSTANCE_SIZE`], and takes it as inhabited, which only ever asks for
+    /// more arms. A valid program reaches the cut-off only with a type that deep or that
+    /// large. What was decided with a cut-off is kept only for the rest of the outermost
+    /// query, since the same instance reached from elsewhere may be decided in full
+    /// (decision 106).
+    fn empty_variants(&mut self, ty: &Ty) -> Rc<[bool]> {
+        let Ty::Adt(def, args) = ty else {
+            unreachable!("only a struct or enum has variants")
+        };
+        if let Some(known) = self.empty_variants.get(ty) {
+            return Rc::clone(known);
+        }
+        if let Some(known) = self.cut_off_variants.get(ty) {
+            self.cut_offs += 1;
+            return Rc::clone(known);
+        }
+        let shape = self.adt(*def);
+        let inhabited: Rc<[bool]> = match &*shape {
+            AdtShape::Struct { .. } => Rc::new([false]),
+            AdtShape::Enum { variants, .. } => vec![false; variants.len()].into(),
+        };
+        let nesting = self.deciding.iter().filter(|d| *d == def).count();
+        if nesting >= MAX_SELF_NESTING || ty_size(ty, MAX_INSTANCE_SIZE + 1) > MAX_INSTANCE_SIZE {
+            self.cut_offs += 1;
+            return inhabited;
+        }
+        let cut_offs = self.cut_offs;
+        // Provisional, for a cycle.
+        self.empty_variants
+            .insert(ty.clone(), Rc::clone(&inhabited));
+        self.deciding.push(*def);
+        let empty: Rc<[bool]> = match &*shape {
+            AdtShape::Struct { fields, .. } => {
+                Rc::new([self.variant_is_uninhabited(*def, fields, args)])
+            }
+            AdtShape::Enum { variants, .. } => variants
+                .iter()
+                .map(|v| self.variant_is_uninhabited(*def, &v.fields, args))
+                .collect(),
+        };
+        self.deciding.pop();
+        if self.cut_offs == cut_offs {
+            self.empty_variants.insert(ty.clone(), Rc::clone(&empty));
+        } else {
+            self.empty_variants.remove(ty);
+            self.cut_off_variants.insert(ty.clone(), Rc::clone(&empty));
+        }
+        if self.deciding.is_empty() {
+            self.cut_off_variants.clear();
+        }
+        empty
+    }
+
+    /// Whether a variant (or the struct) `def` at the instance `args` has an
+    /// uninhabited field.
     fn variant_is_uninhabited(&mut self, def: DefId, fields: &[FieldShape], args: &[Ty]) -> bool {
         fields.iter().any(|f| {
             let field = self.instance_field(def, &f.ty, args);
@@ -884,18 +955,18 @@ impl<'a> Checker<'a> {
             Ty::Array(..) | Ty::Slice(_) => CtorSet::Unlistable {
                 empty: self.is_uninhabited(ty),
             },
-            Ty::Adt(def, args) => {
+            Ty::Adt(def, _) => {
                 let shape = self.adt(*def);
                 match &*shape {
                     AdtShape::Struct { .. } => CtorSet::Struct {
                         empty: self.is_uninhabited(ty),
                     },
                     AdtShape::Enum { variants, .. } if variants.is_empty() => CtorSet::NoCtors,
-                    AdtShape::Enum { variants, .. } => CtorSet::Variants(
-                        variants
+                    AdtShape::Enum { .. } => CtorSet::Variants(
+                        self.empty_variants(ty)
                             .iter()
-                            .map(|v| {
-                                if self.variant_is_uninhabited(*def, &v.fields, args) {
+                            .map(|&empty| {
+                                if empty {
                                     Visibility::Empty
                                 } else {
                                     Visibility::Visible
@@ -2871,6 +2942,38 @@ mod tests {
             &res(Ty::I32, Ty::Param(PARAM_T)),
             &["Res::Ok(_)"],
             &["Res::Err(_)"],
+            &[],
+        );
+    }
+
+    /// Deciding a deep instance stops at rustc's recursion limit (#178, decision 106).
+    #[test]
+    fn deeply_nested_instances() {
+        let res = |t: Ty, e: Ty| adt_at("Res", &[t, e]);
+        // An instance nested in itself up to rustc's recursion limit is decided in full.
+        // One nested deeper is cut off and taken as inhabited, and so are the instances
+        // decided through it, but only for that query: twenty `Wrap`s around `!`, taken as
+        // inhabited on the way into the deep one, stay empty where reached directly.
+        let wraps = |n: usize| (0..n).fold(Ty::Never, |t, _| adt_at("Wrap", &[t]));
+        check(
+            &res(wraps(MAX_SELF_NESTING), Ty::I32),
+            &["Res::Err(_)"],
+            &[],
+            &[],
+        );
+        check(
+            &res(wraps(MAX_SELF_NESTING + 1), Ty::I32),
+            &["Res::Err(_)"],
+            &["Res::Ok(_)"],
+            &[],
+        );
+        check(
+            &tup(&[
+                res(wraps(MAX_SELF_NESTING + 10), Ty::I32),
+                res(wraps(20), Ty::I32),
+            ]),
+            &["(Res::Err(_), Res::Err(_))", "(Res::Ok(_), _)"],
+            &[],
             &[],
         );
     }

@@ -87,6 +87,12 @@ pub(super) struct TestCache {
     /// (`if let`, `while let`, let-else), where rustc reports it at the pattern, as it
     /// does range, float and string tests everywhere.
     value_span: Option<Span>,
+    /// The failure blocks of the tests whose failure is an `otherwise` edge in rustc's MIR:
+    /// a switch on a discriminant, a comparison (integers, `char`s, ranges, floats,
+    /// strings) and a guard. When the last candidate's failure is one of them, no pattern
+    /// matched there and the scrutinee is read ([`Builder::read_scrutinee`]). A `bool`
+    /// test is not among them: rustc branches on both values, without an `otherwise`.
+    reads_on_failure: HashSet<BasicBlock>,
 }
 
 /// How a candidate's bindings are made.
@@ -302,6 +308,7 @@ impl Builder<'_> {
         };
         let ok = self.new_block();
         self.note_fail();
+        self.tests.reads_on_failure.insert(fail);
         self.switch_int(
             Operand::Copy(Place::local(temp)),
             vec![(discr, ok)],
@@ -425,6 +432,7 @@ impl Builder<'_> {
         );
         let ok = self.new_block();
         self.note_fail();
+        self.tests.reads_on_failure.insert(fail);
         // rustc switches on an integer or `char` itself, the failure its `otherwise`, and
         // branches on the comparison otherwise (a range, a float, a string), the failure
         // first; the order matters to the constant-propagation lints (decision 73).
@@ -636,6 +644,38 @@ impl Builder<'_> {
     /// Whether a variant pattern of `adt` reads the discriminant ([`Self::test_variant`]).
     fn tests_discriminant(&self, adt: sabiko_resolve::DefId) -> bool {
         self.typeck.items.adt(adt).variants().len() > 1
+    }
+
+    /// Whether the irrefutable pattern `pat` (of a `let` or destructuring assignment
+    /// without or-patterns) names a variant of an enum with other variants, all of them
+    /// uninhabited (`let (_, None) = t;` for `t: (N, Option<Void>)`): rustc's MIR switches
+    /// on the discriminant there, with an `otherwise` block that reads the initialiser
+    /// ([`Self::read_scrutinee`]).
+    pub(super) fn tests_a_variant(&self, pat: &Pat) -> bool {
+        let variant = || {
+            self.types
+                .pat_variants
+                .get(&pat.id)
+                .is_some_and(|&(adt, _)| self.tests_discriminant(adt))
+        };
+        match &pat.kind {
+            PatKind::Ident { sub, .. } => sub.as_deref().is_some_and(|p| self.tests_a_variant(p)),
+            PatKind::Ref { pat: sub, .. } => self.tests_a_variant(sub),
+            PatKind::Tuple(subs) => subs.iter().any(|p| self.tests_a_variant(p)),
+            PatKind::Or(alts) => alts.iter().any(|p| self.tests_a_variant(p)),
+            PatKind::Path(_) => variant(),
+            PatKind::TupleStruct(_, subs) => {
+                variant() || subs.iter().any(|p| self.tests_a_variant(p))
+            }
+            PatKind::Struct { fields, .. } => {
+                variant() || fields.iter().any(|f| self.tests_a_variant(&f.pat))
+            }
+            PatKind::Wild
+            | PatKind::Rest
+            | PatKind::Lit(_)
+            | PatKind::Range(..)
+            | PatKind::Assignee(_) => false,
+        }
     }
 
     // ----- bindings -----
@@ -940,6 +980,7 @@ impl Builder<'_> {
         let bound = self.bound_for_guard.clone();
         self.storage_dead(&bound, span);
         self.note_fail();
+        self.tests.reads_on_failure.insert(fail);
         self.terminate(TerminatorKind::Goto { target: fail }, span);
         self.enter(holds);
         // The fake borrows, and the references a by-value binding is seen through (rustc's
@@ -1015,23 +1056,41 @@ impl Builder<'_> {
         self.ty(scrutinee).is_never() && !is_place_expr(self.resolve, scrutinee)
     }
 
-    /// Reads the scrutinee `place` where no arm matched, as rustc's
-    /// `FakeRead(ForMatchedPlace)` does: the borrow checker then requires the place to be
-    /// initialised and not moved out of, without moving it. A `Copy` value is copied into
-    /// a fresh temporary (a read of a `!` value is cut before code generation, decision
-    /// 103), any other is borrowed. `unreachable` follows.
-    fn read_scrutinee(&mut self, place: &Place, span: Span) {
-        let ty = place.ty(&self.body);
-        let operand = self.place_operand(place.clone());
-        let (ty, rvalue) = match operand {
-            Operand::Copy(_) => (ty, Rvalue::Use(operand)),
-            _ => (
-                Ty::shared_ref(ty),
-                Rvalue::Ref(BorrowKind::Shared, place.clone()),
-            ),
-        };
+    /// Evaluates a scrutinee that [diverges](Self::diverges) for its effects. Nothing
+    /// after it runs, which its MIR does not always show by itself: a block whose tail is
+    /// a `!` place (`{ e[i] }`) reads the place, which is cut only after borrow checking
+    /// (decision 103), so the code after it is made unreachable here. Otherwise what the
+    /// match would have assigned (`let v: i32 = match { e[i] } {};`) would be
+    /// uninitialised there (decision 106).
+    fn lower_diverging(&mut self, scrutinee: &Expr) {
+        self.lower_expr_discard(scrutinee);
+        let span = self.span_of(scrutinee);
+        self.terminate(TerminatorKind::Unreachable, span);
+        let dead = self.new_block();
+        self.enter(dead);
+    }
+
+    /// rustc's `FakeRead(ForMatchedPlace)` of `place` where no candidate of a pattern
+    /// matched (a match's `otherwise` block, see [`TestCache::reads_on_failure`]): the
+    /// borrow checker requires the whole place to be initialised and not moved out of,
+    /// even in part (`Take(t.0); match t { (_, Some(x)) => x, (_, None) => 0 }` is E0382
+    /// in rustc). It is a shared borrow in a block only an imaginary edge reaches, so it
+    /// exists for the borrow checker alone: no loan is live there to conflict with, it
+    /// moves nothing, and `remove_false_edges` drops it before code generation. Once MIR
+    /// has a `FakeRead` statement, this becomes one (decision 106).
+    pub(super) fn read_scrutinee(&mut self, place: &Place, span: Span) {
+        let imaginary = self.new_block();
+        let after = self.new_block();
+        self.terminate(
+            TerminatorKind::FalseEdge {
+                real_target: after,
+                imaginary_target: imaginary,
+            },
+            span,
+        );
+        self.enter(imaginary);
         let temp = self.new_local(LocalDecl {
-            ty,
+            ty: Ty::shared_ref(place.ty(&self.body)),
             mutability: Mutability::Mut,
             kind: LocalKind::Temp,
             name: None,
@@ -1039,7 +1098,15 @@ impl Builder<'_> {
             source: None,
             match_span: None,
         });
-        self.assign(Place::local(temp), rvalue, span);
+        self.push_stmt(StatementKind::StorageLive(temp), span);
+        self.assign(
+            Place::local(temp),
+            Rvalue::Ref(BorrowKind::Shared, place.clone()),
+            span,
+        );
+        self.push_stmt(StatementKind::StorageDead(temp), span);
+        self.terminate(TerminatorKind::Unreachable, span);
+        self.enter(after);
     }
 
     /// `match scrutinee { arms }`, writing the arms' values into `dest`.
@@ -1052,7 +1119,7 @@ impl Builder<'_> {
     ) {
         if self.diverges(scrutinee) {
             // `match return {}`: the scrutinee diverges; nothing after it runs.
-            self.lower_expr_discard(scrutinee);
+            self.lower_diverging(scrutinee);
             return;
         }
         let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
@@ -1082,12 +1149,10 @@ impl Builder<'_> {
             entries.push((body, locals));
         }
         self.guard_held = outer_held;
-        self.tests = saved;
-        if arms.iter().all(|arm| arm.guard.is_some()) {
-            // Every arm has a guard, or there is none (`match x {}`): the match is
-            // exhaustive only because the scrutinee's type has no values. rustc reads the
-            // place here (`FakeRead(ForMatchedPlace)`), which requires it to be
-            // initialised: `let x; if c { x = Panic(..) } match x {}` is E0381 (#184).
+        let unmatched = std::mem::replace(&mut self.tests, saved);
+        if arms.is_empty() || unmatched.reads_on_failure.contains(&self.current) {
+            // rustc's `otherwise` block: reached by a failed discriminant switch,
+            // comparison or guard, or directly without arms (`match x {}`).
             self.read_scrutinee(&place, scrutinee.span);
         }
         // Exhaustiveness was checked: no value gets here.
@@ -1120,7 +1185,7 @@ impl Builder<'_> {
         span: Span,
     ) {
         if self.diverges(scrutinee) {
-            self.lower_expr_discard(scrutinee);
+            self.lower_diverging(scrutinee);
             return;
         }
         let saved_scope = self.push_temp_scope();
@@ -1189,7 +1254,7 @@ impl Builder<'_> {
         if self.diverges(scrutinee) {
             // `while let E::A(x) = return 1 {}` (#99): the scrutinee leaves, so neither the
             // pattern nor the body is reached.
-            self.lower_expr_discard(scrutinee);
+            self.lower_diverging(scrutinee);
             self.close_temp_scope(saved, span);
             self.terminate(TerminatorKind::Goto { target: header }, span);
             let scope = self.loops.pop().expect("loop scope pushed above");
@@ -1313,7 +1378,7 @@ impl Builder<'_> {
                 continue;
             };
             if self.diverges(scrutinee) {
-                self.lower_expr_discard(scrutinee);
+                self.lower_diverging(scrutinee);
                 return false;
             }
             let place = self.scrutinee_place(scrutinee, &[pat]);
@@ -1347,7 +1412,7 @@ impl Builder<'_> {
     pub(super) fn lower_let_else(&mut self, pat: &Pat, init: &Expr, els: Option<&Block>) {
         let span = init.span;
         if self.diverges(init) {
-            self.lower_expr_discard(init);
+            self.lower_diverging(init);
             self.declare_pattern_locals(pat);
             return;
         }
@@ -1374,7 +1439,11 @@ impl Builder<'_> {
         let ok = self.new_block();
         let saved = self.start_tests(&[pat], &place, init.span, None);
         self.lower_candidates(pat, None, &place, span, ok, els.is_some());
-        self.tests = saved;
+        let unmatched = std::mem::replace(&mut self.tests, saved);
+        if els.is_none() && unmatched.reads_on_failure.contains(&self.current) {
+            // An irrefutable `let` with an or-pattern: as for a `match`.
+            self.read_scrutinee(&place, init.span);
+        }
         if let Some(els) = els {
             // The failure path ends the initialiser's temporaries (its own value first, then
             // those made while computing it) before `else`; they stay in their scopes for

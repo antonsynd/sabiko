@@ -1,8 +1,11 @@
 // Matches that leave out an uninhabited variant, and matches on a place of type `!`
-// (#178, #184, decision 106). A left-out variant falls to the switch's `unreachable`. A
-// place of type `!` is mentioned (its bounds checked), then its arms are entered as for
-// any place; with no arms the place is read (it must be initialised, as rustc's
-// `FakeRead(ForMatchedPlace)` requires) and the match ends in `unreachable`.
+// (#178, #184, decision 106). A left-out variant falls to the switch's `otherwise` block,
+// which reads the scrutinee (rustc's `FakeRead(ForMatchedPlace)`: it must be initialised
+// and not moved, even in part) in a block only a false edge reaches, then is
+// `unreachable`. A place of type `!` is mentioned (its bounds checked), then its arms are
+// entered as for any place; with no arms the place is read. An irrefutable `let` that names
+// a variant reads its initialiser the same way. A block whose tail is a `!` place is a
+// value: nothing after it runs.
 fn Id(x: usize) -> usize {
     x
 }
@@ -32,4 +35,17 @@ fn WildArm(c: bool) -> i32 {
 fn NoArms(c: bool) -> i32 {
     let e = if c { let x = Panic("e"); [x; 0] } else { [] };
     match e[Id(2)] {}
+}
+
+enum Void {}
+
+fn LetVariant(t: (i32, Option<Void>)) -> i32 {
+    let (x, None) = t;
+    x
+}
+
+fn BlockTail(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let v: i32 = match { e[Id(2)] } {};
+    v
 }

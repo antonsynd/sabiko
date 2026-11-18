@@ -24,6 +24,7 @@ fn OkOnly(_1: bool) -> i32 {
     let mut _5: !;
     let _6: i32;                         // v
     let mut _7: isize;
+    let mut _8: &Result<i32, !>;
 
     bb0: {
         StorageLive(_2);
@@ -54,11 +55,11 @@ fn OkOnly(_1: bool) -> i32 {
     bb4: {
         _0 = copy _6;
         StorageDead(_6);
-        goto -> bb7;
+        goto -> bb9;
     }
 
     bb5: {
-        unreachable;
+        falseEdge -> [real: bb8, imaginary: bb7];
     }
 
     bb6: {
@@ -68,12 +69,23 @@ fn OkOnly(_1: bool) -> i32 {
     }
 
     bb7: {
-        StorageDead(_7);
-        StorageDead(_2);
-        goto -> bb8;
+        StorageLive(_8);
+        _8 = &_2;
+        StorageDead(_8);
+        unreachable;
     }
 
     bb8: {
+        unreachable;
+    }
+
+    bb9: {
+        StorageDead(_7);
+        StorageDead(_2);
+        goto -> bb10;
+    }
+
+    bb10: {
         return;
     }
 }
@@ -85,6 +97,7 @@ fn NoneOnly(_1: bool) -> i32 {
     let _4: !;                           // e
     let mut _5: !;
     let mut _6: isize;
+    let mut _7: &Option<!>;
 
     bb0: {
         StorageLive(_2);
@@ -114,20 +127,31 @@ fn NoneOnly(_1: bool) -> i32 {
 
     bb4: {
         _0 = const 3_i32;
-        goto -> bb6;
+        goto -> bb8;
     }
 
     bb5: {
-        unreachable;
+        falseEdge -> [real: bb7, imaginary: bb6];
     }
 
     bb6: {
-        StorageDead(_6);
-        StorageDead(_2);
-        goto -> bb7;
+        StorageLive(_7);
+        _7 = &_2;
+        StorageDead(_7);
+        unreachable;
     }
 
     bb7: {
+        unreachable;
+    }
+
+    bb8: {
+        StorageDead(_6);
+        StorageDead(_2);
+        goto -> bb9;
+    }
+
+    bb9: {
         return;
     }
 }
@@ -196,7 +220,7 @@ fn NoArms(_1: bool) -> i32 {
     let _4: !;                           // x
     let mut _5: !;
     let mut _6: usize;
-    let mut _7: !;
+    let mut _7: &!;
 
     bb0: {
         StorageLive(_2);
@@ -224,7 +248,90 @@ fn NoArms(_1: bool) -> i32 {
 
     bb4: {
         PlaceMention(_2[_6]);
-        _7 = copy _2[_6];
+        falseEdge -> [real: bb6, imaginary: bb5];
+    }
+
+    bb5: {
+        StorageLive(_7);
+        _7 = &_2[_6];
+        StorageDead(_7);
+        unreachable;
+    }
+
+    bb6: {
+        unreachable;
+    }
+}
+
+fn LetVariant(_1: (i32, Option<Void>)) -> i32 {
+    let mut _0: i32;
+    let mut _2: &(i32, Option<Void>);
+    let _3: i32;                         // x
+
+    bb0: {
+        falseEdge -> [real: bb2, imaginary: bb1];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = &_1;
+        StorageDead(_2);
+        unreachable;
+    }
+
+    bb2: {
+        StorageLive(_3);
+        _3 = copy _1.0;
+        _0 = copy _3;
+        StorageDead(_3);
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn BlockTail(_1: bool) -> i32 {
+    let mut _0: i32;
+    let _2: [!; 0];                      // e
+    let mut _3: bool;
+    let _4: !;                           // x
+    let mut _5: !;
+    let _6: i32;                         // v
+    let mut _7: !;
+    let mut _8: usize;
+
+    bb0: {
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        switchInt(copy _3) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageLive(_4);
+        _4 = Panic(const "e") -> unreachable;
+    }
+
+    bb2: {
+        StorageDead(_3);
+        _2 = [];
+        goto -> bb3;
+    }
+
+    bb3: {
+        StorageLive(_6);
+        StorageLive(_7);
+        StorageLive(_8);
+        _8 = Id(const 2_usize) -> bb4;
+    }
+
+    bb4: {
+        _7 = copy _2[_8];
+        StorageDead(_8);
+        StorageDead(_7);
         unreachable;
     }
 }

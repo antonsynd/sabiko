@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/matches.sabi
 ---
 fn <D as Drop>::drop(_1: &mut D) {
@@ -35,10 +35,11 @@ fn Area(_1: &Shape) -> i32 {
     let _8: &i32;                        // w
     let _9: &i32;                        // W
     let _10: &i32;                       // H
-    let mut _11: i32;
+    let mut _11: &&Shape;
     let mut _12: i32;
     let mut _13: i32;
     let mut _14: i32;
+    let mut _15: i32;
 
     bb0: {
         PlaceMention(_1);
@@ -98,7 +99,7 @@ fn Area(_1: &Shape) -> i32 {
     }
 
     bb9: {
-        switchInt(copy _2) -> [2: bb13, otherwise: bb12];
+        switchInt(copy _2) -> [2: bb12, otherwise: bb13];
     }
 
     bb10: {
@@ -115,15 +116,15 @@ fn Area(_1: &Shape) -> i32 {
     }
 
     bb12: {
-        unreachable;
-    }
-
-    bb13: {
         StorageLive(_9);
         _9 = &((*_1) as Rect).W;
         StorageLive(_10);
         _10 = &((*_1) as Rect).H;
         goto -> bb11;
+    }
+
+    bb13: {
+        unreachable;
     }
 
     bb14: {
@@ -219,13 +220,14 @@ fn Take(_1: Slot) -> i32 {
     let mut _0: i32;
     let _2: D;                           // d
     let mut _3: isize;
-    let mut _4: bool;
-    let mut _5: isize;
+    let mut _4: &Slot;
+    let mut _5: bool;
+    let mut _6: isize;
     cleanup c0: _1 => nothing;
     cleanup c1 in c0: _2 => nothing;
 
     bb0 (cleanup c0): {
-        _4 = const true;
+        _5 = const true;
         PlaceMention(_1);
         StorageLive(_3);
         _3 = discriminant(_1);
@@ -243,7 +245,7 @@ fn Take(_1: Slot) -> i32 {
 
     bb3 (cleanup c0): {
         StorageLive(_2);
-        _4 = const false;
+        _5 = const false;
         _2 = move (_1 as Full).0;
         goto -> bb1;
     }
@@ -276,12 +278,12 @@ fn Take(_1: Slot) -> i32 {
     }
 
     bb10: {
-        _5 = discriminant(_1);
-        switchInt(copy _5) -> [1: bb9, otherwise: bb8];
+        _6 = discriminant(_1);
+        switchInt(copy _6) -> [1: bb9, otherwise: bb8];
     }
 
     bb11: {
-        switchInt(copy _4) -> [0: bb8, otherwise: bb10];
+        switchInt(copy _5) -> [0: bb8, otherwise: bb10];
     }
 
     bb12 (cleanup c0): {

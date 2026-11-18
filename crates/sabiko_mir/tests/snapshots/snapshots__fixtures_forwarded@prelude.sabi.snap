@@ -1,12 +1,13 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "print_user_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/prelude.sabi
 ---
 fn Describe(_1: Option<i32>) -> i32 {
     let mut _0: i32;
     let _2: i32;                         // n
     let mut _3: isize;
+    let mut _4: &Option<i32>;
 
     bb0: {
         PlaceMention(_1);

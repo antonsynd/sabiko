@@ -122,7 +122,7 @@ input_file: crates/sabiko_codegen/tests/fixtures/prelude.sabi
     .locals init (
       [0] native int '_3',
       [1] bool 'e',
-      [2] bool& '_5'
+      [2] bool& '_6'
     )
   BB0:
     ldarga.s 0
@@ -135,12 +135,12 @@ input_file: crates/sabiko_codegen/tests/fixtures/prelude.sabi
     ldloc.0
     ldc.i4.1
     conv.i
-    beq BB6
-  BB5:
+    beq BB5
+  BB6:
     call void [Sabiko.Runtime]Sabiko.Runtime.Checks::Unreachable()
     ldnull
     throw
-  BB6:
+  BB5:
     ldarga.s 0
     ldflda valuetype 'core::Result<u8, bool>'/'ErrPayload' 'core::Result<u8, bool>'::'Err'
     ldfld bool 'core::Result<u8, bool>'/'ErrPayload'::'Item1'

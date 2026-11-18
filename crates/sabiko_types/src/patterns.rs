@@ -1261,6 +1261,8 @@ fn strip_parens(mut e: &Expr) -> &Expr {
 /// `r` (which dereferences it implicitly), an index of a sub-slice `a[lo..hi][i]` (rustc's
 /// `*Index::index(..)`), and any field or index of such a place. Every other place (a
 /// local, its fields, the elements of a local array) and every value expression is valid.
+/// A field or index type checking recorded nothing for (after an error) is taken as not
+/// valid, which only ever asks for more arms.
 fn known_valid(e: &Expr, body: &BodyTypes) -> bool {
     let e = strip_parens(e);
     match &e.kind {
@@ -1268,7 +1270,7 @@ fn known_valid(e: &Expr, body: &BodyTypes) -> bool {
         ExprKind::Field(base, _) => {
             body.field_accesses
                 .get(&e.id)
-                .is_none_or(|access| access.autoderefs == 0)
+                .is_some_and(|access| access.autoderefs == 0)
                 && known_valid(base, body)
         }
         ExprKind::Index(base, index) => {
@@ -1276,7 +1278,7 @@ fn known_valid(e: &Expr, body: &BodyTypes) -> bool {
                 && body
                     .index_derefs
                     .get(&e.id)
-                    .is_none_or(|&derefs| derefs == 0)
+                    .is_some_and(|&derefs| derefs == 0)
                 && known_valid(base, body)
         }
         _ => true,

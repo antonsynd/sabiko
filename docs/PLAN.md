@@ -2127,7 +2127,9 @@ Update (2026-11-18), exhaustiveness with visibly uninhabited types and place val
 its enum's declaration, where the payload of `Result`'s `Err` is a type parameter, so
 `match r { Ok(v) => v }` on a `Result<i32, !>` and `match o { None => 3 }` on an
 `Option<!>` were E0328 where rustc accepts them. Inhabitedness is now decided at the
-instance (cached per instance type), and arrays count: `[!; 1]` is empty, `[!; 0]` and
+instance (cached per instance type; an instance nested in its own struct or enum 128
+times, or of more than 65536 type nodes, is taken as inhabited, and what was decided
+through that cut-off is not cached past the outermost query), and arrays count: `[!; 1]` is empty, `[!; 0]` and
 `&!` are not. The scrutinee validity rule is rustc's `is_known_valid_scrutinee` in full:
 besides `*r` and `r.F`, an index through a reference (`r[i]`, `s[i]` on a slice), an index
 of a sub-slice and any field or element of such a place are not valid, and the rule now
@@ -2138,10 +2140,19 @@ such a place warned that it was irrefutable. In MIR building, a scrutinee of typ
 is a place no longer counts as diverging: its arms are lowered and entered after the
 bounds check, as in rustc, so `match e[i] { _ => 3 }` compiles and panics on the check,
 a move in such an arm is E0406 (it was accepted; rustc's E0382), and `match e[i] {}` ends
-in `unreachable`. A match whose arms all have guards, or that has none, now reads its
-scrutinee where no arm matched, as rustc does: `let v: Void; match v {}` is E0405 (rustc's
-E0381; it was accepted), and a `!` local that may be uninitialised under `match x {}` stays
-E0405 now that a `!` place is not copied. About 150 programs were compared with rustc 1.99 (the PR has the
+in `unreachable`; a block whose tail is a `!` place (`match { e[i] } {}`) diverges, and
+the code after it is unreachable (what the match would have assigned was E0405). A match
+now reads its scrutinee where no arm matched, in rustc's `otherwise` block (after a failed
+discriminant switch, comparison, range test or last guard, or with no arms; not after a
+`bool` test or when the last arm tests nothing), and so does an irrefutable `let` or
+destructuring assignment that names a variant of an enum with other variants: the place
+must be initialised and not moved, even in part. `let v: Void; match v {}` is E0405
+(rustc's E0381; it was accepted); `Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2
+}` and `Take(t.0); let (_, None) = t;` are E0406 (rustc's E0382; they were accepted,
+which leaving out an empty variant had made reachable from valid-looking code). The read
+is a shared borrow behind a false edge, removed before code generation, so it conflicts
+with no loan; Sabiko words it "borrow of", rustc "use of". Once #193's
+`StatementKind::FakeRead` lands, it becomes `FakeRead(ForMatchedPlace)`. About 150 programs were compared with rustc 1.99 (the PR has the
 table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `never/rej_uninhabited_payload_behind_reference`, `never/ok_never_place_scrutinee`,
 `never/err_never_place_scrutinee`, `enums/ok_empty_payloads_omitted`,
@@ -2149,14 +2160,30 @@ table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `enums/rej_empty_payload_through_reference`, run `matches/uninhabited_variants_omitted`,
 `matches/never_place_wild_arm`, `matches/never_place_empty_match`, UI
 `typeck/uninhabited_generic_instances`, `typeck/uninhabited_variant_places`,
-`typeck/never_place_scrutinee`, and the unit test `empty_variants_of_generic_instances`.
+`typeck/never_place_scrutinee`, and the unit test `empty_variants_of_generic_instances`;
+after review: differential `moves/err_match_partially_moved_switch_otherwise`,
+`moves/err_match_partially_moved_struct_field_switch`,
+`moves/err_match_partially_moved_empty_variant_omitted`,
+`moves/err_match_partially_moved_generic_empty_variant`,
+`moves/err_match_partially_moved_range_otherwise`,
+`moves/err_match_partially_moved_guard_otherwise`, `moves/err_let_partially_moved_variant_test`,
+`moves/err_let_or_partially_moved_variant_test`,
+`moves/err_destructuring_assign_partially_moved_variant_test`,
+`moves/ok_match_partially_moved_no_otherwise`,
+`loans/ok_match_otherwise_read_conflicts_with_no_loan`,
+`enums/ok_deeply_nested_empty_instances`, run `matches/never_block_scrutinee` and
+`matches/never_block_scrutinee_wild_arm`.
 Gaps: rustc's `unreachable_patterns` lint also covers `let`, `if let`, `let`-`else`,
 `while let`, let chains and parameters (an or-pattern alternative such as the second `1`
 of `if let 1 | 1 = x`, or `_` on a valid `!` place); Sabiko reports it for `match` only.
 An array that no arm matches is reported as `_`, where rustc writes `[..]` or `[_]`. A call
 of a function returning an uninhabited type other than `!` (`fn MakeV() -> Void`) does not
 diverge for the borrow checker, so a move after it is still E0406 where rustc, which takes
-the code after it as unreachable, accepts the program.
+the code after it as unreachable, accepts the program. The scrutinee read makes this gap (#189) reach
+further: with `struct S { A: N, V: Void }` and `fn Make() -> S { loop {} }`,
+`let s = Make(); Take(s.A); match s { _ if c => 1 }` is E0406 where rustc accepts it.
+When statics land, `known_valid` must take a place through a static as not valid, as
+rustc does for `Deref(StaticRef)`.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

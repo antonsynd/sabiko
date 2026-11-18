@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/drop_variants.sabi
 ---
 fn <D as Drop>::drop(_1: &mut D) {
@@ -132,7 +132,8 @@ fn PartlyMoved(_1: bool) {
     let mut _4: bool;
     let _5: D;                           // d
     let mut _6: isize;
-    let mut _7: ();
+    let mut _7: &E;
+    let mut _8: ();
     cleanup c0: _3 => drop(_3);
     cleanup c1: _2 => drop(_2);
 
@@ -169,15 +170,15 @@ fn PartlyMoved(_1: bool) {
 
     bb5 (cleanup c1): {
         StorageDead(_4);
-        goto -> bb13;
+        goto -> bb15;
     }
 
     bb6 (cleanup c1): {
-        drop(_5) -> bb12;
+        drop(_5) -> bb14;
     }
 
     bb7 (cleanup c1): {
-        switchInt(copy _6) -> [0: bb11, otherwise: bb10];
+        switchInt(copy _6) -> [0: bb13, otherwise: bb10];
     }
 
     bb8 (cleanup c1): {
@@ -191,40 +192,51 @@ fn PartlyMoved(_1: bool) {
     }
 
     bb10 (cleanup c1): {
-        unreachable;
+        falseEdge -> [real: bb12, imaginary: bb11];
     }
 
     bb11 (cleanup c1): {
-        StorageDead(_6);
-        goto -> bb13;
+        StorageLive(_7);
+        _7 = &_2;
+        StorageDead(_7);
+        unreachable;
     }
 
     bb12 (cleanup c1): {
-        StorageDead(_5);
-        goto -> bb11;
+        unreachable;
     }
 
     bb13 (cleanup c1): {
-        StorageLive(_7);
-        _7 = Touch() -> bb14;
-    }
-
-    bb14 (cleanup c1): {
-        StorageDead(_7);
-        _0 = const ();
+        StorageDead(_6);
         goto -> bb15;
     }
 
-    bb15: {
-        drop(_2) -> bb16;
+    bb14 (cleanup c1): {
+        StorageDead(_5);
+        goto -> bb13;
     }
 
-    bb16: {
-        StorageDead(_2);
+    bb15 (cleanup c1): {
+        StorageLive(_8);
+        _8 = Touch() -> bb16;
+    }
+
+    bb16 (cleanup c1): {
+        StorageDead(_8);
+        _0 = const ();
         goto -> bb17;
     }
 
     bb17: {
+        drop(_2) -> bb18;
+    }
+
+    bb18: {
+        StorageDead(_2);
+        goto -> bb19;
+    }
+
+    bb19: {
         return;
     }
 }

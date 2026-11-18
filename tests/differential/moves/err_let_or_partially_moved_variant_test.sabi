@@ -1,0 +1,13 @@
+// An irrefutable `let` with an or-pattern over every variant reads the partly moved
+// initialiser where neither alternative matched.
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Option<i32>)) -> i32 {
+    Take(t.0);
+    let ((_, Some(_)) | (_, None)) = t;
+    1
+}
+
+fn Main() {}

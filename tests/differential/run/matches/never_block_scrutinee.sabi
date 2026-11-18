@@ -1,0 +1,19 @@
+// A block whose tail is a `!` place (`{ e[i] }` for `e: [!; 0]`) is a value of type `!`:
+// matching it reads the element, after the bounds check, which panics. Nothing after the
+// match runs, so what it would have assigned is never needed (decision 106).
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn Main() {
+    let c = false;
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    PrintLine("before");
+    let v: i32 = match { e[Id(2)] } {};
+    PrintLine(v);
+}

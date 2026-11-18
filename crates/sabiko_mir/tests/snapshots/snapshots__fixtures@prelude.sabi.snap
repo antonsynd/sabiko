@@ -1,12 +1,13 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "print_user_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/prelude.sabi
 ---
 fn Describe(_1: Option<i32>) -> i32 {
     let mut _0: i32;
     let _2: i32;                         // n
     let mut _3: isize;
+    let mut _4: &Option<i32>;
 
     bb0: {
         PlaceMention(_1);
@@ -18,7 +19,7 @@ fn Describe(_1: Option<i32>) -> i32 {
     bb1: {
         _0 = copy _2;
         StorageDead(_2);
-        goto -> bb7;
+        goto -> bb9;
     }
 
     bb2: {
@@ -37,19 +38,30 @@ fn Describe(_1: Option<i32>) -> i32 {
 
     bb5: {
         _0 = const -1_i32;
-        goto -> bb7;
+        goto -> bb9;
     }
 
     bb6: {
-        unreachable;
+        falseEdge -> [real: bb8, imaginary: bb7];
     }
 
     bb7: {
-        StorageDead(_3);
-        goto -> bb8;
+        StorageLive(_4);
+        _4 = &_1;
+        StorageDead(_4);
+        unreachable;
     }
 
     bb8: {
+        unreachable;
+    }
+
+    bb9: {
+        StorageDead(_3);
+        goto -> bb10;
+    }
+
+    bb10: {
         return;
     }
 }

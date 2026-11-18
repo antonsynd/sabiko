@@ -29,7 +29,8 @@ out of a match, scrutinee places of type `!`), and `enums/` (programs with enums
 patterns: casts, `..` in tuple and variant patterns, struct patterns, a `match` whose arms
 all diverge, `&` patterns, half-open and float ranges, variants with an empty-enum payload
 left out where the place is valid and required where it is reached through a
-reference).
+reference, nesting of empty generic instances). `moves/` also pins the read of a match's or
+`let`'s scrutinee where no pattern matched, which a partly moved scrutinee fails.
 
 The harness prepends this prelude, which defines Sabiko's builtin functions for rustc:
 
