@@ -1,0 +1,102 @@
+[E0414] Error: cannot return value referencing function parameter `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:14:5 ]
+    │
+ 14 │     (&a, &a)
+    │     ──┬─┬───  
+    │       │ ╰───── returns a value referencing data owned by the current function
+    │       │       
+    │       ╰─────── `a` is borrowed here
+────╯
+[E0414] Error: cannot return value referencing function parameter `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:14:5 ]
+    │
+ 14 │     (&a, &a)
+    │     ────┬─┬─  
+    │         ╰───── returns a value referencing data owned by the current function
+    │           │   
+    │           ╰─── `a` is borrowed here
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:20:5 ]
+    │
+ 20 │     &a //~ ERROR E0414 cannot return reference to function parameter `a`
+    │     ─┬  
+    │      ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local variable `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:25:5 ]
+    │
+ 25 │     &a //~ ERROR E0414 cannot return reference to local variable `a`
+    │     ─┬  
+    │      ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return value referencing local variable `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:31:5 ]
+    │
+ 30 │     let r = &a;
+    │             ─┬  
+    │              ╰── `a` is borrowed here
+ 31 │     r //~ ERROR E0414 cannot return value referencing local variable `a`
+    │     ┬  
+    │     ╰── returns a value referencing data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `p.X`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:35:5 ]
+    │
+ 35 │     &p.X //~ ERROR E0414 cannot return reference to local data `p.X`
+    │     ──┬─  
+    │       ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return value referencing local variable `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:40:5 ]
+    │
+ 40 │     (&a, 2) //~ ERROR E0414 cannot return value referencing local variable `a`
+    │     ──┬┬───  
+    │       │╰───── returns a value referencing data owned by the current function
+    │       │      
+    │       ╰────── `a` is borrowed here
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:45:16 ]
+    │
+ 45 │         return &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    │                ─┬  
+    │                 ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return value referencing function parameter `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:51:5 ]
+    │
+ 51 │     Some(&a) //~ ERROR E0414 cannot return value referencing function parameter `a`
+    │     ────┬─┬─  
+    │         ╰───── returns a value referencing data owned by the current function
+    │           │   
+    │           ╰─── `a` is borrowed here
+────╯
+[E0414] Error: cannot return reference to local variable `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:58:9 ]
+    │
+ 58 │         &a //~ ERROR E0414 cannot return reference to local variable `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local variable `b`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:60:9 ]
+    │
+ 60 │         &b //~ ERROR E0414 cannot return reference to local variable `b`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:65:12 ]
+    │
+ 65 │     return &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    │            ─┬  
+    │             ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local variable `a`
+    ╭─[ tests/ui/borrowck/return_value_referencing.sabi:71:9 ]
+    │
+ 71 │         &a //~ ERROR E0414 cannot return reference to local variable `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯

@@ -68,8 +68,8 @@
     │             ────┬───  
     │                 ╰───── use of borrowed `*s`
  57 │     r[0usize].Inner = 2.0f32;
-    │     ────────────┬───────────  
-    │                 ╰───────────── borrow later used here
+    │     ────┬────  
+    │         ╰────── borrow later used here
 ────╯
 [E0405] Error: used binding `s` isn't initialized
     ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:75:13 ]
@@ -150,8 +150,8 @@
      │             ┬  
      │             ╰── value moved here
  112 │     s[0usize] = Guard { Id: 1 }; //~ ERROR E0406 borrow of moved value: `s`
-     │     ─────────────┬─────────────  
-     │                  ╰─────────────── value borrowed here after move
+     │     ────┬────  
+     │         ╰────── value borrowed here after move
      │ 
      │ Note 1: move occurs because `s` has type `&mut [Guard]`, which does not implement the `Copy` trait
      │ 
@@ -168,8 +168,8 @@
      │                 ╰────── immutable borrow occurs here
      │ 
  120 │     r[0usize].Inner = 2.0f32;
-     │     ────────────┬───────────  
-     │                 ╰───────────── borrow later used here
+     │     ────┬────  
+     │         ╰────── borrow later used here
 ─────╯
 [E0411] Error: cannot use `*s` because it was mutably borrowed
      ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:117:14 ]
@@ -182,8 +182,8 @@
      │                  ╰───── use of borrowed `*s`
      │ 
  120 │     r[0usize].Inner = 2.0f32;
-     │     ────────────┬───────────  
-     │                 ╰───────────── borrow later used here
+     │     ────┬────  
+     │         ╰────── borrow later used here
 ─────╯
 [E0411] Error: cannot use `*s` because it was mutably borrowed
      ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:125:5 ]
@@ -192,12 +192,12 @@
      │             ───┬───  
      │                ╰───── `*s` is borrowed here
  125 │     s[Idx()] = Guard { Id: 2 };
-     │     ─────────────┬────────────  
-     │                  ╰────────────── use of borrowed `*s`
+     │     ────┬───  
+     │         ╰───── use of borrowed `*s`
      │ 
  128 │     r[0usize].Id = 3;
-     │     ────────┬───────  
-     │             ╰───────── borrow later used here
+     │     ────┬────  
+     │         ╰────── borrow later used here
 ─────╯
 [E0410] Error: cannot assign to `s[_]` because it is borrowed
      ╭─[ tests/ui/borrowck/index_mention_reads_base.sabi:125:5 ]
@@ -210,6 +210,6 @@
      │                  ╰────────────── assignment to borrowed `s[_]` occurs here
      │ 
  128 │     r[0usize].Id = 3;
-     │     ────────┬───────  
-     │             ╰───────── borrow later used here
+     │     ────┬────  
+     │         ╰────── borrow later used here
 ─────╯

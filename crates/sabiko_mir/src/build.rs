@@ -59,8 +59,8 @@ use matches::{has_or, BindMode};
 
 use crate::{
     AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, CleanupData, CleanupDrop,
-    CleanupScope, Constant, FakeBorrowKind, Local, LocalDecl, LocalKind, Operand, Place, Rvalue,
-    SliceBounds, Statement, StatementKind, Terminator, TerminatorKind,
+    CleanupScope, Constant, FakeBorrowKind, FakeReadCause, Local, LocalDecl, LocalKind, Operand,
+    Place, Rvalue, SliceBounds, Statement, StatementKind, Terminator, TerminatorKind,
 };
 
 /// Lowers every function in `file` whose body type-checked without errors, in source
@@ -1255,6 +1255,13 @@ impl<'a> Builder<'a> {
                     self.push_stmt(StatementKind::PlaceMention(place.clone()), expr.span);
                 }
                 let index = self.as_temp(index);
+                // The bounds check reads the indexed place, once the index is known, at
+                // the indexing expression, as rustc's `len_of_slice_or_array` does: the
+                // borrow checker sees it there, before any use of the element.
+                self.push_stmt(
+                    StatementKind::FakeRead(FakeReadCause::ForIndex, place.clone()),
+                    self.span_of(expr),
+                );
                 place.index(index)
             }
             _ => Place::local(self.as_temp(expr)),
@@ -2646,13 +2653,15 @@ impl<'a> Builder<'a> {
             }
             operands.push(err);
         }
+        // At the whole `e?`, as rustc's `from_residual` call: a loan returned through it is
+        // reported there (#169).
         self.assign(
             ret,
             Rvalue::Aggregate(
                 AggregateKind::Variant(ret_adt, break_index, ret_args),
                 operands,
             ),
-            question,
+            span,
         );
         if let Some(converted) = converted_local {
             self.push_stmt(StatementKind::StorageDead(converted), question);

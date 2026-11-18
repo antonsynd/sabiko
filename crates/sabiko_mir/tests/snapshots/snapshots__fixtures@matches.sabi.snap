@@ -205,6 +205,7 @@ fn Classify(_1: i32) -> i32 {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_4);
         _4 = Eq(copy _2, const 1_i32);
         switchInt(copy _4) -> [1: bb6, otherwise: bb5];
@@ -220,6 +221,7 @@ fn Classify(_1: i32) -> i32 {
     }
 
     bb5: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_5);
         _5 = Eq(copy _2, const 2_i32);
         switchInt(copy _5) -> [1: bb8, otherwise: bb7];
@@ -230,6 +232,7 @@ fn Classify(_1: i32) -> i32 {
     }
 
     bb7: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_6);
         _6 = Ge(copy _2, const 3_i32);
         switchInt(copy _6) -> [0: bb12, otherwise: bb10];
@@ -245,6 +248,7 @@ fn Classify(_1: i32) -> i32 {
     }
 
     bb10: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_7);
         _7 = Le(copy _2, const 9_i32);
         switchInt(copy _7) -> [0: bb12, otherwise: bb11];

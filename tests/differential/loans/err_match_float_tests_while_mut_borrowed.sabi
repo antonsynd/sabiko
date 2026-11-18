@@ -1,0 +1,11 @@
+// Each float comparison of a match reads the scrutinee: E0503 while it is mutably borrowed.
+fn Main() {
+    let mut x = 1.0;
+    let q = &mut x;
+    match x {
+        1.0 => {}
+        2.0 => {}
+        _ => {}
+    }
+    *q = 0.0;
+}

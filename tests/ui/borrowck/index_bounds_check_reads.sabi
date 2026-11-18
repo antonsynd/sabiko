@@ -1,0 +1,151 @@
+// Every place through an index reads its base for the bounds check, as rustc's MIR builder
+// does (`len_of_slice_or_array`, decision 107): an array by `FakeRead(ForIndex)`, checked for
+// moves and initialisation only; a slice behind a local `&[T]` by a copy of the reference;
+// any other slice by a fake shallow borrow, "borrow of" a moved value, conflicting with a
+// mutable loan of the slice. The read comes before the access itself, at the index
+// expression, so a write, compound assignment or read of an element reports both, as rustc.
+struct P {
+    X: i32,
+}
+
+struct S {
+    A: [i32; 2],
+}
+
+fn Idx() -> usize {
+    0usize
+}
+
+fn Use2(r: &mut [&mut [i32]]) {}
+
+fn WriteFieldAfterMove(s: &mut [P]) {
+    let t = s;
+    s[0usize].X = 1; //~ ERROR E0406 borrow of moved value: `s`
+}
+
+fn WriteAfterMove(s: &mut [i32]) {
+    let t = s;
+    s[Idx()] = 1; //~ ERROR E0406 borrow of moved value: `s`
+}
+
+fn CompoundAfterMove(s: &mut [i32]) {
+    let t = s;
+    s[Idx()] += 1; //~ ERROR E0406 use of moved value: `s`
+}
+
+fn BorrowElementAfterMove(s: &mut [i32]) {
+    let t = s;
+    let r = &mut s[0usize]; //~ ERROR E0406 borrow of moved value: `s`
+}
+
+fn ReadFieldAfterMove(s: &mut [P]) {
+    let t = s;
+    let x = s[0usize].X; //~ ERROR E0406 use of moved value: `s`
+}
+
+fn NestedWriteAfterMove(s: &mut [&mut [i32]]) {
+    let t = s;
+    s[0usize][1usize] = 1; //~ ERROR E0406 borrow of moved value: `s`
+}
+
+fn WriteThroughElementAfterMove(s: &mut [&mut i32]) {
+    let t = s;
+    *s[0usize] = 1; //~ ERROR E0406 use of moved value: `s`
+}
+
+fn ArrayReadAfterMove(a: [P; 2]) {
+    let t = a;
+    let x = a[0usize].X; //~ ERROR E0406 use of moved value: `a`
+}
+
+fn SharedSliceReadAfterCopy(s: &[P]) {
+    let t = s;
+    let x = s[0usize].X;
+}
+
+fn ReadUnderLoan(s: &mut [P]) {
+    let r = &mut *s;
+    let x = s[Idx()].X;
+    //~^ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    //~^^ ERROR E0411 cannot use `s[_].X` because it was mutably borrowed
+    r[0usize].X = 1;
+}
+
+fn WriteUnderLoan(s: &mut [i32]) {
+    let r = &mut *s;
+    s[Idx()] = 2;
+    //~^ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    //~^^ ERROR E0410 cannot assign to `s[_]` because it is borrowed
+    r[0usize] = 1;
+}
+
+fn CompoundUnderLoan(s: &mut [i32]) {
+    let r = &mut *s;
+    s[Idx()] += 2;
+    //~^ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    //~^^ ERROR E0411 cannot use `s[_]` because it was mutably borrowed
+    r[0usize] = 1;
+}
+
+fn BorrowElementUnderLoan(s: &mut [i32]) {
+    let r = &mut *s;
+    let x = &mut s[0usize];
+    //~^ ERROR E0409 cannot borrow `s[_]` as mutable more than once at a time
+    //~^^ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    r[0usize] = 1;
+}
+
+fn NestedReadUnderLoan(s: &mut [&mut [i32]]) {
+    let r = &mut *s;
+    let x = s[0usize][1usize];
+    //~^ ERROR E0411 cannot use `*s` because it was mutably borrowed
+    //~^^ ERROR E0411 cannot use `*s[_]` because it was mutably borrowed
+    //~^^^ ERROR E0411 cannot use `s[_][_]` because it was mutably borrowed
+    Use2(r);
+}
+
+fn ArrayReadUnderLoan() {
+    let mut a = [1, 2];
+    let r = &mut a;
+    let x = a[Idx()]; //~ ERROR E0411 cannot use `a[_]` because it was mutably borrowed
+    r[0usize] = 1;
+}
+
+fn ArrayWriteUnderLoan() {
+    let mut a = [1, 2];
+    let r = &mut a;
+    a[Idx()] = 3; //~ ERROR E0410 cannot assign to `a[_]` because it is borrowed
+    r[0usize] = 1;
+}
+
+fn NestedArrayReadUnderLoan() {
+    let mut a = [[1, 2], [3, 4]];
+    let r = &mut a;
+    let x = a[0usize][Idx()]; //~ ERROR E0411 cannot use `a[_][_]` because it was mutably borrowed
+    r[0usize][0usize] = 1;
+}
+
+fn FieldArrayReadUnderLoan(s: &mut S) {
+    let r = &mut s.A;
+    let x = s.A[Idx()]; //~ ERROR E0411 cannot use `s.A[_]` because it was mutably borrowed
+    r[0usize] = 1;
+}
+
+fn ReadUnderElementLoan(s: &mut [P]) {
+    let r = &mut s[0usize];
+    let x = s[Idx()].X; //~ ERROR E0411 cannot use `s[_].X` because it was mutably borrowed
+    r.X = 1;
+}
+
+fn WriteUnderSharedLoan(s: &mut [P]) {
+    let r = &*s;
+    s[Idx()].X = 2; //~ ERROR E0410 cannot assign to `s[_].X` because it is borrowed
+    let y = r[0usize].X;
+}
+
+fn LenUnderLoan(s: &mut [i32]) {
+    let r = &mut *s;
+    let n = s.len();
+    //~^ ERROR E0408 cannot borrow `*s` as immutable because it is also borrowed as mutable
+    r[0usize] = 1;
+}

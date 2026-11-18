@@ -1,0 +1,13 @@
+// `s[i] += 1` after the `&mut [T]` moved reads `s` for the bounds check: E0382.
+fn Idx() -> usize { 0usize }
+
+fn Bump(s: &mut [i32]) {
+    let t = s;
+    s[Idx()] += 1;
+    t[0usize] = 2;
+}
+
+fn Main() {
+    let mut a = [1, 2];
+    Bump(&mut a);
+}

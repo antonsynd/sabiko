@@ -1,0 +1,164 @@
+// A use of a value that is maybe uninitialised and maybe moved is one error, as in rustc:
+// "use of moved value" when some path moved it, "possibly-uninitialized" when none did
+// (decision 107). A write or a mutable borrow of a binding that was never initialised is
+// only the initialisation error: rustc reports a mutability error only for a binding that
+// was ever assigned.
+struct S {
+    V: i32,
+    W: i32,
+}
+
+struct P {
+    X: i32,
+}
+
+struct G {
+    X: i32,
+}
+
+impl Drop for G {
+    fn drop(&mut self) {}
+}
+
+fn C() -> bool {
+    true
+}
+
+fn MovedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a;
+    }
+    let p = &a.V;
+    let q = &a.W; //~ ERROR E0406 borrow of moved value: `a`
+}
+
+fn FieldCopiedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a.V;
+    }
+    let p = &a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+}
+
+fn BorrowMovedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a;
+    }
+    let p = &a; //~ ERROR E0406 borrow of moved value: `a`
+}
+
+fn ReadMovedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a;
+    } else {
+    }
+    let p = a.V; //~ ERROR E0406 use of moved value: `a`
+}
+
+fn DropArrayElementOfUninit() {
+    let a: [G; 2];
+    a[0usize] = G { X: 1 }; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn ArrayElementOfUninit() {
+    let a: [i32; 2];
+    a[0usize] = 1; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn MutBorrowOfUninit() {
+    let a: P;
+    let r = &mut a; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn FieldThroughUninitReference() {
+    let r: &P;
+    let x = r.X; //~ ERROR E0405 used binding `r` isn't initialized
+}
+
+// A use in a loop that the loop's entry reaches uninitialised is E0405, not a move in an
+// earlier iteration: as rustc's `get_moved_indexes`, the search for moves follows the
+// loop's back edge only when no path from the start reaches the use without an
+// initialisation.
+fn MaybeUninitInLoop() {
+    let mut a: P;
+    loop {
+        if C() {
+            a = P { X: 1 };
+        }
+        let m = a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+    }
+}
+
+fn MaybeUninitBorrowInLoop() {
+    let mut a: P;
+    loop {
+        if C() {
+            a = P { X: 1 };
+        }
+        let r = &a.X; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+        let m = a;
+    }
+}
+
+fn MaybeUninitElementWriteInLoop() {
+    let mut a: [P; 2];
+    loop {
+        if C() {
+            a = [P { X: 1 }, P { X: 2 }];
+        }
+        a[0usize].X = 3; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+        let m = a;
+    }
+}
+
+fn ImmutableMaybeUninitInLoop() {
+    let a: [P; 2];
+    loop {
+        if C() {
+            a = [P { X: 1 }, P { X: 2 }]; //~ ERROR E0400 cannot assign twice to immutable variable `a`
+        }
+        a[0usize].X = 3;
+        //~^ ERROR E0405 used binding `a` is possibly-uninitialized
+        //~^^ ERROR E0401 cannot assign to `a[_].X`, as `a` is not declared as mutable
+        let m = a;
+    }
+}
+
+fn DeclaredInLoop() {
+    loop {
+        let a: P;
+        if C() {
+            a = P { X: 1 };
+        }
+        let m = a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+    }
+}
+
+// Initialised before the loop: the move is from the previous iteration.
+fn InitialisedBeforeLoop() {
+    let mut a: P;
+    a = P { X: 0 };
+    loop {
+        if C() {
+            a = P { X: 1 };
+        }
+        let m = a; //~ ERROR E0406 use of moved value: `a`
+    }
+}
+
+fn ParameterMovedInLoop(mut a: P) {
+    loop {
+        if C() {
+            a = P { X: 2 };
+        }
+        let r = &a.X; //~ ERROR E0406 borrow of moved value: `a`
+        let m = a;
+    }
+}

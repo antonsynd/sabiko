@@ -1,8 +1,8 @@
-//! The reads rustc's MIR builder emits for the bounds check of each index in a place
-//! (decision 96), which Sabiko's MIR leaves implicit.
+//! The read rustc's MIR builder emits for the bounds check of an index (decisions 96 and
+//! 107), which Sabiko's MIR states as a `FakeRead(ForIndex, base)` of the indexed place.
 //!
-//! Before `a[i]` is used, rustc reads the indexed place `a` to compare `i` with its length
-//! (`len_of_slice_or_array`):
+//! Before `a[i]` is used, once `i` is evaluated, rustc reads the indexed place `a` to
+//! compare `i` with its length (`len_of_slice_or_array`), at the indexing expression:
 //! - an array's length is part of its type, but the place is still read, by a
 //!   `FakeRead(ForIndex, a)` that the borrow checker checks for moves and initialisation
 //!   only, conflicting with no loan;
@@ -14,11 +14,7 @@
 //!   with a mutable loan of the slice place or of a prefix of it, not with a loan of an
 //!   element (rustc's `ArtificialField::ArrayLength`).
 //!
-//! Every read, write or borrow of an element place in Sabiko's MIR checks these bases
-//! through its own access, but a `PlaceMention` (`let _ = a[i];`, a pattern that binds
-//! nothing, and the mentions MIR building puts before `&a[i]`, `a[i] = v`, `m[i][j]`,
-//! `*a[i]` and match scrutinees) reads nothing itself: the borrow checker derives the
-//! reads from it with [`index_base_reads`].
+//! [`index_base_read`] says which of these a `FakeRead(ForIndex, base)` is.
 
 use sabiko_mir::{Body, Mutability, Place, PlaceElem, Ty};
 
@@ -42,30 +38,25 @@ pub(crate) struct IndexBaseRead {
     pub kind: BaseRead,
 }
 
-/// The reads of the places indexed by `place`'s `Index` projections, outermost first.
-pub(crate) fn index_base_reads<'a>(
-    place: &'a Place,
-    body: &'a Body,
-) -> impl Iterator<Item = IndexBaseRead> + 'a {
-    place.index_bases().map(move |base| {
-        if !matches!(base.ty(body), Ty::Slice(_)) {
-            return IndexBaseRead {
-                place: base,
-                kind: BaseRead::Array,
-            };
+/// The read of the indexed place `base` for the bounds check of an index into it.
+pub(crate) fn index_base_read(base: &Place, body: &Body) -> IndexBaseRead {
+    if !matches!(base.ty(body), Ty::Slice(_)) {
+        return IndexBaseRead {
+            place: base.clone(),
+            kind: BaseRead::Array,
+        };
+    }
+    let shared_ref_local = base.projection == [PlaceElem::Deref]
+        && matches!(body.local_decl(base.local).ty, Ty::Ref(Mutability::Not, _));
+    if shared_ref_local {
+        IndexBaseRead {
+            place: Place::local(base.local),
+            kind: BaseRead::SharedSliceRef,
         }
-        let shared_ref_local = base.projection == [PlaceElem::Deref]
-            && matches!(body.local_decl(base.local).ty, Ty::Ref(Mutability::Not, _));
-        if shared_ref_local {
-            IndexBaseRead {
-                place: Place::local(base.local),
-                kind: BaseRead::SharedSliceRef,
-            }
-        } else {
-            IndexBaseRead {
-                place: base,
-                kind: BaseRead::SliceFakeBorrow,
-            }
+    } else {
+        IndexBaseRead {
+            place: base.clone(),
+            kind: BaseRead::SliceFakeBorrow,
         }
-    })
+    }
 }

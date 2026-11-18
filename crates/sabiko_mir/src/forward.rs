@@ -92,7 +92,9 @@ fn mentions(body: &Body) -> Vec<Mentions> {
     };
     for data in &body.blocks {
         for stmt in &data.statements {
-            if let StatementKind::PlaceMention(place) = &stmt.kind {
+            if let StatementKind::PlaceMention(place) | StatementKind::FakeRead(_, place) =
+                &stmt.kind
+            {
                 // A mention keeps its local (and the temporary it names) in the body.
                 m[place.local.index()].other += 1;
                 continue;

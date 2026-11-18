@@ -100,6 +100,7 @@ fn Expected(_1: bool) -> i32 {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         switchInt(copy _3) -> [0: bb4, otherwise: bb5];
     }
 
@@ -152,6 +153,7 @@ fn Unexpected(_1: bool) {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         switchInt(copy _3) -> [0: bb4, otherwise: bb5];
     }
 

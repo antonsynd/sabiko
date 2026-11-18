@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/trait_item_paths.sabi
 ---
 fn <bool as A>::M(_1: &bool) -> i32 {
@@ -128,12 +128,14 @@ fn Ranges(_1: i32) -> i32 {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_5);
         _5 = Ge(copy _2, const 11_i32);
         switchInt(copy _5) -> [0: bb8, otherwise: bb6];
     }
 
     bb3: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_4);
         _4 = Le(copy _2, const 10_i32);
         switchInt(copy _4) -> [0: bb2, otherwise: bb4];
@@ -149,6 +151,7 @@ fn Ranges(_1: i32) -> i32 {
     }
 
     bb6: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_6);
         _6 = Le(copy _2, const 20_i32);
         switchInt(copy _6) -> [0: bb8, otherwise: bb7];

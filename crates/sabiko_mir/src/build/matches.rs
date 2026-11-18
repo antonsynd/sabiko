@@ -57,8 +57,8 @@ use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 
 use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope, ValueDest};
 use crate::{
-    BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, Local, LocalDecl, LocalKind, Operand,
-    Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
+    BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, FakeReadCause, Local, LocalDecl,
+    LocalKind, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
 };
 
 /// An enum and the index of one of its variants.
@@ -82,10 +82,11 @@ pub(super) struct TestCache {
     /// Where a discriminant read is located: the scrutinee, as rustc reports a use of it
     /// (an uninitialised, moved or mutably borrowed scrutinee, #138), at any depth.
     discr_span: Option<Span>,
-    /// Where an equality test of an integer, `char` or `bool` reads in a `match`: from
-    /// `match` to the end of the scrutinee, rustc's `match_start_span`. `None` elsewhere
-    /// (`if let`, `while let`, let-else), where rustc reports it at the pattern, as it
-    /// does range, float and string tests everywhere.
+    /// Where an equality test of an integer, `char` or `bool` reads, rustc's
+    /// `match_start_span`: in a `match`, from `match` to the end of the scrutinee; in an
+    /// `if let`, a `while let`, a `let` chain's `let` and a `let`(-`else`), the whole
+    /// top-level pattern (#150), however deep the compared sub-pattern. Range, float and
+    /// string tests read at their own sub-pattern everywhere. `None` for a fresh cache.
     value_span: Option<Span>,
     /// The failure blocks of the tests whose failure is an `otherwise` edge in rustc's MIR:
     /// a switch on a discriminant, a comparison (integers, `char`s, ranges, floats,
@@ -448,10 +449,16 @@ impl Builder<'_> {
 
     /// The operand a test reads the value at `place` through: the temporary an earlier
     /// test copied it into, a new such copy when another candidate compares it too
-    /// (`TestCache::shared`), else the place itself.
+    /// (`TestCache::shared`), else the place itself. Reusing a copy still reads the place
+    /// for the loan checker (`FakeRead(ForMatchTest)`, #150): rustc's test reads it at
+    /// this test's span.
     fn tested_value(&mut self, place: &Place, span: Span) -> Operand {
         let key = (place.clone(), false);
         if let Some(&temp) = self.tests.known.get(&key) {
+            self.push_stmt(
+                StatementKind::FakeRead(FakeReadCause::ForMatchTest, place.clone()),
+                span,
+            );
             return Operand::Copy(Place::local(temp));
         }
         if !self.tests.shared.contains(place) {
@@ -1192,7 +1199,7 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let then_block = self.new_block();
-        let saved = self.start_tests(&[pat], &place, scrutinee.span, None);
+        let saved = self.start_tests(&[pat], &place, scrutinee.span, Some(pat.span));
         self.lower_candidates(pat, None, &place, scrutinee.span, then_block, true);
         self.tests = saved;
         let join = self.new_block();
@@ -1265,7 +1272,7 @@ impl Builder<'_> {
         let place = self.scrutinee_place(scrutinee, &[pat]);
         let locals = self.prepare_locals(pat);
         let body_block = self.new_block();
-        let saved_tests = self.start_tests(&[pat], &place, scrutinee.span, None);
+        let saved_tests = self.start_tests(&[pat], &place, scrutinee.span, Some(pat.span));
         self.lower_candidates(pat, None, &place, scrutinee.span, body_block, true);
         self.tests = saved_tests;
         // No match: leave the loop, dropping the scrutinee's temporaries.
@@ -1387,7 +1394,7 @@ impl Builder<'_> {
                 None => self.prepare_locals(pat),
             };
             let matched = self.new_block();
-            let saved = self.start_tests(&[pat], &place, scrutinee.span, None);
+            let saved = self.start_tests(&[pat], &place, scrutinee.span, Some(pat.span));
             self.lower_candidates(pat, None, &place, scrutinee.span, matched, true);
             self.tests = saved;
             fail(self);
@@ -1437,7 +1444,7 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
-        let saved = self.start_tests(&[pat], &place, init.span, None);
+        let saved = self.start_tests(&[pat], &place, init.span, Some(pat.span));
         self.lower_candidates(pat, None, &place, span, ok, els.is_some());
         let unmatched = std::mem::replace(&mut self.tests, saved);
         if els.is_none() && unmatched.reads_on_failure.contains(&self.current) {
