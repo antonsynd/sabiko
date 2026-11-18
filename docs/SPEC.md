@@ -1191,7 +1191,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     under `< <= > >=` (`&A` has two `PartialEq` impls, so `s == return true` is E0306 for
     `s: &str`). A `!` left operand compares only with another `!`. A diverging variable
     (`let y = return;`) that nothing has decided when the operator is checked is judged
-    as `!` if nothing decides it later either, and so is an open variable a later
+    as `!` if nothing decides it later either (a literal does: `let mut y = return; y =
+    5; y + 1` adds integers), and so is an open variable a later
     diverging assignment makes diverging (`let y = x + 1; x = return;` is E0306, rustc's
     E0277); a unary operator on one is E0313, as rustc needs its type at once.
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an

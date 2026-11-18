@@ -1,4 +1,6 @@
 // A call returning `Self` in a provided method needs `Self: Sized`.
+//@ rustc: E0277
+//@ sabiko: E0208
 trait Tr {
     fn Make() -> Self;
     fn A(&self) -> i32 {

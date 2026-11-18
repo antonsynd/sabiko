@@ -253,6 +253,7 @@ struct Case {
 
 struct Result_ {
     rel: String,
+    src: String,
     sabiko: Outcome,
     rustc: Outcome,
 }
@@ -286,10 +287,58 @@ fn run_all(rustc: &Path, tmp: &Path, cases: &[Case]) -> Vec<Result_> {
         .zip(rustc_outcomes)
         .map(|(case, rustc)| Result_ {
             rel: case.rel.clone(),
+            src: case.src.clone(),
             sabiko: run_sabiko(&case.rel, &case.src),
             rustc: rustc.expect("every case gets a rustc outcome"),
         })
         .collect()
+}
+
+/// Sabiko codes that are never the rejection a `rej_` file pins: syntax or codegen not
+/// supported yet, and internal errors.
+const SABIKO_UNSUPPORTED_CODES: &[&str] = &["E0107", "E0500", "E0900"];
+
+/// The error codes a `rej_` file pins for `who` with a line `//@ rustc: E0277` or
+/// `//@ sabiko: E0208` (several codes separated by spaces).
+fn pinned_codes(src: &str, who: &str) -> Option<Vec<String>> {
+    let prefix = format!("//@ {who}:");
+    src.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix(prefix.as_str())
+            .map(|rest| rest.split_whitespace().map(str::to_owned).collect())
+    })
+}
+
+/// A `rej_` file's rejections must be the ones it pins, so that it cannot pass on an
+/// unrelated error (a typo, a construct not supported yet).
+fn check_pinned_codes(r: &Result_, failures: &mut String) {
+    for (who, outcome) in [("sabiko", &r.sabiko), ("rustc", &r.rustc)] {
+        let Some(mut pinned) = pinned_codes(&r.src, who) else {
+            let _ = writeln!(
+                failures,
+                "  a `rej_` file must pin {who}'s error codes with a `//@ {who}: ...` line"
+            );
+            continue;
+        };
+        let mut got = outcome.codes.clone();
+        pinned.sort();
+        got.sort();
+        if pinned != got {
+            let _ = writeln!(
+                failures,
+                "  {who} reports {got:?}, the file pins {pinned:?}:\n{}",
+                indent(&outcome.detail)
+            );
+        }
+    }
+    for code in &r.sabiko.codes {
+        if SABIKO_UNSUPPORTED_CODES.contains(&code.as_str()) {
+            let _ = writeln!(
+                failures,
+                "  sabiko reports {code}, which is never the rejection a `rej_` file pins"
+            );
+        }
+    }
 }
 
 /// Returns a failure description for one result, if any.
@@ -328,6 +377,9 @@ fn check(r: &Result_) -> Option<String> {
             "  verdicts disagree: sabiko {} {:?}, rustc {} {:?}",
             r.sabiko.verdict, r.sabiko.codes, r.rustc.verdict, r.rustc.codes
         );
+    }
+    if expected == Some(Verdict::OtherError) {
+        check_pinned_codes(r, &mut failures);
     }
     if let Some(expected) = expected {
         for (who, outcome) in [("sabiko", &r.sabiko), ("rustc", &r.rustc)] {

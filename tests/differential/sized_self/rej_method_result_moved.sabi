@@ -1,4 +1,6 @@
 // A method call returning `Self`, not bound to a local, moves an unsized value.
+//@ rustc: E0161
+//@ sabiko: E0208
 trait Tr {
     fn Get(&self) -> Self;
     fn A(&self) -> i32 {

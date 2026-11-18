@@ -574,8 +574,7 @@ impl<'a> FnCtxt<'a> {
                 .items
                 .lang_item(LangItem::Clone)
                 .is_some_and(|clone| self.items.trait_closure(tr).contains(&clone));
-            // A dropped `where Self: Sized` (E0107) leaves nothing more to report.
-            if !sized && !self.incomplete_bounds {
+            if !sized {
                 self.unsized_self = Some(self.resolve.trait_self(tr));
             }
         }
@@ -1104,11 +1103,12 @@ impl<'a> FnCtxt<'a> {
         matches!(self.shallow(ty), Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
     }
 
-    /// Whether `ty` is `!` or a diverging variable nothing has decided yet.
+    /// Whether `ty` is `!` or a diverging variable nothing has decided yet: one unified
+    /// with a literal's variable is that literal's (`let mut x = return; x = 5;`).
     fn is_never_like(&mut self, ty: &Ty) -> bool {
         match self.shallow(ty) {
             Ty::Never => true,
-            Ty::Infer(v) => self.is_diverging_var(v),
+            Ty::Infer(v) => self.infer.kind(v) == VarKind::General && self.is_diverging_var(v),
             _ => false,
         }
     }
@@ -5528,10 +5528,19 @@ impl<'a> FnCtxt<'a> {
                 let n = 1 + self.items.trait_param_count(tr);
                 (tr, n.min(args.len()))
             });
+            // The trait's parameters of a known `Self` are one obligation (`S: Tr2<_,
+            // _>`), reported once.
+            let mut trait_obligation: Option<Ambiguity> = None;
             for (i, arg) in args.iter().enumerate() {
                 let t = self.infer.resolve_with_defaults(arg);
                 if !t.has_infer() {
                     continue;
+                }
+                if let Some(a) = trait_obligation.as_mut() {
+                    if trait_params.is_some_and(|(_, n)| (1..n).contains(&i)) {
+                        a.tys.push(t);
+                        continue;
+                    }
                 }
                 let conflicting = trait_params
                     .is_some_and(|(tr, n)| self.involves_reported_impl(&args[0], tr, &args[1..n]));
@@ -5565,14 +5574,20 @@ impl<'a> FnCtxt<'a> {
                         .with_label(span, label)
                         .with_note(note)
                 });
-                self.ambiguities.push(Ambiguity {
+                let a = Ambiguity {
                     at: span,
                     known_self,
                     local: false,
                     tys: vec![t],
                     report,
-                });
+                };
+                if known_self {
+                    trait_obligation = Some(a);
+                } else {
+                    self.ambiguities.push(a);
+                }
             }
+            self.ambiguities.extend(trait_obligation);
         }
     }
 
@@ -6057,20 +6072,30 @@ impl<'a> FnCtxt<'a> {
                 (a, vars)
             })
             .collect();
-        let known: HashSet<Ty> = found
+        found.sort_by_key(|(a, _)| (a.at.start, a.at.end));
+        // What each report covers: its own variables, or for a local those of the first
+        // obligation with a known `Self` it shares one with, which it stands for
+        // (`let w = (S.Mk(), S.Mk());` is two reports, at `w` and the second call).
+        let obligations: Vec<Vec<Ty>> = found
             .iter()
             .filter(|(a, _)| a.known_self && !a.local)
-            .flat_map(|(_, vars)| vars.iter().cloned())
+            .map(|(_, vars)| vars.clone())
             .collect();
+        let mut covers: Vec<Vec<Ty>> = Vec::with_capacity(found.len());
         for (a, vars) in &mut found {
             if a.local {
-                a.known_self = vars.iter().any(|v| known.contains(v));
+                let first = obligations
+                    .iter()
+                    .find(|o| o.iter().any(|v| vars.contains(v)));
+                a.known_self = first.is_some();
+                covers.push(first.cloned().unwrap_or_else(|| vars.clone()));
+            } else {
+                covers.push(vars.clone());
             }
         }
-        found.sort_by_key(|(a, _)| (a.at.start, a.at.end));
         let mut reported_any = false;
         let mut reported_known: HashSet<Ty> = HashSet::default();
-        for (a, vars) in &found {
+        for ((a, vars), cover) in found.iter().zip(&covers) {
             let Some(report) = &a.report else {
                 continue;
             };
@@ -6078,10 +6103,10 @@ impl<'a> FnCtxt<'a> {
                 continue;
             }
             if a.known_self {
-                if vars.iter().all(|v| reported_known.contains(v)) {
+                if cover.iter().all(|v| reported_known.contains(v)) {
                     continue;
                 }
-                reported_known.extend(vars.iter().cloned());
+                reported_known.extend(cover.iter().cloned());
             } else if reported_any {
                 continue;
             }
@@ -6100,12 +6125,13 @@ impl<'a> FnCtxt<'a> {
         self.select_where_possible();
         self.select_judging(true);
         self.collect_open_operations();
-        self.check_never_operands();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021). In a body tainted by
         // errors it becomes an error type, as in rustc, so nothing more is reported
-        // about it (`!: From<i64>` after a mismatch).
+        // about it (`!: From<i64>` after a mismatch). The operations on `!` are rustc's
+        // obligations, reported after its fallback: they do not taint it.
         let tainted = self.sink.error_count() > self.errors_before;
+        self.check_never_operands();
         for v in std::mem::take(&mut self.diverging_vars) {
             if tainted {
                 self.infer.fall_back_to_error(&Ty::Infer(v));
@@ -6219,8 +6245,6 @@ impl<'a> FnCtxt<'a> {
             .collect()
     }
 
-    /// `[x; N]` with `N` other than 0 or 1 copies `x`: its type must be `Copy`, unless it
-    /// names a `const` item (rustc's E0277, Sabiko's E0334).
     /// The casts, in order, once the fallback is done (rustc's `check_casts`): an operand
     /// type still unknown is E0282 there, in a body without errors so far.
     fn check_casts(&mut self) {
@@ -6246,6 +6270,8 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// `[x; N]` with `N` other than 0 or 1 copies `x`: its type must be `Copy`, unless it
+    /// names a `const` item (rustc's E0277, Sabiko's E0334).
     fn check_pending_repeats(&mut self) {
         for (span, ty) in std::mem::take(&mut self.pending_repeats) {
             let t = self.infer.resolve_with_defaults(&ty);

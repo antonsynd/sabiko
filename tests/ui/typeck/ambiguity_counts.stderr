@@ -1,81 +1,106 @@
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:55:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:72:9 ]
     │
- 55 │     let a = Opt::No; //~ ERROR E0313 type annotations needed
+ 72 │     let a = Opt::No; //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `a` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:60:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:77:9 ]
     │
- 60 │     let a = Opt::No; //~ ERROR E0313 type annotations needed
+ 77 │     let a = Opt::No; //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `a` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:61:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:78:9 ]
     │
- 61 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
+ 78 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `w` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:62:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:79:9 ]
     │
- 62 │     let v = S.Mk(); //~ ERROR E0313 type annotations needed
+ 79 │     let v = S.Mk(); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `v` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:66:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:83:9 ]
     │
- 66 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
+ 83 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `w` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:71:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:88:9 ]
     │
- 71 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
+ 88 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `w` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:77:15 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:94:15 ]
     │
- 77 │     PrintLine(Mk2()); //~ ERROR E0313 type annotations needed
+ 94 │     PrintLine(Mk2()); //~ ERROR E0313 type annotations needed
     │               ─┬─  
     │                ╰─── cannot infer type of the type parameter `T` declared on the function `Mk2`
     │ 
     │ Note: specify it with a turbofish: `Mk2::<..>`
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:79:9 ]
+    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:96:9 ]
     │
- 79 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
+ 96 │     let w = S.Mk(); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving `w` an explicit type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:83:13 ]
-    │
- 83 │     let x = G(Mk2()); //~ ERROR E0313 type annotations needed
-    │             ┬  
-    │             ╰── cannot infer type of the type parameter `T` declared on the function `G`
-    │ 
-    │ Note: specify it with a turbofish: `G::<..>`
-────╯
+     ╭─[ tests/ui/typeck/ambiguity_counts.sabi:100:13 ]
+     │
+ 100 │     let x = G(Mk2()); //~ ERROR E0313 type annotations needed
+     │             ┬  
+     │             ╰── cannot infer type of the type parameter `T` declared on the function `G`
+     │ 
+     │ Note: specify it with a turbofish: `G::<..>`
+─────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:88:18 ]
-    │
- 88 │     let b: i32 = true; //~ ERROR E0300 mismatched types
-    │                  ──┬─  
-    │                    ╰─── expected `i32`, found `bool`
-────╯
+     ╭─[ tests/ui/typeck/ambiguity_counts.sabi:105:18 ]
+     │
+ 105 │     let b: i32 = true; //~ ERROR E0300 mismatched types
+     │                  ──┬─  
+     │                    ╰─── expected `i32`, found `bool`
+─────╯
 [E0306] Error: binary operation `+` cannot be applied to type `S`
-    ╭─[ tests/ui/typeck/ambiguity_counts.sabi:96:13 ]
-    │
- 96 │     let b = S + w; //~ ERROR E0306 binary operation `+` cannot be applied to type `S`
-    │             ──┬──  
-    │               ╰──── no implementation for `S + S`
-────╯
+     ╭─[ tests/ui/typeck/ambiguity_counts.sabi:113:13 ]
+     │
+ 113 │     let b = S + w; //~ ERROR E0306 binary operation `+` cannot be applied to type `S`
+     │             ──┬──  
+     │               ╰──── no implementation for `S + S`
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/ambiguity_counts.sabi:117:7 ]
+     │
+ 117 │     S.Two(); //~ ERROR E0313 type annotations needed
+     │       ─┬─  
+     │        ╰─── cannot infer type for type parameter `A` declared on the trait `Tr2`
+     │ 
+     │ Note: several `impl` blocks of the trait could apply: give the type an annotation
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/ambiguity_counts.sabi:123:9 ]
+     │
+ 123 │     let w = (S.Mk(), S.Mk()); //~ ERROR E0313 type annotations needed
+     │         ┬  
+     │         ╰── consider giving `w` an explicit type
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/ambiguity_counts.sabi:123:24 ]
+     │
+ 123 │     let w = (S.Mk(), S.Mk()); //~ ERROR E0313 type annotations needed
+     │                        ─┬  
+     │                         ╰── cannot infer type for type parameter `T` declared on the trait `Tr`
+     │ 
+     │ Note: several `impl` blocks of the trait could apply: give the type an annotation
+─────╯

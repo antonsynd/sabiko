@@ -64,6 +64,35 @@ fn TwoOperationsDiverging() {
     x = return;
 }
 
+// The operation on `!` taints nothing: the bound `!` lacks is reported too.
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+fn G<T: Show>(t: T) -> i32 {
+    1
+}
+
+fn OperationThenBound() {
+    let x = return;
+    let y = x + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    G(x); //~ ERROR E0341 the trait bound `!: Show` is not satisfied
+}
+
+// A diverging variable a literal decides is that literal's, not `!`.
+fn DecidedByLiteral(c: bool) -> i32 {
+    let mut x = if c { return 1 } else { Mk() };
+    x = 5;
+    let a = x + 1;
+    let b = -x;
+    let d = 1 + x == 2;
+    x += 1;
+    let mut y = return 2;
+    y = 2.5;
+    let z = -y * 2.0;
+    a + b
+}
+
 fn CastUnknown() {
     let x = Mk();
     let y = x as i32; //~ ERROR E0313 type annotations needed

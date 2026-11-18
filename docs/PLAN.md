@@ -2044,8 +2044,8 @@ Show>`), and in a body tainted by errors the fallback is an error type, as rustc
 (differential `never/ok_never_fallback_in_generic_constructors`, run-time
 `run/control/never_fallback_in_generic_constructors`, UI
 `typeck/never_fallback_in_generic_constructors`). Building such a value where it can
-run (`if c { Opt::Yes(return) } else { Opt::No }`) reaches codegen's E0500 for a field of
-type `!` (#158). The types left unknown are collected when a body is done and reported as
+run (`if c { Opt::Yes(return) } else { Opt::No }`) compiles and runs since decision 103.
+The types left unknown are collected when a body is done and reported as
 rustc reports its ambiguities: none after another error, in source order, each with a
 known `Self` (`S: Tr<_>`) and only a first of the others, so a body reports one E0282
 however many locals stay open, a failed bound taints the batch, and `w + 1 + 2` on an open
@@ -2071,10 +2071,26 @@ method's generic arguments, an assignment's target and a tuple's non-last elemen
 a reference need a sized `Self`, and the move of a method's unsized `Self` result is
 reported only after every other check of the body found nothing (UI
 `typeck/trait_self_sized_counts`). Rejections rustc makes are pinned by the new `rej_`
-files of the differential corpus (`sized_self/`). Still different (positions or codes
-only, not verdicts or counts): `&x + 1` and `-&x` with `x: i32` are E0306/E0307 (no
-operator impls on references before #117), and a `match` on a scrutinee whose type a
-later diverging assignment decides is #183.
+files of the differential corpus (`sized_self/`), each pinning both compilers' codes.
+The second review round: a diverging variable unified with a literal's is that
+literal's, not `!` (`let mut x = return; x = 5; x + 1` compiles, as `-x` does; it was
+E0306/E0313 on `mainline` too; run-time `run/control/diverging_variable_decided_by_literal`);
+the operations on `!` no longer taint the fallback, so a bound `!` lacks after one is
+reported too; a trait's parameters of one obligation (`S: Tr2<_, _>`) are one report, and
+a local holding the types of two obligations (`let w = (S.Mk(), S.Mk());`) stands for
+the first only, so the second is reported too (2 errors, as rustc; 1 on `mainline`).
+Still different from rustc, over about 760 programs, all as on `mainline` unless noted:
+verdicts, `a[v]` and `1 == x` with `v` or `x` diverging later are accepted where rustc
+rejects them (#183), and `&x + 1`, `&x + &y`, `z += &y` and `-&x` for `x: i32` are
+rejected (E0306/E0307, no operator impls on references before #117); counts, the move of
+an unsized `Self` result is one error per call where rustc's E0161 is one per
+temporary (`if c { self.Get() } else { self.Get() };` is 2 for rustc's 1; new with this
+PR, where `mainline` accepted it), an E0306 is followed by an E0300 where rustc reports
+one E0369, E0314 comes next to an E0313, and syntax not supported yet (E0107: `trait Tr:
+Sized`, `where Self: Sized`, tuple structs) is followed by the sized-`Self` errors rustc
+would not report (k01, s39 of the review: 3 errors where `mainline` gives 2); codes and
+positions, rustc's E0369/E0368/E0277 for an operator are E0306, and rustc points at a
+local where Sabiko points at the operator (E0282 for `-x`).
 
 Update (2026-11-18), generic instances at `!` and `&!` (#158, decision 103). An instance
 whose generic argument has no value (`Option<&!>` from `Some(&Panic("x"))` in a branch

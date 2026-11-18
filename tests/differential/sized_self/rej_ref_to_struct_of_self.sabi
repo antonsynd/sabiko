@@ -1,4 +1,6 @@
 // `&W<Self>` names `W<Self>`, which is well-formed only for a sized `Self`.
+//@ rustc: E0277
+//@ sabiko: E0208
 struct W<T> {
     V: T,
 }

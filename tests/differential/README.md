@@ -16,7 +16,11 @@ The test passes when the two verdicts agree for every file. A file named `ok_*` 
 `accept` in both; `err_*` must be `borrow-error` in both; `rej_*` must be `OTHER-ERROR` in
 both: a program rustc rejects before borrow checking, kept to pin that Sabiko rejects it
 too (decision 102; `sized_self/`, the provided methods of a trait whose `Self` may be
-unsized). Only that prefix may be `OTHER-ERROR`. Error codes are reported but not
+unsized). Only that prefix may be `OTHER-ERROR`, and a `rej_` file pins the error codes of
+each compiler, so that it cannot pass on an unrelated error: a line `//@ rustc: E0277`
+and a line `//@ sabiko: E0208` (several codes separated by spaces), which must equal the
+codes reported, without duplicates. Sabiko's E0107 (syntax not supported yet), E0500
+(not supported by codegen) and E0900 (internal error) always fail a `rej_` file. Error codes are reported but not
 compared (the two compilers number their diagnostics differently), nor are positions. One
 concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` pairs side
 by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`,

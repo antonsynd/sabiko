@@ -1,4 +1,6 @@
 // A generic argument of a call is sized: `T = Self` needs `Self: Sized`.
+//@ rustc: E0277
+//@ sabiko: E0208
 fn ByRef<T>(t: &T) -> i32 {
     1
 }

@@ -27,6 +27,23 @@ impl Tr<i64> for S {
     }
 }
 
+// Two parameters of one obligation, `S: Tr2<_, _>`: one report.
+trait Tr2<A, B> {
+    fn Two(&self) -> i32;
+}
+
+impl Tr2<i32, i32> for S {
+    fn Two(&self) -> i32 {
+        1
+    }
+}
+
+impl Tr2<i64, i64> for S {
+    fn Two(&self) -> i32 {
+        2
+    }
+}
+
 trait Show {
     fn Sh(&self) -> i32;
 }
@@ -94,6 +111,17 @@ fn ErrorFirst() {
 fn NoImplForTheLeftType() {
     let w = S.Mk();
     let b = S + w; //~ ERROR E0306 binary operation `+` cannot be applied to type `S`
+}
+
+fn TwoTraitParameters() {
+    S.Two(); //~ ERROR E0313 type annotations needed
+}
+
+// A local holding two obligations' types stands for the first; the second is reported
+// too.
+fn OneLocalTwoObligations() {
+    let w = (S.Mk(), S.Mk()); //~ ERROR E0313 type annotations needed
+    //~^ ERROR E0313 type annotations needed
 }
 
 fn Main() {}

@@ -1,4 +1,6 @@
 // A method's generic argument is sized too, inferred or written.
+//@ rustc: E0277
+//@ sabiko: E0208
 struct S {}
 
 impl S {
