@@ -127,14 +127,20 @@ struct Reporter<'a> {
 }
 
 impl Reporter<'_> {
-    /// One diagnostic per (location, loan) pair in `errors`, in body order, deduplicated
-    /// as rustc's `MirBorrowckCtxt` does (decision 101):
+    /// One diagnostic per (location, loan) pair in `errors`, deduplicated as rustc's
+    /// `MirBorrowckCtxt` does (decision 101). The errors are visited in rustc's order,
+    /// blocks in reverse postorder, since what is reported first decides what is
+    /// suppressed later:
     /// - an access is reported once per place and span, for the first loan it conflicts
     ///   with (rustc's `access_place_error_reported`, and its `Control::Break` after the
     ///   first conflicting borrow): an inclusive range's two comparisons; `&mut m` in a
     ///   guard over `*m` with the fake borrows of `*m` and of `m`; `r == { let t = r; t }`
     ///   with the reborrow `&*r` and the shallow borrow of `r` (the reborrow's, made
-    ///   first); `StorageDead(a)` ending two loans of `a` (`let a = 1; (&a, &a)`).
+    ///   first); `StorageDead(a)` ending two loans of `a` (`let a = 1; (&a, &a)`). The
+    ///   end of a local's storage (or its drop) is keyed by the local alone: rustc gives
+    ///   every exit from its scope the scope's span, so the `StorageDead`s of an early
+    ///   `return` and of the block's end are one access (`if c { return &a; } &a` is one
+    ///   error).
     ///   Accesses of distinct places at one point are distinct errors (decision 99): a
     ///   call that activates two two-phase borrows, each conflicting with a guard's or a
     ///   comparison's fake borrow;
@@ -147,7 +153,10 @@ impl Reporter<'_> {
     ///   is mutably borrowed) is not reported again when it escapes;
     /// - the activation of a two-phase borrow of a place whose reservation was an error is
     ///   not reported (rustc's `reservation_error_reported`): `v.Add(v.Bump())`,
-    ///   `V(m, m)`.
+    ///   `V(m, m)`. As in rustc (a FIXME there), the set is per place for the whole body,
+    ///   not per loan: after `v.Add(v.Get());`, a later `let r = &v; v.Add(1); r.N`
+    ///   activates another borrow of `v` against another loan, and that error is not
+    ///   reported either.
     fn report_errors(&self, sink: &mut DiagnosticSink) {
         let mut errors: Vec<(Location, Point, Loan)> = Vec::new();
         for (&point, loans) in &self.output.errors {
@@ -155,9 +164,21 @@ impl Reporter<'_> {
             let location = self.facts.table.location(point);
             errors.extend(loans.iter().map(|&loan| (location, point, loan)));
         }
-        errors.sort_unstable();
+        let mut rpo_index = vec![0; self.body.blocks.len()];
+        for (index, bb) in self.body.reverse_postorder().into_iter().enumerate() {
+            rpo_index[bb.index()] = index;
+        }
+        errors.sort_unstable_by_key(|&(location, point, loan)| {
+            (
+                rpo_index[location.block.index()],
+                location.statement_index,
+                point,
+                loan,
+            )
+        });
         errors.dedup();
         let mut reported: HashSet<(Place, Span)> = HashSet::default();
+        let mut storage_ended: HashSet<Place> = HashSet::default();
         let mut reservation_errors: HashSet<Place> = HashSet::default();
         for (location, point, loan) in errors {
             let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) else {
@@ -170,9 +191,15 @@ impl Reporter<'_> {
             }
             // As in rustc, the access is looked up first and recorded last: a loan's span
             // may be its `StorageDead`'s (a block's tail temporary), which must not hide it.
-            let access = (invalidation.kind != AccessKind::Return)
+            let ends_storage = matches!(
+                invalidation.kind,
+                AccessKind::StorageDead | AccessKind::Drop
+            );
+            let access = (invalidation.kind != AccessKind::Return && !ends_storage)
                 .then(|| (invalidation.place.clone(), self.span_at(location)));
-            if access.as_ref().is_some_and(|key| reported.contains(key)) {
+            if access.as_ref().is_some_and(|key| reported.contains(key))
+                || (ends_storage && storage_ended.contains(&invalidation.place))
+            {
                 continue;
             }
             let repeated_loan = matches!(
@@ -183,6 +210,9 @@ impl Reporter<'_> {
                 !reported.insert((Place::local(data.place.local), data.span))
             };
             reported.extend(access);
+            if ends_storage {
+                storage_ended.insert(invalidation.place.clone());
+            }
             if repeated_loan {
                 continue;
             }

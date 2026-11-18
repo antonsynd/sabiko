@@ -330,34 +330,56 @@ E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe
 an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
 rustc accepts).
 
-Update (2026-11-18), two-phase constructor arguments and one error per escaping loan
-(#145, #174, decision 101). A tuple variant's constructor is a call in rustc, so the
-implicit reborrow of a `&mut` argument (`let e: E<&mut P> = E::V(m, m.X);`) is two-phase:
-MIR building lowers a variant constructor's arguments as call arguments
-(`coerced_operand(.., true)`), the variant aggregate is the borrow's one use (the validator
-accepts it there) and the loan facts activate the borrow at that statement. A struct
-literal's fields, a tuple's and an array's elements stay ordinary borrows, as in rustc
-(tuple structs are not in the language yet). The loan reporter now deduplicates as
-rustc's `MirBorrowckCtxt` does: an access once per place and span, for its first
-conflicting loan; a loan outliving its local once per root local and borrow span, in the
-same set, and a `return` checks the loans it ends one by one (rustc's
-`check_for_invalidation_at_exit`), so `(&a, &a)` returning a parameter's loans is two
-E0414, `let a = 1; (&a, &a)` one (one `StorageDead`), and a borrow that was already an
-error where it was taken is not reported again when it escapes; the activation of a
-two-phase borrow of a place whose reservation was an error is not reported (rustc's
-`reservation_error_reported`, replacing the per-loan check), so `V(m, m)` is one E0409.
-A table of 143 programs (109 for #145: variant constructor, generic and plain functions, associated
-functions, methods, struct literals, tuples and `Some` in a tuple, each with `m`,
-`&mut *m` and `&mut x` arguments followed by a read, a write or a shared borrow, guards,
-loops, nested and unsized arguments; and 34 for #174:
-returns of loans of parameters, locals, fields, through arrays, structs, variants,
-branches and early returns) agrees with rustc's verdict and error count on every row.
-Tests: 10 differential programs (`loans/`, `moves/`), `run/enums/two_phase_variant_constructor`
-and the UI fixtures `borrowck/return_loans_of_one_parameter`, `return_loans_of_one_local`,
-`return_loan_already_reported` and `two_phase_reservation_error_once`. Errors are visited
-in location order where rustc walks blocks in reverse postorder; the two agree on every
-program tried. rustc's E0515 points at the whole returned value, Sabiko's E0414 at the
-borrow (older than this change).
+Update (2026-11-18), two-phase constructor arguments, one error per escaping loan, and
+two-phase borrows that are never activated (#145, #174, #177, decision 101). A tuple
+variant's constructor is a call in rustc, so the implicit reborrow of a `&mut` argument
+(`let e: E<&mut P> = E::V(m, m.X);`) is two-phase: MIR building lowers a variant
+constructor's arguments as call arguments (`coerced_operand(.., true)`), the variant
+aggregate is the borrow's one use (the validator accepts it there) and the loan facts
+activate the borrow at that statement. A struct literal's fields, a tuple's and an array's
+elements stay ordinary borrows, as in rustc (tuple structs are not in the language yet).
+A two-phase borrow followed by an argument that diverges (`s.Push(Panic(".."))`, `Use(m,
+return)`, `E::V(m, break)`, a `match` whose arms all diverge) has no use, because the call
+or aggregate is never built; the validator panicked on it ("used 0 times", #177, also on
+`mainline` for methods and calls). As rustc's `TwoPhaseActivation::NotActivated`, it is now
+valid and stays reserved; its temporary is never used, so its loan is never live. The loan
+reporter now deduplicates as rustc's `MirBorrowckCtxt` does:
+- an access once per place and span, for its first conflicting loan. The end of a local's
+  storage (or its drop) is keyed by the local, since rustc gives every exit from a scope
+  the scope's span: `if c { return &a; } &a` for a local `a` is one error;
+- a loan outliving its local once per root local and borrow span, in the same set. A
+  `return` checks the loans it ends one by one (rustc's `check_for_invalidation_at_exit`),
+  so `(&a, &a)` returning a parameter's loans is two E0414 and `let a = 1; (&a, &a)` one
+  (one `StorageDead`). A borrow that was already an error where it was taken is not
+  reported again when it escapes;
+- the activation of a two-phase borrow of a place whose reservation was an error is not
+  reported (rustc's `reservation_error_reported`, replacing the per-loan check), so `V(m,
+  m)` is one E0409. Like rustc's (a FIXME there), the set is per place for the whole body,
+  so a later, unrelated activation of the same place goes unreported too (`v.Add(v.Get());
+  let r = &v; v.Add(1); r.N` is one error, as in rustc; `mainline` gave two);
+- errors are visited with blocks in reverse postorder, as rustc visits them, because what
+  is reported first decides what is suppressed later. In location order, 8 of 12 programs
+  that put such a reservation and activation in two branches, loop bodies, guards or arms
+  had rustc's error count wrong (`borrowck/two_phase_reservation_error_order`).
+
+The tables: 109 programs for #145 (variant constructor, generic and plain functions,
+associated functions, methods, struct literals, tuples and `Some` in a tuple, each with
+`m`, `&mut *m` and `&mut x` arguments followed by a read, a write or a shared borrow,
+guards, loops, nested and unsized arguments), 35 for #174 (returns of loans of parameters,
+locals, fields, through arrays, structs, variants, branches and early returns), 53 for
+#177 (constructors, calls and methods with `return`, `break`, `continue`, `loop {}`,
+panics, all-diverging `match`es and blocks that read, borrow or write the place before
+diverging) and the review's 190 programs, 12 of them for the visiting order. Every row
+agrees with rustc's verdict and error count, apart from unrelated gaps older than this
+change: rustc's E0713 (a borrow of a `Drop` local's field still in use when its destructor
+runs) is not modelled, so `let d = D { .. }; (&d.X, &d.X)` is one error where rustc gives
+E0515 and E0713, and a temporary borrowed `&mut` in a `match` arm inside a guard is E0413
+where rustc accepts it. Tests: 11 differential programs (`loans/`, `moves/`),
+`run/enums/two_phase_variant_constructor`, `run/enums/two_phase_argument_diverges` and the
+UI fixtures `borrowck/return_loans_of_one_parameter`, `return_loans_of_one_local`,
+`return_loan_already_reported`, `two_phase_reservation_error_once` and
+`two_phase_reservation_error_order`. rustc's E0515 points at the whole returned value,
+Sabiko's E0414 at the borrow (older than this change).
 
 ### Phase 4: CIL code generation v1 and the runtime library
 

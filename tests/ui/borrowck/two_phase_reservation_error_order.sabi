@@ -1,0 +1,189 @@
+// Sabiko codes for rustc's: E0408 for E0502, E0409 for E0499.
+// rustc skips the activation of a two-phase borrow of a place whose reservation was
+// already an error (`reservation_error_reported`), so which error comes first decides
+// the count: errors are visited in reverse postorder of the blocks, as rustc visits
+// them (decision 101). `v.Add(v.Get())` reserves `v` and then borrows it again; in
+// `{ let r = &v; v.Add(1); r.N }` the activation of `v.Add`'s receiver conflicts with `r`.
+struct V {
+    N: u8,
+}
+
+impl V {
+    fn Add(&mut self, x: u8) {}
+
+    fn Get(&mut self) -> u8 {
+        self.N
+    }
+}
+
+fn GuardResThenArm(mut v: V, k: Option<u8>) {
+    match k {
+        Some(x) if {
+            v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+            true
+        } => {
+            {
+                let r = &v;
+                v.Add(1);
+                PrintLine(r.N);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn GuardActThenArm(mut v: V, k: Option<u8>) {
+    match k {
+        Some(x) if {
+            {
+                let r = &v;
+                v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+                PrintLine(r.N);
+            }
+            true
+        } => {
+            v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+        }
+        _ => {}
+    }
+}
+
+fn IfActElseRes(mut v: V, c: bool) {
+    if c {
+        {
+            let r = &v;
+            v.Add(1);
+            PrintLine(r.N);
+        }
+    } else {
+        v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    }
+}
+
+fn IfResElseAct(mut v: V, c: bool) {
+    if c {
+        v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    } else {
+        {
+            let r = &v;
+            v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+            PrintLine(r.N);
+        }
+    }
+}
+
+fn WhileActThenRes(mut v: V) {
+    let mut i = 0;
+    while i < 2 {
+        {
+            let r = &v;
+            v.Add(1);
+            PrintLine(r.N);
+        }
+        i += 1;
+    }
+    v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+}
+
+fn LoopBreakAfterAct(mut v: V) {
+    loop {
+        if v.N == 0 {
+            {
+                let r = &v;
+                v.Add(1);
+                PrintLine(r.N);
+            }
+            break;
+        }
+        v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    }
+}
+
+fn LoopBreakAfterRes(mut v: V) {
+    loop {
+        if v.N == 0 {
+            v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+            break;
+        }
+        {
+            let r = &v;
+            v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+            PrintLine(r.N);
+        }
+    }
+}
+
+fn WhileResThenAct(mut v: V) {
+    let mut i = 0;
+    while i < 2 {
+        v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+        i += 1;
+    }
+    {
+        let r = &v;
+        v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+        PrintLine(r.N);
+    }
+}
+
+fn MatchActResAct(mut v: V, k: u8) {
+    match k {
+        0 => {
+            let r = &v;
+            v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+            PrintLine(r.N);
+        }
+        1 => {
+            v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+        }
+        _ => {
+            let r = &v;
+            v.Add(1);
+            PrintLine(r.N);
+        }
+    }
+}
+
+fn MatchResActRes(mut v: V, k: u8) {
+    match k {
+        0 => {
+            v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+        }
+        1 => {
+            let r = &v;
+            v.Add(1);
+            PrintLine(r.N);
+        }
+        _ => {
+            v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+        }
+    }
+}
+
+fn WhileCondAct(mut v: V) {
+    while {
+        {
+            let r = &v;
+            v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+            PrintLine(r.N);
+        }
+        v.N == 0
+    } {
+        v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    }
+}
+
+fn WhileCondRes(mut v: V) {
+    while {
+        v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+        v.N == 0
+    } {
+        {
+            let r = &v;
+            v.Add(1);
+            PrintLine(r.N);
+        }
+    }
+}
+
+fn Main() {}

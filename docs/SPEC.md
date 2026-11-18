@@ -1356,7 +1356,8 @@ an autoref'd `&mut self` receiver (`v.Add(..)`, also `m.Add(..)` for `m: &mut P`
 `&mut` is expected (`Use(m, ..)`, `P::Add(m, ..)`), a tuple variant constructor's argument
 included (`let e: E<&mut P> = E::V(m, m.X);`, #145, decision 101). Such a borrow is
 *reserved* where it is made and *activated* by the call (by the constructor, for a
-variant's: `(Some(m), m.X)` is E0411). A struct literal's field and a tuple's or an array's
+variant's: `(Some(m), m.X)` is E0411). When a later argument diverges (`s.Push(Panic(".."))`,
+`E::V(m, return)`), the call is never made and the borrow is never activated (#177). A struct literal's field and a tuple's or an array's
 element are not call arguments: `S { F: m, G: m.X }` and `(m, m.X)` are E0411:
 - while it is reserved, the later arguments may read its place, directly, through fields
   or through `&self` methods (`v.Add(v.Get())`, `Use(m, m.X)`), but not write it (E0410),
@@ -1439,13 +1440,18 @@ its drop flag (not moved out) and the discriminant the enum holds when the drop 
 only the variant it holds then is dropped, also after a write through a reference changed
 it (decision 91).
 
-Errors are counted as rustc counts them (decisions 99 and 101): an access is reported
-once per place and span, for the first loan it conflicts with; a loan that outlives its
-local is reported once, and not when its own creation was already an error; a `return`
-checks every loan it ends, so `(&a, &a)` returning loans of a parameter is two E0414, while
-a local's storage ends in one access, so `let a = 1; (&a, &a)` is one; a two-phase borrow
-whose reservation was an error is not reported again at its activation (`V(m, m)` is one
-E0409).
+Errors are counted as rustc counts them (decisions 99 and 101), visiting blocks in reverse
+postorder as rustc does:
+- an access is reported once per place and span, for the first loan it conflicts with;
+- the end of a local's storage counts as one access on every path out of its scope (`if
+  c { return &a; } &a` is one error);
+- a loan that outlives its local is reported once, and not when its own creation was
+  already an error;
+- a `return` checks every loan it ends, so `(&a, &a)` returning loans of a parameter is
+  two E0414, while a local's storage ends in one access, so `let a = 1; (&a, &a)` is one;
+- once the reservation of a two-phase borrow of a place is an error, no later activation
+  of a borrow of that place is reported in the body, also one against another loan, as
+  in rustc: `V(m, m)` is one E0409, and so is `v.Add(v.Get()); let r = &v; v.Add(1); r.N`.
 
 The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
 ↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597 (E0716 for a temporary); E0414 ↔ E0515;

@@ -1,7 +1,7 @@
 [E0409] Error: cannot borrow `*m` as mutable more than once at a time
-    ╭─[ tests/ui/borrowck/two_phase_reservation_error_once.sabi:17:10 ]
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_once.sabi:19:10 ]
     │
- 17 │     V(m, m); //~ ERROR E0409 cannot borrow `*m` as mutable more than once at a time
+ 19 │     V(m, m); //~ ERROR E0409 cannot borrow `*m` as mutable more than once at a time
     │     ──┬┬─┬─  
     │       ││ ╰─── second mutable borrow occurs here
     │       ││     
@@ -10,13 +10,24 @@
     │        ╰───── borrow later used here
 ────╯
 [E0409] Error: cannot borrow `*m` as mutable more than once at a time
-    ╭─[ tests/ui/borrowck/two_phase_reservation_error_once.sabi:21:32 ]
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_once.sabi:23:32 ]
     │
- 21 │     let e: E<&mut P> = E::V(m, m); //~ ERROR E0409 cannot borrow `*m` as mutable more than once at a time
+ 23 │     let e: E<&mut P> = E::V(m, m); //~ ERROR E0409 cannot borrow `*m` as mutable more than once at a time
     │                        ─────┬──┬─  
     │                             │  ╰─── second mutable borrow occurs here
     │                             │      
     │                             ╰────── first mutable borrow occurs here
     │                             │      
     │                             ╰────── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_once.sabi:39:11 ]
+    │
+ 39 │     v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │     ┬─────┬┬──────  
+    │     │     ╰───────── second mutable borrow occurs here
+    │     │      │        
+    │     ╰─────────────── first mutable borrow occurs here
+    │            │        
+    │            ╰──────── borrow later used here
 ────╯

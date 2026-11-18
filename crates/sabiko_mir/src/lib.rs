@@ -576,7 +576,8 @@ pub enum BorrowKind {
     Fake(FakeBorrowKind),
     /// `&mut place`. A *two-phase* borrow (`two_phase`) is only reserved where it is
     /// created and activated at its single use, the call it is an argument of (or the
-    /// variant aggregate of a constructor call): until then it acts as a shared borrow, so
+    /// variant aggregate of a constructor call; it has none when a later argument diverges,
+    /// and is never activated, #177): until then it acts as a shared borrow, so
     /// the call's later arguments may still read the place. MIR building makes only the
     /// implicit `&mut` borrows of a call two-phase: an autoref'd `&mut self` receiver and
     /// the reborrow of a `&mut` argument, a variant constructor's included (rustc's rules,

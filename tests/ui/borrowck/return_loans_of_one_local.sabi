@@ -1,7 +1,8 @@
 // Sabiko codes for rustc's: E0414 for E0515.
 // A local's storage ends before the `return`, and that one access is reported once, for
 // the first loan it ends, as in rustc (decision 101): two borrows of one local, or of two
-// of its fields, are one error. Two locals are two accesses, so two errors.
+// of its fields, are one error, and so are an early `return` and the tail, whose
+// `StorageDead`s rustc gives one span. Two locals are two accesses, so two errors.
 struct S {
     A: i32,
     B: i32,
@@ -30,6 +31,14 @@ fn TwoLocals(x: &i32) -> (&i32, &i32) {
         &a, //~ ERROR E0414 cannot return reference to local variable `a`
         &b, //~ ERROR E0414 cannot return reference to local variable `b`
     )
+}
+
+fn EarlyAndTail(x: &u8, c: bool) -> &u8 {
+    let a = 1;
+    if c {
+        return &a;
+    }
+    &a //~ ERROR E0414 cannot return reference to local variable `a`
 }
 
 fn Main() {}
