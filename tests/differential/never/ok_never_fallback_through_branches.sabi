@@ -1,0 +1,66 @@
+// Edition 2024 (#151): a diverging `if` branch or `match` arm is coerced to the other
+// branches' type, so a variable there is diverging and falls back to `!`, whichever branch
+// comes first.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn Mk<T>() -> T {
+    Panic("mk")
+}
+
+fn ThenDiverges(c: bool) {
+    let x = if c { return } else { Mk() };
+}
+
+fn ElseDiverges(c: bool) {
+    let x = if c { Mk() } else { return };
+}
+
+fn ElseIf(c: bool, d: bool) {
+    let x = if c { Panic("a") } else if d { Mk() } else { return };
+}
+
+fn FirstArmDiverges(c: bool) {
+    let x = match c {
+        true => return,
+        false => Mk(),
+    };
+}
+
+fn LastArmDiverges(c: bool) {
+    let x = match c {
+        true => Mk(),
+        false => return,
+    };
+}
+
+fn SeveralArms(n: i32) {
+    let x = match n {
+        0 => return,
+        1 => Panic("b"),
+        _ => Mk(),
+    };
+}
+
+fn Printed(c: bool) {
+    let x = if c { return } else { Mk() };
+    PrintLine(x);
+}
+
+// A later use decides the variable instead.
+fn Decided(c: bool) -> i32 {
+    let x = match c {
+        true => return 1,
+        false => Mk(),
+    };
+    let y: i32 = x;
+    y
+}
+
+fn DecidedVariant(c: bool) -> u8 {
+    let x = if c { return 2 } else { Opt::No };
+    let y: Opt<u8> = x;
+    0
+}

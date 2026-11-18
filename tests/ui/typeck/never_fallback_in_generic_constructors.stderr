@@ -1,0 +1,32 @@
+[E0341] Error: the trait bound `!: Show` is not satisfied
+    ╭─[ tests/ui/typeck/never_fallback_in_generic_constructors.sabi:29:5 ]
+    │
+ 29 │     G(return); //~ ERROR E0341 the trait bound `!: Show` is not satisfied
+    │     ┬  
+    │     ╰── the trait `Show` is not implemented for `!`
+────╯
+[E0306] Error: cannot add `i32` to `!`
+    ╭─[ tests/ui/typeck/never_fallback_in_generic_constructors.sabi:34:13 ]
+    │
+ 34 │     let z = w.V + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    │             ───┬───  
+    │                ╰───── no implementation for `! + i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/never_fallback_in_generic_constructors.sabi:39:24 ]
+    │
+ 39 │     let x = Id(return).Sh(); //~ ERROR E0313 type annotations needed
+    │                        ─┬  
+    │                         ╰── the receiver's type must be known to call a method
+────╯
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_fallback_in_generic_constructors.sabi:43:17 ]
+    │
+ 43 │     let v = Err(return)?; //~ ERROR E0300 mismatched types
+    │                 ───┬──  
+    │                    ╰──── expected `Result<i32, i64>`, found `()`
+    │ 
+    │ Note: `return;` in a function whose return type is not `()`
+────╯

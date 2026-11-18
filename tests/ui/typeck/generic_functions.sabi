@@ -18,7 +18,8 @@ fn Id<T>(x: T) -> T {
 }
 
 fn Main() {
-    let a = Make(); //~ ERROR E0313 type annotations needed
+    // Not reported: the body has other errors, which may be its cause (as rustc).
+    let a = Make();
     let b = Make::<bool>();
     let c: bool = Id(1); //~ ERROR E0300 mismatched types
     let d = Id::<u8>(300); //~ ERROR E0314

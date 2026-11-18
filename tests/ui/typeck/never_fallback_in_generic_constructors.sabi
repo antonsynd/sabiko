@@ -1,0 +1,47 @@
+// A generic argument a diverging expression decides falls back to `!` (#151), so what `!`
+// lacks is an error, as in rustc: a bound (`!: Show`, rustc's E0277) or an operator
+// (`!: Add<i32>`, rustc's E0277). In a body with another error the fallback is an error
+// type instead, as rustc's is, so nothing more is reported (`Err(return)?` does not need
+// `i64: From<!>` after `return;` in a function returning a value).
+struct W<T> {
+    V: T,
+}
+
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+impl Show for i32 {
+    fn Sh(&self) -> i32 {
+        1
+    }
+}
+
+fn G<T: Show>(x: T) -> i32 {
+    1
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Bound() {
+    G(return); //~ ERROR E0341 the trait bound `!: Show` is not satisfied
+}
+
+fn FieldOperand() {
+    let w = W { V: return };
+    let z = w.V + 1; //~ ERROR E0306 cannot add `i32` to `!`
+}
+
+// rustc's E0282: a method's receiver must be known where it is called.
+fn Receiver() {
+    let x = Id(return).Sh(); //~ ERROR E0313 type annotations needed
+}
+
+fn Tainted() -> Result<i32, i64> {
+    let v = Err(return)?; //~ ERROR E0300 mismatched types
+    Ok(1)
+}
+
+fn Main() {}

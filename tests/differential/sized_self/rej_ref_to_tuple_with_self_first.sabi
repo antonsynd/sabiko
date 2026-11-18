@@ -1,0 +1,8 @@
+// A tuple element other than the last is sized, behind a reference too.
+//@ rustc: E0277
+//@ sabiko: E0208
+trait Tr {
+    fn A(&self, x: &(Self, i32)) -> i32 {
+        1
+    }
+}

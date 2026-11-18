@@ -240,7 +240,6 @@ impl InferCtxt {
         self.var_mut(r).value = Some(ty);
     }
 
-    /// Binds every unbound variable inside `ty` to `Error`, after its problem was reported.
     /// The never-type fallback (edition 2024): `ty`, if still an unbound variable, becomes
     /// `!`, which [`Self::unify`] never binds. A diverging variable unified with an integer
     /// or float literal's is that literal's now, and defaults as one (`let mut t = (return,
@@ -253,6 +252,17 @@ impl InferCtxt {
         }
     }
 
+    /// [`Self::fall_back_to_never`] in a body tainted by errors: the variable becomes an
+    /// error type instead.
+    pub fn fall_back_to_error(&mut self, ty: &Ty) {
+        if let Ty::Infer(v) = self.shallow_resolve(ty) {
+            if self.kind(v) == VarKind::General {
+                self.bind(v, Ty::Error);
+            }
+        }
+    }
+
+    /// Binds every unbound variable inside `ty` to `Error`, after its problem was reported.
     pub fn bind_error(&mut self, ty: &Ty) {
         match self.shallow_resolve(ty) {
             Ty::Infer(v) => self.bind(v, Ty::Error),

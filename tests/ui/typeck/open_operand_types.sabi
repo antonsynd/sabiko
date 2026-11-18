@@ -1,0 +1,129 @@
+// What rustc decides where an operator or a cast is, for an operand whose type is still
+// open there (#151, #159). A unary operator picks its impl from the operand's type at once,
+// so an open one is E0313 (rustc's E0282) even if a later use decides it. A binary
+// operation waits, and one whose operand is coerced from `!` later is an operation on `!`
+// (rustc's E0277), as a cast of it is fine. A cast's operand must be known once the body is
+// done; a cast or a repeat failing then is reported before the body's ambiguities, which
+// it taints. A left operand with no operator impl at all fails at once.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct S {}
+
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn NegDecidedLater() {
+    let mut x = Mk();
+    let y = -x; //~ ERROR E0313 type annotations needed
+    x = true;
+}
+
+fn NotExpected() {
+    let y: bool = !Mk(); //~ ERROR E0313 type annotations needed
+}
+
+fn NotParenthesised() {
+    let x = Mk();
+    let y = !(x); //~ ERROR E0313 type annotations needed
+    let z: bool = x;
+}
+
+fn NegDiverging() {
+    let mut x = Mk();
+    let y = -x; //~ ERROR E0313 type annotations needed
+    x = return;
+}
+
+fn AddDiverging() {
+    let mut x = Mk();
+    let y = x + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    x = return;
+}
+
+fn CompareDiverging() {
+    let mut x = Mk();
+    let y = x < 1; //~ ERROR E0306 can't compare `!` with `i32`
+    x = Panic("y");
+}
+
+fn CompoundDiverging() {
+    let mut x = Mk();
+    x <<= 1; //~ ERROR E0306 no implementation for `! <<= i32`
+    x = loop {};
+}
+
+// Each operation on `!` is its own error.
+fn TwoOperationsDiverging() {
+    let mut x = Mk();
+    let y = x + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    let z = x * 2; //~ ERROR E0306 cannot multiply `!` by `i32`
+    x = return;
+}
+
+// The operation on `!` taints nothing: the bound `!` lacks is reported too.
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+fn G<T: Show>(t: T) -> i32 {
+    1
+}
+
+fn OperationThenBound() {
+    let x = return;
+    let y = x + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    G(x); //~ ERROR E0341 the trait bound `!: Show` is not satisfied
+}
+
+// A diverging variable a literal decides is that literal's, not `!`.
+fn DecidedByLiteral(c: bool) -> i32 {
+    let mut x = if c { return 1 } else { Mk() };
+    x = 5;
+    let a = x + 1;
+    let b = -x;
+    let d = 1 + x == 2;
+    x += 1;
+    let mut y = return 2;
+    y = 2.5;
+    let z = -y * 2.0;
+    a + b
+}
+
+fn CastUnknown() {
+    let x = Mk();
+    let y = x as i32; //~ ERROR E0313 type annotations needed
+}
+
+fn CastDiverging() {
+    let mut x = Mk();
+    let y = x as i32;
+    x = return;
+}
+
+fn CastBeforeAmbiguity() {
+    let a = Opt::No;
+    let x = 1.5 as bool; //~ ERROR E0308 casting `f64` as `bool` is invalid
+}
+
+fn RepeatBeforeAmbiguity() {
+    let a = Opt::No;
+    let r = [S {}; 2]; //~ ERROR E0334 the trait bound `S: Copy` is not satisfied
+}
+
+fn ReferenceOperand() {
+    let s = S {};
+    let w = Mk();
+    let x = &s + w; //~ ERROR E0306 binary operation `+` cannot be applied to type `&S`
+}
+
+fn CompoundStruct() {
+    let mut t = S {};
+    let w = Mk();
+    t += w; //~ ERROR E0306 binary operation `+` cannot be applied to type `S`
+}
+
+fn Main() {}

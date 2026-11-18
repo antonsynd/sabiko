@@ -45,15 +45,18 @@ fn Later() {
     PrintLine(b.Sh());
 }
 
+// Each `S.Mk()` is its own `S: Tr<_>` ambiguity, reported at the local it leaves open
+// (rustc's E0283 for an obligation whose `Self` is known); the operations and printed
+// values on them are not reported again (#159).
 fn Never() {
-    let v = 5u8.into();
-    PrintLine(v + 1u16); //~ ERROR E0313 type annotations needed
-    let w = S.Mk();
-    PrintLine(w + 1); //~ ERROR E0313 type annotations needed
-    let mut x = S.Mk();
-    x += 1; //~ ERROR E0313 type annotations needed
-    let y = S.Mk();
-    PrintLine(y); //~ ERROR E0313 type annotations needed
+    let v = 5u8.into(); //~ ERROR E0313 type annotations needed
+    PrintLine(v + 1u16);
+    let w = S.Mk(); //~ ERROR E0313 type annotations needed
+    PrintLine(w + 1);
+    let mut x = S.Mk(); //~ ERROR E0313 type annotations needed
+    x += 1;
+    let y = S.Mk(); //~ ERROR E0313 type annotations needed
+    PrintLine(y);
 }
 
 fn Operand() {

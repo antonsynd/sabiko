@@ -1,0 +1,52 @@
+// A method call's unsized `Self` result that is not bound to a local is a move (rustc's
+// E0161), which rustc's borrow checker finds only in a body without other errors: an
+// unsatisfied bound, an ambiguity or a failed repeat anywhere in the body is reported
+// instead (#159).
+struct S {}
+
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+fn G<T: Show>(t: T) -> i32 {
+    1
+}
+
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+trait Tr {
+    fn Get(&self) -> Self;
+
+    fn MoveOnly(&self) -> i32 {
+        self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn MoveThenBound(&self) -> i32 {
+        self.Get();
+        G(1); //~ ERROR E0341 the trait bound `i32: Show` is not satisfied
+        1
+    }
+
+    fn MoveThenAmbiguity(&self) -> i32 {
+        self.Get();
+        let a = Mk(); //~ ERROR E0313 type annotations needed
+        1
+    }
+
+    fn AmbiguityThenMove(&self) -> i32 {
+        let a = Mk(); //~ ERROR E0313 type annotations needed
+        self.Get();
+        1
+    }
+
+    fn MoveThenRepeat(&self) -> i32 {
+        self.Get();
+        let r = [S {}; 2]; //~ ERROR E0334 the trait bound `S: Copy` is not satisfied
+        1
+    }
+}
+
+fn Main() {}

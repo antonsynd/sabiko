@@ -79,6 +79,42 @@ enum Cause {
 /// until the body is done), the function, and the span of the use.
 type GenericUse = (Vec<Ty>, DefId, Span);
 
+/// In a trait's provided method, where `Self` may be unsized: a use of generic parameters
+/// (a call, a variant's constructor or path, a struct literal) that `check_self_sized`
+/// judges, since each parameter is `Sized` (rustc's implicit bound).
+struct SizedUse {
+    /// The parameters (not a trait's `Self`) and the arguments the use gives them.
+    params: Vec<(DefId, Ty)>,
+    /// Each value operand, with the declared type of its parameter or field (`T` for
+    /// `x: T`): an argument whose parameter is an operand's type is reported there.
+    operands: Vec<(Span, Ty)>,
+    /// Where an argument is reported otherwise: the path.
+    at: Span,
+    /// A call's or a path's whole span and type (not a struct literal's): a value of a
+    /// struct or enum holding `Self`.
+    result: Option<(Span, Ty)>,
+}
+
+/// A type inference left unknown when a body is done, as the obligation rustc leaves
+/// ambiguous there (its E0282, E0283 and E0284, Sabiko's E0313), reported by
+/// [`FnCtxt::report_ambiguities`].
+struct Ambiguity {
+    /// Where rustc registers the obligation: the reports go in this order.
+    at: Span,
+    /// Whether the obligation's `Self` type is known (`S: Tr<_>`): reported whatever was
+    /// reported before it, where one with an unknown `Self` (`_: Sized`, `_: Add<i32>`)
+    /// is reported only first.
+    known_self: bool,
+    /// A local's or a `let` declaration's type: it takes the class of the obligations
+    /// that share its variables.
+    local: bool,
+    /// The types it leaves open; they become error types.
+    tys: Vec<Ty>,
+    /// Its report; `None` when an error reported elsewhere leaves it open (a block
+    /// reported as overlapping or overflowing).
+    report: Option<Diagnostic>,
+}
+
 /// Per-body results, with every inference variable resolved.
 #[derive(Clone, Debug, Default)]
 pub struct BodyTypes {
@@ -321,7 +357,7 @@ pub(crate) struct FnCtxt<'a> {
     /// `-e` where `e` was still `{integer}`: rejected at the end if it becomes unsigned.
     pending_negs: Vec<(Span, Ty)>,
     /// Variables for `let x = <diverging>;`: unconstrained ones fall back to `!`.
-    diverging_vars: Vec<Ty>,
+    diverging_vars: HashSet<TyVid>,
     /// `Print`/`PrintLine` arguments whose type was still an unknown variable (`let v =
     /// return; PrintLine(v);`, or one a later use decides), checked once it is known, or
     /// reported in `finish` (rustc's `T: Display` obligation of the call).
@@ -343,10 +379,9 @@ pub(crate) struct FnCtxt<'a> {
     /// (unless it names a `const` item): judged in `finish`, once the type is known.
     pending_repeats: Vec<(Span, Ty)>,
     errors_before: usize,
-    /// The ambiguities `finish` reported (E0313 for open operations, printed values and
-    /// obligations): rustc reports a body's ambiguities together, so one does not taint
-    /// the body for the others.
-    ambiguities_reported: usize,
+    /// The types inference left unknown, found by `finish` and reported together
+    /// ([`Self::report_ambiguities`]).
+    ambiguities: Vec<Ambiguity>,
     /// The bounds that hold in the function being checked (`ItemTypes::param_env`).
     env: Vec<Predicate>,
     /// What `Self` names in a trait `impl` block's function: its `Self::V`, `Self { .. }`
@@ -362,6 +397,19 @@ pub(crate) struct FnCtxt<'a> {
     /// Whether a bound of the function being checked was dropped as not supported
     /// (E0107): an unsatisfied bound in its body is not reported again.
     incomplete_bounds: bool,
+    /// The `Self` of the trait whose provided method is checked, while it may be unsized
+    /// (`check_self_sized`), with what that method's body needs sized: uses of generic
+    /// parameters, calls returning `Self` (and whether by a method), the method calls
+    /// bound to a local by `let x = ..`, the types written in `let`s, and the tuple
+    /// expressions and assignment targets that must be sized; then the moves
+    /// of an unsized `Self` value, reported in `finish` when the body has no other error.
+    unsized_self: Option<DefId>,
+    sized_uses: Vec<SizedUse>,
+    self_calls: Vec<(NodeId, Span, bool)>,
+    let_bound_inits: HashSet<NodeId>,
+    sized_annotations: Vec<(Span, Ty)>,
+    sized_values: Vec<(Span, Ty)>,
+    unsized_moves: Vec<Span>,
     /// The function's signature, from its name to its return type, while a function's
     /// body is checked; `None` for a constant.
     fn_span: Option<Span>,
@@ -409,7 +457,7 @@ impl<'a> FnCtxt<'a> {
             int_lits: Vec::new(),
             casts: Vec::new(),
             pending_negs: Vec::new(),
-            diverging_vars: Vec::new(),
+            diverging_vars: HashSet::default(),
             pending_prints: Vec::new(),
             pending_comparisons: Vec::new(),
             never_operands: Vec::new(),
@@ -421,7 +469,7 @@ impl<'a> FnCtxt<'a> {
             repeat_counts: HashMap::default(),
             pending_repeats: Vec::new(),
             errors_before,
-            ambiguities_reported: 0,
+            ambiguities: Vec::new(),
             env: Vec::new(),
             self_ty: None,
             obligations: Vec::new(),
@@ -430,6 +478,13 @@ impl<'a> FnCtxt<'a> {
             pending_tries: Vec::new(),
             try_roots: HashMap::default(),
             incomplete_bounds: false,
+            unsized_self: None,
+            sized_uses: Vec::new(),
+            self_calls: Vec::new(),
+            let_bound_inits: HashSet::default(),
+            sized_annotations: Vec::new(),
+            sized_values: Vec::new(),
+            unsized_moves: Vec::new(),
             fn_span: None,
             in_prelude: false,
         }
@@ -511,10 +566,22 @@ impl<'a> FnCtxt<'a> {
         for (p, ty) in f.params.iter().zip(inputs) {
             self.check_pat(&p.pat, ty, None);
         }
+        if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
+            let tr = self.resolve.def(def).parent.expect("a trait member");
+            // `Clone` (and so `Copy`) is `Sized`, as in rustc: a subtrait's `Self` has a
+            // size.
+            let sized = self
+                .items
+                .lang_item(LangItem::Clone)
+                .is_some_and(|clone| self.items.trait_closure(tr).contains(&clone));
+            if !sized {
+                self.unsized_self = Some(self.resolve.trait_self(tr));
+            }
+        }
         let ret = self.ret_ty.clone();
         self.check_block(body, Some(&ret));
-        if self.resolve.parent_kind(def) == Some(DefKind::Trait) {
-            self.check_self_sized(def, f);
+        if let Some(self_param) = self.unsized_self {
+            self.check_self_sized(def, f, self_param);
         }
         self.finish()
     }
@@ -627,6 +694,15 @@ impl<'a> FnCtxt<'a> {
         let found = self.shallow(found);
         let expected = self.shallow(expected);
         if found.is_never() {
+            // rustc's `NeverToAny` adjustment: a variable it targets is diverging, and
+            // falls back to `!` when nothing else decides it (edition 2024), wherever
+            // the coercion is: a generic argument (`Opt::Yes(Panic(..))`, `W { V: return
+            // 3 }`, `Id(loop {})`), a block's tail or an annotation's `_` (#151).
+            if let Ty::Infer(v) = expected {
+                if self.infer.kind(v) == VarKind::General {
+                    self.diverging_vars.insert(v);
+                }
+            }
             return Ok(());
         }
         if self.infer.unify(&found, &expected).is_ok() {
@@ -744,6 +820,14 @@ impl<'a> FnCtxt<'a> {
         match &stmt.kind {
             StmtKind::Let(l) => {
                 let annot = l.ty.as_ref().map(|t| self.lower_type(t));
+                if self.unsized_self.is_some() {
+                    if let (Some(t), Some(a)) = (&l.ty, &annot) {
+                        self.sized_annotations.push((t.span, a.clone()));
+                    }
+                    if let (Some(init), PatKind::Ident { sub: None, .. }) = (&l.init, &l.pat.kind) {
+                        self.let_bound_inits.insert(strip_parens(init).id);
+                    }
+                }
                 let init_ty = l
                     .init
                     .as_ref()
@@ -755,9 +839,7 @@ impl<'a> FnCtxt<'a> {
                         // uses of `x` are not all typed `!`. An explicit `ref` binding
                         // takes the initialiser's own type, as in rustc (#99).
                         if self.shallow(&i).is_never() && !has_explicit_ref_binding(&l.pat) {
-                            let v = self.infer.new_var(VarKind::General);
-                            self.diverging_vars.push(v.clone());
-                            v
+                            self.new_diverging_var()
                         } else {
                             i
                         }
@@ -1021,11 +1103,12 @@ impl<'a> FnCtxt<'a> {
         matches!(self.shallow(ty), Ty::Infer(v) if self.infer.kind(v) == VarKind::General)
     }
 
-    /// Whether `ty` is `!` or a diverging variable nothing has decided yet.
+    /// Whether `ty` is `!` or a diverging variable nothing has decided yet: one unified
+    /// with a literal's variable is that literal's (`let mut x = return; x = 5;`).
     fn is_never_like(&mut self, ty: &Ty) -> bool {
         match self.shallow(ty) {
             Ty::Never => true,
-            Ty::Infer(v) => self.is_diverging_var(v),
+            Ty::Infer(v) => self.infer.kind(v) == VarKind::General && self.is_diverging_var(v),
             _ => false,
         }
     }
@@ -1052,7 +1135,13 @@ impl<'a> FnCtxt<'a> {
         match &expr.kind {
             ExprKind::Lit(lit) => self.check_lit(lit, expr.span, expected),
             ExprKind::Unit => Ty::Unit,
-            ExprKind::Tuple(elems) => self.check_tuple(elems, expected),
+            ExprKind::Tuple(elems) => {
+                let ty = self.check_tuple(elems, expected);
+                if self.unsized_self.is_some() {
+                    self.sized_values.push((expr.span, ty.clone()));
+                }
+                ty
+            }
             ExprKind::Array(elems) => self.check_array(elems, expected),
             ExprKind::Repeat(value, count) => self.check_repeat(expr, value, count, expected),
             ExprKind::Path(_) => self.check_path(expr, false),
@@ -1064,6 +1153,9 @@ impl<'a> FnCtxt<'a> {
             ExprKind::Binary(op, lhs, rhs) => self.check_binary(*op, lhs, rhs, expected, expr.span),
             ExprKind::Assign(lhs, rhs) => {
                 let lhs_ty = self.check_place(lhs);
+                if self.unsized_self.is_some() {
+                    self.sized_values.push((lhs.span, lhs_ty.clone()));
+                }
                 self.check_expr(rhs, Some(&lhs_ty));
                 Ty::Unit
             }
@@ -1083,7 +1175,15 @@ impl<'a> FnCtxt<'a> {
                     Some(&lhs_ty)
                 };
                 let (rhs_ty, rhs_never) = self.check_open_operand(rhs, rhs_expected);
-                if !lhs_never && !rhs_never && (lhs_open || self.is_open(&rhs_ty)) {
+                if !lhs_never
+                    && !rhs_never
+                    && !lhs_open
+                    && self.is_open(&rhs_ty)
+                    && self.lacks_arith_impls(&lhs_ty)
+                {
+                    // `s += w` (rustc's E0368), as for `s + w` in `open_operation`.
+                    self.binary_op_error(*op, &lhs_ty, expr.span);
+                } else if !lhs_never && !rhs_never && (lhs_open || self.is_open(&rhs_ty)) {
                     self.open_operations.push(DeferredOperation {
                         op: *op,
                         compound: true,
@@ -1323,11 +1423,7 @@ impl<'a> FnCtxt<'a> {
             let found = self.check_expr(e, exp.as_ref());
             let ty = match exp {
                 Some(exp) => exp,
-                None if self.shallow(&found).is_never() => {
-                    let v = self.infer.new_var(VarKind::General);
-                    self.diverging_vars.push(v.clone());
-                    v
-                }
+                None if self.shallow(&found).is_never() => self.new_diverging_var(),
                 None => found,
             };
             tys.push(ty);
@@ -2246,9 +2342,7 @@ impl<'a> FnCtxt<'a> {
         if !self.shallow(&ty).is_never() || pats.any(has_explicit_ref_binding) {
             return ty;
         }
-        let v = self.infer.new_var(VarKind::General);
-        self.diverging_vars.push(v.clone());
-        v
+        self.new_diverging_var()
     }
 
     /// `match scrutinee { arms }`. The arms' bodies are checked against the expectation,
@@ -2274,6 +2368,7 @@ impl<'a> FnCtxt<'a> {
         let expected = expected.as_ref();
         let mut result: Option<Ty> = expected.cloned();
         let mut first_ty: Option<(Ty, Span)> = None;
+        let mut never_arm = false;
         let mut all_diverge = true;
         for arm in arms {
             self.diverges = false;
@@ -2311,7 +2406,14 @@ impl<'a> FnCtxt<'a> {
                 }
                 (None, None) => {
                     let found = self.check_expr(&arm.body, None);
-                    if !self.shallow(&found).is_never() {
+                    if self.shallow(&found).is_never() {
+                        never_arm = true;
+                    } else {
+                        // The `!` arms before it are coerced to its type too: a
+                        // variable there is diverging (#151).
+                        if never_arm {
+                            let _ = self.try_coerce(&Ty::Never, &found);
+                        }
                         result = Some(found.clone());
                         first_ty = Some((found.clone(), arm.body.span));
                     }
@@ -2461,7 +2563,9 @@ impl<'a> FnCtxt<'a> {
                             VariantKind::Unit => {
                                 self.variant_exprs.insert(expr.id, (adt, index));
                                 let args = self.adt_args(adt, path);
-                                Ty::Adt(adt, args.into())
+                                let ty = Ty::Adt(adt, args.clone().into());
+                                self.sized_path(adt, &args, expr.span, &ty);
+                                ty
                             }
                             VariantKind::Tuple if callee => Ty::FnDef(d),
                             VariantKind::Tuple => {
@@ -2869,7 +2973,9 @@ impl<'a> FnCtxt<'a> {
             self.negating = !inner && matches!(operand, ExprKind::Lit(Lit::Int { .. }));
             self.double_negation = matches!(operand, ExprKind::Unary(UnOp::Neg, _));
         }
-        let (ty, never) = self.check_operand(operand, expected);
+        // The expectation is a hint only: an open operand type is not decided by it
+        // (`let y: i32 = -Mk();` is E0282 in rustc).
+        let (ty, never) = self.check_open_operand(operand, expected);
         let ty = if never {
             ty
         } else {
@@ -2893,6 +2999,25 @@ impl<'a> FnCtxt<'a> {
         let ok = match (&resolved, op) {
             // `!(return)` is `!: Not`; there is no `!: Neg` (#87).
             (Ty::Error, _) | (Ty::Never, UnOp::Not) => true,
+            (Ty::Infer(v), _) if self.infer.kind(*v) == VarKind::General => {
+                // rustc picks the operator's impl from the operand type here, so an
+                // open one is E0282 now, even if a later use would decide it (`let y =
+                // -x; x = true;`), unless the body has an error already.
+                if !self.ambiguity_tainted() {
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(operand.span, "type must be known at this point")
+                        .with_note(
+                            "the operator's implementation is chosen by its operand type: give it a type annotation",
+                        ),
+                    );
+                }
+                self.infer.bind_error(&resolved);
+                return Ty::Error;
+            }
             (Ty::Infer(v), _) => {
                 let kind = self.infer.kind(*v);
                 match op {
@@ -3119,6 +3244,12 @@ impl<'a> FnCtxt<'a> {
     /// #117 brings the operator traits, this record becomes the obligation `L: Add<R>`
     /// with its `Output`, and judging it is selecting that obligation.
     fn open_operation(&mut self, op: BinOp, lhs: Ty, rhs: Ty, span: Span) -> Ty {
+        // A left type with no impl of the operator's trait at all fails at once, whatever
+        // the right one becomes (`S + w`, rustc's E0369; #159).
+        if !op.is_comparison() && self.lacks_arith_impls(&lhs) {
+            self.binary_op_error(op, &lhs, span);
+            return Ty::Error;
+        }
         let out = (!op.is_comparison()).then(|| self.infer.new_var(VarKind::General));
         let ty = out.clone().unwrap_or(Ty::BOOL);
         self.open_operations.push(DeferredOperation {
@@ -3130,6 +3261,22 @@ impl<'a> FnCtxt<'a> {
             out,
         });
         ty
+    }
+
+    /// Whether the left operand type `lhs` has no impl of any arithmetic, bitwise or
+    /// shift operator trait, whatever the right operand: a struct, an enum, a type
+    /// parameter, `()`, a tuple or an array, or a reference to one (`&s + w`).
+    /// TODO(#117): with user impls of the operator traits a struct, an enum or a bounded
+    /// type parameter may have one; this becomes selecting `L: Add<_>`.
+    fn lacks_arith_impls(&mut self, lhs: &Ty) -> bool {
+        let mut base = self.shallow(lhs);
+        while let Ty::Ref(_, inner) = base {
+            base = self.shallow(&inner);
+        }
+        matches!(
+            base,
+            Ty::Adt(..) | Ty::Unit | Ty::Tuple(_) | Ty::Array(..) | Ty::Slice(_) | Ty::Param(_)
+        )
     }
 
     /// Judges the open operations ([`Self::open_operation`]) whose impl the operand types
@@ -3206,34 +3353,39 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// The open operations ([`Self::open_operation`]) left when the body is done: no use
-    /// decided their operand types, which is E0313 (rustc's E0283) at the operator,
-    /// unless the body is tainted by errors. The operands' variables become errors, so
-    /// what else they leave open is not reported again.
-    fn report_open_operations(&mut self) {
+    /// decided their operand types, which is E0313 (rustc's E0283) at the operator, among
+    /// the body's ambiguities ([`Self::report_ambiguities`]). The result is the same
+    /// problem: it becomes an error type now, so the local holding it is no other.
+    fn collect_open_operations(&mut self) {
         for n in std::mem::take(&mut self.open_operations) {
-            if !self.ambiguity_tainted() {
-                self.ambiguities_reported += 1;
-                let sym = format!("{}{}", n.op.as_str(), if n.compound { "=" } else { "" });
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(n.span, format!("cannot infer the operand types of `{sym}`"))
-                    .with_note(
-                        "the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation",
-                    ),
-                );
+            if self.is_never_like(&n.lhs) || self.is_never_like(&n.rhs) {
+                // An operand coerced from `!` later (`let y = x + 1; x = return;`) falls
+                // back to `!`: the operation is one on `!` (rustc's E0277), not ambiguous.
+                self.never_operands.push(n);
+                continue;
             }
-            for t in [Some(&n.lhs), Some(&n.rhs), n.out.as_ref()]
-                .into_iter()
-                .flatten()
-            {
-                let t = self.infer.resolve(t);
-                if t.has_infer() {
-                    self.infer.bind_error(&t);
-                }
+            let sym = format!("{}{}", n.op.as_str(), if n.compound { "=" } else { "" });
+            let report = Diagnostic::error(
+                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                "type annotations needed",
+            )
+            .with_label(n.span, format!("cannot infer the operand types of `{sym}`"))
+            .with_note(
+                "the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation",
+            );
+            if let Some(out) = &n.out {
+                let out = self.infer.resolve(out);
+                self.infer.bind_error(&out);
             }
+            // rustc's `L: Add<R>`: its `Self` is the left operand.
+            let known_self = !self.is_open(&n.lhs);
+            self.ambiguities.push(Ambiguity {
+                at: n.span,
+                known_self,
+                local: false,
+                tys: vec![n.lhs, n.rhs],
+                report: Some(report),
+            });
         }
     }
 
@@ -3270,6 +3422,8 @@ impl<'a> FnCtxt<'a> {
     /// Judges the operations [`Self::never_operand`] recorded, before the never-type
     /// fallback: an operand still `!` or still an open diverging variable is `!`.
     fn check_never_operands(&mut self) {
+        // Whether the fallback will see errors: those reported here come after it.
+        let tainted = self.sink.error_count() > self.errors_before;
         for n in std::mem::take(&mut self.never_operands) {
             let l_never = self.is_never_like(&n.lhs);
             let r_never = self.is_never_like(&n.rhs);
@@ -3294,6 +3448,14 @@ impl<'a> FnCtxt<'a> {
             }
             if let Some(out) = &n.out {
                 self.infer.bind_error(out);
+            }
+            // In a body tainted by errors rustc's fallback makes an open diverging
+            // variable an error type, not `!`: only an operand typed `!` itself fails.
+            let open_var = [&n.lhs, &n.rhs]
+                .into_iter()
+                .any(|t| matches!(self.shallow(t), Ty::Infer(_)));
+            if open_var && tainted {
+                continue;
             }
             let mut side = |never: bool, ty: &Ty| {
                 if never {
@@ -3478,9 +3640,7 @@ impl<'a> FnCtxt<'a> {
         if self.shallow(&ty).is_never() {
             // `(a, b) = return;`: as for `let (x, y) = return;`, the pattern gets a fresh
             // variable, not `!`.
-            let v = self.infer.new_var(VarKind::General);
-            self.diverging_vars.push(v.clone());
-            ty = v;
+            ty = self.new_diverging_var();
         }
         let saved = std::mem::replace(&mut self.in_assignee, true);
         self.check_pat(pat, &ty, Some(rhs.span));
@@ -3876,8 +4036,7 @@ impl<'a> FnCtxt<'a> {
     /// trait's coherence lazily, when a body first selects with it, so that error falls
     /// within the body). An ambiguity is then not reported.
     fn ambiguity_tainted(&self) -> bool {
-        self.sink.error_count() - self.ambiguities_reported > self.errors_before
-            || self.uses_reported_impls(&self.obligations)
+        self.sink.error_count() > self.errors_before || self.uses_reported_impls(&self.obligations)
     }
 
     /// Whether a trait of one of `obligations` has blocks reported as overlapping or
@@ -4224,11 +4383,23 @@ impl<'a> FnCtxt<'a> {
                         .with_label(variant.span, "variant defined here");
                 self.error(d);
             }
-            let output = Ty::Adt(adt, generic.into());
+            let output = Ty::Adt(adt, generic.clone().into());
             let formals: Vec<Ty> = variant.fields.iter().map(|f| f.ty.clone()).collect();
             let hints = self.expected_inputs(expected, &output, &formals);
             self.check_args(args, &formals, hints.as_deref(), callee.span);
             self.variant_exprs.insert(id, (adt, index));
+            if self.unsized_self.is_some() {
+                let declared = self.items.adt(adt).variant(index).fields.clone();
+                self.sized_use(
+                    adt,
+                    &generic,
+                    args.iter()
+                        .map(|a| a.span)
+                        .zip(declared.iter().map(|f| f.ty.clone())),
+                    callee.span,
+                    Some((span, output.clone())),
+                );
+            }
             return output;
         }
         if self.is_destructor(def) {
@@ -4262,7 +4433,87 @@ impl<'a> FnCtxt<'a> {
         if sig.output.is_never() {
             self.diverges = true;
         }
+        if self.unsized_self.is_some() {
+            let declared = self.items.fn_sig(def).clone();
+            if self.returns_trait_self(def) {
+                self.self_calls.push((id, span, false));
+            }
+            self.sized_use(
+                def,
+                &generic_args,
+                args.iter()
+                    .map(|a| a.span)
+                    .zip(declared.inputs.iter().cloned()),
+                callee.span,
+                Some((span, sig.output.clone())),
+            );
+        }
         sig.output
+    }
+
+    /// Records a struct literal's use of its type's parameters ([`Self::sized_use`]): its
+    /// fields' values are the operands, with the fields' declared types.
+    fn sized_literal(
+        &mut self,
+        def: DefId,
+        args: &[Ty],
+        adt: &collect::AdtDef,
+        fields: &[sabiko_ast::FieldInit],
+        at: Span,
+    ) {
+        if self.unsized_self.is_none() {
+            return;
+        }
+        let operands: Vec<(Span, Ty)> = fields
+            .iter()
+            .filter_map(|f| {
+                let i = adt.field_index(&f.name.name)?;
+                Some((f.value.span, adt.fields[i].ty.clone()))
+            })
+            .collect();
+        self.sized_use(def, args, operands.into_iter(), at, None);
+    }
+
+    /// Records a path's use of its enum's parameters (`Opt::No`, [`Self::sized_use`]).
+    fn sized_path(&mut self, adt: DefId, args: &[Ty], at: Span, ty: &Ty) {
+        if self.unsized_self.is_some() {
+            self.sized_use(adt, args, std::iter::empty(), at, Some((at, ty.clone())));
+        }
+    }
+
+    /// Whether `def` is a trait member returning its trait's `Self` (`fn Make() -> Self`).
+    fn returns_trait_self(&self, def: DefId) -> bool {
+        self.resolve.parent_kind(def) == Some(DefKind::Trait)
+            && self.resolve.def(def).parent.is_some_and(|tr| {
+                self.items.fn_sig(def).output == Ty::Param(self.resolve.trait_self(tr))
+            })
+    }
+
+    /// Records a use of `def`'s generic parameters at `args` in a trait's provided method
+    /// (see [`SizedUse`]); a trait member's `Self` is left out.
+    fn sized_use(
+        &mut self,
+        def: DefId,
+        args: &[Ty],
+        operands: impl Iterator<Item = (Span, Ty)>,
+        at: Span,
+        result: Option<(Span, Ty)>,
+    ) {
+        let trait_member = self.resolve.parent_kind(def) == Some(DefKind::Trait);
+        let params = self
+            .resolve
+            .generics(def)
+            .iter()
+            .zip(args)
+            .skip(usize::from(trait_member))
+            .map(|(p, a)| (*p, a.clone()))
+            .collect();
+        self.sized_uses.push(SizedUse {
+            params,
+            operands: operands.collect(),
+            at,
+            result,
+        });
     }
 
     /// `e.Name(args)`. The receiver is checked first, then the method is found by
@@ -4350,6 +4601,9 @@ impl<'a> FnCtxt<'a> {
             return Ty::Error;
         }
         let mut sig = self.items.fn_sig(callee.def).clone();
+        if self.unsized_self.is_some() && self.returns_trait_self(callee.def) {
+            self.self_calls.push((expr.id, expr.span, true));
+        }
         // The arguments of the method's type (decision 83) are the receiver's own, a trait
         // method's is its `Self` (decision 84); a turbofish gives the method's.
         let parent = self.resolve.parent_generic_count(callee.def);
@@ -4392,6 +4646,18 @@ impl<'a> FnCtxt<'a> {
         }
         let hints = self.expected_inputs(expected, &sig.output, params);
         self.check_args(args, params, hints.as_deref(), method.span);
+        if self.unsized_self.is_some() {
+            let declared = self.items.fn_sig(callee.def).clone();
+            self.sized_use(
+                callee.def,
+                &generic_args,
+                args.iter()
+                    .map(|a| a.span)
+                    .zip(declared.inputs.iter().skip(1).cloned()),
+                method.span,
+                Some((expr.span, sig.output.clone())),
+            );
+        }
         // No method returns `!`: the never type cannot be written in a signature.
         self.method_calls.insert(expr.id, callee);
         sig.output
@@ -4758,32 +5024,46 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// E0313 for a `Print`/`PrintLine` argument whose type nothing decided (rustc's
-    /// E0283 for `T: Display`), unless the body is tainted by errors.
+    /// E0283 for `T: Display`), among the body's ambiguities.
     fn unknown_print_argument(&mut self, builtin: Builtin, span: Span, ty: &Ty) {
-        if !self.ambiguity_tainted() {
-            self.ambiguities_reported += 1;
-            self.error(
-                Diagnostic::error(
-                    ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                    "type annotations needed",
-                )
-                .with_label(
-                    span,
-                    format!(
-                        "cannot infer the type of this argument to `{}`",
-                        builtin.name()
-                    ),
-                ),
-            );
-        }
-        // The local behind it is the same problem, not a new one.
-        self.infer.bind_error(ty);
+        let report = Diagnostic::error(
+            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+            "type annotations needed",
+        )
+        .with_label(
+            span,
+            format!(
+                "cannot infer the type of this argument to `{}`",
+                builtin.name()
+            ),
+        );
+        self.ambiguities.push(Ambiguity {
+            at: span,
+            known_self: false,
+            local: false,
+            tys: vec![ty.clone()],
+            report: Some(report),
+        });
     }
 
     /// Whether the variable `v` is one of a diverging initialiser or element.
     fn is_diverging_var(&mut self, v: TyVid) -> bool {
-        let vars = self.diverging_vars.clone();
-        vars.iter().any(|d| self.infer.resolve(d) == Ty::Infer(v))
+        let vars = std::mem::take(&mut self.diverging_vars);
+        let diverging = vars
+            .iter()
+            .any(|&d| self.infer.shallow_resolve(&Ty::Infer(d)) == Ty::Infer(v));
+        self.diverging_vars = vars;
+        diverging
+    }
+
+    /// A fresh variable for a diverging value (`let x = return;`), which falls back to
+    /// `!` when nothing decides it.
+    fn new_diverging_var(&mut self) -> Ty {
+        let v = self.infer.new_var(VarKind::General);
+        if let Ty::Infer(id) = v {
+            self.diverging_vars.insert(id);
+        }
+        v
     }
 
     /// Reports a `Print`/`PrintLine` argument of known type `ty` that cannot be printed.
@@ -5000,8 +5280,16 @@ impl<'a> FnCtxt<'a> {
         let then_r = self.shallow(&then_ty);
         let els_r = self.shallow(&els_ty);
         match (&then_r, &els_r) {
-            (Ty::Never, _) => els_ty,
-            (_, Ty::Never) => then_ty,
+            // The `!` branch is coerced to the other's type too: a variable there is
+            // diverging (`if c { return } else { Mk() }`, #151).
+            (Ty::Never, _) => {
+                let _ = self.try_coerce(&then_r, &els_r);
+                els_ty
+            }
+            (_, Ty::Never) => {
+                let _ = self.try_coerce(&els_r, &then_r);
+                then_ty
+            }
             _ => {
                 if self.try_coerce(&els_r, &then_r).is_err() {
                     let (t, e) = (self.ty_str(&then_r), self.ty_str(&els_r));
@@ -5106,6 +5394,7 @@ impl<'a> FnCtxt<'a> {
         };
         let generic = self.adt_args(def, path);
         self.unify_with_expected_adt(&Ty::Adt(def, generic.clone().into()), expected);
+        self.sized_literal(def, &generic, &adt, fields, path.span);
         let mut adt = adt;
         adt.fields = self.instance_fields(def, &adt.fields, &generic);
         let mut seen: Vec<Option<Span>> = vec![None; adt.fields.len()];
@@ -5227,29 +5516,37 @@ impl<'a> FnCtxt<'a> {
         expr_types
     }
 
-    /// The generic arguments of every use of a generic function, resolved; an argument
-    /// inference left unknown is E0313 (rustc's E0282) at the use, and an error type.
-    fn resolve_generic_args(&mut self) -> HashMap<NodeId, Vec<Ty>> {
-        let mut uses: Vec<(NodeId, GenericUse)> =
-            std::mem::take(&mut self.generic_args).into_iter().collect();
-        uses.sort_by_key(|(_, (_, _, span))| (span.start, span.end));
-        let mut out = HashMap::default();
-        for (id, (args, def, span)) in uses {
-            let mut resolved = Vec::new();
+    /// The generic arguments of the uses of generic items that inference left unknown,
+    /// among the body's ambiguities: E0313 (rustc's E0282) at the use. A trait's
+    /// parameter (`T` of `S.Mk()` for `trait Tr<T>`) with `Self` known is rustc's E0283
+    /// for `S: Tr<_>`.
+    fn collect_unknown_generic_args(&mut self) {
+        let mut uses: Vec<GenericUse> = self.generic_args.values().cloned().collect();
+        uses.sort_by_key(|(_, _, span)| (span.start, span.end));
+        for (args, def, span) in uses {
+            let trait_params = self.items.trait_of_member(def).map(|tr| {
+                let n = 1 + self.items.trait_param_count(tr);
+                (tr, n.min(args.len()))
+            });
+            // The trait's parameters of a known `Self` are one obligation (`S: Tr2<_,
+            // _>`), reported once.
+            let mut trait_obligation: Option<Ambiguity> = None;
             for (i, arg) in args.iter().enumerate() {
-                let mut t = self.infer.resolve_with_defaults(arg);
-                let conflicting = t.has_infer()
-                    && self.items.trait_of_member(def).is_some_and(|tr| {
-                        let n = 1 + self.items.trait_param_count(tr);
-                        args.len() >= n
-                            && (self.ambiguity_tainted()
-                                || self.involves_reported_impl(&args[0], tr, &args[1..n]))
-                    });
-                if conflicting {
-                    // The trait's blocks overlap or overflow, which was reported.
-                    self.infer.bind_error(&t);
-                    t = Ty::Error;
-                } else if t.has_infer() {
+                let t = self.infer.resolve_with_defaults(arg);
+                if !t.has_infer() {
+                    continue;
+                }
+                if let Some(a) = trait_obligation.as_mut() {
+                    if trait_params.is_some_and(|(_, n)| (1..n).contains(&i)) {
+                        a.tys.push(t);
+                        continue;
+                    }
+                }
+                let conflicting = trait_params
+                    .is_some_and(|(tr, n)| self.involves_reported_impl(&args[0], tr, &args[1..n]));
+                let known_self = trait_params
+                    .is_some_and(|(_, n)| (1..n).contains(&i) && !self.is_open(&args[0]));
+                let report = (!conflicting).then(|| {
                     let param = self.resolve.generics(def)[i];
                     let param_name = self.resolve.def(param).name.clone();
                     let fn_name = self.resolve.def(def).name.clone();
@@ -5273,14 +5570,40 @@ impl<'a> FnCtxt<'a> {
                             format!("specify it with a turbofish: `{fn_name}::<..>`"),
                         ),
                     };
-                    self.error(
-                        Diagnostic::error(
-                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                            "type annotations needed",
-                        )
+                    Diagnostic::error(ErrorCode::TYPE_ANNOTATIONS_NEEDED, "type annotations needed")
                         .with_label(span, label)
-                        .with_note(note),
-                    );
+                        .with_note(note)
+                });
+                let a = Ambiguity {
+                    at: span,
+                    known_self,
+                    local: false,
+                    tys: vec![t],
+                    report,
+                };
+                if known_self {
+                    trait_obligation = Some(a);
+                } else {
+                    self.ambiguities.push(a);
+                }
+            }
+            self.ambiguities.extend(trait_obligation);
+        }
+    }
+
+    /// The generic arguments of every use of a generic item, resolved, after the unknown
+    /// ones were reported ([`Self::collect_unknown_generic_args`]).
+    fn resolve_generic_args(&mut self) -> HashMap<NodeId, Vec<Ty>> {
+        let mut uses: Vec<(NodeId, GenericUse)> =
+            std::mem::take(&mut self.generic_args).into_iter().collect();
+        uses.sort_by_key(|(_, (_, _, span))| (span.start, span.end));
+        let mut out = HashMap::default();
+        for (id, (args, def, span)) in uses {
+            let mut resolved = Vec::new();
+            for (i, arg) in args.iter().enumerate() {
+                let mut t = self.infer.resolve_with_defaults(arg);
+                if t.has_infer() {
+                    // Reported as an ambiguity, or the same problem as one.
                     self.infer.bind_error(&t);
                     t = Ty::Error;
                 }
@@ -5308,12 +5631,11 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// Judges the bounds the body's uses require (E0341, rustc's E0277; E0351 for the
-    /// error conversion of `?`), once inference is done. A type inference left unknown is
-    /// E0313 (rustc's E0283, E0282), unless an error about it was reported.
+    /// error conversion of `?`), once inference is done. One whose types inference left
+    /// open is among the body's ambiguities ([`Self::report_ambiguities`]).
     fn check_obligations(&mut self) {
         let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::default();
         let obligations = std::mem::take(&mut self.obligations);
-        let uses_reported_impls = self.uses_reported_impls(&obligations);
         for ob in obligations {
             let ty = self.infer.resolve_with_defaults(&ob.ty);
             let args: Vec<Ty> = ob
@@ -5330,41 +5652,48 @@ impl<'a> FnCtxt<'a> {
                 .implements_at(&ty, ob.trait_, &args, &self.env, ob.depth)
             {
                 Solution::Yes => {}
-                // As rustc: an ambiguity is not reported in a body tainted by errors (they
-                // may be what left the types open), nor an overflow that a block reported
-                // as overlapping or overflowing (E0353, E0215) causes.
-                Solution::Ambiguous
-                    if uses_reported_impls
-                        || self.sink.error_count() - self.ambiguities_reported
-                            > self.errors_before => {}
+                // As rustc: an ambiguity or an overflow that a block reported as
+                // overlapping or overflowing (E0353, E0215) causes is not reported again.
                 Solution::Ambiguous | Solution::Overflow
-                    if self.involves_reported_impl(&ty, ob.trait_, &args) => {}
+                    if self.involves_reported_impl(&ty, ob.trait_, &args) =>
+                {
+                    let tys = std::iter::once(ty).chain(args).collect();
+                    self.ambiguities.push(Ambiguity {
+                        at: ob.span,
+                        known_self: false,
+                        local: false,
+                        tys,
+                        report: None,
+                    });
+                }
                 Solution::Ambiguous => {
-                    self.ambiguities_reported += 1;
-                    if let (Cause::Try { operand }, None) = (ob.cause, &ob.required_for) {
+                    let try_root =
+                        matches!((ob.cause, &ob.required_for), (Cause::Try { .. }, None));
+                    let report = if let (Cause::Try { operand }, true) = (ob.cause, try_root) {
                         // An unknown error type (`Ok(1)?`), as rustc reports it (E0282).
-                        self.error(
-                            Diagnostic::error(
-                                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                                "type annotations needed",
-                            )
-                            .with_label(operand, "cannot infer the error type of this `Result`"),
-                        );
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(operand, "cannot infer the error type of this `Result`")
                     } else {
                         let shown = self.ty_str(&ty);
-                        self.error(
-                            Diagnostic::error(
-                                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                                "type annotations needed",
-                            )
-                            .with_label(ob.span, "cannot infer type")
-                            .with_note(format!("cannot satisfy `{shown}: {trait_name}`")),
-                        );
-                    }
-                    self.infer.bind_error(&ty);
-                    for a in &args {
-                        self.infer.bind_error(a);
-                    }
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(ob.span, "cannot infer type")
+                        .with_note(format!("cannot satisfy `{shown}: {trait_name}`"))
+                    };
+                    let known_self = !try_root && !self.is_open(&ty);
+                    let tys = std::iter::once(ty).chain(args).collect();
+                    self.ambiguities.push(Ambiguity {
+                        at: ob.span,
+                        known_self,
+                        local: false,
+                        tys,
+                        report: Some(report),
+                    });
                 }
                 Solution::Overflow => {
                     let shown = self.ty_str(&ty);
@@ -5506,30 +5835,36 @@ impl<'a> FnCtxt<'a> {
         self.error(d);
     }
 
-    /// In a trait's provided method `Self` may be unsized, as in rustc: a parameter, a
-    /// return type or a local holding a `Self` by value is E0208 (rustc's E0277). rustc
+    /// In a trait's provided method `Self` may be unsized, as in rustc: each place rustc
+    /// needs it sized is E0208 (rustc's E0277), once per span (#159). A parameter or the
+    /// return type holding a `Self` by value or naming a struct or enum of it (`&W<Self>`),
+    /// a `let` type naming one, a local of type `Self`, a call returning `Self` (a method
+    /// call's only when not bound to a local), a generic argument holding `Self` (at the
+    /// operand of that type, else at the path), and a call or path building a struct or
+    /// enum holding `Self` (not a struct literal, whose fields are its operands). rustc
     /// accepts them under `where Self: Sized`, which is not supported yet.
-    fn check_self_sized(&mut self, def: DefId, f: &FnDecl) {
-        let tr = self.resolve.def(def).parent.expect("a trait member");
-        // `Clone` (and so `Copy`) is `Sized`, as in rustc: a subtrait's `Self` has a size.
-        let sized = self
-            .items
-            .lang_item(LangItem::Clone)
-            .is_some_and(|clone| self.items.trait_closure(tr).contains(&clone));
-        if sized {
-            return;
-        }
-        let self_param = self.resolve.trait_self(tr);
+    fn check_self_sized(&mut self, def: DefId, f: &FnDecl, self_param: DefId) {
         let sig = self.items.fn_sig(def).clone();
+        let needs = |ty: &Ty| holds_by_value(ty, self_param) || needs_sized_arg(ty, self_param);
         let mut spans: Vec<Span> = Vec::new();
         for (ty, span) in sig.inputs.iter().zip(&sig.param_spans) {
-            if holds_by_value(ty, self_param) {
+            if needs(ty) {
                 spans.push(*span);
             }
         }
-        if holds_by_value(&sig.output, self_param) {
+        if needs(&sig.output) {
             spans.push(f.ret.as_ref().map_or(sig.name_span, |t| t.span));
         }
+        // A type written in a `let` with a struct or an enum of `Self` (`let w:
+        // &W<Self>`), as rustc's well-formedness check.
+        for (span, ty) in std::mem::take(&mut self.sized_annotations) {
+            if needs_sized_arg(&self.infer.resolve(&ty), self_param) {
+                spans.push(span);
+            }
+        }
+        // A local of an unsized type, `Self` or a tuple ending in one (a local holding a
+        // `W<Self>` is reported where that type is written or built, as in rustc), and a
+        // tuple expression or an assignment's left side of such a type.
         let mut locals: Vec<(LocalId, Ty)> = self
             .local_types
             .iter()
@@ -5538,23 +5873,82 @@ impl<'a> FnCtxt<'a> {
         locals.sort_by_key(|(l, _)| *l);
         for (local, ty) in locals {
             let info = self.resolve.local(local);
-            if info.is_param {
-                continue;
-            }
-            if holds_by_value(&self.infer.resolve(&ty), self_param) {
+            if !info.is_param && is_unsized_self(&self.infer.resolve(&ty), self_param) {
                 spans.push(info.span);
             }
         }
-        for span in spans {
-            self.error(
-                Diagnostic::error(
-                    ErrorCode::UNSIZED_TYPE,
-                    "the size for values of type `Self` cannot be known at compilation time",
-                )
-                .with_label(span, "doesn't have a size known at compile-time")
-                .with_note("in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet"),
-            );
+        for (span, ty) in std::mem::take(&mut self.sized_values) {
+            if is_unsized_self(&self.infer.resolve(&ty), self_param) {
+                spans.push(span);
+            }
         }
+        // A call's `Self` result (rustc's sized return value): the obligation `Self:
+        // Sized` is one, so only the first call is reported. A method call's is a move
+        // of an unsized value (rustc's E0161, found by the borrow checker, which does
+        // not run on a body with errors), reported when it is not bound to a local and
+        // nothing else is.
+        let bound = std::mem::take(&mut self.let_bound_inits);
+        let mut calls: Vec<Span> = Vec::new();
+        let mut moves: Vec<Span> = Vec::new();
+        for (id, span, method) in std::mem::take(&mut self.self_calls) {
+            // The callee returns its trait's `Self`, which is this trait's here (not
+            // `x.Merge(y)` on a `T: Merge`).
+            let is_self = self
+                .expr_types
+                .get(&id)
+                .is_some_and(|t| self.infer.resolve(t) == Ty::Param(self_param));
+            if !is_self {
+                continue;
+            }
+            if !method {
+                calls.push(span);
+            } else if !bound.contains(&id) {
+                moves.push(span);
+            }
+        }
+        spans.extend(calls.into_iter().min_by_key(|s| (s.start, s.end)));
+        // A generic argument holding `Self`, at the operand of that parameter's type or
+        // else at the path, and a call or path whose value is a struct or an enum
+        // holding `Self`.
+        for u in std::mem::take(&mut self.sized_uses) {
+            for (param, arg) in &u.params {
+                let arg = self.infer.resolve(arg);
+                if holds_by_value(&arg, self_param) {
+                    let at = u
+                        .operands
+                        .iter()
+                        .find(|(_, t)| *t == Ty::Param(*param))
+                        .map_or(u.at, |(s, _)| *s);
+                    spans.push(at);
+                }
+            }
+            if let Some((span, ty)) = &u.result {
+                let ty = self.infer.resolve(ty);
+                if matches!(ty, Ty::Adt(..)) && holds_by_value(&ty, self_param) {
+                    spans.push(*span);
+                }
+            }
+        }
+        if spans.is_empty() {
+            // Reported by `finish`, once no other error can come.
+            self.unsized_moves = moves;
+        }
+        spans.sort_by_key(|s| (s.start, s.end));
+        spans.dedup();
+        for span in spans {
+            self.unsized_self_error(span);
+        }
+    }
+
+    fn unsized_self_error(&mut self, span: Span) {
+        self.error(
+            Diagnostic::error(
+                ErrorCode::UNSIZED_TYPE,
+                "the size for values of type `Self` cannot be known at compilation time",
+            )
+            .with_label(span, "doesn't have a size known at compile-time")
+            .with_note("in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet"),
+        );
     }
 
     /// `-e` where `e` was still `{integer}` and became unsigned (E0307).
@@ -5576,28 +5970,152 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// A declaration whose type is still unknown and whose locals reported nothing
-    /// (`let _;`, `let (_, x): (_, i32);`), as rustc's E0282; `reported` are the locals
-    /// reported already; `quiet` when an earlier error in the body may be the cause (then
-    /// the type becomes an error silently).
-    fn report_unknown_let_types(&mut self, reported: &HashSet<LocalId>, quiet: bool) {
+    /// The locals whose type is still unknown, and the declarations whose type is
+    /// (`let _;`, `let (_, x): (_, i32);`, as rustc's E0282), among the body's
+    /// ambiguities. A declaration with a local of unknown type is that local's problem.
+    fn collect_unknown_locals(&mut self) {
+        let mut locals: Vec<(LocalId, Ty)> = self
+            .local_types
+            .iter()
+            .map(|(l, t)| (*l, t.clone()))
+            .collect();
+        locals.sort_by_key(|(l, _)| *l);
+        let mut unknown = HashSet::default();
+        for (id, ty) in locals {
+            let t = self.infer.resolve_with_defaults(&ty);
+            if !t.has_infer() {
+                continue;
+            }
+            unknown.insert(id);
+            let name = self.resolve.local(id).name.clone();
+            let span = self.local_spans[&id];
+            // Blocks reported as overlapping or overflowing may be what leaves it open.
+            let report = (!self.tied_to_reported_impl(&t)).then(|| {
+                Diagnostic::error(
+                    ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                    "type annotations needed",
+                )
+                .with_label(span, format!("consider giving `{name}` an explicit type"))
+            });
+            self.ambiguities.push(Ambiguity {
+                at: span,
+                known_self: false,
+                local: true,
+                tys: vec![t],
+                report,
+            });
+        }
         for (ty, span, annotated, bound) in std::mem::take(&mut self.let_decls) {
             let t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() && (quiet || bound.iter().any(|l| reported.contains(l))) {
-                self.infer.bind_error(&t);
-            } else if t.has_infer() {
-                let label = if annotated {
-                    "cannot infer type"
-                } else {
-                    "consider giving this pattern a type"
-                };
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(span, label),
-                );
+            if !t.has_infer() || bound.iter().any(|l| unknown.contains(l)) {
+                continue;
+            }
+            let label = if annotated {
+                "cannot infer type"
+            } else {
+                "consider giving this pattern a type"
+            };
+            let report = Diagnostic::error(
+                ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                "type annotations needed",
+            )
+            .with_label(span, label);
+            self.ambiguities.push(Ambiguity {
+                at: span,
+                known_self: false,
+                local: true,
+                tys: vec![t],
+                report: Some(report),
+            });
+        }
+    }
+
+    /// The unbound general variables in `tys`, resolved, with the literal defaults.
+    fn open_vars(&mut self, tys: &[Ty]) -> Vec<Ty> {
+        fn walk(ty: &Ty, out: &mut Vec<Ty>) {
+            match ty {
+                Ty::Infer(_) => {
+                    if !out.contains(ty) {
+                        out.push(ty.clone());
+                    }
+                }
+                Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => walk(inner, out),
+                Ty::Tuple(elems) => elems.iter().for_each(|e| walk(e, out)),
+                Ty::Adt(_, args) => args.iter().for_each(|a| walk(a, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for t in tys {
+            let t = self.infer.resolve_with_defaults(t);
+            walk(&t, &mut out);
+        }
+        out
+    }
+
+    /// Reports the types inference left unknown ([`Ambiguity`]), as rustc reports the
+    /// obligations left ambiguous when a body is done (`report_ambiguity_errors`): none in
+    /// a body `tainted` by errors; else, in the order rustc registers them, every one
+    /// whose `Self` type is known (`S: Tr<_>`, its E0283) and, of those whose `Self` is
+    /// unknown (`_: Sized` for a local, `_: Add<i32>`, `_: Display`), only one that comes
+    /// before any other report: rustc skips them once its inference context is tainted.
+    /// So a body reports one E0282 however many locals stay unknown (#159). A local
+    /// stands for the obligation that leaves it open: one with a known `Self` sharing its
+    /// variables makes it that obligation's report, at the local, and the obligation is
+    /// not reported again. Every type left open becomes an error type.
+    fn report_ambiguities(&mut self, tainted: bool) {
+        let ambiguities = std::mem::take(&mut self.ambiguities);
+        let mut found: Vec<(Ambiguity, Vec<Ty>)> = ambiguities
+            .into_iter()
+            .map(|a| {
+                let vars = self.open_vars(&a.tys);
+                (a, vars)
+            })
+            .collect();
+        found.sort_by_key(|(a, _)| (a.at.start, a.at.end));
+        // What each report covers: its own variables, or for a local those of the first
+        // obligation with a known `Self` it shares one with, which it stands for
+        // (`let w = (S.Mk(), S.Mk());` is two reports, at `w` and the second call).
+        let obligations: Vec<Vec<Ty>> = found
+            .iter()
+            .filter(|(a, _)| a.known_self && !a.local)
+            .map(|(_, vars)| vars.clone())
+            .collect();
+        let mut covers: Vec<Vec<Ty>> = Vec::with_capacity(found.len());
+        for (a, vars) in &mut found {
+            if a.local {
+                let first = obligations
+                    .iter()
+                    .find(|o| o.iter().any(|v| vars.contains(v)));
+                a.known_self = first.is_some();
+                covers.push(first.cloned().unwrap_or_else(|| vars.clone()));
+            } else {
+                covers.push(vars.clone());
+            }
+        }
+        let mut reported_any = false;
+        let mut reported_known: HashSet<Ty> = HashSet::default();
+        for ((a, vars), cover) in found.iter().zip(&covers) {
+            let Some(report) = &a.report else {
+                continue;
+            };
+            if tainted || vars.is_empty() {
+                continue;
+            }
+            if a.known_self {
+                if cover.iter().all(|v| reported_known.contains(v)) {
+                    continue;
+                }
+                reported_known.extend(cover.iter().cloned());
+            } else if reported_any {
+                continue;
+            }
+            reported_any = true;
+            self.error(report.clone());
+        }
+        for (a, _) in found {
+            for t in &a.tys {
+                let t = self.infer.resolve(t);
                 self.infer.bind_error(&t);
             }
         }
@@ -5606,49 +6124,47 @@ impl<'a> FnCtxt<'a> {
     fn finish(mut self) -> BodyTypes {
         self.select_where_possible();
         self.select_judging(true);
-        self.report_open_operations();
-        self.check_never_operands();
+        self.collect_open_operations();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
-        // unconstrained; it becomes `!` (`()` in edition 2021).
+        // unconstrained; it becomes `!` (`()` in edition 2021). In a body tainted by
+        // errors it becomes an error type, as in rustc, so nothing more is reported
+        // about it (`!: From<i64>` after a mismatch). The operations on `!` are rustc's
+        // obligations, reported after its fallback: they do not taint it.
+        let tainted = self.sink.error_count() > self.errors_before;
+        self.check_never_operands();
         for v in std::mem::take(&mut self.diverging_vars) {
-            self.infer.fall_back_to_never(&v);
+            if tainted {
+                self.infer.fall_back_to_error(&Ty::Infer(v));
+            } else {
+                self.infer.fall_back_to_never(&Ty::Infer(v));
+            }
         }
         self.check_pending_prints();
-        // Report locals whose type is still unknown, then apply literal defaults.
+        // The types still unknown, reported together as rustc reports its ambiguities,
+        // after the errors that taint the body (failed bounds among them); an earlier
+        // error may be what left a type unknown (`let x = F(1, 2);` with the wrong
+        // argument count), and then nothing more is reported.
+        self.collect_unknown_locals();
+        self.collect_unknown_generic_args();
+        // rustc checks the casts after the fallback, and a repeat's `Copy` is one of its
+        // obligations: both are reported before the ambiguities, and taint them.
+        self.check_casts();
+        self.check_pending_repeats();
+        let reported_impls = self.uses_reported_impls(&self.obligations);
+        self.check_obligations();
+        let tainted = reported_impls || self.sink.error_count() > self.errors_before;
+        self.report_ambiguities(tainted);
         let mut local_types = HashMap::default();
-        let mut locals: Vec<(LocalId, Ty)> =
-            std::mem::take(&mut self.local_types).into_iter().collect();
-        locals.sort_by_key(|(l, _)| *l);
-        // An earlier error in the body may be what left a type unknown (`let x = F(1, 2);`
-        // with the wrong argument count): then, as rustc, nothing more is reported.
-        let quiet = self.sink.error_count() > self.errors_before;
-        let mut reported = HashSet::default();
-        for (id, ty) in locals {
+        for (id, ty) in std::mem::take(&mut self.local_types) {
             let mut t = self.infer.resolve_with_defaults(&ty);
-            if t.has_infer() && (quiet || self.tied_to_reported_impl(&t)) {
-                reported.insert(id);
-                self.infer.bind_error(&t);
-                t = Ty::Error;
-            } else if t.has_infer() {
-                reported.insert(id);
-                let name = self.resolve.local(id).name.clone();
-                let span = self.local_spans[&id];
-                self.error(
-                    Diagnostic::error(
-                        ErrorCode::TYPE_ANNOTATIONS_NEEDED,
-                        "type annotations needed",
-                    )
-                    .with_label(span, format!("consider giving `{name}` an explicit type")),
-                );
-                // Other locals sharing the variable are the same problem, not a new one.
+            if t.has_infer() {
+                // Reported as an ambiguity, or the same problem as one.
                 self.infer.bind_error(&t);
                 t = Ty::Error;
             }
             local_types.insert(id, t);
         }
-        self.report_unknown_let_types(&reported, quiet);
         let generic_args = self.resolve_generic_args();
-        self.check_obligations();
         let try_conversions = self.check_pending_tries();
         let mut pat_types = HashMap::default();
         for (id, ty) in std::mem::take(&mut self.pat_types) {
@@ -5681,14 +6197,13 @@ impl<'a> FnCtxt<'a> {
                 self.check_int_range(&lit, p);
             }
         }
-        let casts = std::mem::take(&mut self.casts);
-        for cast in casts {
-            let from = self.infer.resolve_with_defaults(&cast.from);
-            let to = self.infer.resolve_with_defaults(&cast.to);
-            self.check_cast(cast.span, &from, &to);
+        // A move of an unsized `Self` (rustc's E0161) is the borrow checker's, which
+        // does not run on a body with errors.
+        if self.sink.error_count() == self.errors_before {
+            for span in std::mem::take(&mut self.unsized_moves) {
+                self.unsized_self_error(span);
+            }
         }
-
-        self.check_pending_repeats();
 
         let has_errors = self.sink.error_count() > self.errors_before;
         BodyTypes {
@@ -5728,6 +6243,31 @@ impl<'a> FnCtxt<'a> {
                 (id, if t.has_infer() { Ty::Error } else { t })
             })
             .collect()
+    }
+
+    /// The casts, in order, once the fallback is done (rustc's `check_casts`): an operand
+    /// type still unknown is E0282 there, in a body without errors so far.
+    fn check_casts(&mut self) {
+        for cast in std::mem::take(&mut self.casts) {
+            let from = self.infer.resolve_with_defaults(&cast.from);
+            let to = self.infer.resolve_with_defaults(&cast.to);
+            if matches!(from, Ty::Infer(_)) || to.has_infer() {
+                if self.sink.error_count() == self.errors_before {
+                    self.error(
+                        Diagnostic::error(
+                            ErrorCode::TYPE_ANNOTATIONS_NEEDED,
+                            "type annotations needed",
+                        )
+                        .with_label(cast.span, "type must be known at this point")
+                        .with_note("a cast needs its operand's type: give it a type annotation"),
+                    );
+                }
+                self.infer.bind_error(&from);
+                self.infer.bind_error(&to);
+                continue;
+            }
+            self.check_cast(cast.span, &from, &to);
+        }
     }
 
     /// `[x; N]` with `N` other than 0 or 1 copies `x`: its type must be `Copy`, unless it
@@ -5920,9 +6460,37 @@ fn strip_parens(mut e: &Expr) -> &Expr {
     e
 }
 
-/// `1 element`, `3 elements`.
-/// For each of `pats` (at most one `..` among them), the index of the element or field
-/// it matches among `len`; `None` for the `..` itself.
+/// Whether `ty` is unsized because of the type parameter `param`: `param` itself, or a
+/// tuple whose last element is.
+fn is_unsized_self(ty: &Ty, param: DefId) -> bool {
+    match ty {
+        Ty::Param(p) => *p == param,
+        Ty::Tuple(elems) => elems.last().is_some_and(|e| is_unsized_self(e, param)),
+        _ => false,
+    }
+}
+
+/// Whether `ty` names, anywhere (behind references too), a struct or enum, an array or
+/// a slice with an element or argument that holds a value of the type parameter
+/// `param`: what is well-formed only for a sized `param` (`&W<Self>`).
+fn needs_sized_arg(ty: &Ty, param: DefId) -> bool {
+    match ty {
+        Ty::Ref(_, inner) => needs_sized_arg(inner, param),
+        Ty::Array(inner, _) | Ty::Slice(inner) => {
+            holds_by_value(inner, param) || needs_sized_arg(inner, param)
+        }
+        // Every element but the last needs a size, behind a reference too (`&(Self,
+        // i32)`); the last may be unsized (`&(i32, Self)`).
+        Ty::Tuple(elems) => elems.iter().enumerate().any(|(i, e)| {
+            i + 1 < elems.len() && holds_by_value(e, param) || needs_sized_arg(e, param)
+        }),
+        Ty::Adt(_, args) => args
+            .iter()
+            .any(|a| holds_by_value(a, param) || needs_sized_arg(a, param)),
+        _ => false,
+    }
+}
+
 /// Whether `ty` holds a value of the type parameter `param` itself (not behind a
 /// reference): what needs it to be sized.
 fn holds_by_value(ty: &Ty, param: DefId) -> bool {
@@ -5947,6 +6515,8 @@ fn known_nodes(ty: &Ty) -> usize {
     }
 }
 
+/// For each of `pats` (at most one `..` among them), the index of the element or field
+/// it matches among `len`; `None` for the `..` itself.
 pub fn rest_positions(pats: &[Pat], len: usize) -> Vec<Option<usize>> {
     let rest = pats.iter().position(|p| matches!(p.kind, PatKind::Rest));
     let after = rest.map_or(0, |r| pats.len() - r - 1);
@@ -5969,6 +6539,7 @@ fn join_and(items: &[String]) -> String {
     }
 }
 
+/// `1 element`, `3 elements`.
 fn elements(n: usize) -> String {
     if n == 1 {
         "1 element".to_owned()

@@ -1,0 +1,126 @@
+// Edition 2024 (#151): a variable a diverging expression is coerced to falls back to `!`
+// when nothing else decides it, wherever the coercion is: a generic enum variant's or
+// struct literal's field, a generic function's argument, a block's tail, `_` in an
+// annotation. rustc's `NeverToAny` adjustment marks the variable diverging.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct W<T> {
+    V: T,
+}
+
+struct W2<A, B> {
+    A: A,
+    B: B,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Copied<T: Copy>(x: T) -> i32 {
+    1
+}
+
+fn VariantPanic() {
+    let x: Opt<_> = Opt::Yes(Panic("x"));
+}
+
+fn StructReturn() -> i32 {
+    let w = W { V: return 3 };
+    0
+}
+
+fn CallLoop() {
+    let x = Id(loop {});
+}
+
+fn VariantBreak() {
+    loop {
+        let x = Opt::Yes(break);
+    }
+}
+
+fn Statements() {
+    Opt::Yes(Panic("s"));
+    W { V: Panic("s") };
+    Id(Panic("s"));
+}
+
+fn Tail() {
+    let y = { Opt::Yes(Panic("t")) };
+}
+
+fn TailBlock() {
+    let x = { Id(return) };
+}
+
+fn Nested() {
+    let x = Opt::Yes(W { V: Opt::Yes(Panic("n")) });
+}
+
+fn SecondField() {
+    let w = W2 { A: 1, B: return };
+}
+
+fn ArrayAndTuple() {
+    let a = [Id(return), Id(return)];
+    let t = (Id(return), 1u8);
+}
+
+fn AnnotatedUnderscore() {
+    let x: _ = return;
+}
+
+fn Assigned() {
+    let x;
+    x = Opt::Yes(return);
+}
+
+fn Shadowed() {
+    let x = Opt::Yes(return);
+    let x = 5;
+}
+
+fn Borrowed() {
+    let w = W { V: return };
+    let r = &w;
+}
+
+fn Matched() {
+    match Id(return) {
+        _ => {}
+    }
+}
+
+fn Cast() {
+    let x = Id(return) as u8;
+}
+
+// `!` is `Copy` and printable.
+fn Bounds() {
+    Copied(return);
+    PrintLine(Id(return));
+}
+
+// A later use decides the variable instead.
+fn Decided() -> u8 {
+    let x = Opt::Yes(return 1);
+    let y: Opt<u8> = x;
+    match y {
+        Opt::Yes(v) => v,
+        Opt::No => 0,
+    }
+}
+
+fn Two<T>(a: T, b: T) -> T {
+    a
+}
+
+fn DecidedByOtherArgument() -> u8 {
+    Two(return 2, 5u8)
+}
+
+fn Main() {}

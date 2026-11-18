@@ -1,0 +1,148 @@
+// Sabiko's E0208 for rustc's E0277 (and E0161): in a trait's provided method `Self` may be
+// unsized, so each place rustc needs it sized is an error, once per place (#159): a call
+// returning `Self` that is not bound to a local, a generic argument holding `Self` (at the
+// operand of that type, else at the path), a call or path building an enum or a struct
+// holding `Self`, a type naming one, even behind a reference. A reference to `Self` is
+// fine.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct W<T> {
+    V: T,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn ByRef<T>(x: &T) -> i32 {
+    1
+}
+
+struct S {}
+
+impl S {
+    fn Take<U>(&self, u: &U) -> i32 {
+        1
+    }
+
+    fn Nothing<U>(&self) -> i32 {
+        1
+    }
+}
+
+trait Make {
+    fn Make() -> Self;
+    fn Get(&self) -> Self;
+    fn Peek(&self) -> i32;
+
+    fn Statement() -> i32 {
+        Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Argument() -> i32 {
+        Id(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Variant() -> i32 {
+        Opt::Yes(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        //~^ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn UnitVariant() -> i32 {
+        let o: Opt<Self> = Opt::No; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        //~^ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Literal() -> i32 {
+        W { V: Self::Make() }; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Borrowed() -> i32 {
+        let r = &Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Receiver() -> i32 {
+        Self::Make().Peek() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    }
+
+    fn ParameterBehindReference(w: &W<Self>) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn GenericBehindReference(&self) -> i32 {
+        ByRef(self) //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    }
+
+    fn MethodStatement(&self) -> i32 {
+        self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        self.Get().Peek() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    }
+
+    // The local is reported, not the call.
+    fn MethodBound(&self) -> i32 {
+        let x = self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    // A method's generic argument, inferred or written.
+    fn MethodArgument(&self) -> i32 {
+        let s = S {};
+        s.Take(self) + s.Nothing::<Self>() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        //~^ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    }
+
+    // A tuple's elements but the last, behind a reference too.
+    fn TupleFirst(&self, t: &(Self, i32)) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        let u: &(i32, (Self, i32)); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    // An assignment's target, as well as the local and the call.
+    fn Assigned() -> i32 {
+        let x; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        x = Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        //~^ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Fine(&self, last: &(i32, Self)) -> i32 {
+        let r = self;
+        let o: Opt<&Self> = Opt::Yes(self);
+        let i = Id(self);
+        let t = (self, 1);
+        let s = S {};
+        let l: &(i32, Self) = last;
+        r.Peek() + i.Peek() + s.Take(&self) + s.Nothing::<&Self>()
+    }
+}
+
+// A supertrait's member returning its `Self` returns this trait's; one called on another
+// type parameter does not.
+trait Other {
+    fn Mk() -> Self;
+    fn Merge(&self, other: &Self) -> Self;
+}
+
+trait Sub: Other {
+    fn L() -> i32 {
+        Self::Mk(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn G<T: Other>(x: &T) -> i32 {
+        T::Mk();
+        x.Merge(x);
+        2
+    }
+}
+
+fn Main() {}

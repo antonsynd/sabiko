@@ -49,8 +49,8 @@ fn AssignTarget() {
 }
 
 fn PrintUnknown() {
-    let x;
-    PrintLine(&x); //~ ERROR E0313 type annotations needed
+    let x; //~ ERROR E0313 type annotations needed
+    PrintLine(&x);
 }
 
 fn OneBranchReturns(b: bool) -> i32 {

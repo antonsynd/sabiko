@@ -5,10 +5,3 @@
     │         ┬  
     │         ╰── consider giving `o` an explicit type
 ────╯
-[E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed_inside_types.sabi:21:9 ]
-    │
- 21 │     let w = Id(W { V: Opt::No }); //~ ERROR E0313 type annotations needed
-    │         ┬  
-    │         ╰── consider giving `w` an explicit type
-────╯

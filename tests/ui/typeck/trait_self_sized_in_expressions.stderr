@@ -1,0 +1,198 @@
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:42:9 ]
+    │
+ 42 │         Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ──────┬─────  
+    │               ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:47:12 ]
+    │
+ 47 │         Id(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │            ──────┬─────  
+    │                  ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:52:9 ]
+    │
+ 52 │         Opt::Yes(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ───────────┬──────────  
+    │                    ╰──────────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:52:18 ]
+    │
+ 52 │         Opt::Yes(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                  ──────┬─────  
+    │                        ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:58:16 ]
+    │
+ 58 │         let o: Opt<Self> = Opt::No; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                ────┬────  
+    │                    ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:58:28 ]
+    │
+ 58 │         let o: Opt<Self> = Opt::No; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                            ───┬───  
+    │                               ╰───── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:64:16 ]
+    │
+ 64 │         W { V: Self::Make() }; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                ──────┬─────  
+    │                      ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:69:18 ]
+    │
+ 69 │         let r = &Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                  ──────┬─────  
+    │                        ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:74:9 ]
+    │
+ 74 │         Self::Make().Peek() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ──────┬─────  
+    │               ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:77:33 ]
+    │
+ 77 │     fn ParameterBehindReference(w: &W<Self>) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                                 ─────┬─────  
+    │                                      ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:82:9 ]
+    │
+ 82 │         ByRef(self) //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ──┬──  
+    │           ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:86:9 ]
+    │
+ 86 │         self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ─────┬────  
+    │              ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:87:9 ]
+    │
+ 87 │         self.Get().Peek() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ─────┬────  
+    │              ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:92:13 ]
+    │
+ 92 │         let x = self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │             ┬  
+    │             ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:99:11 ]
+    │
+ 99 │         s.Take(self) + s.Nothing::<Self>() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │           ──┬─  
+    │             ╰─── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:99:26 ]
+    │
+ 99 │         s.Take(self) + s.Nothing::<Self>() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                          ───┬───  
+    │                             ╰───── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:104:26 ]
+     │
+ 104 │     fn TupleFirst(&self, t: &(Self, i32)) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │                          ───────┬───────  
+     │                                 ╰───────── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:105:16 ]
+     │
+ 105 │         let u: &(i32, (Self, i32)); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │                ─────────┬─────────  
+     │                         ╰─────────── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:111:13 ]
+     │
+ 111 │         let x; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │             ┬  
+     │             ╰── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:112:9 ]
+     │
+ 112 │         x = Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │         ┬  
+     │         ╰── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:112:13 ]
+     │
+ 112 │         x = Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │             ──────┬─────  
+     │                   ╰─────── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:137:9 ]
+     │
+ 137 │         Self::Mk(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │         ─────┬────  
+     │              ╰────── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯

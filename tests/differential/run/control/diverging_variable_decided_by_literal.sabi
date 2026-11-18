@@ -1,0 +1,114 @@
+// A diverging variable that a later literal decides (#151): `x` of `let mut x = if c {
+// return .. } else { Mk() };` or `let mut x = return;` takes the literal's type when it is
+// assigned one, and operators on it are those of that type, not of `!`. Each function
+// returns early; the code after the diverging branch only has to compile as rustc's does.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn Mk<T>() -> T {
+    Panic("never called")
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Add(c: bool) -> i32 {
+    let mut x = if c { return -1 } else { Mk() };
+    x = 5;
+    x + 1
+}
+
+fn Neg(c: bool) -> i32 {
+    let mut x = if c { return -2 } else { Mk() };
+    x = 5;
+    -x
+}
+
+fn Float(c: bool) -> f64 {
+    let mut x = if c { return -3.5 } else { Mk() };
+    x = 2.5;
+    x * 2.0
+}
+
+fn Compare(c: bool) -> bool {
+    let mut x = if c { return false } else { Mk() };
+    x = 5;
+    x == 1
+}
+
+fn RightOperand(c: bool) -> i32 {
+    let mut x = if c { return -4 } else { Mk() };
+    x = 5;
+    1 + x
+}
+
+fn Compound(c: bool) -> i32 {
+    let mut x = if c { return -5 } else { Mk() };
+    x = 5;
+    x += 1;
+    x
+}
+
+fn ReturnFirst() -> i32 {
+    let mut x = return -6;
+    x = 5;
+    let y = -x;
+    x + y
+}
+
+fn InArray(c: bool) -> i32 {
+    let x = if c { return -7 } else { Mk() };
+    let a = [x, 5];
+    x + a[1]
+}
+
+fn ThroughId() -> u8 {
+    let mut x = Id(return 8);
+    x = 5;
+    x + 1u8
+}
+
+fn OtherBranchFloat(c: bool) -> f64 {
+    let x = if c { return -9.5 } else { Mk() };
+    let y = if c { x } else { 2.5 };
+    -x + y
+}
+
+fn DecidedAfterOperation() -> i32 {
+    let mut x = Mk2();
+    let y = x + 1;
+    x = return 10;
+    x = 5;
+    y
+}
+
+fn Mk2<T>() -> T {
+    loop {}
+}
+
+// A value of a generic type at `!` built in a branch that is not taken.
+fn VariantAtNever(c: bool) -> i32 {
+    let x = if c { Opt::No } else { Opt::Yes(return 11) };
+    match x {
+        Opt::Yes(_) => 0,
+        Opt::No => 12,
+    }
+}
+
+fn Main() {
+    PrintLine(Add(true));
+    PrintLine(Neg(true));
+    PrintLine(Float(true));
+    PrintLine(Compare(true));
+    PrintLine(RightOperand(true));
+    PrintLine(Compound(true));
+    PrintLine(ReturnFirst());
+    PrintLine(InArray(true));
+    PrintLine(ThroughId());
+    PrintLine(OtherBranchFloat(true));
+    PrintLine(VariantAtNever(true));
+    PrintLine(VariantAtNever(false));
+}

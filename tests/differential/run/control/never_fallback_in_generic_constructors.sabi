@@ -1,0 +1,57 @@
+// A diverging expression inside a generic constructor or call (#151): its type parameter
+// falls back to `!` (edition 2024), and the code after it never runs.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct W<T> {
+    V: T,
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn EarlyReturn(n: i32) -> i32 {
+    if n > 2 {
+        let w = W { V: return n * 10 };
+    }
+    n
+}
+
+fn BreakOut(limit: i32) -> i32 {
+    let mut i = 0;
+    loop {
+        i += 1;
+        if i == limit {
+            let x = Opt::Yes(break);
+        }
+    }
+    i
+}
+
+fn ReturnFromCall(flag: bool) -> u8 {
+    if flag {
+        let x = Id(return 7);
+    }
+    3
+}
+
+fn Decided(n: u8) -> u8 {
+    let x = if n == 0 { Opt::Yes(return 99) } else { Opt::Yes(n) };
+    match x {
+        Opt::Yes(v) => v + 1,
+        Opt::No => 0,
+    }
+}
+
+fn Main() {
+    PrintLine(EarlyReturn(1));
+    PrintLine(EarlyReturn(5));
+    PrintLine(BreakOut(4));
+    PrintLine(ReturnFromCall(true));
+    PrintLine(ReturnFromCall(false));
+    PrintLine(Decided(0));
+    PrintLine(Decided(4));
+}
