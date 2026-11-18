@@ -1661,7 +1661,46 @@ diagnostics of monomorphisation (those labelled "instantiated here") out of its 
 of a `--emit=mir` and an IL run, and keeps the program above as a case
 (`deferred_prelude_body_errors_are_monomorphisations`). `build_bodies` still panics for
 a program's function without a type table, so only prelude bodies are ever skipped; a
-deferred check reports an elaboration cut short (E0900) as the eager one does.
+deferred check reports an elaboration cut short (E0900) as the eager one does. Fixed
+since by decision 100 (below): the program compiles in every mode, and the `no_panic.rs`
+case is now `deferred_prelude_bodies_ignore_program_traits`.
+
+Update (2026-11-18), program items named like prelude items (#152, #173, decision 100).
+Two ways a program's items still reached into the prelude's names, both fixed as rustc
+has it. Names: the resolver kept one map of names per scope, so a user `struct Ok { A:
+i32 }` or `enum Some { B }` hid the prelude's variant as a value too (`Ok(1)` was "expected
+value, found struct", `let Ok = 1;` was accepted where rustc reports E0530), and a user
+`fn Option()` hid the type `Option<T>`. Each scope (the file's, the prelude's) now has a
+type and a value namespace (`Scope`), each definition entering the ones rustc puts it in
+(a struct with named fields, an enum, a trait: type; a function, a constant, a builtin:
+value; a unit struct and an imported unit or tuple variant: both), and the prelude's
+exports, the builtins and the language traits fill each namespace the file's items leave
+free; a lookup takes its own namespace first and falls back to the other only to report
+the wrong kind of item, as before. A file still gives a name one item (decision 17,
+E0200); rustc accepts `struct S { .. }` beside `fn S()`, which stays a restriction. Traits:
+a type parameter's member path or method call collected candidates from every trait of
+the program and the prelude, so a program trait with an associated `from` and an
+unbounded blanket impl made the prelude `Into` body's `U::from(self)` ambiguous (E0342
+inside `library/core`, rustc accepts), and so did any user generic function whose bound
+named a member some blanket trait shared. Now, as rustc's probe: a type parameter's
+bounds (elaborated) are tried first, at each autoderef step and autoref before the other
+traits (rustc's inherent candidates of a parameter); then the traits in scope, which for a
+prelude body are the prelude's and the language traits only, and for the program its own,
+the prelude's `pub` ones and the language traits (`ResolveResults::trait_in_scope`). A
+prelude trait stays in scope even where a program item hides its name, as in rustc (a
+program `trait From` with a blanket impl makes `i64::from(5i32)` E0342, rustc's E0034).
+rustc's verdicts on 63 programs (user structs, enums, traits, functions, constants and
+unit structs named `Ok`, `Err`, `Some`, `None`, `Option`, `Result`, `From`, `Into`,
+`PrintLine`, used as types, values, patterns, let-else and through `?`; user traits named
+`From`, `Into`, `Clone`, `Debug`, with `from`, `into`, `is_some`, `unwrap` members, blanket
+or not, called through bounds, supertraits, references and concrete types) all match but
+three: a tuple struct and a variant constructor as a value are not supported yet (E0107,
+E0317), and a user trait `Default` with `i32::default()` is accepted where rustc finds
+std's `Default` too (Sabiko's prelude has no `Default`). Tests:
+`differential/run/prelude/{types_named_like_variants, values_named_like_types,
+user_trait_named_from, user_trait_with_from_member}`,
+`differential/run/traits/bounds_before_traits_in_scope`, UI tests
+`resolve/prelude_names_per_namespace` and `typeck/traits_in_scope`.
 
 Update (2026-11-17), the `sabiko_borrowck` survivors of nightly runs 27 to 32 (#166): the
 crate scored 92.4% against 93 with 32 survivors, 11 of them from #141, #148 and #154. Tests
@@ -1765,7 +1804,7 @@ an `Option<[u8; 2]>` or `Result<u8, [u8; 2]>` compiles and runs
 (`run/prelude/try_array_payloads`), and its E0107 guard is gone. Filed: comparison spans
 in `if let`/`while let`/let-else and comparisons that reuse a cached read (#150),
 never-type fallback inside a generic constructor (#151), one namespace for types and
-values hiding a prelude variant behind a user type (#152).
+values hiding a prelude variant behind a user type (#152, fixed by decision 100).
 
 Status (2026-11-11): generic traits, `From` and `Into`, and `?` converting the error through
 `From` (#117's foundation, #13's last part, decision 95). `trait Tr<T, U = Self>` with its

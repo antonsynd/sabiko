@@ -1,0 +1,83 @@
+// A struct with named fields, an enum and a trait take only the type namespace (#152,
+// decision 100): the prelude's `Ok`, `Some`, `None` and `Err` stay in scope as values, in
+// expressions, patterns, let-else and `?`, while the same names in a type, a struct
+// literal, a struct pattern or a path are the program's own items.
+struct Ok {
+    A: i32,
+}
+
+enum Some {
+    B,
+    C(i32),
+}
+
+struct None {
+    a: i32,
+}
+
+trait Err {
+    fn Twice(&self) -> i32;
+}
+
+impl Err for i32 {
+    fn Twice(&self) -> i32 {
+        *self * 2
+    }
+}
+
+fn Half(n: i32) -> Result<i32, i32> {
+    if n % 2 == 0 { Ok(n / 2) } else { Err(n) }
+}
+
+fn Quarter(n: i32) -> Result<i32, i64> {
+    let h = Half(n)?;
+    let q = Half(h)?;
+    Ok(q)
+}
+
+fn Make(a: i32) -> Ok {
+    Ok { A: a }
+}
+
+fn Main() {
+    let r: Result<i32, i32> = Ok(1);
+    let s = Make(2);
+    match r {
+        Ok(v) => PrintLine(v + s.A),
+        Err(_) => PrintLine(0),
+    }
+    let Ok { A } = s;
+    PrintLine(A);
+    let x = Some(3);
+    if let Some(v) = x {
+        PrintLine(v.Twice());
+    }
+    let Some(y) = x else {
+        return;
+    };
+    PrintLine(y);
+    let kinds = [Some::B, Some::C(4)];
+    let mut i = 0;
+    while i < 2 {
+        match kinds[i] {
+            Some::B => PrintLine("B"),
+            Some::C(n) => PrintLine(n),
+        }
+        i += 1;
+    }
+    let empty: Option<i32> = None;
+    let n = None { a: 5 };
+    match empty {
+        None => PrintLine(n.a),
+        Some(v) => PrintLine(v),
+    }
+    PrintLine(Err::Twice(&8));
+    match Quarter(12) {
+        Ok(v) => PrintLine(v),
+        Err(e) => PrintLine(e),
+    }
+    match Quarter(6) {
+        Ok(v) => PrintLine(v),
+        Err(e) => PrintLine(e),
+    }
+}

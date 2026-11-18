@@ -16,9 +16,11 @@
 //! - primitive type names (`i32`, `bool`, ...) are resolved last, so a user struct may
 //!   shadow them (as in Rust).
 //!
-//! Sabiko has a single namespace for items: a struct and a function may not share a
-//! name. Rust separates type and value namespaces; the restriction is deliberate (one
-//! name, one meaning) and recorded in `docs/DECISIONS.md`.
+//! A file's items may not share a name: a struct and a function may not have the same
+//! one. Rust separates type and value namespaces; the restriction is deliberate (one
+//! name, one meaning, decision 17). Names are still looked up per namespace, as in
+//! rustc (decision 100): the prelude's items fill each namespace the file's leave free,
+//! so a user `struct Ok { .. }` is the type `Ok` while the prelude's `Ok` stays the value.
 //!
 //! A few functions are built into the compiler ([`Builtin`]): `Print`, `PrintLine` and
 //! `Panic`, which code generation lowers to calls into the runtime library. Each gets a
@@ -517,6 +519,9 @@ pub struct ResolveResults {
     /// The index of the first item of the `core` prelude in the file's items (decision
     /// 90); the number of items when there is no prelude.
     prelude_start: usize,
+    /// The prelude's items that are not `pub`: the user's file cannot name them, and a
+    /// private trait of the prelude (`Debug`) is not in scope there.
+    prelude_private: sabiko_span::fx::HashSet<DefId>,
     /// The prelude's types the user's file has an `impl` block for that the orphan rule
     /// rejects (E0211, E0214). The block is not used, so a call of its method or a bound
     /// it would have met fails; the type checker does not report those again.
@@ -712,7 +717,7 @@ impl ResolveResults {
             .find(|&m| self.def(m).name == name)
     }
 
-    /// Every trait member named `name`, in source order: the candidates of `Type::Name`.
+    /// Every trait member named `name`, in source order.
     #[must_use]
     pub fn trait_items_named(&self, name: &str) -> Vec<DefId> {
         let mut out: Vec<DefId> = self
@@ -723,6 +728,36 @@ impl ResolveResults {
             .filter(|&m| self.def(m).name == name)
             .collect();
         out.sort();
+        out
+    }
+
+    /// Whether the trait `tr` is in scope in the prelude's code (`in_prelude`) or in the
+    /// user's (decision 100), as rustc's traits in scope are: the language traits
+    /// everywhere; in the user's file, its own traits and the prelude's `pub` ones, even
+    /// where a user item of the same name hides one (rustc's prelude traits stay in scope
+    /// for method calls whatever shadows their names); in the prelude, only its own.
+    #[must_use]
+    pub fn trait_in_scope(&self, tr: DefId, in_prelude: bool) -> bool {
+        if self.lang_of(tr).is_some() {
+            return true;
+        }
+        if self.is_prelude(tr) {
+            in_prelude || !self.prelude_private.contains(&tr)
+        } else {
+            !in_prelude
+        }
+    }
+
+    /// Every member named `name` of a trait in scope in the prelude's code (`in_prelude`)
+    /// or the user's (see [`Self::trait_in_scope`]), in source order: the candidates of a
+    /// method call and of `Type::Name`.
+    #[must_use]
+    pub fn trait_items_in_scope(&self, name: &str, in_prelude: bool) -> Vec<DefId> {
+        let mut out = self.trait_items_named(name);
+        out.retain(|&m| {
+            let tr = self.def(m).parent.expect("a trait member");
+            self.trait_in_scope(tr, in_prelude)
+        });
         out
     }
 
@@ -955,8 +990,8 @@ pub fn resolve_program(
             ..ResolveResults::default()
         },
         ctors: HashMap::default(),
-        items: HashMap::default(),
-        other_items: HashMap::default(),
+        items: Scope::default(),
+        other_items: Scope::default(),
         in_prelude: false,
         scopes: Vec::new(),
         sink,
@@ -1068,12 +1103,12 @@ struct Resolver<'d> {
     /// identifier in a pattern that names a unit one is a path pattern; one that names a
     /// tuple variant is E0225.
     ctors: HashMap<DefId, CtorKind>,
-    /// First definition of each item name, in the namespace of the item being resolved:
-    /// the user's file or the prelude (decision 90).
-    items: HashMap<String, DefId>,
-    /// The other namespace; [`Resolver::enter`] swaps the two.
-    other_items: HashMap<String, DefId>,
-    /// Whether `items` is the prelude's namespace.
+    /// The item names in scope where the item being resolved is: the user's file or the
+    /// prelude (decision 90).
+    items: Scope,
+    /// The other one; [`Resolver::enter`] swaps the two.
+    other_items: Scope,
+    /// Whether `items` is the prelude's scope.
     in_prelude: bool,
     scopes: Vec<Vec<(String, LocalId)>>,
     sink: &'d mut DiagnosticSink,
@@ -1097,6 +1132,64 @@ struct Resolver<'d> {
     /// Set by `resolve_assoc_path` when the path names a trait's member: what its first
     /// segment names (see `ResolveResults::assoc_self`).
     assoc_self: Option<Res>,
+}
+
+/// The item names in scope in the user's file or in the prelude: rustc's type and value
+/// namespaces, each name's first definition in each (decision 100). A struct with named
+/// fields, an enum and a trait are types; a function and a constant are values; a unit
+/// struct and a variant are both (a struct variant only a type), as in rustc. One file
+/// still gives a name one item (decision 17, E0200); the namespaces matter where names
+/// from different places meet: a prelude export fills each namespace the user's items
+/// leave free, so a user `struct Ok { .. }` hides the prelude's `Ok` only as a type.
+#[derive(Default)]
+struct Scope {
+    types: HashMap<String, DefId>,
+    values: HashMap<String, DefId>,
+}
+
+impl Scope {
+    /// Whether `name` is in either namespace.
+    fn contains(&self, name: &str) -> bool {
+        self.types.contains_key(name) || self.values.contains_key(name)
+    }
+
+    /// What `name` names where a type (a trait, a struct in a literal) is expected: the
+    /// type of that name, else the value, which the caller reports as the wrong kind of
+    /// item (rustc's E0573/E0574 look the name up in the other namespaces the same way).
+    /// Also the earlier definition a second item of the name in a file clashes with
+    /// (E0200).
+    fn type_or_value(&self, name: &str) -> Option<DefId> {
+        self.types
+            .get(name)
+            .or_else(|| self.values.get(name))
+            .copied()
+    }
+
+    /// What `name` names where a value is expected: the value of that name, else the type,
+    /// which the caller reports as the wrong kind of item (rustc's E0423).
+    fn value_or_type(&self, name: &str) -> Option<DefId> {
+        self.values
+            .get(name)
+            .or_else(|| self.types.get(name))
+            .copied()
+    }
+
+    /// Defines `name` as `def` in the namespaces `ns` where it is still free.
+    fn define_if_free(&mut self, name: &str, def: DefId, ns: Namespaces) {
+        if ns.ty {
+            self.types.entry(name.to_owned()).or_insert(def);
+        }
+        if ns.value {
+            self.values.entry(name.to_owned()).or_insert(def);
+        }
+    }
+}
+
+/// The namespaces a definition's name is in (see [`Scope`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Namespaces {
+    ty: bool,
+    value: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1233,6 +1326,24 @@ impl Resolver<'_> {
         }
     }
 
+    /// The namespaces `def`'s name is in, as rustc puts it there (see [`Scope`]).
+    fn namespaces(&self, def: DefId) -> Namespaces {
+        match self.results.def(def).kind {
+            DefKind::Fn | DefKind::Const => Namespaces {
+                ty: false,
+                value: true,
+            },
+            DefKind::Struct | DefKind::Variant => Namespaces {
+                ty: true,
+                value: self.ctors.contains_key(&def),
+            },
+            DefKind::Enum | DefKind::Trait | DefKind::TyParam | DefKind::Impl => Namespaces {
+                ty: true,
+                value: false,
+            },
+        }
+    }
+
     fn has_prelude(&self, file: &SourceFile) -> bool {
         self.results.prelude_start < file.items.len()
     }
@@ -1283,6 +1394,9 @@ impl Resolver<'_> {
                 builtin: None,
             });
             self.results.item_defs.insert(item.id, id);
+            if self.in_prelude && item.vis != sabiko_ast::Visibility::Public {
+                self.results.prelude_private.insert(id);
+            }
             if let ItemKind::Enum(e) = &item.kind {
                 self.collect_variants(id, index, e);
                 let core = CoreItem::ALL.into_iter().find(|c| c.name() == name.name);
@@ -1311,23 +1425,7 @@ impl Resolver<'_> {
             {
                 self.ctors.insert(id, CtorKind::Unit);
             }
-            if let Some(&first) = self.items.get(&name.name) {
-                let first_span = self.results.def(first).span;
-                self.sink.emit(
-                    Diagnostic::error(
-                        ErrorCode::DUPLICATE_DEFINITION,
-                        format!("the name `{}` is defined multiple times", name.name),
-                    )
-                    .with_label(name.span, format!("`{}` redefined here", name.name))
-                    .with_label(
-                        first_span,
-                        format!("previous definition of `{}` here", name.name),
-                    )
-                    .with_note("items share one namespace: a struct, function and constant may not have the same name"),
-                );
-            } else {
-                self.items.insert(name.name.clone(), id);
-            }
+            self.define_item(name, id);
         }
         // The prelude's imports, with its items known (decision 90).
         let prelude = self.has_prelude(file);
@@ -1336,8 +1434,9 @@ impl Resolver<'_> {
             self.collect_uses(file);
         }
         self.enter_namespace(false);
-        // The user's namespace: its own items (above), then the prelude's exports, then
-        // the builtins and the language traits, each only where the name is still free.
+        // The user's scope: its own items (above), then the prelude's exports, then the
+        // builtins and the language traits, each only where the name is still free in
+        // its namespace.
         if prelude {
             self.export_prelude(file);
         }
@@ -1345,12 +1444,36 @@ impl Resolver<'_> {
         self.collect_lang_items();
     }
 
+    /// Puts the item `id` named `name` in the scope being collected, in the namespaces it
+    /// is in; a second item of a name in one file is E0200 whatever the namespaces
+    /// (decision 17).
+    fn define_item(&mut self, name: &sabiko_ast::Ident, id: DefId) {
+        if let Some(first) = self.items.type_or_value(&name.name) {
+            let first_span = self.results.def(first).span;
+            self.sink.emit(
+                Diagnostic::error(
+                    ErrorCode::DUPLICATE_DEFINITION,
+                    format!("the name `{}` is defined multiple times", name.name),
+                )
+                .with_label(name.span, format!("`{}` redefined here", name.name))
+                .with_label(
+                    first_span,
+                    format!("previous definition of `{}` here", name.name),
+                )
+                .with_note("items share one namespace: a struct, function and constant may not have the same name"),
+            );
+        } else {
+            let ns = self.namespaces(id);
+            self.items.define_if_free(&name.name, id, ns);
+        }
+    }
+
     /// The builtins (decision 28). They come after the items so user items keep the
     /// `DefId`s they would have without them. A user item of the same name shadows a
     /// builtin without a diagnostic; the prelude (`prelude`) still sees the builtin.
     fn collect_builtins(&mut self, prelude: bool) {
         for builtin in Builtin::ALL {
-            let shadowed = self.items.contains_key(builtin.name());
+            let shadowed = self.items.values.contains_key(builtin.name());
             if shadowed && !prelude {
                 continue;
             }
@@ -1364,21 +1487,22 @@ impl Resolver<'_> {
                 parent: None,
                 builtin: Some(builtin),
             });
-            if !shadowed {
-                self.items.insert(builtin.name().to_owned(), id);
-            }
-            self.other_items
-                .entry(builtin.name().to_owned())
-                .or_insert(id);
+            let value = Namespaces {
+                ty: false,
+                value: true,
+            };
+            self.items.define_if_free(builtin.name(), id, value);
+            self.other_items.define_if_free(builtin.name(), id, value);
         }
     }
 
-    /// Brings the prelude's public items and imports into the user's namespace, under
-    /// the user's own items (decision 90): rustc's `std` prelude is a glob import, which
-    /// any item of the crate shadows.
+    /// Brings the prelude's public items and imports into the user's scope, under the
+    /// user's own items, namespace by namespace (decisions 90 and 100): rustc's `std`
+    /// prelude is a glob import, which an item of the crate shadows in the namespaces the
+    /// item is in, so a user `struct Ok { .. }` leaves the prelude's `Ok` a value.
     fn export_prelude(&mut self, file: &SourceFile) {
         debug_assert!(!self.in_prelude);
-        let mut exports: Vec<(String, DefId)> = Vec::new();
+        let mut exports: Vec<(String, DefId, Namespaces)> = Vec::new();
         for item in &file.items[self.results.prelude_start..] {
             if item.vis != sabiko_ast::Visibility::Public {
                 continue;
@@ -1386,22 +1510,29 @@ impl Resolver<'_> {
             match &item.kind {
                 ItemKind::Use(u) => {
                     for name in &u.names {
-                        if let Some(&def) = self.other_items.get(&name.name) {
-                            exports.push((name.name.clone(), def));
+                        let found = [
+                            (self.other_items.types.get(&name.name), true),
+                            (self.other_items.values.get(&name.name), false),
+                        ];
+                        for (def, ty) in found {
+                            if let Some(&def) = def {
+                                let ns = Namespaces { ty, value: !ty };
+                                exports.push((name.name.clone(), def, ns));
+                            }
                         }
                     }
                 }
                 ItemKind::Impl(_) => {}
                 _ => {
-                    if let Some(def) = self.results.item_defs.get(&item.id) {
+                    if let Some(&def) = self.results.item_defs.get(&item.id) {
                         let name = item.name().expect("only `impl` and `use` have no name");
-                        exports.push((name.name.clone(), *def));
+                        exports.push((name.name.clone(), def, self.namespaces(def)));
                     }
                 }
             }
         }
-        for (name, def) in exports {
-            self.items.entry(name).or_insert(def);
+        for (name, def, ns) in exports {
+            self.items.define_if_free(&name, def, ns);
         }
     }
 
@@ -1417,6 +1548,7 @@ impl Resolver<'_> {
             };
             let owner = if u.prefix.is_single() {
                 self.items
+                    .types
                     .get(&u.prefix.segments[0].name)
                     .copied()
                     .filter(|&d| self.results.def(d).kind == DefKind::Enum)
@@ -1454,7 +1586,7 @@ impl Resolver<'_> {
                     );
                     continue;
                 };
-                if let Some(&first) = self.items.get(&name.name) {
+                if let Some(first) = self.items.type_or_value(&name.name) {
                     let first_span = self.results.def(first).span;
                     self.sink.emit(
                         Diagnostic::error(
@@ -1469,7 +1601,8 @@ impl Resolver<'_> {
                     );
                     continue;
                 }
-                self.items.insert(name.name.clone(), variant);
+                let ns = self.namespaces(variant);
+                self.items.define_if_free(&name.name, variant, ns);
             }
         }
     }
@@ -1520,10 +1653,12 @@ impl Resolver<'_> {
             self.results.trait_members.insert(tr, members);
             self.results.supertraits.insert(tr, Vec::new());
             self.results.lang_items.insert(item, tr);
-            if !self.items.contains_key(item.name()) {
-                self.items.insert(item.name().to_owned(), tr);
-            }
-            self.other_items.entry(item.name().to_owned()).or_insert(tr);
+            let ty = Namespaces {
+                ty: true,
+                value: false,
+            };
+            self.items.define_if_free(item.name(), tr, ty);
+            self.other_items.define_if_free(item.name(), tr, ty);
         }
         let clone = self.results.lang_items[&LangItem::Clone];
         let copy = self.results.lang_items[&LangItem::Copy];
@@ -2264,9 +2399,9 @@ impl Resolver<'_> {
         self.resolve_generic_args(&tr.path, true);
         let res = if tr.path.is_single() {
             let name = &tr.path.segments[0];
-            match self.items.get(&name.name) {
-                Some(&d) if self.results.def(d).kind == DefKind::Trait => Res::Def(d),
-                Some(&d) => {
+            match self.items.type_or_value(&name.name) {
+                Some(d) if self.results.def(d).kind == DefKind::Trait => Res::Def(d),
+                Some(d) => {
                     let info = self.results.def(d);
                     let d = Diagnostic::error(
                         ErrorCode::WRONG_NAMESPACE,
@@ -2538,6 +2673,7 @@ impl Resolver<'_> {
                     && path.args_of(0).is_some_and(|a| !a.args.is_empty())
                     && self
                         .items
+                        .types
                         .get(&path.segments[0].name)
                         .is_some_and(|&d| self.results.def(d).kind.is_type());
                 if generic {
@@ -2567,6 +2703,7 @@ impl Resolver<'_> {
         let target = match &imp.self_ty.kind {
             TypeKind::Path(path) if path.is_single() => self
                 .items
+                .types
                 .get(&path.segments[0].name)
                 .copied()
                 .filter(|&d| self.results.def(d).kind.is_type())
@@ -2987,6 +3124,7 @@ impl Resolver<'_> {
                 let imported = path.is_single()
                     && self
                         .items
+                        .values
                         .get(&path.segments[0].name)
                         .is_some_and(|&d| self.results.def(d).kind == DefKind::Variant);
                 let res = if path.is_single() && !imported {
@@ -3124,7 +3262,7 @@ impl Resolver<'_> {
         if self.lookup_local(name).is_some() {
             return None;
         }
-        let &def = self.items.get(name)?;
+        let &def = self.items.values.get(name)?;
         let kind = self.results.def(def).kind;
         (kind == DefKind::Const || self.ctors.contains_key(&def)).then_some(def)
     }
@@ -3343,7 +3481,7 @@ impl Resolver<'_> {
                 // `Self` already has its block's arguments.
                 None
             } else {
-                self.items.get(&seg.name).copied().filter(|&d| {
+                self.items.types.get(&seg.name).copied().filter(|&d| {
                     let kind = self.results.def(d).kind;
                     kind.is_type() || kind == DefKind::Trait
                 })
@@ -3513,7 +3651,7 @@ impl Resolver<'_> {
         if let Some(&(_, param)) = self.ty_params.iter().find(|(n, _)| *n == name.name) {
             return Res::Def(param);
         }
-        if let Some(&def) = self.items.get(&name.name) {
+        if let Some(def) = self.items.type_or_value(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
                 DefKind::Struct | DefKind::Enum => Res::Def(def),
@@ -3620,7 +3758,7 @@ impl Resolver<'_> {
         if self.type_param_as_value(name) {
             return Res::Err;
         }
-        if let Some(&def) = self.items.get(&name.name) {
+        if let Some(def) = self.items.value_or_type(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
                 // Unit structs are values; the type checker rejects named structs used
@@ -3666,7 +3804,7 @@ impl Resolver<'_> {
             return res;
         }
         let known = ty.name == "Self"
-            || self.items.contains_key(&ty.name)
+            || self.items.contains(&ty.name)
             || PrimTy::from_name(&ty.name).is_some()
             || self.ty_params.iter().any(|(n, _)| *n == ty.name);
         if !known {
@@ -3691,7 +3829,11 @@ impl Resolver<'_> {
             let res = self.resolve_type_path_inner(&Path::single(ty.clone()));
             (res, res)
         };
-        let trait_member = self.results.trait_items_named(&item.name).first().copied();
+        let trait_member = self
+            .results
+            .trait_items_in_scope(&item.name, self.in_prelude)
+            .first()
+            .copied();
         let from_trait = |r: &mut Self| {
             r.assoc_self = Some(ty_res);
             trait_member.map(Res::Def)
@@ -3795,7 +3937,7 @@ impl Resolver<'_> {
         ty: &sabiko_ast::Ident,
         item: &sabiko_ast::Ident,
     ) -> Option<Res> {
-        let tr = *self.items.get(&ty.name)?;
+        let tr = *self.items.types.get(&ty.name)?;
         if self.results.def(tr).kind != DefKind::Trait {
             return None;
         }
@@ -3938,7 +4080,7 @@ impl Resolver<'_> {
                 res => res,
             };
         }
-        if let Some(&def) = self.items.get(&name.name) {
+        if let Some(def) = self.items.type_or_value(&name.name) {
             let info = self.results.def(def);
             return match info.kind {
                 DefKind::Struct => Res::Def(def),
@@ -4322,5 +4464,25 @@ mod tests {
         let (_, r, msgs) = run("struct i32;\nfn F(x: i32) {}\nconst K: i32 = 1;\nfn G() -> F {}");
         assert_eq!(msgs, ["E0203 expected type, found function `F`"]);
         assert_eq!(r.defs_of_kind(DefKind::Struct).count(), 1);
+    }
+
+    #[test]
+    fn names_are_looked_up_per_namespace() {
+        // A struct with named fields is only a type, so the builtin `PrintLine` stays the
+        // value of that name; a unit struct is a value too, and hides `Print` (decision
+        // 100).
+        let (ast, r, msgs) = run(
+            "struct PrintLine { a: i32 }\nstruct Print;\nfn F(p: PrintLine) { PrintLine(1); let x = Print; }",
+        );
+        assert!(msgs.is_empty(), "{msgs:?}");
+        let res: Vec<Option<Builtin>> = fn_paths(&ast, "F")
+            .iter()
+            .map(|(_, id)| match r.res(*id) {
+                Res::Def(d) => r.builtin(d),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(res, [Some(Builtin::PrintLine), None]);
+        assert!(r.defs.iter().all(|d| d.builtin != Some(Builtin::Print)));
     }
 }

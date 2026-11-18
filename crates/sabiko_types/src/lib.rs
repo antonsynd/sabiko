@@ -102,8 +102,8 @@ impl TypeckResults {
     /// postcondition that a type left unknown had its error reported. Monomorphisation
     /// calls this for the bodies a program reaches. The prelude is the compiler's own,
     /// valid code ([`typeck_with_prelude_bodies`] checks every body of it, in a test), so
-    /// `sink` receives nothing unless the compiler has a bug, or a program's trait makes
-    /// the prelude's method resolution ambiguous (#173).
+    /// `sink` receives nothing unless the compiler has a bug: a program's items do not
+    /// change what the prelude's code names or calls (decision 100).
     ///
     /// # Panics
     ///
@@ -450,7 +450,7 @@ fn check_const_bodies(
                     continue;
                 };
                 let ty = items0.const_ty(def).clone();
-                let cx = check::FnCtxt::new(resolve, items0, sink, ty);
+                let cx = check::FnCtxt::new(resolve, items0, sink, ty).for_item(def);
                 let body = if consts::is_assoc_const(resolve, def) {
                     cx.check_assoc_const(value, def)
                 } else {
