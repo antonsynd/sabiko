@@ -1,0 +1,36 @@
+// A variant, struct, tuple or array with a field of an empty enum has no values: on a
+// valid place (a local, its fields, the elements of a local array) it may be left out.
+enum Void {}
+
+enum E { A(i32), B(Void) }
+
+struct S { X: i32, V: Void }
+
+struct W { In: E }
+
+fn Id(i: usize) -> usize { i }
+
+fn Valid(e: E, w: W, a: [E; 2], o: Option<S>, t: Option<(i32, Void)>, z: Option<[Void; 1]>) -> i32 {
+    let E::A(n) = e;
+    let m = match w.In { E::A(v) => v };
+    let k = match a[Id(1)] { E::A(v) => v };
+    let p = match o { None => 1 };
+    let q = match t { None => 2 };
+    let u = match z { None => 3 };
+    n + m + k + p + q + u
+}
+
+fn Param(E::A(n): E) -> i32 { n }
+
+fn Absurd(r: Result<Void, Void>, s: S, t: (i32, Void), a: [Void; 1]) -> i32 {
+    let x: i32 = match s {};
+    let y: i32 = match t {};
+    let z: i32 = match a {};
+    match r {}
+}
+
+fn Assign(e: E) -> i32 {
+    let n;
+    E::A(n) = e;
+    n
+}

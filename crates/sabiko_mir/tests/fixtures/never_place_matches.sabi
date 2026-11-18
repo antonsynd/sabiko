@@ -1,0 +1,35 @@
+// Matches that leave out an uninhabited variant, and matches on a place of type `!`
+// (#178, #184, decision 106). A left-out variant falls to the switch's `unreachable`. A
+// place of type `!` is mentioned (its bounds checked), then its arms are entered as for
+// any place; with no arms the place is read (it must be initialised, as rustc's
+// `FakeRead(ForMatchedPlace)` requires) and the match ends in `unreachable`.
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn OkOnly(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    match r {
+        Ok(v) => v,
+    }
+}
+
+fn NoneOnly(c: bool) -> i32 {
+    let o = if c { let e = Panic("o"); Some(e) } else { None };
+    match o {
+        None => 3,
+    }
+}
+
+fn WildArm(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let r = &e;
+    match r[Id(2)] {
+        _ => 3,
+    }
+}
+
+fn NoArms(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    match e[Id(2)] {}
+}

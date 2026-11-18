@@ -1,0 +1,30 @@
+// A scrutinee place of type `!` (#184): its arms are entered after the index is checked,
+// so what they assign counts, and `match e[i] {}` diverges, also through a reference.
+fn Id(i: usize) -> usize { i }
+
+fn Places(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let r = &e;
+    let a = match e[Id(2)] { _ => 3 };
+    let b = match r[Id(2)] { _ => 4 };
+    let d: i32 = match e[Id(2)] { y => y };
+    let f: i32;
+    match e[Id(2)] { _ => { f = 5; } }
+    if let _ = e[Id(2)] { PrintLine(1); }
+    a + b + d + f
+}
+
+fn Empty(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let v: i32;
+    match e[Id(2)] {}
+    v
+}
+
+fn EmptyThroughReference(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let r: &[_] = &e;
+    let v: i32;
+    match r[Id(2)] {}
+    v
+}

@@ -1004,6 +1004,44 @@ impl Builder<'_> {
         self.pop_scope(span);
     }
 
+    /// Whether a scrutinee of type `!` is a value expression, which diverges (`return`,
+    /// `Panic(..)`, `loop {}`): the pattern is never tested, and nothing after it runs. A
+    /// place of type `!` (`e[i]` for `e: [!; 0]`, `*r` for `r: &!`, a `!` local) does not
+    /// diverge by being named: its arms are lowered as for any place, so a `_` arm is
+    /// entered after the place's indices are checked, as in rustc (#184, decision 106).
+    /// No value of type `!` exists, so no such arm runs, but the borrow checker sees what
+    /// it does (rustc reports a move in it, or a binding it leaves uninitialised).
+    fn diverges(&self, scrutinee: &Expr) -> bool {
+        self.ty(scrutinee).is_never() && !is_place_expr(self.resolve, scrutinee)
+    }
+
+    /// Reads the scrutinee `place` where no arm matched, as rustc's
+    /// `FakeRead(ForMatchedPlace)` does: the borrow checker then requires the place to be
+    /// initialised and not moved out of, without moving it. A `Copy` value is copied into
+    /// a fresh temporary (a read of a `!` value is cut before code generation, decision
+    /// 103), any other is borrowed. `unreachable` follows.
+    fn read_scrutinee(&mut self, place: &Place, span: Span) {
+        let ty = place.ty(&self.body);
+        let operand = self.place_operand(place.clone());
+        let (ty, rvalue) = match operand {
+            Operand::Copy(_) => (ty, Rvalue::Use(operand)),
+            _ => (
+                Ty::shared_ref(ty),
+                Rvalue::Ref(BorrowKind::Shared, place.clone()),
+            ),
+        };
+        let temp = self.new_local(LocalDecl {
+            ty,
+            mutability: Mutability::Mut,
+            kind: LocalKind::Temp,
+            name: None,
+            span,
+            source: None,
+            match_span: None,
+        });
+        self.assign(Place::local(temp), rvalue, span);
+    }
+
     /// `match scrutinee { arms }`, writing the arms' values into `dest`.
     pub(super) fn lower_match(
         &mut self,
@@ -1012,7 +1050,7 @@ impl Builder<'_> {
         arms: &[Arm],
         span: Span,
     ) {
-        if self.ty(scrutinee).is_never() {
+        if self.diverges(scrutinee) {
             // `match return {}`: the scrutinee diverges; nothing after it runs.
             self.lower_expr_discard(scrutinee);
             return;
@@ -1045,6 +1083,13 @@ impl Builder<'_> {
         }
         self.guard_held = outer_held;
         self.tests = saved;
+        if arms.iter().all(|arm| arm.guard.is_some()) {
+            // Every arm has a guard, or there is none (`match x {}`): the match is
+            // exhaustive only because the scrutinee's type has no values. rustc reads the
+            // place here (`FakeRead(ForMatchedPlace)`), which requires it to be
+            // initialised: `let x; if c { x = Panic(..) } match x {}` is E0381 (#184).
+            self.read_scrutinee(&place, scrutinee.span);
+        }
         // Exhaustiveness was checked: no value gets here.
         self.terminate(TerminatorKind::Unreachable, span);
         let join = self.new_block();
@@ -1074,7 +1119,7 @@ impl Builder<'_> {
         els: Option<&Expr>,
         span: Span,
     ) {
-        if self.ty(scrutinee).is_never() {
+        if self.diverges(scrutinee) {
             self.lower_expr_discard(scrutinee);
             return;
         }
@@ -1141,7 +1186,7 @@ impl Builder<'_> {
             scope_depth: depth,
         });
         let saved = self.push_temp_scope();
-        if self.ty(scrutinee).is_never() {
+        if self.diverges(scrutinee) {
             // `while let E::A(x) = return 1 {}` (#99): the scrutinee leaves, so neither the
             // pattern nor the body is reached.
             self.lower_expr_discard(scrutinee);
@@ -1267,7 +1312,7 @@ impl Builder<'_> {
                 self.enter(holds);
                 continue;
             };
-            if self.ty(scrutinee).is_never() {
+            if self.diverges(scrutinee) {
                 self.lower_expr_discard(scrutinee);
                 return false;
             }
@@ -1301,7 +1346,7 @@ impl Builder<'_> {
     /// block on success (an extending pattern, as for a plain `let`).
     pub(super) fn lower_let_else(&mut self, pat: &Pat, init: &Expr, els: Option<&Block>) {
         let span = init.span;
-        if self.ty(init).is_never() {
+        if self.diverges(init) {
             self.lower_expr_discard(init);
             self.declare_pattern_locals(pat);
             return;

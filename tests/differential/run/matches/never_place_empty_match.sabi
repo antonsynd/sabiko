@@ -1,0 +1,19 @@
+// `match r[i] {}` on an element of a `[!; 0]` reached through a slice (#184): the bounds
+// check runs and panics; the code after the match is unreachable.
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn Main() {
+    let c = false;
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    let r: &[_] = &e;
+    PrintLine(r.len());
+    let v: i32 = match r[Id(1)] {};
+    PrintLine(v);
+}

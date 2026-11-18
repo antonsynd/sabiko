@@ -1,0 +1,81 @@
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:22:11 ]
+    │
+ 22 │     match r[Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ────┬───  
+    │               ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:28:11 ]
+    │
+ 28 │     match s[Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ────┬───  
+    │               ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:34:11 ]
+    │
+ 34 │     match (*r)[Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ─────┬─────  
+    │                ╰─────── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:40:11 ]
+    │
+ 40 │     match a[0..2][Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ───────┬──────  
+    │                  ╰──────── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `E::B(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:46:11 ]
+    │
+ 46 │     match r[Id(0)].In { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+    │           ─────┬─────  
+    │                ╰─────── pattern `E::B(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0329] Error: refutable pattern in local binding
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:60:9 ]
+    │
+ 60 │     let E::A(z) = *r; //~ ERROR E0329 refutable pattern in local binding
+    │         ───┬───  
+    │            ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+────╯
+[E0329] Error: refutable pattern in local binding
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:61:9 ]
+    │
+ 61 │     let E::A(u) = w.In; //~ ERROR E0329 refutable pattern in local binding
+    │         ───┬───  
+    │            ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+────╯
+[E0329] Error: refutable pattern in local binding
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:62:9 ]
+    │
+ 62 │     let E::A(v) = ra[Id(0)]; //~ ERROR E0329 refutable pattern in local binding
+    │         ───┬───  
+    │            ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+────╯
+[E0329] Error: refutable pattern in local binding
+    ╭─[ tests/ui/typeck/uninhabited_variant_places.sabi:70:5 ]
+    │
+ 70 │     E::A(m) = *r; //~ ERROR E0329 refutable pattern in local binding
+    │     ───┬───  
+    │        ╰───── pattern `E::B(_)` not covered
+    │ 
+    │ Note: a `let` or parameter pattern must match every value; use `match`, `if let` or `let`-`else` to handle the others
+────╯

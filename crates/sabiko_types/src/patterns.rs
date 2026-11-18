@@ -667,7 +667,7 @@ pub(crate) fn exhaustiveness_of(
         sink,
     };
     for p in &f.params {
-        cx.refutable(&p.pat, "function argument");
+        cx.refutable(&p.pat, None, "function argument");
     }
     if let Some(b) = &f.body {
         cx.block(b);
@@ -694,9 +694,14 @@ impl Exhaustive<'_, '_> {
                     }
                     if let Some(els) = &l.els {
                         self.block(els);
-                        self.conditional(&l.pat, None, ConditionalKind::LetElse, els.span);
+                        self.conditional(
+                            &l.pat,
+                            l.init.as_ref(),
+                            ConditionalKind::LetElse,
+                            els.span,
+                        );
                     } else {
-                        self.refutable(&l.pat, "local binding");
+                        self.refutable(&l.pat, l.init.as_ref(), "local binding");
                     }
                 }
                 sabiko_ast::StmtKind::Expr { expr, .. } => self.expr(expr),
@@ -721,13 +726,13 @@ impl Exhaustive<'_, '_> {
                 }
                 self.check_match(scrutinee, arms);
             }
-            ExprKind::DestructuringAssign(pat, _) => {
+            ExprKind::DestructuringAssign(pat, rhs) => {
                 // rustc's `{ let pat = rhs; .. }`: the pattern must be irrefutable.
                 for_each_child(e, &mut |c| match c {
                     Child::Expr(c) => self.expr(c),
                     Child::Block(b) => self.block(b),
                 });
-                self.refutable(pat, "local binding");
+                self.refutable(pat, Some(rhs), "local binding");
             }
             ExprKind::If { cond, then, els } => {
                 if let Some(operands) = cond.let_chain() {
@@ -843,7 +848,7 @@ impl Exhaustive<'_, '_> {
             &cx,
             &ty,
             &lowered,
-            !through_deref(scrutinee, self.body),
+            known_valid(scrutinee, self.body),
         );
         self.unreachable(&report.unreachable);
         if report.witnesses.is_empty() {
@@ -867,9 +872,10 @@ impl Exhaustive<'_, '_> {
         );
     }
 
-    /// A `let` or parameter pattern must be irrefutable.
-    fn refutable(&mut self, pat: &Pat, what: &str) {
-        let report = self.check_one(pat);
+    /// A `let` or parameter pattern must be irrefutable. `scrutinee` is the initialiser
+    /// (none for a parameter or a `let` without one).
+    fn refutable(&mut self, pat: &Pat, scrutinee: Option<&Expr>, what: &str) {
+        let report = self.check_one(pat, scrutinee);
         if report.witnesses.is_empty() {
             return;
         }
@@ -887,11 +893,11 @@ impl Exhaustive<'_, '_> {
     fn conditional(
         &mut self,
         pat: &Pat,
-        _scrutinee: Option<&Expr>,
+        scrutinee: Option<&Expr>,
         kind: ConditionalKind,
         span: sabiko_span::Span,
     ) {
-        let report = self.check_one(pat);
+        let report = self.check_one(pat, scrutinee);
         if !report.witnesses.is_empty() {
             return;
         }
@@ -917,7 +923,9 @@ impl Exhaustive<'_, '_> {
         );
     }
 
-    fn check_one(&mut self, pat: &Pat) -> usefulness::Report {
+    /// Checks `pat` as a one-arm match on `scrutinee`, valid unless [`known_valid`] says
+    /// otherwise (a parameter's value is valid).
+    fn check_one(&mut self, pat: &Pat, scrutinee: Option<&Expr>) -> usefulness::Report {
         self.bindings_named_like_variants(pat);
         let ty = self
             .body
@@ -930,7 +938,8 @@ impl Exhaustive<'_, '_> {
             has_guard: false,
         };
         let cx = Shapes { items: self.items };
-        usefulness::check_match(&cx, &ty, &[arm])
+        let valid = scrutinee.is_none_or(|s| known_valid(s, self.body));
+        usefulness::check_match_with_validity(&cx, &ty, &[arm], valid)
     }
 
     fn unreachable(&mut self, spans: &[sabiko_span::Span]) {
@@ -1245,19 +1254,31 @@ fn strip_parens(mut e: &Expr) -> &Expr {
     e
 }
 
-/// Whether a scrutinee is a place reached through a dereference (`*r`, `(*r).F`, or `r.F`
-/// for a reference `r`, which dereferences it implicitly), which rustc does not assume to
-/// hold a valid value.
-fn through_deref(e: &Expr, body: &BodyTypes) -> bool {
+/// Whether a scrutinee is known to hold a valid value, as rustc's
+/// `is_known_valid_scrutinee` decides it (decision 106): a place reached through a
+/// dereference is not, since a reference may point to invalid data as far as the
+/// exhaustiveness checker knows. That is `*r`, a field `r.F` or index `r[i]` of a reference
+/// `r` (which dereferences it implicitly), an index of a sub-slice `a[lo..hi][i]` (rustc's
+/// `*Index::index(..)`), and any field or index of such a place. Every other place (a
+/// local, its fields, the elements of a local array) and every value expression is valid.
+fn known_valid(e: &Expr, body: &BodyTypes) -> bool {
     let e = strip_parens(e);
     match &e.kind {
-        ExprKind::Deref(_) => true,
+        ExprKind::Deref(_) => false,
         ExprKind::Field(base, _) => {
             body.field_accesses
                 .get(&e.id)
-                .is_some_and(|access| access.autoderefs > 0)
-                || through_deref(base, body)
+                .is_none_or(|access| access.autoderefs == 0)
+                && known_valid(base, body)
         }
-        _ => false,
+        ExprKind::Index(base, index) => {
+            !matches!(strip_parens(index).kind, ExprKind::Range(..))
+                && body
+                    .index_derefs
+                    .get(&e.id)
+                    .is_none_or(|&derefs| derefs == 0)
+                && known_valid(base, body)
+        }
+        _ => true,
     }
 }

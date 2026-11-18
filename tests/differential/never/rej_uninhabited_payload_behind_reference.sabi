@@ -1,0 +1,25 @@
+// Behind a reference an uninhabited payload must still be matched, and `&!` has values.
+//@ rustc: E0004 E0005
+//@ sabiko: E0328 E0329
+fn Reference(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    let p = &r;
+    match p { Ok(v) => *v }
+}
+
+fn Deref(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    let p = &r;
+    let Ok(v) = *p;
+    v
+}
+
+fn ReferencePayload(c: bool) -> i32 {
+    let o = if c { let e = &Panic("o"); Some(e) } else { None };
+    match o { None => 3 }
+}
+
+fn EmptyArray(c: bool) -> i32 {
+    let o = if c { let e = Panic("o"); Some([e; 0]) } else { None };
+    match o { None => 3 }
+}

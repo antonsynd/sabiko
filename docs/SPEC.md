@@ -1139,9 +1139,25 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   (decision 31): Sabiko must not accept invalid Rust; floats are never covered by literals
   or ranges (`..=-0.0 | 0.0..` reports `_`). A `&p` pattern matches every reference, so it
   is checked as `p` against the referent (`&E::B(false)` not covered).
-  A scrutinee reached through a dereference (`match *r`, or `match r.F` for a reference
-  `r`, whose field access dereferences it) is not assumed valid, so its
-  uninhabited variants must be matched, as in rustc. A `let` or parameter pattern must be
+  A variant, struct or tuple with a field of an uninhabited type, and an array of a
+  positive length of one, have no values and may be left out where the place is valid
+  (rustc's "visibly uninhabited" types, decision 106): `!`, an enum without variants, and
+  the variants of a generic enum at its instance (`match r { Ok(v) => v }` for
+  `r: Result<i32, !>`, `match o { None => 0 }` for `o: Option<!>`). A reference is never
+  uninhabited (`Some` of an `Option<&!>` must be matched), nor is `[!; 0]`.
+  A scrutinee reached through a dereference (`match *r`, or `match r.F` and `match r[i]`
+  for a reference `r`, whose field access or index dereferences it, `match a[0..2][i]`,
+  and any field or element of such a place) is not assumed valid, so its
+  uninhabited variants must be matched, as in rustc; the same goes for the initialiser of
+  a `let` (also with `else`), `if let` and `while let`, and the right side of a
+  destructuring assignment. A local, its fields, the elements of a local array and any
+  value expression are valid. A scrutinee place of type `!` (`match e[i]` for
+  `e: [!; 0]`) does not diverge by being named: its arms are lowered like any others and
+  entered after the place's bounds check (which panics, since no such element exists),
+  so the borrow checker sees them, and `match e[i] {}` is exhaustive. A match whose arms
+  all have guards (or that has none) reads its scrutinee where no arm matched, so the
+  place must be initialised (`let v: Void; match v {}` is E0405, rustc's E0381); a `_` arm
+  only mentions it. A `let` or parameter pattern must be
   irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
   single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
   pattern always matches (E0331); a `let` of a let chain may be refutable or not, without

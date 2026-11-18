@@ -1,0 +1,26 @@
+// A match that is exhaustive only because its scrutinee's type is empty (no arms, or only
+// guarded ones) reads the scrutinee, which must be initialised; a `_` arm does not read.
+enum Void {}
+
+struct S { X: i32, V: Void }
+
+fn NoArms() -> i32 {
+    let v: Void;
+    match v {}
+}
+
+fn Struct() -> i32 {
+    let s: S;
+    match s {}
+}
+
+fn Guarded(c: bool) -> i32 {
+    let r: Result<Void, Void>;
+    match r { _ if c => 1 }
+}
+
+fn Never(c: bool) -> i32 {
+    let x;
+    if c { x = Panic("x"); }
+    match x {}
+}

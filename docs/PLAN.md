@@ -2122,6 +2122,42 @@ through an autoref'd `&mut self` fails MIR validation (#177); `a[*q]` for `q: &!
 accepted and fails MIR validation where rustc rejects it (E0277, #183); and
 `match e[i] { _ => 3 }` for `e: [!; 0]` is E0330 and E0405 where rustc accepts it (#184).
 
+Update (2026-11-18), exhaustiveness with visibly uninhabited types and place validity
+(#178, #184, decision 106). The usefulness checker decided whether a variant is empty from
+its enum's declaration, where the payload of `Result`'s `Err` is a type parameter, so
+`match r { Ok(v) => v }` on a `Result<i32, !>` and `match o { None => 3 }` on an
+`Option<!>` were E0328 where rustc accepts them. Inhabitedness is now decided at the
+instance (cached per instance type), and arrays count: `[!; 1]` is empty, `[!; 0]` and
+`&!` are not. The scrutinee validity rule is rustc's `is_known_valid_scrutinee` in full:
+besides `*r` and `r.F`, an index through a reference (`r[i]`, `s[i]` on a slice), an index
+of a sub-slice and any field or element of such a place are not valid, and the rule now
+applies to `let`, `let`-`else`, `if let`, `while let` and destructuring assignments as
+well as `match`. Before, `match r[i] { E::A(n) => n }` and `let E::A(n) = *r;` for an
+`E` with an empty variant were accepted where rustc reports E0004/E0005, and `if let` on
+such a place warned that it was irrefutable. In MIR building, a scrutinee of type `!` that
+is a place no longer counts as diverging: its arms are lowered and entered after the
+bounds check, as in rustc, so `match e[i] { _ => 3 }` compiles and panics on the check,
+a move in such an arm is E0406 (it was accepted; rustc's E0382), and `match e[i] {}` ends
+in `unreachable`. A match whose arms all have guards, or that has none, now reads its
+scrutinee where no arm matched, as rustc does: `let v: Void; match v {}` and a `!` local
+that may be uninitialised under `match x {}` are E0405 (rustc's E0381); both were accepted,
+and the second reached `unreachable` at run time. About 140 programs were compared with rustc 1.99 (the PR has the
+table); new tests: differential `never/ok_uninhabited_variants_omitted`,
+`never/rej_uninhabited_payload_behind_reference`, `never/ok_never_place_scrutinee`,
+`never/err_never_place_scrutinee`, `enums/ok_empty_payloads_omitted`,
+`enums/err_empty_match_uninitialised`, `enums/ok_empty_match_wildcard_uninitialised`,
+`enums/rej_empty_payload_through_reference`, run `matches/uninhabited_variants_omitted`,
+`matches/never_place_wild_arm`, `matches/never_place_empty_match`, UI
+`typeck/uninhabited_generic_instances`, `typeck/uninhabited_variant_places`,
+`typeck/never_place_scrutinee`, and the unit test `empty_variants_of_generic_instances`.
+Gaps: rustc's `unreachable_patterns` lint also covers `let`, `if let`, `let`-`else`,
+`while let`, let chains and parameters (an or-pattern alternative such as the second `1`
+of `if let 1 | 1 = x`, or `_` on a valid `!` place); Sabiko reports it for `match` only.
+An array that no arm matches is reported as `_`, where rustc writes `[..]` or `[_]`. A call
+of a function returning an uninhabited type other than `!` (`fn MakeV() -> Void`) does not
+diverge for the borrow checker, so a move after it is still E0406 where rustc, which takes
+the code after it as unreachable, accepts the program.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work
