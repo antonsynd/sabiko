@@ -1214,9 +1214,15 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     when the body is done is E0300 against a literal ("expected `i32`, found `!`",
     rustc's E0308) and E0306 against a reference (E0277), and a reference's operand
     nothing decides is E0313 (E0283; #183, decision 104). The same holds for the
-    referents of `&a op &b` (`&1 == &x; x = return;` is E0306, `&1 < &x` E0300), and the
-    expected type of an operand does not reach a block's tail or a branch (`1 + { x }`
-    leaves `x` open). A left type that only the literal defaults decide comes with the
+    referents of `&a op &b` (`&1 == &x; x = return;` is E0306, `&1 < &x` E0300); a right
+    referent that is `!` itself is E0306 against any left referent but `!` (`&x ==
+    &return; let q: u8 = x;`), except under `<` against a left referent already known,
+    a mismatch (E0300). A binary operator's operands are checked on their own and then
+    coerced, so its expected type reaches no block's tail, branch or `break` value
+    inside them (`1 + { x }` and `1 + loop { break x; }` leave `x` open), except the
+    right operand of a comparison whose left type has one impl (`n == { x }` makes `x`
+    an `i32` for `n: i32`); `-e` and `!e` pass their expectation into `e` (`let y: i32 =
+    -{ Mk() };`). A left type that only the literal defaults decide comes with the
     never-type fallback, too late to take a `!` right operand (`let x = Mk(); 1 == x; x
     == return` is E0306).
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an

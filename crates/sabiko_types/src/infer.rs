@@ -31,6 +31,9 @@ pub struct InferCtxt {
     undo: Vec<(TyVid, VarData)>,
     /// How many snapshots are open; writes are logged while it is positive.
     snapshots: usize,
+    /// While tracked ([`Self::track_changes`]), the roots written by a binding, a union or
+    /// a rollback since [`Self::take_changed_roots`] last took them.
+    changed_roots: Option<Vec<TyVid>>,
 }
 
 /// The state of an [`InferCtxt`] to roll back to: see [`InferCtxt::probe`].
@@ -81,6 +84,7 @@ impl InferCtxt {
             let (v, data) = self.undo.pop().expect("checked above");
             if let Some(slot) = self.vars.get_mut(v.0 as usize) {
                 *slot = data;
+                self.note_changed(v);
             }
         }
         self.vars.truncate(vars);
@@ -120,6 +124,33 @@ impl InferCtxt {
             self.rollback_to(s);
         }
         out
+    }
+
+    /// Starts recording the roots whose variables a binding, a union or a rollback
+    /// changes ([`Self::take_changed_roots`]); path compression, which changes no
+    /// meaning, is not recorded.
+    pub fn track_changes(&mut self) {
+        self.changed_roots.get_or_insert_with(Vec::new);
+    }
+
+    /// The roots changed since the last call (or since [`Self::track_changes`]), in the
+    /// order they were, possibly repeated: a variable whose root is none of them is as it
+    /// was. Stops the tracking when `keep_tracking` is false.
+    pub fn take_changed_roots(&mut self, keep_tracking: bool) -> Vec<TyVid> {
+        if keep_tracking {
+            self.changed_roots
+                .as_mut()
+                .map(std::mem::take)
+                .unwrap_or_default()
+        } else {
+            self.changed_roots.take().unwrap_or_default()
+        }
+    }
+
+    fn note_changed(&mut self, root: TyVid) {
+        if let Some(changed) = &mut self.changed_roots {
+            changed.push(root);
+        }
     }
 
     /// The data of `v`, to write, with its old value logged while a snapshot is open.
@@ -237,6 +268,7 @@ impl InferCtxt {
     fn bind(&mut self, v: TyVid, ty: Ty) {
         let r = self.root(v);
         debug_assert!(self.vars[r.0 as usize].value.is_none());
+        self.note_changed(r);
         self.var_mut(r).value = Some(ty);
     }
 
@@ -346,6 +378,8 @@ impl InferCtxt {
                     (k1, k2) if k1 == k2 => k1,
                     _ => return Err(UnifyError),
                 };
+                self.note_changed(ra);
+                self.note_changed(rb);
                 self.var_mut(rb).parent = ra;
                 self.var_mut(ra).kind = kind;
                 Ok(())

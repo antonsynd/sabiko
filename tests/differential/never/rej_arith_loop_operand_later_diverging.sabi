@@ -1,0 +1,44 @@
+// The expected type of an arithmetic operator's operand reaches no `break` value, `match`
+// arm or block inside it: `x` stays open, then diverges, and no impl adds `!` (#183).
+//@ rustc: E0277
+//@ sabiko: E0306
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Loop() {
+    let mut x = Mk();
+    let y = 1 + loop {
+        break x;
+    };
+    x = return;
+}
+
+fn LeftLoop() {
+    let mut x = Mk();
+    let y: u8 = loop {
+        break x;
+    } + 1;
+    x = return;
+}
+
+fn Match() {
+    let mut x = Mk();
+    let y = 1 + match 1 {
+        _ => x,
+    };
+    x = return;
+}
+
+fn Compound() {
+    let mut x = Mk();
+    let mut t: u8 = 0;
+    t += { x };
+    x = return;
+}
+
+fn Parenthesised() {
+    let mut x = Mk();
+    let y = 1 + (({ x }));
+    x = return;
+}

@@ -1,0 +1,30 @@
+// An index nothing decides whose element is assigned to the index's own variable
+// (`v = a[v];`): rustc's E0283, once per function (#183).
+//@ rustc: E0283
+//@ sabiko: E0313
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Direct() {
+    let a = [1, 2];
+    let mut v = Mk();
+    v = a[v];
+}
+
+fn ThroughALocal() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let x = a[v];
+    v = x;
+}
+
+fn InABranch() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let x = a[v];
+    if true {
+        v = x;
+    }
+    let b = a[x];
+}

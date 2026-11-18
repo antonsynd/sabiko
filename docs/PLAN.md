@@ -2182,8 +2182,8 @@ nothing new, since every `!` index is now rejected. Tests: differential `never/`
 run-time `run/arrays/{unsized_place_mentions, range_mention_out_of_range,
 range_mention_match_out_of_range, index_decided_later}` and
 `run/compare/compare_literal_decided_later`, UI `typeck/never_index_and_comparison` and
-`typeck/unsized_place_mentions` (rustc's counts: 13 and 7, where rustc's 8 has E0161 and
-E0508 from its borrow checker for `{ *s }`). Still different: `{ *s }` and `*s;` are one
+`typeck/unsized_place_mentions` (24 and 8 errors after the review rounds below; rustc
+reports 24 and 9, its borrow checker giving E0161 and E0508 for `{ *s }`). Still different: `{ *s }` and `*s;` are one
 E0208 where rustc reports E0161 and E0508; `let _: (i32, [i32]);` is E0208 (unsized
 tuples are not supported); codes, rustc's E0277/E0283/E0282/E0271 for an index are
 E0335/E0313/E0313/E0300.
@@ -2206,6 +2206,34 @@ referents_ordered_later_diverging}`, `rej_arith_block_operand_later_diverging`,
 `rej_index_by_break_return`, `ok_compare_referents_decided`, `ok_break_return_value`,
 `unsized/rej_unsized_annotation_value_init`, run-time
 `run/arrays/index_element_through_reference`, and more cases in both UI tests.
+The second review round found three regressions of the first. `&x == &return` compiled
+when a later use decided `x` (rustc's E0277): a right referent that is `!` itself is the
+parameter of the referents' impl, and is now E0306 once the left referent is anything
+but `!` (`A: PartialEq<!>`), reported even in a body with other errors, as rustc's;
+under `<` a left referent known where it is checked still makes it a mismatch (rustc's
+E0308). `v = a[v];` was an internal error (E0900): the open index's element was made an
+error type, and with it the index's own variable, before the ambiguity was reported. And
+`-{ Mk() }` against `i32` was E0313: the operand rule now belongs to each operator, not
+to a list of expression kinds. `-e` and `!e` pass their expectation into `e` (rustc's
+`check_expr_unop`); a binary operator's operands are checked without one and then
+coerced (so a `loop`'s `break` value is covered as well as blocks and branches,
+`1 + loop { break x; }` being rustc's E0277), except the right operand of a comparison
+whose left type has one impl, which rustc selects first (`n == { x }` decides `x`).
+Open indexes are judged before a coercion whose source has variables, as rustc
+resolves a coercion's source with its obligations (`a[v]; let w: i64 = { v = 1; v };`
+is a mismatch at `v`, not an `i64` index), and only when the inference table reports
+that the root of their variable changed (`InferCtxt::track_changes`): judging every open
+index at every statement had doubled the time of a body with 4000 of them. E0335 names
+the element after the literal defaults only for an index still `!` at the end (`a[1i64]`
+is "cannot be indexed" for `[{integer}]`, as rustc's). Tests: differential
+`never/rej_compare_referent_with_never`, `ok_compare_never_referents`,
+`rej_index_holding_its_own_element`, `ok_unary_operand_expectation`,
+`rej_{arith,compare}_loop_operand_later_diverging`, `ok_compare_operand_expectation`,
+`rej_index_decided_in_block`, run-time `run/arith/unary_block_operands`, and five more
+UI cases. `&n == &return` for a known `n` is E0306 now (rustc's E0277), where it was a
+mismatch. Still different: `&n <= &{ return }` is E0300 where rustc accepts (a block
+whose tail is `return` has a diverging variable's type in rustc, `!` here; the same on
+`mainline`).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

@@ -59,10 +59,10 @@
     │ 
     │ Note: specify it with a turbofish: `Mk::<..>`
 ────╯
-[E0335] Error: the type `[i32]` cannot be indexed by `bool`
+[E0335] Error: the type `[{integer}]` cannot be indexed by `bool`
     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:55:15 ]
     │
- 55 │     let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `bool`
+ 55 │     let y = a[v]; //~ ERROR E0335 the type `[{integer}]` cannot be indexed by `bool`
     │               ┬  
     │               ╰── slice indices are of type `usize`
     │ 
@@ -147,4 +147,52 @@
      │              ╰── type must be known at this point
      │ 
      │ Note: the trait bounds on it leave its type open: give it a type annotation
+─────╯
+[E0306] Error: can't compare `u8` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:134:13 ]
+     │
+ 134 │     let c = &x == &return; //~ ERROR E0306 can't compare `u8` with `!`
+     │             ──────┬──────  
+     │                   ╰──────── no implementation for `u8 == !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
+[E0306] Error: can't compare `{integer}` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:141:13 ]
+     │
+ 141 │     let c = &1 < &return; //~ ERROR E0306 can't compare `{integer}` with `!`
+     │             ──────┬─────  
+     │                   ╰─────── no implementation for `{integer} < !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
+[E0300] Error: mismatched types
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:142:19 ]
+     │
+ 142 │     let z: bool = 1; //~ ERROR E0300 mismatched types
+     │                   ┬  
+     │                   ╰── expected `bool`, found `{integer}`
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:149:9 ]
+     │
+ 149 │     let mut v = Mk(); //~ ERROR E0313 type annotations needed
+     │         ──┬──  
+     │           ╰──── consider giving `v` an explicit type
+─────╯
+[E0335] Error: the type `[{integer}]` cannot be indexed by `i64`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:156:15 ]
+     │
+ 156 │     let y = a[1i64]; //~ ERROR E0335 the type `[{integer}]` cannot be indexed by `i64`
+     │               ──┬─  
+     │                 ╰─── slice indices are of type `usize`
+     │ 
+     │ Note: convert the index with `as usize`
+─────╯
+[E0300] Error: mismatched types
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:167:9 ]
+     │
+ 167 │         v //~ ERROR E0300 mismatched types
+     │         ┬  
+     │         ╰── expected `i64`, found `usize`
 ─────╯
