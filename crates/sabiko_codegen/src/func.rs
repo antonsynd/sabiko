@@ -1584,6 +1584,10 @@ impl FnCx<'_, '_> {
             None => match self.slots[place.local.index()] {
                 Slot::Arg(i) => self.short("ldarga", i, 0, 1),
                 Slot::Local(i) => self.ldloca(i),
+                Slot::None if self.body.locals[place.local.index()].ty.is_uninhabited() => {
+                    let ty = place.ty(self.body);
+                    self.phantom_addr(&ty, span);
+                }
                 Slot::None => {
                     self.cx.unsupported("a borrow of a `()` value", span);
                     self.ldc_i4(0);
@@ -1596,7 +1600,13 @@ impl FnCx<'_, '_> {
             }
             Some(PlaceElem::Deref) => {
                 let parent = Self::parent(place);
-                self.load(&parent, span);
+                if parent.ty(self.body).is_uninhabited() {
+                    // A reference to an uninhabited type has no value to load.
+                    let ty = place.ty(self.body);
+                    self.phantom_addr(&ty, span);
+                } else {
+                    self.load(&parent, span);
+                }
             }
             Some(PlaceElem::Downcast(variant)) => {
                 // The address of the variant's payload inside the enum.
@@ -1609,6 +1619,17 @@ impl FnCx<'_, '_> {
                 self.op(format!("ldflda {payload}"), 1, 1);
             }
         }
+    }
+
+    /// Pushes an address standing for a place of the uninhabited type `ty` that has no
+    /// storage (a local of type `(i32, !)`, the referent of a `&(i32, !)`), so that a part
+    /// of it that has a value can be read or written (`t.0`). Only an instance at `!`
+    /// (decision 103) reaches such code, and it never runs: no value of `ty` exists. The
+    /// address is a scratch local's of the type (`!` parts lowered to `Unit`), so the IL
+    /// stays verifiable.
+    fn phantom_addr(&mut self, ty: &Ty, span: Span) {
+        let tmp = self.scratch(ty, span);
+        self.ldloca(tmp);
     }
 
     /// Stores the value pushed by `push` into `place`. For projected places the base
@@ -1690,9 +1711,11 @@ impl FnCx<'_, '_> {
 
     /// Like [`Self::operand`], for a position that needs a value even for `()` (a call
     /// argument, a tuple element): a `()` operand pushes a default `Sabiko.Runtime.Unit`
-    /// instead of nothing. Reading a `()` place has no effect, so none is read.
+    /// instead of nothing. Reading a `()` place has no effect, so none is read. So does an
+    /// operand of an uninhabited type, which only an instance at `!` reaches and nothing
+    /// runs (decision 103).
     fn operand_value(&mut self, operand: &Operand, span: Span) {
-        if types::is_unit_like(&operand.ty(self.body)) {
+        if types::has_no_value(&operand.ty(self.body)) {
             let unit = self.scratch(&Ty::Unit, span);
             self.ldloc(unit);
         } else {

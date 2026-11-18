@@ -1,0 +1,146 @@
+// Generic structs instantiated at `!` and `&!` (#158, decision 103): a `W<!>` lays out
+// its `V` field as a `Unit` nothing writes, a stack of `Option<!>` holds only `None`s, and
+// a `Drop` impl of an instance at `!` compiles but never runs for a value that does not
+// exist.
+struct W<T> {
+    A: i32,
+    V: T,
+}
+
+impl<T> W<T> {
+    fn GetA(&self) -> i32 {
+        self.A
+    }
+
+    fn Value(self) -> T {
+        self.V
+    }
+
+    fn ValueRef(&self) -> &T {
+        &self.V
+    }
+}
+
+fn Consume<T>(x: T) -> i32 {
+    7
+}
+
+fn Field<T>(o: Option<W<T>>) -> i32 {
+    match o {
+        Some(w) => w.A + w.GetA() + Consume(w.ValueRef()) + Consume(&w.V),
+        None => -1,
+    }
+}
+
+fn Moved<T>(o: Option<W<T>>) -> i32 {
+    match o {
+        Some(w) => Consume(w.Value()),
+        None => -2,
+    }
+}
+
+struct Stack<T> {
+    Items: [Option<T>; 4],
+    Len: usize,
+}
+
+impl<T: Copy> Stack<T> {
+    fn New() -> Stack<T> {
+        Stack { Items: [None; 4], Len: 0 }
+    }
+
+    fn Push(&mut self, x: T) {
+        self.Items[self.Len] = Some(x);
+        self.Len += 1;
+    }
+
+    fn Pop(&mut self) -> Option<T> {
+        if self.Len == 0 {
+            return None;
+        }
+        self.Len -= 1;
+        self.Items[self.Len]
+    }
+
+    fn Count(&self) -> usize {
+        let mut n = 0;
+        let mut i = 0;
+        while i < 4 {
+            if self.Items[i].is_some() {
+                n += 1;
+            }
+            i += 1;
+        }
+        n
+    }
+}
+
+struct Guard<T> {
+    Tag: i32,
+    V: T,
+}
+
+impl<T> Drop for Guard<T> {
+    fn drop(&mut self) {
+        Print("guard ");
+        PrintLine(self.Tag);
+    }
+}
+
+fn Keep<T>(o: Option<Guard<T>>) -> i32 {
+    match o {
+        Some(g) => g.Tag,
+        None => -3,
+    }
+}
+
+fn Main() {
+    let c = false;
+    let w = if c {
+        let x = Panic("x");
+        Some(W { A: 1, V: x })
+    } else {
+        None
+    };
+    PrintLine(Field(w));
+    let w = if c {
+        let x = Panic("x");
+        Some(W { A: 1, V: x })
+    } else {
+        None
+    };
+    PrintLine(Moved(w));
+    let v = if c { Some(W { A: 1, V: &Panic("x") }) } else { None };
+    PrintLine(Field(v));
+
+    let mut s = Stack::New();
+    if c {
+        let x = Panic("x");
+        s.Push(x);
+    }
+    PrintLine(s.Len);
+    PrintLine(s.Count());
+    PrintLine(s.Pop().is_none());
+    let mut t = Stack::New();
+    if c {
+        let y = &Panic("y");
+        t.Push(y);
+    }
+    PrintLine(t.Count());
+    PrintLine(t.Pop().is_some());
+
+    let g = if c {
+        let x = Panic("x");
+        Some(Guard { Tag: 1, V: x })
+    } else {
+        None
+    };
+    PrintLine(Keep(g));
+    let h = if c { Some(Guard { Tag: 2, V: &Panic("y") }) } else { None };
+    PrintLine(Keep(h));
+    let real = Guard {
+        Tag: 3,
+        V: if c { Some(&Panic("z")) } else { None },
+    };
+    PrintLine(real.V.is_none());
+}

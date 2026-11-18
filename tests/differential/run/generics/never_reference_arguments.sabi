@@ -1,0 +1,47 @@
+// Generic instances at `&!` (#158, decision 103): `Some(&Panic("x"))` in a branch not
+// taken makes an `Option<&!>`, whose `Some` payload has no value. Its field is a `Unit`
+// nothing writes or reads, so the instance compiles and `None` behaves as any other.
+// Before, code generation reported E0500 inside `library/core/option.sabi`.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn Main() {
+    let c = false;
+    let o = if c { Some(&Panic("x")) } else { None };
+    PrintLine(o.is_none());
+    PrintLine(o.is_some());
+
+    let u = if c { Opt::Yes(&Panic("x")) } else { Opt::No };
+    match u {
+        Opt::No => PrintLine(1),
+        Opt::Yes(_) => PrintLine(2),
+    }
+
+    let m = if c { Some(&mut Panic("x")) } else { None };
+    PrintLine(m.is_none());
+
+    // `&&!`, an `Option` of an `Option<&!>` that holds a value, and a tuple with a `&!`.
+    let n = if c { Some(Some(&&Panic("x"))) } else { Some(None) };
+    PrintLine(n.is_some());
+    match n {
+        Some(Some(_)) => PrintLine(2),
+        Some(None) => PrintLine(1),
+        None => PrintLine(0),
+    }
+    let t = if c { Some((1, &Panic("x"))) } else { None };
+    PrintLine(t.is_some());
+
+    // An array of `&!` as a payload.
+    let a = if c { Some([&Panic("x"), &Panic("y")]) } else { None };
+    PrintLine(a.is_none());
+
+    // `Result` with `&!` on either side.
+    let r = if c { Err(&Panic("x")) } else { Ok(5) };
+    PrintLine(r.is_ok());
+    PrintLine(r.unwrap_or(7));
+    let e = if c { Ok(&Panic("x")) } else { Err(6) };
+    PrintLine(e.is_err());
+    PrintLine(e.err().is_some());
+}

@@ -1927,6 +1927,24 @@ results and deferred reference comparisons vs rustc's operator traits; with #117
 limit rejects valid deep instances), #163 (cleanups); error-count differences added to
 #159.
 
+Update (2026-11-18), generic instances at `!` and `&!` (#158, decision 103). An instance
+whose generic argument has no value (`Option<&!>` from `Some(&Panic("x"))` in a branch
+not taken, `Option<!>` and `Result<i32, !>` from `let x = Panic(..)`, `return`, `loop {}`
+or `break`, a user `W<!>` or `Stack<!>`) compiled to E0500, reported inside
+`library/core/option.sabi`. A field, payload field or parameter of a type without a value
+is now a `Unit`, as `()` is; an argument of such a type is a default `Unit`; and the code
+an instance holds for values that cannot exist (`Some(x) => Consume(x)` at `!`, `r.0` for
+`r: &(i32, !)`, `a.len()` for `a: [!; 2]`) reads and writes a scratch local where the
+uninhabited place has no storage, so the IL verifies and never runs. The prelude
+implements `Debug` for `!` (`Result<!, i32>::unwrap_err`). Six programs in
+`differential/run/generics/never_*` agree with rustc (prelude methods, `?`, user structs
+and enums, a `Drop` impl, tuples, arrays and references through instances at `!`); IL
+fixture `never_instances`; run-pass `panics/unwrap_option_of_never`; the UI test
+`codegen/ref_never_payload` is gone with its error. Not fixed here: most ways of writing
+`Option<!>` without a `let` (`Some(Panic("x"))`, `Some(return 3)`) are still E0313 (#151),
+and a `match` that leaves out an arm only an uninhabited payload could reach (`Ok(v) => v`
+alone on a `Result<i32, !>`) is E0328 where rustc accepts it.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work
