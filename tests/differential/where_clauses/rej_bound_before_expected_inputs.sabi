@@ -1,0 +1,19 @@
+// The bound decides a call's result before the expected type is tried on it (rustc's
+// `resolve_vars_with_obligations` in `expected_inputs_for_expected_output`).
+//@ rustc: E0308
+//@ sabiko: E0300
+struct W<U> {
+    V: U,
+}
+
+impl<U: Copy> W<U> {
+    fn M<X>(&self, x: X) -> X where U: Into<X> { x }
+    fn Make<X>(u: U, x: X) -> X where U: Into<X> { x }
+}
+
+fn G<U: Into<X>, X>(u: U, x: X) -> X { x }
+
+fn Written<T: Into<i64> + Copy>(t: T) -> T { G::<T, _>(t, t) }
+fn Annotated<T: Into<i64> + Copy>(t: T) -> T { let r: T = G::<T, _>(t, t); r }
+fn Method<T: Into<i64> + Copy>(w: W<T>, t: T) -> T { w.M(t) }
+fn Associated<T: Into<i64> + Copy>(t: T) -> T { W::<T>::Make(t, t) }

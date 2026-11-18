@@ -2,6 +2,8 @@
 // `impl` block or the expected type can (#181, decision 105): through the trait's path
 // (`Into::into(t)`), a program trait with a blanket block, a trait with two parameters,
 // and a literal argument, whose type the bound makes a `u8` (so adding to it overflows).
+// A block or `loop` argument is coerced into its parameter before the bound is selected,
+// so there the blanket block is called, not `u8`'s own.
 trait Two<A, B> {
     fn Two(&self, a: A) -> B;
 }
@@ -32,6 +34,17 @@ fn Reflexive<T: Copy>(t: T) -> T {
     Two::Two(&t, t)
 }
 
+fn BlockArgument<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, { t })
+}
+
+fn LoopArgument<T: Two<i32, i64> + Copy>(t: T) -> T {
+    let r = Two::Two(&t, loop {
+        break t;
+    });
+    r
+}
+
 fn Literal<T: From<u8>>(n: u8) -> T {
     let v = 250;
     let t = T::from(v);
@@ -45,6 +58,8 @@ fn Main() {
     PrintLine(IntoPath(-2i32));
     PrintLine(Pair(7u8));
     PrintLine(Reflexive(9u16));
+    PrintLine(BlockArgument(11u8));
+    PrintLine(LoopArgument(12u8));
     let a: u16 = Literal(5);
     PrintLine(a);
     let b: i64 = Literal(6);

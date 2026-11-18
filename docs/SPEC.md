@@ -912,8 +912,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   obligation is preferred to every block, as rustc's where-clause candidate is. When
   exactly one bound of the trait applies, it fixes the trait's arguments. Several leave
   the obligation to inference: the arguments decide, else E0313 (rustc's E0283). The
-  pending obligations are selected before each argument of a call whose parameter type
-  is not yet known, and after the last, before the result meets the expected type. So
+  pending obligations are selected before the expected type is tried on a call's result,
+  for each argument whose parameter type is not yet known (after a block or `loop`
+  argument is checked, whose value rustc coerces into the parameter first; before any
+  other), and after the last argument, before the result meets the expected type. So
   under `T: Into<i64>`, `Into::into(t)` is an `i64` even where a `T` is expected (E0300,
   rustc's E0308), though the blanket `impl<T, U: From<T>> Into<U> for T` would also
   give `T: Into<T>`. `From::from(t)` names no `Self` before its result meets the

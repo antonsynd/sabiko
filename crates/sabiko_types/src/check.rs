@@ -15,6 +15,8 @@ use sabiko_resolve::{
 };
 use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
+use std::collections::BTreeSet;
+use std::ops::Bound::{Excluded, Unbounded};
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
 use crate::infer::{InferCtxt, VarKind};
@@ -62,11 +64,10 @@ struct Obligation {
     /// while inference confirms and when the obligation is judged, so the proof is as deep
     /// as the one the borrow checker replays from the bound.
     depth: usize,
-    /// Whether selection found no inference variable left in it, which stays so: it is
-    /// only judged, at the end of the body, and `select_obligations` passes it over
-    /// without resolving it again (selection runs at every call's arguments, decision
-    /// 105, so re-resolving every earlier obligation made a body quadratic).
-    settled: bool,
+    /// Its place in the order obligations were registered in (set by
+    /// [`FnCtxt::push_obligation`]): `FnCtxt::obligations` is sorted by it, and
+    /// `FnCtxt::live` and `FnCtxt::watch` name obligations by it.
+    seq: u64,
 }
 
 /// The obligation `ty: trait_<args>` a nested one is required for, kept with its
@@ -404,9 +405,19 @@ pub(crate) struct FnCtxt<'a> {
     /// take their generic arguments from it.
     self_ty: Option<Ty>,
     obligations: Vec<Obligation>,
-    /// How many of `obligations`, from the first, are settled ([`Obligation::settled`]):
-    /// `select_obligations` starts after them.
-    settled_prefix: usize,
+    /// The obligations (by [`Obligation::seq`]) `select_obligations` has to try: new ones,
+    /// and ones a variable they were stalled on has changed since.
+    live: BTreeSet<u64>,
+    /// rustc's `stalled_on`: for each variable, the obligations selection last left as
+    /// they were while it was open. Selection depends on nothing but an obligation's own
+    /// types, so it tries one again only when a variable of it is bound, joined to another
+    /// or given another kind (`InferCtxt::take_changed`). Selection runs at every call's
+    /// arguments (decision 105): an `i64: From<{integer}>` waiting for a literal's
+    /// fallback is then not re-probed against every `From` block at each call, nor an
+    /// obligation without variables resolved again.
+    watch: HashMap<TyVid, Vec<u64>>,
+    /// The next [`Obligation::seq`].
+    next_seq: u64,
     path_defs: HashMap<NodeId, DefId>,
     try_exprs: HashMap<NodeId, CoreItem>,
     pending_tries: Vec<PendingTry>,
@@ -492,7 +503,9 @@ impl<'a> FnCtxt<'a> {
             env: Vec::new(),
             self_ty: None,
             obligations: Vec::new(),
-            settled_prefix: 0,
+            live: BTreeSet::new(),
+            watch: HashMap::default(),
+            next_seq: 0,
             path_defs: HashMap::default(),
             try_exprs: HashMap::default(),
             pending_tries: Vec::new(),
@@ -957,12 +970,19 @@ impl<'a> FnCtxt<'a> {
     /// (informative) expectation or when the two do not unify: the arguments are then
     /// checked against the parameters. So `let t: &mut u8 = Id(r);` reborrows `r`, as the
     /// parameter `T` is known to be `&mut u8` when `r` is coerced to it.
+    ///
+    /// As rustc's, it first selects the pending obligations when the output still has a
+    /// variable (`resolve_vars_with_obligations(formal_ret)`), so a bound decides what it
+    /// can before the expectation is tried: `G::<T, _>(t, t)` with `fn G<U: Into<X>,
+    /// X>(u: U, x: X) -> X` under `T: Into<i64>` returns an `i64`, not the expected `T`
+    /// (#181, decision 105).
     fn expected_inputs(
         &mut self,
         expected: Option<&Ty>,
         output: &Ty,
         inputs: &[Ty],
     ) -> Option<Vec<Ty>> {
+        self.select_for(output);
         let exp = self.shallow(expected?);
         if matches!(exp, Ty::Infer(_) | Ty::Error | Ty::Never) {
             return None;
@@ -1023,6 +1043,10 @@ impl<'a> FnCtxt<'a> {
     /// trait's arguments before anything else can (#181, decision 105). `Into::into(t)`
     /// under `T: Into<i64>` is an `i64`, and returning it as a `T` is E0300, where the
     /// expected `T` would make it `T: Into<T>`, which the prelude's blanket block proves.
+    /// rustc selects after checking an argument and before coercing it; `check_expr`
+    /// coerces inside, so the selection comes before the argument, except for the block
+    /// and `loop` arguments whose value rustc coerces into the parameter while checking
+    /// them ([`coerces_into_parameter`]).
     fn check_args(
         &mut self,
         args: &[Expr],
@@ -1030,14 +1054,24 @@ impl<'a> FnCtxt<'a> {
         hints: Option<&[Ty]>,
         callee_span: Span,
     ) {
+        // With the wrong number of arguments (reported by the caller, rustc's E0061), the
+        // arguments' own mismatches are not reported: rustc folds them into that error.
+        let arity_ok = args.len() == formals.len();
         let mut failed = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let hint = hints.and_then(|h| h.get(i));
-            if let Some(target) = hint.or(formals.get(i)) {
-                self.select_for(target);
+            let formal = formals.get(i);
+            let hint = hints
+                .and_then(|h| h.get(i))
+                .or(if arity_ok { None } else { formal });
+            if let Some(target) = hint.or(formal) {
+                if !coerces_into_parameter(a) {
+                    self.select_for(target);
+                }
             }
-            if let Some(m) = self.check_arg(a, formals.get(i), hint) {
-                failed.push(m);
+            if let Some(m) = self.check_arg(a, formal, hint) {
+                if arity_ok {
+                    failed.push(m);
+                }
             }
         }
         if !self.obligations.is_empty() {
@@ -2748,7 +2782,7 @@ impl<'a> FnCtxt<'a> {
             self.path_defs.insert(node, chosen);
         }
         let tr = self.resolve.def(chosen).parent.expect("a trait member");
-        self.obligations.push(Obligation {
+        self.push_obligation(Obligation {
             ty: args[0].clone(),
             trait_: tr,
             args: args[1..].to_vec(),
@@ -2756,7 +2790,7 @@ impl<'a> FnCtxt<'a> {
             cause: Cause::Bound,
             required_for: None,
             depth: 0,
-            settled: false,
+            seq: 0,
         });
         self.generic_args.insert(node, (args.clone(), chosen, span));
         self.items
@@ -2790,7 +2824,7 @@ impl<'a> FnCtxt<'a> {
         let items = self.items;
         for pred in items.param_env(def) {
             let (ty, pred_args) = instantiate_pred(pred, &generics, &args);
-            self.obligations.push(Obligation {
+            self.push_obligation(Obligation {
                 ty,
                 trait_: pred.trait_,
                 args: pred_args,
@@ -2798,7 +2832,7 @@ impl<'a> FnCtxt<'a> {
                 cause: Cause::Bound,
                 required_for: None,
                 depth: 0,
-                settled: false,
+                seq: 0,
             });
         }
         self.generic_args.insert(node, (args.clone(), def, span));
@@ -2886,7 +2920,7 @@ impl<'a> FnCtxt<'a> {
                     self.try_roots.insert(question, from.clone());
                     // `Err(From::from(e))`: the function's error type must implement
                     // `From<E>` (decision 95).
-                    self.obligations.push(Obligation {
+                    self.push_obligation(Obligation {
                         ty: to.clone(),
                         trait_: tr,
                         args: vec![from.clone()],
@@ -2896,7 +2930,7 @@ impl<'a> FnCtxt<'a> {
                         },
                         required_for: None,
                         depth: 0,
-                        settled: false,
+                        seq: 0,
                     });
                 }
                 self.pending_tries.push(PendingTry {
@@ -3796,7 +3830,7 @@ impl<'a> FnCtxt<'a> {
         let generics = &items.fn_sig(def).generics;
         for pred in items.param_env(def) {
             let (ty, pred_args) = instantiate_pred(pred, generics, args);
-            self.obligations.push(Obligation {
+            self.push_obligation(Obligation {
                 ty,
                 trait_: pred.trait_,
                 args: pred_args,
@@ -3804,7 +3838,7 @@ impl<'a> FnCtxt<'a> {
                 cause: Cause::Bound,
                 required_for: None,
                 depth: 0,
-                settled: false,
+                seq: 0,
             });
         }
     }
@@ -4207,103 +4241,120 @@ impl<'a> FnCtxt<'a> {
     /// is an integer type), and its bounds become obligations in place of the confirmed
     /// one (rustc's confirmation: `u8: Into<?T>` through `impl<T, U: From<T>> Into<U> for
     /// T` requires `?T: From<u8>`). A bare general variable as the type decides nothing.
-    /// Repeats until nothing changes.
+    /// Tries the live obligations ([`Self::live`]) in their order, round after round, until
+    /// none is left: one left as it was waits for a variable of it to change, and one
+    /// without variables is only judged at the end of the body.
     fn select_obligations(&mut self) {
+        self.wake_changed();
+        let mut cursor = None;
         loop {
-            let mut progress = false;
-            while self
-                .obligations
-                .get(self.settled_prefix)
-                .is_some_and(|o| o.settled)
-            {
-                self.settled_prefix += 1;
+            let next = match cursor {
+                Some(c) => self.live.range((Excluded(c), Unbounded)).next().copied(),
+                None => None,
             }
-            // Confirming removes only unsettled obligations, all after the prefix.
-            let mut index = self.settled_prefix;
-            while index < self.obligations.len() {
-                if self.obligations[index].settled {
-                    index += 1;
-                    continue;
-                }
-                let ob = self.obligations[index].clone();
-                index += 1;
-                if ob.depth >= DEPTH_LIMIT {
-                    // An overflow, reported when the obligation is judged.
-                    continue;
-                }
-                let ty = self.infer.resolve(&ob.ty);
-                let args: Vec<Ty> = ob.args.iter().map(|a| self.infer.resolve(a)).collect();
-                let has_infer = ty.has_infer() || args.iter().any(Ty::has_infer);
-                if !has_infer {
-                    self.obligations[index - 1].settled = true;
-                    continue;
-                }
-                if matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General) {
-                    continue;
-                }
-                let before: usize = std::iter::once(&ty).chain(&args).map(known_nodes).sum();
-                if self.select_from_bounds(&ty, ob.trait_, &args) {
-                    // A bound applies: the `impl` blocks are no candidates.
-                } else if let [only] = self.impl_candidate_list(&ty, ob.trait_, &args)[..] {
-                    let imp = self
-                        .items
-                        .impls_of(ob.trait_)
-                        .nth(only)
-                        .expect("a candidate");
-                    let fresh: Vec<Ty> = imp
-                        .generics
-                        .iter()
-                        .map(|_| self.infer.new_var(VarKind::General))
-                        .collect();
-                    let header = std::iter::once(&imp.self_ty).chain(&imp.trait_args);
-                    let unified = header
-                        .zip(std::iter::once(&ty).chain(&args))
-                        .all(|(pat, t)| {
-                            self.infer
-                                .unify(&pat.subst(&imp.generics, &fresh), t)
-                                .is_ok()
-                        });
-                    let builtin = matches!(
-                        self.items.lang_of(ob.trait_),
-                        Some(LangItem::Copy | LangItem::Clone)
-                    );
-                    if unified && !builtin {
-                        // Confirmed: the block's bounds replace the obligation.
-                        let required_for = RequiredFor {
-                            ty: ty.clone(),
-                            trait_: ob.trait_,
-                            args: args.clone(),
-                        };
-                        index -= 1;
-                        self.obligations.remove(index);
-                        for pred in &imp.preds {
-                            let (pty, pargs) = instantiate_pred(pred, &imp.generics, &fresh);
-                            self.obligations.push(Obligation {
-                                ty: pty,
-                                trait_: pred.trait_,
-                                args: pargs,
-                                span: ob.span,
-                                cause: ob.cause,
-                                required_for: Some(required_for.clone()),
-                                depth: ob.depth + 1,
-                                settled: false,
-                            });
-                        }
-                        progress = true;
-                        continue;
-                    }
-                }
-                let ty = self.infer.resolve(&ty);
-                let args: Vec<Ty> = args.iter().map(|a| self.infer.resolve(a)).collect();
-                // Progress is a variable of the obligation learning something, not a
-                // fresh one (a blanket block's `T`) being bound to it.
-                let after: usize = std::iter::once(&ty).chain(&args).map(known_nodes).sum();
-                if after > before {
-                    progress = true;
-                }
-            }
-            if !progress {
+            .or_else(|| self.live.first().copied());
+            let Some(seq) = next else {
                 return;
+            };
+            self.live.remove(&seq);
+            cursor = Some(seq);
+            let Ok(index) = self.obligations.binary_search_by_key(&seq, |o| o.seq) else {
+                // Confirmed and replaced since it was woken.
+                continue;
+            };
+            self.select_one(index);
+            self.wake_changed();
+        }
+    }
+
+    /// Selects the obligation at `index` once (see [`Self::select_obligations`]): it is
+    /// confirmed and replaced by its block's bounds, or it waits on the variables it still
+    /// has ([`Self::watch`]).
+    fn select_one(&mut self, index: usize) {
+        let ob = self.obligations[index].clone();
+        if ob.depth >= DEPTH_LIMIT {
+            // An overflow, reported when the obligation is judged.
+            return;
+        }
+        let ty = self.infer.resolve(&ob.ty);
+        let args: Vec<Ty> = ob.args.iter().map(|a| self.infer.resolve(a)).collect();
+        let has_infer = ty.has_infer() || args.iter().any(Ty::has_infer);
+        if has_infer && !matches!(ty, Ty::Infer(v) if self.infer.kind(v) == VarKind::General) {
+            if self.select_from_bounds(&ty, ob.trait_, &args) {
+                // A bound applies: the `impl` blocks are no candidates.
+            } else if let [only] = self.impl_candidate_list(&ty, ob.trait_, &args)[..] {
+                let items = self.items;
+                let imp = items.impls_of(ob.trait_).nth(only).expect("a candidate");
+                let fresh: Vec<Ty> = imp
+                    .generics
+                    .iter()
+                    .map(|_| self.infer.new_var(VarKind::General))
+                    .collect();
+                let header = std::iter::once(&imp.self_ty).chain(&imp.trait_args);
+                let unified = header
+                    .zip(std::iter::once(&ty).chain(&args))
+                    .all(|(pat, t)| {
+                        self.infer
+                            .unify(&pat.subst(&imp.generics, &fresh), t)
+                            .is_ok()
+                    });
+                let builtin = matches!(
+                    items.lang_of(ob.trait_),
+                    Some(LangItem::Copy | LangItem::Clone)
+                );
+                if unified && !builtin {
+                    // Confirmed: the block's bounds replace the obligation.
+                    let required_for = RequiredFor {
+                        ty: ty.clone(),
+                        trait_: ob.trait_,
+                        args: args.clone(),
+                    };
+                    self.obligations.remove(index);
+                    for pred in &imp.preds {
+                        let (pty, pargs) = instantiate_pred(pred, &imp.generics, &fresh);
+                        self.push_obligation(Obligation {
+                            ty: pty,
+                            trait_: pred.trait_,
+                            args: pargs,
+                            span: ob.span,
+                            cause: ob.cause,
+                            required_for: Some(required_for.clone()),
+                            depth: ob.depth + 1,
+                            seq: 0,
+                        });
+                    }
+                    return;
+                }
+            }
+        }
+        // Selecting again before one of its variables changes would decide the same.
+        let mut vars = Vec::new();
+        for t in std::iter::once(&ob.ty).chain(&ob.args) {
+            let t = self.infer.resolve(t);
+            infer_vars(&t, &mut vars);
+        }
+        vars.sort_unstable();
+        vars.dedup();
+        for v in vars {
+            self.watch.entry(v).or_default().push(ob.seq);
+        }
+    }
+
+    /// Registers the obligation `ob`, to be selected ([`Self::live`]).
+    fn push_obligation(&mut self, mut ob: Obligation) {
+        ob.seq = self.next_seq;
+        self.next_seq += 1;
+        self.live.insert(ob.seq);
+        self.obligations.push(ob);
+    }
+
+    /// Makes live again the obligations waiting on a variable written since the last call
+    /// (`InferCtxt::take_changed`; each was a root when an obligation began to wait on it,
+    /// so any binding, joining or change of kind of it is among the writes).
+    fn wake_changed(&mut self) {
+        for v in self.infer.take_changed() {
+            if let Some(seqs) = self.watch.remove(&v) {
+                self.live.extend(seqs);
             }
         }
     }
@@ -5706,7 +5757,8 @@ impl<'a> FnCtxt<'a> {
     fn check_obligations(&mut self) {
         let mut seen: HashSet<(Ty, DefId, Vec<Ty>, Span)> = HashSet::default();
         let obligations = std::mem::take(&mut self.obligations);
-        self.settled_prefix = 0;
+        self.live.clear();
+        self.watch.clear();
         for ob in obligations {
             let ty = self.infer.resolve_with_defaults(&ob.ty);
             let args: Vec<Ty> = ob
@@ -6503,6 +6555,57 @@ fn ty_has_var_of(ty: &Ty, vars: &Ty) -> bool {
     }
 }
 
+/// Whether rustc, checking the call argument `arg` against a parameter type that is still
+/// a variable, coerces its value into that variable before anything selects (decision
+/// 105). rustc checks an argument, then selects (`resolve_vars_with_obligations` on the
+/// parameter type), then coerces it; a block's tail and a `loop`'s `break` value are
+/// coerced to the expectation while the argument is checked, so for `Two::Two(&t, { t
+/// })` the parameter is already `T` when rustc selects and the bound `T: Two<i32, i64>`
+/// no longer applies. Only blocks and loops whose checking selects nothing in rustc
+/// count: statements that are paths, and a value that is a path or such a block or loop.
+/// A `let`, a call, an `if` or a `match` (whose branches rustc checks against a fresh
+/// type when the expectation is a variable) selects first, as a bare argument does.
+fn coerces_into_parameter(arg: &Expr) -> bool {
+    fn inert(stmt: &Stmt) -> bool {
+        match &stmt.kind {
+            StmtKind::Empty => true,
+            StmtKind::Expr { expr, .. } => matches!(strip_parens(expr).kind, ExprKind::Path(_)),
+            StmtKind::Let(_) => false,
+        }
+    }
+    fn value(e: &Expr) -> bool {
+        matches!(strip_parens(e).kind, ExprKind::Path(_)) || coerces_into_parameter(e)
+    }
+    match &strip_parens(arg).kind {
+        ExprKind::Block(b) => b.stmts.iter().all(inert) && b.tail.as_deref().is_some_and(value),
+        ExprKind::Loop { body, .. } => match (body.stmts.as_slice(), body.tail.as_deref()) {
+            ([], Some(e))
+            | (
+                [Stmt {
+                    kind: StmtKind::Expr { expr: e, .. },
+                    ..
+                }],
+                None,
+            ) => {
+                matches!(&e.kind, ExprKind::Break(Some(v)) if value(v))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Pushes the inference variables of the resolved `ty` onto `out`.
+fn infer_vars(ty: &Ty, out: &mut Vec<TyVid>) {
+    match ty {
+        Ty::Infer(v) => out.push(*v),
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => infer_vars(inner, out),
+        Ty::Tuple(elems) => elems.iter().for_each(|e| infer_vars(e, out)),
+        Ty::Adt(_, args) => args.iter().for_each(|a| infer_vars(a, out)),
+        _ => {}
+    }
+}
+
 /// Whether `needle` occurs in `ty`.
 fn contains_ty(ty: &Ty, needle: &Ty) -> bool {
     ty == needle
@@ -6594,18 +6697,6 @@ fn holds_by_value(ty: &Ty, param: DefId) -> bool {
         Ty::Tuple(elems) => elems.iter().any(|e| holds_by_value(e, param)),
         Ty::Adt(_, args) => args.iter().any(|a| holds_by_value(a, param)),
         _ => false,
-    }
-}
-
-/// How many nodes of `ty` are not inference variables: what selection learning a type
-/// increases.
-fn known_nodes(ty: &Ty) -> usize {
-    match ty {
-        Ty::Infer(_) => 0,
-        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => 1 + known_nodes(inner),
-        Ty::Tuple(elems) => 1 + elems.iter().map(known_nodes).sum::<usize>(),
-        Ty::Adt(_, args) => 1 + args.iter().map(known_nodes).sum::<usize>(),
-        _ => 1,
     }
 }
 

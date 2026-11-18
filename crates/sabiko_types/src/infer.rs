@@ -31,6 +31,11 @@ pub struct InferCtxt {
     undo: Vec<(TyVid, VarData)>,
     /// How many snapshots are open; writes are logged while it is positive.
     snapshots: usize,
+    /// The variables written since [`Self::take_changed`] last took them (each a root
+    /// when it was written: bound, joined under another, or given another kind), for the
+    /// type checker to wake the obligations stalled on them (rustc's `stalled_on`). A
+    /// write a rollback undoes is dropped from it; path compression is not one.
+    changed: Vec<TyVid>,
 }
 
 /// The state of an [`InferCtxt`] to roll back to: see [`InferCtxt::probe`].
@@ -39,6 +44,7 @@ pub struct InferCtxt {
 pub struct Snapshot {
     vars: usize,
     undo: usize,
+    changed: usize,
 }
 
 /// Why two types did not unify.
@@ -69,6 +75,7 @@ impl InferCtxt {
         Snapshot {
             vars: self.vars.len(),
             undo: self.undo.len(),
+            changed: self.changed.len(),
         }
     }
 
@@ -76,7 +83,12 @@ impl InferCtxt {
     // Taken by value, so that a closed snapshot cannot be used again.
     #[allow(clippy::needless_pass_by_value)]
     pub fn rollback_to(&mut self, s: Snapshot) {
-        let Snapshot { vars, undo } = s;
+        let Snapshot {
+            vars,
+            undo,
+            changed,
+        } = s;
+        self.changed.truncate(changed);
         while self.undo.len() > undo {
             let (v, data) = self.undo.pop().expect("checked above");
             if let Some(slot) = self.vars.get_mut(v.0 as usize) {
@@ -122,8 +134,16 @@ impl InferCtxt {
         out
     }
 
-    /// The data of `v`, to write, with its old value logged while a snapshot is open.
+    /// The data of `v`, to write, with its old value logged while a snapshot is open, and
+    /// `v` recorded as changed.
     fn var_mut(&mut self, v: TyVid) -> &mut VarData {
+        self.changed.push(v);
+        self.logged_mut(v)
+    }
+
+    /// [`Self::var_mut`] for a write that changes nothing a reader sees (path
+    /// compression): not recorded as a change.
+    fn logged_mut(&mut self, v: TyVid) -> &mut VarData {
         if self.snapshots > 0 {
             let old = self.vars[v.0 as usize].clone();
             self.undo.push((v, old));
@@ -139,9 +159,14 @@ impl InferCtxt {
         let r = self.root(parent);
         if parent != r {
             // Path compression is a write too: undone with the union it depends on.
-            self.var_mut(v).parent = r;
+            self.logged_mut(v).parent = r;
         }
         r
+    }
+
+    /// The variables written since the last call (see the `changed` field), oldest first.
+    pub fn take_changed(&mut self) -> Vec<TyVid> {
+        std::mem::take(&mut self.changed)
     }
 
     #[must_use]

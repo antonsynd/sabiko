@@ -2127,25 +2127,37 @@ Update (2026-11-18), a type parameter's bound decides the trait's arguments in s
 (#181, decision 105). `fn W2<T: Into<i64>>(t: T) -> T { Into::into(t) }` compiled as the
 identity through the prelude's blanket `Into` block; rustc reports E0308. The call's
 result met its expected `T` before the obligation `T: Into<?X>` was selected, so it was
-`T: Into<T>`. As in rustc's `check_argument_types`, the pending obligations are now
-selected before each argument whose parameter type has a variable and after the last
-argument. A bound in scope that applies is preferred to every block
-(`select_from_bounds`, shared with the probe of #179): one fixes the arguments, and
-several wait for inference. It is now E0300, as is the same through a supertrait, a
-program trait with a blanket block, a two-parameter trait (`Two::Two(&t, t)`), a nested
-call argument and an expected `i32`. `From::from(t)`, `Into::<T>::into(t)`, a bound on
-another parameter, and two bounds that neither fit still compile, as in rustc.
-Selecting at every call made bodies quadratic in their obligations: settled ones
-(no variables left) are skipped from a prefix, so 6000 lines of bounded calls check
-faster than before (4.0 s against 4.4 s, debug). "Required for" notes show a confirmed
-block's types as inference finally decided them. Tests: `differential/where_clauses/`
-(14 `rej_` programs pinning both compilers' codes, 4 `ok_` programs of valid
-neighbours), `differential/run/traits/where_clause_preference` (a literal argument made a
-`u8` by the bound overflows as in rustc), UI test `typeck/bound_fixes_trait_arguments`.
-Known difference: a block argument whose tail its own coercion unifies with the
-parameter (`Two::Two(&t, { t })`, `loop { break t; }`) is accepted by rustc, which
-checks the argument before selecting; Sabiko selects first and reports E0300. Not
-supported, as before: `<T as From<_>>::from(t)` and `where i32: From<T>` (E0107).
+`T: Into<T>`. As in rustc, the pending obligations are now selected before the expected
+type is tried on a call's result, for each argument whose parameter type has a variable
+(between checking and coercing it), and after the last argument. A bound in scope that
+applies is preferred to every block (`select_from_bounds`, shared with the probe of
+#179): one fixes the arguments, and several wait for inference. It is now E0300, as is
+the same through a supertrait, a program trait with a blanket block, a two-parameter
+trait (`Two::Two(&t, t)`), a nested call argument, an expected `i32`, and a called
+function's or method's bound (`G::<T, _>(t, t)`, `w.M(t)`, `W::<T>::Make(t, t)`).
+`From::from(t)`, `Into::<T>::into(t)`, `G(t, t)`, a bound on another parameter, and two
+bounds that neither fit still compile, as in rustc. A block or `loop` argument whose
+tail or `break` value rustc coerces into the parameter before it selects (`Two::Two(&t,
+{ t })`, `loop { break t; }`) is checked before selecting, so it compiles as in rustc;
+an `if`, a `match`, `(t)`, `*r`, a call, a struct literal, and blocks with a `let`, a
+literal or a call before the value select first, as in rustc. With the wrong number of
+arguments, their mismatches are part of E0304, as rustc's E0061 holds them. Selecting
+at every call made long bodies quadratic (1000 lines of `s = s + P(1);` took 56 s): an
+obligation left as it was now waits on its variables and is tried again only when one
+of them is written (rustc's `stalled_on`; `InferCtxt::take_changed`), so that body takes
+0.28 s against 0.34 s before the change (`sabiko_driver/tests/selection_scaling.rs`
+bounds it). "Required for" notes show a confirmed block's types as inference finally
+decided them. Tests: `differential/where_clauses/` (17 `rej_` programs pinning both
+compilers' codes, 5 `ok_` programs of valid neighbours),
+`differential/builtins/rej_wrong_argument_count_hides_mismatches`,
+`differential/run/traits/where_clause_preference` (a literal argument made a `u8` by the
+bound overflows as in rustc; block and loop arguments call the blanket block), UI tests
+`typeck/bound_fixes_trait_arguments` and `typeck/selection_before_arguments`. Known
+differences, rejections where rustc accepts: a block argument with an annotated `let` or
+a `while` before its value, or a `loop` with an empty statement before its `break`
+(`{ let u: T = t; u }`). Error counts: several mismatching `match` arms are one error per
+arm where rustc reports the first (older). Not supported, as before: `<T as
+From<_>>::from(t)` and `where i32: From<T>` (E0107).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

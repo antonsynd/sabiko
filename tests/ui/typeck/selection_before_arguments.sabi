@@ -1,0 +1,77 @@
+// Sabiko codes for rustc's: E0300 for E0308.
+// When rustc selects a call's obligations (decision 105): before the expected type is
+// tried on the result, and between checking each argument and coercing it into its
+// parameter. A block's tail and a `loop`'s `break` value are coerced while the argument
+// is checked, so the parameter is known when rustc selects and the blanket block applies;
+// for every other argument form the bound `Two<i32, i64>` fixes the parameter to `i32`.
+trait Two<A, B> {
+    fn Two(&self, a: A) -> B;
+}
+
+impl<X: Copy> Two<X, X> for X {
+    fn Two(&self, a: X) -> X {
+        a
+    }
+}
+
+struct W<U> {
+    V: U,
+}
+
+impl<U: Copy> W<U> {
+    fn M<X>(&self, x: X) -> X where U: Into<X> {
+        x
+    }
+}
+
+fn G<U: Into<X>, X>(u: U, x: X) -> X {
+    x
+}
+
+fn Id<U>(u: U) -> U {
+    u
+}
+
+fn Written<T: Into<i64> + Copy>(t: T) -> T {
+    G::<T, _>(t, t) //~ ERROR E0300 mismatched types
+    //~^ ERROR E0300 mismatched types
+}
+
+fn Method<T: Into<i64> + Copy>(w: W<T>, t: T) -> T {
+    w.M(t) //~ ERROR E0300 mismatched types
+    //~^ ERROR E0300 mismatched types
+}
+
+fn Inferred<T: Into<i64> + Copy>(t: T) -> T {
+    G(t, t)
+}
+
+fn Block<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, { t })
+}
+
+fn Loop<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, loop { break t; })
+}
+
+fn BlockWithLet<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, { let u = t; u }) //~ ERROR E0300 mismatched types
+    //~^ ERROR E0300 mismatched types
+}
+
+fn Call<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, Id(t)) //~ ERROR E0300 mismatched types
+    //~^ ERROR E0300 mismatched types
+}
+
+fn Paren<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, (t)) //~ ERROR E0300 mismatched types
+    //~^ ERROR E0300 mismatched types
+}
+
+fn ArgumentTooMany<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, t, t) //~ ERROR E0304
+    //~^ ERROR E0300 mismatched types
+}
+
+fn Main() {}
