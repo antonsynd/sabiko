@@ -13,7 +13,10 @@ compiles every file with both compilers and classifies each verdict:
   compiler means the program (or, rarely, a compiler) needs fixing.
 
 The test passes when the two verdicts agree for every file. A file named `ok_*` must be
-`accept` in both; `err_*` must be `borrow-error` in both. Error codes are reported but not
+`accept` in both; `err_*` must be `borrow-error` in both; `rej_*` must be `OTHER-ERROR` in
+both: a program rustc rejects before borrow checking, kept to pin that Sabiko rejects it
+too (decision 102; `sized_self/`, the provided methods of a trait whose `Self` may be
+unsized). Only that prefix may be `OTHER-ERROR`. Error codes are reported but not
 compared (the two compilers number their diagnostics differently), nor are positions. One
 concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` pairs side
 by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`,

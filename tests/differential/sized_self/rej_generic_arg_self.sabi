@@ -1,0 +1,10 @@
+// A generic argument of a call is sized: `T = Self` needs `Self: Sized`.
+fn ByRef<T>(t: &T) -> i32 {
+    1
+}
+
+trait Tr {
+    fn A(&self) -> i32 {
+        ByRef(self)
+    }
+}

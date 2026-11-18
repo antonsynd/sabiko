@@ -1,0 +1,6 @@
+// A tuple element other than the last is sized, behind a reference too.
+trait Tr {
+    fn A(&self, x: &(Self, i32)) -> i32 {
+        1
+    }
+}

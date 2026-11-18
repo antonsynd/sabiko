@@ -1,0 +1,39 @@
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_counts.sabi:23:9 ]
+    │
+ 23 │         self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ─────┬────  
+    │              ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0341] Error: the trait bound `i32: Show` is not satisfied
+    ╭─[ tests/ui/typeck/trait_self_sized_counts.sabi:29:9 ]
+    │
+ 29 │         G(1); //~ ERROR E0341 the trait bound `i32: Show` is not satisfied
+    │         ┬  
+    │         ╰── the trait `Show` is not implemented for `i32`
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/trait_self_sized_counts.sabi:35:13 ]
+    │
+ 35 │         let a = Mk(); //~ ERROR E0313 type annotations needed
+    │             ┬  
+    │             ╰── consider giving `a` an explicit type
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/trait_self_sized_counts.sabi:40:13 ]
+    │
+ 40 │         let a = Mk(); //~ ERROR E0313 type annotations needed
+    │             ┬  
+    │             ╰── consider giving `a` an explicit type
+────╯
+[E0334] Error: the trait bound `S: Copy` is not satisfied
+    ╭─[ tests/ui/typeck/trait_self_sized_counts.sabi:47:18 ]
+    │
+ 47 │         let r = [S {}; 2]; //~ ERROR E0334 the trait bound `S: Copy` is not satisfied
+    │                  ──┬─  
+    │                    ╰─── the trait `Copy` is not implemented for `S`
+    │ 
+    │ Note: the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)
+────╯

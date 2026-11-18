@@ -1,0 +1,42 @@
+// A diverging `if` branch or `match` arm next to a generic call (#151): the call's type
+// parameter falls back to `!` (edition 2024), and only the diverging branch runs.
+fn Mk<T>() -> T {
+    Panic("never called")
+}
+
+fn IfReturn(n: i32) -> i32 {
+    if n > 0 {
+        let x = if n > 1 { return n * 2 } else { Mk() };
+    }
+    n
+}
+
+fn MatchBreak(limit: i32) -> i32 {
+    let mut i = 0;
+    loop {
+        i += 1;
+        if i == limit {
+            let x = match i {
+                0 => Mk(),
+                _ => break,
+            };
+        }
+    }
+    i
+}
+
+fn Decided(n: u8) -> u8 {
+    let x = match n {
+        0 => return 42,
+        _ => if n > 100 { Mk() } else { n },
+    };
+    x + 1
+}
+
+fn Main() {
+    PrintLine(IfReturn(0));
+    PrintLine(IfReturn(5));
+    PrintLine(MatchBreak(3));
+    PrintLine(Decided(0));
+    PrintLine(Decided(7));
+}

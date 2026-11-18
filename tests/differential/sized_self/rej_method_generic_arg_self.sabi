@@ -1,0 +1,22 @@
+// A method's generic argument is sized too, inferred or written.
+struct S {}
+
+impl S {
+    fn Take<U>(&self, u: &U) -> i32 {
+        1
+    }
+    fn Nothing<U>(&self) -> i32 {
+        1
+    }
+}
+
+trait Tr {
+    fn A(&self) -> i32 {
+        let s = S {};
+        s.Take(self)
+    }
+    fn B(&self) -> i32 {
+        let s = S {};
+        s.Nothing::<Self>()
+    }
+}

@@ -1,7 +1,8 @@
 //! Differential tests against `rustc` over `tests/differential/**/*.sabi`. Every program
 //! in the corpus is valid Rust syntax as well as Sabiko; each is compiled by both compilers
 //! and the verdicts must agree: accepted by both, or rejected by both with borrow-checker
-//! errors only. See `tests/differential/README.md`.
+//! errors only, or, for a `rej_` file, rejected by both with other errors. See
+//! `tests/differential/README.md`.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -299,12 +300,19 @@ fn check(r: &Result_) -> Option<String> {
         Some(Verdict::Accept)
     } else if file_name.starts_with("err_") {
         Some(Verdict::BorrowError)
+    } else if file_name.starts_with("rej_") {
+        // A program both compilers reject before borrow checking (a type error), kept
+        // to pin a rejection rustc makes (decision 102).
+        Some(Verdict::OtherError)
     } else {
-        let _ = writeln!(failures, "  file name must start with `ok_` or `err_`");
+        let _ = writeln!(
+            failures,
+            "  file name must start with `ok_`, `err_` or `rej_`"
+        );
         None
     };
     for (who, outcome) in [("sabiko", &r.sabiko), ("rustc", &r.rustc)] {
-        if outcome.verdict == Verdict::OtherError {
+        if outcome.verdict == Verdict::OtherError && expected != Some(Verdict::OtherError) {
             let _ = writeln!(
                 failures,
                 "  {who} reports non-borrow errors {:?}; the program must be valid in both \

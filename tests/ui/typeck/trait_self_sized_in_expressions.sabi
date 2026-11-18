@@ -21,6 +21,18 @@ fn ByRef<T>(x: &T) -> i32 {
     1
 }
 
+struct S {}
+
+impl S {
+    fn Take<U>(&self, u: &U) -> i32 {
+        1
+    }
+
+    fn Nothing<U>(&self) -> i32 {
+        1
+    }
+}
+
 trait Make {
     fn Make() -> Self;
     fn Get(&self) -> Self;
@@ -81,12 +93,35 @@ trait Make {
         1
     }
 
-    fn Fine(&self) -> i32 {
+    // A method's generic argument, inferred or written.
+    fn MethodArgument(&self) -> i32 {
+        let s = S {};
+        s.Take(self) + s.Nothing::<Self>() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        //~^ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    }
+
+    // A tuple's elements but the last, behind a reference too.
+    fn TupleFirst(&self, t: &(Self, i32)) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        let u: &(i32, (Self, i32)); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    // An assignment's target, as well as the local and the call.
+    fn Assigned() -> i32 {
+        let x; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        x = Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        //~^ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+        1
+    }
+
+    fn Fine(&self, last: &(i32, Self)) -> i32 {
         let r = self;
         let o: Opt<&Self> = Opt::Yes(self);
         let i = Id(self);
         let t = (self, 1);
-        r.Peek() + i.Peek()
+        let s = S {};
+        let l: &(i32, Self) = last;
+        r.Peek() + i.Peek() + s.Take(&self) + s.Nothing::<&Self>()
     }
 }
 

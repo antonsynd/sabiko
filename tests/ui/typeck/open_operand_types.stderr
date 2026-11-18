@@ -1,0 +1,120 @@
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:21:14 ]
+    │
+ 21 │     let y = -x; //~ ERROR E0313 type annotations needed
+    │              ┬  
+    │              ╰── type must be known at this point
+    │ 
+    │ Note: the operator's implementation is chosen by its operand type: give it a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:26:20 ]
+    │
+ 26 │     let y: bool = !Mk(); //~ ERROR E0313 type annotations needed
+    │                    ──┬─  
+    │                      ╰─── type must be known at this point
+    │ 
+    │ Note: the operator's implementation is chosen by its operand type: give it a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:31:14 ]
+    │
+ 31 │     let y = !(x); //~ ERROR E0313 type annotations needed
+    │              ─┬─  
+    │               ╰─── type must be known at this point
+    │ 
+    │ Note: the operator's implementation is chosen by its operand type: give it a type annotation
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:37:14 ]
+    │
+ 37 │     let y = -x; //~ ERROR E0313 type annotations needed
+    │              ┬  
+    │              ╰── type must be known at this point
+    │ 
+    │ Note: the operator's implementation is chosen by its operand type: give it a type annotation
+────╯
+[E0306] Error: cannot add `i32` to `!`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:43:13 ]
+    │
+ 43 │     let y = x + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    │             ──┬──  
+    │               ╰──── no implementation for `! + i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: can't compare `!` with `i32`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:49:13 ]
+    │
+ 49 │     let y = x < 1; //~ ERROR E0306 can't compare `!` with `i32`
+    │             ──┬──  
+    │               ╰──── no implementation for `! < i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: no implementation for `! <<= i32`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:55:5 ]
+    │
+ 55 │     x <<= 1; //~ ERROR E0306 no implementation for `! <<= i32`
+    │     ───┬───  
+    │        ╰───── no implementation for `! <<= i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot add `i32` to `!`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:62:13 ]
+    │
+ 62 │     let y = x + 1; //~ ERROR E0306 cannot add `i32` to `!`
+    │             ──┬──  
+    │               ╰──── no implementation for `! + i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0306] Error: cannot multiply `!` by `i32`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:63:13 ]
+    │
+ 63 │     let z = x * 2; //~ ERROR E0306 cannot multiply `!` by `i32`
+    │             ──┬──  
+    │               ╰──── no implementation for `! * i32`
+    │ 
+    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+────╯
+[E0313] Error: type annotations needed
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:69:13 ]
+    │
+ 69 │     let y = x as i32; //~ ERROR E0313 type annotations needed
+    │             ────┬───  
+    │                 ╰───── type must be known at this point
+    │ 
+    │ Note: a cast needs its operand's type: give it a type annotation
+────╯
+[E0308] Error: casting `f64` as `bool` is invalid
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:80:13 ]
+    │
+ 80 │     let x = 1.5 as bool; //~ ERROR E0308 casting `f64` as `bool` is invalid
+    │             ─────┬─────  
+    │                  ╰─────── invalid cast
+────╯
+[E0334] Error: the trait bound `S: Copy` is not satisfied
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:85:14 ]
+    │
+ 85 │     let r = [S {}; 2]; //~ ERROR E0334 the trait bound `S: Copy` is not satisfied
+    │              ──┬─  
+    │                ╰─── the trait `Copy` is not implemented for `S`
+    │ 
+    │ Note: the operand of a repeat expression `[x; N]` with `N` other than 0 or 1 is copied, so it must be `Copy` (or name a `const` item)
+────╯
+[E0306] Error: binary operation `+` cannot be applied to type `&S`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:91:13 ]
+    │
+ 91 │     let x = &s + w; //~ ERROR E0306 binary operation `+` cannot be applied to type `&S`
+    │             ───┬──  
+    │                ╰──── no implementation for `&S + &S`
+────╯
+[E0306] Error: binary operation `+` cannot be applied to type `S`
+    ╭─[ tests/ui/typeck/open_operand_types.sabi:97:5 ]
+    │
+ 97 │     t += w; //~ ERROR E0306 binary operation `+` cannot be applied to type `S`
+    │     ───┬──  
+    │        ╰──── no implementation for `S + S`
+────╯

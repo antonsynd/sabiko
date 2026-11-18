@@ -842,7 +842,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   innermost type. A trait whose supertraits lead back to it is E0354 (rustc's E0391),
   whatever the arguments. Where a type must be known (a unary operator's operand, a
   receiver, a field or index base, the operand of `?`), the obligations that could decide
-  it are selected first; a type still open there is E0313. A binary operator, compound
+  it are selected first; a type still open there is E0313, even if a later use would
+  decide it (`let y = -x; x = 1;`, rustc's E0282), and an expected type does not decide
+  it (`let y: bool = !Mk();`). A cast's operand must be known once the body is done
+  (after the fallback); the casts and a repeat's `Copy` are checked before the body's
+  ambiguities, which an error there taints (decision 102). A binary operator, compound
   assignment or printed value whose operand type is still open waits for a later use to
   decide it, and is E0313 when nothing does (rustc's E0283). At a call, the
   callee's bounds are proved at its generic arguments, and a block proving one that
@@ -858,7 +862,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   else in the body is reported, as rustc's E0161 comes from its borrow checker), a
   generic argument holding `Self` (`Id(Self::Make())`, `ByRef(self)` for `fn ByRef<T>(x:
   &T)`), and a call or path building a struct or enum holding `Self` (`Opt::Yes(..)`,
-  `Opt::No`); a reference to `Self` is fine (#159). `where Self: Sized`, rustc's way out,
+  `Opt::No`), a method's generic argument too (`s.Take(self)`, `s.Nothing::<Self>()`),
+  an assignment's target of an unsized type (`x = Self::Make();`), and every element of a
+  tuple but the last, behind a reference too (`&(Self, i32)`, but `&(i32, Self)` is
+  fine); a reference to `Self` is fine (#159). `where Self: Sized`, rustc's way out,
   is E0107 for now.
 - Method calls through traits: the receiver is dereferenced step by step, and at each
   step its type is tried by value, then behind `&`, then behind `&mut`, against the
@@ -943,7 +950,8 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `let v = match n { _ => return }; PrintLine(v);` is accepted (`!` prints, never runs).
   So does any type variable a diverging expression is coerced to (rustc's `NeverToAny`):
   a generic argument (`Opt::Yes(Panic("x"))`, `W { V: return 3 }`, `Id(loop {})`), a
-  block's tail, `_` in an annotation (#151, decision 102); what `!` then lacks is an
+  block's tail, `_` in an annotation, the type of the other branches of an `if` or
+  `match` with a diverging branch (`if c { return } else { Mk() }`; #151, decision 102); what `!` then lacks is an
   error (`G(return)` for `G<T: Show>`, rustc's E0277). In a body with another error the
   fallback gives an error type instead, as rustc's does, and nothing more is reported.
 - `Print(x)` and `PrintLine(x)` take one argument of a printable type (integers, floats,
@@ -1165,8 +1173,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
     under `< <= > >=` (`&A` has two `PartialEq` impls, so `s == return true` is E0306 for
     `s: &str`). A `!` left operand compares only with another `!`. A diverging variable
     (`let y = return;`) that nothing has decided when the operator is checked is judged
-    as `!` if nothing decides it later either; a unary operator on one is E0313, as rustc
-    needs its type at once.
+    as `!` if nothing decides it later either, and so is an open variable a later
+    diverging assignment makes diverging (`let y = x + 1; x = return;` is E0306, rustc's
+    E0277); a unary operator on one is E0313, as rustc needs its type at once.
   Violations are E0306 (binary) or E0307 (unary); an operand of the wrong type for an
   operator whose other operand fixed the type is E0300.
 - Casts `e as T`, with Rust semantics (integer casts wrap, float to integer saturates):

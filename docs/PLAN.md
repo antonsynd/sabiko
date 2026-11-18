@@ -2002,6 +2002,23 @@ calls and paths building a struct or enum of it, types naming one even behind a 
 &W<Self>)` compiled although rustc rejects them (UI `typeck/trait_self_sized_in_expressions`,
 51 programs agreeing with rustc's counts). Left in #159: the follow-on errors after a
 supertrait cycle and the counts at an overflowing signature.
+The review round of PR #180 matched rustc on about 300 more programs: an `if` or `match`
+with a diverging branch coerces it to the other branches' type, so `if c { return } else {
+Mk() }` falls back to `!` (differential `never/ok_never_fallback_through_branches`,
+run-time `run/control/never_fallback_through_branches`); an open operation whose operand
+a later assignment makes diverging (`let y = x + 1; x = return;`) is judged as one on `!`
+(E0306, rustc's E0277), where it was an internal error; a unary operator on an operand
+still open is E0313 at once (rustc's E0282), where `let y = -x; x = true;` compiled; a
+cast's operand still open after the fallback is E0313, and the casts and repeats are
+checked before the ambiguities, which they taint (UI `typeck/open_operand_types`); a
+method's generic arguments, an assignment's target and a tuple's non-last elements behind
+a reference need a sized `Self`, and the move of a method's unsized `Self` result is
+reported only after every other check of the body found nothing (UI
+`typeck/trait_self_sized_counts`). Rejections rustc makes are pinned by the new `rej_`
+files of the differential corpus (`sized_self/`). Still different (positions or codes
+only, not verdicts or counts): `&x + 1` and `-&x` with `x: i32` are E0306/E0307 (no
+operator impls on references before #117), and a `match` on a scrutinee whose type a
+later diverging assignment decides is #183.
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

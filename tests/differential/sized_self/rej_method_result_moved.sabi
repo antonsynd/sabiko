@@ -1,0 +1,8 @@
+// A method call returning `Self`, not bound to a local, moves an unsized value.
+trait Tr {
+    fn Get(&self) -> Self;
+    fn A(&self) -> i32 {
+        self.Get();
+        1
+    }
+}
