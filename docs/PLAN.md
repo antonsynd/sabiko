@@ -345,8 +345,10 @@ or aggregate is never built; the validator panicked on it ("used 0 times", #177,
 valid and stays reserved; its temporary is never used, so its loan is never live. The loan
 reporter now deduplicates as rustc's `MirBorrowckCtxt` does:
 - an access once per place and span, for its first conflicting loan. The end of a local's
-  storage (or its drop) is keyed by the local, since rustc gives every exit from a scope
-  the scope's span: `if c { return &a; } &a` for a local `a` is one error;
+  storage is keyed by the local, since rustc gives every `StorageDead` of a scope the
+  scope's span: `if c { return &a; } &a` for a local `a` is one error. A drop keeps the
+  place-and-span key: for a local with drop glue (a `Drop` type, a type parameter) rustc
+  reports each path's drop, so the same shape is two errors (E0515 and E0713 in rustc);
 - a loan outliving its local once per root local and borrow span, in the same set. A
   `return` checks the loans it ends one by one (rustc's `check_for_invalidation_at_exit`),
   so `(&a, &a)` returning a parameter's loans is two E0414 and `let a = 1; (&a, &a)` one
@@ -369,11 +371,13 @@ guards, loops, nested and unsized arguments), 35 for #174 (returns of loans of p
 locals, fields, through arrays, structs, variants, branches and early returns), 53 for
 #177 (constructors, calls and methods with `return`, `break`, `continue`, `loop {}`,
 panics, all-diverging `match`es and blocks that read, borrow or write the place before
-diverging) and the review's 190 programs, 12 of them for the visiting order. Every row
+diverging), the first review's 190 programs, 12 of them for the visiting order, and the
+second review's 137, among them 11 with drop glue escaping on an early exit. Every row
 agrees with rustc's verdict and error count, apart from unrelated gaps older than this
 change: rustc's E0713 (a borrow of a `Drop` local's field still in use when its destructor
 runs) is not modelled, so `let d = D { .. }; (&d.X, &d.X)` is one error where rustc gives
-E0515 and E0713, and a temporary borrowed `&mut` in a `match` arm inside a guard is E0413
+E0515 and E0713, and so is a `match` tail whose three arms return `&d.X` (one drop, three
+errors in rustc), and a temporary borrowed `&mut` in a `match` arm inside a guard is E0413
 where rustc accepts it. Tests: 11 differential programs (`loans/`, `moves/`),
 `run/enums/two_phase_variant_constructor`, `run/enums/two_phase_argument_diverges` and the
 UI fixtures `borrowck/return_loans_of_one_parameter`, `return_loans_of_one_local`,

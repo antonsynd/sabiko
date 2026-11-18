@@ -358,13 +358,13 @@ impl Generator<'_> {
     /// validator checks this); none when an operand after it diverges, and then it is never
     /// activated. With more uses it would be treated as an ordinary mutable borrow.
     fn collect_loans(&mut self) {
-        let uses = operand_uses(self.body);
+        let uses_of = operand_uses(self.body);
         for bb in self.body.block_ids() {
             for (index, statement) in self.body.block(bb).statements.iter().enumerate() {
                 if let StatementKind::Assign(dest, Rvalue::Ref(kind, place)) = &statement.kind {
                     let location = Location::new(bb, index);
                     let loan = Loan(self.loans.len());
-                    let uses = uses.get(&dest.local).map_or(&[][..], Vec::as_slice);
+                    let uses = uses_of.get(&dest.local).map_or(&[][..], Vec::as_slice);
                     let two_phase = kind.is_two_phase() && dest.is_local() && uses.len() <= 1;
                     let activation = uses.first().copied().filter(|_| two_phase);
                     if let Some(at) = activation {
@@ -600,10 +600,10 @@ impl Generator<'_> {
     /// Activates the two-phase borrows whose one use is at `location`: a mutable borrow
     /// of each one's place.
     fn activate(&mut self, location: Location) {
-        if !self.activations.contains_key(&location) {
+        let Some(loans) = self.activations.get(&location).cloned() else {
             return;
-        }
-        for loan in self.activations[&location].clone() {
+        };
+        for loan in loans {
             let place = self.loans[loan.index()].place.clone();
             self.access_except(&place, AccessKind::Activation, location, Some(loan));
         }
@@ -901,7 +901,9 @@ impl Generator<'_> {
 /// mentioned or dropped place, or as the base of a place written through (`(*t).0 = 1`),
 /// for the activations of two-phase borrows: a temporary used exactly once, or not at
 /// all. A `switchInt`'s discriminant is an integer, never such a borrow's temporary (a
-/// reference), so it is not counted.
+/// reference), so it is not counted. The MIR validator's `two_phase_borrows` counts the
+/// same uses, apart from mentions (`PlaceMention`), which MIR building never makes of
+/// such a temporary; keep the two in step.
 fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
     let mut uses: HashMap<Local, Vec<Location>> = HashMap::default();
     let mut add = |place: &Place, at: Location| uses.entry(place.local).or_default().push(at);

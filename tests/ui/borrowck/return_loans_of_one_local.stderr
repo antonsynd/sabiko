@@ -1,35 +1,84 @@
 [E0414] Error: cannot return reference to local variable `a`
-    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:14:9 ]
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:16:9 ]
     │
- 14 │         &a, //~ ERROR E0414 cannot return reference to local variable `a`
+ 16 │         &a, //~ ERROR E0414 cannot return reference to local variable `a`
     │         ─┬  
     │          ╰── returns a reference to data owned by the current function
 ────╯
 [E0414] Error: cannot return reference to local data `s.A`
-    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:22:9 ]
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:24:9 ]
     │
- 22 │         &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+ 24 │         &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
     │         ──┬─  
     │           ╰─── returns a reference to data owned by the current function
 ────╯
 [E0414] Error: cannot return reference to local variable `a`
-    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:31:9 ]
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:33:9 ]
     │
- 31 │         &a, //~ ERROR E0414 cannot return reference to local variable `a`
+ 33 │         &a, //~ ERROR E0414 cannot return reference to local variable `a`
     │         ─┬  
     │          ╰── returns a reference to data owned by the current function
 ────╯
 [E0414] Error: cannot return reference to local variable `b`
-    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:32:9 ]
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:34:9 ]
     │
- 32 │         &b, //~ ERROR E0414 cannot return reference to local variable `b`
+ 34 │         &b, //~ ERROR E0414 cannot return reference to local variable `b`
     │         ─┬  
     │          ╰── returns a reference to data owned by the current function
 ────╯
 [E0414] Error: cannot return reference to local variable `a`
-    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:41:5 ]
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:43:5 ]
     │
- 41 │     &a //~ ERROR E0414 cannot return reference to local variable `a`
+ 43 │     &a //~ ERROR E0414 cannot return reference to local variable `a`
+    │     ─┬  
+    │      ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `d.X`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:57:16 ]
+    │
+ 57 │         return &d.X; //~ ERROR E0414 cannot return reference to local data `d.X`
+    │                ──┬─  
+    │                  ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `d.X`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:59:5 ]
+    │
+ 59 │     &d.X //~ ERROR E0414 cannot return reference to local data `d.X`
+    │     ──┬─  
+    │       ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `d.X`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:65:21 ]
+    │
+ 65 │         0 => return &d.X, //~ ERROR E0414 cannot return reference to local data `d.X`
+    │                     ──┬─  
+    │                       ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `d.X`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:66:21 ]
+    │
+ 66 │         1 => return &d.X, //~ ERROR E0414 cannot return reference to local data `d.X`
+    │                     ──┬─  
+    │                       ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `d.X`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:67:14 ]
+    │
+ 67 │         _ => &d.X, //~ ERROR E0414 cannot return reference to local data `d.X`
+    │              ──┬─  
+    │                ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local variable `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:74:16 ]
+    │
+ 74 │         return &a; //~ ERROR E0414 cannot return reference to local variable `a`
+    │                ─┬  
+    │                 ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local variable `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_local.sabi:76:5 ]
+    │
+ 76 │     &a //~ ERROR E0414 cannot return reference to local variable `a`
     │     ─┬  
     │      ╰── returns a reference to data owned by the current function
 ────╯

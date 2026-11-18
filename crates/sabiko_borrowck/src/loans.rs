@@ -137,10 +137,11 @@ impl Reporter<'_> {
     ///   guard over `*m` with the fake borrows of `*m` and of `m`; `r == { let t = r; t }`
     ///   with the reborrow `&*r` and the shallow borrow of `r` (the reborrow's, made
     ///   first); `StorageDead(a)` ending two loans of `a` (`let a = 1; (&a, &a)`). The
-    ///   end of a local's storage (or its drop) is keyed by the local alone: rustc gives
-    ///   every exit from its scope the scope's span, so the `StorageDead`s of an early
-    ///   `return` and of the block's end are one access (`if c { return &a; } &a` is one
-    ///   error).
+    ///   end of a local's storage is keyed by the local alone: rustc gives every
+    ///   `StorageDead` of a scope the scope's span, so those of an early `return` and of
+    ///   the block's end are one access (`if c { return &a; } &a` is one error). A drop
+    ///   keeps the `(place, span)` key: rustc reports the drops on the two paths
+    ///   separately when the local has drop glue (E0515 and E0713 there, two E0414 here).
     ///   Accesses of distinct places at one point are distinct errors (decision 99): a
     ///   call that activates two two-phase borrows, each conflicting with a guard's or a
     ///   comparison's fake borrow;
@@ -154,9 +155,9 @@ impl Reporter<'_> {
     /// - the activation of a two-phase borrow of a place whose reservation was an error is
     ///   not reported (rustc's `reservation_error_reported`): `v.Add(v.Bump())`,
     ///   `V(m, m)`. As in rustc (a FIXME there), the set is per place for the whole body,
-    ///   not per loan: after `v.Add(v.Get());`, a later `let r = &v; v.Add(1); r.N`
-    ///   activates another borrow of `v` against another loan, and that error is not
-    ///   reported either.
+    ///   not per loan: after `v.Add(v.Bump());` (`Bump` taking `&mut self`), a later
+    ///   `let r = &v; v.Add(1); r.N` activates another borrow of `v` against another loan,
+    ///   and that error is not reported either.
     fn report_errors(&self, sink: &mut DiagnosticSink) {
         let mut errors: Vec<(Location, Point, Loan)> = Vec::new();
         for (&point, loans) in &self.output.errors {
@@ -164,7 +165,11 @@ impl Reporter<'_> {
             let location = self.facts.table.location(point);
             errors.extend(loans.iter().map(|&loan| (location, point, loan)));
         }
-        let mut rpo_index = vec![0; self.body.blocks.len()];
+        if errors.is_empty() {
+            return;
+        }
+        // `reverse_postorder` lists unreachable blocks too, last.
+        let mut rpo_index = vec![usize::MAX; self.body.blocks.len()];
         for (index, bb) in self.body.reverse_postorder().into_iter().enumerate() {
             rpo_index[bb.index()] = index;
         }
@@ -189,12 +194,10 @@ impl Reporter<'_> {
             {
                 continue;
             }
-            // As in rustc, the access is looked up first and recorded last: a loan's span
-            // may be its `StorageDead`'s (a block's tail temporary), which must not hide it.
-            let ends_storage = matches!(
-                invalidation.kind,
-                AccessKind::StorageDead | AccessKind::Drop
-            );
+            // The access's key is looked up before the loan's and recorded after it, as in
+            // rustc: a loan's span may be its `StorageDead`'s (a block's tail temporary),
+            // which must not hide it.
+            let ends_storage = invalidation.kind == AccessKind::StorageDead;
             let access = (invalidation.kind != AccessKind::Return && !ends_storage)
                 .then(|| (invalidation.place.clone(), self.span_at(location)));
             if access.as_ref().is_some_and(|key| reported.contains(key))

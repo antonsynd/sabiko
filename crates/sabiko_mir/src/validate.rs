@@ -263,7 +263,9 @@ impl Validator<'_> {
     /// #145): the borrow checker activates it at that use. Or nothing reads it: an operand
     /// evaluated after the borrow diverged, so the call or aggregate was never built
     /// (`s.Push(Panic(".."))`, #177), and the borrow is never activated (rustc's
-    /// `TwoPhaseActivation::NotActivated`).
+    /// `TwoPhaseActivation::NotActivated`). The borrow checker's `operand_uses` counts the
+    /// same uses (and also mentions, which MIR building never makes of such a temporary);
+    /// keep the two in step.
     fn two_phase_borrows(&mut self) {
         fn moved_local(op: &Operand) -> Option<&Place> {
             match op {
