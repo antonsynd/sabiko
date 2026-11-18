@@ -1,0 +1,91 @@
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:21:9 ]
+    │
+ 21 │         &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:22:9 ]
+    │
+ 22 │         &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:28:9 ]
+    │
+ 28 │         &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:29:9 ]
+    │
+ 29 │         &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:35:12 ]
+    │
+ 35 │         L: &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │            ─┬  
+    │             ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:36:12 ]
+    │
+ 36 │         R: &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │            ─┬  
+    │             ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:42:9 ]
+    │
+ 42 │         &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:43:9 ]
+    │
+ 43 │         &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ─┬  
+    │          ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `s.A`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:49:9 ]
+    │
+ 49 │         &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+    │         ──┬─  
+    │           ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to local data `s.A`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:50:9 ]
+    │
+ 50 │         &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+    │         ──┬─  
+    │           ╰─── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:56:16 ]
+    │
+ 56 │         return &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    │                ─┬  
+    │                 ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:58:5 ]
+    │
+ 58 │     &a //~ ERROR E0414 cannot return reference to function parameter `a`
+    │     ─┬  
+    │      ╰── returns a reference to data owned by the current function
+────╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loans_of_one_parameter.sabi:63:13 ]
+    │
+ 63 │     let r = &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    │             ─┬  
+    │              ╰── returns a reference to data owned by the current function
+────╯

@@ -2109,8 +2109,10 @@ fn two_phase_borrow_is_active_after_its_activation() {
 
 #[test]
 fn two_phase_borrow_without_a_single_use_is_an_ordinary_borrow() {
-    // A two-phase borrow nothing activates (no use) is checked as a plain `&mut`: a later
-    // read of the place conflicts while the reference is live.
+    // A two-phase borrow used more than once (two writes through it) has no single use to
+    // activate it, so it is checked as a plain `&mut`: a later read of the place conflicts
+    // while the reference is live. (One used nowhere is never activated, #177:
+    // `two_phase_borrow_never_used_stays_reserved`.)
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx);
     let p = mir.user("p", fx.point_ty(), Mutability::Mut);
@@ -2128,6 +2130,28 @@ fn two_phase_borrow_without_a_single_use_is_an_ordinary_borrow() {
         fx.messages(&body),
         ["E0411 cannot use `p.X` because it was mutably borrowed"]
     );
+}
+
+#[test]
+fn two_phase_borrow_never_used_stays_reserved() {
+    // `let s = &p; p.Push({ let y = s.X; Panic(..) })`: an argument after the reservation
+    // diverged, so the call that would activate it was never built (#177). The borrow is
+    // only reserved, which a live shared borrow of the place tolerates (rustc's
+    // `TwoPhaseActivation::NotActivated`); an ordinary `&mut` would conflict with it.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let s = mir.user("s", Ty::shared_ref(fx.point_ty()), Mutability::Not);
+    let t = mir.temp(Ty::mut_ref(fx.point_ty()));
+    let n = mir.temp(Ty::I32);
+    let bb0 = mir.block();
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.assign(bb0, local(s), shared(local(p)));
+    mir.assign(bb0, local(t), two_phase(local(p)));
+    mir.assign(bb0, local(n), use_copy(deref(s).field(0, Ty::I32)));
+    mir.finish_unit(bb0);
+    let body = mir.finish();
+    assert!(fx.messages(&body).is_empty(), "{:?}", fx.messages(&body));
 }
 
 // ----------------------------------------------------------------------------------------

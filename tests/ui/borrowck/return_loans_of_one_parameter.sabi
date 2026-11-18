@@ -1,0 +1,67 @@
+// Sabiko codes for rustc's: E0414 for E0515.
+// Every borrow of a parameter that escapes through the return value is its own error,
+// as in rustc, which checks each loan when the function returns (decision 101, #174):
+// two borrows of one place in a tuple, an array, a struct or a variant, of one field, and
+// on two paths to the `return`.
+struct S {
+    A: i32,
+}
+
+struct Two<T> {
+    L: T,
+    R: T,
+}
+
+enum E<T> {
+    V(T, T),
+}
+
+fn Tuple(x: &i32, a: i32) -> (&i32, &i32) {
+    (
+        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    )
+}
+
+fn Array(x: &i32, a: i32) -> [&i32; 2] {
+    [
+        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    ]
+}
+
+fn Struct(x: &i32, a: i32) -> Two<&i32> {
+    Two {
+        L: &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        R: &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    }
+}
+
+fn Variant(x: &i32, a: i32) -> E<&i32> {
+    E::V(
+        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    )
+}
+
+fn Field(x: &i32, s: S) -> (&i32, &i32) {
+    (
+        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+    )
+}
+
+fn Paths(x: &i32, a: i32, c: bool) -> &i32 {
+    if c {
+        return &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    }
+    &a //~ ERROR E0414 cannot return reference to function parameter `a`
+}
+
+// One loan held twice is one error.
+fn OneLoan(x: &i32, a: i32) -> (&i32, &i32) {
+    let r = &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    (r, r)
+}
+
+fn Main() {}

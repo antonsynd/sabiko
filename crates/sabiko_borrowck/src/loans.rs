@@ -127,7 +127,37 @@ struct Reporter<'a> {
 }
 
 impl Reporter<'_> {
-    /// One diagnostic per (location, loan) pair in `errors`, in body order.
+    /// One diagnostic per (location, loan) pair in `errors`, deduplicated as rustc's
+    /// `MirBorrowckCtxt` does (decision 101). The errors are visited in rustc's order,
+    /// blocks in reverse postorder, since what is reported first decides what is
+    /// suppressed later:
+    /// - an access is reported once per place and span, for the first loan it conflicts
+    ///   with (rustc's `access_place_error_reported`, and its `Control::Break` after the
+    ///   first conflicting borrow): an inclusive range's two comparisons; `&mut m` in a
+    ///   guard over `*m` with the fake borrows of `*m` and of `m`; `r == { let t = r; t }`
+    ///   with the reborrow `&*r` and the shallow borrow of `r` (the reborrow's, made
+    ///   first); `StorageDead(a)` ending two loans of `a` (`let a = 1; (&a, &a)`). The
+    ///   end of a local's storage is keyed by the local alone: rustc gives every
+    ///   `StorageDead` of a scope the scope's span, so those of an early `return` and of
+    ///   the block's end are one access (`if c { return &a; } &a` is one error). A drop
+    ///   keeps the `(place, span)` key: rustc reports the drops on the two paths
+    ///   separately when the local has drop glue (E0515 and E0713 there, two E0414 here).
+    ///   Accesses of distinct places at one point are distinct errors (decision 99): a
+    ///   call that activates two two-phase borrows, each conflicting with a guard's or a
+    ///   comparison's fake borrow;
+    /// - a loan outliving its local is reported once per loan, keyed by its root local
+    ///   and its span in the same set (rustc's `report_borrowed_value_does_not_live_long_
+    ///   enough`). A `return` ends the storage of the parameters (and of any local data
+    ///   still borrowed) loan by loan, as rustc's `check_for_invalidation_at_exit` does,
+    ///   not as one access: `(&a, &a)` returning a parameter's loans twice is two errors
+    ///   (#174). A loan whose own creation was already an error (`let s = &a;` while `a`
+    ///   is mutably borrowed) is not reported again when it escapes;
+    /// - the activation of a two-phase borrow of a place whose reservation was an error is
+    ///   not reported (rustc's `reservation_error_reported`): `v.Add(v.Bump())`,
+    ///   `V(m, m)`. As in rustc (a FIXME there), the set is per place for the whole body,
+    ///   not per loan: after `v.Add(v.Bump());` (`Bump` taking `&mut self`), a later
+    ///   `let r = &v; v.Add(1); r.N` activates another borrow of `v` against another loan,
+    ///   and that error is not reported either.
     fn report_errors(&self, sink: &mut DiagnosticSink) {
         let mut errors: Vec<(Location, Point, Loan)> = Vec::new();
         for (&point, loans) in &self.output.errors {
@@ -135,56 +165,67 @@ impl Reporter<'_> {
             let location = self.facts.table.location(point);
             errors.extend(loans.iter().map(|&loan| (location, point, loan)));
         }
-        errors.sort_unstable();
+        if errors.is_empty() {
+            return;
+        }
+        // `reverse_postorder` lists unreachable blocks too, last.
+        let mut rpo_index = vec![usize::MAX; self.body.blocks.len()];
+        for (index, bb) in self.body.reverse_postorder().into_iter().enumerate() {
+            rpo_index[bb.index()] = index;
+        }
+        errors.sort_unstable_by_key(|&(location, point, loan)| {
+            (
+                rpo_index[location.block.index()],
+                location.statement_index,
+                point,
+                loan,
+            )
+        });
         errors.dedup();
-        let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
-        // Places reported as accessed at a span: one report each, the first loan's, as
-        // rustc's `access_place_error_reported` (an inclusive range's two comparisons).
-        // An access of one place that conflicts with several loans is reported once:
-        // `&mut m` in a guard over `*m` with the fake borrows of `*m` and of `m`,
-        // `r == { let t = r; t }` with the reborrow `&*r` and the shallow borrow of `r`
-        // (the reborrow's, made first). Accesses of distinct places at one point are
-        // distinct errors, as in rustc (decision 99): a call that activates two two-phase
-        // borrows, each conflicting with a guard's or a comparison's fake borrow, and a
-        // `return` that ends the storage of two parameters it returns loans of. Two loans
-        // of one place returned together (`(&a, &a)`) are one report here, two in rustc
-        // (#174).
-        let mut accessed: HashSet<(Span, Place)> = HashSet::default();
+        let mut reported: HashSet<(Place, Span)> = HashSet::default();
+        let mut storage_ended: HashSet<Place> = HashSet::default();
+        let mut reservation_errors: HashSet<Place> = HashSet::default();
         for (location, point, loan) in errors {
-            if self.repeats_reservation_error(point, loan, &reported) {
+            let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) else {
+                continue;
+            };
+            if invalidation.kind == AccessKind::Activation
+                && reservation_errors.contains(&invalidation.place)
+            {
                 continue;
             }
-            if let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) {
-                let key = (self.span_at(location), invalidation.place.clone());
-                if !accessed.insert(key) {
-                    continue;
-                }
+            // The access's key is looked up before the loan's and recorded after it, as in
+            // rustc: a loan's span may be its `StorageDead`'s (a block's tail temporary),
+            // which must not hide it.
+            let ends_storage = invalidation.kind == AccessKind::StorageDead;
+            let access = (invalidation.kind != AccessKind::Return && !ends_storage)
+                .then(|| (invalidation.place.clone(), self.span_at(location)));
+            if access.as_ref().is_some_and(|key| reported.contains(key))
+                || (ends_storage && storage_ended.contains(&invalidation.place))
+            {
+                continue;
+            }
+            let repeated_loan = matches!(
+                invalidation.kind,
+                AccessKind::StorageDead | AccessKind::Drop | AccessKind::Return
+            ) && {
+                let data = &self.facts.loans[loan.index()];
+                !reported.insert((Place::local(data.place.local), data.span))
+            };
+            reported.extend(access);
+            if ends_storage {
+                storage_ended.insert(invalidation.place.clone());
+            }
+            if repeated_loan {
+                continue;
+            }
+            if invalidation.kind == AccessKind::Reservation {
+                reservation_errors.insert(invalidation.place.clone());
             }
             if let Some(diag) = self.loan_error(location, point, loan) {
                 sink.emit(diag);
             }
         }
-    }
-
-    /// Whether the error is the activation of a two-phase borrow conflicting with a loan
-    /// its reservation already conflicted with (`v.Add(v.Bump())`): one report is enough.
-    fn repeats_reservation_error(
-        &self,
-        point: Point,
-        loan: Loan,
-        reported: &HashSet<(Point, Loan)>,
-    ) -> bool {
-        let Some(invalidation) = self.facts.invalidations.get(&(point, loan)) else {
-            return false;
-        };
-        let Some(activated) = invalidation.activated else {
-            return false;
-        };
-        let reservation = self
-            .facts
-            .table
-            .start(self.facts.loans[activated.index()].location);
-        reported.contains(&(reservation, loan))
     }
 
     fn loan_error(&self, location: Location, point: Point, loan: Loan) -> Option<Diagnostic> {

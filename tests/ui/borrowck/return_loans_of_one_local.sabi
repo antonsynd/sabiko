@@ -1,0 +1,79 @@
+// Sabiko codes for rustc's: E0414 for E0515.
+// A local's storage ends before the `return`, and that one access is reported once, for
+// the first loan it ends, as in rustc (decision 101): two borrows of one local, or of two
+// of its fields, are one error, and so are an early `return` and the tail, whose
+// `StorageDead`s rustc gives one span. Two locals are two accesses, so two errors. A local
+// with drop glue (a `Drop` type, or a type parameter) is dropped on each path, and each
+// drop is its own error, as in rustc (E0515 and E0713 there for `D`, two E0515 for `T`).
+struct S {
+    A: i32,
+    B: i32,
+}
+
+fn Same(x: &i32) -> (&i32, &i32) {
+    let a = 1;
+    (
+        &a, //~ ERROR E0414 cannot return reference to local variable `a`
+        &a,
+    )
+}
+
+fn Fields(x: &i32) -> (&i32, &i32) {
+    let s = S { A: 1, B: 2 };
+    (
+        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+        &s.B,
+    )
+}
+
+fn TwoLocals(x: &i32) -> (&i32, &i32) {
+    let a = 1;
+    let b = 2;
+    (
+        &a, //~ ERROR E0414 cannot return reference to local variable `a`
+        &b, //~ ERROR E0414 cannot return reference to local variable `b`
+    )
+}
+
+fn EarlyAndTail(x: &u8, c: bool) -> &u8 {
+    let a = 1;
+    if c {
+        return &a;
+    }
+    &a //~ ERROR E0414 cannot return reference to local variable `a`
+}
+
+struct D {
+    X: u8,
+}
+
+impl Drop for D {
+    fn drop(&mut self) {}
+}
+
+fn DropEarlyAndTail(x: &u8, c: bool) -> &u8 {
+    let d = D { X: 1 };
+    if c {
+        return &d.X; //~ ERROR E0414 cannot return reference to local data `d.X`
+    }
+    &d.X //~ ERROR E0414 cannot return reference to local data `d.X`
+}
+
+fn DropThreeArms(x: &u8, k: u8) -> &u8 {
+    let d = D { X: 1 };
+    match k {
+        0 => return &d.X, //~ ERROR E0414 cannot return reference to local data `d.X`
+        1 => return &d.X, //~ ERROR E0414 cannot return reference to local data `d.X`
+        _ => &d.X, //~ ERROR E0414 cannot return reference to local data `d.X`
+    }
+}
+
+fn GenericEarlyAndTail<T>(y: &T, t: T, c: bool) -> &T {
+    let a = t;
+    if c {
+        return &a; //~ ERROR E0414 cannot return reference to local variable `a`
+    }
+    &a //~ ERROR E0414 cannot return reference to local variable `a`
+}
+
+fn Main() {}
