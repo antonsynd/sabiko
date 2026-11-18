@@ -7,7 +7,6 @@ fn Get(_1: Opt<i32>) -> i32 {
     let mut _0: i32;
     let _2: i32;                         // v
     let mut _3: isize;
-    let mut _4: &Opt<i32>;
 
     bb0: {
         PlaceMention(_1);

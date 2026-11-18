@@ -2786,7 +2786,7 @@ impl<'a> Builder<'a> {
             return;
         }
         if self.tests_a_variant(pat) {
-            self.read_scrutinee(&place, init.span);
+            self.read_matched_place(&place, init.span);
         }
         self.bind_pat(pat, place, &matches::Choice::default(), BindMode::Declare);
     }

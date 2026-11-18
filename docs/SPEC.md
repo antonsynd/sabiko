@@ -1161,7 +1161,9 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   a variant of an enum with other variants: the place must be initialised and not moved,
   even in part (`let v: Void; match v {}` is E0405, rustc's E0381;
   `Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }` is E0406, rustc's E0382).
-  The read conflicts with no loan, and a `_` arm only mentions the place. A `let` or parameter pattern must be
+  The read conflicts with no loan, and a `_` arm only mentions the place. A guard that
+  moves the scrutinee and fails is followed by no read when a later arm without a guard
+  matches everything its arm does. A `let` or parameter pattern must be
   irrefutable (E0329, rustc's E0005). Warnings: a pattern no value reaches (E0330, also a
   single alternative of an or-pattern), and an `if let`, `while let` or `let`-`else` whose
   pattern always matches (E0331); a `let` of a let chain may be refutable or not, without

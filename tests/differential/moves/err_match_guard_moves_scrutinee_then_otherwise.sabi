@@ -1,0 +1,21 @@
+// A guard that moves the scrutinee and fails on an arm no later arm covers (its variant is
+// empty, so no later arm needs it) leads to the `otherwise` block, which reads the moved
+// scrutinee: E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+enum E { A(N), B(Void) }
+
+fn Consume(e: E) -> bool {
+    false
+}
+
+fn F(e: E) -> i32 {
+    match e {
+        E::B(_) if Consume(e) => 1,
+        E::A(_) => 2,
+    }
+}
+
+fn Main() {}

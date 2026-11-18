@@ -64,19 +64,18 @@ fn Get(_1: Opt<i32>) -> i32 {
     let mut _0: i32;
     let _2: i32;                         // v
     let mut _3: isize;
-    let mut _4: &Opt<i32>;
 
     bb0: {
         PlaceMention(_1);
         StorageLive(_3);
         _3 = discriminant(_1);
-        switchInt(copy _3) -> [1: bb3, otherwise: bb2];
+        switchInt(copy _3) -> [1: bb3, otherwise: bb7];
     }
 
     bb1: {
         _0 = copy _2;
         StorageDead(_2);
-        goto -> bb9;
+        goto -> bb8;
     }
 
     bb2: {
@@ -95,30 +94,24 @@ fn Get(_1: Opt<i32>) -> i32 {
 
     bb5: {
         _0 = const 0_i32;
-        goto -> bb9;
+        goto -> bb8;
     }
 
     bb6: {
-        falseEdge -> [real: bb8, imaginary: bb7];
+        unreachable;
     }
 
     bb7: {
-        StorageLive(_4);
-        _4 = &_1;
-        StorageDead(_4);
-        unreachable;
+        FakeRead(ForMatchedPlace, _1);
+        goto -> bb2;
     }
 
     bb8: {
-        unreachable;
+        StorageDead(_3);
+        goto -> bb9;
     }
 
     bb9: {
-        StorageDead(_3);
-        goto -> bb10;
-    }
-
-    bb10: {
         return;
     }
 }

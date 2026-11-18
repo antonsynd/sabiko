@@ -132,8 +132,7 @@ fn PartlyMoved(_1: bool) {
     let mut _4: bool;
     let _5: D;                           // d
     let mut _6: isize;
-    let mut _7: &E;
-    let mut _8: ();
+    let mut _7: ();
     cleanup c0: _3 => drop(_3);
     cleanup c1: _2 => drop(_2);
 
@@ -165,20 +164,20 @@ fn PartlyMoved(_1: bool) {
         PlaceMention(_2);
         StorageLive(_6);
         _6 = discriminant(_2);
-        switchInt(copy _6) -> [1: bb8, otherwise: bb7];
+        switchInt(copy _6) -> [1: bb8, otherwise: bb11];
     }
 
     bb5 (cleanup c1): {
         StorageDead(_4);
-        goto -> bb15;
+        goto -> bb14;
     }
 
     bb6 (cleanup c1): {
-        drop(_5) -> bb14;
+        drop(_5) -> bb13;
     }
 
     bb7 (cleanup c1): {
-        switchInt(copy _6) -> [0: bb13, otherwise: bb10];
+        switchInt(copy _6) -> [0: bb12, otherwise: bb10];
     }
 
     bb8 (cleanup c1): {
@@ -192,51 +191,45 @@ fn PartlyMoved(_1: bool) {
     }
 
     bb10 (cleanup c1): {
-        falseEdge -> [real: bb12, imaginary: bb11];
+        unreachable;
     }
 
     bb11 (cleanup c1): {
-        StorageLive(_7);
-        _7 = &_2;
-        StorageDead(_7);
-        unreachable;
+        FakeRead(ForMatchedPlace, _2);
+        goto -> bb7;
     }
 
     bb12 (cleanup c1): {
-        unreachable;
+        StorageDead(_6);
+        goto -> bb14;
     }
 
     bb13 (cleanup c1): {
-        StorageDead(_6);
-        goto -> bb15;
+        StorageDead(_5);
+        goto -> bb12;
     }
 
     bb14 (cleanup c1): {
-        StorageDead(_5);
-        goto -> bb13;
+        StorageLive(_7);
+        _7 = Touch() -> bb15;
     }
 
     bb15 (cleanup c1): {
-        StorageLive(_8);
-        _8 = Touch() -> bb16;
+        StorageDead(_7);
+        _0 = const ();
+        goto -> bb16;
     }
 
-    bb16 (cleanup c1): {
-        StorageDead(_8);
-        _0 = const ();
-        goto -> bb17;
+    bb16: {
+        drop(_2) -> bb17;
     }
 
     bb17: {
-        drop(_2) -> bb18;
+        StorageDead(_2);
+        goto -> bb18;
     }
 
     bb18: {
-        StorageDead(_2);
-        goto -> bb19;
-    }
-
-    bb19: {
         return;
     }
 }

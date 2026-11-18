@@ -2296,6 +2296,34 @@ fn array_bounds_check_conflicts_with_no_loan() {
     fx.assert_clean(&mir.finish());
 }
 
+#[test]
+fn matched_place_read_conflicts_with_no_loan() {
+    // let m = &mut a; <no pattern of a match on `a` matched>; *m = ..  -- rustc's
+    // `FakeRead(ForMatchedPlace, a)` is checked for moves and initialisation only
+    // (decision 106).
+    let fx = Fixture::new();
+    let array = Ty::Array(Box::new(Ty::I32), 2);
+    let mut mir = BodyBuilder::new(&fx);
+    let a = mir.user("a", array.clone(), Mutability::Mut);
+    let m = mir.user("m", Ty::mut_ref(array), Mutability::Not);
+    let i = mir.temp(Ty::Prim(PrimTy::Usize));
+    let bb0 = mir.block();
+    mir.assign(
+        bb0,
+        local(a),
+        Rvalue::Aggregate(AggregateKind::Array(Ty::I32), vec![int(1), int(2)]),
+    );
+    mir.assign(bb0, local(i), use_int(0));
+    mir.assign(bb0, local(m), mutable(local(a)));
+    mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, local(a)),
+    );
+    mir.assign(bb0, deref(m).index(i), use_int(2));
+    mir.finish_unit(bb0);
+    fx.assert_clean(&mir.finish());
+}
+
 /// `fn F(s: &mut [i32]) { let m = &mut [borrowed]; let _ = (*s)[i]; *m.. = 2; }`, with
 /// `borrowed` the slice `*s` (`element: false`) or its element `(*s)[j]`.
 fn slice_bounds_check_while_borrowed(element: bool) -> (Fixture, Body, Span, Span, Span) {

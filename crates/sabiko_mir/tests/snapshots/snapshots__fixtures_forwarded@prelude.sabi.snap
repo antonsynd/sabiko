@@ -7,7 +7,6 @@ fn Describe(_1: Option<i32>) -> i32 {
     let mut _0: i32;
     let _2: i32;                         // n
     let mut _3: isize;
-    let mut _4: &Option<i32>;
 
     bb0: {
         PlaceMention(_1);

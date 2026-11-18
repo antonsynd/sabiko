@@ -2174,17 +2174,19 @@ bounds check, as in rustc, so `match e[i] { _ => 3 }` compiles and panics on the
 a move in such an arm is E0406 (it was accepted; rustc's E0382), and `match e[i] {}` ends
 in `unreachable`; a block whose tail is a `!` place (`match { e[i] } {}`) diverges, and
 the code after it is unreachable (what the match would have assigned was E0405). A match
-now reads its scrutinee where no arm matched, in rustc's `otherwise` block (after a failed
-discriminant switch, comparison, range test or last guard, or with no arms; not after a
-`bool` test or when the last arm tests nothing), and so does an irrefutable `let` or
-destructuring assignment that names a variant of an enum with other variants: the place
-must be initialised and not moved, even in part. `let v: Void; match v {}` is E0405
-(rustc's E0381; it was accepted); `Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2
-}` and `Take(t.0); let (_, None) = t;` are E0406 (rustc's E0382; they were accepted,
-which leaving out an empty variant had made reachable from valid-looking code). The read
-is a shared borrow behind a false edge, removed before code generation, so it conflicts
-with no loan; Sabiko words it "borrow of", rustc "use of". Once #193's
-`StatementKind::FakeRead` lands, it becomes `FakeRead(ForMatchedPlace)`. About 150 programs were compared with rustc 1.99 (the PR has the
+now reads its scrutinee where no pattern matched, in rustc's `otherwise` block, with a
+`FakeRead(ForMatchedPlace)` (after a failed discriminant switch, comparison, range test or
+guard, or with no arms; not after a `bool` test or when a later arm that tests nothing
+catches the value), and so does an irrefutable `let` or destructuring assignment that
+names a variant of an enum with other variants: the place must be initialised and not
+moved, even in part. `let v: Void; match v {}` is E0405 (rustc's E0381; it was accepted);
+`Take(t.0); match t { (_, Some(x)) => x, (_, None) => 2 }` and `Take(t.0); let (_, None) =
+t;` are E0406 (rustc's E0382; they were accepted, which leaving out an empty variant had
+made reachable from valid-looking code). The read conflicts with no loan. Since Sabiko's
+candidates fall through to one another where rustc's decision tree branches, it goes on
+each failure edge after which rustc reaches its `otherwise` block, not at the end of the
+candidates: a guard that moves the scrutinee before a later arm that covers it stays
+accepted, as in rustc. About 150 programs were compared with rustc 1.99 (the PR has the
 table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `never/rej_uninhabited_payload_behind_reference`, `never/ok_never_place_scrutinee`,
 `never/err_never_place_scrutinee`, `enums/ok_empty_payloads_omitted`,
@@ -2203,8 +2205,12 @@ after review: differential `moves/err_match_partially_moved_switch_otherwise`,
 `moves/err_destructuring_assign_partially_moved_variant_test`,
 `moves/ok_match_partially_moved_no_otherwise`,
 `loans/ok_match_otherwise_read_conflicts_with_no_loan`,
+`moves/err_match_guard_moves_scrutinee_then_otherwise`,
+`moves/err_match_guard_moves_scrutinee_later_arm_tests`,
+`moves/ok_match_guard_moves_scrutinee_covered`,
 `enums/ok_deeply_nested_empty_instances`, run `matches/never_block_scrutinee` and
-`matches/never_block_scrutinee_wild_arm`.
+`matches/never_block_scrutinee_wild_arm`, and the borrow checker unit tests
+`partial_move_then_matched_place_read` and `matched_place_read_conflicts_with_no_loan`.
 Gaps: rustc's `unreachable_patterns` lint also covers `let`, `if let`, `let`-`else`,
 `while let`, let chains and parameters (an or-pattern alternative such as the second `1`
 of `if let 1 | 1 = x`, or `_` on a valid `!` place); Sabiko reports it for `match` only.

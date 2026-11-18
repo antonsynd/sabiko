@@ -118,6 +118,11 @@ impl Checker<'_> {
                 let read = index_base_read(base, self.body);
                 self.check_initialised(base.local, statement.span, Some(&read));
             }
+            // A match reads its scrutinee where no pattern matched (decision 106): `let v:
+            // Void; match v {}` is E0381.
+            StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place) => {
+                self.check_read(place, statement.span);
+            }
             // `let _ = place;` needs no initialised or mutable place: it touches nothing. A
             // match test reusing an earlier test's read was checked at that read.
             StatementKind::PlaceMention(_)

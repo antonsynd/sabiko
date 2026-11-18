@@ -154,16 +154,15 @@ fn PartlyMoved(_1: bool) {
     let mut _4: bool;
     let _5: D;                           // d
     let mut _6: isize;
-    let mut _7: &E;
-    let mut _8: ();
-    let mut _9: bool;
-    let mut _10: isize;
+    let mut _7: ();
+    let mut _8: bool;
+    let mut _9: isize;
     cleanup c0: _3 => nothing;
-    cleanup c1: _2 => drop((_2 as Full).0) if _9 && discriminant(_2) == 1;
+    cleanup c1: _2 => drop((_2 as Full).0) if _8 && discriminant(_2) == 1;
 
     bb0: {
         StorageLive(_2);
-        _9 = const false;
+        _8 = const false;
         StorageLive(_3);
         _3 = D { Id: const 3_i32 };
         goto -> bb1;
@@ -171,7 +170,7 @@ fn PartlyMoved(_1: bool) {
 
     bb1 (cleanup c0): {
         _2 = E::Full { 0: move _3 };
-        _9 = const true;
+        _8 = const true;
         goto -> bb2;
     }
 
@@ -197,7 +196,7 @@ fn PartlyMoved(_1: bool) {
 
     bb6 (cleanup c1): {
         StorageLive(_5);
-        _9 = const false;
+        _8 = const false;
         _5 = move (_2 as Full).0;
         goto -> bb14;
     }
@@ -217,19 +216,19 @@ fn PartlyMoved(_1: bool) {
     }
 
     bb10 (cleanup c1): {
-        StorageLive(_8);
-        _8 = Touch() -> bb11;
+        StorageLive(_7);
+        _7 = Touch() -> bb11;
     }
 
     bb11 (cleanup c1): {
-        StorageDead(_8);
+        StorageDead(_7);
         _0 = const ();
         goto -> bb17;
     }
 
     bb12: {
         StorageDead(_2);
-        _9 = const false;
+        _8 = const false;
         goto -> bb13;
     }
 
@@ -246,12 +245,12 @@ fn PartlyMoved(_1: bool) {
     }
 
     bb16: {
-        _10 = discriminant(_2);
-        switchInt(copy _10) -> [1: bb15, otherwise: bb12];
+        _9 = discriminant(_2);
+        switchInt(copy _9) -> [1: bb15, otherwise: bb12];
     }
 
     bb17: {
-        switchInt(copy _9) -> [0: bb12, otherwise: bb16];
+        switchInt(copy _8) -> [0: bb12, otherwise: bb16];
     }
 }
 

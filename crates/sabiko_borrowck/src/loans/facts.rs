@@ -479,8 +479,11 @@ impl Generator<'_> {
             }
             // `let _ = place;`: a use of the local for liveness only (rustc's
             // `PlaceMention`), so a reference mentioned there keeps its loans live, but no
-            // access: the place is not read, so no loan is invalidated.
-            StatementKind::PlaceMention(place) => {
+            // access: the place is not read, so no loan is invalidated. So is a match's read
+            // of its scrutinee where no pattern matched (decision 106): rustc's
+            // `FakeRead(ForMatchedPlace)` checks moves and initialisation only.
+            StatementKind::PlaceMention(place)
+            | StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place) => {
                 self.use_local(place.local, location);
             }
             // An index's bounds check (decision 96): only a slice's length is read, an

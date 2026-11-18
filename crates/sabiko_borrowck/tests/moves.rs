@@ -741,6 +741,38 @@ fn partial_move_then_use_of_parent() {
 }
 
 #[test]
+fn partial_move_then_matched_place_read() {
+    // let a = l.A; match l { .. }  -- rustc's `FakeRead(ForMatchedPlace, l)` where no
+    // pattern matched reads all of `l` (decision 106); a mention does not.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx, Ty::Unit);
+    let l = mir.user("l", fx.line_ty(), Mutability::Not);
+    let a = mir.user("a", fx.point_ty(), Mutability::Not);
+    let bb1 = make_line(&mut mir, &fx, l);
+    let moved = mir.assign(bb1, local(a), use_move(line_field(&fx, l, 0)));
+    mir.stmt(bb1, StatementKind::PlaceMention(local(l)));
+    let used = mir.stmt(
+        bb1,
+        StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, local(l)),
+    );
+    mir.ret(bb1);
+    let body = mir.finish();
+
+    let diags = fx.check(&body);
+    assert_eq!(
+        diags.iter().map(render).collect::<Vec<_>>(),
+        ["E0406 use of partially moved value: `l`"]
+    );
+    assert_eq!(
+        labels(&diags[0]),
+        [
+            (used, "value used here after partial move"),
+            (moved, "value partially moved here"),
+        ]
+    );
+}
+
+#[test]
 fn partial_move_then_borrow_of_parent() {
     // let a = l.A; let r = &l;
     let fx = Fixture::new();

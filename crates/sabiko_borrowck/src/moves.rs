@@ -550,6 +550,11 @@ impl MoveChecker<'_> {
                 };
                 self.check_use(&read.place, kind, location, statement.span);
             }
+            // A match reads its whole scrutinee where no pattern matched (decision 106):
+            // `Take(t.0); match t { (_, None) => 1 }` is "use of partially moved value".
+            StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place) => {
+                self.check_use(place, UseKind::Use, location, statement.span);
+            }
             // A mention is not a use: `let _ = p;` after a move of `p` is fine. A match
             // test reusing an earlier test's read reads nothing a guard could have moved.
             StatementKind::PlaceMention(_)
