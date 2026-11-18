@@ -4,9 +4,9 @@ enum Void {}
 
 struct S { A: i32, V: Void }
 
-fn Arms(mut t: (i32, Option<i32>)) -> i32 {
+fn Arms(mut t: (i32, Option<Void>), c: bool) -> i32 {
     let r = &mut t.0;
-    let v = match t { (_, Some(x)) => x, (_, None) => 0 };
+    let v = match t { (_, None) if c => 1, (_, None) => 0 };
     *r = 2;
     v
 }

@@ -52,8 +52,8 @@ const MAX_SELF_NESTING: usize = 128;
 /// [`Checker::empty_variants`]).
 const MAX_INSTANCE_SIZE: usize = 512;
 
-/// How many struct and enum instances one check decides at most (see
-/// [`Checker::empty_variants`]).
+/// How many instances of generic structs and enums (with generic arguments) one check
+/// decides at most (see [`Checker::empty_variants`]).
 const MAX_INSTANCES: usize = 512;
 
 // ---------------------------------------------------------------------------------------
@@ -820,8 +820,8 @@ struct Checker<'a> {
     cut_off_variants: HashMap<Ty, Rc<[bool]>>,
     /// How many decisions a cut-off has made so far.
     cut_offs: usize,
-    /// How many instances have been decided (or begun) so far, against
-    /// [`MAX_INSTANCES`].
+    /// How many instances with generic arguments have been decided (or begun) so far,
+    /// against [`MAX_INSTANCES`].
     decided: usize,
     /// The structs and enums whose inhabitedness is being decided, outermost first.
     deciding: Vec<DefId>,
@@ -898,9 +898,15 @@ impl<'a> Checker<'a> {
     /// program's instances may be exponentially many (`E0<T>` with variants of `E1<(T, T)>`
     /// and `E1<(T, i32)>`, and so on). Deciding stops at an instance nested in its own
     /// struct or enum [`MAX_SELF_NESTING`] times, larger than [`MAX_INSTANCE_SIZE`], or
-    /// past the [`MAX_INSTANCES`]th instance of the check, and takes it as inhabited,
-    /// which only ever asks for more arms (E0328, as before decision 106). A valid program
-    /// reaches the cut-off only with a type that deep or that large. What was decided
+    /// past the [`MAX_INSTANCES`]th instance with generic arguments of the check, and
+    /// takes it as inhabited, which only ever asks for more arms (E0328, as before
+    /// decision 106). Only instances with generic arguments count against the budget:
+    /// a struct or enum without them is one type of the program, decided once, so its
+    /// number is bounded by the program's size, and many of them (a `Big` of 600
+    /// distinct structs next to an `Option<Void>`) must not use up the budget of the
+    /// generic ones. A valid program reaches the cut-off with a type that deep or that
+    /// large, or with more than [`MAX_INSTANCES`] generic instances below one scrutinee
+    /// (each then asks for an arm rustc does not). What was decided
     /// with a cut-off is kept only for the rest of the outermost query, since the same
     /// instance reached from elsewhere may be decided in full (decision 106).
     fn empty_variants(&mut self, ty: &Ty) -> Rc<[bool]> {
@@ -920,14 +926,17 @@ impl<'a> Checker<'a> {
             AdtShape::Enum { variants, .. } => vec![false; variants.len()].into(),
         };
         let nesting = self.deciding.iter().filter(|d| *d == def).count();
+        let generic = !args.is_empty();
         if nesting >= MAX_SELF_NESTING
-            || self.decided >= MAX_INSTANCES
+            || (generic && self.decided >= MAX_INSTANCES)
             || ty_size(ty, MAX_INSTANCE_SIZE + 1) > MAX_INSTANCE_SIZE
         {
             self.cut_offs += 1;
             return inhabited;
         }
-        self.decided += 1;
+        if generic {
+            self.decided += 1;
+        }
         let cut_offs = self.cut_offs;
         // Provisional, for a cycle.
         self.empty_variants

@@ -1,0 +1,16 @@
+// The last arm's guard moves part of the scrutinee and fails into the `otherwise` block,
+// which the left-out empty variant reaches through it: E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Option<Void>), c: bool) -> i32 {
+    match t {
+        (_, None) => 1,
+        (_, _) if { Take(t.0); c } => 2,
+    }
+}
+
+fn Main() {}

@@ -1,0 +1,16 @@
+// Every arm has a guard: after the first one moved part of the scrutinee and failed, the
+// last one fails into the `otherwise` block, which reads it: E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Void), c: bool, d: bool) -> i32 {
+    match t {
+        (_, _) if { Take(t.0); c } => 1,
+        (_, _) if d => 2,
+    }
+}
+
+fn Main() {}

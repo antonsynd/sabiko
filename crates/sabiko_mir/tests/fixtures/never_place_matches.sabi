@@ -1,10 +1,11 @@
 // Matches that leave out an uninhabited variant, and matches on a place of type `!`
 // (#178, #184, decision 106). A left-out variant falls to the switch's `unreachable`; such
 // a match reads its scrutinee first (`FakeRead(ForMatchedPlace)`: it must be initialised
-// and not moved, even in part), as does one with no arms. A place of type `!` is mentioned
-// (its bounds checked), then its arms are entered as for any place. An irrefutable `let`
-// that leaves out a variant reads its initialiser the same way. A block whose tail is a `!`
-// place is a value: nothing after it runs.
+// and not moved, even in part), or where every arm failed when a guard of an arm that tests
+// nothing writes to it; one with no arms or only guarded ones reads where every arm failed.
+// A place of type `!` is mentioned (its bounds checked), then its arms are entered as for
+// any place. An irrefutable `let` that leaves out a variant reads its initialiser the same
+// way. A block whose tail is a `!` place is a value: nothing after it runs.
 fn Id(x: usize) -> usize {
     x
 }
@@ -47,4 +48,17 @@ fn BlockTail(c: bool) -> i32 {
     let e = if c { let x = Panic("e"); [x; 0] } else { [] };
     let v: i32 = match { e[Id(2)] } {};
     v
+}
+
+fn AllGuarded(t: (i32, Void), c: bool) -> i32 {
+    match t {
+        _ if c => 1,
+    }
+}
+
+fn UntestedGuardWrites(mut t: (i32, Option<Void>), c: bool) -> i32 {
+    match t {
+        (_, _) if { t.0 = 1; c } => 1,
+        (_, None) => 2,
+    }
 }
