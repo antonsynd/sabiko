@@ -1,0 +1,36 @@
+// `-e` and `!e` pass their expectation on to `e`, into a block's tail, a branch or a
+// `break` value, as rustc does: the generic call there is decided by it (#183).
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Cond() -> bool {
+    false
+}
+
+fn Take(x: i32) {
+    PrintLine(x);
+}
+
+fn Main() {
+    if Cond() {
+        let a: i32 = -{ Mk() };
+        let b: bool = !{ Mk() };
+        Take(-{ Mk() });
+        let c: i32 = -match Cond() {
+            _ => Mk(),
+        };
+        let d: i32 = -loop {
+            break Mk();
+        };
+        let e: i32 = -(-{ Mk() });
+        let f: f64 = -{ Mk() };
+        let g: [i32; 2] = [-{ Mk() }, 1];
+        let h: i32 = -{
+            let q = 2;
+            Mk()
+        };
+        let i: i32 = -if Cond() { Mk() } else { 2 };
+    }
+    PrintLine(1);
+}

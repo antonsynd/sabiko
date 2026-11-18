@@ -26,12 +26,10 @@
     │         ──┬──  
     │           ╰──── expected `&&str`, found `&str`
 ────╯
-[E0208] Error: the size for values of type `str` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/str_pattern_types.sabi:28:11 ]
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/str_pattern_types.sabi:29:9 ]
     │
- 28 │     match s[..1] {
-    │           ───┬──  
-    │              ╰──── doesn't have a size known at compile-time
-    │ 
-    │ Note: string values are used behind a reference: `&str`
+ 29 │         "a" => PrintLine(1), // rustc E0308: mismatched types [expected `str`, found `&str`]
+    │         ─┬─  
+    │          ╰─── expected `str`, found `&str`
 ────╯

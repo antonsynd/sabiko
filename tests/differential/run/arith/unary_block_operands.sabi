@@ -1,0 +1,29 @@
+// `-e` and `!e` over a block, a branch, a `match`, a `loop` or another negation: the
+// expectation reaches the value inside (#183).
+fn Pick<T>(x: T) -> T {
+    x
+}
+
+fn Main() {
+    let a: i64 = -{ 5 };
+    let b: u8 = !{ 5 };
+    let c: i16 = -match a {
+        -5 => Pick(7),
+        _ => 0,
+    };
+    let d: i32 = -loop {
+        break Pick(3);
+    };
+    let e: i8 = -(-{ Pick(2) });
+    let f: f64 = -if a < 0 { Pick(1.5) } else { 0.0 };
+    let g: [i32; 2] = [-{ Pick(4) }, 1];
+    let h: bool = !{ Pick(false) };
+    PrintLine(a);
+    PrintLine(b);
+    PrintLine(c);
+    PrintLine(d);
+    PrintLine(e);
+    PrintLine(f);
+    PrintLine(g[0] + g[1]);
+    PrintLine(h);
+}

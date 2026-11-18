@@ -1,0 +1,7 @@
+// `1 < return true`: the literal has an impl per integer type, so `!` is not coerced to
+// it, and no integer type compares with `!`.
+//@ rustc: E0277
+//@ sabiko: E0306
+fn F() -> bool {
+    1 < return true
+}

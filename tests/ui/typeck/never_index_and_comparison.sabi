@@ -1,0 +1,212 @@
+// An index or a comparison whose operand is `!`, or a variable that is diverging when
+// the body is done, as rustc judges them (#183). rustc indexes an array or a slice by
+// itself only with a `usize` or an `{integer}`; any other index goes through `[T]:
+// Index<I>`, and `!` does not coerce to `usize` there. A comparison's right operand is
+// decided by the left type's impl, when it has one: not a literal's (one per integer
+// type) nor a reference's under `==` (`PartialEq<&B>` and `PartialEq<&mut B>`).
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn IndexByNeverPlace(a: [i32; 2], c: bool) {
+    if c {
+        let q = &Panic("y");
+        PrintLine(a[*q]); //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    }
+}
+
+fn IndexByDivergingExpression(a: [i32; 2]) -> i32 {
+    a[return 1] //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+}
+
+// One error per index (rustc: two E0277).
+fn IndexByLaterDiverging(a: [i32; 2]) {
+    let mut v = Mk();
+    let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    let z = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `!`
+    v = return;
+}
+
+// rustc's E0277 for `u8: SliceIndex<[i32]>`, at the index.
+fn IndexDecidedWrong(a: [i32; 2]) {
+    let mut v = Mk();
+    let y = a[v]; //~ ERROR E0335 the type `[i32]` cannot be indexed by `u8`
+    v = 1u8;
+}
+
+// rustc's E0283, at the local.
+fn IndexNeverDecided(a: [i32; 2]) {
+    let v = Mk(); //~ ERROR E0313 type annotations needed
+    let y = a[v];
+}
+
+// One report per body (rustc's E0283 for `_: SliceIndex<[i32]>`, whose `Self` is
+// unknown), at the first unknown type.
+fn IndexesNeverDecided() {
+    let a = [1, 2];
+    let y = a[Mk()]; //~ ERROR E0313 type annotations needed
+    let z = a[Mk()];
+}
+
+// The element is named as it is when the index is decided, before the literal defaults.
+fn IndexDecidedWrongLiteral() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let y = a[v]; //~ ERROR E0335 the type `[{integer}]` cannot be indexed by `bool`
+    v = true;
+}
+
+// The index is judged by the next statement, so the `i64` is the mismatch (rustc's
+// E0308 at `v`), not the index.
+fn IndexDecidedThenUsed() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let y = a[v];
+    v = 1;
+    let w: i64 = v; //~ ERROR E0300 mismatched types
+}
+
+// The element is unknown until the index is (rustc's E0282).
+fn ElementNeededFirst(a: [[i32; 1]; 2]) {
+    let mut v = Mk();
+    let n = a[v][0]; //~ ERROR E0313 type annotations needed
+    v = 0usize;
+}
+
+// In a body with another error the index falls back to an error type: only the
+// mismatch is reported, as by rustc.
+fn IndexTainted(a: [i32; 2]) {
+    let y = a[return];
+    let z: bool = 1; //~ ERROR E0300 mismatched types
+}
+
+// rustc's E0308: the literal's default `i32` has one impl, wanting `x` to be an `i32`.
+fn LiteralWithLaterDiverging() {
+    let mut x = Mk();
+    let b = 1 == x; //~ ERROR E0300 mismatched types
+    x = return;
+}
+
+fn LiteralWithDivergingExpression() -> bool {
+    1.5 < return true //~ ERROR E0306 can't compare `f64` with `!`
+}
+
+fn ReferenceWithLaterDiverging() {
+    let n = 1;
+    let mut x = Mk();
+    let b = &n == x; //~ ERROR E0306 can't compare `&i32` with `!`
+    x = return;
+}
+
+// rustc's E0283, at the local.
+fn ReferenceNeverDecided() {
+    let x = Mk(); //~ ERROR E0313 type annotations needed
+    let b = "a" == x;
+}
+
+// `x` is an `i32` only by the literal's default, which comes with the never-type
+// fallback: `return` is `!` by then, and `i32 == !` has no impl (rustc's E0277).
+fn DefaultedThenNever() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = x == return; //~ ERROR E0306 can't compare `i32` with `!`
+}
+
+// In a body with another error, that is the only report, as rustc's.
+fn DefaultedThenNeverTainted() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = x == return;
+    let z: bool = 1; //~ ERROR E0300 mismatched types
+}
+
+// A unary operator needs its operand's type where it is (rustc's E0282).
+fn LiteralComparedThenNegated() {
+    let x = Mk();
+    let b = 1 == x;
+    let c = -x; //~ ERROR E0313 type annotations needed
+}
+
+// `!` itself as the right referent is the parameter of `u8: PartialEq<_>`, which only
+// `!` takes (rustc's E0277, once the left referent is known).
+fn NeverReferentDecidedLater() {
+    let x = Mk();
+    let c = &x == &return; //~ ERROR E0306 can't compare `u8` with `!`
+    let q: u8 = x;
+}
+
+// rustc rejects that obligation before its fallback: a body with another error reports
+// both.
+fn NeverReferentTainted() {
+    let c = &1 < &return; //~ ERROR E0306 can't compare `{integer}` with `!`
+    let z: bool = 1; //~ ERROR E0300 mismatched types
+}
+
+// An index whose own variable holds its element: one ambiguity, at the local (rustc's
+// E0283).
+fn IndexHoldsItsElement() {
+    let a = [1, 2];
+    let mut v = Mk(); //~ ERROR E0313 type annotations needed
+    v = a[v];
+}
+
+// An index decided where it is checked names the element as it is then.
+fn IndexByI64() {
+    let a = [1, 2];
+    let y = a[1i64]; //~ ERROR E0335 the type `[{integer}]` cannot be indexed by `i64`
+    let b: u8 = a[0];
+}
+
+// The index is judged before the block's value is coerced: `v` is a `usize` there.
+fn IndexDecidedInBlock() {
+    let a = [10, 20];
+    let mut v = Mk();
+    let y = a[v];
+    let w: i64 = {
+        v = 1;
+        v //~ ERROR E0300 mismatched types
+    };
+}
+
+// A left referent decided as a reference has no impl for `!` either (rustc's E0277).
+fn NeverReferentDecidedAsReference() {
+    let mut x = Mk();
+    let b = &x == &return; //~ ERROR E0306 can't compare `&u8` with `!`
+    x = &5u8;
+}
+
+// Indexes whose element reaches the index's own variable: one ambiguity, at the local
+// (rustc's E0283).
+fn IndexOfIndexHoldsItsElement() {
+    let a = [1, 2];
+    let mut v = Mk(); //~ ERROR E0313 type annotations needed
+    v = a[a[v]];
+}
+
+// The same for an operation whose result is its own operand (rustc's E0284).
+fn OperationHoldsItsResult() {
+    let mut v = Mk(); //~ ERROR E0313 type annotations needed
+    v = v + 1;
+}
+
+// An operation fed by another's result is not reported again: one ambiguity, at the
+// first operand's local (rustc's E0284).
+fn OperationResultFeedsAnother() {
+    let w = Mk(); //~ ERROR E0313 type annotations needed
+    let x = 1u8 + w;
+    let y = 1u8 + x;
+}
+
+struct NotComparable {
+    F: i32,
+}
+
+// The `!` referent is the report, whatever the left referent refers to (rustc's E0277).
+fn NeverReferentOfStruct() {
+    let s = NotComparable { F: 1 };
+    let mut x = Mk();
+    let b = &x == &return; //~ ERROR E0306 can't compare `&NotComparable` with `!`
+    x = &s;
+}
+
+fn Main() {}

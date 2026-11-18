@@ -62,11 +62,11 @@
     │ Note: string values are used behind a reference: `&str`
 ────╯
 [E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
-    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:27:13 ]
+    ╭─[ tests/ui/typeck/unsized_slice_by_value.sabi:27:9 ]
     │
  27 │     let v = *r; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
-    │             ─┬  
-    │              ╰── doesn't have a size known at compile-time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
     │ 
     │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
 ────╯

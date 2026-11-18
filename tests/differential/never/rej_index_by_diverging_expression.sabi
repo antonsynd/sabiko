@@ -1,0 +1,7 @@
+// `a[return 1]`: the diverging index is coerced to `Index`'s parameter, which falls back
+// to `!`, not to `usize` (#183).
+//@ rustc: E0277
+//@ sabiko: E0335
+fn F(a: [i32; 2]) -> i32 {
+    a[return 1]
+}

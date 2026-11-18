@@ -1,0 +1,42 @@
+// Mentions of unsized places (#170): `let _ = *s`, `let _ = s[1..]`, a `match` or
+// `if let` binding nothing, and `ref` bindings. A mention reads nothing, but a range
+// still checks its bounds (`range_mention_out_of_range`).
+fn Slices(s: &[i32], m: &mut [i32]) -> usize {
+    let _ = *s;
+    let _ = s[1..];
+    let _: [i32] = *s;
+    _ = *s;
+    let _ = m[..2];
+    m[0] = 7;
+    match *s {
+        _ => PrintLine("match"),
+    }
+    if let _ = s[..1] {
+        PrintLine("if let");
+    }
+    let ref whole = *s;
+    let ref mut tail = m[1..];
+    tail[0] = 8;
+    whole.len() + tail.len()
+}
+
+fn Strings(t: &str) -> usize {
+    let _ = *t;
+    let _ = t[1..];
+    let n = match t[2..] {
+        ref rest => rest.len(),
+    };
+    while let _ = *t {
+        break;
+    }
+    n
+}
+
+fn Main() {
+    let a = [1, 2, 3];
+    let mut b = [4, 5, 6];
+    PrintLine(Slices(&a, &mut b));
+    PrintLine(b[0]);
+    PrintLine(b[1]);
+    PrintLine(Strings("hello"));
+}

@@ -1,0 +1,40 @@
+// An open index decided inside a block, before the block's value is coerced: the index
+// is judged first, so the variable is a `usize` there (rustc's E0308 at `v` or at the
+// sum, not an `i64` index; #183).
+//@ rustc: E0308
+//@ sabiko: E0300
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Tail() {
+    let a = [10, 20];
+    let mut v = Mk();
+    let y = a[v];
+    let w: i64 = {
+        v = 1;
+        v
+    };
+}
+
+fn Branch(c: bool) {
+    let a = [10, 20];
+    let mut v = Mk();
+    let y = a[v];
+    let w: i64 = if c {
+        v = 1;
+        v
+    } else {
+        2
+    };
+}
+
+fn Operand() {
+    let a = [10, 20];
+    let mut v = Mk();
+    let y = a[v];
+    let w: i64 = {
+        v = 1;
+        0
+    } + v;
+}

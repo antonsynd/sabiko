@@ -1,0 +1,109 @@
+// `&a == &return`: the right referent is `!` itself, the parameter of the referents'
+// impl (`A: PartialEq<!>`), which no `A` but `!` has, whatever decides `A`: a later use,
+// a literal, a type known already, a reference (#183). One error per function, as
+// rustc's.
+//@ rustc: E0277
+//@ sabiko: E0306
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn DecidedByLet() {
+    let x = Mk();
+    let c = &x == &return;
+    let q: u8 = x;
+}
+
+fn DecidedByAssignment() {
+    let mut x = Mk();
+    let c = &x != &Panic("p");
+    x = 5u8;
+}
+
+fn ThroughALocal() {
+    let x = Mk();
+    let r = &x;
+    let c = r == &return;
+    let q: u8 = x;
+}
+
+fn Nested() {
+    let x = Mk();
+    let c = &&x == &&return;
+    let q: u8 = x;
+}
+
+fn MutableRight() {
+    let x = Mk();
+    let c = &x == &mut return;
+    let q: u8 = x;
+}
+
+fn Ordered() {
+    let x = Mk();
+    let c = &x < &return;
+    let q: u8 = x;
+}
+
+fn IndexDecidedLater() {
+    let a = [1u8, 2];
+    let v = Mk();
+    let y = &a[v];
+    let c = y == &return;
+    let w: usize = v;
+}
+
+fn KnownLeft() {
+    let n: u8 = 1;
+    let c = &n == &return;
+}
+
+fn LiteralLeft() {
+    let c = &1 < &return;
+}
+
+fn BoolLeft() {
+    let c = &true == &return;
+}
+
+fn DecidedAsReference() {
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &5u8;
+}
+
+fn DecidedAsMutableReference() {
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &mut 5u8;
+}
+
+fn NestedDecidedAsReference() {
+    let mut x = Mk();
+    let c = &&x == &&return;
+    x = &5;
+}
+
+fn OrderedDecidedAsReference() {
+    let mut x = Mk();
+    let c = &x < &return;
+    x = &5u8;
+}
+
+struct S {
+    F: i32,
+}
+
+fn DecidedAsReferenceToStruct() {
+    let s = S { F: 1 };
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &s;
+}
+
+fn DecidedAsSlice() {
+    let arr = [1, 2];
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &arr[..];
+}

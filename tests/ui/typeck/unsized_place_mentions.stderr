@@ -1,0 +1,72 @@
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:18:9 ]
+    │
+ 18 │     let x = *s; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:19:9 ]
+    │
+ 19 │     let y: str = *t; //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:20:9 ]
+    │
+ 20 │     let z: [i32]; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:22:9 ]
+    │
+ 22 │         a if c => {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:24:9 ]
+    │
+ 24 │         b => {} //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │         ┬  
+    │         ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `str` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:26:12 ]
+    │
+ 26 │     if let w @ _ = t[1..] {} //~ ERROR E0208 the size for values of type `str` cannot be known at compilation time
+    │            ──┬──  
+    │              ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: string values are used behind a reference: `&str`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:31:15 ]
+    │
+ 31 │     let _ = { *s }; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │               ─┬  
+    │                ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯
+[E0208] Error: the size for values of type `[i32]` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/unsized_place_mentions.sabi:37:20 ]
+    │
+ 37 │     let _: [i32] = return; //~ ERROR E0208 the size for values of type `[i32]` cannot be known at compilation time
+    │                    ───┬──  
+    │                       ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: slices are used behind a reference: `&[T]` or `&mut [T]`
+────╯

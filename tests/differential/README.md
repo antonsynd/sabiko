@@ -24,7 +24,9 @@ codes reported, without duplicates. Sabiko's E0107 (syntax not supported yet), E
 compared (the two compilers number their diagnostics differently), nor are positions. One
 concept per file, under ~25 lines, a one-line comment at the top, `ok_`/`err_` pairs side
 by side. Directories group the rules: `moves/`, `loans/`, `mutability/`, `builtins/`,
-`never/` (borrows of diverging expressions, typed `&!`), and `enums/` (programs with enums
+`never/` (borrows of diverging expressions, typed `&!`, and operators and indexes
+with `!` or diverging operands), `unsized/` (mentions and bindings of unsized places,
+#170), and `enums/` (programs with enums
 and patterns that both compilers must accept: casts, `..` in tuple and variant patterns,
 struct patterns, a `match` whose arms all diverge, `&` patterns, half-open and float
 ranges).

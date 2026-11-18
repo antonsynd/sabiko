@@ -196,26 +196,24 @@
     │ 
     │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
 ────╯
-[E0306] Error: can't compare `i32` with `!`
-    ╭─[ tests/ui/typeck/never_operands.sabi:71:5 ]
+[E0300] Error: mismatched types
+    ╭─[ tests/ui/typeck/never_operands.sabi:73:10 ]
     │
- 71 │     x == y //~ ERROR E0306 can't compare `i32` with `!`
-    │     ───┬──  
-    │        ╰──── no implementation for `i32 == !`
-    │ 
-    │ Note: `!` does not coerce to the other operand's type here: the operator needs an implementation for `!` itself
+ 73 │     x == y //~ ERROR E0300 mismatched types
+    │          ┬  
+    │          ╰── expected `i32`, found `!`
 ────╯
 [E0307] Error: cannot apply unary operator `-` to type `!`
-    ╭─[ tests/ui/typeck/never_operands.sabi:76:6 ]
+    ╭─[ tests/ui/typeck/never_operands.sabi:78:6 ]
     │
- 76 │     -(return 1) //~ ERROR E0307 cannot apply unary operator `-` to type `!`
+ 78 │     -(return 1) //~ ERROR E0307 cannot apply unary operator `-` to type `!`
     │      ─────┬────  
     │           ╰────── cannot apply unary operator `-`
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/never_operands.sabi:81:19 ]
+    ╭─[ tests/ui/typeck/never_operands.sabi:83:19 ]
     │
- 81 │     let r: i32 = -y; //~ ERROR E0313 type annotations needed
+ 83 │     let r: i32 = -y; //~ ERROR E0313 type annotations needed
     │                   ┬  
     │                   ╰── cannot infer the type of this operand
 ────╯

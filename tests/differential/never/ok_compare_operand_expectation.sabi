@@ -1,0 +1,21 @@
+// A left type with one comparison impl is the right operand's expectation, into a
+// `break` value or a block: `x` is an `i32` before it diverges (#183).
+fn Mk<T>() -> T {
+    Panic("x")
+}
+
+fn Loop() {
+    let n: i32 = 1;
+    let mut x = Mk();
+    let b = n == loop {
+        break x;
+    };
+    x = return;
+}
+
+fn Block() {
+    let n: i32 = 1;
+    let mut x = Mk();
+    let b = n < { x };
+    x = return;
+}
