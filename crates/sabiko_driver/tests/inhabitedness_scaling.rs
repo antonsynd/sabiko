@@ -3,7 +3,7 @@
 //! variants holding `E1<(T, T)>` and `E1<(T, i32)>`, and so on. Each check decides a
 //! bounded number of instances with generic arguments, of bounded size, and takes the
 //! rest as inhabited, so a program with more is rejected (E0328, as before decision
-//! 106, where rustc accepts it) in well under a second: it is fast because it is
+//! 106, where rustc accepts it, #208) in well under a second: it is fast because it is
 //! rejected.
 //! A deep nesting of one generic struct around an empty enum is still decided in full,
 //! and so are many types without generic arguments beside an empty instance, which do
@@ -60,8 +60,8 @@ fn nested(n: usize) -> String {
 #[test]
 fn exponentially_many_instances_are_bounded() {
     // Eight levels are decided in full; from twelve the budget is reached and the match
-    // is rejected (E0328; rustc accepts it), which is why it is fast. Deeper ones are slow
-    // before exhaustiveness checking (typeck of the enums alone).
+    // is rejected (E0328 where rustc accepts it, #208), which is why it is fast. Deeper
+    // ones are slow before exhaustiveness checking (typeck of the enums alone).
     for n in [8, 12, 16] {
         let c = compile_timed(&format!("branching{n}.sabi"), &branching(n));
         let codes: Vec<ErrorCode> = c.diagnostics.iter().map(|d| d.code).collect();

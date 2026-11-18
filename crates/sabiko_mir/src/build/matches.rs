@@ -93,8 +93,9 @@ pub(super) struct TestCache {
 }
 
 /// Where a guard's code is: from statement `at` of `block`, and the blocks from `first`
-/// to `end`; `tested` when its candidate tests something before it, so that it does not
-/// run for every value (see [`Builder::read_matched_place`]).
+/// to `end`, the last of which, `holds`, only up to statement `holds_len`, where the
+/// arm's bindings follow; `tested` when its candidate tests something before it, so that
+/// it does not run for every value (see [`Builder::read_matched_place`]).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GuardCode {
     tested: bool,
@@ -102,6 +103,19 @@ pub(super) struct GuardCode {
     at: usize,
     first: usize,
     end: usize,
+    holds: BasicBlock,
+    holds_len: usize,
+}
+
+/// What the guards of a match do to its scrutinee place ([`Builder::read_matched_place`]).
+#[derive(Debug, Clone, Copy, Default)]
+struct GuardEffects {
+    /// A guard moves from or writes to the place.
+    any: bool,
+    /// A guard whose candidate tests something moves from the place.
+    tested_moves: bool,
+    /// A guard whose candidate tests something writes to the place.
+    tested_writes: bool,
 }
 
 /// How a candidate's bindings are made.
@@ -913,13 +927,16 @@ impl Builder<'_> {
                     self.body.blocks.len(),
                 );
                 self.lower_guard(guard, fakes, pat, place, &choice, fail);
-                // A match in the guard has a cache of its own, restored by now.
+                // A match in the guard has a cache of its own, restored by now. The arm's
+                // bindings come next, in the block where the guard holds.
                 self.tests.guards.push(GuardCode {
                     tested,
                     block,
                     at,
                     first,
                     end: self.body.blocks.len(),
+                    holds: self.current,
+                    holds_len: self.body.blocks[self.current.index()].statements.len(),
                 });
             }
             let saved = self.binding_scrutinee.replace(scrutinee);
@@ -1070,28 +1087,33 @@ impl Builder<'_> {
     /// requires the whole place to be initialised and not moved, even in part, and it
     /// conflicts with no loan (decision 106). Sabiko's match lowering does not follow
     /// rustc's decision tree, so it cannot tell every edge by which rustc reaches that
-    /// block (#201), and reads only where rustc surely reaches it:
+    /// block (#201). It reads only in a match with no arms or only guarded ones, and in a
+    /// match or irrefutable `let` that is exhaustive only by leaving out an uninhabited
+    /// variant ([`Self::reads_omitted_empty`]), whose switch has an `otherwise` edge for
+    /// it: `Take(t.0); match t { (_, None) => 1 }` for `t: (N, Option<Void>)` is E0406,
+    /// rustc's E0382. Only a guard changes the place on the way to rustc's read, so the
+    /// read goes where every arm failed, after the guards, or before any test or guard:
     ///
-    /// - A match with no arms or only guarded ones reads where every arm has failed,
-    ///   after the last guard: every guard that fails may lead to rustc's `otherwise`, so
-    ///   what a guard moves or initialises is seen as rustc sees it (`_ if { t = u; false
-    ///   } => 1` initialises `t`, `_ if { Take(t.0); c } => 1` moves part of it).
-    /// - A match or irrefutable `let` that is exhaustive only by leaving out an
-    ///   uninhabited variant ([`Self::reads_omitted_empty`]), whose switch has an
-    ///   `otherwise` edge for it, reads before any test or guard: `Take(t.0); match t {
-    ///   (_, None) => 1 }` for `t: (N, Option<Void>)` is then E0406, rustc's E0382. Only
-    ///   a guard changes the place on the way, and where every arm failed would see too
-    ///   much: Sabiko's candidates fall through to one another where rustc's tree
-    ///   branches, so after a guard that moved part of the place fails, a later
-    ///   candidate tests again what the guarded one tested, and its failure edge, which
-    ///   no value takes, would see the move (`(_, E::A(_)) if Mv(t.0) => 1, (_, E::A(_))
-    ///   => 2` is accepted by rustc). A guard whose candidate tests nothing (`(_, _) if
-    ///   { Take(t.0); c } => 1, (_, None) => 2`) runs for the left-out variant on rustc's
-    ///   way to `otherwise`, though, so when it is such guards alone that move from or
-    ///   write to the place's local, the read goes where every arm failed instead, and
-    ///   sees them (E0382 for the move; `(_, None) => 1, (_, _) if { t.0 = N { A: 1 };
-    ///   false } => 2` after `Take(t.0)` is accepted, as by rustc). A guard of a
-    ///   candidate that tests something and moves part of the place is missed (#201).
+    /// - Where every arm failed sees what a guard moves or initialises, as rustc's read
+    ///   does (`_ if { t = u; false } => 1`, `(_, _) if { Take(t.0); c } => 1, (_, None)
+    ///   => 2`). But Sabiko's candidates fall through to one another where rustc's tree
+    ///   branches: after a guard fails, a later candidate tests again what the guarded
+    ///   one tested, and that test's failure edge, which no value takes, skips the later
+    ///   candidates. A move by a guard of a candidate that tests something is then seen
+    ///   where rustc's read does not see it, when a later arm catches the value (`(_,
+    ///   E::A(_)) if Mv(t.0) => 1, (_, E::A(_)) => 2`, accepted by rustc), and a write by
+    ///   such a guard can be skipped where rustc's path always makes it (`(_, F::A(_)) if
+    ///   Mv(t.0) => 1, (_, F::A(_)) if { t.0 = N { A: 1 }; false } => 2`).
+    /// - Before any test or guard misses what the guards do.
+    ///
+    /// So a match that leaves out a variant reads before its tests when a guard of a
+    /// tested candidate moves from the place (missing guards' moves, #201) or when no
+    /// guard touches it, and where every arm failed otherwise; a match whose arms all
+    /// have guards, where every failed guard leads to rustc's read, reads where every
+    /// arm failed unless a tested candidate's guard moves from the place and one writes
+    /// to it (then before, missing the moves, #201). A guard of a candidate that tests
+    /// nothing runs on rustc's way to `otherwise` (for the left-out variant, or for every
+    /// value) and has no failure edge of its own to skip.
     pub(super) fn read_matched_place(&mut self, place: &Place, span: Span) {
         self.push_stmt(
             StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place.clone()),
@@ -1099,36 +1121,55 @@ impl Builder<'_> {
         );
     }
 
-    /// Whether a match that leaves out an uninhabited variant reads its scrutinee (in
-    /// `local`) where every arm failed rather than before any test: when some guard moves
-    /// from or writes to `local`, and each such guard's candidate tests nothing, so that
-    /// it runs for the left-out variant on rustc's way to its `otherwise` block
-    /// ([`Self::read_matched_place`]).
-    fn guards_reach_otherwise(&self, guards: &[GuardCode], local: Local) -> bool {
-        let mut any = false;
+    /// What `guards` do to `place` ([`Self::read_matched_place`]): a move from, or a
+    /// write to, a place that overlaps it (a part of it, or a place it is part of).
+    fn guard_effects(&self, guards: &[GuardCode], place: &Place) -> GuardEffects {
+        let mut effects = GuardEffects::default();
         for guard in guards {
-            let mut statements = self.body.blocks[guard.block.index()].statements[guard.at..]
-                .iter()
-                .chain(
-                    self.body.blocks[guard.first..guard.end]
-                        .iter()
-                        .flat_map(|block| &block.statements),
-                );
-            let terminators = std::iter::once(guard.block.index())
-                .chain(guard.first..guard.end)
-                .filter_map(|b| self.body.blocks[b].terminator.as_ref());
-            let touches = statements.any(|statement| statement_touches(&statement.kind, local))
-                || terminators
-                    .into_iter()
-                    .any(|t| terminator_touches(&t.kind, local));
-            if touches {
-                if guard.tested {
-                    return false;
+            let blocks = std::iter::once(guard.block.index()).chain(guard.first..guard.end);
+            let (mut moves, mut writes) = (false, false);
+            for b in blocks {
+                let data = &self.body.blocks[b];
+                let from = if b == guard.block.index() {
+                    guard.at
+                } else {
+                    0
+                };
+                let to = if b == guard.holds.index() {
+                    guard.holds_len
+                } else {
+                    data.statements.len()
+                };
+                for statement in &data.statements[from.min(to)..to] {
+                    if let StatementKind::Assign(dest, rvalue) = &statement.kind {
+                        writes |= overlaps(dest, place);
+                        moves |= rvalue
+                            .operands()
+                            .into_iter()
+                            .any(|op| moves_from(op, place));
+                    }
                 }
-                any = true;
+                if b == guard.holds.index() {
+                    continue;
+                }
+                match data.terminator.as_ref().map(|t| &t.kind) {
+                    Some(TerminatorKind::Call {
+                        args, destination, ..
+                    }) => {
+                        writes |= overlaps(destination, place);
+                        moves |= args.iter().any(|op| moves_from(op, place));
+                    }
+                    Some(TerminatorKind::Drop { place: dropped, .. }) => {
+                        writes |= overlaps(dropped, place);
+                    }
+                    _ => {}
+                }
             }
+            effects.any |= moves || writes;
+            effects.tested_moves |= guard.tested && moves;
+            effects.tested_writes |= guard.tested && writes;
         }
-        any
+        effects
     }
 
     /// Whether exhaustiveness checking found the patterns on `scrutinee` (a match's, or a
@@ -1186,10 +1227,16 @@ impl Builder<'_> {
         }
         self.guard_held = outer_held;
         let guards = std::mem::replace(&mut self.tests, saved).guards;
-        if all_guarded || (omits_empty && self.guards_reach_otherwise(&guards, place.local)) {
+        let effects = self.guard_effects(&guards, &place);
+        let at_end = if all_guarded {
+            !(effects.tested_moves && effects.tested_writes)
+        } else {
+            effects.any && !effects.tested_moves
+        };
+        if (all_guarded || omits_empty) && at_end {
             // Where every arm failed: rustc's `otherwise` block.
             self.read_matched_place(&place, scrutinee.span);
-        } else if omits_empty {
+        } else if all_guarded || omits_empty {
             let (block, at) = start;
             self.body.blocks[block.index()].statements.insert(
                 at,
@@ -1481,7 +1528,9 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
-        // An irrefutable `let` with an or-pattern reads where it failed, as a `match`.
+        // An irrefutable `let` with an or-pattern that leaves out a variant reads its
+        // initialiser where every alternative failed; it has no guards, so this is where a
+        // read before its tests would see the same (see `read_matched_place`).
         let read_unmatched = els.is_none() && self.reads_omitted_empty(init);
         let saved = self.start_tests(&[pat], &place, init.span, Some(pat.span));
         self.lower_candidates(pat, None, &place, span, ok, els.is_some());
@@ -1659,38 +1708,13 @@ fn guard_has_let(guard: &Expr) -> bool {
         .any(|e| matches!(e.kind, ExprKind::Let(..)))
 }
 
-/// Whether `operand` moves out of `local`.
-fn moves_from(operand: &Operand, local: Local) -> bool {
-    matches!(operand, Operand::Move(p) if p.local == local)
+/// Whether `a` and `b` overlap: the same local, the projections of one a prefix of the
+/// other's.
+fn overlaps(a: &Place, b: &Place) -> bool {
+    a.local == b.local && a.projection.iter().zip(&b.projection).all(|(x, y)| x == y)
 }
 
-/// Whether a statement of a guard moves out of or writes to `local`
-/// ([`Builder::read_matched_place`]).
-fn statement_touches(kind: &StatementKind, local: Local) -> bool {
-    let StatementKind::Assign(place, rvalue) = kind else {
-        return false;
-    };
-    place.local == local
-        || match rvalue {
-            Rvalue::Use(op)
-            | Rvalue::UnaryOp(_, op)
-            | Rvalue::Cast(op, _)
-            | Rvalue::Repeat(op, _)
-            | Rvalue::PointerCoercion(op, _) => moves_from(op, local),
-            Rvalue::BinaryOp(_, l, r) => moves_from(l, local) || moves_from(r, local),
-            Rvalue::Aggregate(_, ops) => ops.iter().any(|op| moves_from(op, local)),
-            Rvalue::Subslice(base, _) => moves_from(base, local),
-            Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => false,
-        }
-}
-
-/// Whether a terminator of a guard moves out of or writes to `local`.
-fn terminator_touches(kind: &TerminatorKind, local: Local) -> bool {
-    match kind {
-        TerminatorKind::Call {
-            args, destination, ..
-        } => destination.local == local || args.iter().any(|a| moves_from(a, local)),
-        TerminatorKind::Drop { place, .. } => place.local == local,
-        _ => false,
-    }
+/// Whether `operand` moves out of a place that overlaps `place`.
+fn moves_from(operand: &Operand, place: &Place) -> bool {
+    matches!(operand, Operand::Move(p) if overlaps(p, place))
 }

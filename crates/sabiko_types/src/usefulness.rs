@@ -906,7 +906,7 @@ impl<'a> Checker<'a> {
     /// distinct structs next to an `Option<Void>`) must not use up the budget of the
     /// generic ones. A valid program reaches the cut-off with a type that deep or that
     /// large, or with more than [`MAX_INSTANCES`] generic instances below one scrutinee
-    /// (each then asks for an arm rustc does not). What was decided
+    /// (each then asks for an arm rustc does not, #208). What was decided
     /// with a cut-off is kept only for the rest of the outermost query, since the same
     /// instance reached from elsewhere may be decided in full (decision 106).
     fn empty_variants(&mut self, ty: &Ty) -> Rc<[bool]> {

@@ -1172,14 +1172,15 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   destructuring assignment reads its initialiser by the first rule. The place must be
   initialised and not moved, even in part (`let v: Void; match v {}` is E0405, rustc's
   E0381; `Take(t.0); match t { (_, None) => 1 }` for an `Option<Void>` in `t.1` is E0406,
-  rustc's E0382). Where every arm has a guard, or no arm, the read comes after the last
-  guard failed, so a guard may initialise the scrutinee first or move part of it (E0406);
-  otherwise it comes before any test or guard, or after them when only guards of arms
-  that test nothing move from or write to it. The read conflicts with no loan, and a `_`
-  arm only mentions the place. rustc reads in its `otherwise` block, so it also rejects a
-  guard of an arm that tests something which moves the scrutinee on the way there, and a
-  scrutinee moved in part before a match that reaches it through a failed test; Sabiko
-  accepts both (#201). A `let` or
+  rustc's E0382). The read comes where every arm failed, after the guards, so a guard
+  may initialise the scrutinee first or move part of it (E0406), when the match has no
+  arms or only guarded ones, unless a guard of an arm that tests something moves part of
+  the scrutinee and one writes to it, and when it leaves out a variant and some guard
+  moves from or writes to the scrutinee, none of them a guard of an arm that tests
+  something and moves from it; otherwise it comes before any test or guard. The read
+  conflicts with no loan, and a `_` arm only mentions the place. rustc reads in its `otherwise` block, so it also rejects a
+  guard's move that a read before the guards misses, and a scrutinee moved in part before
+  a match that reaches it through a failed test; Sabiko accepts both (#201). A `let` or
   parameter pattern must be irrefutable (E0329, rustc's E0005). Warnings: a pattern no
   value reaches (E0330, also a single alternative of an or-pattern), and an `if let`,
   `while let` or `let`-`else` whose pattern always matches (E0331); a `let` of a let chain

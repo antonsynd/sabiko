@@ -1,0 +1,21 @@
+// A guard of a tested arm moves a field beside the scrutinee `s.F`, which leaves the
+// scrutinee alone; the next guard moves part of it on the way to `otherwise`: E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+struct SS { F: (N, Option<Void>), G: N }
+
+fn Take(n: N) {}
+
+fn Mv(n: N) -> bool { false }
+
+fn F(s: SS, c: bool) -> i32 {
+    match s.F {
+        (_, None) if Mv(s.G) => 1,
+        (_, _) if { Take(s.F.0); c } => 2,
+        (_, None) => 3,
+    }
+}
+
+fn Main() {}
