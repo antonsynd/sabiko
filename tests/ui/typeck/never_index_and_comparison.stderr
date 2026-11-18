@@ -196,3 +196,26 @@
      │         ┬  
      │         ╰── expected `i64`, found `usize`
 ─────╯
+[E0306] Error: can't compare `&u8` with `!`
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:174:13 ]
+     │
+ 174 │     let b = &x == &return; //~ ERROR E0306 can't compare `&u8` with `!`
+     │             ──────┬──────  
+     │                   ╰──────── no implementation for `&u8 == !`
+     │ 
+     │ Note: `&a == &b` compares the referents with `PartialEq`, whose parameter is the right one itself: `!` does not coerce there
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:182:9 ]
+     │
+ 182 │     let mut v = Mk(); //~ ERROR E0313 type annotations needed
+     │         ──┬──  
+     │           ╰──── consider giving `v` an explicit type
+─────╯
+[E0313] Error: type annotations needed
+     ╭─[ tests/ui/typeck/never_index_and_comparison.sabi:188:9 ]
+     │
+ 188 │     let mut v = Mk(); //~ ERROR E0313 type annotations needed
+     │         ──┬──  
+     │           ╰──── consider giving `v` an explicit type
+─────╯

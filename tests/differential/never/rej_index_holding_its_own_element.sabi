@@ -1,5 +1,6 @@
-// An index nothing decides whose element is assigned to the index's own variable
-// (`v = a[v];`): rustc's E0283, once per function (#183).
+// An index nothing decides whose element reaches the index's own variable, directly
+// or through other indexes and operations (`v = a[v];`, `v = a[a[v]];`): rustc's E0283,
+// once per function (#183).
 //@ rustc: E0283
 //@ sabiko: E0313
 fn Mk<T>() -> T {
@@ -27,4 +28,34 @@ fn InABranch() {
         v = x;
     }
     let b = a[x];
+}
+
+fn Nested() {
+    let a = [1, 2];
+    let mut v = Mk();
+    v = a[a[v]];
+}
+
+fn ThroughAnotherIndex() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let x = a[v];
+    v = a[x];
+}
+
+fn ThroughAnOperation() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let x = a[v] + 1;
+    v = x;
+}
+
+fn Crossed() {
+    let a = [1, 2];
+    let mut v = Mk();
+    let mut w = Mk();
+    let x = a[v];
+    let y = a[w];
+    v = y;
+    w = x;
 }

@@ -2182,8 +2182,8 @@ nothing new, since every `!` index is now rejected. Tests: differential `never/`
 run-time `run/arrays/{unsized_place_mentions, range_mention_out_of_range,
 range_mention_match_out_of_range, index_decided_later}` and
 `run/compare/compare_literal_decided_later`, UI `typeck/never_index_and_comparison` and
-`typeck/unsized_place_mentions` (24 and 8 errors after the review rounds below; rustc
-reports 24 and 9, its borrow checker giving E0161 and E0508 for `{ *s }`). Still different: `{ *s }` and `*s;` are one
+`typeck/unsized_place_mentions` (27 and 8 errors after the review rounds below; rustc
+reports 27 and 9, its borrow checker giving E0161 and E0508 for `{ *s }`). Still different: `{ *s }` and `*s;` are one
 E0208 where rustc reports E0161 and E0508; `let _: (i32, [i32]);` is E0208 (unsized
 tuples are not supported); codes, rustc's E0277/E0283/E0282/E0271 for an index are
 E0335/E0313/E0313/E0300.
@@ -2222,8 +2222,8 @@ whose left type has one impl, which rustc selects first (`n == { x }` decides `x
 Open indexes are judged before a coercion whose source has variables, as rustc
 resolves a coercion's source with its obligations (`a[v]; let w: i64 = { v = 1; v };`
 is a mismatch at `v`, not an `i64` index), and only when the inference table reports
-that the root of their variable changed (`InferCtxt::track_changes`): judging every open
-index at every statement had doubled the time of a body with 4000 of them. E0335 names
+that the root of their variable changed: judging every open index at every statement
+had doubled the time of a body with 4000 of them. E0335 names
 the element after the literal defaults only for an index still `!` at the end (`a[1i64]`
 is "cannot be indexed" for `[{integer}]`, as rustc's). Tests: differential
 `never/rej_compare_referent_with_never`, `ok_compare_never_referents`,
@@ -2234,6 +2234,29 @@ UI cases. `&n == &return` for a known `n` is E0306 now (rustc's E0277), where it
 mismatch. Still different: `&n <= &{ return }` is E0300 where rustc accepts (a block
 whose tail is `return` has a diverging variable's type in rustc, `!` here; the same on
 `mainline`).
+The third review round found two more. `&x == &return; x = &5u8;` compiled (rustc's
+E0277, a mismatch on `mainline`): the `!` referent check skipped a left referent that
+became a reference as incomparable; it now judges what the reference refers to. And
+cycles through open indexes and operations were internal errors: `v = a[a[v]];`, `let
+x = a[v]; v = a[x];`, `let x = a[v] + 1; v = x;` and two indexes feeding each other's
+variable (rustc's E0283), and `v = v + 1;` (rustc's E0284, an E0900 on `mainline` too),
+because each ambiguous result was made an error type as its own ambiguity was
+recorded, taking the variables of the others with it. The results are now made error
+types after every ambiguity is recorded, except the variables an ambiguity names. The
+open indexes also follow the inference table more cheaply: `InferCtxt` keeps one
+append-only change log (truncated on rollback) that each reader follows with its own
+cursor, where a union of two undecided variables only moves what waits on one root to
+the other, and only a binding or a change of kind wakes an index. A body of 4000 `let
+y = a[v];` and 12000 `let mut w = Mk(); w = v;` took 21.0 s (8.0 s on `mainline`) and
+takes the same as `mainline` now. The log is meant to be shared with the stalled
+obligations of #188, which drains a log of its own: whichever merges second makes that
+one more reader. Also: the operands of a binary operator are coerced through the usual
+path (pointer-coercion notes, deferred mismatches), a redundant condition and an
+unreachable branch are gone. Tests: differential `never/rej_index_holding_its_own_element`
+and `rej_compare_referent_with_never` (more functions), the new
+`rej_operation_holding_its_own_result`, and three more UI cases (27 errors, rustc's 27).
+`v = 1 + v;` still compiles where rustc reports E0284 (the literal's default decides
+`v`; the same on `mainline`).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

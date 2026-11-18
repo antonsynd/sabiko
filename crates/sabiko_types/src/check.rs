@@ -17,7 +17,7 @@ use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
 
 use crate::collect::{self, FieldDef, ItemTypes, VariantKind};
-use crate::infer::{InferCtxt, VarKind};
+use crate::infer::{Change, InferCtxt, VarKind};
 use crate::traits::{
     instantiate_pred, overflow_error, trait_ref_str, Predicate, Solution, DEPTH_LIMIT,
 };
@@ -355,10 +355,6 @@ struct DeferredIndex {
     index_span: Span,
     span: Span,
     out: Ty,
-    /// The root of the index's variable when it was last found open (`None` for an index
-    /// that is `!` itself, which nothing decides): only a change to that root can decide
-    /// the index ([`FnCtxt::judge_open_indexes`]).
-    root: Option<TyVid>,
 }
 
 /// A failed coercion: where, the expected type and the type found.
@@ -434,14 +430,23 @@ pub(crate) struct FnCtxt<'a> {
     open_operations: Vec<DeferredOperation>,
     /// Indexing whose index type was still unknown or `!` where it was checked (see
     /// [`DeferredIndex`]).
-    open_indexes: Vec<DeferredIndex>,
-    /// How many of [`Self::open_indexes`] wait on each root ([`DeferredIndex::root`]).
-    index_roots: HashMap<TyVid, usize>,
+    /// A slot is emptied once its index is judged.
+    open_indexes: Vec<Option<DeferredIndex>>,
+    /// The slots of [`Self::open_indexes`] waiting on each root, the root of their index's
+    /// variable as the inference table's change log last left it (an index that is `!`
+    /// itself, which nothing decides, waits on none).
+    index_watch: HashMap<TyVid, Vec<usize>>,
+    /// How far [`Self::judge_open_indexes`] has read the inference table's change log.
+    index_cursor: usize,
     /// `&a == &b` whose right referent is `!` itself (`&x == &return`), with the left
     /// referent and the comparison's span: `!` is the parameter of the referents' impl
     /// (`A: PartialEq<!>`), which only `!` itself has, whatever `A` becomes (see
     /// [`FnCtxt::check_never_referents`]).
     never_referents: Vec<(BinOp, Ty, Span)>,
+    /// The results of the open operations and indexes found ambiguous in `finish`: each is
+    /// the same problem as its ambiguity, so it becomes an error type, and a local holding
+    /// it is reported no further ([`FnCtxt::bind_ambiguous_results`]).
+    ambiguous_results: Vec<Ty>,
     /// The values of the `const` items, for array lengths; `None` while the constants
     /// themselves are checked (arrays are not constants yet).
     consts: Option<&'a crate::consts::ConstCx<'a, 'a>>,
@@ -541,8 +546,10 @@ impl<'a> FnCtxt<'a> {
             never_operands: Vec::new(),
             open_operations: Vec::new(),
             open_indexes: Vec::new(),
-            index_roots: HashMap::default(),
+            index_watch: HashMap::default(),
+            index_cursor: 0,
             never_referents: Vec::new(),
+            ambiguous_results: Vec::new(),
             consts: None,
             index_derefs: HashMap::default(),
             len_calls: HashMap::default(),
@@ -757,7 +764,7 @@ impl<'a> FnCtxt<'a> {
         // rustc resolves a coercion's source with its obligations first when it still has
         // variables: an index decided since it was checked is judged before its variable
         // is coerced (`a[v]; let w: i64 = { v = 1; v };` is E0308 at `v`, #183).
-        if !self.open_indexes.is_empty() && self.infer.has_undecided(found) {
+        if !self.index_watch.is_empty() && self.infer.has_undecided(found) {
             self.judge_open_indexes();
         }
         if self.try_coerce(found, expected).is_err() {
@@ -909,7 +916,7 @@ impl<'a> FnCtxt<'a> {
         // resolves a type for a coercion: an index an earlier statement decided is
         // judged before the next can decide its variable otherwise (`v = 1; let w: i64
         // = v;` is a mismatch at `v`, not an `i64` index).
-        if !self.open_indexes.is_empty() {
+        if !self.index_watch.is_empty() {
             self.judge_open_indexes();
         }
         match &stmt.kind {
@@ -1172,16 +1179,23 @@ impl<'a> FnCtxt<'a> {
                 expr.kind,
                 ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Paren(_)
             ) {
-                let deferred = matches!(self.deferred_mismatch, Some((id, None)) if id == expr.id);
-                if deferred {
-                    let m = self.coerce_or_mismatch(expr.span, ty, exp);
-                    self.deferred_mismatch = Some((expr.id, m));
-                } else {
-                    self.coerce(expr.span, ty, exp);
-                }
-                self.note_pointer_coercion(strip_parens(expr).id, ty, exp);
+                self.coerce_expr(expr, ty, exp);
             }
         }
+    }
+
+    /// Coerces the type `ty` of `expr` to `expected` as a whole, as
+    /// [`Self::coerce_to_expected`] does for an expression whose inside did not see
+    /// `expected` (an operand of a binary operator: [`Self::check_operand_with`]).
+    fn coerce_expr(&mut self, expr: &Expr, ty: &Ty, expected: &Ty) {
+        let deferred = matches!(self.deferred_mismatch, Some((id, None)) if id == expr.id);
+        if deferred {
+            let m = self.coerce_or_mismatch(expr.span, ty, expected);
+            self.deferred_mismatch = Some((expr.id, m));
+        } else {
+            self.coerce(expr.span, ty, expected);
+        }
+        self.note_pointer_coercion(strip_parens(expr).id, ty, expected);
     }
 
     /// Checks an operand of a binary operator, also saying whether its type is `!` or a
@@ -1218,15 +1232,10 @@ impl<'a> FnCtxt<'a> {
         let never = self.is_never_like(&ty);
         let leave_open = open && self.is_open(&ty);
         if !never && !leave_open {
-            match expected {
-                // `coerce_to_expected` leaves a block or an `if` to their tails, which
-                // did not see `expected` here.
-                Some(exp)
-                    if how == OperandExpectation::Operator
-                        && matches!(expr.kind, ExprKind::Block(_) | ExprKind::If { .. }) =>
-                {
-                    self.coerce(expr.span, &ty, exp);
-                }
+            match (how, expected) {
+                // The operand did not see `expected`: coerced as a whole, a block or an
+                // `if` included.
+                (OperandExpectation::Operator, Some(exp)) => self.coerce_expr(expr, &ty, exp),
                 _ => self.coerce_to_expected(expr, &ty, expected),
             }
         }
@@ -1671,15 +1680,14 @@ impl<'a> FnCtxt<'a> {
         self.index_derefs.insert(expr.id, autoderefs);
         if self.index_undecided(&index_ty) {
             let out = self.infer.new_var(VarKind::General);
-            let root = self.watch_index(&index_ty);
-            self.open_indexes.push(DeferredIndex {
+            self.watch_index(self.open_indexes.len(), &index_ty);
+            self.open_indexes.push(Some(DeferredIndex {
                 elem,
                 index: index_ty,
                 index_span: index.span,
                 span: expr.span,
                 out: out.clone(),
-                root,
-            });
+            }));
             return out;
         }
         self.check_index_type(&elem, &index_ty, index.span);
@@ -1733,48 +1741,67 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    /// Records that an open index of type `index` waits on its variable's root, which the
-    /// inference table then reports when it changes. Returns that root.
-    fn watch_index(&mut self, index: &Ty) -> Option<TyVid> {
+    /// Records that the open index in `slot`, of type `index`, waits on its variable's
+    /// root, until the inference table's change log reports it decided.
+    fn watch_index(&mut self, slot: usize, index: &Ty) {
         let Ty::Infer(root) = self.shallow(index) else {
-            return None;
+            return;
         };
-        self.infer.track_changes();
-        *self.index_roots.entry(root).or_default() += 1;
-        Some(root)
+        if self.index_watch.is_empty() {
+            // What the log holds so far concerns no index.
+            self.index_cursor = self.infer.changes_len();
+        }
+        self.index_watch.entry(root).or_default().push(slot);
     }
 
     /// Judges the indexes ([`DeferredIndex`]) a later use decided. Returns whether one was.
-    /// Only those whose root the table reports changed are looked at (rustc's pending
-    /// obligations are selected at every coercion of an unresolved type, and a body may
-    /// hold thousands of open indexes over thousands of statements).
+    /// Only those whose root the change log reports decided are looked at; a join of two
+    /// general variables only moves the watch (rustc selects its pending obligations at
+    /// every coercion of an unresolved type, and a body may hold thousands of open
+    /// indexes over thousands of statements).
     fn judge_open_indexes(&mut self) -> bool {
         let mut judged = false;
         loop {
-            if self.open_indexes.is_empty() {
-                let _ = self.infer.take_changed_roots(false);
-                self.index_roots.clear();
+            if self.index_watch.is_empty() {
                 return judged;
             }
-            let changed: HashSet<TyVid> = self.infer.take_changed_roots(true).into_iter().collect();
-            if !changed.iter().any(|r| self.index_roots.contains_key(r)) {
-                return judged;
-            }
-            let mut decided = false;
-            for mut n in std::mem::take(&mut self.open_indexes) {
-                let Some(root) = n.root.filter(|r| changed.contains(r)) else {
-                    self.open_indexes.push(n);
-                    continue;
-                };
-                if let Some(count) = self.index_roots.get_mut(&root) {
-                    *count -= 1;
-                    if *count == 0 {
-                        self.index_roots.remove(&root);
+            let changes = self.infer.changes_since(self.index_cursor).to_vec();
+            self.index_cursor = self.infer.changes_len();
+            let mut woken = Vec::new();
+            for change in changes {
+                match change {
+                    Change::Joined { from, into } => {
+                        let Some(mut moved) = self.index_watch.remove(&from) else {
+                            continue;
+                        };
+                        let waiting = self.index_watch.entry(into).or_default();
+                        // The longer list stays put: moving is linear in the shorter one.
+                        if waiting.len() < moved.len() {
+                            std::mem::swap(waiting, &mut moved);
+                        }
+                        waiting.append(&mut moved);
+                    }
+                    Change::Decided(root) => {
+                        if let Some(slots) = self.index_watch.remove(&root) {
+                            woken.extend(slots);
+                        }
                     }
                 }
+            }
+            if woken.is_empty() {
+                return judged;
+            }
+            // In the order the indexes were checked, as their reports are.
+            woken.sort_unstable();
+            let mut decided = false;
+            for slot in woken {
+                let Some(n) = self.open_indexes[slot].take() else {
+                    continue;
+                };
                 if self.index_undecided(&n.index) {
-                    n.root = self.watch_index(&n.index);
-                    self.open_indexes.push(n);
+                    let index = n.index.clone();
+                    self.open_indexes[slot] = Some(n);
+                    self.watch_index(slot, &index);
                     continue;
                 }
                 decided = true;
@@ -1793,9 +1820,10 @@ impl<'a> FnCtxt<'a> {
     /// SliceIndex<[T]>`) among the body's ambiguities. The diverging ones stay for
     /// [`Self::check_never_indexes`].
     fn collect_open_indexes(&mut self) {
-        for n in std::mem::take(&mut self.open_indexes) {
+        self.index_watch.clear();
+        for n in std::mem::take(&mut self.open_indexes).into_iter().flatten() {
             if self.is_never_like(&n.index) {
-                self.open_indexes.push(n);
+                self.open_indexes.push(Some(n));
                 continue;
             }
             let report = Diagnostic::error(
@@ -1806,14 +1834,8 @@ impl<'a> FnCtxt<'a> {
             .with_note(
                 "an array or a slice is indexed by a `usize` or a range of them: give the index a type annotation",
             );
-            // The element is the same problem: an error type now, so the local holding it
-            // is no other (as an open operation's result). Not when it holds the index's
-            // own variable (`v = a[v];`), which the report needs open.
-            let index_vars = self.open_vars(std::slice::from_ref(&n.index));
-            let out_vars = self.open_vars(std::slice::from_ref(&n.out));
-            if !out_vars.iter().any(|v| index_vars.contains(v)) {
-                self.infer.bind_error(&n.out);
-            }
+            // The element is the same problem (see `ambiguous_results`).
+            self.ambiguous_results.push(n.out);
             // rustc's obligation is `_: SliceIndex<[T]>`, whose `Self` is the index: one
             // report per body however many indexes stay open. It is registered once the
             // index is checked, after the obligations of the index expression itself
@@ -1831,17 +1853,43 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
+    /// The open operations and indexes nothing decided, as ambiguities, their results
+    /// made error types once all are recorded.
+    fn collect_open_obligations(&mut self) {
+        self.collect_open_operations();
+        self.collect_open_indexes();
+        self.bind_ambiguous_results();
+    }
+
+    /// Makes the [`Self::ambiguous_results`] error types, once every ambiguity of the open
+    /// operations and indexes is recorded, except the variables an ambiguity names, which
+    /// its report needs open (`v = a[v];`, `v = v + 1;`, `let x = a[v]; v = a[x];`): they
+    /// become error types once reported ([`Self::report_ambiguities`]).
+    fn bind_ambiguous_results(&mut self) {
+        let results = std::mem::take(&mut self.ambiguous_results);
+        if results.is_empty() {
+            return;
+        }
+        let named: Vec<Ty> = self
+            .ambiguities
+            .iter()
+            .flat_map(|a| a.tys.iter().cloned())
+            .collect();
+        let named = self.open_vars(&named);
+        for var in self.open_vars(&results) {
+            if !named.contains(&var) {
+                self.infer.bind_error(&var);
+            }
+        }
+    }
+
     /// Judges the indexes [`Self::collect_open_indexes`] left, with the operations on `!`
     /// before the fallback: an index still `!` or diverging is `!`, which no `SliceIndex`
     /// impl takes (rustc's E0277). rustc coerces the index to a fresh variable, which the
     /// fallback makes an error type in a body tainted by errors (`tainted`): nothing is
     /// reported there.
     fn check_never_indexes(&mut self, tainted: bool) {
-        for n in std::mem::take(&mut self.open_indexes) {
-            if !self.is_never_like(&n.index) {
-                self.check_decided_index(&n);
-                continue;
-            }
+        for n in std::mem::take(&mut self.open_indexes).into_iter().flatten() {
             self.infer.bind_error(&n.out);
             if tainted {
                 continue;
@@ -3606,7 +3654,7 @@ impl<'a> FnCtxt<'a> {
         // referents waits as an open one (`&1 == &x; x = return;` is rustc's E0277, `&x
         // == &1` with `x` never decided its E0282; #183).
         if self.comparison_decided(op, &left) != Some(true)
-            && (self.is_open(&left) || self.is_open(&right) || right.is_never())
+            && (self.is_open(&left) || self.is_open(&right))
         {
             let n = DeferredOperation {
                 referents: true,
@@ -3697,11 +3745,12 @@ impl<'a> FnCtxt<'a> {
                 // Only a literal's variable changes, to its default.
                 let _ = self.infer.unify(&n.lhs, &l);
             }
-            let literal_lhs = matches!(self.shallow(&n.lhs), Ty::Infer(_));
+            // The left type is still a variable (a literal's when it is not open).
+            let lhs_var = matches!(self.shallow(&n.lhs), Ty::Infer(_));
             let comparison = n.op.is_comparison() && !n.compound;
             if defaults
                 && comparison
-                && literal_lhs
+                && lhs_var
                 && !self.is_open(&n.lhs)
                 && self.is_open(&n.rhs)
                 && !self.is_never_like(&n.rhs)
@@ -3717,7 +3766,7 @@ impl<'a> FnCtxt<'a> {
             let selects = !self.is_open(&n.lhs)
                 && (comparison && self.comparison_decided(n.op, &n.lhs) == Some(true)
                     || !self.is_open(&n.rhs))
-                && !(shift_out && literal_lhs);
+                && !(shift_out && lhs_var);
             if !selects {
                 self.open_operations.push(n);
                 continue;
@@ -3798,9 +3847,8 @@ impl<'a> FnCtxt<'a> {
             .with_note(
                 "the operator's implementation is chosen by its operand types, which nothing decides: give them a type annotation",
             );
-            if let Some(out) = &n.out {
-                let out = self.infer.resolve(out);
-                self.infer.bind_error(&out);
+            if let Some(out) = n.out {
+                self.ambiguous_results.push(out);
             }
             // rustc's `L: Add<R>`: its `Self` is the left operand.
             let known_self = !self.is_open(&n.lhs);
@@ -3951,9 +3999,15 @@ impl<'a> FnCtxt<'a> {
                 continue;
             }
             let defaulted = self.infer.resolve_with_defaults(&left);
+            // A left referent that is a reference itself (`x = &5u8;`) has no impl for a
+            // right one that is not, `!` included: judged by what it refers to.
+            let mut referent = &defaulted;
+            while let Ty::Ref(_, inner) = referent {
+                referent = inner;
+            }
             // An unknown type is reported with its local, an incomparable one with the
             // comparison (`pending_comparisons`).
-            if defaulted == Ty::Error || defaulted.has_infer() || !is_comparable(&defaulted) {
+            if *referent == Ty::Error || defaulted.has_infer() || !is_comparable(referent) {
                 continue;
             }
             // Named before the literal defaults, as rustc's obligation is (`{integer}`).
@@ -4564,7 +4618,12 @@ impl<'a> FnCtxt<'a> {
                     .iter()
                     .flat_map(|n| [&n.lhs, &n.rhs].into_iter().chain(&n.out)),
             )
-            .chain(self.open_indexes.iter().flat_map(|n| [&n.index, &n.out]))
+            .chain(
+                self.open_indexes
+                    .iter()
+                    .flatten()
+                    .flat_map(|n| [&n.index, &n.out]),
+            )
             .cloned()
             .collect();
         pending.iter().any(|t| {
@@ -6624,8 +6683,7 @@ impl<'a> FnCtxt<'a> {
         }
         self.never_operands = never_operands;
         self.select_judging(true);
-        self.collect_open_operations();
-        self.collect_open_indexes();
+        self.collect_open_obligations();
         // Never-type fallback (edition 2024, #85): `let x = return;` leaves `x`
         // unconstrained; it becomes `!` (`()` in edition 2021). In a body tainted by
         // errors it becomes an error type, as in rustc, so nothing more is reported

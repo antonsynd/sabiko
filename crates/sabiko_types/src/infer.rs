@@ -31,9 +31,26 @@ pub struct InferCtxt {
     undo: Vec<(TyVid, VarData)>,
     /// How many snapshots are open; writes are logged while it is positive.
     snapshots: usize,
-    /// While tracked ([`Self::track_changes`]), the roots written by a binding, a union or
-    /// a rollback since [`Self::take_changed_roots`] last took them.
-    changed_roots: Option<Vec<TyVid>>,
+    /// What the bindings and unions changed, oldest first ([`Change`]): an append-only log
+    /// that each reader follows with its own cursor ([`Self::changes_since`]), so that
+    /// several can share it (a reader draining it would take what another has not read:
+    /// the open indexes read it here, and other waiting obligations may). A rollback
+    /// drops what it undoes, as nothing reads the log while a snapshot is open (the type
+    /// checker probes with closures over the table).
+    changes: Vec<Change>,
+}
+
+/// One entry of the [`InferCtxt`] change log. Path compression, which changes no meaning,
+/// is none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+    /// The root `v` was bound, or its kind changed (a general variable joined with a
+    /// literal's): what depends on its variables may be decided now.
+    Decided(TyVid),
+    /// The root `from` was joined under `into` without either being decided (two
+    /// general variables, or two literals' of a kind): what waits on `from` waits on
+    /// `into` now.
+    Joined { from: TyVid, into: TyVid },
 }
 
 /// The state of an [`InferCtxt`] to roll back to: see [`InferCtxt::probe`].
@@ -42,6 +59,7 @@ pub struct InferCtxt {
 pub struct Snapshot {
     vars: usize,
     undo: usize,
+    changes: usize,
 }
 
 /// Why two types did not unify.
@@ -72,6 +90,7 @@ impl InferCtxt {
         Snapshot {
             vars: self.vars.len(),
             undo: self.undo.len(),
+            changes: self.changes.len(),
         }
     }
 
@@ -79,12 +98,16 @@ impl InferCtxt {
     // Taken by value, so that a closed snapshot cannot be used again.
     #[allow(clippy::needless_pass_by_value)]
     pub fn rollback_to(&mut self, s: Snapshot) {
-        let Snapshot { vars, undo } = s;
+        let Snapshot {
+            vars,
+            undo,
+            changes,
+        } = s;
+        self.changes.truncate(changes);
         while self.undo.len() > undo {
             let (v, data) = self.undo.pop().expect("checked above");
             if let Some(slot) = self.vars.get_mut(v.0 as usize) {
                 *slot = data;
-                self.note_changed(v);
             }
         }
         self.vars.truncate(vars);
@@ -126,31 +149,16 @@ impl InferCtxt {
         out
     }
 
-    /// Starts recording the roots whose variables a binding, a union or a rollback
-    /// changes ([`Self::take_changed_roots`]); path compression, which changes no
-    /// meaning, is not recorded.
-    pub fn track_changes(&mut self) {
-        self.changed_roots.get_or_insert_with(Vec::new);
+    /// The length of the change log: a reader's cursor once it has read everything.
+    #[must_use]
+    pub fn changes_len(&self) -> usize {
+        self.changes.len()
     }
 
-    /// The roots changed since the last call (or since [`Self::track_changes`]), in the
-    /// order they were, possibly repeated: a variable whose root is none of them is as it
-    /// was. Stops the tracking when `keep_tracking` is false.
-    pub fn take_changed_roots(&mut self, keep_tracking: bool) -> Vec<TyVid> {
-        if keep_tracking {
-            self.changed_roots
-                .as_mut()
-                .map(std::mem::take)
-                .unwrap_or_default()
-        } else {
-            self.changed_roots.take().unwrap_or_default()
-        }
-    }
-
-    fn note_changed(&mut self, root: TyVid) {
-        if let Some(changed) = &mut self.changed_roots {
-            changed.push(root);
-        }
+    /// The changes logged since a reader's `cursor` (see the `changes` field).
+    #[must_use]
+    pub fn changes_since(&self, cursor: usize) -> &[Change] {
+        self.changes.get(cursor..).unwrap_or_default()
     }
 
     /// The data of `v`, to write, with its old value logged while a snapshot is open.
@@ -268,7 +276,7 @@ impl InferCtxt {
     fn bind(&mut self, v: TyVid, ty: Ty) {
         let r = self.root(v);
         debug_assert!(self.vars[r.0 as usize].value.is_none());
-        self.note_changed(r);
+        self.changes.push(Change::Decided(r));
         self.var_mut(r).value = Some(ty);
     }
 
@@ -373,13 +381,18 @@ impl InferCtxt {
                 if ra == rb {
                     return Ok(());
                 }
-                let kind = match (self.vars[ra.0 as usize].kind, self.vars[rb.0 as usize].kind) {
+                let (ka, kb) = (self.vars[ra.0 as usize].kind, self.vars[rb.0 as usize].kind);
+                let kind = match (ka, kb) {
                     (k, VarKind::General) | (VarKind::General, k) => k,
                     (k1, k2) if k1 == k2 => k1,
                     _ => return Err(UnifyError),
                 };
-                self.note_changed(ra);
-                self.note_changed(rb);
+                // Joined first, so that a reader moves what waits on `rb` to `ra`, which a
+                // general variable joining a literal's then decides.
+                self.changes.push(Change::Joined { from: rb, into: ra });
+                if ka != kb {
+                    self.changes.push(Change::Decided(ra));
+                }
                 self.var_mut(rb).parent = ra;
                 self.var_mut(ra).kind = kind;
                 Ok(())

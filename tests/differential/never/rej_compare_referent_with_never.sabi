@@ -1,6 +1,7 @@
 // `&a == &return`: the right referent is `!` itself, the parameter of the referents'
 // impl (`A: PartialEq<!>`), which no `A` but `!` has, whatever decides `A`: a later use,
-// a literal, a type known already (#183). One error per function, as rustc's.
+// a literal, a type known already, a reference (#183). One error per function, as
+// rustc's.
 //@ rustc: E0277
 //@ sabiko: E0306
 fn Mk<T>() -> T {
@@ -63,4 +64,28 @@ fn LiteralLeft() {
 
 fn BoolLeft() {
     let c = &true == &return;
+}
+
+fn DecidedAsReference() {
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &5u8;
+}
+
+fn DecidedAsMutableReference() {
+    let mut x = Mk();
+    let c = &x == &return;
+    x = &mut 5u8;
+}
+
+fn NestedDecidedAsReference() {
+    let mut x = Mk();
+    let c = &&x == &&return;
+    x = &5;
+}
+
+fn OrderedDecidedAsReference() {
+    let mut x = Mk();
+    let c = &x < &return;
+    x = &5u8;
 }

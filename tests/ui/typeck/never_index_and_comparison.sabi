@@ -168,4 +168,25 @@ fn IndexDecidedInBlock() {
     };
 }
 
+// A left referent decided as a reference has no impl for `!` either (rustc's E0277).
+fn NeverReferentDecidedAsReference() {
+    let mut x = Mk();
+    let b = &x == &return; //~ ERROR E0306 can't compare `&u8` with `!`
+    x = &5u8;
+}
+
+// Indexes whose element reaches the index's own variable: one ambiguity, at the local
+// (rustc's E0283).
+fn IndexOfIndexHoldsItsElement() {
+    let a = [1, 2];
+    let mut v = Mk(); //~ ERROR E0313 type annotations needed
+    v = a[a[v]];
+}
+
+// The same for an operation whose result is its own operand (rustc's E0284).
+fn OperationHoldsItsResult() {
+    let mut v = Mk(); //~ ERROR E0313 type annotations needed
+    v = v + 1;
+}
+
 fn Main() {}
