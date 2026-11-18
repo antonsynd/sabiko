@@ -1,0 +1,221 @@
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:22:19 ]
+    │
+ 22 │             v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │             ┬─────┬┬──────  
+    │             │     ╰───────── second mutable borrow occurs here
+    │             │      │        
+    │             ╰─────────────── first mutable borrow occurs here
+    │                    │        
+    │                    ╰──────── borrow later used here
+────╯
+[E0408] Error: cannot borrow `v` as mutable because it is also borrowed as immutable
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:40:17 ]
+    │
+ 39 │                 let r = &v;
+    │                         ─┬  
+    │                          ╰── immutable borrow occurs here
+ 40 │                 v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+    │                 ────┬───  
+    │                     ╰───── mutable borrow occurs here
+ 41 │                 PrintLine(r.N);
+    │                           ─┬─  
+    │                            ╰─── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:45:19 ]
+    │
+ 45 │             v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │             ┬─────┬┬──────  
+    │             │     ╰───────── second mutable borrow occurs here
+    │             │      │        
+    │             ╰─────────────── first mutable borrow occurs here
+    │                    │        
+    │                    ╰──────── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:59:15 ]
+    │
+ 59 │         v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │         ┬─────┬┬──────  
+    │         │     ╰───────── second mutable borrow occurs here
+    │         │      │        
+    │         ╰─────────────── first mutable borrow occurs here
+    │                │        
+    │                ╰──────── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:65:15 ]
+    │
+ 65 │         v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │         ┬─────┬┬──────  
+    │         │     ╰───────── second mutable borrow occurs here
+    │         │      │        
+    │         ╰─────────────── first mutable borrow occurs here
+    │                │        
+    │                ╰──────── borrow later used here
+────╯
+[E0408] Error: cannot borrow `v` as mutable because it is also borrowed as immutable
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:69:13 ]
+    │
+ 68 │             let r = &v;
+    │                     ─┬  
+    │                      ╰── immutable borrow occurs here
+ 69 │             v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+    │             ────┬───  
+    │                 ╰───── mutable borrow occurs here
+ 70 │             PrintLine(r.N);
+    │                       ─┬─  
+    │                        ╰─── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:85:11 ]
+    │
+ 85 │     v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │     ┬─────┬┬──────  
+    │     │     ╰───────── second mutable borrow occurs here
+    │     │      │        
+    │     ╰─────────────── first mutable borrow occurs here
+    │            │        
+    │            ╰──────── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:98:15 ]
+    │
+ 98 │         v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    │         ┬─────┬┬──────  
+    │         │     ╰───────── second mutable borrow occurs here
+    │         │      │        
+    │         ╰─────────────── first mutable borrow occurs here
+    │                │        
+    │                ╰──────── borrow later used here
+────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:105:19 ]
+     │
+ 105 │             v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │             ┬─────┬┬──────  
+     │             │     ╰───────── second mutable borrow occurs here
+     │             │      │        
+     │             ╰─────────────── first mutable borrow occurs here
+     │                    │        
+     │                    ╰──────── borrow later used here
+─────╯
+[E0408] Error: cannot borrow `v` as mutable because it is also borrowed as immutable
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:110:13 ]
+     │
+ 109 │             let r = &v;
+     │                     ─┬  
+     │                      ╰── immutable borrow occurs here
+ 110 │             v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+     │             ────┬───  
+     │                 ╰───── mutable borrow occurs here
+ 111 │             PrintLine(r.N);
+     │                       ─┬─  
+     │                        ╰─── borrow later used here
+─────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:119:15 ]
+     │
+ 119 │         v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │         ┬─────┬┬──────  
+     │         │     ╰───────── second mutable borrow occurs here
+     │         │      │        
+     │         ╰─────────────── first mutable borrow occurs here
+     │                │        
+     │                ╰──────── borrow later used here
+─────╯
+[E0408] Error: cannot borrow `v` as mutable because it is also borrowed as immutable
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:124:9 ]
+     │
+ 123 │         let r = &v;
+     │                 ─┬  
+     │                  ╰── immutable borrow occurs here
+ 124 │         v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+     │         ────┬───  
+     │             ╰───── mutable borrow occurs here
+ 125 │         PrintLine(r.N);
+     │                   ─┬─  
+     │                    ╰─── borrow later used here
+─────╯
+[E0408] Error: cannot borrow `v` as mutable because it is also borrowed as immutable
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:133:13 ]
+     │
+ 132 │             let r = &v;
+     │                     ─┬  
+     │                      ╰── immutable borrow occurs here
+ 133 │             v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+     │             ────┬───  
+     │                 ╰───── mutable borrow occurs here
+ 134 │             PrintLine(r.N);
+     │                       ─┬─  
+     │                        ╰─── borrow later used here
+─────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:137:19 ]
+     │
+ 137 │             v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │             ┬─────┬┬──────  
+     │             │     ╰───────── second mutable borrow occurs here
+     │             │      │        
+     │             ╰─────────────── first mutable borrow occurs here
+     │                    │        
+     │                    ╰──────── borrow later used here
+─────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:150:19 ]
+     │
+ 150 │             v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │             ┬─────┬┬──────  
+     │             │     ╰───────── second mutable borrow occurs here
+     │             │      │        
+     │             ╰─────────────── first mutable borrow occurs here
+     │                    │        
+     │                    ╰──────── borrow later used here
+─────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:158:19 ]
+     │
+ 158 │             v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │             ┬─────┬┬──────  
+     │             │     ╰───────── second mutable borrow occurs here
+     │             │      │        
+     │             ╰─────────────── first mutable borrow occurs here
+     │                    │        
+     │                    ╰──────── borrow later used here
+─────╯
+[E0408] Error: cannot borrow `v` as mutable because it is also borrowed as immutable
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:167:13 ]
+     │
+ 166 │             let r = &v;
+     │                     ─┬  
+     │                      ╰── immutable borrow occurs here
+ 167 │             v.Add(1); //~ ERROR E0408 cannot borrow `v` as mutable because it is also borrowed as immutable
+     │             ────┬───  
+     │                 ╰───── mutable borrow occurs here
+ 168 │             PrintLine(r.N);
+     │                       ─┬─  
+     │                        ╰─── borrow later used here
+─────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:172:15 ]
+     │
+ 172 │         v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │         ┬─────┬┬──────  
+     │         │     ╰───────── second mutable borrow occurs here
+     │         │      │        
+     │         ╰─────────────── first mutable borrow occurs here
+     │                │        
+     │                ╰──────── borrow later used here
+─────╯
+[E0409] Error: cannot borrow `v` as mutable more than once at a time
+     ╭─[ tests/ui/borrowck/two_phase_reservation_error_order.sabi:178:15 ]
+     │
+ 178 │         v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+     │         ┬─────┬┬──────  
+     │         │     ╰───────── second mutable borrow occurs here
+     │         │      │        
+     │         ╰─────────────── first mutable borrow occurs here
+     │                │        
+     │                ╰──────── borrow later used here
+─────╯

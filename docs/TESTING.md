@@ -1421,8 +1421,8 @@ mutant whose effect was unclear, against a `sabikoc` built with the mutant.
   gave E0408 for `*o` only (rustc: E0502 for `r` and `*o`,
   `borrowck/call_activates_two_conflicting_borrows`). Both now give rustc's count, as
   does a `return` of loans of two parameters (`borrowck/return_loans_of_two_parameters`).
-  Two loans of one place returned together (`(&a, &a)`) still give one error where rustc
-  gives two (#174).
+  Two loans of one place returned together (`(&a, &a)`) gave one error where rustc gives
+  two (#174); since decision 101 they give two (`borrowck/return_loans_of_one_parameter`).
 - Dead code removed (6, plus 2 redundant guards):
   - `link_pattern`'s `(pat, RegionTy::Other)` arm (2 mutants: the arm deleted, and `q ==
     p` as `!=`). It bound the parameters inside a part without references to `Other`,

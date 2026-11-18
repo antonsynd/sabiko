@@ -1,0 +1,13 @@
+// The two-phase reborrow of `Some(m)` is activated by the constructor, so a sibling of
+// the constructor call in a tuple cannot read through `m` afterwards.
+struct P { X: u8 }
+
+enum E<T> {
+    V(T, u8),
+}
+
+fn F(m: &mut P) {
+    let t: (Option<&mut P>, u8) = (Some(m), m.X);
+}
+
+fn Main() {}

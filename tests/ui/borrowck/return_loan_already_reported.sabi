@@ -1,0 +1,20 @@
+// Sabiko codes for rustc's: E0408 for E0502, E0409 for E0499, E0414 for E0515.
+// A borrow that was an error where it was taken is not reported again when it escapes
+// through the return value, as in rustc, which records both under the borrowed place and
+// the borrow's span (decision 101).
+fn Local(x: &i32) -> &i32 {
+    let mut a = 1;
+    let r = &mut a;
+    let s = &a; //~ ERROR E0408 cannot borrow `a` as immutable because it is also borrowed as mutable
+    *r = 2;
+    s
+}
+
+fn Param(x: &i32, mut a: i32) -> (&mut i32, &mut i32) {
+    (
+        &mut a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        &mut a, //~ ERROR E0409 cannot borrow `a` as mutable more than once at a time
+    )
+}
+
+fn Main() {}

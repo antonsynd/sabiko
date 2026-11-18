@@ -1,0 +1,119 @@
+// A two-phase reborrow whose call or variant constructor is never reached, because a
+// later argument diverges (`return`, `break`, `continue`, a `match` whose arms all
+// diverge, a panic), is never activated (#177). Each function takes both paths: the
+// diverging one and the one that reaches the call. The last call panics inside the
+// argument of `Push`.
+struct P {
+    X: u8,
+    N: u8,
+}
+
+enum E<T> {
+    V(T, u8),
+    W(T, T),
+}
+
+impl P {
+    fn Push(&mut self, x: u8) {
+        self.N += x;
+    }
+}
+
+fn Use(p: &mut P, v: u8) {
+    p.X += v;
+}
+
+fn Payload(e: E<&mut P>) -> u8 {
+    match e {
+        E::V(r, n) => {
+            r.X += n;
+            r.X
+        }
+        E::W(a, b) => a.X + b.X,
+    }
+}
+
+fn Ctor(m: &mut P, c: bool) -> u8 {
+    let e: E<&mut P> = E::V(m, if c { return 100 } else { m.X + 1 });
+    Payload(e)
+}
+
+fn Nested(m: &mut P, c: bool) -> u8 {
+    let o: Option<(u8, E<&mut P>)> = Some((1, E::V(m, if c { return 101 } else { 2 })));
+    match o {
+        Some((k, e)) => k + Payload(e),
+        None => 0,
+    }
+}
+
+fn Call(m: &mut P, c: bool) -> u8 {
+    Use(m, match c {
+        true => return 102,
+        false => m.X,
+    });
+    m.X
+}
+
+fn Method(m: &mut P, c: bool) -> u8 {
+    m.Push(if c { return 103 } else { m.N + 1 });
+    m.N
+}
+
+fn Loops(m: &mut P) -> u8 {
+    let mut i = 0;
+    while i < 4 {
+        i += 1;
+        let e: E<&mut P> = E::V(m, if i == 2 { continue } else { i });
+        Payload(e);
+        Use(m, if i == 3 { break } else { 1 });
+        m.Push(if i == 4 { break } else { i });
+    }
+    m.X + m.N + i
+}
+
+// The argument always diverges: the reservation has no use at all.
+fn NeverUsed(m: &mut P, k: u8) -> u8 {
+    if k == 0 {
+        let e: E<&mut P> = E::V(m, return 104);
+    }
+    if k == 1 {
+        let e: E<&mut P> = E::W(m, { return 105 });
+    }
+    if k == 2 {
+        Use(m, return 106);
+    }
+    if k == 3 {
+        m.Push(return 107);
+    }
+    let mut i = 0;
+    while i < 3 {
+        i += 1;
+        if k == 4 {
+            let e: E<&mut P> = E::V(m, break);
+        }
+        if k == 5 {
+            m.Push(continue);
+        }
+    }
+    m.X + i
+}
+
+fn Main() {
+    let mut p = P { X: 1, N: 0 };
+    let mut k = 0;
+    while k < 7 {
+        PrintLine(NeverUsed(&mut p, k));
+        k += 1;
+    }
+    PrintLine(Ctor(&mut p, true));
+    PrintLine(Ctor(&mut p, false));
+    PrintLine(Nested(&mut p, true));
+    PrintLine(Nested(&mut p, false));
+    PrintLine(Call(&mut p, true));
+    PrintLine(Call(&mut p, false));
+    PrintLine(Method(&mut p, true));
+    PrintLine(Method(&mut p, false));
+    PrintLine(Loops(&mut p));
+    let m = &mut p;
+    m.Push(if m.N > 100 { 0 } else { Panic("diverged in the argument") });
+}
