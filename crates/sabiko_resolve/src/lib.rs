@@ -3693,8 +3693,8 @@ impl Resolver<'_> {
         res
     }
 
-    /// Reports a type parameter named as a value (rustc's E0423); `false` when `name` is
-    /// no type parameter in scope.
+    /// Reports a type parameter named as a value (rustc's E0423), where no value of that
+    /// name is in scope; `false` when `name` is no type parameter in scope.
     fn type_param_as_value(&mut self, name: &sabiko_ast::Ident) -> bool {
         let Some(&(_, param)) = self.ty_params.iter().find(|(n, _)| *n == name.name) else {
             return false;
@@ -3755,7 +3755,9 @@ impl Resolver<'_> {
             // A unit struct as a value; the type checker rejects any other struct.
             return self.resolve_self_adt(name.span);
         }
-        if self.type_param_as_value(name) {
+        // A type parameter is only a type (decision 100): a value of its name (the
+        // prelude's `None` under `fn F<None>`, a function) is still that value.
+        if !self.items.values.contains_key(&name.name) && self.type_param_as_value(name) {
             return Res::Err;
         }
         if let Some(def) = self.items.value_or_type(&name.name) {

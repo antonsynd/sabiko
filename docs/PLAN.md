@@ -1696,11 +1696,24 @@ unit structs named `Ok`, `Err`, `Some`, `None`, `Option`, `Result`, `From`, `Int
 or not, called through bounds, supertraits, references and concrete types) all match but
 three: a tuple struct and a variant constructor as a value are not supported yet (E0107,
 E0317), and a user trait `Default` with `i32::default()` is accepted where rustc finds
-std's `Default` too (Sabiko's prelude has no `Default`). Tests:
+std's `Default` too: std's prelude traits that Sabiko's lacks (`Default`, `PartialEq`,
+`ToString`, ...) are never ambiguous with a program's (#182). Tests:
 `differential/run/prelude/{types_named_like_variants, values_named_like_types,
 user_trait_named_from, user_trait_with_from_member}`,
 `differential/run/traits/bounds_before_traits_in_scope`, UI tests
-`resolve/prelude_names_per_namespace` and `typeck/traits_in_scope`.
+`resolve/prelude_names_per_namespace` and `typeck/traits_in_scope`. After review: a type
+parameter hid a value of its name (`fn F<None>` made `None` E0203 inside it, also with
+`Some(v)` patterns, `fn F<X>` with a function `X`), now a type only, as in rustc
+(`differential/run/prelude/type_parameters_named_like_values`); every type checker entry
+point knows whether its body is the prelude's (enum discriminants and signature array
+lengths did not); a type parameter's only bound of a trait fixes the trait's arguments in
+the probe, as rustc's where-clause candidate does, so `fn C<T: From<i32>>(t: T) -> T {
+T::from(t) }` and `t.into()` under `T: Into<i64>` returning a `T` are E0300 (rustc's
+E0308) instead of compiling through the prelude's reflexive block (part of #181: the
+same through `Into::into(t)`, which the solver selects, is still accepted;
+`typeck/bound_fixes_trait_arguments`, `differential/run/traits/bound_fixes_trait_arguments`);
+an ambiguity between a prelude trait and a program trait of its name says the prelude's
+cannot be named there.
 
 Update (2026-11-17), the `sabiko_borrowck` survivors of nightly runs 27 to 32 (#166): the
 crate scored 92.4% against 93 with 32 survivors, 11 of them from #141, #148 and #154. Tests

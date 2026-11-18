@@ -437,8 +437,15 @@ impl<'a> FnCtxt<'a> {
 
     /// Checks a body of the item `def`: with the traits in scope where `def` is defined,
     /// the user's file or the prelude (decision 100).
-    pub(crate) fn for_item(mut self, def: DefId) -> Self {
-        self.in_prelude = self.resolve.is_prelude(def);
+    pub(crate) fn for_item(self, def: DefId) -> Self {
+        let in_prelude = self.resolve.is_prelude(def);
+        self.in_prelude(in_prelude)
+    }
+
+    /// Checks a body of the prelude (`true`) or of the program: which traits are in scope
+    /// (decision 100). A checker without it or [`Self::for_item`] checks a program's.
+    pub(crate) fn in_prelude(mut self, in_prelude: bool) -> Self {
+        self.in_prelude = in_prelude;
         self
     }
 
@@ -3654,10 +3661,14 @@ impl<'a> FnCtxt<'a> {
             return Some((def, args));
         }
         let name = self.resolve.def(def).name.clone();
-        let mut found = self.bound_candidates(&self.resolve.trait_items_named(&name), &self_ty);
+        let named = self.resolve.trait_items_named(&name);
+        let mut found = self.bound_candidates(&named, &self_ty);
         if found.is_empty() {
-            for m in self.resolve.trait_items_in_scope(&name, self.in_prelude) {
+            for m in named {
                 let tr = self.resolve.def(m).parent.expect("a trait member");
+                if !self.resolve.trait_in_scope(tr, self.in_prelude) {
+                    continue;
+                }
                 let args = self.fresh_trait_args(tr);
                 if self.may_implement(&self_ty, tr, &args) {
                     let mut all = vec![self_ty.clone()];
@@ -3702,7 +3713,16 @@ impl<'a> FnCtxt<'a> {
         for &m in members {
             let tr = self.resolve.def(m).parent.expect("a trait member");
             let args = self.fresh_trait_args(tr);
-            if !self.env_candidates(self_ty, tr, &args).is_empty() {
+            let bounds = self.env_candidates(self_ty, tr, &args);
+            if !bounds.is_empty() {
+                // One bound of the trait fixes its arguments, as rustc's where-clause
+                // candidate does: `T::from(t)` under `T: From<i32>` takes an `i32` (#181).
+                if let [only] = bounds.as_slice() {
+                    for (arg, bound) in args.iter().zip(only) {
+                        // The probe in `env_candidates` showed these unify.
+                        let _ = self.infer.unify(arg, bound);
+                    }
+                }
                 let mut all = vec![self_ty.clone()];
                 all.extend(args);
                 found.push((m, all));
@@ -4071,19 +4091,39 @@ impl<'a> FnCtxt<'a> {
             "multiple applicable items in scope",
         )
         .with_label(span, format!("multiple `{name}` found"));
-        for (i, &m) in candidates.iter().enumerate() {
-            let tr = self.resolve.def(m).parent.expect("a trait member");
+        let traits: Vec<DefId> = candidates
+            .iter()
+            .map(|&m| self.resolve.def(m).parent.expect("a trait member"))
+            .collect();
+        for (i, (&m, &tr)) in candidates.iter().zip(&traits).enumerate() {
             let trait_name = &self.resolve.def(tr).name;
+            // A prelude trait beside a program trait of the same name, which hides its name
+            // in the program (decision 100): Sabiko has no path to it yet.
+            let hidden = !self.in_prelude
+                && self.resolve.is_prelude(tr)
+                && traits.iter().any(|&other| {
+                    !self.resolve.is_prelude(other) && self.resolve.def(other).name == *trait_name
+                });
+            let (whose, note) = if hidden {
+                (
+                    "the prelude's trait",
+                    format!(
+                        "the prelude's `{trait_name}` cannot be named here: the program's `{trait_name}` hides its name"
+                    ),
+                )
+            } else {
+                (
+                    "the trait",
+                    format!(
+                        "disambiguate it with the trait's path: `{trait_name}::{name}(..)` for `{shown}`"
+                    ),
+                )
+            };
             d = d.with_label(
                 self.resolve.def(m).span,
-                format!(
-                    "candidate #{} is defined in the trait `{trait_name}`",
-                    i + 1
-                ),
+                format!("candidate #{} is defined in {whose} `{trait_name}`", i + 1),
             );
-            d = d.with_note(format!(
-                "disambiguate it with the trait's path: `{trait_name}::{name}(..)` for `{shown}`"
-            ));
+            d = d.with_note(note);
         }
         self.error(d);
     }
@@ -4383,17 +4423,22 @@ impl<'a> FnCtxt<'a> {
             steps.push(*inner);
         }
         let base = steps.last().expect("one step").clone();
-        let methods = |members: Vec<DefId>| -> Vec<DefId> {
-            members
-                .into_iter()
-                .filter(|&m| self.items.fn_sig(m).self_kind.is_some())
-                .collect()
-        };
-        let bound_methods = methods(self.resolve.trait_items_named(&name.name));
-        let trait_methods = methods(
-            self.resolve
-                .trait_items_in_scope(&name.name, self.in_prelude),
-        );
+        // The methods of that name: of any trait for a type parameter's bounds, of the
+        // traits in scope otherwise.
+        let bound_methods: Vec<DefId> = self
+            .resolve
+            .trait_items_named(&name.name)
+            .into_iter()
+            .filter(|&m| self.items.fn_sig(m).self_kind.is_some())
+            .collect();
+        let trait_methods: Vec<DefId> = bound_methods
+            .iter()
+            .copied()
+            .filter(|&m| {
+                let tr = self.resolve.def(m).parent.expect("a trait member");
+                self.resolve.trait_in_scope(tr, self.in_prelude)
+            })
+            .collect();
         match base {
             Ty::Error => return None,
             Ty::Infer(v) if self.infer.kind(v) == VarKind::General => {

@@ -32,11 +32,11 @@
     │
  13 │     fn from(value: T) -> Self;
     │        ──┬─  
-    │          ╰─── candidate #2 is defined in the trait `From`
+    │          ╰─── candidate #2 is defined in the prelude's trait `From`
     │ 
     │ Note 1: disambiguate it with the trait's path: `From::from(..)` for `i64`
     │ 
-    │ Note 2: disambiguate it with the trait's path: `From::from(..)` for `i64`
+    │ Note 2: the prelude's `From` cannot be named here: the program's `From` hides its name
 ────╯
 [E0342] Error: multiple applicable items in scope
     ╭─[ tests/ui/typeck/traits_in_scope.sabi:53:23 ]
