@@ -1,0 +1,12 @@
+[E0406] Error: use of partially moved value: `t`
+    ╭─[ tests/ui/borrowck/match_omitted_variant_premoved_last_guard_reinitialises.sabi:17:11 ]
+    │
+ 16 │     Take(t.0);
+    │          ─┬─  
+    │           ╰─── value partially moved here
+ 17 │     match t { //~ ERROR E0406 use of partially moved value: `t`
+    │           ┬  
+    │           ╰── value used here after partial move
+    │ 
+    │ Note: partial move occurs because `t.0` has type `N`, which does not implement the `Copy` trait
+────╯

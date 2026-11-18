@@ -1,0 +1,19 @@
+// Every arm has a guard: one writes part of the scrutinee, and a later one, which the
+// same values reach, moves it, so it is moved when rustc's `otherwise` block reads it:
+// E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+enum F2 { A(Void), C(Void) }
+
+fn Mv(n: N) -> bool { false }
+
+fn F(mut t: (N, F2)) -> i32 {
+    match t {
+        (_, F2::A(_)) if { t.0 = N { A: 1 }; false } => 1,
+        (_, F2::A(_)) if Mv(t.0) => 2,
+    }
+}
+
+fn Main() {}

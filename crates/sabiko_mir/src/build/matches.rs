@@ -114,8 +114,9 @@ struct GuardEffects {
     any: bool,
     /// A guard whose candidate tests something moves from the place.
     tested_moves: bool,
-    /// A guard whose candidate tests something writes to the place.
-    tested_writes: bool,
+    /// A guard whose candidate tests something writes to a part of the place that a
+    /// tested candidate's guard of an earlier arm moved from.
+    tested_rewrites: bool,
 }
 
 /// How a candidate's bindings are made.
@@ -1110,10 +1111,11 @@ impl Builder<'_> {
     /// tested candidate moves from the place (missing guards' moves, #201) or when no
     /// guard touches it, and where every arm failed otherwise; a match whose arms all
     /// have guards, where every failed guard leads to rustc's read, reads where every
-    /// arm failed unless a tested candidate's guard moves from the place and one writes
-    /// to it (then before, missing the moves, #201). A guard of a candidate that tests
-    /// nothing runs on rustc's way to `otherwise` (for the left-out variant, or for every
-    /// value) and has no failure edge of its own to skip.
+    /// arm failed unless a tested candidate's guard writes to a part of the place that a
+    /// tested candidate's guard of an earlier arm moved from (then before, missing the
+    /// moves, #201). A guard of a candidate that tests nothing runs on rustc's way to
+    /// `otherwise` (for the left-out variant, or for every value) and has no failure edge
+    /// of its own to skip.
     pub(super) fn read_matched_place(&mut self, place: &Place, span: Span) {
         self.push_stmt(
             StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place.clone()),
@@ -1123,11 +1125,22 @@ impl Builder<'_> {
 
     /// What `guards` do to `place` ([`Self::read_matched_place`]): a move from, or a
     /// write to, a place that overlaps it (a part of it, or a place it is part of).
-    fn guard_effects(&self, guards: &[GuardCode], place: &Place) -> GuardEffects {
+    /// `arm_starts` holds the index in `guards` of each arm's first guard.
+    fn guard_effects(
+        &self,
+        guards: &[GuardCode],
+        arm_starts: &[usize],
+        place: &Place,
+    ) -> GuardEffects {
         let mut effects = GuardEffects::default();
-        for guard in guards {
+        // The places tested candidates' guards moved from, with their arms.
+        let mut moved: Vec<(usize, &Place)> = Vec::new();
+        for (index, guard) in guards.iter().enumerate() {
+            let arm = arm_starts.partition_point(|&start| start <= index);
             let blocks = std::iter::once(guard.block.index()).chain(guard.first..guard.end);
             let (mut moves, mut writes) = (false, false);
+            let mut moves_here: Vec<&Place> = Vec::new();
+            let mut written: Vec<&Place> = Vec::new();
             for b in blocks {
                 let data = &self.body.blocks[b];
                 let from = if b == guard.block.index() {
@@ -1140,34 +1153,52 @@ impl Builder<'_> {
                 } else {
                     data.statements.len()
                 };
+                let mut dests: Vec<&Place> = Vec::new();
+                let mut operands: Vec<&Operand> = Vec::new();
                 for statement in &data.statements[from.min(to)..to] {
                     if let StatementKind::Assign(dest, rvalue) = &statement.kind {
-                        writes |= overlaps(dest, place);
-                        moves |= rvalue
-                            .operands()
-                            .into_iter()
-                            .any(|op| moves_from(op, place));
+                        dests.push(dest);
+                        operands.extend(rvalue.operands());
                     }
                 }
-                if b == guard.holds.index() {
-                    continue;
+                if b != guard.holds.index() {
+                    match data.terminator.as_ref().map(|t| &t.kind) {
+                        Some(TerminatorKind::Call {
+                            args, destination, ..
+                        }) => {
+                            dests.push(destination);
+                            operands.extend(args);
+                        }
+                        Some(TerminatorKind::Drop { place: dropped, .. }) => dests.push(dropped),
+                        _ => {}
+                    }
                 }
-                match data.terminator.as_ref().map(|t| &t.kind) {
-                    Some(TerminatorKind::Call {
-                        args, destination, ..
-                    }) => {
-                        writes |= overlaps(destination, place);
-                        moves |= args.iter().any(|op| moves_from(op, place));
+                for dest in dests {
+                    if overlaps(dest, place) {
+                        writes = true;
+                        written.push(dest);
                     }
-                    Some(TerminatorKind::Drop { place: dropped, .. }) => {
-                        writes |= overlaps(dropped, place);
+                }
+                for operand in operands {
+                    match operand {
+                        Operand::Move(p) if overlaps(p, place) => {
+                            moves = true;
+                            moves_here.push(p);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             effects.any |= moves || writes;
-            effects.tested_moves |= guard.tested && moves;
-            effects.tested_writes |= guard.tested && writes;
+            if guard.tested {
+                effects.tested_moves |= moves;
+                effects.tested_rewrites |= written.iter().any(|w| {
+                    moved
+                        .iter()
+                        .any(|&(earlier, m)| earlier < arm && overlaps(w, m))
+                });
+                moved.extend(moves_here.into_iter().map(|m| (arm, m)));
+            }
         }
         effects
     }
@@ -1206,7 +1237,9 @@ impl Builder<'_> {
         let saved = self.start_tests(&pats, &place, scrutinee.span, Some(match_start));
         let outer_held = std::mem::take(&mut self.guard_held);
         let mut entries = Vec::new();
+        let mut arm_starts = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
+            arm_starts.push(self.tests.guards.len());
             let mut locals = self.prepare_locals(&arm.pat);
             if let Some(guard) = &arm.guard {
                 for operand in guard_operands(guard) {
@@ -1227,9 +1260,9 @@ impl Builder<'_> {
         }
         self.guard_held = outer_held;
         let guards = std::mem::replace(&mut self.tests, saved).guards;
-        let effects = self.guard_effects(&guards, &place);
+        let effects = self.guard_effects(&guards, &arm_starts, &place);
         let at_end = if all_guarded {
-            !(effects.tested_moves && effects.tested_writes)
+            !effects.tested_rewrites
         } else {
             effects.any && !effects.tested_moves
         };
@@ -1712,9 +1745,4 @@ fn guard_has_let(guard: &Expr) -> bool {
 /// other's.
 fn overlaps(a: &Place, b: &Place) -> bool {
     a.local == b.local && a.projection.iter().zip(&b.projection).all(|(x, y)| x == y)
-}
-
-/// Whether `operand` moves out of a place that overlaps `place`.
-fn moves_from(operand: &Operand, place: &Place) -> bool {
-    matches!(operand, Operand::Move(p) if overlaps(p, place))
 }
