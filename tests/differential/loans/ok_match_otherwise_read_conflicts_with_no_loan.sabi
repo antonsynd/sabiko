@@ -1,0 +1,35 @@
+// The read of the scrutinee where no arm matched checks moves and initialisation only: a
+// mutable loan of part of it, used after the match or `let`, is no conflict.
+enum Void {}
+
+struct S { A: i32, V: Void }
+
+fn Arms(mut t: (i32, Option<Void>), c: bool) -> i32 {
+    let r = &mut t.0;
+    let v = match t { (_, None) if c => 1, (_, None) => 0 };
+    *r = 2;
+    v
+}
+
+fn Let(mut t: (i32, Option<Void>)) -> i32 {
+    let r = &mut t.0;
+    let (_, None) = t;
+    *r
+}
+
+fn Guard(s: S, c: bool) -> i32 {
+    let mut s = s;
+    let r = &mut s.A;
+    let x = match s { _ if c => 1 };
+    *r = 2;
+    x
+}
+
+fn NoArms(v: &mut Void) -> i32 {
+    let r = &mut *v;
+    let x: i32 = match *v {};
+    let w = &mut *r;
+    x
+}
+
+fn Main() {}

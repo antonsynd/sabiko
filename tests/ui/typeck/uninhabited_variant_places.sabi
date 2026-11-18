@@ -1,0 +1,87 @@
+// Sabiko codes for rustc's: E0328 for E0004, E0329 for E0005.
+// A variant with an uninhabited field may be left out only where the place is known to
+// hold a valid value (decision 106). An index or field reached through a reference is not
+// such a place (`r[i]` and `s[i]` dereference `r` and `s`, `a[0..2]` is rustc's
+// `*Index::index(..)`), nor any field or element of one; the element of a local array is.
+// The same holds for the pattern of a `let` and of a destructuring assignment.
+enum Never {}
+
+enum E { A(i32), B(Never) }
+
+struct W { In: E }
+
+fn Id(i: usize) -> usize { i }
+
+fn LocalElement(a: [E; 2]) -> i32 {
+    match a[Id(1)] {
+        E::A(n) => n,
+    }
+}
+
+fn ElementOfReference(r: &[E; 2]) -> i32 {
+    match r[Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A(n) => n,
+    }
+}
+
+fn ElementOfSlice(s: &[E]) -> i32 {
+    match s[Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A(n) => n,
+    }
+}
+
+fn ElementOfDeref(r: &[E; 2]) -> i32 {
+    match (*r)[Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A(n) => n,
+    }
+}
+
+fn ElementOfSubslice(a: [E; 2]) -> i32 {
+    match a[0..2][Id(1)] { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A(n) => n,
+    }
+}
+
+fn FieldOfElementOfReference(r: &[W; 1]) -> i32 {
+    match r[Id(0)].In { //~ ERROR E0328 non-exhaustive patterns: `E::B(_)` not covered
+        E::A(n) => n,
+    }
+}
+
+fn FieldOfLocalElement(a: [W; 1]) -> i32 {
+    match a[Id(0)].In {
+        E::A(n) => n,
+    }
+}
+
+fn Lets(e: E, a: [E; 1], r: &E, w: &W, ra: &[E; 1]) -> i32 {
+    let E::A(x) = e;
+    let E::A(y) = a[Id(0)];
+    let E::A(z) = *r; //~ ERROR E0329 refutable pattern in local binding
+    let E::A(u) = w.In; //~ ERROR E0329 refutable pattern in local binding
+    let E::A(v) = ra[Id(0)]; //~ ERROR E0329 refutable pattern in local binding
+    x + y + z + u + v
+}
+
+fn Assignments(e: E, r: &E) -> i32 {
+    let n;
+    E::A(n) = e;
+    let m;
+    E::A(m) = *r; //~ ERROR E0329 refutable pattern in local binding
+    n + m
+}
+
+// `if let`, `while let` and `let`-`else` through a reference: the pattern is refutable
+// there, so none of them is reported as irrefutable (rustc's `irrefutable_let_patterns`).
+fn Conditionals(r: &E) -> i32 {
+    if let E::A(n) = *r {
+        return n;
+    }
+    while let E::A(n) = *r {
+        return n;
+    }
+    let E::A(n) = *r else { return 0 };
+    n
+}
+
+fn Main() {}

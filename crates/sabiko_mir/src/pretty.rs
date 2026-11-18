@@ -349,6 +349,7 @@ impl Printer<'_> {
                 let cause = match cause {
                     FakeReadCause::ForIndex => "ForIndex",
                     FakeReadCause::ForMatchTest => "ForMatchTest",
+                    FakeReadCause::ForMatchedPlace => "ForMatchedPlace",
                 };
                 format!("FakeRead({cause}, {})", self.place(place))
             }

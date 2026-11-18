@@ -1,0 +1,25 @@
+// A scrutinee place of type `!` (#184, decision 106): `match e[i] { .. }` for `e: [!; 0]`
+// type-checks, and `match e[i] {}` is exhaustive. An element of a local array is known to
+// hold a valid value, so an arm on it is unreachable (a warning, as in rustc); an element
+// reached through a reference is not, and its arm is not reported.
+fn Id(i: usize) -> usize { i }
+
+fn Places(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let r = &e;
+    let a = match e[Id(2)] {
+        _ => 3, //~ WARN E0330 unreachable pattern
+    };
+    let b = match r[Id(2)] {
+        _ => 4,
+    };
+    let d: i32 = match e[Id(2)] {};
+    let f: i32 = match r[Id(2)] {};
+    let t = if c { let x = Panic("t"); [(1, x); 0] } else { [] };
+    let g = match t[Id(2)].1 {
+        y => 5, //~ WARN E0330 unreachable pattern
+    };
+    a + b + d + f + g
+}
+
+fn Main() {}

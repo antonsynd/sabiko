@@ -24,11 +24,15 @@
 //!   constructor ("relevancy"), so `match (a, b) { (true, true) => .. }` reports
 //!   `(false, _)` alone. Missing constructors are listed one by one at the scrutinee and
 //!   whenever some constructor of the column is present, and as `_` otherwise.
-//! - Empty types follow rustc's `min_exhaustive_patterns` rules: an uninhabited variant or
-//!   struct may be omitted when the place is known to hold a valid value (any place not
-//!   behind a reference, unless the scrutinee itself is a dereference), `match n {}` is
-//!   exhaustive for `n: !` or an empty enum even behind a reference, and only a pattern on
-//!   such a scrutinee of type `!`/empty enum is reported unreachable for being empty.
+//! - Empty types follow rustc's `min_exhaustive_patterns` rules (stable since 1.82): an
+//!   uninhabited variant or struct may be omitted when the place is known to hold a valid
+//!   value (any place not behind a reference, unless the scrutinee itself is reached
+//!   through a dereference), `match n {}` is exhaustive for `n: !` or an empty enum even
+//!   behind a reference, and only a pattern on such a scrutinee of type `!`/empty enum is
+//!   reported unreachable for being empty. A type is uninhabited when it is "visibly"
+//!   so (decision 106): `!`, an enum whose every variant has an uninhabited field, a
+//!   struct or tuple with one, an array of a positive length of one, each decided at the
+//!   instance of a generic type (`Err` of `Result<i32, !>`); never a reference.
 //! - `isize` and `usize` have no observable minimum and maximum: as in rustc, only
 //!   half-open ranges ([`PatKind::OpenRange`]) cover their ends.
 
@@ -39,6 +43,18 @@ use sabiko_span::fx::HashMap;
 use sabiko_span::Span;
 
 use crate::ty::Ty;
+
+/// How often one struct or enum may be nested in itself while its inhabitedness is
+/// decided (rustc's default recursion limit; see [`Checker::empty_variants`]).
+const MAX_SELF_NESTING: usize = 128;
+
+/// The largest instance, in nodes of its type, whose inhabitedness is decided (see
+/// [`Checker::empty_variants`]).
+const MAX_INSTANCE_SIZE: usize = 512;
+
+/// How many instances of generic structs and enums (with generic arguments) one check
+/// decides at most (see [`Checker::empty_variants`]).
+const MAX_INSTANCES: usize = 512;
 
 // ---------------------------------------------------------------------------------------
 // Public interface
@@ -173,6 +189,9 @@ pub struct Report {
     /// Witnesses of non-exhaustiveness (empty when exhaustive), formatted and ordered as
     /// rustc prints them in E0004/E0005.
     pub witnesses: Vec<String>,
+    /// Whether an uninhabited constructor was left out of a column because its place is
+    /// known valid: a precondition of [`omits_empty`], which is costly to decide.
+    pub left_out_empty: bool,
 }
 
 /// Checks a `match` whose scrutinee place is known to hold a valid value: anything but a
@@ -185,13 +204,28 @@ pub fn check_match(cx: &dyn PatCx, scrut_ty: &Ty, arms: &[Arm]) -> Report {
     check_match_with_validity(cx, scrut_ty, arms, true)
 }
 
+/// Whether `arms`, exhaustive on a valid scrutinee place (with `report`), are so only because an
+/// uninhabited constructor of a valid place may be left out (decision 106): they are not
+/// exhaustive on a place that may be invalid, where every constructor counts. rustc's MIR
+/// switches on such a place with an `otherwise` edge for the constructor left out, and
+/// reads the scrutinee there (`FakeRead(ForMatchedPlace)`).
+#[must_use]
+pub fn omits_empty(cx: &dyn PatCx, scrut_ty: &Ty, arms: &[Arm], report: &Report) -> bool {
+    report.witnesses.is_empty()
+        && report.left_out_empty
+        && !check_match_with_validity(cx, scrut_ty, arms, false)
+            .witnesses
+            .is_empty()
+}
+
 /// [`check_match`], saying whether the scrutinee place is known to hold a valid value.
 ///
-/// rustc treats a scrutinee that is a dereference (`match *r`, also through fields such as
-/// `match (*r).0` and `match r.0`, where the field access dereferences `r` implicitly) as
-/// possibly invalid: there an uninhabited variant must still be matched
-/// (`match *r { E::A => .. }` for `enum E { A, B(Never) }` reports `E::B(_)`), whereas a
-/// local, a field of a local, a call result or any other value expression is valid.
+/// rustc treats a scrutinee that is a dereference (`match *r`, also through fields and
+/// indices such as `match (*r).0`, `match r.0` and `match r[i]`, where the field access or
+/// index dereferences `r` implicitly) as possibly invalid: there an uninhabited variant
+/// must still be matched (`match *r { E::A => .. }` for `enum E { A, B(Never) }` reports
+/// `E::B(_)`), whereas a local, a field or element of a local, a call result or any
+/// other value expression is valid.
 #[must_use]
 pub fn check_match_with_validity(
     cx: &dyn PatCx,
@@ -252,6 +286,7 @@ pub fn check_match_with_validity(
     Report {
         unreachable,
         witnesses,
+        left_out_empty: checker.left_out_empty,
     }
 }
 
@@ -306,6 +341,25 @@ fn joined_list(witnesses: &[String]) -> String {
             format!("`{}` and {} more", head.join("`, `"), tail.len())
         }
     }
+}
+
+/// The number of nodes of `ty`, counted up to `limit`.
+fn ty_size(ty: &Ty, limit: usize) -> usize {
+    fn count(ty: &Ty, left: &mut usize) {
+        if *left == 0 {
+            return;
+        }
+        *left -= 1;
+        match ty {
+            Ty::Adt(_, args) => args.iter().for_each(|a| count(a, left)),
+            Ty::Tuple(elems) => elems.iter().for_each(|e| count(e, left)),
+            Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => count(inner, left),
+            _ => {}
+        }
+    }
+    let mut left = limit;
+    count(ty, &mut left);
+    limit - left
 }
 
 /// Whether the type mentions an error or inference type, through references and tuples.
@@ -679,8 +733,11 @@ enum CtorSet {
         range_1: IntRange,
         range_2: Option<IntRange>,
     },
-    /// Floats and strings: only a wildcard covers them.
-    Unlistable,
+    /// Floats, strings, arrays and slices: only a wildcard covers them. `empty` for an
+    /// uninhabited array (`[!; 1]`).
+    Unlistable {
+        empty: bool,
+    },
     /// `!` and empty enums.
     NoCtors,
 }
@@ -756,11 +813,24 @@ type WitStack = Vec<Wit>;
 struct Checker<'a> {
     cx: &'a dyn PatCx,
     adts: HashMap<DefId, Rc<AdtShape>>,
-    uninhabited: HashMap<DefId, bool>,
+    /// The struct and enum instances decided so far ([`Self::empty_variants`]).
+    empty_variants: HashMap<Ty, Rc<[bool]>>,
+    /// Instances decided in the current outermost query that depended on a cut-off;
+    /// cleared when it ends.
+    cut_off_variants: HashMap<Ty, Rc<[bool]>>,
+    /// How many decisions a cut-off has made so far.
+    cut_offs: usize,
+    /// How many instances with generic arguments have been decided (or begun) so far,
+    /// against [`MAX_INSTANCES`].
+    decided: usize,
+    /// The structs and enums whose inhabitedness is being decided, outermost first.
+    deciding: Vec<DefId>,
     pats: Vec<DPat>,
     useful: Vec<bool>,
     next_opaque: u32,
     saw_error: bool,
+    /// For [`Report::left_out_empty`].
+    left_out_empty: bool,
 }
 
 impl<'a> Checker<'a> {
@@ -768,11 +838,16 @@ impl<'a> Checker<'a> {
         Self {
             cx,
             adts: HashMap::default(),
-            uninhabited: HashMap::default(),
+            empty_variants: HashMap::default(),
+            cut_off_variants: HashMap::default(),
+            cut_offs: 0,
+            decided: 0,
+            deciding: Vec::new(),
             pats: Vec::new(),
             useful: Vec::new(),
             next_opaque: 0,
             saw_error: false,
+            left_out_empty: false,
         }
     }
 
@@ -791,33 +866,111 @@ impl<'a> Checker<'a> {
 
     // --- types -------------------------------------------------------------------------
 
-    /// Whether the type has no values, as rustc decides it: references are always
-    /// inhabited.
+    /// Whether the type has no values, as rustc's exhaustiveness checker decides it
+    /// ("visibly uninhabited", decision 106): `!`, an enum all of whose variants have an
+    /// uninhabited field (so an empty enum), a struct or tuple with an uninhabited field
+    /// and an array of a positive length of an uninhabited type. A generic type is
+    /// decided at its instance (`Result<i32, !>` has the uninhabited variant `Err`).
+    /// References are always inhabited (`&!` is not empty), and so are slices (`[]`).
     fn is_uninhabited(&mut self, ty: &Ty) -> bool {
         match ty {
             Ty::Never => true,
             Ty::Tuple(elems) => elems.iter().any(|e| self.is_uninhabited(e)),
+            Ty::Array(elem, len) => *len > 0 && self.is_uninhabited(elem),
             Ty::Adt(def, _) => {
-                if let Some(&known) = self.uninhabited.get(def) {
-                    return known;
+                let empty = self.empty_variants(ty);
+                match &*self.adt(*def) {
+                    AdtShape::Struct { .. } => empty[0],
+                    AdtShape::Enum { .. } => empty.iter().all(|&e| e),
                 }
-                // A type that reaches itself by value is reported elsewhere; treat the
-                // cycle as inhabited.
-                self.uninhabited.insert(*def, false);
-                let shape = self.adt(*def);
-                let empty = match &*shape {
-                    AdtShape::Struct { fields, .. } => {
-                        fields.iter().any(|f| self.is_uninhabited(&f.ty))
-                    }
-                    AdtShape::Enum { variants, .. } => variants
-                        .iter()
-                        .all(|v| v.fields.iter().any(|f| self.is_uninhabited(&f.ty))),
-                };
-                self.uninhabited.insert(*def, empty);
-                empty
             }
             _ => false,
         }
+    }
+
+    /// Whether the struct instance `ty` is uninhabited (one entry), or which variants of
+    /// the enum instance `ty` are (one entry per variant): those with an uninhabited
+    /// field. Cached per instance.
+    ///
+    /// A type that reaches itself by value has infinite size and is reported elsewhere
+    /// (E0206); the cycle is taken as inhabited. Such a type may also grow without
+    /// bound (`S<T>` holding an `S<(T, T)>`), each instance a new one, and a valid
+    /// program's instances may be exponentially many (`E0<T>` with variants of `E1<(T, T)>`
+    /// and `E1<(T, i32)>`, and so on). Deciding stops at an instance nested in its own
+    /// struct or enum [`MAX_SELF_NESTING`] times, larger than [`MAX_INSTANCE_SIZE`], or
+    /// past the [`MAX_INSTANCES`]th instance with generic arguments of the check, and
+    /// takes it as inhabited, which only ever asks for more arms (E0328, as before
+    /// decision 106). Only instances with generic arguments count against the budget:
+    /// a struct or enum without them is one type of the program, decided once, so its
+    /// number is bounded by the program's size, and many of them (a `Big` of 600
+    /// distinct structs next to an `Option<Void>`) must not use up the budget of the
+    /// generic ones. A valid program reaches the cut-off with a type that deep or that
+    /// large, or with more than [`MAX_INSTANCES`] generic instances below one scrutinee
+    /// (each then asks for an arm rustc does not, #208). What was decided
+    /// with a cut-off is kept only for the rest of the outermost query, since the same
+    /// instance reached from elsewhere may be decided in full (decision 106).
+    fn empty_variants(&mut self, ty: &Ty) -> Rc<[bool]> {
+        let Ty::Adt(def, args) = ty else {
+            unreachable!("only a struct or enum has variants")
+        };
+        if let Some(known) = self.empty_variants.get(ty) {
+            return Rc::clone(known);
+        }
+        if let Some(known) = self.cut_off_variants.get(ty) {
+            self.cut_offs += 1;
+            return Rc::clone(known);
+        }
+        let shape = self.adt(*def);
+        let inhabited: Rc<[bool]> = match &*shape {
+            AdtShape::Struct { .. } => Rc::new([false]),
+            AdtShape::Enum { variants, .. } => vec![false; variants.len()].into(),
+        };
+        let nesting = self.deciding.iter().filter(|d| *d == def).count();
+        let generic = !args.is_empty();
+        if nesting >= MAX_SELF_NESTING
+            || (generic && self.decided >= MAX_INSTANCES)
+            || ty_size(ty, MAX_INSTANCE_SIZE + 1) > MAX_INSTANCE_SIZE
+        {
+            self.cut_offs += 1;
+            return inhabited;
+        }
+        if generic {
+            self.decided += 1;
+        }
+        let cut_offs = self.cut_offs;
+        // Provisional, for a cycle.
+        self.empty_variants
+            .insert(ty.clone(), Rc::clone(&inhabited));
+        self.deciding.push(*def);
+        let empty: Rc<[bool]> = match &*shape {
+            AdtShape::Struct { fields, .. } => {
+                Rc::new([self.variant_is_uninhabited(*def, fields, args)])
+            }
+            AdtShape::Enum { variants, .. } => variants
+                .iter()
+                .map(|v| self.variant_is_uninhabited(*def, &v.fields, args))
+                .collect(),
+        };
+        self.deciding.pop();
+        if self.cut_offs == cut_offs {
+            self.empty_variants.insert(ty.clone(), Rc::clone(&empty));
+        } else {
+            self.empty_variants.remove(ty);
+            self.cut_off_variants.insert(ty.clone(), Rc::clone(&empty));
+        }
+        if self.deciding.is_empty() {
+            self.cut_off_variants.clear();
+        }
+        empty
+    }
+
+    /// Whether a variant (or the struct) `def` at the instance `args` has an
+    /// uninhabited field.
+    fn variant_is_uninhabited(&mut self, def: DefId, fields: &[FieldShape], args: &[Ty]) -> bool {
+        fields.iter().any(|f| {
+            let field = self.instance_field(def, &f.ty, args);
+            self.is_uninhabited(&field)
+        })
     }
 
     fn ctors_for_ty(&mut self, ty: &Ty) -> CtorSet {
@@ -835,13 +988,17 @@ impl<'a> Checker<'a> {
                     range_1: int.range(),
                     range_2: None,
                 },
-                None => CtorSet::Unlistable,
+                None => CtorSet::Unlistable { empty: false },
             },
             Ty::Tuple(_) => CtorSet::Struct {
                 empty: self.is_uninhabited(ty),
             },
-            // No array or slice patterns yet: only wildcards and bindings match them.
-            Ty::Array(..) | Ty::Slice(_) => CtorSet::Unlistable,
+            // No array or slice patterns yet: only wildcards and bindings match them. An
+            // array of a positive length of an uninhabited type has no values (rustc's
+            // `Slice { subtype_is_empty }`), so it may be omitted like an empty struct.
+            Ty::Array(..) | Ty::Slice(_) => CtorSet::Unlistable {
+                empty: self.is_uninhabited(ty),
+            },
             Ty::Adt(def, _) => {
                 let shape = self.adt(*def);
                 match &*shape {
@@ -849,11 +1006,11 @@ impl<'a> Checker<'a> {
                         empty: self.is_uninhabited(ty),
                     },
                     AdtShape::Enum { variants, .. } if variants.is_empty() => CtorSet::NoCtors,
-                    AdtShape::Enum { variants, .. } => CtorSet::Variants(
-                        variants
+                    AdtShape::Enum { .. } => CtorSet::Variants(
+                        self.empty_variants(ty)
                             .iter()
-                            .map(|v| {
-                                if v.fields.iter().any(|f| self.is_uninhabited(&f.ty)) {
+                            .map(|&empty| {
+                                if empty {
                                     Visibility::Empty
                                 } else {
                                     Visibility::Visible
@@ -1086,6 +1243,8 @@ impl<'a> Checker<'a> {
         let mut missing_ctors = split.missing;
         if !can_omit_empty_arms {
             missing_ctors.extend(split.missing_empty);
+        } else if place.valid && !split.missing_empty.is_empty() {
+            self.left_out_empty = true;
         }
         // List the missing constructors at the scrutinee and next to present ones;
         // elsewhere a column that mentions nothing is reported as `_`.
@@ -1399,13 +1558,17 @@ fn split_set(set: &CtorSet, heads: &[Ctor]) -> SplitSet {
                 }
             }
         }
-        CtorSet::Unlistable => {
+        CtorSet::Unlistable { empty } => {
             for ctor in seen {
                 if !out.present.contains(ctor) {
                     out.present.push(ctor.clone());
                 }
             }
-            out.missing.push(Ctor::NonExhaustive);
+            if *empty {
+                out.missing_empty.push(Ctor::NonExhaustive);
+            } else {
+                out.missing.push(Ctor::NonExhaustive);
+            }
         }
         CtorSet::NoCtors => out.missing_empty.push(Ctor::Never),
     }
@@ -1429,6 +1592,26 @@ mod tests {
         fn adt(&self, def: DefId) -> AdtShape {
             self.adts[def.0 as usize].clone()
         }
+
+        fn generics(&self, def: DefId) -> Vec<DefId> {
+            match NAMES[def.0 as usize] {
+                "Res" => vec![PARAM_T, PARAM_E],
+                "Wrap" => vec![PARAM_T],
+                _ => Vec::new(),
+            }
+        }
+    }
+
+    /// The type parameters of the generic test types `Res<T, E>` and `Wrap<T>`.
+    const PARAM_T: DefId = DefId(1000);
+    const PARAM_E: DefId = DefId(1001);
+
+    /// An instance of a generic test type.
+    fn adt_at(name: &str, args: &[Ty]) -> Ty {
+        let Ty::Adt(def, _) = adt(name) else {
+            unreachable!()
+        };
+        Ty::Adt(def, args.to_vec().into_boxed_slice())
     }
 
     fn fields(list: &[(&str, Ty)]) -> Vec<FieldShape> {
@@ -1489,7 +1672,7 @@ mod tests {
         }
     }
 
-    const NAMES: [&str; 19] = [
+    const NAMES: [&str; 22] = [
         "Light",
         "Cell",
         "Shape",
@@ -1509,6 +1692,9 @@ mod tests {
         "OptOptBool",
         "OptPair",
         "One",
+        "Res",
+        "Wrap",
+        "Void2",
     ];
 
     fn adt(name: &str) -> Ty {
@@ -1598,7 +1784,27 @@ mod tests {
                     tuple_variant("Some", &[tup(&[bool_, prim(PrimTy::U8)])]),
                 ],
             ),
-            enum_shape("One", vec![tuple_variant("Only", &[i32_])]),
+            enum_shape("One", vec![tuple_variant("Only", &[Ty::I32])]),
+            enum_shape(
+                "Res",
+                vec![
+                    tuple_variant("Ok", &[Ty::Param(PARAM_T)]),
+                    tuple_variant("Err", &[Ty::Param(PARAM_E)]),
+                ],
+            ),
+            struct_shape(
+                "Wrap",
+                Named,
+                fields(&[("X", i32_), ("Y", Ty::Param(PARAM_T))]),
+            ),
+            // `enum Void2 { A(Never), B(Never, i32) }`: uninhabited without being empty.
+            enum_shape(
+                "Void2",
+                vec![
+                    tuple_variant("A", &[adt("Never")]),
+                    tuple_variant("B", &[adt("Never"), Ty::I32]),
+                ],
+            ),
         ];
         assert_eq!(adts.len(), NAMES.len());
         FakeCx { adts }
@@ -1945,10 +2151,10 @@ mod tests {
             while self.eat("::") {
                 path.push(self.ident());
             }
-            let Ty::Adt(def, _) = ty else {
+            let Ty::Adt(def, args) = ty else {
                 panic!("path `{}` at a non-ADT type", path.join("::"))
             };
-            let (variant, kind, shape_fields) = match self.cx.adt(*def) {
+            let (variant, kind, mut shape_fields) = match self.cx.adt(*def) {
                 AdtShape::Enum { variants, .. } => {
                     let index = variants
                         .iter()
@@ -1959,6 +2165,10 @@ mod tests {
                 }
                 AdtShape::Struct { kind, fields, .. } => (None, kind, fields),
             };
+            let params = self.cx.generics(*def);
+            for f in &mut shape_fields {
+                f.ty = f.ty.subst(&params, args);
+            }
             let fields = match kind {
                 VariantKind::Unit => Vec::new(),
                 VariantKind::Tuple => {
@@ -2678,6 +2888,140 @@ mod tests {
         check(&tup(&[Ty::I32, never]), &[], &[], &[]);
         check(&tup(&[Ty::I32, Ty::Never]), &[], &[], &[]);
         check(&tup(&[Ty::I32, never_ref]), &[], &["(_, _)"], &[]);
+    }
+
+    /// Inhabitedness is decided at the instance of a generic type (#178, decision 106):
+    /// `Res<i32, !>` has the uninhabited variant `Err`, `Res<i32, &!>` does not.
+    #[test]
+    fn empty_variants_of_generic_instances() {
+        let res = |t: Ty, e: Ty| adt_at("Res", &[t, e]);
+        let never_ref = Ty::shared_ref(Ty::Never);
+        let ok_never = res(Ty::I32, Ty::Never);
+        check(&ok_never, &["Res::Ok(_)"], &[], &[]);
+        check(&ok_never, &["Res::Ok(x)"], &[], &[]);
+        // As in rustc, an arm for the empty variant is not reported unreachable.
+        check(&ok_never, &["Res::Ok(_)", "Res::Err(_)"], &[], &[]);
+        check(&ok_never, &["Res::Ok(_)", "_"], &[], &[]);
+        // Under a reference, or a scrutinee that is not known valid, it must be matched.
+        check(
+            &Ty::shared_ref(ok_never.clone()),
+            &["Res::Ok(_)"],
+            &["&Res::Err(_)"],
+            &[],
+        );
+        assert_eq!(
+            run_with(&ok_never, &["Res::Ok(_)"], false),
+            (strings(&["Res::Err(_)"]), Vec::new())
+        );
+        check(
+            &res(Ty::I32, never_ref.clone()),
+            &["Res::Ok(_)"],
+            &["Res::Err(_)"],
+            &[],
+        );
+        check(
+            &res(Ty::I32, Ty::I32),
+            &["Res::Ok(_)"],
+            &["Res::Err(_)"],
+            &[],
+        );
+        check(&res(Ty::Never, Ty::I32), &["Res::Err(_)"], &[], &[]);
+        // Both variants empty: the type is, so `match r {}` is exhaustive; but it is not a
+        // type without constructors, so an arm on it stays reachable.
+        check(&res(Ty::Never, Ty::Never), &[], &[], &[]);
+        check(&res(Ty::Never, Ty::Never), &["_"], &[], &[]);
+        assert_eq!(
+            run_with(&res(Ty::Never, Ty::Never), &[], false),
+            (strings(&["Res::Ok(_)", "Res::Err(_)"]), Vec::new())
+        );
+        check(&adt("Void2"), &[], &[], &[]);
+        // Nested instances, and payloads that are tuples, structs or arrays.
+        let nested = res(ok_never.clone(), Ty::I32);
+        check(&nested, &["Res::Ok(Res::Ok(_))", "Res::Err(_)"], &[], &[]);
+        check(&nested, &["Res::Ok(Res::Ok(_))"], &["Res::Err(_)"], &[]);
+        check(
+            &res(ok_never.clone(), Ty::Never),
+            &["Res::Ok(Res::Ok(_))"],
+            &[],
+            &[],
+        );
+        check(
+            &res(tup(&[Ty::I32, Ty::Never]), Ty::I32),
+            &["Res::Err(_)"],
+            &[],
+            &[],
+        );
+        check(
+            &res(tup(&[Ty::I32, never_ref]), Ty::I32),
+            &["Res::Err(_)"],
+            &["Res::Ok(_)"],
+            &[],
+        );
+        let wrap_never = adt_at("Wrap", &[Ty::Never]);
+        check(&wrap_never, &[], &[], &[]);
+        check(&res(wrap_never, Ty::I32), &["Res::Err(_)"], &[], &[]);
+        check(
+            &res(adt_at("Wrap", &[Ty::I32]), Ty::I32),
+            &["Res::Err(_)"],
+            &["Res::Ok(_)"],
+            &[],
+        );
+        let array = |len| Ty::Array(Box::new(Ty::Never), len);
+        check(&res(array(1), Ty::I32), &["Res::Err(_)"], &[], &[]);
+        check(
+            &res(array(0), Ty::I32),
+            &["Res::Err(_)"],
+            &["Res::Ok(_)"],
+            &[],
+        );
+        check(&array(2), &[], &[], &[]);
+        check(&array(2), &["_"], &[], &[]);
+        assert_eq!(
+            run_with(&array(2), &[], false),
+            (strings(&["_"]), Vec::new())
+        );
+        // A slice of an empty type has a value, `[]`.
+        let slice = Ty::shared_ref(Ty::Slice(Box::new(Ty::Never)));
+        check(&slice, &[], &["&_"], &[]);
+        // Where the payload is a type parameter, nothing is known about it.
+        check(
+            &res(Ty::I32, Ty::Param(PARAM_T)),
+            &["Res::Ok(_)"],
+            &["Res::Err(_)"],
+            &[],
+        );
+    }
+
+    /// Deciding a deep instance stops at rustc's recursion limit (#178, decision 106).
+    #[test]
+    fn deeply_nested_instances() {
+        let res = |t: Ty, e: Ty| adt_at("Res", &[t, e]);
+        // An instance nested in itself up to rustc's recursion limit is decided in full.
+        // One nested deeper is cut off and taken as inhabited, and so are the instances
+        // decided through it, but only for that query: twenty `Wrap`s around `!`, taken as
+        // inhabited on the way into the deep one, stay empty where reached directly.
+        let wraps = |n: usize| (0..n).fold(Ty::Never, |t, _| adt_at("Wrap", &[t]));
+        check(
+            &res(wraps(MAX_SELF_NESTING), Ty::I32),
+            &["Res::Err(_)"],
+            &[],
+            &[],
+        );
+        check(
+            &res(wraps(MAX_SELF_NESTING + 1), Ty::I32),
+            &["Res::Err(_)"],
+            &["Res::Ok(_)"],
+            &[],
+        );
+        check(
+            &tup(&[
+                res(wraps(MAX_SELF_NESTING + 10), Ty::I32),
+                res(wraps(20), Ty::I32),
+            ]),
+            &["(Res::Err(_), Res::Err(_))", "(Res::Ok(_), _)"],
+            &[],
+            &[],
+        );
     }
 
     // --- references, strings and floats ------------------------------------------------

@@ -1,0 +1,27 @@
+// A guard may move the scrutinee and fail when a later arm without a guard covers its arm:
+// rustc's decision tree goes there without testing again or reaching the `otherwise`
+// block, where it reads the scrutinee.
+struct N { A: i32 }
+
+fn Consume(o: Option<N>) -> bool {
+    false
+}
+
+fn Same(o: Option<N>) -> i32 {
+    match o {
+        Some(_) if Consume(o) => 1,
+        Some(_) => 2,
+        None => 3,
+    }
+}
+
+fn TwoGuards(o: Option<N>, c: bool) -> i32 {
+    match o {
+        None if c => 1,
+        Some(_) if Consume(o) => 2,
+        Some(_) => 3,
+        None => 4,
+    }
+}
+
+fn Main() {}

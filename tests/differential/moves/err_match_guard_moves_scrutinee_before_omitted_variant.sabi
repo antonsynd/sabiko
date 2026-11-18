@@ -1,0 +1,16 @@
+// A guard whose arm tests nothing runs for the left-out empty variant too, on its way to
+// the `otherwise` block, where the scrutinee it moved part of is read: E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Option<Void>), c: bool) -> i32 {
+    match t {
+        (_, _) if { Take(t.0); c } => 1,
+        (_, None) => 2,
+    }
+}
+
+fn Main() {}

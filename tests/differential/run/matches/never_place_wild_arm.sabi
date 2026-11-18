@@ -1,0 +1,41 @@
+// A match on an element of a `[!; 0]` (#184): the index is checked first and panics. The
+// arms that never run (a binding, an element of a tuple, through a reference) compile.
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn Main() {
+    let c = false;
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    let t = if c {
+        let x = Panic("t");
+        [(1, x); 0]
+    } else {
+        []
+    };
+    let r = &e;
+    if c {
+        let a = match e[Id(0)] { y => 6 };
+        let b = match t[Id(0)].1 { _ => 4 };
+        let d = match r[Id(0)] { _ => 5 };
+        let f: i32 = match r[Id(0)] {};
+        PrintLine(a + b + d + f);
+        if let _ = e[Id(0)] {
+            PrintLine(1);
+        }
+        while let _ = r[Id(0)] {
+            break;
+        }
+        let y = e[Id(0)] else { return; };
+    }
+    PrintLine("before");
+    let v = match e[Id(2)] {
+        _ => 3,
+    };
+    PrintLine(v);
+}

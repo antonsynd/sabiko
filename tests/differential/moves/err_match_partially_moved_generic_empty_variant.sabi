@@ -1,0 +1,16 @@
+// As for a user enum, at an instance of a generic one: `Some` of `Option<Void>` is left out,
+// and the scrutinee is still read where no arm matched.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Option<Void>)) -> i32 {
+    Take(t.0);
+    match t {
+        (_, None) => 1,
+    }
+}
+
+fn Main() {}

@@ -428,6 +428,13 @@ pub enum FakeReadCause {
     /// conflicts with a mutable loan of it, as rustc's does (#150), but no use for the
     /// move and initialisation checks: the place was read before any guard could move it.
     ForMatchTest,
+    /// rustc's `FakeRead(ForMatchedPlace)` of a match's scrutinee where no pattern
+    /// matched (its `otherwise` block), and of the initialiser of an irrefutable `let`
+    /// that switches on a discriminant (decision 106). The borrow checker requires the
+    /// whole place to be initialised and not moved, even in part (`Take(t.0); match t {
+    /// (_, Some(x)) => x, (_, None) => 0 }` is E0382); it conflicts with no loan, and uses
+    /// the place's local for liveness.
+    ForMatchedPlace,
 }
 
 /// A memory location: a local with zero or more projections applied left to right.

@@ -1,0 +1,24 @@
+// Where every arm has a guard, the scrutinee is read after the last guard failed, so a
+// guard may initialise it, or a part of it that was moved, before that read.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn Make() -> Void { loop {} }
+
+fn Init(u: (N, Void)) -> i32 { let mut t: (N, Void); match t { _ if { t = u; false } => 1 } }
+
+fn InitNever() -> i32 { let x: Void; match x { _ if { x = Make(); false } => 1 } }
+
+fn Whole(mut t: (N, Void), u: (N, Void)) -> i32 { Take(t.0); match t { _ if { t = u; false } => 1 } }
+
+fn Field(mut t: (N, Void)) -> i32 { Take(t.0); match t { _ if { t.0 = N { A: 1 }; false } => 1 } }
+
+fn LastOfTwo(mut t: (N, Void), c: bool) -> i32 {
+    Take(t.0);
+    match t { _ if c => 1, _ if { t.0 = N { A: 1 }; false } => 2 }
+}
+
+fn Main() {}

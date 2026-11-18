@@ -1,0 +1,18 @@
+// After a guard that moved the scrutinee fails, a later arm that tests more than the
+// guarded one (`Some(N { A: 1 })` after `Some(_)`) reads it again: E0382.
+struct N { A: i32 }
+
+fn Consume(o: Option<N>) -> bool {
+    false
+}
+
+fn F(o: Option<N>) -> i32 {
+    match o {
+        Some(_) if Consume(o) => 1,
+        Some(N { A: 1 }) => 2,
+        None => 3,
+        Some(_) => 4,
+    }
+}
+
+fn Main() {}

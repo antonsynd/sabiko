@@ -1,0 +1,16 @@
+// A failed guard on the last arm reaches the `otherwise` block too: the empty type makes
+// the match exhaustive, and the partly moved scrutinee is read there.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Void), c: bool) -> i32 {
+    Take(t.0);
+    match t {
+        (_, _) if c => 1,
+    }
+}
+
+fn Main() {}

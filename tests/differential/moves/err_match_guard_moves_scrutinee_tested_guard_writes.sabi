@@ -1,0 +1,19 @@
+// A tested arm's guard writes another part of the scrutinee; the guard of an arm that
+// tests nothing moves part of it on the way to `otherwise`: E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+enum E { A(N), B(Void) }
+
+fn Take(n: N) {}
+
+fn F(mut t: (N, N, E), c: bool) -> i32 {
+    match t {
+        (_, _, E::A(_)) if { t.1 = N { A: 2 }; c } => 2,
+        (_, _, _) if { Take(t.0); c } => 1,
+        (_, _, E::A(_)) => 3,
+    }
+}
+
+fn Main() {}

@@ -1,0 +1,28 @@
+// An empty type nested in a generic struct many times is still empty, and deciding a deep
+// instance does not change what a shallower one, decided later, is.
+enum Void {}
+
+struct W<T> { X: T }
+
+fn Deep(o: Option<W<W<W<W<W<W<W<W<W<Void>>>>>>>>>>) -> i32 { match o { None => 1 } }
+
+fn DeepThenShallow(t: (Option<W<W<W<W<W<W<W<W<W<Void>>>>>>>>>>, Option<W<W<Void>>>)) -> i32 {
+    match t { (None, None) => 1, (Some(_), _) => 2 }
+}
+
+fn Shallow(t: Option<W<W<Void>>>) -> i32 { match t { None => 1 } }
+
+fn Nested(o: Option<Option<Option<Option<Option<Option<Option<Option<Void>>>>>>>>) -> i32 {
+    match o {
+        None => 1,
+        Some(None) => 2,
+        Some(Some(None)) => 3,
+        Some(Some(Some(None))) => 4,
+        Some(Some(Some(Some(None)))) => 5,
+        Some(Some(Some(Some(Some(None))))) => 6,
+        Some(Some(Some(Some(Some(Some(None)))))) => 7,
+        Some(Some(Some(Some(Some(Some(Some(None))))))) => 8,
+    }
+}
+
+fn Main() {}

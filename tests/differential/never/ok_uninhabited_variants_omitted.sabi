@@ -1,0 +1,29 @@
+// A variant whose payload is uninhabited at the enum's instance (`Err` of `Result<i32, !>`,
+// `Some` of `Option<!>`) may be left out of a match on a valid place (#178).
+struct Pair<T> { X: i32, Y: T }
+
+enum Two<A, B> { L(A), R(B) }
+
+fn Matches(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    let a = match r { Ok(v) => v };
+    let Ok(b) = r;
+    let o = if c { let e = Panic("o"); Some(e) } else { None };
+    let d = match o { None => 3 };
+    let f = match Some(r) { Some(Ok(v)) => v, None => 0 };
+    let g = match (r, 1) { (Ok(v), w) => v + w };
+    let t = if c { let e = Panic("t"); Two::R(e) } else { Two::L(1) };
+    let h = match t { Two::L(v) => v };
+    let p = if c { let e = Panic("p"); Some(Pair { X: 1, Y: e }) } else { None };
+    let k = match p { None => 4 };
+    let q = if c { let e = Panic("q"); Some((1, [e; 2])) } else { None };
+    let m = match q { None => 6 };
+    a + b + d + f + g + h + k + m
+}
+
+fn BothEmpty(c: bool) -> i32 {
+    let x = Panic("x");
+    let y = Panic("y");
+    let s = if c { Ok(x) } else { Err(y) };
+    match s {}
+}

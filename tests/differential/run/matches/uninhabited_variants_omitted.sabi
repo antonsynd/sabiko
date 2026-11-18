@@ -1,0 +1,49 @@
+// Variants with an uninhabited payload left out of matches (#178): the remaining arms run,
+// and the left-out variant's branch is unreachable code that never runs.
+enum Void {}
+
+enum E { A(i32), B(Void) }
+
+enum Two<A, B> { L(A), R(B) }
+
+struct Pair<T> { X: i32, Y: T }
+
+fn MakeE(n: i32) -> E {
+    E::A(n)
+}
+
+fn Unwrap(e: E) -> i32 {
+    let E::A(n) = e;
+    n
+}
+
+fn Main() {
+    let c = false;
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    let a = match r {
+        Ok(v) => v,
+    };
+    PrintLine(a);
+    let Ok(b) = r;
+    PrintLine(b + 1);
+    let o = if c { let e = Panic("o"); Some(e) } else { None };
+    PrintLine(match o { None => 3 });
+    let n = Some(r);
+    PrintLine(match n { Some(Ok(v)) => v * 10, None => 0 });
+    let t = if c { let e = Panic("t"); Two::R(e) } else { Two::L(7) };
+    PrintLine(match t { Two::L(v) => v });
+    let p = if c { let e = Panic("p"); Some(Pair { X: 1, Y: e }) } else { None };
+    PrintLine(match p { None => 8 });
+    let q = if c { let e = Panic("q"); Some((1, [e; 2])) } else { None };
+    PrintLine(match q { None => 9 });
+    if let Ok(v) = r {
+        PrintLine(v + 2);
+    }
+    let Ok(w) = r else { return; };
+    PrintLine(w + 3);
+    let es = [MakeE(11), MakeE(12)];
+    PrintLine(match es[1] { E::A(v) => v });
+    PrintLine(Unwrap(MakeE(13)));
+    let s: Option<(i32, Void)> = None;
+    PrintLine(match s { None => 14 });
+}

@@ -1,0 +1,21 @@
+// The guard of an arm that tests nothing moves part of the scrutinee; a later arm that
+// binds part of it by value has a guard too, which does not move it: still E0382.
+enum Void {}
+
+struct N { A: i32 }
+
+struct M { B: i32 }
+
+fn Take(n: N) {}
+
+fn Use(m: M) -> i32 { 0 }
+
+fn F(t: (N, M, Option<Void>), c: bool, d: bool) -> i32 {
+    match t {
+        (_, _, _) if { Take(t.0); c } => 1,
+        (_, m, None) if d => Use(m),
+        (_, _, None) => 3,
+    }
+}
+
+fn Main() {}

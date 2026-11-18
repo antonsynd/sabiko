@@ -1,0 +1,20 @@
+// As `never_block_scrutinee`, with a `_` arm: the arm is unreachable, since the block is a
+// value of type `!` (not a place), and the bounds check in its tail panics.
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn Main() {
+    let c = false;
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    PrintLine("before");
+    let v = match { e[Id(2)] } {
+        _ => 1,
+    };
+    PrintLine(v);
+}

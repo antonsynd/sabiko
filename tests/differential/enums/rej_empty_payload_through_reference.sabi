@@ -1,0 +1,27 @@
+// Through a reference (also an index or field of one, or of a sub-slice) a variant with
+// an empty payload must still be matched, by a `match`, a `let` or an assignment.
+//@ rustc: E0004 E0005
+//@ sabiko: E0328 E0329
+enum Void {}
+
+enum E { A(i32), B(Void) }
+
+struct W { In: E }
+
+fn Id(i: usize) -> usize { i }
+
+fn Matches(r: &[E; 2], s: &[E], a: [E; 2], w: &[W; 1]) -> i32 {
+    let x = match r[Id(1)] { E::A(v) => v };
+    let y = match s[Id(1)] { E::A(v) => v };
+    let z = match a[0..2][Id(1)] { E::A(v) => v };
+    let u = match w[Id(0)].In { E::A(v) => v };
+    x + y + z + u
+}
+
+fn Lets(r: &E, w: &W) -> i32 {
+    let E::A(x) = *r;
+    let E::A(y) = w.In;
+    let z;
+    E::A(z) = *r;
+    x + y + z
+}

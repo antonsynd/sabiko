@@ -1,0 +1,25 @@
+// A `_` arm on an empty type only mentions the scrutinee, so it need not be initialised;
+// a match without arms on a parameter of an empty type is fine.
+enum Void {}
+
+fn Wild() -> i32 {
+    let v: Void;
+    match v { _ => 1 }
+}
+
+fn WildNever(c: bool) -> i32 {
+    let x;
+    if c { x = Panic("x"); }
+    match x { _ => 2 }
+}
+
+fn Param(v: Void) -> i32 {
+    match v {}
+}
+
+fn Borrowed(mut v: Void) -> i32 {
+    let r = &mut v;
+    let x: i32 = match v {};
+    *r = v;
+    x
+}

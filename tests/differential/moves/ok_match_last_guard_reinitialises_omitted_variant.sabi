@@ -1,0 +1,21 @@
+// The left-out empty variant reaches the `otherwise` block only through the last arm's
+// guard, which gives back the part of the scrutinee moved before the match.
+enum Void {}
+
+struct N { A: i32 }
+
+enum E { A(N), B(Void) }
+
+fn Take(n: N) {}
+
+fn User(mut t: (N, E)) -> i32 {
+    Take(t.0);
+    match t { (_, E::A(_)) => 1, (_, _) if { t.0 = N { A: 1 }; false } => 2 }
+}
+
+fn Generic(mut t: (N, Option<Void>)) -> i32 {
+    Take(t.0);
+    match t { (_, None) => 1, (_, _) if { t.0 = N { A: 1 }; false } => 2 }
+}
+
+fn Main() {}

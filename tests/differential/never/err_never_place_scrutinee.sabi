@@ -1,0 +1,22 @@
+// The arm of a scrutinee place of type `!` is borrow-checked like any arm (#184): a move
+// in it counts, and a binding it leaves uninitialised stays so.
+fn Id(i: usize) -> usize { i }
+
+struct S { X: i32 }
+
+fn Take(s: S) {}
+
+fn Moves(c: bool) {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let s = S { X: 1 };
+    match e[Id(2)] { _ => Take(s) }
+    Take(s);
+}
+
+fn Uninitialised(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let r = &e;
+    let v: i32;
+    match r[Id(2)] { _ => {} }
+    v
+}

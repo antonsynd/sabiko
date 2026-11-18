@@ -1,0 +1,72 @@
+// Sabiko codes for rustc's: E0328 for E0004.
+// Whether a variant is uninhabited is decided at the instance of its enum (#178, decision
+// 106): `Err` of a `Result<i32, !>` and `Some` of an `Option<!>` may be left out of a
+// match on a valid place, like a variant of an empty enum. A reference to an uninhabited
+// type has a value, so `Some` of an `Option<&!>` may not; neither may `Some` of an
+// `Option<[!; 0]>` (the empty array) nor any variant behind a reference.
+enum Two<A, B> { L(A), R(B) }
+
+struct Pair<T> { X: i32, Y: T }
+
+fn Values(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    let a = match r {
+        Ok(v) => v,
+    };
+    let Ok(b) = r;
+    let o = if c { let e = Panic("o"); Some(e) } else { None };
+    let d = match o {
+        None => 3,
+    };
+    let n = Some(r);
+    let f = match n {
+        Some(Ok(v)) => v,
+        None => 0,
+    };
+    let t = if c { let e = Panic("t"); Two::R(e) } else { Two::L(1) };
+    let g = match t {
+        Two::L(v) => v,
+    };
+    let p = if c { let e = Panic("p"); Some(Pair { X: 1, Y: e }) } else { None };
+    let h = match p {
+        None => 4,
+    };
+    let q = if c { let e = Panic("q"); Some((1, [e; 2])) } else { None };
+    let k = match q {
+        None => 6,
+    };
+    // Both variants of a `Result<!, !>` are empty, so is the type; an arm on it is not
+    // reported unreachable, since it is not `!` itself or an empty enum.
+    if c {
+        let x = Panic("x");
+        let y = Panic("y");
+        let s = if c { Ok(x) } else { Err(y) };
+        let z: i32 = match s {};
+        let w = match s {
+            _ => 7,
+        };
+    }
+    a + b + d + f + g + h + k
+}
+
+fn References(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    let rr = &r;
+    let a = match rr { //~ ERROR E0328 non-exhaustive patterns: `&Result::Err(_)` not covered
+        Ok(v) => *v,
+    };
+    let b = match *rr { //~ ERROR E0328 non-exhaustive patterns: `Result::Err(_)` not covered
+        Ok(v) => v,
+    };
+    let o = if c { let e = &Panic("o"); Some(e) } else { None };
+    let d = match o { //~ ERROR E0328 non-exhaustive patterns: `Option::Some(_)` not covered
+        None => 3,
+    };
+    let z = if c { let e = Panic("z"); Some([e; 0]) } else { None };
+    let f = match z { //~ ERROR E0328 non-exhaustive patterns: `Option::Some(_)` not covered
+        None => 4,
+    };
+    a + b + d + f
+}
+
+fn Main() {}

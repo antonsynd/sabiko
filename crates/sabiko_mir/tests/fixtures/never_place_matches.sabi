@@ -1,0 +1,65 @@
+// Matches that leave out an uninhabited variant, and matches on a place of type `!`
+// (#178, #184, decision 106). A left-out variant falls to the switch's `unreachable`; such
+// a match reads its scrutinee first (`FakeRead(ForMatchedPlace)`: it must be initialised
+// and not moved, even in part), or where every arm failed when a guard touches it and no
+// guard of an arm that tests something moves from it; one with no arms or only guarded ones
+// reads where every arm failed unless such guards both move from and write to it.
+// A place of type `!` is mentioned (its bounds checked), then its arms are entered as for
+// any place. An irrefutable `let` that leaves out a variant reads its initialiser the same
+// way. A block whose tail is a `!` place is a value: nothing after it runs.
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn OkOnly(c: bool) -> i32 {
+    let r = if c { let e = Panic("r"); Err(e) } else { Ok(5) };
+    match r {
+        Ok(v) => v,
+    }
+}
+
+fn NoneOnly(c: bool) -> i32 {
+    let o = if c { let e = Panic("o"); Some(e) } else { None };
+    match o {
+        None => 3,
+    }
+}
+
+fn WildArm(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let r = &e;
+    match r[Id(2)] {
+        _ => 3,
+    }
+}
+
+fn NoArms(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    match e[Id(2)] {}
+}
+
+enum Void {}
+
+fn LetVariant(t: (i32, Option<Void>)) -> i32 {
+    let (x, None) = t;
+    x
+}
+
+fn BlockTail(c: bool) -> i32 {
+    let e = if c { let x = Panic("e"); [x; 0] } else { [] };
+    let v: i32 = match { e[Id(2)] } {};
+    v
+}
+
+fn AllGuarded(t: (i32, Void), c: bool) -> i32 {
+    match t {
+        _ if c => 1,
+    }
+}
+
+fn UntestedGuardWrites(mut t: (i32, Option<Void>), c: bool) -> i32 {
+    match t {
+        (_, _) if { t.0 = 1; c } => 1,
+        (_, None) => 2,
+    }
+}

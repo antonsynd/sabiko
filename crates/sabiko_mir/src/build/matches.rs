@@ -58,7 +58,7 @@ use sabiko_types::{rest_positions, ConstValue, Mutability, PatConst, Ty};
 use super::{is_extending_pattern, is_place_expr, writes_once, Builder, LoopScope, ValueDest};
 use crate::{
     BasicBlock, BinOp, BorrowKind, Constant, FakeBorrowKind, FakeReadCause, Local, LocalDecl,
-    LocalKind, Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind,
+    LocalKind, Operand, Place, PlaceElem, Rvalue, Statement, StatementKind, TerminatorKind,
 };
 
 /// An enum and the index of one of its variants.
@@ -88,6 +88,35 @@ pub(super) struct TestCache {
     /// top-level pattern (#150), however deep the compared sub-pattern. Range, float and
     /// string tests read at their own sub-pattern everywhere. `None` for a fresh cache.
     value_span: Option<Span>,
+    /// The guards lowered so far, for [`Builder::read_matched_place`].
+    guards: Vec<GuardCode>,
+}
+
+/// Where a guard's code is: from statement `at` of `block`, and the blocks from `first`
+/// to `end`, the last of which, `holds`, only up to statement `holds_len`, where the
+/// arm's bindings follow; `tested` when its candidate tests something before it, so that
+/// it does not run for every value (see [`Builder::read_matched_place`]).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct GuardCode {
+    tested: bool,
+    block: BasicBlock,
+    at: usize,
+    first: usize,
+    end: usize,
+    holds: BasicBlock,
+    holds_len: usize,
+}
+
+/// What the guards of a match do to its scrutinee place ([`Builder::read_matched_place`]).
+#[derive(Debug, Clone, Copy, Default)]
+struct GuardEffects {
+    /// A guard moves from or writes to the place.
+    any: bool,
+    /// A guard whose candidate tests something moves from the place.
+    tested_moves: bool,
+    /// A guard whose candidate tests something writes to a part of the place that a
+    /// tested candidate's guard of an earlier arm moved from.
+    tested_rewrites: bool,
 }
 
 /// How a candidate's bindings are made.
@@ -877,7 +906,9 @@ impl Builder<'_> {
         for (index, choice) in choices.into_iter().enumerate() {
             let fail = self.new_block();
             self.tests.at_fail = None;
+            let untested = (self.current, self.body.blocks.len());
             self.test_pat(pat, place, &choice, fail);
+            let tested = (self.current, self.body.blocks.len()) != untested;
             if index < last || edge_after_last {
                 let next = self.new_block();
                 self.note_fail();
@@ -891,7 +922,23 @@ impl Builder<'_> {
                 self.enter(next);
             }
             if let Some((guard, fakes)) = guard {
+                let (block, at, first) = (
+                    self.current,
+                    self.body.blocks[self.current.index()].statements.len(),
+                    self.body.blocks.len(),
+                );
                 self.lower_guard(guard, fakes, pat, place, &choice, fail);
+                // A match in the guard has a cache of its own, restored by now. The arm's
+                // bindings come next, in the block where the guard holds.
+                self.tests.guards.push(GuardCode {
+                    tested,
+                    block,
+                    at,
+                    first,
+                    end: self.body.blocks.len(),
+                    holds: self.current,
+                    holds_len: self.body.blocks[self.current.index()].statements.len(),
+                });
             }
             let saved = self.binding_scrutinee.replace(scrutinee);
             self.bind_pat(pat, place.clone(), &choice, BindMode::Prepared);
@@ -1011,6 +1058,167 @@ impl Builder<'_> {
         self.pop_scope(span);
     }
 
+    /// Whether a scrutinee of type `!` is a value expression, which diverges (`return`,
+    /// `Panic(..)`, `loop {}`): the pattern is never tested, and nothing after it runs. A
+    /// place of type `!` (`e[i]` for `e: [!; 0]`, `*r` for `r: &!`, a `!` local) does not
+    /// diverge by being named: its arms are lowered as for any place, so a `_` arm is
+    /// entered after the place's indices are checked, as in rustc (#184, decision 106).
+    /// No value of type `!` exists, so no such arm runs, but the borrow checker sees what
+    /// it does (rustc reports a move in it, or a binding it leaves uninitialised).
+    fn diverges(&self, scrutinee: &Expr) -> bool {
+        self.ty(scrutinee).is_never() && !is_place_expr(self.resolve, scrutinee)
+    }
+
+    /// Evaluates a scrutinee that [diverges](Self::diverges) for its effects. Nothing
+    /// after it runs, which its MIR does not always show by itself: a block whose tail is
+    /// a `!` place (`{ e[i] }`) reads the place, which is cut only after borrow checking
+    /// (decision 103), so the code after it is made unreachable here. Otherwise what the
+    /// match would have assigned (`let v: i32 = match { e[i] } {};`) would be
+    /// uninitialised there (decision 106).
+    fn lower_diverging(&mut self, scrutinee: &Expr) {
+        self.lower_expr_discard(scrutinee);
+        let span = self.span_of(scrutinee);
+        self.terminate(TerminatorKind::Unreachable, span);
+        let dead = self.new_block();
+        self.enter(dead);
+    }
+
+    /// rustc's `FakeRead(ForMatchedPlace)` of the scrutinee `place`, which its MIR makes in
+    /// the `otherwise` block of a match, where no pattern matched: the borrow checker
+    /// requires the whole place to be initialised and not moved, even in part, and it
+    /// conflicts with no loan (decision 106). Sabiko's match lowering does not follow
+    /// rustc's decision tree, so it cannot tell every edge by which rustc reaches that
+    /// block (#201). It reads only in a match with no arms or only guarded ones, and in a
+    /// match or irrefutable `let` that is exhaustive only by leaving out an uninhabited
+    /// variant ([`Self::reads_omitted_empty`]), whose switch has an `otherwise` edge for
+    /// it: `Take(t.0); match t { (_, None) => 1 }` for `t: (N, Option<Void>)` is E0406,
+    /// rustc's E0382. Only a guard changes the place on the way to rustc's read, so the
+    /// read goes where every arm failed, after the guards, or before any test or guard:
+    ///
+    /// - Where every arm failed sees what a guard moves or initialises, as rustc's read
+    ///   does (`_ if { t = u; false } => 1`, `(_, _) if { Take(t.0); c } => 1, (_, None)
+    ///   => 2`). But Sabiko's candidates fall through to one another where rustc's tree
+    ///   branches: after a guard fails, a later candidate tests again what the guarded
+    ///   one tested, and that test's failure edge, which no value takes, skips the later
+    ///   candidates. A move by a guard of a candidate that tests something is then seen
+    ///   where rustc's read does not see it, when a later arm catches the value (`(_,
+    ///   E::A(_)) if Mv(t.0) => 1, (_, E::A(_)) => 2`, accepted by rustc), and a write by
+    ///   such a guard can be skipped where rustc's path always makes it (`(_, F::A(_)) if
+    ///   Mv(t.0) => 1, (_, F::A(_)) if { t.0 = N { A: 1 }; false } => 2`).
+    /// - Before any test or guard misses what the guards do.
+    ///
+    /// When the last candidate tests nothing and has a guard, every way to rustc's
+    /// `otherwise` block runs that guard, and so does every way to where every arm failed
+    /// in Sabiko's lowering: the edges no value takes lead on to later candidates, which
+    /// rustc's false edges reach too (`(_, E::A(_)) if Mv(t.0) => 1, (_, E::A(_)) => 2,
+    /// (_, _) if c => 3` is E0382). The read goes where every arm failed. Otherwise a
+    /// match that leaves out a variant reads before its tests when a guard of a tested
+    /// candidate moves from the place (missing guards' moves, #201) or when no guard
+    /// touches it, and where every arm failed otherwise; a match whose arms all have
+    /// guards, where every failed guard leads to rustc's read, reads where every arm
+    /// failed unless a tested candidate's guard writes to a part of the place that a
+    /// tested candidate's guard of an earlier arm moved from (then before, missing the
+    /// moves, #201). A guard of a candidate that tests nothing runs on rustc's way to
+    /// `otherwise` (for the left-out variant, or for every value) and has no failure edge
+    /// of its own to skip.
+    pub(super) fn read_matched_place(&mut self, place: &Place, span: Span) {
+        self.push_stmt(
+            StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place.clone()),
+            span,
+        );
+    }
+
+    /// What `guards` do to `place` ([`Self::read_matched_place`]): a move from, or a
+    /// write to, a place that overlaps it (a part of it, or a place it is part of).
+    /// `arm_starts` holds the index in `guards` of each arm's first guard.
+    fn guard_effects(
+        &self,
+        guards: &[GuardCode],
+        arm_starts: &[usize],
+        place: &Place,
+    ) -> GuardEffects {
+        let mut effects = GuardEffects::default();
+        // Each guard's arm, whether it tests something, and the parts of the place it
+        // moves from and writes to.
+        let mut found: Vec<(usize, bool, Vec<&Place>, Vec<&Place>)> = Vec::new();
+        for (index, guard) in guards.iter().enumerate() {
+            let arm = arm_starts.partition_point(|&start| start <= index);
+            let blocks = std::iter::once(guard.block.index()).chain(guard.first..guard.end);
+            let (mut moves, mut writes) = (false, false);
+            let mut moves_here: Vec<&Place> = Vec::new();
+            let mut written: Vec<&Place> = Vec::new();
+            for b in blocks {
+                let data = &self.body.blocks[b];
+                let from = if b == guard.block.index() {
+                    guard.at
+                } else {
+                    0
+                };
+                let to = if b == guard.holds.index() {
+                    guard.holds_len
+                } else {
+                    data.statements.len()
+                };
+                let mut dests: Vec<&Place> = Vec::new();
+                let mut operands: Vec<&Operand> = Vec::new();
+                for statement in &data.statements[from.min(to)..to] {
+                    if let StatementKind::Assign(dest, rvalue) = &statement.kind {
+                        dests.push(dest);
+                        operands.extend(rvalue.operands());
+                    }
+                }
+                if b != guard.holds.index() {
+                    match data.terminator.as_ref().map(|t| &t.kind) {
+                        Some(TerminatorKind::Call {
+                            args, destination, ..
+                        }) => {
+                            dests.push(destination);
+                            operands.extend(args);
+                        }
+                        Some(TerminatorKind::Drop { place: dropped, .. }) => dests.push(dropped),
+                        _ => {}
+                    }
+                }
+                for dest in dests {
+                    if overlaps(dest, place) {
+                        writes = true;
+                        written.push(dest);
+                    }
+                }
+                for operand in operands {
+                    match operand {
+                        Operand::Move(p) if overlaps(p, place) => {
+                            moves = true;
+                            moves_here.push(p);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            effects.any |= moves || writes;
+            found.push((arm, guard.tested, moves_here, written));
+        }
+        let later_writes = |arm: usize, moved: &Place| {
+            found.iter().any(|(later, tested, _, written)| {
+                *later > arm && *tested && written.iter().any(|w| overlaps(w, moved))
+            })
+        };
+        for (arm, tested, moved, _) in &found {
+            if *tested {
+                effects.tested_moves |= !moved.is_empty();
+                effects.tested_rewrites |= moved.iter().any(|m| later_writes(*arm, m));
+            }
+        }
+        effects
+    }
+
+    /// Whether exhaustiveness checking found the patterns on `scrutinee` (a match's, or a
+    /// `let`'s initialiser) exhaustive only by leaving out an uninhabited constructor of a
+    /// valid place ([`Self::read_matched_place`]).
+    pub(super) fn reads_omitted_empty(&self, scrutinee: &Expr) -> bool {
+        self.types.omits_empty.contains(&scrutinee.id)
+    }
+
     /// `match scrutinee { arms }`, writing the arms' values into `dest`.
     pub(super) fn lower_match(
         &mut self,
@@ -1019,19 +1227,28 @@ impl Builder<'_> {
         arms: &[Arm],
         span: Span,
     ) {
-        if self.ty(scrutinee).is_never() {
+        if self.diverges(scrutinee) {
             // `match return {}`: the scrutinee diverges; nothing after it runs.
-            self.lower_expr_discard(scrutinee);
+            self.lower_diverging(scrutinee);
             return;
         }
         let pats: Vec<&Pat> = arms.iter().map(|arm| &arm.pat).collect();
         let place = self.scrutinee_place(scrutinee, &pats);
+        let omits_empty = self.reads_omitted_empty(scrutinee);
+        let all_guarded = arms.iter().all(|arm| arm.guard.is_some());
+        // Where the place is read before any test or guard (see `read_matched_place`).
+        let start = (
+            self.current,
+            self.body.blocks[self.current.index()].statements.len(),
+        );
         let fakes = self.guard_fake_places(arms, &place);
         let match_start = Span::point(span.file, span.start).to(scrutinee.span);
         let saved = self.start_tests(&pats, &place, scrutinee.span, Some(match_start));
         let outer_held = std::mem::take(&mut self.guard_held);
         let mut entries = Vec::new();
+        let mut arm_starts = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
+            arm_starts.push(self.tests.guards.len());
             let mut locals = self.prepare_locals(&arm.pat);
             if let Some(guard) = &arm.guard {
                 for operand in guard_operands(guard) {
@@ -1051,7 +1268,31 @@ impl Builder<'_> {
             entries.push((body, locals));
         }
         self.guard_held = outer_held;
-        self.tests = saved;
+        let guards = std::mem::replace(&mut self.tests, saved).guards;
+        let effects = self.guard_effects(&guards, &arm_starts, &place);
+        // The last candidate has a guard and tests nothing: every way to rustc's
+        // `otherwise` block, and to where every arm failed here, runs its guard.
+        let last_untested = arms.last().is_some_and(|arm| arm.guard.is_some())
+            && guards.last().is_some_and(|guard| !guard.tested);
+        let at_end = last_untested
+            || if all_guarded {
+                !effects.tested_rewrites
+            } else {
+                effects.any && !effects.tested_moves
+            };
+        if (all_guarded || omits_empty) && at_end {
+            // Where every arm failed: rustc's `otherwise` block.
+            self.read_matched_place(&place, scrutinee.span);
+        } else if all_guarded || omits_empty {
+            let (block, at) = start;
+            self.body.blocks[block.index()].statements.insert(
+                at,
+                Statement {
+                    kind: StatementKind::FakeRead(FakeReadCause::ForMatchedPlace, place.clone()),
+                    span: scrutinee.span,
+                },
+            );
+        }
         // Exhaustiveness was checked: no value gets here.
         self.terminate(TerminatorKind::Unreachable, span);
         let join = self.new_block();
@@ -1081,8 +1322,8 @@ impl Builder<'_> {
         els: Option<&Expr>,
         span: Span,
     ) {
-        if self.ty(scrutinee).is_never() {
-            self.lower_expr_discard(scrutinee);
+        if self.diverges(scrutinee) {
+            self.lower_diverging(scrutinee);
             return;
         }
         let saved_scope = self.push_temp_scope();
@@ -1148,10 +1389,10 @@ impl Builder<'_> {
             scope_depth: depth,
         });
         let saved = self.push_temp_scope();
-        if self.ty(scrutinee).is_never() {
+        if self.diverges(scrutinee) {
             // `while let E::A(x) = return 1 {}` (#99): the scrutinee leaves, so neither the
             // pattern nor the body is reached.
-            self.lower_expr_discard(scrutinee);
+            self.lower_diverging(scrutinee);
             self.close_temp_scope(saved, span);
             self.terminate(TerminatorKind::Goto { target: header }, span);
             let scope = self.loops.pop().expect("loop scope pushed above");
@@ -1274,8 +1515,8 @@ impl Builder<'_> {
                 self.enter(holds);
                 continue;
             };
-            if self.ty(scrutinee).is_never() {
-                self.lower_expr_discard(scrutinee);
+            if self.diverges(scrutinee) {
+                self.lower_diverging(scrutinee);
                 return false;
             }
             let place = self.scrutinee_place(scrutinee, &[pat]);
@@ -1308,8 +1549,8 @@ impl Builder<'_> {
     /// block on success (an extending pattern, as for a plain `let`).
     pub(super) fn lower_let_else(&mut self, pat: &Pat, init: &Expr, els: Option<&Block>) {
         let span = init.span;
-        if self.ty(init).is_never() {
-            self.lower_expr_discard(init);
+        if self.diverges(init) {
+            self.lower_diverging(init);
             self.declare_pattern_locals(pat);
             return;
         }
@@ -1334,6 +1575,10 @@ impl Builder<'_> {
             self.track_drop(local);
         }
         let ok = self.new_block();
+        // An irrefutable `let` with an or-pattern that leaves out a variant reads its
+        // initialiser where every alternative failed; it has no guards, so this is where a
+        // read before its tests would see the same (see `read_matched_place`).
+        let read_unmatched = els.is_none() && self.reads_omitted_empty(init);
         let saved = self.start_tests(&[pat], &place, init.span, Some(pat.span));
         self.lower_candidates(pat, None, &place, span, ok, els.is_some());
         self.tests = saved;
@@ -1377,6 +1622,9 @@ impl Builder<'_> {
             }
             (self.chain, self.pending) = saved;
         } else {
+            if read_unmatched {
+                self.read_matched_place(&place, init.span);
+            }
             self.terminate(TerminatorKind::Unreachable, span);
         }
         self.enter(ok);
@@ -1505,4 +1753,10 @@ fn guard_has_let(guard: &Expr) -> bool {
     guard_operands(guard)
         .iter()
         .any(|e| matches!(e.kind, ExprKind::Let(..)))
+}
+
+/// Whether `a` and `b` overlap: the same local, the projections of one a prefix of the
+/// other's.
+fn overlaps(a: &Place, b: &Place) -> bool {
+    a.local == b.local && a.projection.iter().zip(&b.projection).all(|(x, y)| x == y)
 }

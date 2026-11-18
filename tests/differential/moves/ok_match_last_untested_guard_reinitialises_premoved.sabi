@@ -1,0 +1,31 @@
+// The last arm tests nothing and has a guard, which gives back the part of the scrutinee
+// moved before the match: every way to rustc's `otherwise` block runs it.
+enum Void {}
+
+struct N { A: i32 }
+
+enum E { A(N), B(Void) }
+
+fn Take(n: N) {}
+
+fn Mv(n: N) -> bool { false }
+
+fn Enum(mut t: (N, E)) -> i32 {
+    Take(t.0);
+    match t {
+        (_, E::A(_)) if { t.0 = N { A: 1 }; Mv(t.0) } => 1,
+        (_, E::A(_)) => 2,
+        (_, _) if { t.0 = N { A: 2 }; false } => 3,
+    }
+}
+
+fn Generic(mut t: (N, Option<Void>)) -> i32 {
+    Take(t.0);
+    match t {
+        (_, None) if { t.0 = N { A: 1 }; Mv(t.0) } => 1,
+        (_, None) => 2,
+        (_, _) if { t.0 = N { A: 2 }; false } => 3,
+    }
+}
+
+fn Main() {}

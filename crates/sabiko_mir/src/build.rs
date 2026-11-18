@@ -2785,6 +2785,13 @@ impl<'a> Builder<'a> {
             self.declare_pattern_locals(pat);
             return;
         }
+        if self.reads_omitted_empty(init) {
+            // `let (_, None) = t;` or `(_, None) = t;` for `t: (N, Option<Void>)` (decision
+            // 106): an irrefutable pattern without an or-pattern, which binds without tests
+            // or guards, so the read before its bindings sees what rustc's `otherwise`
+            // block would (see `read_matched_place`).
+            self.read_matched_place(&place, init.span);
+        }
         self.bind_pat(pat, place, &matches::Choice::default(), BindMode::Declare);
     }
 

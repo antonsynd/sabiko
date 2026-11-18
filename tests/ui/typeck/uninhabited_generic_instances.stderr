@@ -1,0 +1,36 @@
+[E0328] Error: non-exhaustive patterns: `&Result::Err(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_generic_instances.sabi:55:19 ]
+    │
+ 55 │     let a = match rr { //~ ERROR E0328 non-exhaustive patterns: `&Result::Err(_)` not covered
+    │                   ─┬  
+    │                    ╰── pattern `&Result::Err(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `Result::Err(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_generic_instances.sabi:58:19 ]
+    │
+ 58 │     let b = match *rr { //~ ERROR E0328 non-exhaustive patterns: `Result::Err(_)` not covered
+    │                   ─┬─  
+    │                    ╰─── pattern `Result::Err(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `Option::Some(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_generic_instances.sabi:62:19 ]
+    │
+ 62 │     let d = match o { //~ ERROR E0328 non-exhaustive patterns: `Option::Some(_)` not covered
+    │                   ┬  
+    │                   ╰── pattern `Option::Some(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯
+[E0328] Error: non-exhaustive patterns: `Option::Some(_)` not covered
+    ╭─[ tests/ui/typeck/uninhabited_generic_instances.sabi:66:19 ]
+    │
+ 66 │     let f = match z { //~ ERROR E0328 non-exhaustive patterns: `Option::Some(_)` not covered
+    │                   ┬  
+    │                   ╰── pattern `Option::Some(_)` not covered
+    │ 
+    │ Note: ensure that all possible cases are handled, by adding a match arm with a wildcard pattern or an explicit pattern
+────╯

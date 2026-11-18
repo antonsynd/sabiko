@@ -1,0 +1,14 @@
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/never_place_scrutinee.sabi:11:9 ]
+    │
+ 11 │         _ => 3, //~ WARN E0330 unreachable pattern
+    │         ┬  
+    │         ╰── no value can reach this
+────╯
+[E0330] Warning: unreachable pattern
+    ╭─[ tests/ui/typeck/never_place_scrutinee.sabi:20:9 ]
+    │
+ 20 │         y => 5, //~ WARN E0330 unreachable pattern
+    │         ┬  
+    │         ╰── no value can reach this
+────╯

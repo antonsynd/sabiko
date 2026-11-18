@@ -1,0 +1,15 @@
+// An irrefutable `let` that names a variant of an enum with other (empty) variants switches
+// on the discriminant, and its `otherwise` block reads the partly moved initialiser.
+enum Void {}
+
+struct N { A: i32 }
+
+fn Take(n: N) {}
+
+fn F(t: (N, Option<Void>)) -> i32 {
+    Take(t.0);
+    let (_, None) = t;
+    1
+}
+
+fn Main() {}

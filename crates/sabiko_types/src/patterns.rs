@@ -7,7 +7,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
 use sabiko_ast::{
-    EnumDecl, Expr, ExprKind, ItemKind, Lit, Pat, PatKind, RangeEnd, SourceFile, UnOp,
+    EnumDecl, Expr, ExprKind, ItemKind, Lit, NodeId, Pat, PatKind, RangeEnd, SourceFile, UnOp,
 };
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_resolve::{DefId, DefKind, PrimTy, Res, ResolveResults};
@@ -665,13 +665,16 @@ pub(crate) fn exhaustiveness_of(
         items,
         body,
         sink,
+        omits_empty: Vec::new(),
     };
     for p in &f.params {
-        cx.refutable(&p.pat, "function argument");
+        cx.refutable(&p.pat, None, "function argument");
     }
     if let Some(b) = &f.body {
         cx.block(b);
     }
+    let omits_empty = cx.omits_empty;
+    body.omits_empty.extend(omits_empty);
     if sink.error_count() > errors_before {
         body.has_errors = true;
     }
@@ -682,6 +685,8 @@ struct Exhaustive<'a, 'b> {
     items: &'a ItemTypes,
     body: &'b BodyTypes,
     sink: &'a mut DiagnosticSink,
+    /// For [`BodyTypes::omits_empty`].
+    omits_empty: Vec<NodeId>,
 }
 
 impl Exhaustive<'_, '_> {
@@ -694,9 +699,14 @@ impl Exhaustive<'_, '_> {
                     }
                     if let Some(els) = &l.els {
                         self.block(els);
-                        self.conditional(&l.pat, None, ConditionalKind::LetElse, els.span);
+                        self.conditional(
+                            &l.pat,
+                            l.init.as_ref(),
+                            ConditionalKind::LetElse,
+                            els.span,
+                        );
                     } else {
-                        self.refutable(&l.pat, "local binding");
+                        self.refutable(&l.pat, l.init.as_ref(), "local binding");
                     }
                 }
                 sabiko_ast::StmtKind::Expr { expr, .. } => self.expr(expr),
@@ -721,13 +731,13 @@ impl Exhaustive<'_, '_> {
                 }
                 self.check_match(scrutinee, arms);
             }
-            ExprKind::DestructuringAssign(pat, _) => {
+            ExprKind::DestructuringAssign(pat, rhs) => {
                 // rustc's `{ let pat = rhs; .. }`: the pattern must be irrefutable.
                 for_each_child(e, &mut |c| match c {
                     Child::Expr(c) => self.expr(c),
                     Child::Block(b) => self.block(b),
                 });
-                self.refutable(pat, "local binding");
+                self.refutable(pat, Some(rhs), "local binding");
             }
             ExprKind::If { cond, then, els } => {
                 if let Some(operands) = cond.let_chain() {
@@ -839,14 +849,13 @@ impl Exhaustive<'_, '_> {
             })
             .collect();
         let cx = Shapes { items: self.items };
-        let report = usefulness::check_match_with_validity(
-            &cx,
-            &ty,
-            &lowered,
-            !through_deref(scrutinee, self.body),
-        );
+        let valid = known_valid(scrutinee, self.body);
+        let report = usefulness::check_match_with_validity(&cx, &ty, &lowered, valid);
         self.unreachable(&report.unreachable);
         if report.witnesses.is_empty() {
+            if valid && usefulness::omits_empty(&cx, &ty, &lowered, &report) {
+                self.omits_empty.push(scrutinee.id);
+            }
             return;
         }
         let message = if usefulness::reports_type_non_empty(&cx, &ty, &lowered) {
@@ -867,10 +876,16 @@ impl Exhaustive<'_, '_> {
         );
     }
 
-    /// A `let` or parameter pattern must be irrefutable.
-    fn refutable(&mut self, pat: &Pat, what: &str) {
-        let report = self.check_one(pat);
+    /// A `let` or parameter pattern must be irrefutable. `scrutinee` is the initialiser
+    /// (none for a parameter or a `let` without one).
+    fn refutable(&mut self, pat: &Pat, scrutinee: Option<&Expr>, what: &str) {
+        let report = self.check_one(pat, scrutinee);
         if report.witnesses.is_empty() {
+            if let Some(scrutinee) = scrutinee {
+                if known_valid(scrutinee, self.body) && self.omits_empty_one(pat, &report) {
+                    self.omits_empty.push(scrutinee.id);
+                }
+            }
             return;
         }
         self.sink.emit(
@@ -887,11 +902,11 @@ impl Exhaustive<'_, '_> {
     fn conditional(
         &mut self,
         pat: &Pat,
-        _scrutinee: Option<&Expr>,
+        scrutinee: Option<&Expr>,
         kind: ConditionalKind,
         span: sabiko_span::Span,
     ) {
-        let report = self.check_one(pat);
+        let report = self.check_one(pat, scrutinee);
         if !report.witnesses.is_empty() {
             return;
         }
@@ -917,7 +932,9 @@ impl Exhaustive<'_, '_> {
         );
     }
 
-    fn check_one(&mut self, pat: &Pat) -> usefulness::Report {
+    /// Checks `pat` as a one-arm match on `scrutinee`, valid unless [`known_valid`] says
+    /// otherwise (a parameter's value is valid).
+    fn check_one(&mut self, pat: &Pat, scrutinee: Option<&Expr>) -> usefulness::Report {
         self.bindings_named_like_variants(pat);
         let ty = self
             .body
@@ -930,7 +947,27 @@ impl Exhaustive<'_, '_> {
             has_guard: false,
         };
         let cx = Shapes { items: self.items };
-        usefulness::check_match(&cx, &ty, &[arm])
+        let valid = scrutinee.is_none_or(|s| known_valid(s, self.body));
+        usefulness::check_match_with_validity(&cx, &ty, &[arm], valid)
+    }
+
+    /// [`usefulness::omits_empty`] for the single pattern `pat`.
+    fn omits_empty_one(&self, pat: &Pat, report: &usefulness::Report) -> bool {
+        if !report.left_out_empty {
+            return false;
+        }
+        let ty = self
+            .body
+            .pat_types
+            .get(&pat.id)
+            .cloned()
+            .unwrap_or(Ty::Error);
+        let arm = usefulness::Arm {
+            pat: self.lower(pat),
+            has_guard: false,
+        };
+        let cx = Shapes { items: self.items };
+        usefulness::omits_empty(&cx, &ty, &[arm], report)
     }
 
     fn unreachable(&mut self, spans: &[sabiko_span::Span]) {
@@ -1245,19 +1282,33 @@ fn strip_parens(mut e: &Expr) -> &Expr {
     e
 }
 
-/// Whether a scrutinee is a place reached through a dereference (`*r`, `(*r).F`, or `r.F`
-/// for a reference `r`, which dereferences it implicitly), which rustc does not assume to
-/// hold a valid value.
-fn through_deref(e: &Expr, body: &BodyTypes) -> bool {
+/// Whether a scrutinee is known to hold a valid value, as rustc's
+/// `is_known_valid_scrutinee` decides it (decision 106): a place reached through a
+/// dereference is not, since a reference may point to invalid data as far as the
+/// exhaustiveness checker knows. That is `*r`, a field `r.F` or index `r[i]` of a reference
+/// `r` (which dereferences it implicitly), an index of a sub-slice `a[lo..hi][i]` (rustc's
+/// `*Index::index(..)`), and any field or index of such a place. Every other place (a
+/// local, its fields, the elements of a local array) and every value expression is valid.
+/// A field or index type checking recorded nothing for (after an error) is taken as not
+/// valid, which only ever asks for more arms.
+fn known_valid(e: &Expr, body: &BodyTypes) -> bool {
     let e = strip_parens(e);
     match &e.kind {
-        ExprKind::Deref(_) => true,
+        ExprKind::Deref(_) => false,
         ExprKind::Field(base, _) => {
             body.field_accesses
                 .get(&e.id)
-                .is_some_and(|access| access.autoderefs > 0)
-                || through_deref(base, body)
+                .is_some_and(|access| access.autoderefs == 0)
+                && known_valid(base, body)
         }
-        _ => false,
+        ExprKind::Index(base, index) => {
+            !matches!(strip_parens(index).kind, ExprKind::Range(..))
+                && body
+                    .index_derefs
+                    .get(&e.id)
+                    .is_some_and(|&derefs| derefs == 0)
+                && known_valid(base, body)
+        }
+        _ => true,
     }
 }
