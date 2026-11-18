@@ -1,0 +1,35 @@
+// Sabiko codes for rustc's: E0414 for E0515.
+// A local's storage ends before the `return`, and that one access is reported once, for
+// the first loan it ends, as in rustc (decision 101): two borrows of one local, or of two
+// of its fields, are one error. Two locals are two accesses, so two errors.
+struct S {
+    A: i32,
+    B: i32,
+}
+
+fn Same(x: &i32) -> (&i32, &i32) {
+    let a = 1;
+    (
+        &a, //~ ERROR E0414 cannot return reference to local variable `a`
+        &a,
+    )
+}
+
+fn Fields(x: &i32) -> (&i32, &i32) {
+    let s = S { A: 1, B: 2 };
+    (
+        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+        &s.B,
+    )
+}
+
+fn TwoLocals(x: &i32) -> (&i32, &i32) {
+    let a = 1;
+    let b = 2;
+    (
+        &a, //~ ERROR E0414 cannot return reference to local variable `a`
+        &b, //~ ERROR E0414 cannot return reference to local variable `b`
+    )
+}
+
+fn Main() {}

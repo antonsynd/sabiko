@@ -22,8 +22,9 @@
 //! - `Return` invalidates every loan of local data (a place without `Deref`): data owned
 //!   by the frame is gone once the function returns.
 //! - A two-phase borrow (#15) is *reserved* where it is created and *activated* at its one
-//!   use, the call it is an argument of. The reservation is checked like a shared borrow
-//!   that also conflicts with every other mutable loan (rustc's `Reservation` access); in
+//!   use, the call it is an argument of (or a variant constructor's aggregate, #145). The
+//!   reservation is checked like a shared borrow that also conflicts with every other
+//!   mutable loan (rustc's `Reservation` access); in
 //!   between, the loan tolerates reads and shared borrows of its place (they see it as a
 //!   shared loan) but nothing else; the activation is checked as a mutable borrow of the
 //!   place against every other live loan. "In between" is rustc's dominance test: the
@@ -121,7 +122,8 @@ pub struct LoanData {
     pub location: Location,
     /// The span of the borrowing statement.
     pub span: Span,
-    /// For a two-phase borrow, the location of the use that activates it (a call). `None`
+    /// For a two-phase borrow, the location of the use that activates it (a call, or a
+    /// variant constructor's aggregate). `None`
     /// for an ordinary borrow, which is active from its creation.
     pub activation: Option<Location>,
     /// For a fake borrow (`BorrowKind::Fake`), what it stands for: a place a match
@@ -346,8 +348,9 @@ struct Generator<'a> {
 impl Generator<'_> {
     /// Numbers every borrow in the body; accesses anywhere may invalidate any of them. A
     /// two-phase borrow is activated where its temporary is used: MIR building gives it
-    /// exactly one use, as a call argument (the validator checks this). Without such a
-    /// use it is treated as an ordinary mutable borrow.
+    /// exactly one use, as a call argument or a variant constructor's operand (the
+    /// validator checks this). Without such a use it is treated as an ordinary mutable
+    /// borrow.
     fn collect_loans(&mut self) {
         let uses = operand_uses(self.body);
         for bb in self.body.block_ids() {
@@ -444,6 +447,9 @@ impl Generator<'_> {
     fn visit_statement(&mut self, kind: &StatementKind, location: Location) {
         match kind {
             StatementKind::Assign(place, rvalue) => {
+                // `E::V(m, m.X)`: the variant's aggregate activates the two-phase reborrow
+                // of its constructor's argument, before reading its operands (#145).
+                self.activate(location);
                 let src = self.rvalue(rvalue, location);
                 self.write_dest(place, location);
                 let dst = self.place_region_ty(place);
@@ -500,11 +506,7 @@ impl Generator<'_> {
                 destination,
                 ..
             } => {
-                // Activating a two-phase borrow is a mutable borrow of its place.
-                for loan in self.activations.get(&location).cloned().unwrap_or_default() {
-                    let place = self.loans[loan.index()].place.clone();
-                    self.access_except(&place, AccessKind::Activation, location, Some(loan));
-                }
+                self.activate(location);
                 let arg_tys: Vec<RegionTy> =
                     args.iter().map(|arg| self.operand(arg, location)).collect();
                 if matches!(
@@ -587,6 +589,15 @@ impl Generator<'_> {
             TerminatorKind::Goto { .. }
             | TerminatorKind::FalseEdge { .. }
             | TerminatorKind::Unreachable => {}
+        }
+    }
+
+    /// Activates the two-phase borrows whose one use is at `location`: a mutable borrow
+    /// of each one's place.
+    fn activate(&mut self, location: Location) {
+        for loan in self.activations.get(&location).cloned().unwrap_or_default() {
+            let place = self.loans[loan.index()].place.clone();
+            self.access_except(&place, AccessKind::Activation, location, Some(loan));
         }
     }
 

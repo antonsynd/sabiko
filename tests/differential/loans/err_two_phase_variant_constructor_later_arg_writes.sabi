@@ -1,0 +1,13 @@
+// A reserved two-phase reborrow in a variant constructor acts as a shared borrow until
+// the constructor runs: a later argument that assigns through `m` conflicts with it.
+struct P { X: u8 }
+
+enum E<T> {
+    V(T, u8),
+}
+
+fn F(m: &mut P) {
+    let e: E<&mut P> = E::V(m, { m.X = 1; 2 });
+}
+
+fn Main() {}

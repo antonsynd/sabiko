@@ -259,10 +259,15 @@ impl Validator<'_> {
     }
 
     /// A two-phase borrow is assigned to a temporary that nothing but one call reads
-    /// (`move _t` among its arguments): the borrow checker activates it at that use.
+    /// (`move _t` among its arguments, or among a variant constructor's: its aggregate,
+    /// #145): the borrow checker activates it at that use.
     fn two_phase_borrows(&mut self) {
         let mut uses = vec![0usize; self.body.locals.len()];
         let mut call_uses = vec![0usize; self.body.locals.len()];
+        let moved_local = |op: &Operand| match op {
+            Operand::Move(p) if p.is_local() => Some(p.local.index()),
+            _ => None,
+        };
         let mut reservations = Vec::new();
         let count = |place: &Place, uses: &mut Vec<usize>| {
             if let Some(n) = uses.get_mut(place.local.index()) {
@@ -280,6 +285,13 @@ impl Validator<'_> {
                         reservations.push((bb, dest.clone()));
                     }
                 }
+                if let Rvalue::Aggregate(AggregateKind::Variant(..), ops) = rvalue {
+                    for local in ops.iter().filter_map(moved_local) {
+                        if let Some(n) = call_uses.get_mut(local) {
+                            *n += 1;
+                        }
+                    }
+                }
                 if !dest.is_local() {
                     count(dest, &mut uses);
                 }
@@ -295,9 +307,9 @@ impl Validator<'_> {
                     args, destination, ..
                 } => {
                     for arg in args {
-                        if let Operand::Move(p) = arg {
-                            if p.is_local() {
-                                count(p, &mut call_uses);
+                        if let Some(local) = moved_local(arg) {
+                            if let Some(n) = call_uses.get_mut(local) {
+                                *n += 1;
                             }
                         }
                         if let Some(p) = arg.place() {

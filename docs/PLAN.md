@@ -330,6 +330,35 @@ E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe
 an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
 rustc accepts).
 
+Update (2026-11-18), two-phase constructor arguments and one error per escaping loan
+(#145, #174, decision 101). A tuple variant's constructor is a call in rustc, so the
+implicit reborrow of a `&mut` argument (`let e: E<&mut P> = E::V(m, m.X);`) is two-phase:
+MIR building lowers a variant constructor's arguments as call arguments
+(`coerced_operand(.., true)`), the variant aggregate is the borrow's one use (the validator
+accepts it there) and the loan facts activate the borrow at that statement. A struct
+literal's fields, a tuple's and an array's elements stay ordinary borrows, as in rustc
+(tuple structs are not in the language yet). The loan reporter now deduplicates as
+rustc's `MirBorrowckCtxt` does: an access once per place and span, for its first
+conflicting loan; a loan outliving its local once per root local and borrow span, in the
+same set, and a `return` checks the loans it ends one by one (rustc's
+`check_for_invalidation_at_exit`), so `(&a, &a)` returning a parameter's loans is two
+E0414, `let a = 1; (&a, &a)` one (one `StorageDead`), and a borrow that was already an
+error where it was taken is not reported again when it escapes; the activation of a
+two-phase borrow of a place whose reservation was an error is not reported (rustc's
+`reservation_error_reported`, replacing the per-loan check), so `V(m, m)` is one E0409.
+A table of 143 programs (109 for #145: variant constructor, generic and plain functions, associated
+functions, methods, struct literals, tuples and `Some` in a tuple, each with `m`,
+`&mut *m` and `&mut x` arguments followed by a read, a write or a shared borrow, guards,
+loops, nested and unsized arguments; and 34 for #174:
+returns of loans of parameters, locals, fields, through arrays, structs, variants,
+branches and early returns) agrees with rustc's verdict and error count on every row.
+Tests: 10 differential programs (`loans/`, `moves/`), `run/enums/two_phase_variant_constructor`
+and the UI fixtures `borrowck/return_loans_of_one_parameter`, `return_loans_of_one_local`,
+`return_loan_already_reported` and `two_phase_reservation_error_once`. Errors are visited
+in location order where rustc walks blocks in reverse postorder; the two agree on every
+program tried. rustc's E0515 points at the whole returned value, Sabiko's E0414 at the
+borrow (older than this change).
+
 ### Phase 4: CIL code generation v1 and the runtime library
 
 Work
@@ -1675,7 +1704,7 @@ types of types without references, implied bounds and a two-phase reservation at
 block's start. Five were a fix: the loan reporter's per-point guard and shallow-borrow
 deduplications dropped real errors when one call activates two two-phase borrows, and
 without them the error count matches rustc's (decision 99; two loans of one place
-returned together still differ, #174). Eight were dead or redundant code and are gone:
+returned together still differed, #174, since fixed by decision 101). Eight were dead or redundant code and are gone:
 `link_pattern`'s arm for parts without references (its `!=` mutant was a real hole, now a
 differential test), a fast path in `write_dest`, an unused `switchInt` use count, a length
 comparison, a redundant destination check and two guards on instances. Two are equivalent
@@ -1728,7 +1757,8 @@ reborrows it (`differential/moves/reborrow/*prelude*`). Gaps, all older than #13
 filed: least-upper-bound coercion goes one way only, so `match c { true => r, false => &a
 }`, `if c { r } else { &a }` and `[r, &a]` with `r: &mut u8` are E0300 where rustc
 accepts them (#144); a variant constructor's `&mut` argument is not two-phase, so `let e:
-E<&mut P> = E::V(m, m.X);` is E0411 where rustc accepts it (#145); `_` in a generic
+E<&mut P> = E::V(m, m.X);` is E0411 where rustc accepts it (#145, since fixed, decision
+101); `_` in a generic
 argument of a type written in a body (`let x: Opt<_> = Wrap(300);`) lowers to `Error`
 and fails MIR validation, the same root as #137 (reproducer added there, now fixed, see
 below); `impl Tr for &mut u8` is still E0107.

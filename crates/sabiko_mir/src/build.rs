@@ -930,7 +930,10 @@ impl<'a> Builder<'a> {
     /// ([`Self::reborrow`]), so passing a mutable reference to `fn F(x: &mut u8)` does not
     /// consume it, while passing it to `fn Id<T>(x: T)` does. A call argument
     /// (`call_arg`) is reborrowed two-phase, as rustc does at that coercion site only:
-    /// `Use(m, m.X)` reads `*m` after the reborrow, before the call.
+    /// `Use(m, m.X)` reads `*m` after the reborrow, before the call. A variant
+    /// constructor's argument is a call argument too (rustc type-checks `E::V(m, m.X)` as a
+    /// call of the constructor function), activated by the aggregate (#145); a struct
+    /// literal's field, a tuple's or an array's element is not.
     fn coerced_operand(&mut self, expr: &Expr, call_arg: bool) -> Operand {
         if let Some(mutability) = self.reborrow(expr) {
             if let Ty::Ref(Mutability::Mut, referent) = self.ty(expr) {
@@ -1792,10 +1795,12 @@ impl<'a> Builder<'a> {
                 _ => return None,
             },
             ExprKind::Call { args, .. } if self.types.variant_exprs.contains_key(&expr.id) => {
-                // `E::V(a, b)`: the variant's fields, in order.
+                // `E::V(a, b)`: the variant's fields, in order. The arguments of the
+                // constructor call are call arguments: a reborrowed `&mut` one is
+                // two-phase, activated by the aggregate (#145).
                 let (adt, index) = self.types.variant_exprs[&expr.id];
                 let generic = self.adt_args(expr);
-                let operands = args.iter().map(|a| self.as_operand(a)).collect();
+                let operands = args.iter().map(|a| self.coerced_operand(a, true)).collect();
                 Rvalue::Aggregate(AggregateKind::Variant(adt, index, generic), operands)
             }
             ExprKind::Struct { fields, .. } => self.struct_literal(expr, fields),
