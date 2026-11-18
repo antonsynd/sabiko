@@ -24,7 +24,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use polonius_engine::{Algorithm, Output};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
-use sabiko_mir::{Body, FakeBorrowKind, Local, LocalKind, Place, TerminatorKind, Ty};
+use sabiko_mir::{
+    Body, FakeBorrowKind, Local, LocalKind, Place, StatementKind, TerminatorKind, Ty,
+};
 use sabiko_resolve::{DefKind, ResolveResults};
 use sabiko_span::fx::{HashMap, HashSet};
 use sabiko_span::Span;
@@ -302,11 +304,13 @@ impl Reporter<'_> {
                 format!("assignment to borrowed {accessed} occurs here"),
             )
             .with_label(data.span, format!("{borrowed} is borrowed here")),
+            // rustc's `cannot_use_when_mutably_borrowed` names the borrowed place in the
+            // label and the accessed one in the message.
             AccessKind::Read | AccessKind::SliceLen => Diagnostic::error(
                 ErrorCode::USE_WHILE_MUTABLY_BORROWED,
                 format!("cannot use {accessed} because it was mutably borrowed"),
             )
-            .with_label(span, format!("use of borrowed {accessed}"))
+            .with_label(span, format!("use of borrowed {borrowed}"))
             .with_label(data.span, format!("{borrowed} is borrowed here")),
             AccessKind::Move => Diagnostic::error(
                 ErrorCode::MOVE_WHILE_BORROWED,
@@ -335,19 +339,7 @@ impl Reporter<'_> {
         let borrowed = self.describe(&data.place);
         let root = data.place.local;
         if self.loan_in_any(point, loan, &self.facts.return_origins()) {
-            let what = match (self.body.local_decl(root).kind, data.place.is_local()) {
-                (LocalKind::Arg, true) => "function parameter",
-                (_, true) => "local variable",
-                (_, false) => "local data",
-            };
-            return Diagnostic::error(
-                ErrorCode::RETURN_REF_TO_LOCAL,
-                format!("cannot return reference to {what} {borrowed}"),
-            )
-            .with_label(
-                data.span,
-                "returns a reference to data owned by the current function",
-            );
+            return self.return_error(loan);
         }
         let local = self.describe(&Place::local(root));
         let diag = if self.body.local_decl(root).kind == LocalKind::Temp
@@ -388,6 +380,91 @@ impl Reporter<'_> {
             .with_label(span, label)
         };
         self.with_later_use(diag, point, loan)
+    }
+
+    /// E0414 (rustc's E0515, `try_report_cannot_return_reference_to_local`): a loan of
+    /// local data escapes through the return value. As in rustc, the error points at the
+    /// value returned, the assignment to the return place that the loan flows through
+    /// (`(&a, &a)`, `Some(&a)`, `r` in `let r = &a; r`), and is about a "reference to"
+    /// the data when that is the borrow itself (`&a`), else about a "value referencing"
+    /// it, with the borrow as a second label.
+    fn return_error(&self, loan: Loan) -> Diagnostic {
+        let data = &self.facts.loans[loan.index()];
+        let root = data.place.local;
+        let kind = self.body.local_decl(root).kind;
+        let (what, borrowed_here) = match user_place(&data.place, self.body, self.typeck) {
+            Some(place) => {
+                let what = match (kind, data.place.is_local()) {
+                    (LocalKind::Arg, true) => "function parameter",
+                    (_, true) => "local variable",
+                    (_, false) => "local data",
+                };
+                (
+                    format!("{what} `{place}`"),
+                    format!("`{place}` is borrowed here"),
+                )
+            }
+            None if kind == LocalKind::Arg => (
+                "function parameter".to_owned(),
+                "function parameter borrowed here".to_owned(),
+            ),
+            None => (
+                "temporary value".to_owned(),
+                "temporary value created here".to_owned(),
+            ),
+        };
+        let returned = self.returned_value_span(loan).unwrap_or(data.span);
+        if returned == data.span {
+            return Diagnostic::error(
+                ErrorCode::RETURN_REF_TO_LOCAL,
+                format!("cannot return reference to {what}"),
+            )
+            .with_label(
+                returned,
+                "returns a reference to data owned by the current function",
+            );
+        }
+        Diagnostic::error(
+            ErrorCode::RETURN_REF_TO_LOCAL,
+            format!("cannot return value referencing {what}"),
+        )
+        .with_label(
+            returned,
+            "returns a value referencing data owned by the current function",
+        )
+        .with_label(data.span, borrowed_here)
+    }
+
+    /// The span of the first assignment to the return place, in reverse postorder, after
+    /// which the return place holds `loan`: where the borrowed value is returned.
+    fn returned_value_span(&self, loan: Loan) -> Option<Span> {
+        let return_origins = self.facts.return_origins();
+        self.body.reverse_postorder().into_iter().find_map(|bb| {
+            let data = self.body.block(bb);
+            let statements = data
+                .statements
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| {
+                    matches!(&s.kind, StatementKind::Assign(dest, _) if dest.local == Local::RETURN)
+                })
+                .map(|(index, s)| (Location::new(bb, index), s.span));
+            let call = data.terminator.as_ref().and_then(|t| {
+                matches!(&t.kind, TerminatorKind::Call { destination, .. } if destination.local == Local::RETURN)
+                    .then(|| (Location::terminator_of(self.body, bb), t.span))
+            });
+            // The engine records an origin's loans once it flowed there: on the points
+            // after the assignment's.
+            statements.chain(call).find_map(|(location, span)| {
+                let mid = self.facts.table.mid(location);
+                self.successors
+                    .get(&mid)
+                    .into_iter()
+                    .flatten()
+                    .any(|&next| self.loan_in_any(next, loan, &return_origins))
+                    .then_some(span)
+            })
+        })
     }
 
     /// Adds the "borrow later used here" label: the first use, after the error, of a

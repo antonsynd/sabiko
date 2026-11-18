@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/slicing.sabi
 ---
 fn Tail(_1: &str) -> &str {
@@ -37,6 +37,7 @@ fn Fill(_1: &mut [i32]) {
         _3 = Subslice(move _2, const 1_usize..=const 2_usize);
         StorageLive(_4);
         _4 = const 0_usize;
+        FakeRead(ForIndex, (*_3));
         (*_3)[_4] = const 7_i32;
         StorageDead(_4);
         StorageDead(_3);
@@ -72,6 +73,7 @@ fn Kind(_1: &str) -> i32 {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_4);
         _4 = Eq(copy _2, const "b");
         switchInt(copy _4) -> [0: bb5, otherwise: bb6];
@@ -87,6 +89,7 @@ fn Kind(_1: &str) -> i32 {
     }
 
     bb5: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_5);
         _5 = Eq(copy _2, const "c");
         switchInt(copy _5) -> [0: bb8, otherwise: bb7];
@@ -192,6 +195,7 @@ fn Main() {
         StorageDead(_8);
         StorageLive(_13);
         _13 = const 0_usize;
+        FakeRead(ForIndex, (*_7));
         (*_7)[_13] = const 9_i32;
         StorageDead(_13);
         StorageLive(_14);

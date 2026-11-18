@@ -4,8 +4,10 @@
 // parameter are two errors too, `return_loans_of_one_parameter`).
 fn Two(x: &i32, a: i32, b: i32) -> (&i32, &i32) {
     (
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
-        &b, //~ ERROR E0414 cannot return reference to function parameter `b`
+        //~^ ERROR E0414 cannot return value referencing function parameter `a`
+        //~^^ ERROR E0414 cannot return value referencing function parameter `b`
+        &a,
+        &b,
     )
 }
 

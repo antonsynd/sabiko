@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{
-    Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue, Statement,
-    StatementKind, Terminator, TerminatorKind, Ty,
+    Body, FakeReadCause, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue,
+    Statement, StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::ResolveResults;
 use sabiko_span::fx::{HashMap, HashSet};
@@ -13,7 +13,7 @@ use sabiko_span::Span;
 use sabiko_types::TypeckResults;
 
 use crate::dataflow::{self, Location, ResultsCursor};
-use crate::index::{index_base_reads, BaseRead, IndexBaseRead};
+use crate::index::{index_base_read, BaseRead, IndexBaseRead};
 use crate::init::{InitAnalysis, InitKind};
 use crate::mutability::{place_mutability, PlaceMutability};
 
@@ -22,6 +22,7 @@ pub fn check_body(
     body: &Body,
     resolve: &ResolveResults,
     typeck: &TypeckResults,
+    moved_uses: &HashSet<(Location, Local)>,
     sink: &mut DiagnosticSink,
 ) {
     let maybe_analysis = InitAnalysis::new(InitKind::Maybe, body);
@@ -37,6 +38,8 @@ pub fn check_body(
         definitely_init: ResultsCursor::new(body, &definite_analysis, &definite_results),
         first_assignment: first_assignments(body),
         reported_uninit: HashSet::default(),
+        moved_uses,
+        location: Location::new(sabiko_mir::BasicBlock(0), 0),
     };
     // In rustc's order: the first use of an uninitialised local is the one reported.
     for bb in body.reverse_postorder() {
@@ -88,10 +91,17 @@ struct Checker<'a> {
     /// Locals already reported as used while uninitialised; reported once per body so a
     /// single missing `let x = ..` does not cascade into an error at every use.
     reported_uninit: HashSet<Local>,
+    /// The uses the move check found move sites for, with their root local
+    /// ([`crate::moves::check_moves`]): rustc reports the use of a moved value there, not
+    /// of an uninitialised one.
+    moved_uses: &'a HashSet<(Location, Local)>,
+    /// The location being checked.
+    location: Location,
 }
 
 impl Checker<'_> {
     fn seek(&mut self, location: Location) {
+        self.location = location;
         self.maybe_init.seek_before(location);
         self.definitely_init.seek_before(location);
     }
@@ -102,16 +112,19 @@ impl Checker<'_> {
                 self.check_rvalue(rvalue, statement.span);
                 self.check_write(place, statement.span);
             }
-            // `let _ = place;` needs no initialised or mutable place: it touches nothing,
-            // except that each index reads its base for the bounds check (decision 96),
-            // so `let a: [i32; 2]; let _ = a[1];` is E0381. Every base has the place's
-            // root, the only thing this checks, so the first one is enough.
-            StatementKind::PlaceMention(place) => {
-                if let Some(read) = index_base_reads(place, self.body).next() {
-                    self.check_initialised(place.local, statement.span, Some(&read));
-                }
+            // An index's bounds check reads the indexed place (decision 96), so `let a:
+            // [i32; 2]; let _ = a[1];` is E0381.
+            StatementKind::FakeRead(FakeReadCause::ForIndex, base) => {
+                let read = index_base_read(base, self.body);
+                self.check_initialised(base.local, statement.span, Some(&read));
             }
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // `let _ = place;` needs no initialised or mutable place: it touches nothing. A
+            // match test reusing an earlier test's read was checked at that read.
+            StatementKind::PlaceMention(_)
+            | StatementKind::FakeRead(FakeReadCause::ForMatchTest, _)
+            | StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::Nop => {}
         }
     }
 
@@ -191,6 +204,7 @@ impl Checker<'_> {
         if self.body.local_decl(local).kind != LocalKind::User
             || self.reported_uninit.contains(&local)
             || self.definitely_init.get().contains(local.index())
+            || self.moved_uses.contains(&(self.location, local))
         {
             return;
         }
@@ -249,6 +263,9 @@ impl Checker<'_> {
         // Writing a field or through a reference reads the root (partial initialisation of
         // a struct binding is not initialisation).
         self.check_read(place, span);
+        if !self.ever_initialised(place.local) {
+            return;
+        }
         match place_mutability(place, self.body) {
             PlaceMutability::Mutable => {}
             PlaceMutability::ImmutableBinding(root) => {
@@ -320,6 +337,9 @@ impl Checker<'_> {
 
     /// `&mut place`.
     fn check_borrow_mut(&mut self, place: &Place, span: Span) {
+        if !self.ever_initialised(place.local) {
+            return;
+        }
         match place_mutability(place, self.body) {
             PlaceMutability::Mutable => {}
             PlaceMutability::ImmutableBinding(root) => {
@@ -360,6 +380,14 @@ impl Checker<'_> {
                 );
             }
         }
+    }
+
+    /// Whether `local` may have been initialised before this point. As rustc's
+    /// `check_access_permissions` (`is_local_ever_initialized`), a write or `&mut` borrow
+    /// of a place in a local that was never initialised reports no mutability error: the
+    /// use of the uninitialised local (E0405) is the error (`let a: [G; 2]; a[0] = g;`).
+    fn ever_initialised(&self, local: Local) -> bool {
+        self.maybe_init.get().contains(local.index())
     }
 
     fn make_mutable_help(&self, local: Local) -> String {

@@ -1,0 +1,165 @@
+// A move error names the closest place rustc has a move path for (decision 107): every
+// local, every place assigned, moved or dropped, and every array an index reads. So a use
+// of `t.0.X` after `t` moved names `t`, but after `t.0` moved names `t.0`, and an array
+// read through an index (`t.0[i]`) names the array. A write to a field of a moved value is
+// "assign to part of" the shortest moved prefix; a field of a type with a destructor is
+// "assign of" the moved value itself.
+struct S {
+    X: i32,
+    Y: i32,
+}
+
+struct A {
+    B: i32,
+}
+
+struct P {
+    A: A,
+    C: i32,
+}
+
+struct Q {
+    S: S,
+    T: S,
+}
+
+struct G {
+    X: i32,
+}
+
+impl Drop for G {
+    fn drop(&mut self) {}
+}
+
+struct H {
+    G: G,
+    Y: i32,
+}
+
+fn Take(p: P) {}
+
+fn TakeQ(q: Q) {}
+
+fn TakeG(g: G) {}
+
+fn TakeH(h: H) {}
+
+fn Idx() -> usize {
+    0usize
+}
+
+fn C() -> bool {
+    true
+}
+
+fn FieldOfMovedTuple(t: (S, i32)) {
+    let m = t;
+    let _ = t.0;
+    let r = &t.0.X; //~ ERROR E0406 borrow of moved value: `t`
+}
+
+fn FieldAfterMatchOnMovedTuple(t: (S, i32)) {
+    let m = t;
+    match t.0 {
+        _ => {}
+    }
+    let r = &t.0.X; //~ ERROR E0406 borrow of moved value: `t`
+}
+
+fn ArrayElementOfMovedTuple(t: ([S; 2], i32)) {
+    let m = t;
+    let r = &t.0[Idx()].X; //~ ERROR E0406 borrow of moved value: `t.0`
+}
+
+fn ArrayMentionOfMovedTuple(t: ([S; 2], i32)) {
+    let m = t;
+    let _ = t.0[Idx()]; //~ ERROR E0406 use of moved value: `t.0`
+}
+
+fn NestedArrayElementOfMovedTuple(t: (([S; 2], i32), i32)) {
+    let m = t;
+    let r = &t.0.0[Idx()]; //~ ERROR E0406 borrow of moved value: `t.0.0`
+}
+
+fn NestedFieldOfMovedValue(p: P) {
+    Take(p);
+    let r = &p.A.B; //~ ERROR E0406 borrow of moved value: `p`
+}
+
+fn ReadOfMovedTuple(t: ((S, i32), i32)) {
+    let m = t;
+    let x = t.0.0.X; //~ ERROR E0406 use of moved value: `t`
+}
+
+fn FieldOfMovedField(mut q: Q) {
+    let m = q.S;
+    let r = &q.S.X; //~ ERROR E0406 borrow of moved value: `q.S`
+}
+
+// The later error with the same moves replaces the assignment's, as in rustc.
+fn OtherFieldAfterReassigning(mut q: Q) {
+    TakeQ(q);
+    q.S = S { X: 1, Y: 2 };
+    let r = &q.T.X; //~ ERROR E0406 borrow of moved value: `q`
+}
+
+fn PatternOnMovedTuple(t: (S, i32)) {
+    let m = t;
+    if let S { X: 1, .. } = t.0 {} //~ ERROR E0406 use of moved value: `t`
+}
+
+fn BindingFromMovedTuple(t: (S, i32)) {
+    let m = t;
+    let S { X, .. } = t.0; //~ ERROR E0406 use of moved value: `t`
+}
+
+fn LaterBorrowReplacesRead(t: (S, i32)) {
+    let m = t;
+    let k = t.0.X;
+    let r = &t.0.Y; //~ ERROR E0406 borrow of moved value: `t`
+}
+
+fn PartialAssignAfterMove(mut p: P) {
+    Take(p);
+    p.A.B = 1; //~ ERROR E0406 assign to part of moved value: `p`
+}
+
+fn PartialAssignAfterFieldMoved(mut q: Q) {
+    let m = q.S;
+    q.S.X = 1; //~ ERROR E0406 assign to part of moved value: `q.S`
+}
+
+fn TupleFieldAssignAfterMove(mut t: (S, i32)) {
+    let m = t;
+    t.0.X = 1; //~ ERROR E0406 assign to part of moved value: `t`
+}
+
+fn PartiallyMoved(t: (S, S)) {
+    let m = t.0;
+    let r = &t; //~ ERROR E0406 borrow of partially moved value: `t`
+}
+
+fn PartiallyMovedField(t: ((S, S), S)) {
+    let m = t.0.0;
+    let r = &t.0; //~ ERROR E0406 borrow of partially moved value: `t.0`
+}
+
+fn DropFieldAssignAfterMove(mut g: G) {
+    TakeG(g);
+    g.X = 1; //~ ERROR E0406 assign of moved value: `g`
+}
+
+fn DropFieldOfMovedOwner(mut h: H) {
+    TakeH(h);
+    h.G.X = 1; //~ ERROR E0406 assign of moved value: `h.G`
+}
+
+fn DropFieldOfMovedField(mut h: H) {
+    TakeG(h.G);
+    h.G.X = 1; //~ ERROR E0406 assign of moved value: `h.G`
+}
+
+fn PlainFieldOfMovedDropOwner(mut h: H) {
+    TakeH(h);
+    h.Y = 1; //~ ERROR E0406 assign to part of moved value: `h`
+}

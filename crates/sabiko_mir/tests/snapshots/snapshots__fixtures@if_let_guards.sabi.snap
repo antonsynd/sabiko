@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/if_let_guards.sabi
 ---
 fn <D as Drop>::drop(_1: &mut D) {
@@ -115,6 +115,7 @@ fn Guard(_1: i32) -> i32 {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_11);
         _11 = Eq(copy _3, const 2_i32);
         switchInt(copy _11) -> [1: bb16, otherwise: bb15];

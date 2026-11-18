@@ -18,36 +18,46 @@ enum E<T> {
 
 fn Tuple(x: &i32, a: i32) -> (&i32, &i32) {
     (
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        //~^ ERROR E0414 cannot return value referencing function parameter `a`
+        //~^^ ERROR E0414 cannot return value referencing function parameter `a`
+        &a,
+        &a,
     )
 }
 
 fn Array(x: &i32, a: i32) -> [&i32; 2] {
     [
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        //~^ ERROR E0414 cannot return value referencing function parameter `a`
+        //~^^ ERROR E0414 cannot return value referencing function parameter `a`
+        &a,
+        &a,
     ]
 }
 
 fn Struct(x: &i32, a: i32) -> Two<&i32> {
     Two {
-        L: &a, //~ ERROR E0414 cannot return reference to function parameter `a`
-        R: &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        //~^ ERROR E0414 cannot return value referencing function parameter `a`
+        //~^^ ERROR E0414 cannot return value referencing function parameter `a`
+        L: &a,
+        R: &a,
     }
 }
 
 fn Variant(x: &i32, a: i32) -> E<&i32> {
     E::V(
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
-        &a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        //~^ ERROR E0414 cannot return value referencing function parameter `a`
+        //~^^ ERROR E0414 cannot return value referencing function parameter `a`
+        &a,
+        &a,
     )
 }
 
 fn Field(x: &i32, s: S) -> (&i32, &i32) {
     (
-        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
-        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+        //~^ ERROR E0414 cannot return value referencing local data `s.A`
+        //~^^ ERROR E0414 cannot return value referencing local data `s.A`
+        &s.A,
+        &s.A,
     )
 }
 
@@ -60,8 +70,8 @@ fn Paths(x: &i32, a: i32, c: bool) -> &i32 {
 
 // One loan held twice is one error.
 fn OneLoan(x: &i32, a: i32) -> (&i32, &i32) {
-    let r = &a; //~ ERROR E0414 cannot return reference to function parameter `a`
-    (r, r)
+    let r = &a;
+    (r, r) //~ ERROR E0414 cannot return value referencing function parameter `a`
 }
 
 fn Main() {}

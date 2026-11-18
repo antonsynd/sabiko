@@ -47,8 +47,13 @@ pub fn check_body(
     typeck: &TypeckResults,
     sink: &mut DiagnosticSink,
 ) {
-    check::check_body(body, resolve, typeck, sink);
-    moves::check_moves(body, resolve, typeck, sink);
+    // A use with move sites is a use of a moved value even where the local is also maybe
+    // uninitialised (rustc reports E0382 there, never E0381), so the move check runs
+    // first; its diagnostics still follow the initialisation check's.
+    let mut move_errors = DiagnosticSink::new();
+    let moved_uses = moves::check_moves(body, resolve, typeck, &mut move_errors);
+    check::check_body(body, resolve, typeck, &moved_uses, sink);
+    sink.extend(move_errors);
     loans::check_loans(body, resolve, typeck, sink);
 }
 

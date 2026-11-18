@@ -32,7 +32,7 @@
     │                ╰──── `p` is borrowed here
  25 │     let x = p.X; //~ ERROR E0411 cannot use `p.X` because it was mutably borrowed
     │             ─┬─  
-    │              ╰─── use of borrowed `p.X`
+    │              ╰─── use of borrowed `p`
  26 │     m.Y = x;
     │     ───┬───  
     │        ╰───── borrow later used here

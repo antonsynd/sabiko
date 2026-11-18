@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/arrays_coercions.sabi
 ---
 fn Sum(_1: &[i32]) -> i32 {
@@ -42,6 +42,7 @@ fn Sum(_1: &[i32]) -> i32 {
         StorageLive(_8);
         StorageLive(_9);
         _9 = copy _3;
+        FakeRead(ForIndex, (*_1));
         _8 = copy (*_1)[_9];
         _2 = Add(copy _2, copy _8);
         StorageDead(_9);
@@ -156,6 +157,7 @@ fn Fill(_1: &mut [i32], _2: i32) -> i32 {
         _3 = copy _2;
         StorageLive(_4);
         _4 = const 0_usize;
+        FakeRead(ForIndex, (*_1));
         (*_1)[_4] = copy _3;
         StorageDead(_4);
         StorageDead(_3);
@@ -224,12 +226,14 @@ fn Discard(_1: &[i32], _2: [(); 2], _3: usize) {
         StorageLive(_4);
         StorageLive(_5);
         _5 = copy _3;
+        FakeRead(ForIndex, (*_1));
         _4 = copy (*_1)[_5];
         StorageDead(_5);
         StorageDead(_4);
         StorageLive(_6);
         StorageLive(_7);
         _7 = copy _3;
+        FakeRead(ForIndex, _2);
         _6 = copy _2[_7];
         StorageDead(_7);
         _0 = const ();
@@ -458,14 +462,17 @@ fn Main() {
         StorageLive(_19);
         StorageLive(_20);
         _20 = const 1_usize;
+        FakeRead(ForIndex, _8);
         PlaceMention((*_8[_20]));
         StorageLive(_21);
         _21 = const 0_usize;
+        FakeRead(ForIndex, (*_8[_20]));
         _19 = copy (*_8[_20])[_21];
         StorageLive(_22);
         StorageLive(_23);
         StorageLive(_24);
         _24 = const 0_usize;
+        FakeRead(ForIndex, _13);
         StorageLive(_25);
         _25 = &(*_13[_24]);
         _23 = Len((*_25));
@@ -475,9 +482,11 @@ fn Main() {
         StorageLive(_27);
         StorageLive(_28);
         _28 = const 2_usize;
+        FakeRead(ForIndex, (*_4));
         PlaceMention((*_4)[_28]);
         StorageLive(_29);
         _29 = const 1_usize;
+        FakeRead(ForIndex, (*_4)[_28]);
         _27 = copy (*_4)[_28][_29];
         _26 = copy _27 as i32;
         _17 = Add(copy _18, copy _26);

@@ -104,10 +104,12 @@ fn Mentions(_1: bool) {
         StorageLive(_10);
         StorageLive(_11);
         _11 = copy _7;
+        FakeRead(ForIndex, _6);
         _10 = copy _6[_11];
         StorageLive(_12);
         StorageLive(_13);
         _13 = copy _8;
+        FakeRead(ForIndex, _2);
         _12 = copy _2[_13];
         _9 = (copy _10, copy _12);
         StorageDead(_13);

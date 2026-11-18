@@ -766,7 +766,7 @@ impl Validator<'_> {
                     None => self.err(bb, format!("local _{} does not exist", local.0)),
                 }
             }
-            StatementKind::PlaceMention(place) => {
+            StatementKind::PlaceMention(place) | StatementKind::FakeRead(_, place) => {
                 self.place_ty(bb, place);
             }
             StatementKind::Nop => {}

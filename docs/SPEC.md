@@ -1319,33 +1319,40 @@ Moves (E0406, E0407):
   the local for liveness only: a reference mentioned there keeps its loans live up to it
   (`let r = &x; x = 2; let _ = r;` and `let _ = *r;` there are E0410), but the mention
   itself conflicts with no loan. A value initialiser (`let _ = F();`) is evaluated into a
-  temporary that dies at the end of the statement. A mention through an index
-  (`let _ = a[i];`, `let _ = m[i][j];`, `let _ = *a[i];`, and any pattern that binds
-  nothing: `let P { .. } = a[i];`, `match a[i] { _ => .. }`, the scrutinee of `if let`,
-  `while let` and `let`-`else`) still reads each indexed place for its bounds check
-  (#164, decision 96), as rustc does: an array by `FakeRead(ForIndex, a)`, a slice `*s`
-  of a local `s: &[T]` by reading `s`, any other slice through a fake borrow of `*s`.
-  That place must be initialised (E0405, "`*s` used here" for a `&mut [T]`) and not
-  moved (E0406: "use of moved value", or "borrow of moved value" for a fake borrow). An
-  array's read conflicts with no loan (`let r = &mut a; let _ = a[i]; r[0] = ..;` is
-  fine); a slice's length read conflicts with a live `&mut` of the slice or of the
-  reference holding it (E0411, rustc's E0503), not with a loan of one of its elements.
-  MIR building mentions the place before `&a[i]`, `let ref x = a[i]`, `m[i][j]`, `*a[i]`,
-  a `match` scrutinee and `a[i] = v` of a type with drop glue too, so these get the same
-  reads: `&s[i]` under a live `&mut *s` is E0408 and E0411 (rustc's E0502 and E0503),
-  `s[i] = d` under one E0411 and E0410 (E0503, E0506). A write without drop glue and a
-  plain read do not read the slice's length separately (rustc does, for a second E0503 or
-  a "borrow of moved value" wording); their verdicts are the same.
+  temporary that dies at the end of the statement.
+- Every place through an index reads each indexed place for its bounds check, before the
+  access and at the index expression (#164, decisions 96 and 107), as rustc does: an
+  array by `FakeRead(ForIndex, a)`, a slice `*s` of a local `s: &[T]` by reading `s`,
+  any other slice through a fake borrow of `*s`. This holds for a mention (`let _ =
+  a[i];`, a pattern that binds nothing) as for a read, a write, a compound assignment or a
+  borrow of the element. The indexed place must be initialised (E0405, "`*s` used here"
+  for a `&mut [T]`) and not moved (E0406: "use of moved value", or "borrow of moved value"
+  for a fake borrow: `s[i] = v` after `let t = s;`). An array's read conflicts with no
+  loan (`let r = &mut a; let _ = a[i]; r[0] = ..;` is fine); a slice's length read
+  conflicts with a live `&mut` of the slice or of the reference holding it (E0411,
+  rustc's E0503, "use of borrowed `*s`"), not with a loan of one of its elements. So
+  under a live `&mut *s`, `let x = s[i].X` is two E0411 (the length, then `s[_].X`),
+  `&s[i]` E0408 and E0411 (rustc's E0502 and E0503), `s[i] = v` E0411 and E0410 (E0503,
+  E0506).
 - One E0406 is reported per set of moves (rustc's `buffer_move_error`): a later use with
   the same moves replaces the earlier report, unless it uses a prefix of the place
   reported. So after `let m = a;`, `let r = &a[i];` is "borrow of moved value" at the
   borrow, not "use of" at the bounds check before it; after `let m = t;`, `&t.0; &t.1;`
-  is reported at `&t.1`, and `p.X; p;` after a move of `p` at `p.X`.
+  is reported at `&t.1`, and `p.X; p;` after a move of `p` at `p.X`. The error names the
+  closest place rustc tracks moves of (a local, a place assigned, moved or dropped, an
+  array read by an index): after `let m = t;`, a use of `t.0.X` names `t`, and one of
+  `t.0[i]` names `t.0`; after `let m = t.0;`, `&t.0.X` names `t.0`.
   "Later" is in rustc's order: blocks are walked in reverse postorder, so of an `if`'s
   branches the `then` use is reported over the `else` use, and a use in a loop's body
   over a use after the loop. An uninitialised local is reported at its first use in the
   same order (the `else` branch's, the use after a loop). A write `(*r).F = v` through a
-  moved reference is "use of moved value: `r`".
+  moved reference is "use of moved value: `r`"; `p.A.B = v` after `p` moved is "assign to
+  part of moved value: `p`" (the shortest moved prefix), and a field of a value whose
+  type implements `Drop` is "assign of moved value" (`g.X = 1` after `Take(g)`). A use of
+  a value that may be moved and may be uninitialised is only the move error; a move from
+  an earlier iteration of a loop counts only when the value is initialised on every path
+  into the loop (`let mut a: P; loop { if c { a = .. } let m = a; }` is E0405), and a write
+  or `&mut` of a binding that was never initialised only E0405 (no E0401).
 - Assigning a whole value to a moved-from `mut` binding re-initialises it.
 - A move type cannot be moved out from behind a reference: `*r` for `r: &P`/`&mut P`, or
   a non-`Copy` field reached through one, can only be borrowed or copied (E0407).
@@ -1456,7 +1463,10 @@ Signatures and lifetimes (E0414–E0416):
   returning a reference into another parameter is E0415; a by-value `self` takes no part
   (`fn Larger(self, n: &i32) -> &i32` borrows `n`). A reference
   returned may therefore only point into that parameter's referent; returning a reference
-  to a local or to a by-value parameter is E0414.
+  to a local or to a by-value parameter is E0414, "cannot return reference to local
+  variable `a`" at `&a` when the borrow is what is returned, and otherwise "cannot return
+  value referencing" at the returned value (`(&a, 2)`, `Some(&a)`, `r` for `let r = &a;`,
+  `e?`), as rustc's E0515.
 - Inside a body, references with different elided lifetimes are unrelated: storing `y` in
   `*x` for `x: &mut &i32, y: &i32` is E0415 ("lifetime may not live long enough" in Rust).
   References in struct fields stay rejected until Phase 9.
@@ -1470,7 +1480,10 @@ against `*place`, so `&E::B(n)` reads `(*r)`'s discriminant and copies `((*r) as
 #49). So
 matching a partially moved enum is E0406 (rustc's E0382), matching a mutably borrowed one
 E0411 (E0503), an uninitialised one E0405 (E0381), while `match c { _ => .. }` touches
-nothing. A by-value binding copies or moves its part of the scrutinee (`Slot::Full(t)`
+nothing. Every test reads its place, also one that reuses a value read for an earlier test,
+and is reported at rustc's span (#150, decision 107): an integer, `char` or `bool`
+comparison at `match x` (at the top-level pattern for `if let`, `while let` and
+`let`-`else`), a range or float comparison at its sub-pattern. A by-value binding copies or moves its part of the scrutinee (`Slot::Full(t)`
 moves `t` out of `s`, leaving `s` partially moved; out of a reference it is E0407, out of
 a value whose type implements `Drop` E0418, reported at the scrutinee once per arm's
 moved-from place, as rustc's E0509); `ref`/`ref mut` bindings borrow it, and the
