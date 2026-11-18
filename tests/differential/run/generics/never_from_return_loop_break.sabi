@@ -1,0 +1,68 @@
+// `!` as a generic argument from `return`, `loop {}` and `break` bound by `let` (#158,
+// decision 103): each `Opt<!>` built in a branch that does not run holds `No`.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+fn Pick<T>(o: Opt<T>) -> i32 {
+    match o {
+        Opt::No => 0,
+        Opt::Yes(_) => 1,
+    }
+}
+
+fn FromReturn(c: bool) -> i32 {
+    let o = if c {
+        let x = return 3;
+        Opt::Yes(x)
+    } else {
+        Opt::No
+    };
+    Pick(o) + 10
+}
+
+fn FromLoop(n: i32) -> i32 {
+    let mut i = 0;
+    let o = loop {
+        i += 1;
+        if i == n {
+            break Opt::No;
+        }
+        if i > 100 {
+            let x = loop {};
+            break Opt::Yes(x);
+        }
+    };
+    Pick(o) + i
+}
+
+fn FromBreak(c: bool) -> i32 {
+    let mut k = 0;
+    while k < 3 {
+        k += 1;
+        let o = if c && k == 2 {
+            let x = break;
+            Opt::Yes(x)
+        } else {
+            Opt::No
+        };
+        PrintLine(Pick(o));
+    }
+    k
+}
+
+fn RefFromReturn(c: bool) -> i32 {
+    let o = if c { Opt::Yes(&return 20) } else { Opt::No };
+    Pick(o) + 21
+}
+
+fn Main() {
+    PrintLine(FromReturn(true));
+    PrintLine(FromReturn(false));
+    PrintLine(FromLoop(4));
+    PrintLine(FromBreak(true));
+    PrintLine(FromBreak(false));
+    PrintLine(RefFromReturn(true));
+    PrintLine(RefFromReturn(false));
+}

@@ -1,0 +1,225 @@
+// Generic functions instantiated at `!` and `&!` (#158, decision 103) and called with
+// values that exist (`None`): their bodies hold code for the `!` case, which never runs. A
+// parameter or local of a type without a value (`!`, `&!`) has no storage or is a `Unit`;
+// a part of an uninhabited tuple, array or referent that has a value (`p.0` of an
+// `(i32, !)`, `r.0` of a `&(i32, !)`) is read and written through a scratch local, which
+// keeps the IL verifiable. `let x = Panic(..)` gives `x` the type `!`.
+fn Consume<T>(x: T) -> i32 {
+    7
+}
+
+fn Count<T>(o: Option<T>) -> i32 {
+    match o {
+        Some(_) => 1,
+        None => 0,
+    }
+}
+
+fn Visit<T>(o: Option<T>) -> i32 {
+    match o {
+        Some(x) => Consume(x),
+        None => 2,
+    }
+}
+
+fn VisitRef<T>(o: &Option<T>) -> i32 {
+    match o {
+        Some(x) => Consume(x),
+        None => 3,
+    }
+}
+
+fn Deref<T: Copy>(o: Option<&T>) -> i32 {
+    match o {
+        Some(r) => {
+            let v = *r;
+            Consume(v)
+        }
+        None => 4,
+    }
+}
+
+fn Swap<A, B>(o: Option<(A, B)>) -> i32 {
+    match o {
+        Some((a, b)) => {
+            let t = (b, a);
+            Consume(t.1)
+        }
+        None => 5,
+    }
+}
+
+fn First<A: Copy, B>(o: Option<(A, B)>, d: A) -> A {
+    match o {
+        Some(p) => {
+            let q = p.0;
+            q
+        }
+        None => d,
+    }
+}
+
+fn Make<A, B>(a: A, b: B) -> (A, B) {
+    (a, b)
+}
+
+fn FirstOf<T>(o: Option<&(i32, T)>) -> i32 {
+    match o {
+        Some(r) => r.0,
+        None => 6,
+    }
+}
+
+fn WriteFirst<T>(o: Option<&mut (i32, T)>) -> i32 {
+    match o {
+        Some(r) => {
+            r.0 = 5;
+            r.0 + 1
+        }
+        None => 7,
+    }
+}
+
+fn Inner<T>(o: Option<(Option<i32>, T)>) -> i32 {
+    match o {
+        Some((Some(v), _)) => v,
+        Some((None, _)) => 1,
+        None => 8,
+    }
+}
+
+fn Nested<T>(o: Option<Option<T>>) -> i32 {
+    match o {
+        Some(Some(_)) => 2,
+        Some(None) => 1,
+        None => 0,
+    }
+}
+
+fn Len<T>(o: Option<[T; 2]>) -> usize {
+    match o {
+        Some(a) => a.len(),
+        None => 9,
+    }
+}
+
+fn Elem<T>(o: &Option<[T; 2]>, i: usize) -> i32 {
+    match o {
+        Some(a) => {
+            let r = &a[i];
+            Consume(r)
+        }
+        None => 10,
+    }
+}
+
+fn Repeat<T: Copy>(o: Option<T>) -> usize {
+    match o {
+        Some(v) => [v; 3].len(),
+        None => 11,
+    }
+}
+
+fn Dup<T: Clone>(o: Option<&T>) -> i32 {
+    match o {
+        Some(x) => {
+            let y = x.clone();
+            Consume(y)
+        }
+        None => 12,
+    }
+}
+
+fn Empty<T>(o: Option<T>) -> usize {
+    let a: [T; 0] = [];
+    a.len()
+}
+
+fn Hold<T>(o: Option<T>) -> [Option<T>; 2] {
+    [o, None]
+}
+
+fn Main() {
+    let c = false;
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    PrintLine(Count(o));
+    PrintLine(Visit(o));
+    PrintLine(VisitRef(&o));
+    PrintLine(Repeat(o));
+    PrintLine(Empty(o));
+    PrintLine(Hold(o)[1].is_none());
+    let r = if c { Some(&Panic("y")) } else { None };
+    PrintLine(Count(r));
+    PrintLine(Visit(r));
+    PrintLine(VisitRef(&r));
+
+    let a = if c {
+        let x = Panic("x");
+        Some(&x)
+    } else {
+        None
+    };
+    PrintLine(Deref(a));
+    PrintLine(Dup(a));
+
+    let p = if c {
+        let x = Panic("x");
+        Some((1, x))
+    } else {
+        None
+    };
+    PrintLine(Swap(p));
+    PrintLine(First(p, 13));
+    let q = if c {
+        let x = Panic("x");
+        Some(Make(3, x))
+    } else {
+        None
+    };
+    PrintLine(First(q, 14));
+
+    let b = if c {
+        let x = Panic("x");
+        Some(&(1, x))
+    } else {
+        None
+    };
+    PrintLine(FirstOf(b));
+    let d = if c {
+        let x = Panic("x");
+        Some(&mut (1, x))
+    } else {
+        None
+    };
+    PrintLine(WriteFirst(d));
+    let e = if c {
+        let x = Panic("x");
+        Some((Some(4), x))
+    } else {
+        None
+    };
+    PrintLine(Inner(e));
+    let f = if c {
+        let x = Panic("x");
+        Some(Some(x))
+    } else {
+        Some(None)
+    };
+    PrintLine(Nested(f));
+    PrintLine(f.is_some());
+
+    let g = if c {
+        let x = Panic("x");
+        Some([x, x])
+    } else {
+        None
+    };
+    PrintLine(Len(g));
+    PrintLine(Elem(&g, 1));
+    PrintLine(g.is_some());
+}

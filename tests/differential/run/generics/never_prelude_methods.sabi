@@ -1,0 +1,66 @@
+// The prelude's `Option` and `Result` methods at `!` (#158, decision 103): `Option<!>`,
+// `Result<i32, !>` and `Result<!, i32>` hold values (`None`, `Ok(5)`, `Err(3)`), and their
+// methods run as for any other type. `Result<!, i32>::unwrap_err` needs `!: Debug`, which
+// the prelude implements, as Rust's core does. The program ends with `Result<!, i32>::unwrap`
+// panicking with the error.
+fn Try(c: bool) -> Option<i32> {
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    let v = o?;
+    Some(v)
+}
+
+fn Main() {
+    let c = false;
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    PrintLine(o.is_none());
+    PrintLine(o.as_ref().is_none());
+    PrintLine(o.ok_or(4).is_err());
+    PrintLine(o.ok_or(4).unwrap_err());
+    PrintLine(o.and(Some(3)).is_none());
+    PrintLine(o.or(None).is_none());
+    PrintLine(o.xor(None).is_none());
+    PrintLine(o.zip(Some(1)).is_none());
+    PrintLine(Some(1).zip(o).is_none());
+    PrintLine(Try(false).is_none());
+
+    let r = if c {
+        let e = Panic("x");
+        Err(e)
+    } else {
+        Ok(5)
+    };
+    PrintLine(r.is_ok());
+    PrintLine(r.is_err());
+    let v: i32 = match r {
+        Ok(v) => v,
+        Err(e) => e,
+    };
+    PrintLine(v);
+    PrintLine(r.unwrap());
+    PrintLine(r.expect("never"));
+    PrintLine(r.unwrap_or(3));
+    PrintLine(r.ok().is_some());
+    PrintLine(r.err().is_none());
+
+    let q = if c {
+        let x = Panic("x");
+        Ok(x)
+    } else {
+        Err(3)
+    };
+    PrintLine(q.is_err());
+    PrintLine(q.unwrap_err());
+    PrintLine(q.expect_err("never"));
+    PrintLine(q.ok().is_none());
+    q.unwrap();
+}

@@ -1,0 +1,20 @@
+// The bounds checks before a read of a value of type `!` run in order (#158, decision
+// 103): the tuple reads `a[9]` before `e[1]`, so the first check fails and reports
+// `a`'s length, as rustc's does.
+fn Id(x: usize) -> usize {
+    x
+}
+
+fn Main() {
+    let c = false;
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    let a = [1, 2, 3];
+    PrintLine(a.len() + e.len());
+    let y = (a[Id(9)], e[Id(1)]);
+    PrintLine(1);
+}

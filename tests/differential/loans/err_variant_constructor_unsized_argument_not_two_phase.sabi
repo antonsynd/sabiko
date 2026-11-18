@@ -1,0 +1,11 @@
+// A reborrow that a variant constructor unsizes (`&mut [u8; 2]` to `&mut [u8]`) is
+// used at once, so it is an ordinary mutable borrow: the later argument conflicts.
+enum E<T> {
+    V(T, u8),
+}
+
+fn F(a: &mut [u8; 2]) {
+    let e: E<&mut [u8]> = E::V(a, a[0]);
+}
+
+fn Main() {}

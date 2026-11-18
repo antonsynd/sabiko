@@ -1,7 +1,7 @@
 // Sabiko codes for rustc's: E0414 for E0515.
 // One `return` that ends the storage of two borrowed parameters reports each, as rustc
-// does: an access is reported once per place it conflicts at (decision 99), and here
-// the places differ.
+// does: it checks every loan it ends, one by one (decision 101; two loans of one
+// parameter are two errors too, `return_loans_of_one_parameter`).
 fn Two(x: &i32, a: i32, b: i32) -> (&i32, &i32) {
     (
         &a, //~ ERROR E0414 cannot return reference to function parameter `a`

@@ -1,0 +1,30 @@
+// `[!; 0]` has a value, the empty array, so indexing one is checked (#158, decision 103):
+// the element read has no value and never happens, but its bounds check runs first and
+// panics, as rustc's does. The reads in `[T; 0]` at `!` and through a reference check too.
+fn One() -> usize {
+    1
+}
+
+fn At<T: Copy>(a: [T; 0], i: usize) -> i32 {
+    let x = a[i];
+    5
+}
+
+fn Main() {
+    let c = false;
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    PrintLine(e.len());
+    let i = One();
+    if c {
+        PrintLine(At(e, i));
+        let r = &e[i];
+    }
+    PrintLine("before");
+    let y = e[i];
+    PrintLine("after");
+}

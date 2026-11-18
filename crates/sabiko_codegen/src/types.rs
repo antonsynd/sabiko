@@ -221,8 +221,9 @@ pub(crate) fn wide_class(p: PrimTy) -> &'static str {
 }
 
 /// The CIL type of `ty` in a local, field, parameter or operand position. Reports and
-/// returns a placeholder for unsupported types; `()` and `!` are the caller's business
-/// (they have no values).
+/// returns a placeholder for unsupported types. Types without values ([`has_no_value`]:
+/// `()`, `!`, references to them) are a `Sabiko.Runtime.Unit` here; whether a place of
+/// such a type gets storage at all is the caller's business.
 pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
     match ty {
         Ty::Prim(p) => prim_type(*p).map_or_else(
@@ -241,27 +242,22 @@ pub(crate) fn cil_type(cx: &mut Cx<'_>, ty: &Ty, span: Span) -> String {
             };
             span_type(cx, elem, m.is_mut(), span)
         }
-        // A reference to `()` is as stateless as `()` (decision 64).
-        Ty::Ref(..) if is_unit_like(ty) => UNIT.to_owned(),
-        // A field of a generic type instantiated at `&!` (`Some(&Panic("x"))` in a branch
-        // not taken, #158): `&!` has no value, but the instance still lays out its field.
-        Ty::Ref(_, inner) if inner.is_uninhabited() => {
-            cx.unsupported("a value of type `&!` here", span);
-            "int32".to_owned()
-        }
+        // A reference to `()` is as stateless as `()` (decision 64), and a reference to an
+        // uninhabited type has no value at all (decision 44); where one needs storage (a
+        // field of `Option<&!>`, a parameter of an instance at `&!`) it is a `Unit`, never
+        // written or read (decision 103).
+        Ty::Ref(..) if has_no_value(ty) => UNIT.to_owned(),
         // A managed pointer to the place's storage: a reference held by the place is a
         // `Ref<T>`, since no managed pointer points to another (decision 64).
         Ty::Ref(_, inner) => format!("{}&", stored_type(cx, inner, span)),
-        Ty::Unit => UNIT.to_owned(),
+        // `!` has no value: a field or parameter of an instance at `!` (`Option<!>`,
+        // `Result<i32, !>`) is a `Unit` that nothing writes or reads (decision 103).
+        Ty::Unit | Ty::Never => UNIT.to_owned(),
         Ty::Tuple(elems) => tuple_type(cx, ty, elems, span),
         Ty::Array(..) => match cx.inline_array(ty, span) {
             Some(name) => format!("valuetype {}", quote(&name)),
             None => "int32".to_owned(),
         },
-        Ty::Never => {
-            cx.unsupported("a value of type `!` here", span);
-            "int32".to_owned()
-        }
         Ty::Param(_) => unreachable!("monomorphisation substitutes every type parameter"),
         Ty::Slice(_) | Ty::FnDef(_) | Ty::Infer(_) | Ty::Error => {
             cx.unsupported("this type", span);

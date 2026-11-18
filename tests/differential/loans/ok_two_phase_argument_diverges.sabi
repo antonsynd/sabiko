@@ -1,0 +1,33 @@
+// A two-phase reborrow followed by an argument that diverges is never activated: the call
+// or variant constructor that would use it is never built (#177). The argument may still
+// read, borrow or write the place before it diverges, since the loan is never used.
+struct P { X: u8, N: u8 }
+
+enum E<T> {
+    V(T, u8),
+    W(T, T),
+}
+
+impl P {
+    fn Push(&mut self, x: u8) { self.N += x; }
+}
+
+fn Use(p: &mut P, v: u8) {}
+
+fn F(m: &mut P, c: bool) {
+    if c { let e: E<&mut P> = E::V(m, Panic("x")); }
+    if c { let e: E<&mut P> = E::W(m, { Panic("x") }); }
+    if c { let e: E<&mut P> = E::V(m, loop {}); }
+    if c { let e: E<&mut P> = E::V(m, match c { true => return, false => Panic("y") }); }
+    if c { let o: Option<(u8, E<&mut P>)> = Some((1, E::V(m, return))); }
+    if c { Use(m, Panic("x")); }
+    if c { m.Push(Panic("y")); }
+    if c { m.Push({ let y = m.N; Panic("y") }); }
+    if c { Use(m, { m.X = 1; Panic("x") }); }
+    while c {
+        let e: E<&mut P> = E::V(m, continue);
+        Use(m, break);
+    }
+}
+
+fn Main() {}

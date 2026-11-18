@@ -1225,7 +1225,10 @@ mutant named below (the counts are under "Verified" at the end).
   defensive: a generic type instantiated at `&!` has a field of that type
   (`Opt::Yes(&Panic("x"))` in a branch not taken, which rustc accepts), and E0500 names
   the `&!` field rather than `!` (`ui/codegen/ref_never_payload`; the instance itself is
-  #158, whose prelude form `Some(&Panic("x"))` reports inside `library/core`).
+  #158, whose prelude form `Some(&Panic("x"))` reports inside `library/core`). Since
+  #158 (decision 103) the guard covers every reference without a value and lays the field
+  out as a `Unit`; `differential/run/generics/never_reference_arguments` and the IL
+  fixture `never_instances` reach it, and the UI test is gone.
 - Dead code removed (9). `assign`'s `src.has_index()` guard (loading a place without a
   value checks its indices, if any, and does nothing else); `typed_int_const`'s
   `p.is_integer()` guard and `Char | Bool` arm (the validator admits `Int` and `Uint`
@@ -1418,8 +1421,8 @@ mutant whose effect was unclear, against a `sabikoc` built with the mutant.
   gave E0408 for `*o` only (rustc: E0502 for `r` and `*o`,
   `borrowck/call_activates_two_conflicting_borrows`). Both now give rustc's count, as
   does a `return` of loans of two parameters (`borrowck/return_loans_of_two_parameters`).
-  Two loans of one place returned together (`(&a, &a)`) still give one error where rustc
-  gives two (#174).
+  Two loans of one place returned together (`(&a, &a)`) gave one error where rustc gives
+  two (#174); since decision 101 they give two (`borrowck/return_loans_of_one_parameter`).
 - Dead code removed (6, plus 2 redundant guards):
   - `link_pattern`'s `(pat, RegionTy::Other)` arm (2 mutants: the arm deleted, and `q ==
     p` as `!=`). It bound the parameters inside a part without references to `Other`,

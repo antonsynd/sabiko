@@ -1,0 +1,26 @@
+// `Option<!>::expect` and a generic function returning `T` at `!` (#158, decision 103):
+// the instance's return type is `!`, lowered to `void`, and its `None` arm panics.
+fn Take<T>(o: Option<T>) -> T {
+    match o {
+        Some(v) => v,
+        None => Panic("empty"),
+    }
+}
+
+fn Main() {
+    let c = false;
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    if o.is_none() {
+        PrintLine("none");
+    }
+    let r = if c { Some(&Panic("y")) } else { None };
+    if c {
+        r.expect("boom");
+    }
+    Take(o);
+}

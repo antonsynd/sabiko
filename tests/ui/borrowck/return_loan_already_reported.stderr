@@ -1,0 +1,34 @@
+[E0408] Error: cannot borrow `a` as immutable because it is also borrowed as mutable
+   ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:8:13 ]
+   │
+ 7 │     let r = &mut a;
+   │             ───┬──  
+   │                ╰──── mutable borrow occurs here
+ 8 │     let s = &a; //~ ERROR E0408 cannot borrow `a` as immutable because it is also borrowed as mutable
+   │             ─┬  
+   │              ╰── immutable borrow occurs here
+ 9 │     *r = 2;
+   │     ───┬──  
+   │        ╰──── borrow later used here
+───╯
+[E0414] Error: cannot return reference to function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:15:9 ]
+    │
+ 15 │         &mut a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │         ───┬──  
+    │            ╰──── returns a reference to data owned by the current function
+────╯
+[E0409] Error: cannot borrow `a` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:16:9 ]
+    │
+ 14 │ ╭─▶     (
+ 15 │ │           &mut a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    │ │           ───┬──  
+    │ │              ╰──── first mutable borrow occurs here
+ 16 │ │           &mut a, //~ ERROR E0409 cannot borrow `a` as mutable more than once at a time
+    │ │           ───┬──  
+    │ │              ╰──── second mutable borrow occurs here
+ 17 │ ├─▶     )
+    │ │           
+    │ ╰─────────── borrow later used here
+────╯

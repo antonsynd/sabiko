@@ -330,6 +330,61 @@ E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe
 an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
 rustc accepts).
 
+Update (2026-11-18), two-phase constructor arguments, one error per escaping loan, and
+two-phase borrows that are never activated (#145, #174, #177, decision 101). A tuple
+variant's constructor is a call in rustc, so the implicit reborrow of a `&mut` argument
+(`let e: E<&mut P> = E::V(m, m.X);`) is two-phase: MIR building lowers a variant
+constructor's arguments as call arguments (`coerced_operand(.., true)`), the variant
+aggregate is the borrow's one use (the validator accepts it there) and the loan facts
+activate the borrow at that statement. A struct literal's fields, a tuple's and an array's
+elements stay ordinary borrows, as in rustc (tuple structs are not in the language yet).
+A two-phase borrow followed by an argument that diverges (`s.Push(Panic(".."))`, `Use(m,
+return)`, `E::V(m, break)`, a `match` whose arms all diverge) has no use, because the call
+or aggregate is never built; the validator panicked on it ("used 0 times", #177, also on
+`mainline` for methods and calls). As rustc's `TwoPhaseActivation::NotActivated`, it is now
+valid and stays reserved; its temporary is never used, so its loan is never live. The loan
+reporter now deduplicates as rustc's `MirBorrowckCtxt` does:
+- an access once per place and span, for its first conflicting loan. The end of a local's
+  storage is keyed by the local, since rustc gives every `StorageDead` of a scope the
+  scope's span: `if c { return &a; } &a` for a local `a` is one error. A drop keeps the
+  place-and-span key: for a local with drop glue (a `Drop` type, a type parameter) rustc
+  reports each path's drop, so the same shape is two errors (E0515 and E0713 in rustc);
+- a loan outliving its local once per root local and borrow span, in the same set. A
+  `return` checks the loans it ends one by one (rustc's `check_for_invalidation_at_exit`),
+  so `(&a, &a)` returning a parameter's loans is two E0414 and `let a = 1; (&a, &a)` one
+  (one `StorageDead`). A borrow that was already an error where it was taken is not
+  reported again when it escapes;
+- the activation of a two-phase borrow of a place whose reservation was an error is not
+  reported (rustc's `reservation_error_reported`, replacing the per-loan check), so `V(m,
+  m)` is one E0409. Like rustc's (a FIXME there), the set is per place for the whole body,
+  so a later, unrelated activation of the same place goes unreported too (`v.Add(v.Get());
+  let r = &v; v.Add(1); r.N` is one error, as in rustc; `mainline` gave two);
+- errors are visited with blocks in reverse postorder, as rustc visits them, because what
+  is reported first decides what is suppressed later. In location order, 8 of 12 programs
+  that put such a reservation and activation in two branches, loop bodies, guards or arms
+  had rustc's error count wrong (`borrowck/two_phase_reservation_error_order`).
+
+The tables: 109 programs for #145 (variant constructor, generic and plain functions,
+associated functions, methods, struct literals, tuples and `Some` in a tuple, each with
+`m`, `&mut *m` and `&mut x` arguments followed by a read, a write or a shared borrow,
+guards, loops, nested and unsized arguments), 35 for #174 (returns of loans of parameters,
+locals, fields, through arrays, structs, variants, branches and early returns), 53 for
+#177 (constructors, calls and methods with `return`, `break`, `continue`, `loop {}`,
+panics, all-diverging `match`es and blocks that read, borrow or write the place before
+diverging), the first review's 190 programs, 12 of them for the visiting order, and the
+second review's 137, among them 11 with drop glue escaping on an early exit. Every row
+agrees with rustc's verdict and error count, apart from unrelated gaps older than this
+change: rustc's E0713 (a borrow of a `Drop` local's field still in use when its destructor
+runs) is not modelled, so `let d = D { .. }; (&d.X, &d.X)` is one error where rustc gives
+E0515 and E0713, and so is a `match` tail whose three arms return `&d.X` (one drop, three
+errors in rustc), and a temporary borrowed `&mut` in a `match` arm inside a guard is E0413
+where rustc accepts it. Tests: 11 differential programs (`loans/`, `moves/`),
+`run/enums/two_phase_variant_constructor`, `run/enums/two_phase_argument_diverges` and the
+UI fixtures `borrowck/return_loans_of_one_parameter`, `return_loans_of_one_local`,
+`return_loan_already_reported`, `two_phase_reservation_error_once` and
+`two_phase_reservation_error_order`. rustc's E0515 points at the whole returned value,
+Sabiko's E0414 at the borrow (older than this change).
+
 ### Phase 4: CIL code generation v1 and the runtime library
 
 Work
@@ -1727,7 +1782,7 @@ types of types without references, implied bounds and a two-phase reservation at
 block's start. Five were a fix: the loan reporter's per-point guard and shallow-borrow
 deduplications dropped real errors when one call activates two two-phase borrows, and
 without them the error count matches rustc's (decision 99; two loans of one place
-returned together still differ, #174). Eight were dead or redundant code and are gone:
+returned together still differed, #174, since fixed by decision 101). Eight were dead or redundant code and are gone:
 `link_pattern`'s arm for parts without references (its `!=` mutant was a real hole, now a
 differential test), a fast path in `write_dest`, an unused `switchInt` use count, a length
 comparison, a redundant destination check and two guards on instances. Two are equivalent
@@ -1780,7 +1835,8 @@ reborrows it (`differential/moves/reborrow/*prelude*`). Gaps, all older than #13
 filed: least-upper-bound coercion goes one way only, so `match c { true => r, false => &a
 }`, `if c { r } else { &a }` and `[r, &a]` with `r: &mut u8` are E0300 where rustc
 accepts them (#144); a variant constructor's `&mut` argument is not two-phase, so `let e:
-E<&mut P> = E::V(m, m.X);` is E0411 where rustc accepts it (#145); `_` in a generic
+E<&mut P> = E::V(m, m.X);` is E0411 where rustc accepts it (#145, since fixed, decision
+101); `_` in a generic
 argument of a type written in a body (`let x: Opt<_> = Wrap(300);`) lowers to `Error`
 and fails MIR validation, the same root as #137 (reproducer added there, now fixed, see
 below); `impl Tr for &mut u8` is still E0107.
@@ -2019,6 +2075,36 @@ files of the differential corpus (`sized_self/`). Still different (positions or 
 only, not verdicts or counts): `&x + 1` and `-&x` with `x: i32` are E0306/E0307 (no
 operator impls on references before #117), and a `match` on a scrutinee whose type a
 later diverging assignment decides is #183.
+
+Update (2026-11-18), generic instances at `!` and `&!` (#158, decision 103). An instance
+whose generic argument has no value (`Option<&!>` from `Some(&Panic("x"))` in a branch
+not taken, `Option<!>` and `Result<i32, !>` from `let x = Panic(..)`, `return`, `loop {}`
+or `break`, a user `W<!>` or `Stack<!>`) compiled to E0500, reported inside
+`library/core/option.sabi`. A field, payload field or parameter of a type without a value
+is now a `Unit`, as `()` is. A new pass after copy forwarding
+(`simplify::cut_uninhabited_reads`) ends each block at its first read of a value of an
+uninhabited type, keeping the bounds checks before it (`e[i]` on an `[!; 0]` panics) and
+turning a two-phase borrow whose call it removes into a plain one: the arm of a match on a
+`!` payload (`Some(x) => PrintLine(x)`, `x == x`, `*q as i64` for `q: &!`) and the code an
+instance holds for values that cannot exist (`Some(v) => Consume((1, v))` at `!`) are
+`unreachable`, so no operand of an uninhabited type reaches code generation; a check after
+the passes (`validate::uninhabited_operands`) reports one that does as an internal error
+rather than let code generation emit unverifiable IL. A part with a
+value of an uninhabited place without storage (`r.0` for `r: &(i32, !)`, `a.len()` for
+`a: [!; 2]`) is reached through a scratch local, so the IL verifies and never runs. The
+prelude implements `Debug` for `!` (`Result<!, i32>::unwrap_err`). Nine programs in
+`differential/run/generics/never_*` agree with rustc (prelude methods, `?`, user structs
+and enums, a `Drop` impl, tuples, arrays, references, uses of a `!` payload, unsizing a
+`&[!; 2]`, two-phase calls, the bounds check of an `[!; 0]` and the order of the checks
+before a read of `!`, through instances at `!`); MIR fixture `uninhabited_reads` (after
+`lower_for_codegen`); IL fixture `never_instances`; run-pass `panics/unwrap_option_of_never`; the UI test
+`codegen/ref_never_payload` is gone with its error. Not fixed here: most ways of writing
+`Option<!>` without a `let` (`Some(Panic("x"))`, `Some(return 3)`) are still E0313 (#151);
+a `match` that leaves out an arm only an uninhabited payload could reach (`Ok(v) => v`
+alone on a `Result<i32, !>`) is E0328 where rustc accepts it (#178); `s.Push(Panic("y"))`
+through an autoref'd `&mut self` fails MIR validation (#177); `a[*q]` for `q: &!` is
+accepted and fails MIR validation where rustc rejects it (E0277, #183); and
+`match e[i] { _ => 3 }` for `e: [!; 0]` is E0330 and E0405 where rustc accepts it (#184).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

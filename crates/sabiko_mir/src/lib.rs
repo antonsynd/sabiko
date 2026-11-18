@@ -44,8 +44,10 @@ use sabiko_span::Span;
 pub use sabiko_types::{ConstValue, Mutability, Ty};
 
 /// The passes between borrow checking and code generation, in order: drop elaboration
-/// (decision 55), simplification, copy forwarding (decision 51) and the removal of
-/// storage markers, with the validator after each. Returns the validator's complaints, each
+/// (decision 55), simplification, copy forwarding (decision 51), ending blocks at reads
+/// of uninhabited values (decision 103) and the removal of storage markers, with the
+/// validator after each, and at the end the check that no operand of an uninhabited type
+/// is left for code generation. Returns the validator's complaints, each
 /// prefixed with the pass it followed.
 #[must_use]
 pub fn lower_for_codegen(bodies: &mut [Body], typeck: &sabiko_types::TypeckResults) -> Vec<String> {
@@ -63,8 +65,17 @@ pub fn lower_for_codegen(bodies: &mut [Body], typeck: &sabiko_types::TypeckResul
     check(bodies, "simplification");
     forward::forward_all(bodies);
     check(bodies, "copy forwarding");
+    for body in bodies.iter_mut() {
+        simplify::cut_uninhabited_reads(body);
+    }
+    check(bodies, "cutting reads of uninhabited values");
     simplify::strip_storage_markers(bodies);
     check(bodies, "removing storage markers");
+    failures.extend(
+        validate::uninhabited_operands(bodies)
+            .into_iter()
+            .map(|f| format!("after removing storage markers: {f}")),
+    );
     failures
 }
 
@@ -575,11 +586,13 @@ pub enum BorrowKind {
     /// it as borrowing its place), and its temporary is only ever mentioned.
     Fake(FakeBorrowKind),
     /// `&mut place`. A *two-phase* borrow (`two_phase`) is only reserved where it is
-    /// created and activated at its single use, the call it is an argument of: until then
-    /// it acts as a shared borrow, so the call's later arguments may still read the place.
-    /// MIR building makes only the implicit `&mut` borrows of a call two-phase: an
-    /// autoref'd `&mut self` receiver and the reborrow of a `&mut` argument (rustc's
-    /// rules, #15).
+    /// created and activated at its single use, the call it is an argument of (or the
+    /// variant aggregate of a constructor call; it has none when a later argument diverges,
+    /// and is never activated, #177): until then it acts as a shared borrow, so
+    /// the call's later arguments may still read the place. MIR building makes only the
+    /// implicit `&mut` borrows of a call two-phase: an autoref'd `&mut self` receiver and
+    /// the reborrow of a `&mut` argument, a variant constructor's included (rustc's rules,
+    /// #15, #145).
     Mut { two_phase: bool },
 }
 

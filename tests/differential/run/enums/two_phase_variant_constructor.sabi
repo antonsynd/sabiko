@@ -1,0 +1,52 @@
+// A variant constructor's reborrowed `&mut` argument is two-phase (#145): the later
+// arguments still read the place, and the payload writes through it afterwards.
+struct P {
+    X: u8,
+}
+
+enum E<T> {
+    V(T, u8),
+    W(u8, T, u8),
+}
+
+fn Bump(e: E<&mut P>) -> u8 {
+    match e {
+        E::V(r, n) => {
+            r.X += n;
+            r.X
+        }
+        E::W(a, r, b) => {
+            r.X = r.X * a + b;
+            r.X
+        }
+    }
+}
+
+fn Tail(m: &mut P) -> E<&mut P> {
+    E::V(m, m.X + 1)
+}
+
+fn Assign(m: &mut P, slots: &mut [u8; 2]) -> u8 {
+    let mut e: E<&mut P> = E::V(m, 0);
+    e = match e {
+        E::V(r, _) => E::W(r.X / 47, r, r.X / 2),
+        E::W(a, r, b) => E::W(a, r, b),
+    };
+    slots[0] = Bump(e);
+    slots[0]
+}
+
+fn Main() {
+    let mut p = P { X: 2 };
+    let m = &mut p;
+    PrintLine(Bump(E::V(m, m.X)));
+    PrintLine(Bump(E::W(m.X, m, m.X + 3)));
+    PrintLine(Bump(Tail(m)));
+    let o: Option<E<&mut P>> = Some(E::V(m, m.X));
+    if let Some(e) = o {
+        PrintLine(Bump(e));
+    }
+    let mut slots = [0, 0];
+    PrintLine(Assign(m, &mut slots));
+    PrintLine(p.X);
+}

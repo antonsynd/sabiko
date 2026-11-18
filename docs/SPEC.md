@@ -483,7 +483,22 @@ loaded or stored; a call or tuple-constructor argument of type `()` loads a zero
 `Unit` local instead. A reference to `()` (`&()`, `&mut ()`, `&&()`, ...) is lowered
 exactly as `()` is (decision 64): it has one observable value, so it has no storage in a
 local, is a `Unit` as a parameter or tuple element and `void` as a return type, and a read
-through it reads nothing.
+through it reads nothing. `!` and references to it are lowered the same way where a
+generic instance needs storage for one (decision 103): the `Some` payload of an
+`Option<&!>` or `Option<!>`, the `Err` payload of a `Result<i32, !>`, a field of a user
+`W<!>` and a parameter of `F::<!>` are `Unit`s nothing writes or reads. A tuple or array
+with an uninhabited element keeps its layout there (`(i32, !)` is
+``ValueTuple`2<int32, Unit>``, `[!; 2]` an inline array of `Unit`). Code that reads a value
+of an uninhabited type never runs, and a block ends at the first such read (MIR, after
+copy forwarding): the read becomes a mention of the indexed places read up to it, so their
+bounds checks still run (`e[i]` for `e: [!; 0]` panics, as in rustc), then `unreachable`.
+That covers the arm of a match on a `!` payload (`Some(x) => PrintLine(x)` on an
+`Option<!>`) and the code an instance at `!` holds for a value that cannot exist
+(`Some(v) => Consume((1, v))`); no argument or operand of an uninhabited type reaches
+code generation (a call whose result is `!` still does), which the MIR validator checks
+after the pass. A part with a value of an uninhabited place without storage (`p.0` for a
+local `p: (i32, !)`, `r.0` for `r: &(i32, !)`, `a.len()` for `a: [!; 2]`) is reached
+through a scratch local of the place's type; it never runs either.
 
 References to references (#11, decision 64). The CLR has no pointer to a managed pointer,
 and a managed pointer can be neither a generic argument nor a field of anything but a
@@ -803,7 +818,10 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   `&mut return 1`) has type `&!` (`&mut !`), as in rustc: a borrow is not a coercion site,
   so `&!` does not become `&T` (`let q: &P = &loop {};` and `F(&return 1)` are E0300),
   while `*&return 9` is `!` again. `&!` values can be compared with each other and printed
-  (rustc's `!: PartialEq + Display`); the code after one is unreachable.
+  (rustc's `!: PartialEq + Display`); the code after one is unreachable. `!` and `&!` can
+  be generic arguments, inferred (`Some(&Panic("x"))` is an `Option<&!>`; `let x =
+  Panic("x"); Some(x)` an `Option<!>`) though not written in a user file, and `!`
+  implements `Debug` in the prelude.
 - Traits (#116, decision 84). A trait is in the item namespace; naming it as a type or a
   value is E0203 (`dyn Trait` is Phase 7). Inside a trait, `Self` is a type parameter
   that implements the trait (and its supertraits); inside a trait `impl` block, `Self` is
@@ -1405,8 +1423,13 @@ Loans (E0408–E0413):
 Two-phase borrows (#15, decision 54). Two borrows a call makes implicitly are two-phase:
 an autoref'd `&mut self` receiver (`v.Add(..)`, also `m.Add(..)` for `m: &mut P`,
 `a.B.Add(..)` and `self.Add(..)`) and the reborrow of a `&mut` argument passed where a
-`&mut` is expected (`Use(m, ..)`, `P::Add(m, ..)`). Such a borrow is *reserved* where it is
-made and *activated* by the call:
+`&mut` is expected (`Use(m, ..)`, `P::Add(m, ..)`), a tuple variant constructor's argument
+included (`let e: E<&mut P> = E::V(m, m.X);`, #145, decision 101). Such a borrow is
+*reserved* where it is made and *activated* by the call (by the constructor, for a
+variant's: `(Some(m), m.X)` is E0411). When a later argument diverges
+(`s.Push(Panic(".."))`, `E::V(m, return)`), the call is never made and the borrow is never
+activated (#177). A struct literal's field and a tuple's or an array's element are not
+call arguments: `S { F: m, G: m.X }` and `(m, m.X)` are E0411. For a two-phase borrow:
 - while it is reserved, the later arguments may read its place, directly, through fields
   or through `&self` methods (`v.Add(v.Get())`, `Use(m, m.X)`), but not write it (E0410),
   move out of it (E0412) or borrow it mutably, two-phase or not (E0409);
@@ -1487,6 +1510,21 @@ enum, or one that holds a value on some paths only, is dropped field by field, e
 its drop flag (not moved out) and the discriminant the enum holds when the drop runs, so
 only the variant it holds then is dropped, also after a write through a reference changed
 it (decision 91).
+
+Errors are counted as rustc counts them (decisions 99 and 101), visiting blocks in reverse
+postorder as rustc does:
+- an access is reported once per place and span, for the first loan it conflicts with;
+- the end of a local's storage counts as one access on every path out of its scope (`if
+  c { return &a; } &a` is one error); the drop of a local with drop glue does not, so
+  the same with `d: D`, `D: Drop`, is two errors (rustc: E0515 and E0713);
+- a loan that outlives its local is reported once, and not when its own creation was
+  already an error;
+- a `return` checks every loan it ends, so `(&a, &a)` returning loans of a parameter is
+  two E0414, while a local's storage ends in one access, so `let a = 1; (&a, &a)` is one;
+- once the reservation of a two-phase borrow of a place is an error, no later activation
+  of a borrow of that place is reported in the body, also one against another loan, as
+  in rustc: `V(m, m)` is one E0409, and so is `v.Add(v.Bump()); let r = &v; v.Add(1);
+  r.N` with `fn Bump(&mut self) -> u8`.
 
 The two error families map onto rustc's as follows: E0406/E0407 ↔ E0382/E0507; E0408–E0412
 ↔ E0502/E0499/E0506/E0503/E0505; E0413 ↔ E0597 (E0716 for a temporary); E0414 ↔ E0515;

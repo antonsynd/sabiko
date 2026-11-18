@@ -1,0 +1,45 @@
+// Sabiko codes for rustc's: E0409 for E0499.
+// Passing `m` twice reserves two two-phase reborrows of `*m`. The second reservation
+// conflicts with the first; once it is reported, activating either at the call (or at
+// the variant constructor, #145) is not reported again, as in rustc's
+// `reservation_error_reported` (decision 101). The set is per place for the whole body,
+// as in rustc (a FIXME there): a later activation of another borrow of `v`, against
+// another loan, is not reported either.
+struct P {
+    X: u8,
+}
+
+enum E<T> {
+    V(T, T),
+}
+
+fn V(a: &mut P, b: &mut P) {}
+
+fn Call(m: &mut P) {
+    V(m, m); //~ ERROR E0409 cannot borrow `*m` as mutable more than once at a time
+}
+
+fn Constructor(m: &mut P) {
+    let e: E<&mut P> = E::V(m, m); //~ ERROR E0409 cannot borrow `*m` as mutable more than once at a time
+}
+
+struct W {
+    N: u8,
+}
+
+impl W {
+    fn Add(&mut self, x: u8) {}
+
+    fn Get(&mut self) -> u8 {
+        self.N
+    }
+}
+
+fn Later(mut v: W) {
+    v.Add(v.Get()); //~ ERROR E0409 cannot borrow `v` as mutable more than once at a time
+    let r = &v;
+    v.Add(1);
+    PrintLine(r.N);
+}
+
+fn Main() {}

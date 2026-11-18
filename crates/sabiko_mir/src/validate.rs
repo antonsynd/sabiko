@@ -43,6 +43,39 @@ pub fn validate_all(bodies: &[Body], typeck: &TypeckResults) -> Vec<String> {
         .collect()
 }
 
+/// The operands of an uninhabited type left in `bodies`, each message prefixed with the
+/// body's name. None may remain once [`crate::simplify::cut_uninhabited_reads`] ran: code
+/// generation has no value to load for one (decision 103). Not part of [`validate_all`],
+/// since MIR before that pass reaches such reads (the arm of a match on a `!` payload).
+#[must_use]
+pub fn uninhabited_operands(bodies: &[Body]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for body in bodies {
+        for (bb, data) in body.blocks.iter().enumerate() {
+            let statements = data.statements.iter().filter_map(|s| match &s.kind {
+                StatementKind::Assign(_, rvalue) => Some(rvalue.operands()),
+                _ => None,
+            });
+            let terminator = match &data.terminator().kind {
+                TerminatorKind::Call { args, .. } => args.iter().collect(),
+                TerminatorKind::SwitchInt { discr, .. } => vec![discr],
+                _ => Vec::new(),
+            };
+            for op in statements.chain(std::iter::once(terminator)).flatten() {
+                let ty = op.ty(body);
+                if ty.is_uninhabited() {
+                    errors.push(format!(
+                        "{}: bb{bb}: operand {op:?} of uninhabited type {ty:?} reaches code \
+                         generation",
+                        body.name
+                    ));
+                }
+            }
+        }
+    }
+    errors
+}
+
 /// Whether a value of type `from` may be written where `to` is expected: the same type, a
 /// diverging value, a `&mut T` weakened to `&T`, or an error type on either side.
 fn compatible(from: &Ty, to: &Ty) -> bool {
@@ -259,10 +292,24 @@ impl Validator<'_> {
     }
 
     /// A two-phase borrow is assigned to a temporary that nothing but one call reads
-    /// (`move _t` among its arguments): the borrow checker activates it at that use.
+    /// (`move _t` among its arguments, or among a variant constructor's: its aggregate,
+    /// #145): the borrow checker activates it at that use. Or nothing reads it: an operand
+    /// evaluated after the borrow diverged, so the call or aggregate was never built
+    /// (`s.Push(Panic(".."))`, #177), and the borrow is never activated (rustc's
+    /// `TwoPhaseActivation::NotActivated`). The borrow checker's `operand_uses` counts the
+    /// same uses (and also mentions, which MIR building never makes of such a temporary);
+    /// keep the two in step.
     fn two_phase_borrows(&mut self) {
+        fn moved_local(op: &Operand) -> Option<&Place> {
+            match op {
+                Operand::Move(p) if p.is_local() => Some(p),
+                _ => None,
+            }
+        }
         let mut uses = vec![0usize; self.body.locals.len()];
-        let mut call_uses = vec![0usize; self.body.locals.len()];
+        // Uses as `move _t` of a whole local by a call or a variant aggregate: the uses
+        // that activate a two-phase borrow.
+        let mut activating_uses = vec![0usize; self.body.locals.len()];
         let mut reservations = Vec::new();
         let count = |place: &Place, uses: &mut Vec<usize>| {
             if let Some(n) = uses.get_mut(place.local.index()) {
@@ -280,6 +327,11 @@ impl Validator<'_> {
                         reservations.push((bb, dest.clone()));
                     }
                 }
+                if let Rvalue::Aggregate(AggregateKind::Variant(..), ops) = rvalue {
+                    for place in ops.iter().filter_map(moved_local) {
+                        count(place, &mut activating_uses);
+                    }
+                }
                 if !dest.is_local() {
                     count(dest, &mut uses);
                 }
@@ -295,10 +347,8 @@ impl Validator<'_> {
                     args, destination, ..
                 } => {
                     for arg in args {
-                        if let Operand::Move(p) = arg {
-                            if p.is_local() {
-                                count(p, &mut call_uses);
-                            }
+                        if let Some(place) = moved_local(arg) {
+                            count(place, &mut activating_uses);
                         }
                         if let Some(p) = arg.place() {
                             count(p, &mut uses);
@@ -332,12 +382,12 @@ impl Validator<'_> {
                     bb,
                     format!("two-phase borrow into {dest:?}, not a temporary"),
                 );
-            } else if uses[local] != 1 || call_uses[local] != 1 {
+            } else if uses[local] > 1 || uses[local] != activating_uses[local] {
                 self.err(
                     bb,
                     format!(
-                        "two-phase borrow into _{local}, which is used {} times, {} of them as a moved call argument",
-                        uses[local], call_uses[local]
+                        "two-phase borrow into _{local}, which is used {} times, {} of them moved into a call or a variant",
+                        uses[local], activating_uses[local]
                     ),
                 );
             }
