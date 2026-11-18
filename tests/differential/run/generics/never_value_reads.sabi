@@ -1,0 +1,172 @@
+// Code that reads a value of type `!` or `&!` never runs, and the block ends there
+// (#158, decision 103): a payload bound by `Some(x)` on an `Option<!>` and printed,
+// compared, dereferenced or used as a bound; a tuple or array built from one and passed
+// on; a `&[!; 2]` unsized to `&[!]`; a call through a two-phase borrow whose argument has
+// no value. Each runs only its `None` arm.
+struct S<T> {
+    N: i32,
+    V: Option<T>,
+}
+
+impl<T> S<T> {
+    fn Push(&mut self, x: T) {
+        self.N += 1;
+    }
+}
+
+fn Fill<T>(s: &mut S<T>, o: Option<T>) {
+    match o {
+        Some(x) => s.Push(x),
+        None => s.N += 10,
+    }
+}
+
+fn Consume<T>(x: T) -> i32 {
+    7
+}
+
+fn Pair<T>(o: Option<T>) -> i32 {
+    match o {
+        Some(v) => Consume((1, v)),
+        None => 2,
+    }
+}
+
+fn Arr<T: Copy>(o: Option<T>) -> i32 {
+    match o {
+        Some(v) => {
+            let a = [v, v];
+            Consume(a)
+        }
+        None => 3,
+    }
+}
+
+fn Id<T>(x: T) -> T {
+    x
+}
+
+fn Fst<A: Copy, B>(t: (A, B)) -> A {
+    t.0
+}
+
+fn ViaId<T>(o: Option<T>) -> i32 {
+    match o {
+        Some(v) => {
+            let t = Id((3, v));
+            Fst(t)
+        }
+        None => 4,
+    }
+}
+
+fn Unsize<T>(o: Option<&[T; 2]>) -> usize {
+    match o {
+        Some(a) => {
+            let s: &[T] = a;
+            s.len()
+        }
+        None => 5,
+    }
+}
+
+fn Tail<T>(o: Option<&[T; 2]>) -> usize {
+    match o {
+        Some(a) => {
+            let b = &a;
+            (*b)[1..].len()
+        }
+        None => 6,
+    }
+}
+
+fn Main() {
+    let c = false;
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    match o {
+        Some(x) => PrintLine(x),
+        None => PrintLine("none"),
+    }
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    let v = match o {
+        Some(x) => x == x,
+        None => false,
+    };
+    PrintLine(v);
+
+    let r = if c { Some(&Panic("y")) } else { None };
+    let v = match r {
+        Some(q) => q == q,
+        None => false,
+    };
+    PrintLine(v);
+    match r {
+        Some(q) => PrintLine(q),
+        None => PrintLine("none ref"),
+    }
+    let v = match r {
+        Some(q) => *q,
+        None => 9,
+    };
+    PrintLine(v);
+    let v = match r {
+        Some(q) => *q as i64,
+        None => 12,
+    };
+    PrintLine(v);
+    let a = [1, 2, 3];
+    let v = match r {
+        Some(q) => a[*q..].len(),
+        None => 14,
+    };
+    PrintLine(v);
+    let v = match r {
+        Some(q) => {
+            if *q {
+                1
+            } else {
+                2
+            }
+        }
+        None => 15,
+    };
+    PrintLine(v);
+
+    let n = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    PrintLine(Pair(n));
+    PrintLine(Arr(n));
+    PrintLine(ViaId(n));
+    let mut s = S { N: 0, V: n };
+    Fill(&mut s, n);
+    PrintLine(s.N);
+    let mut t = S { N: 1, V: None };
+    match n {
+        Some(x) => t.Push(x),
+        None => t.N += 5,
+    }
+    PrintLine(t.N);
+
+    let p = if c {
+        let x = Panic("x");
+        Some(&[x, x])
+    } else {
+        None
+    };
+    PrintLine(Unsize(p));
+    PrintLine(Tail(p));
+}

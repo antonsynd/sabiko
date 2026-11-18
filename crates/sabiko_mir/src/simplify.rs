@@ -9,7 +9,10 @@
 
 use sabiko_span::fx::HashSet;
 
-use crate::{BasicBlock, Body, CleanupScope, StatementKind, TerminatorKind};
+use crate::{
+    BasicBlock, Body, BorrowKind, CleanupScope, Operand, Place, Rvalue, SliceBounds, Statement,
+    StatementKind, Terminator, TerminatorKind, Ty,
+};
 
 pub fn simplify_all(bodies: &mut [Body]) {
     for body in bodies {
@@ -37,6 +40,128 @@ pub fn strip_storage_markers(bodies: &mut [Body]) {
             });
         }
         simplify_body(body);
+    }
+}
+
+/// Ends each block at its first read of a value of an uninhabited type (`!`, `&!`, a tuple
+/// holding one), which never runs: no such value exists (decision 103). The statement or
+/// call that reads it becomes a mention of each indexed place it reads up to that operand,
+/// so the bounds checks before it still run in order (`let y = e[i]` for `e: [!; 0]`
+/// panics), and the block ends in `unreachable`. Such reads are left in reachable MIR by
+/// the arm of a match on a payload of type `!` (`Some(x) => PrintLine(x)` on an
+/// `Option<!>`) and in an instance at `!` (`Some(v) => Consume((1, v))` in `Pair::<!>`);
+/// code generation has no value to give them, and [`crate::validate::uninhabited_operands`]
+/// checks that none is left. A two-phase borrow whose call is removed becomes an ordinary
+/// mutable borrow. Runs after borrow checking and copy forwarding; simplification then
+/// drops the blocks only the removed code reached.
+pub fn cut_uninhabited_reads(body: &mut Body) {
+    // An uninhabited operand's type mentions `!`, and so does the type of its local: a
+    // struct or variant field's type is `!` only through a generic argument (no user type
+    // can write `!`, and no prelude type does).
+    if !body.locals.iter().any(|d| mentions_never(&d.ty)) {
+        return;
+    }
+    let mut changed = false;
+    for bb in 0..body.blocks.len() {
+        let data = &body.blocks[bb];
+        let uninhabited = |op: &Operand| op.ty(body).is_uninhabited();
+        let in_statement = data.statements.iter().enumerate().find_map(|(i, s)| {
+            let StatementKind::Assign(_, rvalue) = &s.kind else {
+                return None;
+            };
+            let n = rvalue_operands(rvalue).position(uninhabited)?;
+            Some((i, mentions(rvalue_operands(rvalue).take(n + 1)), s.span))
+        });
+        // A switch's discriminant is an integer or a `bool`, never uninhabited, so only a
+        // call's arguments can end a block at its terminator.
+        let cut = in_statement.or_else(|| {
+            let term = data.terminator();
+            let TerminatorKind::Call { args, .. } = &term.kind else {
+                return None;
+            };
+            let n = args.iter().position(uninhabited)?;
+            Some((data.statements.len(), mentions(&args[..=n]), term.span))
+        });
+        let Some((at, mentions, span)) = cut else {
+            continue;
+        };
+        let data = &mut body.blocks[bb];
+        data.statements.truncate(at);
+        data.statements
+            .extend(mentions.into_iter().map(|place| Statement {
+                kind: StatementKind::PlaceMention(place),
+                span,
+            }));
+        data.terminator = Some(Terminator {
+            kind: TerminatorKind::Unreachable,
+            span,
+        });
+        changed = true;
+    }
+    if !changed {
+        return;
+    }
+    simplify_body(body);
+    // A two-phase borrow is activated by the call that takes it; with the call gone, it is
+    // an ordinary mutable borrow nothing uses.
+    let mut call_args = vec![false; body.locals.len()];
+    for data in &body.blocks {
+        if let TerminatorKind::Call { args, .. } = &data.terminator().kind {
+            for p in args.iter().filter_map(Operand::place) {
+                call_args[p.local.index()] = true;
+            }
+        }
+    }
+    for data in &mut body.blocks {
+        for stmt in &mut data.statements {
+            if let StatementKind::Assign(dest, Rvalue::Ref(BorrowKind::Mut { two_phase }, _)) =
+                &mut stmt.kind
+            {
+                if *two_phase && !call_args[dest.local.index()] {
+                    *two_phase = false;
+                }
+            }
+        }
+    }
+}
+
+/// The operands of `rvalue` in evaluation order, as [`Rvalue::operands`] lists them,
+/// without collecting them.
+fn rvalue_operands(rvalue: &Rvalue) -> impl Iterator<Item = &Operand> {
+    let (one, two, many, bounds): (_, _, &[Operand], _) = match rvalue {
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => (Some(op), None, &[], None),
+        Rvalue::BinaryOp(_, l, r) => (Some(l), Some(r), &[], None),
+        Rvalue::Aggregate(_, ops) => (None, None, ops, None),
+        Rvalue::Subslice(base, bounds) => (Some(base), None, &[], Some(&**bounds)),
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => (None, None, &[], None),
+    };
+    one.into_iter()
+        .chain(two)
+        .chain(many)
+        .chain(bounds.into_iter().flat_map(SliceBounds::operands))
+}
+
+/// The places among `ops` that go through an index, whose bounds checks a mention keeps.
+fn mentions<'a>(ops: impl IntoIterator<Item = &'a Operand>) -> Vec<Place> {
+    ops.into_iter()
+        .filter_map(Operand::place)
+        .filter(|p| p.has_index())
+        .cloned()
+        .collect()
+}
+
+/// Whether `ty` is `!` or contains it (an element, a referent, a generic argument).
+fn mentions_never(ty: &Ty) -> bool {
+    match ty {
+        Ty::Never => true,
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => mentions_never(inner),
+        Ty::Tuple(elems) => elems.iter().any(mentions_never),
+        Ty::Adt(_, args) => args.iter().any(mentions_never),
+        _ => false,
     }
 }
 

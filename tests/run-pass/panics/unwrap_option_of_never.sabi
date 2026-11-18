@@ -1,0 +1,17 @@
+//@ exit-code: 101
+// `Option<&!>` and `Option<!>` (#158, decision 103): built from a branch that does not
+// run, they hold `None`, and `unwrap` panics with the prelude's message at the call.
+fn Main() {
+    let c = false;
+    let o = if c { Some(&Panic("x")) } else { None };
+    PrintLine(o.is_none());
+    let n = if c {
+        let x = Panic("y");
+        Some(x)
+    } else {
+        None
+    };
+    PrintLine(n.is_some());
+    n.unwrap();
+    PrintLine("not reached");
+}

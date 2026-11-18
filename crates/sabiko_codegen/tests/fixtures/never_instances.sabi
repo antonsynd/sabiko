@@ -1,0 +1,72 @@
+// Generic instances at `!` and `&!` (#158, decision 103). A field or parameter of a type
+// without a value is a `Unit` (`Option<&!>`'s `Some` payload, `Consume<!>`'s parameter):
+// nothing writes or reads it, and an argument of such a type is a default `Unit`. A part
+// with a value of an uninhabited place without storage (`r.0` for `r: &(i32, !)`) is
+// reached through a scratch local of the place's type, in code that never runs. A block
+// that reads a value of type `!` ends there in `unreachable`, after the bounds checks
+// before the read (`PrintPayload`, `Index`).
+fn Consume<T>(x: T) -> i32 {
+    7
+}
+
+fn Visit<T>(o: Option<T>) -> i32 {
+    match o {
+        Some(x) => Consume(x),
+        None => 2,
+    }
+}
+
+fn FirstOf<T>(o: Option<&(i32, T)>) -> i32 {
+    match o {
+        Some(r) => r.0,
+        None => 6,
+    }
+}
+
+fn PrintPayload(c: bool) {
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    match o {
+        Some(x) => PrintLine(x),
+        None => PrintLine(0),
+    }
+}
+
+fn Index<T: Copy>(a: [T; 0], i: usize) -> i32 {
+    let x = a[i];
+    5
+}
+
+fn Main() {
+    let c = false;
+    let o = if c { Some(&Panic("x")) } else { None };
+    PrintLine(o.is_none());
+    let n = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    PrintLine(Visit(n));
+    let b = if c {
+        let x = Panic("x");
+        Some(&(1, x))
+    } else {
+        None
+    };
+    PrintLine(FirstOf(b));
+    PrintPayload(c);
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    if c {
+        PrintLine(Index(e, 0));
+    }
+}

@@ -44,8 +44,10 @@ use sabiko_span::Span;
 pub use sabiko_types::{ConstValue, Mutability, Ty};
 
 /// The passes between borrow checking and code generation, in order: drop elaboration
-/// (decision 55), simplification, copy forwarding (decision 51) and the removal of
-/// storage markers, with the validator after each. Returns the validator's complaints, each
+/// (decision 55), simplification, copy forwarding (decision 51), ending blocks at reads
+/// of uninhabited values (decision 103) and the removal of storage markers, with the
+/// validator after each, and at the end the check that no operand of an uninhabited type
+/// is left for code generation. Returns the validator's complaints, each
 /// prefixed with the pass it followed.
 #[must_use]
 pub fn lower_for_codegen(bodies: &mut [Body], typeck: &sabiko_types::TypeckResults) -> Vec<String> {
@@ -63,8 +65,17 @@ pub fn lower_for_codegen(bodies: &mut [Body], typeck: &sabiko_types::TypeckResul
     check(bodies, "simplification");
     forward::forward_all(bodies);
     check(bodies, "copy forwarding");
+    for body in bodies.iter_mut() {
+        simplify::cut_uninhabited_reads(body);
+    }
+    check(bodies, "cutting reads of uninhabited values");
     simplify::strip_storage_markers(bodies);
     check(bodies, "removing storage markers");
+    failures.extend(
+        validate::uninhabited_operands(bodies)
+            .into_iter()
+            .map(|f| format!("after removing storage markers: {f}")),
+    );
     failures
 }
 

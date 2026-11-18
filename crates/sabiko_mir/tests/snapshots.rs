@@ -99,3 +99,38 @@ fn fixtures_elaborated() {
         ));
     });
 }
+
+/// The fixtures on reads of uninhabited values after every pass before code generation
+/// (`lower_for_codegen`): each block that reads a value of type `!` ends there, its
+/// indexed reads up to it mentioned, and a two-phase borrow whose call is gone becomes a
+/// plain one (decision 103).
+#[test]
+fn fixtures_for_codegen() {
+    insta::glob!("fixtures/uninhabited*.sabi", |path| {
+        let src = std::fs::read_to_string(path).unwrap();
+        let mut sm = SourceMap::new();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let mut sink = DiagnosticSink::new();
+        let (ast, resolve) = sabiko_driver::parse_and_resolve(&name, &src, &mut sm, &mut sink)
+            .program
+            .expect("fixture parses");
+        let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+        assert!(sink.diagnostics().is_empty(), "fixture must be valid");
+        let bodies = sabiko_mir::build::build_bodies(&ast, &resolve, &typeck, &mut sink);
+        let mut bodies = sabiko_mir::mono::monomorphize(bodies, &ast, &resolve, &typeck, &mut sink);
+        // Without the pass, the check that no uninhabited operand is left fails.
+        let mut uncut = bodies.clone();
+        sabiko_mir::elaborate::elaborate_all(&mut uncut, &typeck);
+        sabiko_mir::simplify::simplify_all(&mut uncut);
+        sabiko_mir::forward::forward_all(&mut uncut);
+        assert!(!sabiko_mir::validate::uninhabited_operands(&uncut).is_empty());
+        let errors = sabiko_mir::lower_for_codegen(&mut bodies, &typeck);
+        assert!(
+            errors.is_empty(),
+            "invalid MIR for code generation: {errors:#?}"
+        );
+        insta::assert_snapshot!(sabiko_mir::pretty::print_user_bodies(
+            &bodies, &resolve, &typeck
+        ));
+    });
+}

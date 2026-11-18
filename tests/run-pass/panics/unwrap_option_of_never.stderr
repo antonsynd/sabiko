@@ -1,0 +1,2 @@
+thread 'main' panicked at tests/run-pass/panics/unwrap_option_of_never.sabi:15:7:
+called `Option::unwrap()` on a `None` value

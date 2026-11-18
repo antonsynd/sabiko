@@ -1,0 +1,85 @@
+// Reads of values of uninhabited types (#158, decision 103). Before code generation each
+// block ends at its first such read: the indexed places read up to it are mentioned, in
+// order, so their bounds checks still run, and the block becomes `unreachable`. A
+// two-phase borrow whose call is removed becomes a plain mutable borrow.
+struct S<T> {
+    N: i32,
+    V: Option<T>,
+}
+
+impl<T> S<T> {
+    fn Push(&mut self, x: T) {
+        self.N += 1;
+    }
+}
+
+fn Consume<T>(x: T) -> i32 {
+    7
+}
+
+fn Id(x: usize) -> usize {
+    x
+}
+
+// Both indexed operands of the tuple are mentioned, `a[..]` first.
+fn Mentions(c: bool) {
+    let e = if c {
+        let x = Panic("x");
+        [x; 0]
+    } else {
+        []
+    };
+    let a = [1, 2, 3];
+    let i = Id(9);
+    let j = Id(1);
+    let y = (a[i], e[j]);
+}
+
+// The arm that binds the payload ends where it reads it.
+fn Fill<T: Copy>(s: &mut S<T>, o: Option<T>) -> i32 {
+    match o {
+        Some(x) => {
+            s.Push(x);
+            Consume(x)
+        }
+        None => 2,
+    }
+}
+
+// At `!`, `p.1` has no value: the call goes, and with it the activation of the
+// receiver's two-phase borrow, which becomes a plain `&mut`.
+fn Push1<T: Copy>(s: &mut S<T>, p: &(i32, T)) -> i32 {
+    s.Push(p.1);
+    p.0
+}
+
+fn Outer<T: Copy>(s: &mut S<T>, o: Option<(i32, T)>) -> i32 {
+    match &o {
+        Some(p) => Push1(s, p),
+        None => 3,
+    }
+}
+
+fn Main() {
+    let c = false;
+    Mentions(c);
+    let o = if c {
+        let x = Panic("x");
+        Some(x)
+    } else {
+        None
+    };
+    let mut s = S { N: 0, V: o };
+    PrintLine(Fill(&mut s, o));
+    let t = if c {
+        let x = Panic("x");
+        Some((1, x))
+    } else {
+        None
+    };
+    PrintLine(Outer(&mut s, t));
+    match o {
+        Some(x) => PrintLine(x),
+        None => PrintLine(1),
+    }
+}

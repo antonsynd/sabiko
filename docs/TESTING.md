@@ -1225,7 +1225,10 @@ mutant named below (the counts are under "Verified" at the end).
   defensive: a generic type instantiated at `&!` has a field of that type
   (`Opt::Yes(&Panic("x"))` in a branch not taken, which rustc accepts), and E0500 names
   the `&!` field rather than `!` (`ui/codegen/ref_never_payload`; the instance itself is
-  #158, whose prelude form `Some(&Panic("x"))` reports inside `library/core`).
+  #158, whose prelude form `Some(&Panic("x"))` reports inside `library/core`). Since
+  #158 (decision 103) the guard covers every reference without a value and lays the field
+  out as a `Unit`; `differential/run/generics/never_reference_arguments` and the IL
+  fixture `never_instances` reach it, and the UI test is gone.
 - Dead code removed (9). `assign`'s `src.has_index()` guard (loading a place without a
   value checks its indices, if any, and does nothing else); `typed_int_const`'s
   `p.is_integer()` guard and `Char | Bool` arm (the validator admits `Int` and `Uint`
