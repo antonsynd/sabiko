@@ -913,9 +913,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   exactly one bound of the trait applies, it fixes the trait's arguments. Several leave
   the obligation to inference: the arguments decide, else E0313 (rustc's E0283). The
   pending obligations are selected before the expected type is tried on a call's result,
-  for each argument whose parameter type is not yet known (after a block or `loop`
-  argument is checked, whose value rustc coerces into the parameter first; before any
-  other), and after the last argument, before the result meets the expected type. So
+  for each argument whose parameter type is not yet known (after the argument is checked
+  and before it is coerced to the parameter; a block's value or a `loop`'s `break` value
+  is coerced to it while the argument is checked), and after the last argument, before
+  the result meets the expected type; also before the branches of an `if` or a `match`
+  whose expectation is not yet known, and after the argument of `Print`/`PrintLine`. So
   under `T: Into<i64>`, `Into::into(t)` is an `i64` even where a `T` is expected (E0300,
   rustc's E0308), though the blanket `impl<T, U: From<T>> Into<U> for T` would also
   give `T: Into<T>`. `From::from(t)` names no `Self` before its result meets the

@@ -2168,27 +2168,39 @@ the same through a supertrait, a program trait with a blanket block, a two-param
 trait (`Two::Two(&t, t)`), a nested call argument, an expected `i32`, and a called
 function's or method's bound (`G::<T, _>(t, t)`, `w.M(t)`, `W::<T>::Make(t, t)`).
 `From::from(t)`, `Into::<T>::into(t)`, `G(t, t)`, a bound on another parameter, and two
-bounds that neither fit still compile, as in rustc. A block or `loop` argument whose
-tail or `break` value rustc coerces into the parameter before it selects (`Two::Two(&t,
-{ t })`, `loop { break t; }`) is checked before selecting, so it compiles as in rustc;
-an `if`, a `match`, `(t)`, `*r`, a call, a struct literal, and blocks with a `let`, a
-literal or a call before the value select first, as in rustc. With the wrong number of
-arguments, their mismatches are part of E0304, as rustc's E0061 holds them. Selecting
-at every call made long bodies quadratic (1000 lines of `s = s + P(1);` took 56 s): an
-obligation left as it was now waits on its variables and is tried again only when one
-of them is written (rustc's `stalled_on`; `InferCtxt::take_changed`), so that body takes
-0.28 s against 0.34 s before the change (`sabiko_driver/tests/selection_scaling.rs`
-bounds it). "Required for" notes show a confirmed block's types as inference finally
-decided them. Tests: `differential/where_clauses/` (17 `rej_` programs pinning both
-compilers' codes, 5 `ok_` programs of valid neighbours),
-`differential/builtins/rej_wrong_argument_count_hides_mismatches`,
+bounds that neither fit still compile, as in rustc. An argument is checked in rustc's
+order: against its parameter, which only its coercion sites (a block's tail, a `loop`'s
+`break` value) are coerced to while it is checked, then selection, then the argument's
+own coercion (`check_expr_selecting`). So `Two::Two(&t, { t })`, `{ 5i64 }` or `loop {
+break t; }` coerce into the parameter before the bound is selected and compile as in
+rustc, while `Two::Two(&t, t)`, `(t)`, `*r`, a call and a struct literal select first.
+An `if` and a `match` select before their branches when the expectation has a variable
+(rustc's `try_structurally_resolve_and_adjust_for_branches`), and `Print`/`PrintLine`
+select after their argument, as a call of a generic function does. With the wrong
+number of arguments, their mismatches are part of E0304, as rustc's E0061 holds them.
+Selecting at every call made long bodies quadratic (1000 lines of `s = s + P(1);` took
+56 s): an obligation left as it was now waits on its variables and is tried again only
+when one of them is written (rustc's `stalled_on`; `InferCtxt::take_changed`), so that
+body takes 0.27 s against 0.33 s on mainline. Selection terminates: an `impl` block's
+fresh parameters join under the obligation's older variables without changing them, and
+an attempt that confirms nothing and writes no older variable wakes nothing (a `Clone`
+obligation on `W<{integer}>` with one `impl` block once looped forever).
+`sabiko_driver/tests/selection_scaling.rs` bounds both. "Required for" notes show a
+confirmed block's types as inference finally decided them. Tests:
+`differential/where_clauses/` (18 `rej_` programs pinning both compilers' codes, 6 `ok_`
+programs of valid neighbours), `differential/builtins/rej_wrong_argument_count_hides_mismatches`,
 `differential/run/traits/where_clause_preference` (a literal argument made a `u8` by the
-bound overflows as in rustc; block and loop arguments call the blanket block), UI tests
+bound overflows as in rustc; block and loop arguments call the blanket block),
+`differential/run/traits/clone_copy_selection_terminates`, UI tests
 `typeck/bound_fixes_trait_arguments` and `typeck/selection_before_arguments`. Known
-differences, rejections where rustc accepts: a block argument with an annotated `let` or
-a `while` before its value, or a `loop` with an empty statement before its `break`
-(`{ let u: T = t; u }`). Error counts: several mismatching `match` arms are one error per
-arm where rustc reports the first (older). Not supported, as before: `<T as
+differences, acceptances where rustc rejects, as on mainline: rustc selects at more
+points inside a block argument than Sabiko does, before the block's value is coerced:
+at an unannotated `let`, a literal or tuple statement, an operator (`{ x + 1 }`, `{ -x
+}`, `{ !c }`), an index, a field of a type with a variable (`{ p.0 }`), and a tuple,
+array, reference or struct literal as the value (`{ (t, t) }`, `{ &t }`), so with
+`T: Mk<i32>` and a blanket `Mk<A>` block, `Mk::Mk(&t, { (t, t) })` is E0308 in rustc and
+compiles here. Error counts: several mismatching `match` arms are one error per arm
+where rustc reports the first (older). Not supported, as before: `<T as
 From<_>>::from(t)` and `where i32: From<T>` (E0107).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas

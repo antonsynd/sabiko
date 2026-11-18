@@ -34,7 +34,9 @@ pub struct InferCtxt {
     /// The variables written since [`Self::take_changed`] last took them (each a root
     /// when it was written: bound, joined under another, or given another kind), for the
     /// type checker to wake the obligations stalled on them (rustc's `stalled_on`). A
-    /// write a rollback undoes is dropped from it; path compression is not one.
+    /// write a rollback undoes is dropped from it; path compression is not one, nor is a
+    /// variable that another joins under keeping its kind (nothing of it a reader sees
+    /// changes).
     changed: Vec<TyVid>,
 }
 
@@ -167,6 +169,12 @@ impl InferCtxt {
     /// The variables written since the last call (see the `changed` field), oldest first.
     pub fn take_changed(&mut self) -> Vec<TyVid> {
         std::mem::take(&mut self.changed)
+    }
+
+    /// How many variables there are: the next one created is numbered this.
+    #[must_use]
+    pub fn var_count(&self) -> usize {
+        self.vars.len()
     }
 
     #[must_use]
@@ -371,8 +379,15 @@ impl InferCtxt {
                     (k1, k2) if k1 == k2 => k1,
                     _ => return Err(UnifyError),
                 };
+                // The older variable stays the root, so a variable created since (an
+                // `impl` block's parameter in selection) joins under it without changing
+                // it: only the joined one is recorded as changed, and the root only when
+                // its kind changes (see `changed`).
+                let (ra, rb) = if ra.0 <= rb.0 { (ra, rb) } else { (rb, ra) };
                 self.var_mut(rb).parent = ra;
-                self.var_mut(ra).kind = kind;
+                if self.vars[ra.0 as usize].kind != kind {
+                    self.var_mut(ra).kind = kind;
+                }
                 Ok(())
             }
             (Ty::Infer(v), other) | (other, Ty::Infer(v)) => {
@@ -647,5 +662,26 @@ mod tests {
         assert!(cx.unify(&v, &Ty::Never).is_err());
         assert!(cx.unify(&Ty::Never, &v).is_err());
         assert!(matches!(cx.resolve(&v), Ty::Infer(_)));
+    }
+
+    /// A newer variable joins under an older one, whichever side it is on, and only the
+    /// joined one is recorded as changed while the root keeps its kind: selection's
+    /// fresh `impl` parameters must not wake what waits on the older one (decision 105).
+    #[test]
+    fn joins_keep_the_older_root_unchanged() {
+        let mut cx = InferCtxt::new();
+        let old = cx.new_var(VarKind::Int);
+        let _ = cx.take_changed();
+        let fresh = cx.new_var(VarKind::General);
+        cx.unify(&fresh, &old).unwrap();
+        assert_eq!(cx.shallow_resolve(&fresh), old);
+        assert_eq!(cx.take_changed(), vec![TyVid(1)]);
+        // A join that changes the root's kind records it.
+        let general = cx.new_var(VarKind::General);
+        let _ = cx.take_changed();
+        let int = cx.new_var(VarKind::Int);
+        cx.unify(&general, &int).unwrap();
+        assert_eq!(cx.take_changed(), vec![TyVid(3), TyVid(2)]);
+        assert_eq!(cx.kind(TyVid(3)), VarKind::Int);
     }
 }

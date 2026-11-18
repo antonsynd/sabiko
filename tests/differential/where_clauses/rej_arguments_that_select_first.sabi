@@ -1,6 +1,6 @@
 // rustc selects before coercing these arguments into the parameter, so the bound fixes
-// `A` to `i32` first: an `if`, a `match`, a parenthesised or dereferenced value, a call,
-// a struct literal, and blocks or loops with a `let`, a literal or a call before the value.
+// `A` to `i32` first: an `if`, a `match` (also as a block's value), a parenthesised or
+// dereferenced value, a call, a struct literal, and blocks or loops with a call first.
 //@ rustc: E0308
 //@ sabiko: E0300
 trait Two<A, B> {
@@ -26,6 +26,7 @@ fn Paren<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, (t)) }
 fn Deref<T: Two<i32, i64> + Copy>(t: T) -> T { let r = &t; Two::Two(&t, *r) }
 fn Call<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, Id(t)) }
 fn Literal<T: Two<W<i32>, i64> + Copy>(t: T) -> W<T> { Two::Two(&t, W { V: t }) }
-fn Let<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, { let u = t; u }) }
-fn Statement<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, { 1; t }) }
+fn BlockIf<T: Two<i32, i64> + Copy>(t: T, c: bool) -> T { Two::Two(&t, { if c { t } else { t } }) }
+fn BlockMatch<T: Two<i32, i64> + Copy>(t: T, c: bool) -> T { Two::Two(&t, { match c { _ => t } }) }
+fn BlockCall<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, { Id(1); t }) }
 fn LoopCall<T: Two<i32, i64> + Copy>(t: T) -> T { Two::Two(&t, loop { PrintLine(1); break t; }) }

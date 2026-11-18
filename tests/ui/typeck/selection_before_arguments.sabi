@@ -2,8 +2,10 @@
 // When rustc selects a call's obligations (decision 105): before the expected type is
 // tried on the result, and between checking each argument and coercing it into its
 // parameter. A block's tail and a `loop`'s `break` value are coerced while the argument
-// is checked, so the parameter is known when rustc selects and the blanket block applies;
-// for every other argument form the bound `Two<i32, i64>` fixes the parameter to `i32`.
+// is checked, so the parameter is known when rustc selects and the blanket block applies
+// (`{ 5i64 }` makes it `Two<i64, _>`, which `T` does not have: E0341, rustc's E0277, not
+// a mismatch with the bound's `i32`); a call inside the block,
+// or a bare argument, lets the bound `Two<i32, i64>` fix the parameter to `i32` first.
 trait Two<A, B> {
     fn Two(&self, a: A) -> B;
 }
@@ -54,9 +56,13 @@ fn Loop<T: Two<i32, i64> + Copy>(t: T) -> T {
     Two::Two(&t, loop { break t; })
 }
 
-fn BlockWithLet<T: Two<i32, i64> + Copy>(t: T) -> T {
-    Two::Two(&t, { let u = t; u }) //~ ERROR E0300 mismatched types
+fn BlockWithCall<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, { Id(1); t }) //~ ERROR E0300 mismatched types
     //~^ ERROR E0300 mismatched types
+}
+
+fn BlockOfTyped<T: Two<i32, i64> + Copy>(t: T) -> T {
+    Two::Two(&t, { 5i64 }) //~ ERROR E0341
 }
 
 fn Call<T: Two<i32, i64> + Copy>(t: T) -> T {

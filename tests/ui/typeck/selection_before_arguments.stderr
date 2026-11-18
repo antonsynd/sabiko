@@ -1,88 +1,97 @@
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:36:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:38:5 ]
     │
- 36 │     G::<T, _>(t, t) //~ ERROR E0300 mismatched types
+ 38 │     G::<T, _>(t, t) //~ ERROR E0300 mismatched types
     │     ───────┬───────  
     │            ╰───────── expected `T`, found `i64`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:36:18 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:38:18 ]
     │
- 36 │     G::<T, _>(t, t) //~ ERROR E0300 mismatched types
+ 38 │     G::<T, _>(t, t) //~ ERROR E0300 mismatched types
     │                  ┬  
     │                  ╰── expected `i64`, found `T`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:41:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:43:5 ]
     │
- 41 │     w.M(t) //~ ERROR E0300 mismatched types
+ 43 │     w.M(t) //~ ERROR E0300 mismatched types
     │     ───┬──  
     │        ╰──── expected `T`, found `i64`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:41:9 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:43:9 ]
     │
- 41 │     w.M(t) //~ ERROR E0300 mismatched types
+ 43 │     w.M(t) //~ ERROR E0300 mismatched types
     │         ┬  
     │         ╰── expected `i64`, found `T`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:58:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:60:5 ]
     │
- 58 │     Two::Two(&t, { let u = t; u }) //~ ERROR E0300 mismatched types
-    │     ───────────────┬──────────────  
-    │                    ╰──────────────── expected `T`, found `i64`
+ 60 │     Two::Two(&t, { Id(1); t }) //~ ERROR E0300 mismatched types
+    │     ─────────────┬────────────  
+    │                  ╰────────────── expected `T`, found `i64`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:58:31 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:60:27 ]
     │
- 58 │     Two::Two(&t, { let u = t; u }) //~ ERROR E0300 mismatched types
-    │                               ┬  
-    │                               ╰── expected `i32`, found `T`
+ 60 │     Two::Two(&t, { Id(1); t }) //~ ERROR E0300 mismatched types
+    │                           ┬  
+    │                           ╰── expected `i32`, found `T`
+────╯
+[E0341] Error: the trait bound `T: Two<i64, T>` is not satisfied
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:65:5 ]
+    │
+ 65 │     Two::Two(&t, { 5i64 }) //~ ERROR E0341
+    │     ────┬───  
+    │         ╰───── the trait `Two<i64, T>` is not implemented for `T`
+    │ 
+    │ Note: consider restricting type parameter `T`: `T: Two<i64, T>`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:63:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:69:5 ]
     │
- 63 │     Two::Two(&t, Id(t)) //~ ERROR E0300 mismatched types
+ 69 │     Two::Two(&t, Id(t)) //~ ERROR E0300 mismatched types
     │     ─────────┬─────────  
     │              ╰─────────── expected `T`, found `i64`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:63:21 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:69:21 ]
     │
- 63 │     Two::Two(&t, Id(t)) //~ ERROR E0300 mismatched types
+ 69 │     Two::Two(&t, Id(t)) //~ ERROR E0300 mismatched types
     │                     ┬  
     │                     ╰── expected `i32`, found `T`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:68:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:74:5 ]
     │
- 68 │     Two::Two(&t, (t)) //~ ERROR E0300 mismatched types
+ 74 │     Two::Two(&t, (t)) //~ ERROR E0300 mismatched types
     │     ────────┬────────  
     │             ╰────────── expected `T`, found `i64`
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:68:19 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:74:19 ]
     │
- 68 │     Two::Two(&t, (t)) //~ ERROR E0300 mismatched types
+ 74 │     Two::Two(&t, (t)) //~ ERROR E0300 mismatched types
     │                   ┬  
     │                   ╰── expected `i32`, found `T`
 ────╯
 [E0304] Error: this function takes 2 arguments but 3 arguments were supplied
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:73:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:79:5 ]
     │
-  8 │     fn Two(&self, a: A) -> B;
+ 10 │     fn Two(&self, a: A) -> B;
     │        ─┬─  
     │         ╰─── function `Two` defined here
     │ 
- 73 │     Two::Two(&t, t, t) //~ ERROR E0304
+ 79 │     Two::Two(&t, t, t) //~ ERROR E0304
     │     ─────────┬────────  
     │              ╰────────── expected 2 arguments
 ────╯
 [E0300] Error: mismatched types
-    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:73:5 ]
+    ╭─[ tests/ui/typeck/selection_before_arguments.sabi:79:5 ]
     │
- 73 │     Two::Two(&t, t, t) //~ ERROR E0304
+ 79 │     Two::Two(&t, t, t) //~ ERROR E0304
     │     ─────────┬────────  
     │              ╰────────── expected `T`, found `i64`
 ────╯
