@@ -494,8 +494,9 @@ copy forwarding): the read becomes a mention of the indexed places read up to it
 bounds checks still run (`e[i]` for `e: [!; 0]` panics, as in rustc), then `unreachable`.
 That covers the arm of a match on a `!` payload (`Some(x) => PrintLine(x)` on an
 `Option<!>`) and the code an instance at `!` holds for a value that cannot exist
-(`Some(v) => Consume((1, v))`); no argument, operand or call of an uninhabited type reaches
-code generation. A part with a value of an uninhabited place without storage (`p.0` for a
+(`Some(v) => Consume((1, v))`); no argument or operand of an uninhabited type reaches
+code generation (a call whose result is `!` still does), which the MIR validator checks
+after the pass. A part with a value of an uninhabited place without storage (`p.0` for a
 local `p: (i32, !)`, `r.0` for `r: &(i32, !)`, `a.len()` for `a: [!; 2]`) is reached
 through a scratch local of the place's type; it never runs either.
 

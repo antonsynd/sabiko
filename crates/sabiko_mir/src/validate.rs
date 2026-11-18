@@ -43,6 +43,39 @@ pub fn validate_all(bodies: &[Body], typeck: &TypeckResults) -> Vec<String> {
         .collect()
 }
 
+/// The operands of an uninhabited type left in `bodies`, each message prefixed with the
+/// body's name. None may remain once [`crate::simplify::cut_uninhabited_reads`] ran: code
+/// generation has no value to load for one (decision 103). Not part of [`validate_all`],
+/// since MIR before that pass reaches such reads (the arm of a match on a `!` payload).
+#[must_use]
+pub fn uninhabited_operands(bodies: &[Body]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for body in bodies {
+        for (bb, data) in body.blocks.iter().enumerate() {
+            let statements = data.statements.iter().filter_map(|s| match &s.kind {
+                StatementKind::Assign(_, rvalue) => Some(rvalue.operands()),
+                _ => None,
+            });
+            let terminator = match &data.terminator().kind {
+                TerminatorKind::Call { args, .. } => args.iter().collect(),
+                TerminatorKind::SwitchInt { discr, .. } => vec![discr],
+                _ => Vec::new(),
+            };
+            for op in statements.chain(std::iter::once(terminator)).flatten() {
+                let ty = op.ty(body);
+                if ty.is_uninhabited() {
+                    errors.push(format!(
+                        "{}: bb{bb}: operand {op:?} of uninhabited type {ty:?} reaches code \
+                         generation",
+                        body.name
+                    ));
+                }
+            }
+        }
+    }
+    errors
+}
+
 /// Whether a value of type `from` may be written where `to` is expected: the same type, a
 /// diverging value, a `&mut T` weakened to `&T`, or an error type on either side.
 fn compatible(from: &Ty, to: &Ty) -> bool {

@@ -1990,20 +1990,24 @@ uninhabited type, keeping the bounds checks before it (`e[i]` on an `[!; 0]` pan
 turning a two-phase borrow whose call it removes into a plain one: the arm of a match on a
 `!` payload (`Some(x) => PrintLine(x)`, `x == x`, `*q as i64` for `q: &!`) and the code an
 instance holds for values that cannot exist (`Some(v) => Consume((1, v))` at `!`) are
-`unreachable`, so no operand of an uninhabited type reaches code generation. A part with a
+`unreachable`, so no operand of an uninhabited type reaches code generation; a check after
+the passes (`validate::uninhabited_operands`) reports one that does as an internal error
+rather than let code generation emit unverifiable IL. A part with a
 value of an uninhabited place without storage (`r.0` for `r: &(i32, !)`, `a.len()` for
 `a: [!; 2]`) is reached through a scratch local, so the IL verifies and never runs. The
-prelude implements `Debug` for `!` (`Result<!, i32>::unwrap_err`). Eight programs in
+prelude implements `Debug` for `!` (`Result<!, i32>::unwrap_err`). Nine programs in
 `differential/run/generics/never_*` agree with rustc (prelude methods, `?`, user structs
 and enums, a `Drop` impl, tuples, arrays, references, uses of a `!` payload, unsizing a
-`&[!; 2]`, two-phase calls and the bounds check of an `[!; 0]` through instances at `!`);
-IL fixture `never_instances`; run-pass `panics/unwrap_option_of_never`; the UI test
+`&[!; 2]`, two-phase calls, the bounds check of an `[!; 0]` and the order of the checks
+before a read of `!`, through instances at `!`); MIR fixture `uninhabited_reads` (after
+`lower_for_codegen`); IL fixture `never_instances`; run-pass `panics/unwrap_option_of_never`; the UI test
 `codegen/ref_never_payload` is gone with its error. Not fixed here: most ways of writing
 `Option<!>` without a `let` (`Some(Panic("x"))`, `Some(return 3)`) are still E0313 (#151);
 a `match` that leaves out an arm only an uninhabited payload could reach (`Ok(v) => v`
 alone on a `Result<i32, !>`) is E0328 where rustc accepts it (#178); `s.Push(Panic("y"))`
-through an autoref'd `&mut self` fails MIR validation (#177); and `a[*q]` for `q: &!` is
-accepted and fails MIR validation where rustc rejects it (E0277).
+through an autoref'd `&mut self` fails MIR validation (#177); `a[*q]` for `q: &!` is
+accepted and fails MIR validation where rustc rejects it (E0277, #183); and
+`match e[i] { _ => 3 }` for `e: [!; 0]` is E0330 and E0405 where rustc accepts it (#184).
 
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 

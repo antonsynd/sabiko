@@ -10,8 +10,8 @@
 use sabiko_span::fx::HashSet;
 
 use crate::{
-    BasicBlock, Body, BorrowKind, CleanupScope, Operand, Place, Rvalue, Statement, StatementKind,
-    Terminator, TerminatorKind,
+    BasicBlock, Body, BorrowKind, CleanupScope, Operand, Place, Rvalue, SliceBounds, Statement,
+    StatementKind, Terminator, TerminatorKind, Ty,
 };
 
 pub fn simplify_all(bodies: &mut [Body]) {
@@ -50,39 +50,37 @@ pub fn strip_storage_markers(bodies: &mut [Body]) {
 /// panics), and the block ends in `unreachable`. Such reads are left in reachable MIR by
 /// the arm of a match on a payload of type `!` (`Some(x) => PrintLine(x)` on an
 /// `Option<!>`) and in an instance at `!` (`Some(v) => Consume((1, v))` in `Pair::<!>`);
-/// code generation has no value to give them. A two-phase borrow whose call is removed
-/// becomes an ordinary mutable borrow. Runs after borrow checking and copy forwarding;
-/// simplification then drops the blocks only the removed code reached.
+/// code generation has no value to give them, and [`crate::validate::uninhabited_operands`]
+/// checks that none is left. A two-phase borrow whose call is removed becomes an ordinary
+/// mutable borrow. Runs after borrow checking and copy forwarding; simplification then
+/// drops the blocks only the removed code reached.
 pub fn cut_uninhabited_reads(body: &mut Body) {
+    // An uninhabited operand's type mentions `!`, and so does the type of its local: a
+    // struct or variant field's type is `!` only through a generic argument (no user type
+    // can write `!`, and no prelude type does).
+    if !body.locals.iter().any(|d| mentions_never(&d.ty)) {
+        return;
+    }
     let mut changed = false;
     for bb in 0..body.blocks.len() {
         let data = &body.blocks[bb];
-        let reads = |ops: &[&Operand]| -> Option<Vec<Place>> {
-            let mut mentions = Vec::new();
-            for op in ops {
-                if let Some(place) = op.place().filter(|p| p.has_index()) {
-                    mentions.push(place.clone());
-                }
-                if op.ty(body).is_uninhabited() {
-                    return Some(mentions);
-                }
-            }
-            None
-        };
+        let uninhabited = |op: &Operand| op.ty(body).is_uninhabited();
         let in_statement = data.statements.iter().enumerate().find_map(|(i, s)| {
             let StatementKind::Assign(_, rvalue) = &s.kind else {
                 return None;
             };
-            reads(&rvalue.operands()).map(|m| (i, m, s.span))
+            let n = rvalue_operands(rvalue).position(uninhabited)?;
+            Some((i, mentions(rvalue_operands(rvalue).take(n + 1)), s.span))
         });
+        // A switch's discriminant is an integer or a `bool`, never uninhabited, so only a
+        // call's arguments can end a block at its terminator.
         let cut = in_statement.or_else(|| {
             let term = data.terminator();
-            let ops: Vec<&Operand> = match &term.kind {
-                TerminatorKind::Call { args, .. } => args.iter().collect(),
-                TerminatorKind::SwitchInt { discr, .. } => vec![discr],
-                _ => return None,
+            let TerminatorKind::Call { args, .. } = &term.kind else {
+                return None;
             };
-            reads(&ops).map(|m| (data.statements.len(), m, term.span))
+            let n = args.iter().position(uninhabited)?;
+            Some((data.statements.len(), mentions(&args[..=n]), term.span))
         });
         let Some((at, mentions, span)) = cut else {
             continue;
@@ -124,6 +122,46 @@ pub fn cut_uninhabited_reads(body: &mut Body) {
                 }
             }
         }
+    }
+}
+
+/// The operands of `rvalue` in evaluation order, as [`Rvalue::operands`] lists them,
+/// without collecting them.
+fn rvalue_operands(rvalue: &Rvalue) -> impl Iterator<Item = &Operand> {
+    let (one, two, many, bounds): (_, _, &[Operand], _) = match rvalue {
+        Rvalue::Use(op)
+        | Rvalue::UnaryOp(_, op)
+        | Rvalue::Cast(op, _)
+        | Rvalue::Repeat(op, _)
+        | Rvalue::PointerCoercion(op, _) => (Some(op), None, &[], None),
+        Rvalue::BinaryOp(_, l, r) => (Some(l), Some(r), &[], None),
+        Rvalue::Aggregate(_, ops) => (None, None, ops, None),
+        Rvalue::Subslice(base, bounds) => (Some(base), None, &[], Some(&**bounds)),
+        Rvalue::Ref(..) | Rvalue::Discriminant(_) | Rvalue::Len(_) => (None, None, &[], None),
+    };
+    one.into_iter()
+        .chain(two)
+        .chain(many)
+        .chain(bounds.into_iter().flat_map(SliceBounds::operands))
+}
+
+/// The places among `ops` that go through an index, whose bounds checks a mention keeps.
+fn mentions<'a>(ops: impl IntoIterator<Item = &'a Operand>) -> Vec<Place> {
+    ops.into_iter()
+        .filter_map(Operand::place)
+        .filter(|p| p.has_index())
+        .cloned()
+        .collect()
+}
+
+/// Whether `ty` is `!` or contains it (an element, a referent, a generic argument).
+fn mentions_never(ty: &Ty) -> bool {
+    match ty {
+        Ty::Never => true,
+        Ty::Ref(_, inner) | Ty::Array(inner, _) | Ty::Slice(inner) => mentions_never(inner),
+        Ty::Tuple(elems) => elems.iter().any(mentions_never),
+        Ty::Adt(_, args) => args.iter().any(mentions_never),
+        _ => false,
     }
 }
 
