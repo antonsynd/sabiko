@@ -1,0 +1,29 @@
+[E0408] Error: cannot borrow `*o` as mutable because it is also borrowed as immutable
+    ╭─[ tests/ui/borrowck/call_activates_two_conflicting_borrows.sabi:18:9 ]
+    │
+ 16 │     let q = &*o;
+    │             ─┬─  
+    │              ╰─── immutable borrow occurs here
+    │ 
+ 18 │         r.Bump(o);
+    │         ────┬────  
+    │             ╰────── mutable borrow occurs here
+    │ 
+ 23 │     PrintLine(*q);
+    │               ─┬  
+    │                ╰── borrow later used here
+────╯
+[E0408] Error: cannot borrow `r` as mutable because it is also borrowed as immutable
+    ╭─[ tests/ui/borrowck/call_activates_two_conflicting_borrows.sabi:18:9 ]
+    │
+ 17 │ ╭─▶     let same = r == {
+    │ │                  ┬  
+    │ │                  ╰── immutable borrow occurs here
+ 18 │ │           r.Bump(o);
+    │ │           ────┬────  
+    │ │               ╰────── mutable borrow occurs here
+    ┆ ┆   
+ 22 │ ├─▶     };
+    │ │            
+    │ ╰──────────── borrow later used here
+────╯

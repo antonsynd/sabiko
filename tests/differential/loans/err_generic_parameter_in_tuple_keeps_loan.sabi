@@ -1,0 +1,12 @@
+// A generic parameter inside a tuple parameter: with `T = &i32`, `(T, i32)` holds a
+// reference, so the call's result keeps the loan of `x`.
+fn First<T>(t: (T, i32)) -> T {
+    t.0
+}
+
+fn Main() {
+    let mut x = 1;
+    let r = First((&x, 0));
+    x = 2;
+    PrintLine(*r);
+}

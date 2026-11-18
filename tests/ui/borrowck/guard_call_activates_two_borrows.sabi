@@ -1,0 +1,22 @@
+// Sabiko codes for rustc's: E0419 for E0510.
+// One call in a match guard activates two two-phase borrows, of `*r` and of `*s`, each
+// against its own match's guard borrow. The call is one access but conflicts at two
+// places, so it gets two errors, as in rustc (decision 99).
+fn G(a: &mut i32, b: &mut i32) {}
+
+fn F(r: &mut i32, s: &mut i32) -> i32 {
+    match *r {
+        1 if match *s {
+            2 if {
+                G(r, s);
+                //~^ ERROR E0419 cannot mutably borrow `*r` in match guard
+                //~^^ ERROR E0419 cannot mutably borrow `*s` in match guard
+                true
+            } => true,
+            _ => false,
+        } => 1,
+        _ => 0,
+    }
+}
+
+fn Main() {}

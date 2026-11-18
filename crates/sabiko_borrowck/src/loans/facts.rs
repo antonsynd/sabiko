@@ -755,17 +755,14 @@ impl Generator<'_> {
             self.use_local(place.local, location);
         }
         self.access(place, AccessKind::Write, location);
-        match place.projection[..] {
-            [] | [PlaceElem::Deref] => self.kill_loans_of_local(place.local, location),
-            // `a[i] = ..` may write another element than a loan's `a[j]`: it kills
-            // nothing, as in rustc.
-            _ if place.has_index() => {}
-            _ => {
-                let mid = self.table.mid(location);
-                for (index, loan) in self.loans.iter().enumerate() {
-                    if places_conflict(place, AccessKind::Move, &loan.place, loan.mutability) {
-                        self.all.loan_killed_at.push((Loan(index), mid));
-                    }
+        // `a[i] = ..` may write another element than a loan's `a[j]`: it kills nothing, as
+        // in rustc. Otherwise the write kills the loans of the places it overlaps: every
+        // loan of the local for a bare local or `*r`.
+        if !place.has_index() {
+            let mid = self.table.mid(location);
+            for (index, loan) in self.loans.iter().enumerate() {
+                if places_conflict(place, AccessKind::Move, &loan.place, loan.mutability) {
+                    self.all.loan_killed_at.push((Loan(index), mid));
                 }
             }
         }
@@ -883,7 +880,9 @@ impl Generator<'_> {
 }
 
 /// The locations where each local is used as an operand or as the base of a borrowed
-/// place.
+/// place, for the activations of two-phase borrows: a temporary used exactly once. A
+/// `switchInt`'s discriminant is an integer, never such a borrow's temporary (a
+/// reference), so it is not counted.
 fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
     let mut uses: HashMap<Local, Vec<Location>> = HashMap::default();
     let mut add = |place: &Place, at: Location| uses.entry(place.local).or_default().push(at);
@@ -923,16 +922,10 @@ fn operand_uses(body: &Body) -> HashMap<Local, Vec<Location>> {
             }
         }
         let at = Location::terminator_of(body, bb);
-        match data.terminator.as_ref().map(|t| &t.kind) {
-            Some(TerminatorKind::Call { args, .. }) => {
-                args.iter()
-                    .filter_map(Operand::place)
-                    .for_each(|p| add(p, at));
-            }
-            Some(TerminatorKind::SwitchInt { discr, .. }) => {
-                discr.place().into_iter().for_each(|p| add(p, at));
-            }
-            _ => {}
+        if let Some(TerminatorKind::Call { args, .. }) = data.terminator.as_ref().map(|t| &t.kind) {
+            args.iter()
+                .filter_map(Operand::place)
+                .for_each(|p| add(p, at));
         }
     }
     uses
@@ -983,11 +976,16 @@ pub fn places_conflict(
     if kind == AccessKind::SliceLen && borrowed.projection.len() > access.projection.len() {
         return false;
     }
-    if kind.is_shallow() && borrowed.projection.len() > access.projection.len() {
-        let rest = &borrowed.projection[access.projection.len()..];
-        if rest.contains(&PlaceElem::Deref) {
-            return false;
-        }
+    // A shallow access stops at a dereference in the loan's projections past its own (there
+    // are none when the loan's place is no longer).
+    if kind.is_shallow()
+        && borrowed
+            .projection
+            .iter()
+            .skip(access.projection.len())
+            .any(|elem| *elem == PlaceElem::Deref)
+    {
+        return false;
     }
     kind.conflicts_with(loan_mutability)
 }

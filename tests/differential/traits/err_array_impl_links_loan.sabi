@@ -1,0 +1,18 @@
+// A generic trait's impl for an array names its parameter as the element type and in the
+// trait: the result of `Wrap::Wrap(&x)` holds the loan of `x`.
+trait Wrap<T> {
+    fn Wrap(t: T) -> Self;
+}
+
+impl<T> Wrap<T> for [T; 1] {
+    fn Wrap(t: T) -> [T; 1] {
+        [t]
+    }
+}
+
+fn Main() {
+    let mut x = 1;
+    let w: [&i32; 1] = Wrap::Wrap(&x);
+    x = 2;
+    PrintLine(*w[0]);
+}

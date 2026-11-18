@@ -958,6 +958,10 @@ impl MoveChecker<'_> {
     /// Whether the move at `site` is of a `&mut T` local into a call's argument: the
     /// temporary it is moved into is moved into a call. A parameter whose type is not
     /// known to be a reference at the call (a type parameter's) moves the argument.
+    ///
+    /// Call arguments are always temporaries, so the destination need not be checked for
+    /// one: a call moves no user binding, parameter or return place (`let s = r;` into a
+    /// binding is [`Self::is_plain_let_of_mut_ref`]'s, asked first).
     fn is_mut_ref_moved_into_call(&self, site: MoveSite, moved_ty: &Ty) -> bool {
         if !matches!(moved_ty, Ty::Ref(Mutability::Mut, _))
             || !self.paths.path(site.path).place.is_local()
@@ -972,9 +976,6 @@ impl MoveChecker<'_> {
         else {
             return false;
         };
-        if !dest.is_local() || self.body.local_decl(dest.local).kind != LocalKind::Temp {
-            return false;
-        }
         self.body.blocks.iter().any(|b| {
             matches!(
                 &b.terminator,

@@ -1,0 +1,36 @@
+[E0415] Error: lifetime may not live long enough
+   ╭─[ tests/ui/borrowck/loan_elision_through_tuple_fields.sabi:6:5 ]
+   │
+ 6 │     *o = (*t.0).1; //~ ERROR E0415 lifetime may not live long enough
+   │     ──────┬──────  
+   │           ╰──────── requires that the data `t.0.1` points to outlives the data `*o` points to
+   │ 
+   │ Note: the reference assigned here must not outlive the data it points to; explicit lifetimes are planned for Phase 9
+───╯
+[E0415] Error: lifetime may not live long enough
+    ╭─[ tests/ui/borrowck/loan_elision_through_tuple_fields.sabi:10:5 ]
+    │
+ 10 │     *o = (*t.1).1.1; //~ ERROR E0415 lifetime may not live long enough
+    │     ───────┬───────  
+    │            ╰───────── requires that the data `t.1.1.1` points to outlives the data `*o` points to
+    │ 
+    │ Note: the reference assigned here must not outlive the data it points to; explicit lifetimes are planned for Phase 9
+────╯
+[E0415] Error: lifetime may not live long enough
+    ╭─[ tests/ui/borrowck/loan_elision_through_tuple_fields.sabi:14:5 ]
+    │
+ 14 │     *t.1 = o; //~ ERROR E0415 lifetime may not live long enough
+    │     ────┬───  
+    │         ╰───── requires that the data `o` points to outlives the data `*t.1` points to
+    │ 
+    │ Note: the reference assigned here must not outlive the data it points to; explicit lifetimes are planned for Phase 9
+────╯
+[E0415] Error: lifetime may not live long enough
+    ╭─[ tests/ui/borrowck/loan_elision_through_tuple_fields.sabi:18:5 ]
+    │
+ 18 │     (*t.1).1 = o; //~ ERROR E0415 lifetime may not live long enough
+    │     ──────┬─────  
+    │           ╰─────── requires that the data `o` points to outlives the data `t.1.1` points to
+    │ 
+    │ Note: the reference assigned here must not outlive the data it points to; explicit lifetimes are planned for Phase 9
+────╯

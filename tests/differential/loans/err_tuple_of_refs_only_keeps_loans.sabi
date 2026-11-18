@@ -1,0 +1,8 @@
+// A tuple whose every element is a reference holds the loans of all of them.
+fn Main() {
+    let mut a = 1;
+    let b = 2;
+    let t = (&a, &b);
+    a = 3;
+    PrintLine(*t.0 + *t.1);
+}

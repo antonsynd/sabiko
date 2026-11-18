@@ -116,4 +116,10 @@ exclude_re = [
     "sabiko_types/src/ty\\.rs:\\d+:\\d+: replace \\|\\| with && in Ty::subst$",
     # #142: the trait's default `generics` already returns an empty vector.
     "sabiko_types/src/usefulness\\.rs:\\d+:\\d+: replace PatCx::generics -> Vec<DefId> with vec!\\[\\]$",
+    # sabiko_borrowck: equivalent mutants (#166), each argued in docs/TESTING.md, Mutation
+    # testing (nightly runs 27 to 32): the placeholder loans' numbering, which only
+    # Polonius' location-insensitive pass reads, and the two-phase reservation's first
+    # point taken as the borrow's own, where no read happens.
+    "sabiko_borrowck/src/loans/facts\\.rs:\\d+:46: replace \\+ with \\* in Generator<'_>::universal_regions$",
+    "sabiko_borrowck/src/loans/facts\\.rs:\\d+:\\d+: replace \\+ with \\* in LoanData::is_reserved_at$",
 ]

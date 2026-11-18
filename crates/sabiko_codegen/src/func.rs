@@ -641,10 +641,24 @@ impl FnCx<'_, '_> {
                     self.op("ldstr \"()\"", 0, 1);
                     Some("string")
                 } else {
+                    // `FailDebug`'s overloads: the integer types and `bool`, the primitive
+                    // types `library/core/fmt.sabi` implements `Debug` for.
                     let overload = match ty {
-                        Ty::Prim(p) if p.int_bits().is_some() || *p == PrimTy::Bool => {
-                            types::prim_type(*p)
-                        }
+                        Ty::Prim(
+                            p @ (PrimTy::I8
+                            | PrimTy::I16
+                            | PrimTy::I32
+                            | PrimTy::I64
+                            | PrimTy::I128
+                            | PrimTy::Isize
+                            | PrimTy::U8
+                            | PrimTy::U16
+                            | PrimTy::U32
+                            | PrimTy::U64
+                            | PrimTy::U128
+                            | PrimTy::Usize
+                            | PrimTy::Bool),
+                        ) => types::prim_type(*p),
                         _ => None,
                     };
                     if overload.is_some() {

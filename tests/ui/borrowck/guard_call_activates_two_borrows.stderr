@@ -1,0 +1,25 @@
+[E0419] Error: cannot mutably borrow `*r` in match guard
+    ╭─[ tests/ui/borrowck/guard_call_activates_two_borrows.sabi:11:17 ]
+    │
+  9 │ ╭─▶         1 if match *s {
+    ┆ ┆   
+ 11 │ │                   G(r, s);
+    │ │                   ───┬───  
+    │ │                      ╰───── cannot mutably borrow
+    ┆ ┆   
+ 17 │ ├─▶         } => 1,
+    │ │                     
+    │ ╰───────────────────── value is immutable in match guard: `*r`
+────╯
+[E0419] Error: cannot mutably borrow `*s` in match guard
+    ╭─[ tests/ui/borrowck/guard_call_activates_two_borrows.sabi:11:17 ]
+    │
+ 10 │ ╭─▶             2 if {
+ 11 │ │                   G(r, s);
+    │ │                   ───┬───  
+    │ │                      ╰───── cannot mutably borrow
+    ┆ ┆   
+ 15 │ ├─▶             } => true,
+    │ │                            
+    │ ╰──────────────────────────── value is immutable in match guard: `*s`
+────╯

@@ -1,0 +1,11 @@
+// A tuple holds the references of a struct instance inside it.
+struct W<T> {
+    F: T,
+}
+
+fn Main() {
+    let mut x = 1;
+    let t: (W<&i32>, i32) = (W { F: &x }, 0);
+    x = 2;
+    PrintLine(*t.0.F);
+}

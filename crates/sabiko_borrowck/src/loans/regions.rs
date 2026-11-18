@@ -547,15 +547,10 @@ fn link_pattern(
                 link_pattern(t, r, params, bound, header, out);
             }
         }
-        // A part without references: the parameters in it hold none either.
-        (pat, RegionTy::Other) => {
-            let _ = pat.map_params(&mut |p| {
-                if let Some(i) = params.iter().position(|&q| q == p) {
-                    bound[i].get_or_insert(RegionTy::Other);
-                }
-                None
-            });
-        }
+        // A part without references (`RegionTy::Other`): the parameters in it hold none
+        // either, which an unbound parameter's `Other` already says. Each occurrence of a
+        // parameter has a region type of the same type, so one in such a part is `Other`
+        // everywhere, and its later occurrences relate nothing.
         _ => {}
     }
 }
@@ -637,7 +632,8 @@ impl<'a> Params<'a> {
             Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
                 RegionTy::Tuple(vec![self.fresh(elem, supply)])
             }
-            Ty::Adt(def, args) if self.holds_ref(ty) => {
+            // `RegionTy::adt` is `Other` when no argument holds a reference.
+            Ty::Adt(def, args) => {
                 let args = args.iter().map(|a| self.fresh(a, supply)).collect();
                 RegionTy::adt(*def, args, self.items)
             }
@@ -660,7 +656,8 @@ impl<'a> Params<'a> {
             Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
                 RegionTy::Tuple(vec![self.uniform(elem, origin)])
             }
-            Ty::Adt(def, args) if self.holds_ref(ty) => {
+            // `RegionTy::adt` is `Other` when no argument holds a reference.
+            Ty::Adt(def, args) => {
                 let args = args.iter().map(|a| self.uniform(a, origin)).collect();
                 RegionTy::adt(*def, args, self.items)
             }
