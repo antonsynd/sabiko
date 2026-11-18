@@ -107,11 +107,11 @@
     │            ╰─── expected `{integer}`, found `bool`
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/error_propagation.sabi:53:15 ]
+    ╭─[ tests/ui/typeck/error_propagation.sabi:52:9 ]
     │
- 53 │     PrintLine(&x); //~ ERROR E0313 type annotations needed
-    │               ─┬  
-    │                ╰── cannot infer the type of this argument to `PrintLine`
+ 52 │     let x; //~ ERROR E0313 type annotations needed
+    │         ┬  
+    │         ╰── consider giving `x` an explicit type
 ────╯
 [E0300] Error: mismatched types
     ╭─[ tests/ui/typeck/error_propagation.sabi:59:13 ]

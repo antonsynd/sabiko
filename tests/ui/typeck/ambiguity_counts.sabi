@@ -1,0 +1,99 @@
+// Sabiko's E0313 for rustc's E0282, E0283 and E0284, counted as rustc counts them (#159).
+// A body's ambiguities are reported together once it is checked, in source order, and none
+// in a body with another error. Each obligation whose `Self` type is known (`S: Tr<_>` of
+// `S.Mk()`) is reported, at the local it leaves open if there is one; one whose `Self` is
+// unknown (a local's type, `_: Add<i32>`, `_: Display`, a function's type parameter) only
+// when nothing was reported before it.
+enum Opt<T> {
+    No,
+    Yes(T),
+}
+
+struct S;
+
+trait Tr<T> {
+    fn Mk(&self) -> T;
+}
+
+impl Tr<i32> for S {
+    fn Mk(&self) -> i32 {
+        1
+    }
+}
+
+impl Tr<i64> for S {
+    fn Mk(&self) -> i64 {
+        2
+    }
+}
+
+trait Show {
+    fn Sh(&self) -> i32;
+}
+
+impl Show for i32 {
+    fn Sh(&self) -> i32 {
+        1
+    }
+}
+
+impl Show for i64 {
+    fn Sh(&self) -> i32 {
+        2
+    }
+}
+
+fn G<T: Show>(x: T) -> i32 {
+    1
+}
+
+fn Mk2<T>() -> T {
+    loop {}
+}
+
+fn TwoLocals() {
+    let a = Opt::No; //~ ERROR E0313 type annotations needed
+    let b = Opt::No;
+}
+
+fn LocalThenKnownSelf() {
+    let a = Opt::No; //~ ERROR E0313 type annotations needed
+    let w = S.Mk(); //~ ERROR E0313 type annotations needed
+    let v = S.Mk(); //~ ERROR E0313 type annotations needed
+}
+
+fn KnownSelfThenLocal() {
+    let w = S.Mk(); //~ ERROR E0313 type annotations needed
+    let a = Opt::No;
+}
+
+fn OperationsOnOneLocal() {
+    let w = S.Mk(); //~ ERROR E0313 type annotations needed
+    let b = w + 1 + 2;
+    let c = (w + 1) * (w + 2);
+}
+
+fn PrintedThenKnownSelf() {
+    PrintLine(Mk2()); //~ ERROR E0313 type annotations needed
+    PrintLine(Mk2());
+    let w = S.Mk(); //~ ERROR E0313 type annotations needed
+}
+
+fn BoundTwice() {
+    let x = G(Mk2()); //~ ERROR E0313 type annotations needed
+    let y = G(Mk2());
+}
+
+fn ErrorFirst() {
+    let b: i32 = true; //~ ERROR E0300 mismatched types
+    let w = S.Mk();
+    let a = Opt::No;
+}
+
+// rustc's E0369: `S` has no `Add` impl, whatever the right operand becomes.
+fn NoImplForTheLeftType() {
+    let w = S.Mk();
+    let b = S + w; //~ ERROR E0306 binary operation `+` cannot be applied to type `S`
+}
+
+fn Main() {}

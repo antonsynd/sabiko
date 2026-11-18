@@ -1927,6 +1927,30 @@ results and deferred reference comparisons vs rustc's operator traits; with #117
 limit rejects valid deep instances), #163 (cleanups); error-count differences added to
 #159.
 
+Update (2026-11-18): never-type fallback inside generic constructors and rustc's counts of
+unresolved types (#151, #159, decision 102). A variable a diverging expression is coerced
+to is diverging (rustc's `NeverToAny` adjustment), wherever the coercion is, so
+`Opt::Yes(Panic(..))`, `W { V: return 3 }` and `Id(loop {})` fall back to `!` and compile
+as in rustc; `!` failing a bound or an operator is an error then (`G(return)` for `G<T:
+Show>`), and in a body tainted by errors the fallback is an error type, as rustc's
+(differential `never/ok_never_fallback_in_generic_constructors`, run-time
+`run/control/never_fallback_in_generic_constructors`, UI
+`typeck/never_fallback_in_generic_constructors`). Building such a value where it can
+run (`if c { Opt::Yes(return) } else { Opt::No }`) reaches codegen's E0500 for a field of
+type `!` (#158). The types left unknown are collected when a body is done and reported as
+rustc reports its ambiguities: none after another error, in source order, each with a
+known `Self` (`S: Tr<_>`) and only a first of the others, so a body reports one E0282
+however many locals stay open, a failed bound taints the batch, and `w + 1 + 2` on an open
+`w` is one error (UI `typeck/ambiguity_counts`; the counts of 60 programs agree with
+rustc's, spans included where rustc points at a local). `S + w` with `S` a struct is E0306
+at once (rustc's E0369). In a trait's provided method every place rustc needs `Self`
+sized is E0208, once per place: calls returning `Self`, generic arguments holding it,
+calls and paths building a struct or enum of it, types naming one even behind a reference
+(`&W<Self>`); before, `Self::Make();`, `Id(Self::Make())`, `ByRef(self)` and `fn L(w:
+&W<Self>)` compiled although rustc rejects them (UI `typeck/trait_self_sized_in_expressions`,
+51 programs agreeing with rustc's counts). Left in #159: the follow-on errors after a
+supertrait cycle and the counts at an overflowing signature.
+
 ### Phase 7: Ownership runtime: Box, Gc, Cell/RefCell, arenas
 
 Work

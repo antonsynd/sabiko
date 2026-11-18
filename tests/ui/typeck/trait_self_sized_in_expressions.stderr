@@ -1,0 +1,135 @@
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:30:9 ]
+    │
+ 30 │         Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ──────┬─────  
+    │               ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:35:12 ]
+    │
+ 35 │         Id(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │            ──────┬─────  
+    │                  ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:40:9 ]
+    │
+ 40 │         Opt::Yes(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ───────────┬──────────  
+    │                    ╰──────────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:40:18 ]
+    │
+ 40 │         Opt::Yes(Self::Make()); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                  ──────┬─────  
+    │                        ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:46:16 ]
+    │
+ 46 │         let o: Opt<Self> = Opt::No; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                ────┬────  
+    │                    ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:46:28 ]
+    │
+ 46 │         let o: Opt<Self> = Opt::No; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                            ───┬───  
+    │                               ╰───── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:52:16 ]
+    │
+ 52 │         W { V: Self::Make() }; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                ──────┬─────  
+    │                      ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:57:18 ]
+    │
+ 57 │         let r = &Self::Make(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                  ──────┬─────  
+    │                        ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:62:9 ]
+    │
+ 62 │         Self::Make().Peek() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ──────┬─────  
+    │               ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:65:33 ]
+    │
+ 65 │     fn ParameterBehindReference(w: &W<Self>) -> i32 { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │                                 ─────┬─────  
+    │                                      ╰─────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:70:9 ]
+    │
+ 70 │         ByRef(self) //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ──┬──  
+    │           ╰──── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:74:9 ]
+    │
+ 74 │         self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ─────┬────  
+    │              ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:75:9 ]
+    │
+ 75 │         self.Get().Peek() //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │         ─────┬────  
+    │              ╰────── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+    ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:80:13 ]
+    │
+ 80 │         let x = self.Get(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+    │             ┬  
+    │             ╰── doesn't have a size known at compile-time
+    │ 
+    │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+────╯
+[E0208] Error: the size for values of type `Self` cannot be known at compilation time
+     ╭─[ tests/ui/typeck/trait_self_sized_in_expressions.sabi:102:9 ]
+     │
+ 102 │         Self::Mk(); //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
+     │         ─────┬────  
+     │              ╰────── doesn't have a size known at compile-time
+     │ 
+     │ Note: in a trait's provided method, `Self` is taken and returned behind a reference; `where Self: Sized` is not supported yet
+─────╯

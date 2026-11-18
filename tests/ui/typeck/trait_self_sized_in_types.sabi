@@ -1,7 +1,8 @@
 // Sabiko's E0208 for rustc's E0277. In a trait's provided method `Self` may be unsized,
 // so it cannot be a struct's type argument either: the struct holds it by value
-// (`holds_by_value`), in a parameter, the return type or a local.
-// rustc also reports the literal in `Back`'s body (#159).
+// (`holds_by_value`), in a parameter or the return type. In a body the call returning
+// `Self` is reported, the literal's field of type `T` at the same place, and a local
+// holding a `W<Self>` is not reported again, as in rustc (#159).
 struct W<T> {
     V: T,
 }
@@ -12,7 +13,7 @@ trait Make {
         1
     }
     fn Back() -> W<Self> { //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
-        W { V: Self::Make() }
+        W { V: Self::Make() } //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time
     }
     fn Local() -> i32 {
         let w = W { V: Self::Make() }; //~ ERROR E0208 the size for values of type `Self` cannot be known at compilation time

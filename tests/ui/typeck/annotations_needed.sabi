@@ -1,9 +1,10 @@
 // A `let` whose type nothing constrains is an error; deferred initialisation and diverging initialisers are fine.
+// One report per body, as rustc's E0282 (#159): `y`, `z` and the locals sharing `z`'s
+// type are not reported after `x`.
 fn Main() {
     let x; //~ ERROR E0313 type annotations needed
-    let y: _; //~ ERROR E0313 type annotations needed
-    // One report per unknown type: `w` and `v` share `z`'s problem.
-    let z; //~ ERROR E0313 type annotations needed
+    let y: _;
+    let z;
     let w = z;
     let v: &_ = &w;
 }

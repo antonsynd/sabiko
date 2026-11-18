@@ -836,9 +836,17 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   names a parameter twice keeps the loans through it (`fn G<T, U: From<T>>(t: T) -> U`
   called with `&x` returns a reference borrowing `x`). Every type parameter but a
   trait's `Self` is implicitly `Sized`: `str` or a slice as a generic argument is E0208
-  (rustc's E0277). A trait's `Self` is not, as in rustc: a provided method whose
-  parameters, return type or locals hold a `Self` by value is E0208 (a required method may
-  take and return `Self`); `where Self: Sized`, rustc's way out, is E0107 for now.
+  (rustc's E0277). A trait's `Self` is not, as in rustc: in a provided method each place
+  rustc needs it sized is E0208, once per place (a required method may take and return
+  `Self`): a parameter or the return type holding a `Self` by value or naming a struct or
+  enum of one (`&W<Self>`), a type written in a `let` naming one, a local or tuple of an
+  unsized type (`Self`, or a tuple ending in it), the first call returning `Self` in a
+  body, a method call returning `Self` that is not bound to a local (only when nothing
+  else in the body is reported, as rustc's E0161 comes from its borrow checker), a
+  generic argument holding `Self` (`Id(Self::Make())`, `ByRef(self)` for `fn ByRef<T>(x:
+  &T)`), and a call or path building a struct or enum holding `Self` (`Opt::Yes(..)`,
+  `Opt::No`); a reference to `Self` is fine (#159). `where Self: Sized`, rustc's way out,
+  is E0107 for now.
 - Method calls through traits: the receiver is dereferenced step by step, and at each
   step its type is tried by value, then behind `&`, then behind `&mut`, against the
   inherent method of the innermost struct or enum first and then every trait method of
@@ -911,6 +919,11 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   element without an expected type gets a fresh type that its uses decide, and `!` when
   none does: edition 2024's never-type fallback (decision 74; 2021 fell back to `()`), so
   `let v = match n { _ => return }; PrintLine(v);` is accepted (`!` prints, never runs).
+  So does any type variable a diverging expression is coerced to (rustc's `NeverToAny`):
+  a generic argument (`Opt::Yes(Panic("x"))`, `W { V: return 3 }`, `Id(loop {})`), a
+  block's tail, `_` in an annotation (#151, decision 102); what `!` then lacks is an
+  error (`G(return)` for `G<T: Show>`, rustc's E0277). In a body with another error the
+  fallback gives an error type instead, as rustc's does, and nothing more is reported.
 - `Print(x)` and `PrintLine(x)` take one argument of a printable type (integers, floats,
   `bool`, `char`, `&str`) or a reference to one through any number of references (`&5`,
   `&&s`, `&mut f`), printed as what it points to (rustc's `Display` for `&T` and `&mut T`,
@@ -936,6 +949,14 @@ under `tests/ui/resolve` or `tests/ui/typeck`.
   (`let x; x = 1;`) is allowed; the type comes from the assignment. So is a value no
   local holds whose type nothing constrains (`let _ = [];`, `(_, _) = (x, [])`, rustc's
   E0282): the innermost such expression is reported, once per body (#78).
+  The types inference leaves unknown are reported together when the body is checked, as
+  rustc reports its ambiguous obligations (decision 102, #159): none in a body with another
+  error; else, in source order, each one whose obligation has a known `Self` type
+  (`S: Tr<_>` of `S.Mk()` with two impls, rustc's E0283), at the local it leaves open if
+  there is one, and of the others (a local's or a generic argument's type, an open
+  operator's left operand, a printed value) only one that comes before any other report.
+  So `let a = Opt::No; let b = Opt::No;` is one error, `let w = S.Mk(); let v = S.Mk();`
+  two, and `let w = S.Mk(); let b = w + 1 + 2;` one.
 - Arrays and slices (#9). `[T; N]` has a length `N` that is a `usize` constant
   expression: literals, `const` items (associated ones too) and constant arithmetic
   (another type is E0300,

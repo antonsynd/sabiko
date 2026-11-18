@@ -1,63 +1,49 @@
 [E0313] Error: type annotations needed
-   ╭─[ tests/ui/typeck/annotations_needed.sabi:3:9 ]
+   ╭─[ tests/ui/typeck/annotations_needed.sabi:5:9 ]
    │
- 3 │     let x; //~ ERROR E0313 type annotations needed
+ 5 │     let x; //~ ERROR E0313 type annotations needed
    │         ┬  
    │         ╰── consider giving `x` an explicit type
 ───╯
 [E0313] Error: type annotations needed
-   ╭─[ tests/ui/typeck/annotations_needed.sabi:4:9 ]
-   │
- 4 │     let y: _; //~ ERROR E0313 type annotations needed
-   │         ┬  
-   │         ╰── consider giving `y` an explicit type
-───╯
-[E0313] Error: type annotations needed
-   ╭─[ tests/ui/typeck/annotations_needed.sabi:6:9 ]
-   │
- 6 │     let z; //~ ERROR E0313 type annotations needed
-   │         ┬  
-   │         ╰── consider giving `z` an explicit type
-───╯
-[E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:40:18 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:41:18 ]
     │
- 40 │     let w: i32 = v[0]; //~ ERROR E0313 type annotations needed
+ 41 │     let w: i32 = v[0]; //~ ERROR E0313 type annotations needed
     │                  ┬  
     │                  ╰── the type of the indexed value must be known
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:47:18 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:48:18 ]
     │
- 47 │     (_, _) = (x, []); //~ ERROR E0313 type annotations needed
+ 48 │     (_, _) = (x, []); //~ ERROR E0313 type annotations needed
     │                  ─┬  
     │                   ╰── cannot infer the type of this expression
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:51:9 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:52:9 ]
     │
- 51 │     let _ = ([], []); //~ ERROR E0313 type annotations needed
+ 52 │     let _ = ([], []); //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving this pattern a type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:55:9 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:56:9 ]
     │
- 55 │     let _ = &[][..]; //~ ERROR E0313 type annotations needed
+ 56 │     let _ = &[][..]; //~ ERROR E0313 type annotations needed
     │         ┬  
     │         ╰── consider giving this pattern a type
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:59:5 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:60:5 ]
     │
- 59 │     []; //~ ERROR E0313 type annotations needed
+ 60 │     []; //~ ERROR E0313 type annotations needed
     │     ─┬  
     │      ╰── cannot infer the type of this expression
 ────╯
 [E0313] Error: type annotations needed
-    ╭─[ tests/ui/typeck/annotations_needed.sabi:63:5 ]
+    ╭─[ tests/ui/typeck/annotations_needed.sabi:64:5 ]
     │
- 63 │     [].len() //~ ERROR E0313 type annotations needed
+ 64 │     [].len() //~ ERROR E0313 type annotations needed
     │     ─┬  
     │      ╰── cannot infer the type of this expression
 ────╯
