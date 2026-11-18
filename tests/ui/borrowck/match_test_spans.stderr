@@ -1,0 +1,549 @@
+[E0411] Error: cannot use `o.0` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:18:12 ]
+    │
+ 17 │     let q = &mut o;
+    │             ───┬──  
+    │                ╰──── `o` is borrowed here
+ 18 │     if let Some(3) = o {}
+    │            ───┬───  
+    │               ╰───── use of borrowed `o`
+    │ 
+ 21 │     *q = None;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `o` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:18:22 ]
+    │
+ 17 │     let q = &mut o;
+    │             ───┬──  
+    │                ╰──── `o` is borrowed here
+ 18 │     if let Some(3) = o {}
+    │                      ┬  
+    │                      ╰── use of borrowed `o`
+    │ 
+ 21 │     *q = None;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `e.0.0` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:27:15 ]
+    │
+ 26 │     let q = &mut e;
+    │             ───┬──  
+    │                ╰──── `e` is borrowed here
+ 27 │     while let E::W(Some(1)) = e {}
+    │               ──────┬──────  
+    │                     ╰──────── use of borrowed `e`
+    │ 
+ 31 │     *q = E::V;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `e` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:27:31 ]
+    │
+ 26 │     let q = &mut e;
+    │             ───┬──  
+    │                ╰──── `e` is borrowed here
+ 27 │     while let E::W(Some(1)) = e {}
+    │                               ┬  
+    │                               ╰── use of borrowed `e`
+    │ 
+ 31 │     *q = E::V;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `e.0` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:27:31 ]
+    │
+ 26 │     let q = &mut e;
+    │             ───┬──  
+    │                ╰──── `e` is borrowed here
+ 27 │     while let E::W(Some(1)) = e {}
+    │                               ┬  
+    │                               ╰── use of borrowed `e`
+    │ 
+ 31 │     *q = E::V;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `t.0` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:37:9 ]
+    │
+ 36 │     let q = &mut t;
+    │             ───┬──  
+    │                ╰──── `t` is borrowed here
+ 37 │     let (1, Some(x)) = t else {
+    │         ──────┬─────  
+    │               ╰─────── use of borrowed `t`
+    │ 
+ 43 │     *q = (0, None);
+    │     ───────┬──────  
+    │            ╰──────── borrow later used here
+────╯
+[E0411] Error: cannot use `t.1.0` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:37:18 ]
+    │
+ 36 │     let q = &mut t;
+    │             ───┬──  
+    │                ╰──── `t` is borrowed here
+ 37 │     let (1, Some(x)) = t else {
+    │                  ┬  
+    │                  ╰── use of borrowed `t`
+    │ 
+ 43 │     *q = (0, None);
+    │     ───────┬──────  
+    │            ╰──────── borrow later used here
+────╯
+[E0411] Error: cannot use `t.1` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:37:24 ]
+    │
+ 36 │     let q = &mut t;
+    │             ───┬──  
+    │                ╰──── `t` is borrowed here
+ 37 │     let (1, Some(x)) = t else {
+    │                        ┬  
+    │                        ╰── use of borrowed `t`
+    │ 
+ 43 │     *q = (0, None);
+    │     ───────┬──────  
+    │            ╰──────── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:49:5 ]
+    │
+ 48 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+ 49 │     match x {
+    │     ───┬───  
+    │        ╰───── use of borrowed `x`
+    │ 
+ 54 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:51:13 ]
+    │
+ 48 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 51 │         1 | 2..=4 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │             ──┬──  
+    │               ╰──── use of borrowed `x`
+    │ 
+ 54 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:61:9 ]
+    │
+ 59 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 61 │         ..5 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │         ─┬─  
+    │          ╰─── use of borrowed `x`
+    │ 
+ 64 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:62:9 ]
+    │
+ 59 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 62 │         1.. => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │         ─┬─  
+    │          ╰─── use of borrowed `x`
+    │ 
+ 64 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:70:5 ]
+    │
+ 69 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+ 70 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │     ───┬───  
+    │        ╰───── use of borrowed `x`
+    │ 
+ 75 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:81:5 ]
+    │
+ 80 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+ 81 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │     ───┬───  
+    │        ╰───── use of borrowed `x`
+    │ 
+ 87 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:83:9 ]
+    │
+ 80 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 83 │         2..=4 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │         ──┬──  
+    │           ╰──── use of borrowed `x`
+    │ 
+ 87 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:94:9 ]
+    │
+ 92 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 94 │         2..=4 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │         ──┬──  
+    │           ╰──── use of borrowed `x`
+    │ 
+ 98 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/match_test_spans.sabi:95:9 ]
+    │
+ 92 │     let q = &mut x;
+    │             ───┬──  
+    │                ╰──── `x` is borrowed here
+    │ 
+ 95 │         5..=6 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+    │         ──┬──  
+    │           ╰──── use of borrowed `x`
+    │ 
+ 98 │     *q = 1;
+    │     ───┬──  
+    │        ╰──── borrow later used here
+────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:104:5 ]
+     │
+ 103 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 104 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 109 │     *q = 'a';
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:106:9 ]
+     │
+ 103 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 106 │         'c'..='e' => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ────┬────  
+     │             ╰────── use of borrowed `x`
+     │ 
+ 109 │     *q = 'a';
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:115:5 ]
+     │
+ 114 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 115 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 119 │     *q = false;
+     │     ─────┬────  
+     │          ╰────── borrow later used here
+─────╯
+[E0411] Error: cannot use `x.0` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:125:5 ]
+     │
+ 124 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 125 │     match x {
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 132 │     *q = (0, 0);
+     │     ─────┬─────  
+     │          ╰─────── borrow later used here
+─────╯
+[E0411] Error: cannot use `x.1` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:125:5 ]
+     │
+ 124 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 125 │     match x {
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 132 │     *q = (0, 0);
+     │     ─────┬─────  
+     │          ╰─────── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:139:9 ]
+     │
+ 137 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 139 │         1.0 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ─┬─  
+     │          ╰─── use of borrowed `x`
+     │ 
+ 143 │     *q = 0.0;
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:140:9 ]
+     │
+ 137 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 140 │         2.0 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ─┬─  
+     │          ╰─── use of borrowed `x`
+     │ 
+ 143 │     *q = 0.0;
+     │     ────┬───  
+     │         ╰───── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:149:5 ]
+     │
+ 148 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 149 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 154 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:151:9 ]
+     │
+ 148 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 151 │         2..=4 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ──┬──  
+     │           ╰──── use of borrowed `x`
+     │ 
+ 154 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:160:5 ]
+     │
+ 159 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 160 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 166 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:161:9 ]
+     │
+ 159 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 161 │         2..=4 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ──┬──  
+     │           ╰──── use of borrowed `x`
+     │ 
+ 166 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:163:9 ]
+     │
+ 159 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 163 │         7..=8 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ──┬──  
+     │           ╰──── use of borrowed `x`
+     │ 
+ 166 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:172:5 ]
+     │
+ 171 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 172 │     match x { //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 179 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:175:9 ]
+     │
+ 171 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 175 │         3..=4 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ──┬──  
+     │           ╰──── use of borrowed `x`
+     │ 
+ 179 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:186:9 ]
+     │
+ 184 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 186 │         ..5 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ─┬─  
+     │          ╰─── use of borrowed `x`
+     │ 
+ 190 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:187:9 ]
+     │
+ 184 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 187 │         ..7 => {} //~ ERROR E0411 cannot use `x` because it was mutably borrowed
+     │         ─┬─  
+     │          ╰─── use of borrowed `x`
+     │ 
+ 190 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:196:12 ]
+     │
+ 195 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 196 │     if let 1 | 2..=4 = x {}
+     │            ────┬────  
+     │                ╰────── use of borrowed `x`
+     │ 
+ 199 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:196:16 ]
+     │
+ 195 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 196 │     if let 1 | 2..=4 = x {}
+     │                ──┬──  
+     │                  ╰──── use of borrowed `x`
+     │ 
+ 199 │     *q = 1;
+     │     ───┬──  
+     │        ╰──── borrow later used here
+─────╯
+[E0411] Error: cannot use `x.0` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:205:5 ]
+     │
+ 204 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+ 205 │     match x {
+     │     ───┬───  
+     │        ╰───── use of borrowed `x`
+     │ 
+ 211 │     *q = (0, 0);
+     │     ─────┬─────  
+     │          ╰─────── borrow later used here
+─────╯
+[E0411] Error: cannot use `x.1` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:207:13 ]
+     │
+ 204 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 207 │         (1, 2..=3) => {} //~ ERROR E0411 cannot use `x.1` because it was mutably borrowed
+     │             ──┬──  
+     │               ╰──── use of borrowed `x`
+     │ 
+ 211 │     *q = (0, 0);
+     │     ─────┬─────  
+     │          ╰─────── borrow later used here
+─────╯
+[E0411] Error: cannot use `x.1` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/match_test_spans.sabi:208:13 ]
+     │
+ 204 │     let q = &mut x;
+     │             ───┬──  
+     │                ╰──── `x` is borrowed here
+     │ 
+ 208 │         (2, 2..=3) => {} //~ ERROR E0411 cannot use `x.1` because it was mutably borrowed
+     │             ──┬──  
+     │               ╰──── use of borrowed `x`
+     │ 
+ 211 │     *q = (0, 0);
+     │     ─────┬─────  
+     │          ╰─────── borrow later used here
+─────╯

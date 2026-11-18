@@ -32,8 +32,8 @@
 
 use polonius_engine::{AllFacts, FactTypes};
 use sabiko_mir::{
-    AggregateKind, BasicBlock, Body, FakeBorrowKind, Local, LocalKind, Mutability, Operand, Place,
-    PlaceElem, Rvalue, StatementKind, TerminatorKind, Ty,
+    AggregateKind, BasicBlock, Body, FakeBorrowKind, FakeReadCause, Local, LocalKind, Mutability,
+    Operand, Place, PlaceElem, Rvalue, StatementKind, TerminatorKind, Ty,
 };
 use sabiko_resolve::Builtin;
 use sabiko_span::fx::HashMap;
@@ -45,7 +45,7 @@ use super::regions::{
     SigRegions, SiteElem, Variable,
 };
 use crate::dataflow::{self, Dominators, Location};
-use crate::index::{index_base_reads, BaseRead};
+use crate::index::{index_base_read, BaseRead};
 
 /// The atom types the engine is instantiated with.
 #[derive(Clone, Copy, Debug)]
@@ -479,22 +479,29 @@ impl Generator<'_> {
             }
             // `let _ = place;`: a use of the local for liveness only (rustc's
             // `PlaceMention`), so a reference mentioned there keeps its loans live, but no
-            // access: the place is not read, so no loan is invalidated. Only a slice's
-            // length is read for an index's bounds check (decision 96): an array's is
-            // known, and rustc's `FakeRead(ForIndex, a)` conflicts with no loan.
+            // access: the place is not read, so no loan is invalidated.
             StatementKind::PlaceMention(place) => {
                 self.use_local(place.local, location);
-                for read in index_base_reads(place, self.body) {
-                    match read.kind {
-                        BaseRead::Array => {}
-                        BaseRead::SharedSliceRef => {
-                            self.access(&read.place, AccessKind::Read, location);
-                        }
-                        BaseRead::SliceFakeBorrow => {
-                            self.access(&read.place, AccessKind::SliceLen, location);
-                        }
+            }
+            // An index's bounds check (decision 96): only a slice's length is read, an
+            // array's is known, and rustc's `FakeRead(ForIndex, a)` conflicts with no loan.
+            StatementKind::FakeRead(FakeReadCause::ForIndex, base) => {
+                self.use_local(base.local, location);
+                let read = index_base_read(base, self.body);
+                match read.kind {
+                    BaseRead::Array => {}
+                    BaseRead::SharedSliceRef => {
+                        self.access(&read.place, AccessKind::Read, location);
+                    }
+                    BaseRead::SliceFakeBorrow => {
+                        self.access(&read.place, AccessKind::SliceLen, location);
                     }
                 }
+            }
+            // A match test reusing an earlier test's copy reads the place again in rustc.
+            StatementKind::FakeRead(FakeReadCause::ForMatchTest, place) => {
+                self.use_local(place.local, location);
+                self.access(place, AccessKind::Read, location);
             }
             StatementKind::Nop => {}
         }

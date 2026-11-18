@@ -12,7 +12,8 @@ fn Local(x: &i32) -> &i32 {
 
 fn Param(x: &i32, mut a: i32) -> (&mut i32, &mut i32) {
     (
-        &mut a, //~ ERROR E0414 cannot return reference to function parameter `a`
+        //~^ ERROR E0414 cannot return value referencing function parameter `a`
+        &mut a,
         &mut a, //~ ERROR E0409 cannot borrow `a` as mutable more than once at a time
     )
 }

@@ -1,0 +1,8 @@
+// `if let Some(3) = o` reads `o`'s discriminant and its payload: E0503 while `o` is mutably
+// borrowed.
+fn Main() {
+    let mut o = Some(3);
+    let q = &mut o;
+    if let Some(3) = o {}
+    *q = None;
+}

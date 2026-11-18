@@ -1,0 +1,73 @@
+// A returned loan of a local is reported once per loan, as rustc's E0515 (decision 107):
+// "cannot return reference to" at the borrow when the returned value is the borrow itself,
+// and otherwise "cannot return value referencing" at the whole returned value, with the
+// borrow labelled beside it.
+struct P {
+    X: i32,
+}
+
+fn C() -> bool {
+    true
+}
+
+fn TwoBorrowsInATuple(x: &i32, a: i32) -> (&i32, &i32) {
+    (&a, &a)
+    //~^ ERROR E0414 cannot return value referencing function parameter `a`
+    //~^^ ERROR E0414 cannot return value referencing function parameter `a`
+}
+
+fn BorrowOfParameter(x: &i32, a: i32) -> &i32 {
+    &a //~ ERROR E0414 cannot return reference to function parameter `a`
+}
+
+fn BorrowOfLocal(x: &i32) -> &i32 {
+    let a = 1;
+    &a //~ ERROR E0414 cannot return reference to local variable `a`
+}
+
+fn ThroughABinding(x: &i32) -> &i32 {
+    let a = 1;
+    let r = &a;
+    r //~ ERROR E0414 cannot return value referencing local variable `a`
+}
+
+fn BorrowOfField(x: &i32, p: P) -> &i32 {
+    &p.X //~ ERROR E0414 cannot return reference to local data `p.X`
+}
+
+fn BorrowInATuple(x: &i32) -> (&i32, i32) {
+    let a = 1;
+    (&a, 2) //~ ERROR E0414 cannot return value referencing local variable `a`
+}
+
+fn EarlyReturn(x: &i32, a: i32) -> &i32 {
+    if C() {
+        return &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+    }
+    x
+}
+
+fn InAVariant(x: &i32, a: i32) -> Option<&i32> {
+    Some(&a) //~ ERROR E0414 cannot return value referencing function parameter `a`
+}
+
+fn TwoBranches(x: &i32) -> &i32 {
+    let a = 1;
+    let b = 2;
+    if C() {
+        &a //~ ERROR E0414 cannot return reference to local variable `a`
+    } else {
+        &b //~ ERROR E0414 cannot return reference to local variable `b`
+    }
+}
+
+fn ExplicitReturn(x: &i32, a: i32) -> &i32 {
+    return &a; //~ ERROR E0414 cannot return reference to function parameter `a`
+}
+
+fn InABlock(x: &i32) -> &i32 {
+    let a = 1;
+    {
+        &a //~ ERROR E0414 cannot return reference to local variable `a`
+    }
+}

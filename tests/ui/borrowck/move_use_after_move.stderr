@@ -10,14 +10,14 @@
     │ 
     │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
 ────╯
-[E0406] Error: use of moved value: `p.X`
+[E0406] Error: use of moved value: `p`
     ╭─[ tests/ui/borrowck/move_use_after_move.sabi:23:10 ]
     │
  21 │         Take(p);
     │              ┬  
     │              ╰── value moved here
     │ 
- 23 │     Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+ 23 │     Read(p.X); //~ ERROR E0406 use of moved value: `p`
     │          ─┬─  
     │           ╰─── value used here after move
     │ 
@@ -89,13 +89,13 @@
     │ 
     │ Note 2: consider reborrowing: `&mut *r`
 ────╯
-[E0406] Error: use of moved value: `p.X`
+[E0406] Error: use of moved value: `p`
     ╭─[ tests/ui/borrowck/move_use_after_move.sabi:65:10 ]
     │
  64 │     Take(p);
     │          ┬  
     │          ╰── value moved here
- 65 │     Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+ 65 │     Read(p.X); //~ ERROR E0406 use of moved value: `p`
     │          ─┬─  
     │           ╰─── value used here after move
     │ 

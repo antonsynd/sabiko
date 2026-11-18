@@ -2,8 +2,8 @@
 // `FakeRead(ForIndex, base)`, decision 96): the place must be initialised and not moved,
 // and a slice's length read conflicts with a mutable loan of the slice. An array's
 // conflicts with no loan, and a loan of an element leaves a slice's length readable.
-// MIR building also mentions the place before `&a[i]`, `let ref x = a[i]`, `m[i][j]` and
-// `a[i] = v` (of a type with drop glue); there the access that follows reports, as in
+// The read is there before every access through an index (`&a[i]`, `let ref x = a[i]`,
+// `m[i][j]`, `a[i] = v`, decision 107); for moves the access that follows reports, as in
 // rustc, whose later error replaces the bounds check's for the same moves.
 struct Point {
     Inner: f32,

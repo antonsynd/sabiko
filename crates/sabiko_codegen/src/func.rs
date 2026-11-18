@@ -184,6 +184,7 @@ impl Layout {
                             StatementKind::StorageLive(_)
                                 | StatementKind::StorageDead(_)
                                 | StatementKind::PlaceMention(_)
+                                | StatementKind::FakeRead(..)
                                 | StatementKind::Nop
                         )
                     })
@@ -1122,6 +1123,7 @@ impl FnCx<'_, '_> {
                         StatementKind::StorageLive(_)
                             | StatementKind::StorageDead(_)
                             | StatementKind::PlaceMention(_)
+                            | StatementKind::FakeRead(..)
                             | StatementKind::Nop
                     )
                 });
@@ -1181,6 +1183,7 @@ impl FnCx<'_, '_> {
             StatementKind::StorageLive(_)
             | StatementKind::StorageDead(_)
             | StatementKind::PlaceMention(_)
+            | StatementKind::FakeRead(..)
             | StatementKind::Nop => {}
         }
     }

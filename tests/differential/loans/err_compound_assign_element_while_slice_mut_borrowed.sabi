@@ -1,0 +1,14 @@
+// `s[i] += 2` while `*s` is mutably borrowed reads the slice's length and the element:
+// E0503 twice.
+fn Idx() -> usize { 0usize }
+
+fn Bump(s: &mut [i32]) {
+    let r = &mut *s;
+    s[Idx()] += 2;
+    r[0usize] = 1;
+}
+
+fn Main() {
+    let mut a = [1, 2];
+    Bump(&mut a);
+}

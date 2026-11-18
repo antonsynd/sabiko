@@ -255,7 +255,7 @@
      │ 
  175 │         Some(1..=5) => {} //~ ERROR E0411 cannot use `o.0` because it was mutably borrowed
      │              ──┬──  
-     │                ╰──── use of borrowed `o.0`
+     │                ╰──── use of borrowed `o`
      │ 
  178 │     *q = None;
      │     ────┬────  

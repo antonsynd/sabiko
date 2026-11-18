@@ -635,7 +635,9 @@ fn instantiate(
                     subst_place(place, &s);
                     subst_rvalue(rvalue, &s);
                 }
-                StatementKind::PlaceMention(place) => subst_place(place, &s),
+                StatementKind::PlaceMention(place) | StatementKind::FakeRead(_, place) => {
+                    subst_place(place, &s);
+                }
                 StatementKind::StorageLive(_)
                 | StatementKind::StorageDead(_)
                 | StatementKind::Nop => {}

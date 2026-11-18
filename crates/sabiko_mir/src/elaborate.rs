@@ -363,7 +363,7 @@ fn apply_statement(paths: &DropPaths, state: &mut State, stmt: &Statement) {
         StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
             state.set(&paths.leaves_of_local(*local), false);
         }
-        StatementKind::PlaceMention(_) | StatementKind::Nop => {}
+        StatementKind::PlaceMention(_) | StatementKind::FakeRead(..) | StatementKind::Nop => {}
     }
 }
 
@@ -823,6 +823,8 @@ impl Rewriter<'_> {
                     stmts.extend(self.flag_writes(&leaves, false, span));
                 }
                 StatementKind::PlaceMention(_) | StatementKind::Nop => stmts.push(stmt),
+                // Only the borrow checker reads it; code generation never sees one.
+                StatementKind::FakeRead(..) => {}
             }
         }
         let term = data.terminator.expect("a built block has a terminator");

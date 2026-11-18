@@ -166,10 +166,16 @@ fn mentions_never(ty: &Ty) -> bool {
 }
 
 /// Turns every `FalseEdge` into a `Goto` to its real target and simplifies, which drops
-/// the blocks only an imaginary edge reached. Runs after borrow checking.
+/// the blocks only an imaginary edge reached, and removes the fake reads
+/// (`StatementKind::FakeRead`), which only the borrow checker reads. Runs after borrow
+/// checking.
 pub fn remove_false_edges(body: &mut Body) {
     let mut changed = false;
     for data in &mut body.blocks {
+        let before = data.statements.len();
+        data.statements
+            .retain(|s| !matches!(s.kind, StatementKind::FakeRead(..)));
+        changed |= data.statements.len() != before;
         if let Some(terminator) = &mut data.terminator {
             if let TerminatorKind::FalseEdge { real_target, .. } = terminator.kind {
                 terminator.kind = TerminatorKind::Goto {

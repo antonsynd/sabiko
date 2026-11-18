@@ -13,7 +13,8 @@ struct S {
 fn Same(x: &i32) -> (&i32, &i32) {
     let a = 1;
     (
-        &a, //~ ERROR E0414 cannot return reference to local variable `a`
+        //~^ ERROR E0414 cannot return value referencing local variable `a`
+        &a,
         &a,
     )
 }
@@ -21,7 +22,8 @@ fn Same(x: &i32) -> (&i32, &i32) {
 fn Fields(x: &i32) -> (&i32, &i32) {
     let s = S { A: 1, B: 2 };
     (
-        &s.A, //~ ERROR E0414 cannot return reference to local data `s.A`
+        //~^ ERROR E0414 cannot return value referencing local data `s.A`
+        &s.A,
         &s.B,
     )
 }
@@ -30,8 +32,10 @@ fn TwoLocals(x: &i32) -> (&i32, &i32) {
     let a = 1;
     let b = 2;
     (
-        &a, //~ ERROR E0414 cannot return reference to local variable `a`
-        &b, //~ ERROR E0414 cannot return reference to local variable `b`
+        //~^ ERROR E0414 cannot return value referencing local variable `a`
+        //~^^ ERROR E0414 cannot return value referencing local variable `b`
+        &a,
+        &b,
     )
 }
 
