@@ -1,0 +1,8 @@
+// Writing an element of an uninitialised array of a type with a destructor is E0381 only.
+struct Guard { Id: i32 }
+impl Drop for Guard { fn drop(&mut self) {} }
+
+fn Main() {
+    let a: [Guard; 2];
+    a[0usize] = Guard { Id: 1 };
+}

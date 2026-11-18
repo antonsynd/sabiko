@@ -3,7 +3,8 @@
 // before the loop's body), and a later use replaces the error of an earlier one unless it
 // uses a prefix of the place reported. The first use of an uninitialised local, in the
 // same order, is the one reported. A write through a reference uses the reference.
-// rustc names the moved `a` where Sabiko names the closest move path `a.V` (#169).
+// An error names the closest place with a move path, as rustc does: the moved `a`, not
+// `a.V`, which is only borrowed (#169).
 struct S {
     V: i32,
     W: i32,
@@ -17,7 +18,7 @@ fn IfElse() {
     let a = S { V: 1, W: 2 };
     let m = a;
     if C() {
-        let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+        let p = &a.V; //~ ERROR E0406 borrow of moved value: `a`
     } else {
         let q = &a.W;
     }
@@ -26,7 +27,7 @@ fn IfElse() {
 fn LoopThenAfter() {
     let a = S { V: 1, W: 2 };
     while C() {
-        let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+        let p = &a.V; //~ ERROR E0406 borrow of moved value: `a`
         let m = a;
     }
     let q = &a.W;
@@ -37,7 +38,7 @@ fn LoopBreakValue() {
     let m = a;
     let k = loop {
         if C() {
-            let p = &a.V; //~ ERROR E0406 borrow of moved value: `a.V`
+            let p = &a.V; //~ ERROR E0406 borrow of moved value: `a`
             break 1;
         }
         let q = &a.W;

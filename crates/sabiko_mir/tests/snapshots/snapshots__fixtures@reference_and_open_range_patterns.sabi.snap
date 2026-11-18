@@ -1,6 +1,6 @@
 ---
 source: crates/sabiko_mir/tests/snapshots.rs
-expression: "sabiko_mir::pretty::print_bodies(&bodies, &resolve, &typeck)"
+expression: "sabiko_mir::pretty::print_user_bodies(&bodies, &resolve, &typeck)"
 input_file: crates/sabiko_mir/tests/fixtures/reference_and_open_range_patterns.sabi
 ---
 fn Deref(_1: &E) -> i32 {
@@ -177,6 +177,7 @@ fn Open(_1: u8, _2: i64) -> i32 {
     }
 
     bb5: {
+        FakeRead(ForMatchTest, _3.1);
         StorageLive(_9);
         _9 = Ge(copy _6, const 100_i64);
         switchInt(copy _9) -> [0: bb9, otherwise: bb8];
@@ -256,6 +257,7 @@ fn Float(_1: f64) -> i32 {
     }
 
     bb2: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_4);
         _4 = Ge(copy _2, const 0.0_f64);
         switchInt(copy _4) -> [0: bb7, otherwise: bb5];
@@ -271,6 +273,7 @@ fn Float(_1: f64) -> i32 {
     }
 
     bb5: {
+        FakeRead(ForMatchTest, _1);
         StorageLive(_5);
         _5 = Le(copy _2, const 1.0_f64);
         switchInt(copy _5) -> [0: bb7, otherwise: bb6];

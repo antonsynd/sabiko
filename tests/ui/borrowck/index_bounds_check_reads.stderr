@@ -1,0 +1,356 @@
+[E0406] Error: borrow of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:23:5 ]
+    │
+ 22 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 23 │     s[0usize].X = 1; //~ ERROR E0406 borrow of moved value: `s`
+    │     ────┬────  
+    │         ╰────── value borrowed here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [P]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: borrow of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:28:5 ]
+    │
+ 27 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 28 │     s[Idx()] = 1; //~ ERROR E0406 borrow of moved value: `s`
+    │     ────┬───  
+    │         ╰───── value borrowed here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [i32]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: use of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:33:5 ]
+    │
+ 32 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 33 │     s[Idx()] += 1; //~ ERROR E0406 use of moved value: `s`
+    │     ──────┬──────  
+    │           ╰──────── value used here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [i32]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: borrow of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:38:13 ]
+    │
+ 37 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 38 │     let r = &mut s[0usize]; //~ ERROR E0406 borrow of moved value: `s`
+    │             ───────┬──────  
+    │                    ╰──────── value borrowed here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [i32]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: use of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:43:13 ]
+    │
+ 42 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 43 │     let x = s[0usize].X; //~ ERROR E0406 use of moved value: `s`
+    │             ─────┬─────  
+    │                  ╰─────── value used here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [P]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: borrow of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:48:5 ]
+    │
+ 47 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 48 │     s[0usize][1usize] = 1; //~ ERROR E0406 borrow of moved value: `s`
+    │     ────────┬────────  
+    │             ╰────────── value borrowed here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [&mut [i32]]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: use of moved value: `s`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:53:5 ]
+    │
+ 52 │     let t = s;
+    │             ┬  
+    │             ╰── value moved here
+ 53 │     *s[0usize] = 1; //~ ERROR E0406 use of moved value: `s`
+    │     ───────┬──────  
+    │            ╰──────── value used here after move
+    │ 
+    │ Note 1: move occurs because `s` has type `&mut [&mut i32]`, which does not implement the `Copy` trait
+    │ 
+    │ Note 2: consider reborrowing: `&mut *s`
+────╯
+[E0406] Error: use of moved value: `a`
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:58:13 ]
+    │
+ 57 │     let t = a;
+    │             ┬  
+    │             ╰── value moved here
+ 58 │     let x = a[0usize].X; //~ ERROR E0406 use of moved value: `a`
+    │             ─────┬─────  
+    │                  ╰─────── value used here after move
+    │ 
+    │ Note: move occurs because `a` has type `[P; 2]`, which does not implement the `Copy` trait
+────╯
+[E0411] Error: cannot use `*s` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:68:13 ]
+    │
+ 67 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 68 │     let x = s[Idx()].X;
+    │             ────┬───  
+    │                 ╰───── use of borrowed `*s`
+    │ 
+ 71 │     r[0usize].X = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `s[_].X` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:68:13 ]
+    │
+ 67 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 68 │     let x = s[Idx()].X;
+    │             ─────┬────  
+    │                  ╰────── use of borrowed `*s`
+    │ 
+ 71 │     r[0usize].X = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `*s` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:76:5 ]
+    │
+ 75 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 76 │     s[Idx()] = 2;
+    │     ────┬───  
+    │         ╰───── use of borrowed `*s`
+    │ 
+ 79 │     r[0usize] = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0410] Error: cannot assign to `s[_]` because it is borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:76:5 ]
+    │
+ 75 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 76 │     s[Idx()] = 2;
+    │     ──────┬─────  
+    │           ╰─────── assignment to borrowed `s[_]` occurs here
+    │ 
+ 79 │     r[0usize] = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `*s` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:84:5 ]
+    │
+ 83 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 84 │     s[Idx()] += 2;
+    │     ────┬───  
+    │         ╰───── use of borrowed `*s`
+    │ 
+ 87 │     r[0usize] = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `s[_]` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:84:5 ]
+    │
+ 83 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 84 │     s[Idx()] += 2;
+    │     ──────┬──────  
+    │           ╰──────── use of borrowed `*s`
+    │ 
+ 87 │     r[0usize] = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0409] Error: cannot borrow `s[_]` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:92:13 ]
+    │
+ 91 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── first mutable borrow occurs here
+ 92 │     let x = &mut s[0usize];
+    │             ───────┬──────  
+    │                    ╰──────── second mutable borrow occurs here
+    │ 
+ 95 │     r[0usize] = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `*s` because it was mutably borrowed
+    ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:92:18 ]
+    │
+ 91 │     let r = &mut *s;
+    │             ───┬───  
+    │                ╰───── `*s` is borrowed here
+ 92 │     let x = &mut s[0usize];
+    │                  ────┬────  
+    │                      ╰────── use of borrowed `*s`
+    │ 
+ 95 │     r[0usize] = 1;
+    │     ────┬────  
+    │         ╰────── borrow later used here
+────╯
+[E0411] Error: cannot use `*s` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:100:13 ]
+     │
+  99 │     let r = &mut *s;
+     │             ───┬───  
+     │                ╰───── `*s` is borrowed here
+ 100 │     let x = s[0usize][1usize];
+     │             ────┬────  
+     │                 ╰────── use of borrowed `*s`
+     │ 
+ 104 │     Use2(r);
+     │          ┬  
+     │          ╰── borrow later used here
+─────╯
+[E0411] Error: cannot use `*s[_]` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:100:13 ]
+     │
+  99 │     let r = &mut *s;
+     │             ───┬───  
+     │                ╰───── `*s` is borrowed here
+ 100 │     let x = s[0usize][1usize];
+     │             ────────┬────────  
+     │                     ╰────────── use of borrowed `*s`
+     │ 
+ 104 │     Use2(r);
+     │          ┬  
+     │          ╰── borrow later used here
+─────╯
+[E0411] Error: cannot use `s[_][_]` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:100:13 ]
+     │
+  99 │     let r = &mut *s;
+     │             ───┬───  
+     │                ╰───── `*s` is borrowed here
+ 100 │     let x = s[0usize][1usize];
+     │             ────────┬────────  
+     │                     ╰────────── use of borrowed `*s`
+     │ 
+ 104 │     Use2(r);
+     │          ┬  
+     │          ╰── borrow later used here
+─────╯
+[E0411] Error: cannot use `a[_]` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:110:13 ]
+     │
+ 109 │     let r = &mut a;
+     │             ───┬──  
+     │                ╰──── `a` is borrowed here
+ 110 │     let x = a[Idx()]; //~ ERROR E0411 cannot use `a[_]` because it was mutably borrowed
+     │             ────┬───  
+     │                 ╰───── use of borrowed `a`
+ 111 │     r[0usize] = 1;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯
+[E0410] Error: cannot assign to `a[_]` because it is borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:117:5 ]
+     │
+ 116 │     let r = &mut a;
+     │             ───┬──  
+     │                ╰──── `a` is borrowed here
+ 117 │     a[Idx()] = 3; //~ ERROR E0410 cannot assign to `a[_]` because it is borrowed
+     │     ──────┬─────  
+     │           ╰─────── assignment to borrowed `a[_]` occurs here
+ 118 │     r[0usize] = 1;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯
+[E0411] Error: cannot use `a[_][_]` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:124:13 ]
+     │
+ 123 │     let r = &mut a;
+     │             ───┬──  
+     │                ╰──── `a` is borrowed here
+ 124 │     let x = a[0usize][Idx()]; //~ ERROR E0411 cannot use `a[_][_]` because it was mutably borrowed
+     │             ────────┬───────  
+     │                     ╰───────── use of borrowed `a`
+ 125 │     r[0usize][0usize] = 1;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯
+[E0411] Error: cannot use `s.A[_]` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:130:13 ]
+     │
+ 129 │     let r = &mut s.A;
+     │             ────┬───  
+     │                 ╰───── `s.A` is borrowed here
+ 130 │     let x = s.A[Idx()]; //~ ERROR E0411 cannot use `s.A[_]` because it was mutably borrowed
+     │             ─────┬────  
+     │                  ╰────── use of borrowed `s.A`
+ 131 │     r[0usize] = 1;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯
+[E0411] Error: cannot use `s[_].X` because it was mutably borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:136:13 ]
+     │
+ 135 │     let r = &mut s[0usize];
+     │             ───────┬──────  
+     │                    ╰──────── `s[_]` is borrowed here
+ 136 │     let x = s[Idx()].X; //~ ERROR E0411 cannot use `s[_].X` because it was mutably borrowed
+     │             ─────┬────  
+     │                  ╰────── use of borrowed `s[_]`
+ 137 │     r.X = 1;
+     │     ───┬───  
+     │        ╰───── borrow later used here
+─────╯
+[E0410] Error: cannot assign to `s[_].X` because it is borrowed
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:142:5 ]
+     │
+ 141 │     let r = &*s;
+     │             ─┬─  
+     │              ╰─── `*s` is borrowed here
+ 142 │     s[Idx()].X = 2; //~ ERROR E0410 cannot assign to `s[_].X` because it is borrowed
+     │     ───────┬──────  
+     │            ╰──────── assignment to borrowed `s[_].X` occurs here
+ 143 │     let y = r[0usize].X;
+     │             ────┬────  
+     │                 ╰────── borrow later used here
+─────╯
+[E0408] Error: cannot borrow `*s` as immutable because it is also borrowed as mutable
+     ╭─[ tests/ui/borrowck/index_bounds_check_reads.sabi:148:13 ]
+     │
+ 147 │     let r = &mut *s;
+     │             ───┬───  
+     │                ╰───── mutable borrow occurs here
+ 148 │     let n = s.len();
+     │             ┬  
+     │             ╰── immutable borrow occurs here
+     │ 
+ 150 │     r[0usize] = 1;
+     │     ────┬────  
+     │         ╰────── borrow later used here
+─────╯

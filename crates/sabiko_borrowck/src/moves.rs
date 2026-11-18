@@ -3,8 +3,10 @@
 //! The design follows rustc's `MoveData` / `MaybeUninitializedPlaces` on the Sabiko subset:
 //!
 //! - [`MovePaths`] is a forest of *move paths*: every local and every field projection
-//!   below it that occurs in the body (`x`, `x.F`, `x.F.G`), with parent/children links.
-//!   Projections through a `Deref` do not form move paths: a move out of `*r` is an error
+//!   below it that the body writes, moves out of or indexes as an array (`x`, `x.F`,
+//!   `x.F.G`; rustc's set, decision 107), with parent/children links. A use of a place
+//!   without a path is checked against its closest ancestor with one, which an error
+//!   names. Projections through a `Deref` do not form move paths: a move out of `*r` is an error
 //!   on its own, and nothing below a reference is ever tracked. Neither do projections
 //!   through an `Index`: a move out of an array element is an error (`E0420`), so an
 //!   array is moved and re-initialised whole, and writing an element initialises nothing.
@@ -13,7 +15,8 @@
 //!   place (an assignment or a call destination) re-initialises its path and descendants;
 //!   storage markers reset a local's whole subtree.
 //! - The checker walks the body with a [`ResultsCursor`] and, for every read, asks whether
-//!   the read path or any of its descendants is maybe moved. A mention is no read, but a
+//!   the closest path or, when the place has its own, any of its descendants is maybe
+//!   moved. A mention is no read, but a
 //!   mention through an index reads each indexed base for the bounds check (rustc's
 //!   `FakeRead(ForIndex, base)`, decision 96). To point at the move site it
 //!   searches backwards from the use through predecessors, stopping at moves and
@@ -27,8 +30,8 @@ use std::collections::BTreeMap;
 
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink, ErrorCode};
 use sabiko_mir::{
-    BasicBlock, Body, Local, LocalKind, Mutability, Operand, Place, PlaceElem, Rvalue, Statement,
-    StatementKind, Terminator, TerminatorKind, Ty,
+    BasicBlock, Body, FakeReadCause, Local, LocalKind, Mutability, Operand, Place, PlaceElem,
+    Rvalue, Statement, StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::ResolveResults;
 use sabiko_span::fx::{HashMap, HashSet};
@@ -37,7 +40,7 @@ use sabiko_types::TypeckResults;
 
 use crate::check::{describe_any_place, user_place};
 use crate::dataflow::{self, Analysis, BitSet, Dominators, Location, ResultsCursor};
-use crate::index::{index_base_reads, BaseRead};
+use crate::index::{index_base_read, BaseRead};
 
 /// Index into [`MovePaths`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -60,12 +63,29 @@ pub struct MovePaths {
 }
 
 impl MovePaths {
-    /// Collects a path for every deref-free prefix of every place in `body`.
+    /// Collects the paths rustc's `MoveDataBuilder` creates: every local, and the
+    /// deref-free prefix of every place written (an assignment's or a call's
+    /// destination), moved out of, or read for an array's bounds check (rustc's
+    /// `FakeRead(ForIndex, a)`), with their ancestors. A place that is only read, borrowed
+    /// or matched on has no path of its own: its use is checked against, and an error
+    /// names, the closest one (`t` for `&t.0.X` after `let m = t;`, as in rustc).
     #[must_use]
     pub fn build(body: &Body) -> Self {
         let mut paths = Self::default();
-        for_each_place(body, |place| {
+        for local in 0..body.locals.len() {
+            paths.add(&Place::local(Local(
+                u32::try_from(local).expect("fewer than 2^32 locals"),
+            )));
+        }
+        for_each_move_path_place(body, |place| {
             paths.add(&deref_free_prefix(place));
+        });
+        body.for_each_place(|place| {
+            for base in place.index_bases() {
+                if matches!(base.ty(body), Ty::Array(..)) {
+                    paths.add(&deref_free_prefix(&base));
+                }
+            }
         });
         paths
     }
@@ -125,11 +145,19 @@ impl MovePaths {
         self.lookup.get(place).copied()
     }
 
-    /// The path of the longest deref-free prefix of `place`: the place itself when it has
-    /// no `Deref`, otherwise the reference it reads through.
+    /// The path of the longest prefix of `place` that has one, never past a `Deref` or an
+    /// `Index` (rustc's `move_path_closest_to`): the place itself when it has a path,
+    /// otherwise its closest ancestor with one, which for a place through a reference is
+    /// at most the reference.
     #[must_use]
     pub fn closest(&self, place: &Place) -> Option<MovePathIndex> {
-        self.lookup.get(&deref_free_prefix(place)).copied()
+        let mut prefix = deref_free_prefix(place);
+        loop {
+            if let Some(&index) = self.lookup.get(&prefix) {
+                return Some(index);
+            }
+            prefix.projection.pop()?;
+        }
     }
 
     /// Strict descendants of `index`, in pre-order.
@@ -171,47 +199,31 @@ fn deref_free_prefix(place: &Place) -> Place {
     }
 }
 
-/// Calls `f` on every place the body mentions: read, written or borrowed.
-fn for_each_place(body: &Body, mut f: impl FnMut(&Place)) {
+/// Calls `f` on every place the body writes (an assignment's or a call's destination),
+/// moves out of (a `move` operand) or drops: the places rustc's `MoveDataBuilder` gathers
+/// moves and initialisations of.
+fn for_each_move_path_place(body: &Body, mut f: impl FnMut(&Place)) {
     for data in &body.blocks {
         for statement in &data.statements {
-            match &statement.kind {
-                StatementKind::Assign(dest, rvalue) => {
-                    f(dest);
-                    // A match's discriminant read is a use too: its place needs a path, or
-                    // the use of a moved value there goes unseen.
-                    if let Rvalue::Ref(_, place)
-                    | Rvalue::Len(place)
-                    | Rvalue::Discriminant(place) = rvalue
-                    {
+            if let StatementKind::Assign(dest, rvalue) = &statement.kind {
+                f(dest);
+                for_each_rvalue_operand(rvalue, |op| {
+                    if let Operand::Move(place) = op {
                         f(place);
                     }
-                    for_each_rvalue_operand(rvalue, |op| {
-                        if let Some(place) = op.place() {
-                            f(place);
-                        }
-                    });
-                }
-                StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
-                    f(&Place::local(*local));
-                }
-                // A mention through an index reads the indexed bases (decision 96).
-                StatementKind::PlaceMention(place) => {
-                    if place.has_index() {
-                        f(place);
-                    }
-                }
-                StatementKind::Nop => {}
+                });
             }
         }
         if let Some(terminator) = &data.terminator {
             for_each_terminator_operand(terminator, |op| {
-                if let Some(place) = op.place() {
+                if let Operand::Move(place) = op {
                     f(place);
                 }
             });
-            if let TerminatorKind::Call { destination, .. } = &terminator.kind {
-                f(destination);
+            match &terminator.kind {
+                TerminatorKind::Call { destination, .. } => f(destination),
+                TerminatorKind::Drop { place, .. } => f(place),
+                _ => {}
             }
         }
     }
@@ -279,7 +291,9 @@ fn written_place(body: &Body, location: Location) -> Option<Place> {
             StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                 Some(Place::local(*local))
             }
-            StatementKind::PlaceMention(_) | StatementKind::Nop => None,
+            StatementKind::PlaceMention(_) | StatementKind::FakeRead(..) | StatementKind::Nop => {
+                None
+            }
         },
         None => match &data.terminator().kind {
             TerminatorKind::Call { destination, .. } => Some(destination.clone()),
@@ -352,7 +366,7 @@ impl Analysis for MaybeMovedAnalysis<'_> {
             StatementKind::StorageLive(local) | StatementKind::StorageDead(local) => {
                 self.kill_write(state, &Place::local(*local));
             }
-            StatementKind::PlaceMention(_) | StatementKind::Nop => {}
+            StatementKind::PlaceMention(_) | StatementKind::FakeRead(..) | StatementKind::Nop => {}
         }
     }
 
@@ -366,13 +380,16 @@ impl Analysis for MaybeMovedAnalysis<'_> {
     }
 }
 
-/// Reports uses of moved values and moves out of references.
+/// Reports uses of moved values and moves out of references. Returns the locations of
+/// the uses of a maybe-moved place that has move sites, with the place's root local: at
+/// those, rustc reports E0382 (here E0406) and never E0381, even when the local is also
+/// maybe uninitialised there (`check::check_body` leaves those uses alone).
 pub fn check_moves(
     body: &Body,
     resolve: &ResolveResults,
     typeck: &TypeckResults,
     sink: &mut DiagnosticSink,
-) {
+) -> HashSet<(Location, Local)> {
     let paths = MovePaths::build(body);
     let analysis = MaybeMovedAnalysis::new(&paths);
     let results = dataflow::iterate_to_fixpoint(body, &analysis);
@@ -390,6 +407,7 @@ pub fn check_moves(
         move_errors: BTreeMap::new(),
         binding: None,
         drop_moves: Vec::new(),
+        moved_uses: HashSet::default(),
     };
     // In rustc's order (`visit_results` walks reverse postorder): a later use replaces an
     // earlier one's error, so the order decides which use is reported.
@@ -410,6 +428,7 @@ pub fn check_moves(
     for error in std::mem::take(&mut checker.move_errors).into_values() {
         checker.sink.emit(error.diagnostic);
     }
+    checker.moved_uses
 }
 
 /// How a place is being used; selects the wording of `E0406`.
@@ -421,6 +440,8 @@ enum UseKind {
     Borrow,
     /// `place.F = ..`: the struct in `place` is partially assigned.
     PartialAssign,
+    /// `place.F = ..` where `place`'s type implements `Drop`, which needs all of `place`.
+    Assign,
 }
 
 impl UseKind {
@@ -429,6 +450,7 @@ impl UseKind {
             UseKind::Use => "use of",
             UseKind::Borrow => "borrow of",
             UseKind::PartialAssign => "assign to part of",
+            UseKind::Assign => "assign of",
         }
     }
 
@@ -437,6 +459,7 @@ impl UseKind {
             UseKind::Use => "used",
             UseKind::Borrow => "borrowed",
             UseKind::PartialAssign => "partially assigned",
+            UseKind::Assign => "assigned",
         }
     }
 }
@@ -469,6 +492,9 @@ struct MoveChecker<'a> {
     /// scrutinee they are bound out of: E0418 is reported once per scrutinee, as rustc
     /// reports E0509, after the walk.
     drop_moves: Vec<PatternMoves>,
+    /// The uses found to have move sites, with their place's root local; see
+    /// [`check_moves`].
+    moved_uses: HashSet<(Location, Local)>,
 }
 
 /// A use-of-moved-value error waiting for the end of the walk, with the place whose use
@@ -514,18 +540,23 @@ impl MoveChecker<'_> {
                 }
                 self.check_write(dest, location, statement.span);
             }
-            // A mention is not a use: `let _ = p;` after a move of `p` is fine. Each index
-            // in the place reads its base for the bounds check, though (decision 96).
-            StatementKind::PlaceMention(place) => {
-                for read in index_base_reads(place, self.body) {
-                    let kind = match read.kind {
-                        BaseRead::Array | BaseRead::SharedSliceRef => UseKind::Use,
-                        BaseRead::SliceFakeBorrow => UseKind::Borrow,
-                    };
-                    self.check_use(&read.place, kind, location, statement.span);
-                }
+            // An index's bounds check reads the indexed place (decision 96): a slice's
+            // length through a fake borrow ("borrow of moved value").
+            StatementKind::FakeRead(FakeReadCause::ForIndex, base) => {
+                let read = index_base_read(base, self.body);
+                let kind = match read.kind {
+                    BaseRead::Array | BaseRead::SharedSliceRef => UseKind::Use,
+                    BaseRead::SliceFakeBorrow => UseKind::Borrow,
+                };
+                self.check_use(&read.place, kind, location, statement.span);
             }
-            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::Nop => {}
+            // A mention is not a use: `let _ = p;` after a move of `p` is fine. A match
+            // test reusing an earlier test's read reads nothing a guard could have moved.
+            StatementKind::PlaceMention(_)
+            | StatementKind::FakeRead(FakeReadCause::ForMatchTest, _)
+            | StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_)
+            | StatementKind::Nop => {}
         }
     }
 
@@ -555,25 +586,27 @@ impl MoveChecker<'_> {
         }
     }
 
-    /// A read or borrow of `place`: neither its path nor, when it does not go through a
-    /// reference, any descendant may be maybe-moved.
+    /// A read or borrow of `place` (rustc's `check_if_path_or_child_is_moved`): neither
+    /// its closest path nor, when the place has a path of its own, any descendant of that
+    /// may be maybe-moved.
     fn check_use(&mut self, place: &Place, kind: UseKind, location: Location, span: Span) {
         let Some(closest) = self.paths.closest(place) else {
             return;
         };
         if self.cursor.get().contains(closest.0) {
-            // Like rustc, name the move path (for `r.X` read through a moved `r`: `r`).
+            // Like rustc, name the move path (`r` for `r.X` read through a moved `r`, `t`
+            // for `t.0.X` after `t` moved).
             let described = self.paths.path(closest).place.clone();
             self.report_use_of_moved(&described, place, closest, kind, location, span);
             return;
         }
-        if place.projection.contains(&PlaceElem::Deref) {
+        let Some(exact) = self.paths.exact(place) else {
             return;
-        }
+        };
         let state = self.cursor.get();
         let moved_child = self
             .paths
-            .descendants(closest)
+            .descendants(exact)
             .into_iter()
             .find(|child| state.contains(child.0));
         if let Some(child) = moved_child {
@@ -581,42 +614,85 @@ impl MoveChecker<'_> {
         }
     }
 
-    /// `place = ..`. Writing a bare local re-initialises it; writing a field is a partial
-    /// assignment of each enclosing struct, which must not be moved; writing through a
-    /// reference uses the reference.
+    /// `place = ..`, as rustc's `check_if_assigned_path_is_moved`. Writing a bare local
+    /// re-initialises it; writing a field is a partial assignment of the enclosing value,
+    /// which must not be moved, and of a value whose type implements `Drop` an assignment
+    /// that needs all of it; writing through a reference uses the reference.
     fn check_write(&mut self, place: &Place, location: Location, span: Span) {
         for cut in (0..place.projection.len()).rev() {
             let base = Place {
                 local: place.local,
                 projection: place.projection[..cut].to_vec(),
             };
-            let kind = match place.projection[cut] {
+            match place.projection[cut] {
                 // A field behind a reference is the referent's: `(*r).F = ..` uses `r`,
-                // which the `Deref` cut checks (rustc's `check_if_assigned_path_is_moved`
-                // skips the field of a base behind a `Deref`).
-                PlaceElem::Field(..) | PlaceElem::Downcast(_)
-                    if base.projection.contains(&PlaceElem::Deref) =>
-                {
-                    continue;
+                // which the `Deref` cut checks (rustc's `check_parent_of_field` finds no
+                // path below a `Deref`).
+                PlaceElem::Field(..) if base.projection.contains(&PlaceElem::Deref) => {}
+                // `d.F = ..` with `d: D` and `D: Drop`: `d` is dropped whole later, so it
+                // must be whole now (rustc: "assign of moved value").
+                PlaceElem::Field(..) if self.implements_drop(&base) => {
+                    self.check_use(&base, UseKind::Assign, location, span);
+                    return;
                 }
-                PlaceElem::Field(..) | PlaceElem::Downcast(_) => UseKind::PartialAssign,
-                // Writing an element uses the array (rustc: "use of moved value").
-                PlaceElem::Deref | PlaceElem::Index(_) => UseKind::Use,
-            };
-            if let Some(index) = self.paths.closest(&base) {
-                if self.cursor.get().contains(index.0) {
-                    let described = self.paths.path(index).place.clone();
-                    // rustc's used place is the base: `a` for `a[i] = ..` (its bounds
-                    // check's read), `p` for `p.F = ..`, `r` for `(*r).F = ..`.
-                    self.report_use_of_moved(&described, &base, index, kind, location, span);
+                PlaceElem::Field(..) => {
+                    if self.check_parent_of_field(&base, location, span) {
+                        return;
+                    }
+                }
+                // Assigning to a variant's field is fine when assigning to the field is.
+                PlaceElem::Downcast(_) => {}
+                // Writing an element uses the array, which its bounds check's `FakeRead`
+                // already checked (rustc: "use of moved value"); rustc stops there too.
+                PlaceElem::Index(_) => return,
+                // Writing through a reference uses the reference: `r` for `(*r).F = ..`.
+                PlaceElem::Deref => {
+                    if let Some(index) = self.paths.closest(&base) {
+                        if self.cursor.get().contains(index.0) {
+                            let described = self.paths.path(index).place.clone();
+                            self.report_use_of_moved(
+                                &described,
+                                &base,
+                                index,
+                                UseKind::Use,
+                                location,
+                                span,
+                            );
+                        }
+                    }
+                    // Everything behind the reference is the referent's business.
                     return;
                 }
             }
-            if kind == UseKind::Use {
-                // Everything behind the reference is the referent's business.
-                return;
-            }
         }
+    }
+
+    /// The partial assignment of `base` (a write of a field of it) after a move of it or
+    /// of an enclosing value, as rustc's `check_parent_of_field`: the error names the
+    /// shortest maybe-moved prefix with a move path (`p` for `p.A.B = 1` after `p`
+    /// moved), not the closest one. Returns whether it found one.
+    fn check_parent_of_field(&mut self, base: &Place, location: Location, span: Span) -> bool {
+        let state = self.cursor.get();
+        let shortest = (0..=base.projection.len()).find_map(|len| {
+            let prefix = Place {
+                local: base.local,
+                projection: base.projection[..len].to_vec(),
+            };
+            self.paths
+                .exact(&prefix)
+                .filter(|index| state.contains(index.0))
+                .map(|index| (prefix, index))
+        });
+        let Some((prefix, index)) = shortest else {
+            return false;
+        };
+        self.report_use_of_moved(&prefix, base, index, UseKind::PartialAssign, location, span);
+        true
+    }
+
+    /// Whether `place`'s type is an ADT implementing `Drop`.
+    fn implements_drop(&self, place: &Place) -> bool {
+        matches!(place.ty(self.body), Ty::Adt(adt, _) if self.typeck.items.drop_impl(adt).is_some())
     }
 
     /// `E0418` (rustc's E0509): a move of a field out of a value whose type implements
@@ -859,6 +935,7 @@ impl MoveChecker<'_> {
         if sites.is_empty() {
             return;
         }
+        self.moved_uses.insert((location, used.local));
         let mut key: Vec<_> = sites.iter().map(|s| (s.location, s.path)).collect();
         key.sort_unstable();
         key.dedup();

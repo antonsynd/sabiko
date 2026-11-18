@@ -961,7 +961,8 @@ impl<'a> Lints<'a> {
                 self.forget(*local);
             }
             StatementKind::PlaceMention(place) => self.check_place(place, span),
-            StatementKind::Nop => {}
+            // A fake read's place is checked where it is used.
+            StatementKind::FakeRead(..) | StatementKind::Nop => {}
         }
     }
 

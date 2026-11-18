@@ -1,0 +1,83 @@
+// A use of a value that is maybe uninitialised and maybe moved is one error, as in rustc:
+// "use of moved value" when some path moved it, "possibly-uninitialized" when none did
+// (decision 107). A write or a mutable borrow of a binding that was never initialised is
+// only the initialisation error: rustc reports a mutability error only for a binding that
+// was ever assigned.
+struct S {
+    V: i32,
+    W: i32,
+}
+
+struct P {
+    X: i32,
+}
+
+struct G {
+    X: i32,
+}
+
+impl Drop for G {
+    fn drop(&mut self) {}
+}
+
+fn C() -> bool {
+    true
+}
+
+fn MovedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a;
+    }
+    let p = &a.V;
+    let q = &a.W; //~ ERROR E0406 borrow of moved value: `a`
+}
+
+fn FieldCopiedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a.V;
+    }
+    let p = &a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+}
+
+fn BorrowMovedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a;
+    }
+    let p = &a; //~ ERROR E0406 borrow of moved value: `a`
+}
+
+fn ReadMovedOnOnePath() {
+    let a: S;
+    if C() {
+        a = S { V: 1, W: 2 };
+        let m = a;
+    } else {
+    }
+    let p = a.V; //~ ERROR E0406 use of moved value: `a`
+}
+
+fn DropArrayElementOfUninit() {
+    let a: [G; 2];
+    a[0usize] = G { X: 1 }; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn ArrayElementOfUninit() {
+    let a: [i32; 2];
+    a[0usize] = 1; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn MutBorrowOfUninit() {
+    let a: P;
+    let r = &mut a; //~ ERROR E0405 used binding `a` isn't initialized
+}
+
+fn FieldThroughUninitReference() {
+    let r: &P;
+    let x = r.X; //~ ERROR E0405 used binding `r` isn't initialized
+}

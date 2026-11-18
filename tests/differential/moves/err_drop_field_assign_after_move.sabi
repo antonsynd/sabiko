@@ -1,0 +1,11 @@
+// Writing a field of a moved value whose type has a destructor is E0382 ("assign of moved
+// value"): the destructor would see the field, so the whole value must be there.
+struct Guard { Id: i32 }
+impl Drop for Guard { fn drop(&mut self) {} }
+fn Take(g: Guard) {}
+
+fn Main() {
+    let mut g = Guard { Id: 1 };
+    Take(g);
+    g.Id = 2;
+}

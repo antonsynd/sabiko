@@ -8,8 +8,8 @@
 use sabiko_borrowck::moves::{check_moves, MovePaths};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
-    AggregateKind, BasicBlock, BasicBlockData, Body, ConstValue, Constant, Local, LocalDecl,
-    LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
+    AggregateKind, BasicBlock, BasicBlockData, Body, ConstValue, Constant, FakeReadCause, Local,
+    LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
     TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, PrimTy, ResolveResults};
@@ -368,8 +368,8 @@ const NOT_COPY_POINT: &str =
 // E0406: use after move
 // ----------------------------------------------------------------------------------------
 
-/// A body has a move path for every deref-free prefix of a place it mentions: here `p`,
-/// `x`, `l`, `l.A` and `l.A.X`.
+/// A body has a move path for every local and every place it writes, moves out of or
+/// indexes as an array (rustc's set): here `_0`, `p`, `l` and `x`; `l.A.X` is only read.
 #[test]
 fn move_paths_cover_the_mentioned_places() {
     assert!(MovePaths::default().is_empty());
@@ -388,7 +388,7 @@ fn move_paths_cover_the_mentioned_places() {
     mir.ret(bb0);
     let paths = MovePaths::build(&mir.finish());
     assert!(!paths.is_empty());
-    assert_eq!(paths.len(), 5);
+    assert_eq!(paths.len(), 4);
 }
 
 #[test]
@@ -430,7 +430,8 @@ fn straight_line_use_after_move() {
 
 #[test]
 fn second_use_of_same_move_is_not_reported_again() {
-    // Take(p); let a = p.X; let b = p.X;  -- one error, not one per use
+    // Take(p); let a = p.X; let b = p.X;  -- one error, not one per use, naming `p`, the
+    // closest place with a move path, as rustc does
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx, Ty::Unit);
     let p = mir.user("p", fx.point_ty(), Mutability::Not);
@@ -448,7 +449,7 @@ fn second_use_of_same_move_is_not_reported_again() {
     let diags = fx.check(&body);
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
-        ["E0406 use of moved value: `p.X`"]
+        ["E0406 use of moved value: `p`"]
     );
     assert_eq!(
         labels(&diags[0]),
@@ -1182,10 +1183,10 @@ fn partial_assign_to_a_nested_field_of_a_moved_value() {
     let body = mir.finish();
 
     let diags = fx.check(&body);
-    // Moving `l` moves every path below it, so the innermost enclosing struct is named.
+    // As rustc's `check_parent_of_field`, the shortest moved prefix is named (#169).
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
-        ["E0406 assign to part of moved value: `l.A`"]
+        ["E0406 assign to part of moved value: `l`"]
     );
     assert_eq!(
         labels(&diags[0]),
@@ -1216,7 +1217,7 @@ fn use_before_the_move_in_a_loop_names_the_previous_iteration() {
     let diags = fx.check(&body);
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
-        ["E0406 use of moved value: `p.X`"]
+        ["E0406 use of moved value: `p`"]
     );
     assert_eq!(
         labels(&diags[0]),
@@ -1310,7 +1311,7 @@ fn init_point_array(fx: &Fixture, mir: &mut BodyBuilder, bb: BasicBlock, a: Loca
 }
 
 #[test]
-fn place_mention_through_an_index_uses_the_moved_base() {
+fn index_bounds_check_uses_the_moved_base() {
     // let a = [Point {..}]; let b = a; let _ = a[i];  -- rustc's `FakeRead(ForIndex, a)`
     // before the bounds check is a use of `a` (#164).
     let fx = Fixture::new();
@@ -1323,11 +1324,14 @@ fn place_mention_through_an_index_uses_the_moved_base() {
     init_point_array(&fx, &mut mir, bb0, a, i);
     mir.live(bb0, b);
     let moved = mir.assign(bb0, local(b), use_move(local(a)));
-    let used = mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
-    // A second mention, nested this time, repeats the same move: not reported again.
+    let used = mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
+    // A second bounds check repeats the same move: not reported again.
     mir.stmt(
         bb0,
-        StatementKind::PlaceMention(local(a).index(i).field(0, Ty::I32)),
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
     );
     mir.ret(bb0);
     let body = mir.finish();
@@ -1348,9 +1352,9 @@ fn place_mention_through_an_index_uses_the_moved_base() {
 
 #[test]
 fn a_borrow_after_the_bounds_check_replaces_its_error() {
-    // let b = a; PlaceMention(a[i]); r = &a[i];  -- `&a[i]` is mentioned first (the bounds
-    // check reads `a`), then borrowed; as in rustc, the borrow's error replaces the
-    // mention's for the same move: "borrow of moved value", at the borrow.
+    // let b = a; FakeRead(ForIndex, a); r = &a[i];  -- the bounds check of `&a[i]` reads
+    // `a`, then the element is borrowed; as in rustc, the borrow's error replaces the
+    // bounds check's for the same move: "borrow of moved value", at the borrow.
     let fx = Fixture::new();
     let array = Ty::Array(Box::new(fx.point_ty()), 1);
     let mut mir = BodyBuilder::new(&fx, Ty::Unit);
@@ -1362,14 +1366,20 @@ fn a_borrow_after_the_bounds_check_replaces_its_error() {
     init_point_array(&fx, &mut mir, bb0, a, i);
     mir.live(bb0, b);
     let moved = mir.assign(bb0, local(b), use_move(local(a)));
-    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
     let borrowed = mir.assign(
         bb0,
         local(r),
         Rvalue::Ref(Mutability::Not.into(), local(a).index(i)),
     );
-    // A later mention reads `a`, a prefix of the borrowed place: no new report.
-    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    // A later bounds check reads `a`, a prefix of the borrowed place: no new report.
+    mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
     mir.ret(bb0);
     let diags = fx.check(&mir.finish());
     assert_eq!(
@@ -1390,7 +1400,8 @@ fn a_later_use_of_another_part_replaces_the_error_and_a_prefix_does_not() {
     // let l = MakeLine(); TakeLine(l); x = l.A.X; y = l.B.X; Take(l.B);
     // One error per set of moves, as rustc's `buffer_move_error`: `l.B.X` is no prefix of
     // `l.A.X`, so its error replaces the first; `l.B` is a prefix of `l.B.X`, so its use
-    // is not reported again.
+    // is not reported again. The error names `l.B`, which has a move path (it is moved), not
+    // `l.B.X`.
     let fx = Fixture::new();
     let mut mir = BodyBuilder::new(&fx, Ty::Unit);
     let l = mir.user("l", fx.line_ty(), Mutability::Not);
@@ -1415,7 +1426,7 @@ fn a_later_use_of_another_part_replaces_the_error_and_a_prefix_does_not() {
     let diags = fx.check(&mir.finish());
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
-        ["E0406 use of moved value: `l.B.X`"]
+        ["E0406 use of moved value: `l.B`"]
     );
     assert_eq!(diags[0].primary_span(), Some(second));
 }
@@ -1472,7 +1483,7 @@ fn the_walk_visits_the_else_branch_before_the_then_branch() {
     let diags = fx.check(&mir.finish());
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
-        ["E0406 use of moved value: `l.A.X`"]
+        ["E0406 use of moved value: `l`"]
     );
     assert_eq!(diags[0].primary_span(), Some(in_then));
 }
@@ -1508,7 +1519,7 @@ fn the_walk_visits_the_code_after_a_loop_before_its_body() {
     let diags = fx.check(&mir.finish());
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
-        ["E0406 use of moved value: `l.A.X`"]
+        ["E0406 use of moved value: `l`"]
     );
     assert_eq!(diags[0].primary_span(), Some(in_body));
 }
@@ -1541,7 +1552,7 @@ fn a_write_to_a_field_behind_a_moved_reference_uses_the_reference() {
 }
 
 #[test]
-fn place_mention_through_an_index_of_a_moved_field_names_the_field() {
+fn index_bounds_check_of_a_moved_field_names_the_field() {
     // let t = ([Point {..}], 1); let u = t.0; let _ = t.0[i];
     let fx = Fixture::new();
     let array = Ty::Array(Box::new(fx.point_ty()), 1);
@@ -1563,7 +1574,7 @@ fn place_mention_through_an_index_of_a_moved_field_names_the_field() {
     mir.assign(bb0, local(u), use_move(local(t).field(0, array.clone())));
     mir.stmt(
         bb0,
-        StatementKind::PlaceMention(local(t).field(0, array).index(i)),
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(t).field(0, array)),
     );
     mir.ret(bb0);
     assert_eq!(
@@ -1573,7 +1584,7 @@ fn place_mention_through_an_index_of_a_moved_field_names_the_field() {
 }
 
 #[test]
-fn place_mention_through_a_slice_index_borrows_the_moved_reference() {
+fn slice_bounds_check_borrows_the_moved_reference() {
     // fn F(s: &mut [Point]) { let t = s; let _ = (*s)[i]; }  -- a slice's length is read
     // through a fake borrow of `*s`: "borrow of moved value".
     let fx = Fixture::new();
@@ -1586,7 +1597,10 @@ fn place_mention_through_a_slice_index_borrows_the_moved_reference() {
     mir.assign(bb0, local(i), Rvalue::Use(int(0)));
     mir.live(bb0, t);
     let moved = mir.assign(bb0, local(t), use_move(local(s)));
-    let used = mir.stmt(bb0, StatementKind::PlaceMention(local(s).deref().index(i)));
+    let used = mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(s).deref()),
+    );
     mir.ret(bb0);
     let diags = fx.check(&mir.finish());
     assert_eq!(
@@ -1603,7 +1617,7 @@ fn place_mention_through_a_slice_index_borrows_the_moved_reference() {
 }
 
 #[test]
-fn place_mention_through_an_index_after_reinitialisation_is_accepted() {
+fn index_bounds_check_after_reinitialisation_is_accepted() {
     // let mut a = [Point {..}]; let b = a; a = [Point {..}]; let _ = a[i];
     let fx = Fixture::new();
     let array = Ty::Array(Box::new(fx.point_ty()), 1);
@@ -1618,7 +1632,10 @@ fn place_mention_through_an_index_after_reinitialisation_is_accepted() {
     mir.assign(bb0, local(b), use_move(local(a)));
     init_point_array(&fx, &mut mir, bb0, c, i);
     mir.assign(bb0, local(a), use_move(local(c)));
-    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
     mir.ret(bb0);
     fx.assert_clean(&mir.finish());
 }

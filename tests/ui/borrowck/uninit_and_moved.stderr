@@ -1,0 +1,90 @@
+[E0406] Error: borrow of moved value: `a`
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:34:13 ]
+    │
+ 31 │         let m = a;
+    │                 ┬  
+    │                 ╰── value moved here
+    │ 
+ 34 │     let q = &a.W; //~ ERROR E0406 borrow of moved value: `a`
+    │             ──┬─  
+    │               ╰─── value borrowed here after move
+    │ 
+    │ Note: move occurs because `a` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0405] Error: used binding `a` is possibly-uninitialized
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:43:13 ]
+    │
+ 38 │     let a: S;
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+    │ 
+ 43 │     let p = &a; //~ ERROR E0405 used binding `a` is possibly-uninitialized
+    │             ─┬  
+    │              ╰── `a` used here but it is possibly-uninitialized
+────╯
+[E0406] Error: borrow of moved value: `a`
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:52:13 ]
+    │
+ 50 │         let m = a;
+    │                 ┬  
+    │                 ╰── value moved here
+    │ 
+ 52 │     let p = &a; //~ ERROR E0406 borrow of moved value: `a`
+    │             ─┬  
+    │              ╰── value borrowed here after move
+    │ 
+    │ Note: move occurs because `a` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `a`
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:62:13 ]
+    │
+ 59 │         let m = a;
+    │                 ┬  
+    │                 ╰── value moved here
+    │ 
+ 62 │     let p = a.V; //~ ERROR E0406 use of moved value: `a`
+    │             ─┬─  
+    │              ╰─── value used here after move
+    │ 
+    │ Note: move occurs because `a` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0405] Error: used binding `a` isn't initialized
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:67:5 ]
+    │
+ 66 │     let a: [G; 2];
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+ 67 │     a[0usize] = G { X: 1 }; //~ ERROR E0405 used binding `a` isn't initialized
+    │     ────┬────  
+    │         ╰────── `a` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `a` isn't initialized
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:72:5 ]
+    │
+ 71 │     let a: [i32; 2];
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+ 72 │     a[0usize] = 1; //~ ERROR E0405 used binding `a` isn't initialized
+    │     ────┬────  
+    │         ╰────── `a` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `a` isn't initialized
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:77:13 ]
+    │
+ 76 │     let a: P;
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+ 77 │     let r = &mut a; //~ ERROR E0405 used binding `a` isn't initialized
+    │             ───┬──  
+    │                ╰──── `a` used here but it isn't initialized
+────╯
+[E0405] Error: used binding `r` isn't initialized
+    ╭─[ tests/ui/borrowck/uninit_and_moved.sabi:82:13 ]
+    │
+ 81 │     let r: &P;
+    │         ┬  
+    │         ╰── binding declared here but left uninitialized
+ 82 │     let x = r.X; //~ ERROR E0405 used binding `r` isn't initialized
+    │             ─┬─  
+    │              ╰─── `r` used here but it isn't initialized
+────╯
