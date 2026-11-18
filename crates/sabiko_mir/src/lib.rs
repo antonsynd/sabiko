@@ -275,7 +275,7 @@ impl Body {
                             Rvalue::Ref(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => f(p),
                         }
                     }
-                    StatementKind::PlaceMention(p) => f(p),
+                    StatementKind::PlaceMention(p) | StatementKind::FakeRead(_, p) => f(p),
                     StatementKind::StorageLive(_)
                     | StatementKind::StorageDead(_)
                     | StatementKind::Nop => {}
@@ -395,19 +395,39 @@ pub enum StatementKind {
     /// mentioned is live there. Code generation emits nothing, apart from the bounds check
     /// of each index in the place.
     ///
-    /// A place through an `Index` also stands for the reads rustc's MIR builder emits
-    /// before each bounds check (decision 96), of each indexed base
-    /// ([`Place::index_bases`]): an array's is `FakeRead(ForIndex, base)`, a slice's the
-    /// read of its length (`copy s` for `*s` of a local `s: &[T]`, `&raw const (fake) *s`
-    /// otherwise). The borrow checker requires each base to be initialised and not moved
-    /// (`let m = a; let _ = a[i];` is E0382 in rustc); a slice's length read also conflicts
-    /// with a mutable loan of the slice place or of a prefix of it (not of an element), an
-    /// array's with no loan at all (`let r = &mut a; let _ = a[i]; r[0] = ..` is accepted).
     /// MIR building also mentions an index place before borrowing it, before writing it
     /// when the old value has drop glue, and before indexing or dereferencing it further,
-    /// so those accesses get the reads as well.
+    /// so that code generation checks its indices there, in rustc's order. The reads of the
+    /// indexed places for those checks are [`FakeReadCause::ForIndex`] statements.
     PlaceMention(Place),
+    /// A read that only the borrow checker sees; code generation emits nothing for it, and
+    /// lowering for code generation removes it. See [`FakeReadCause`].
+    FakeRead(FakeReadCause, Place),
     Nop,
+}
+
+/// What a [`StatementKind::FakeRead`] stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FakeReadCause {
+    /// The read of the indexed place `base` for the bounds check of `base[i]` (decisions
+    /// 96 and 107), which rustc's MIR builder makes before each index, after the index is
+    /// evaluated, at the indexing expression (`len_of_slice_or_array`): an array's is
+    /// `FakeRead(ForIndex, base)`, a slice's the read of its length (`copy s` for `*s` of
+    /// a local `s: &[T]`, `&raw const (fake) *s` otherwise). MIR building puts one before
+    /// every place with an `Index` is used, a mention included. The borrow checker
+    /// requires `base` to be initialised and not moved (`let m = a; let _ = a[i];` is
+    /// E0382 in rustc, and `s[i].X = 1` after `s: &mut [P]` moved is "borrow of moved
+    /// value"); a slice's length read also conflicts with a mutable loan of the slice place
+    /// or of a prefix of it (not of an element), an array's with no loan at all (`let r =
+    /// &mut a; let _ = a[i]; r[0] = ..` is accepted). It uses `base`'s local for liveness.
+    ForIndex,
+    /// The read of a compared place by a match test that reuses the value an earlier test
+    /// of the same match copied into a temporary (`TestCache::shared`, decision 72).
+    /// rustc's decision tree makes every test before any guard runs, each reading the
+    /// place at its own span, so the borrow checker sees a read of the place here that
+    /// conflicts with a mutable loan of it, as rustc's does (#150), but no use for the
+    /// move and initialisation checks: the place was read before any guard could move it.
+    ForMatchTest,
 }
 
 /// A memory location: a local with zero or more projections applied left to right.

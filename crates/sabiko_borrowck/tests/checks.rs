@@ -7,9 +7,9 @@
 use sabiko_borrowck::{check_all, check_body, describe_place, user_place};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
-    AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, ConstValue, Constant, Local, LocalDecl,
-    LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind, Terminator,
-    TerminatorKind, Ty,
+    AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, ConstValue, Constant, FakeReadCause,
+    Local, LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue, Statement, StatementKind,
+    Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, LocalId, PrimTy, ResolveResults};
 use sabiko_span::{FileId, Span};
@@ -393,7 +393,7 @@ fn place_mention_of_an_uninitialised_local_is_accepted() {
 }
 
 #[test]
-fn place_mention_through_an_index_requires_an_initialised_base() {
+fn index_bounds_check_requires_an_initialised_base() {
     // let a: [i32; 2]; let i = 1; let _ = a[i];  -- the bounds check reads `a` (#164)
     let fx = Fixture::new();
     let mut b = BodyBuilder::new(&fx, Ty::Unit);
@@ -402,7 +402,11 @@ fn place_mention_through_an_index_requires_an_initialised_base() {
     let bb0 = b.block();
     b.live(bb0, a);
     b.assign(bb0, local(i), use_int(1));
-    let span = b.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    let span = b.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
+    b.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
     b.dead(bb0, a);
     b.ret(bb0);
     let diags = fx.check(&b.finish());
@@ -417,7 +421,7 @@ fn place_mention_through_an_index_requires_an_initialised_base() {
 }
 
 #[test]
-fn place_mention_through_an_index_behind_a_reference_requires_an_initialised_root() {
+fn index_bounds_check_behind_a_reference_requires_an_initialised_root() {
     // let s: &[i32]; let i = 0; let _ = (*s)[i];  -- the slice's length is read through `s`
     let fx = Fixture::new();
     let mut b = BodyBuilder::new(&fx, Ty::Unit);
@@ -431,6 +435,10 @@ fn place_mention_through_an_index_behind_a_reference_requires_an_initialised_roo
     let bb0 = b.block();
     b.live(bb0, s);
     b.assign(bb0, local(i), use_int(0));
+    b.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(s).deref()),
+    );
     b.stmt(bb0, StatementKind::PlaceMention(local(s).deref().index(i)));
     b.dead(bb0, s);
     b.ret(bb0);
@@ -441,7 +449,7 @@ fn place_mention_through_an_index_behind_a_reference_requires_an_initialised_roo
 }
 
 #[test]
-fn place_mention_through_an_index_of_an_initialised_base_is_accepted() {
+fn index_bounds_check_of_an_initialised_base_is_accepted() {
     // let a = [1, 2]; let i = 1; let _ = a[i];
     let fx = Fixture::new();
     let mut b = BodyBuilder::new(&fx, Ty::Unit);
@@ -455,6 +463,10 @@ fn place_mention_through_an_index_of_an_initialised_base_is_accepted() {
         Rvalue::Aggregate(AggregateKind::Array(Ty::I32), vec![int(1), int(2)]),
     );
     b.assign(bb0, local(i), use_int(1));
+    b.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
     b.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
     b.dead(bb0, a);
     b.ret(bb0);

@@ -11,24 +11,31 @@
    │     ───┬──  
    │        ╰──── borrow later used here
 ───╯
-[E0414] Error: cannot return reference to function parameter `a`
-    ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:15:9 ]
-    │
- 15 │         &mut a, //~ ERROR E0414 cannot return reference to function parameter `a`
-    │         ───┬──  
-    │            ╰──── returns a reference to data owned by the current function
-────╯
-[E0409] Error: cannot borrow `a` as mutable more than once at a time
-    ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:16:9 ]
+[E0414] Error: cannot return value referencing function parameter `a`
+    ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:14:5 ]
     │
  14 │ ╭─▶     (
- 15 │ │           &mut a, //~ ERROR E0414 cannot return reference to function parameter `a`
+    ┆ ┆   
+ 16 │ │           &mut a,
+    │ │           ───┬──  
+    │ │              ╰──── `a` is borrowed here
+    ┆ ┆   
+ 18 │ ├─▶     )
+    │ │           
+    │ ╰─────────── returns a value referencing data owned by the current function
+────╯
+[E0409] Error: cannot borrow `a` as mutable more than once at a time
+    ╭─[ tests/ui/borrowck/return_loan_already_reported.sabi:17:9 ]
+    │
+ 14 │ ╭─▶     (
+    ┆ ┆   
+ 16 │ │           &mut a,
     │ │           ───┬──  
     │ │              ╰──── first mutable borrow occurs here
- 16 │ │           &mut a, //~ ERROR E0409 cannot borrow `a` as mutable more than once at a time
+ 17 │ │           &mut a, //~ ERROR E0409 cannot borrow `a` as mutable more than once at a time
     │ │           ───┬──  
     │ │              ╰──── second mutable borrow occurs here
- 17 │ ├─▶     )
+ 18 │ ├─▶     )
     │ │           
     │ ╰─────────── borrow later used here
 ────╯

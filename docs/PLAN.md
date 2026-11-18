@@ -327,7 +327,7 @@ and the reported first use of an uninitialised local; `(*r).F = v` after `r` mov
 `a.V` where rustc names the moved `t`, `a`; no slice length read before a plain read or a
 write `s[i] = v` without drop glue, so rustc's "borrow of moved value" wording and second
 E0503 are missing; an extra E0405 for a value both maybe-uninitialised and maybe-moved;
-an extra E0401 on an uninitialised `Drop` array) and #170 (`let _ = *s` is E0208 where
+an extra E0401 on an uninitialised `Drop` array; all fixed by decision 107) and #170 (`let _ = *s` is E0208 where
 rustc accepts; fixed by decision 104).
 
 Update (2026-11-18), two-phase constructor arguments, one error per escaping loan, and
@@ -383,7 +383,38 @@ where rustc accepts it. Tests: 11 differential programs (`loans/`, `moves/`),
 UI fixtures `borrowck/return_loans_of_one_parameter`, `return_loans_of_one_local`,
 `return_loan_already_reported`, `two_phase_reservation_error_once` and
 `two_phase_reservation_error_order`. rustc's E0515 points at the whole returned value,
-Sabiko's E0414 at the borrow (older than this change).
+Sabiko's E0414 at the borrow (older than this change; as rustc since decision 107).
+
+Update (2026-11-18), borrow-check diagnostics as rustc through indices, move paths,
+returns and match tests (#169, #150, decision 107). MIR building now emits rustc's
+bounds-check read as a statement, `FakeRead(ForIndex, base)` after each index operand at the index
+expression, for every place through an index (read, written or borrowed), instead of the
+borrow checker deriving it from `PlaceMention`s; the reads are stripped with the false edges
+after borrow checking, so copy forwarding, elaboration and the IL are unchanged. So `s[i] =
+v`, `s[i] += v` and `s[i].X` after `s` moved or under a live `&mut *s` report the bounds
+check's "borrow of moved value" or E0503 beside the access's, at rustc's spans and with
+rustc's "use of borrowed `*s`" label. Move errors name the closest of rustc's move paths
+(every local, places assigned, moved or dropped, arrays read by an index): `t` for `t.0.X`
+after `t` moved, `t.0` for `t.0[i]`; a field write is "assign to part of" the shortest
+moved prefix, "assign of" for a field of a `Drop` type, and a use rustc reports as moved is
+not also reported as uninitialised. As in rustc's `get_moved_indexes`, moves from an
+earlier iteration of a loop count only when no path from the start reaches the use
+uninitialised (after review: `let mut a: P; loop { if c { a = .. } let m = a; }` is E0405,
+not a move "in previous iteration of loop"). A write or `&mut` of a binding never initialised is E0405
+alone (no E0401). A returned loan of a local is reported as rustc's E0515: "cannot return
+value referencing" at the returned value (a tuple, `Some(&a)`, a binding, the whole `e?`)
+with "`a` is borrowed here", "cannot return reference to" when the value is the borrow.
+The tests of `if let`, `while let` and `let`-`else` sit at the top-level pattern, and a
+test reusing an earlier read reads the place again (`FakeRead(ForMatchTest)`), so each
+conflicting comparison is reported (#150). UI fixtures `borrowck/index_bounds_check_reads`,
+`move_path_naming`, `uninit_and_moved`, `return_value_referencing` and `match_test_spans`
+pin each against rustc's output; six differential programs add verdict coverage. Gaps
+(wording only, verdicts agree): rustc's "partially assigned binding `a` isn't fully
+initialized" for a field write to an uninitialised binding (Sabiko: "used binding"); E0506's
+labels ("`s[_]` is assigned to here but it was already borrowed", the borrowed place);
+"move occurs because" is a note, not a label at the declaration; "mutable borrow later used
+here" in E0502; a `str` match test is rustc's E0502 "cannot borrow `*x`" where Sabiko reads
+`x` (E0411); a loan returned from a `match` tail is reported at the arm, not the `match`.
 
 ### Phase 4: CIL code generation v1 and the runtime library
 
@@ -1871,7 +1902,8 @@ W<[i32]>` are E0208 too; a `let` whose type stays unknown and whose locals repor
 nothing (`let _;`, `let (_, x): (_, i32);`) is E0313 (rustc's E0282). With #146, `?` on
 an `Option<[u8; 2]>` or `Result<u8, [u8; 2]>` compiles and runs
 (`run/prelude/try_array_payloads`), and its E0107 guard is gone. Filed: comparison spans
-in `if let`/`while let`/let-else and comparisons that reuse a cached read (#150),
+in `if let`/`while let`/let-else and comparisons that reuse a cached read (#150, fixed by
+decision 107),
 never-type fallback inside a generic constructor (#151), one namespace for types and
 values hiding a prelude variant behind a user type (#152, fixed by decision 100).
 

@@ -14,8 +14,8 @@ use sabiko_borrowck::loans::{check_loans, check_signatures};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
     AggregateKind, BasicBlock, BasicBlockData, Body, BorrowKind, ConstValue, Constant,
-    FakeBorrowKind, Local, LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue, Statement,
-    StatementKind, Terminator, TerminatorKind, Ty,
+    FakeBorrowKind, FakeReadCause, Local, LocalDecl, LocalKind, Mutability, Operand, Place, Rvalue,
+    Statement, StatementKind, Terminator, TerminatorKind, Ty,
 };
 use sabiko_resolve::{DefId, DefKind, PrimTy, ResolveResults};
 use sabiko_span::{FileId, Span};
@@ -1824,7 +1824,7 @@ fn explicit_mut_borrow_is_not_two_phase() {
     assert_eq!(
         labels(&diags[0]),
         [
-            (read, "use of borrowed `p.X`"),
+            (read, "use of borrowed `p`"),
             (reservation, "`p` is borrowed here"),
             (call, "borrow later used here"),
         ]
@@ -2270,7 +2270,7 @@ fn place_mention_of_a_mutably_borrowed_place_is_not_an_access() {
 }
 
 #[test]
-fn place_mention_through_an_array_index_conflicts_with_no_loan() {
+fn array_bounds_check_conflicts_with_no_loan() {
     // let m = &mut a; let _ = a[i]; (*m)[i] = 2;  -- rustc's `FakeRead(ForIndex, a)` is
     // checked for moves and initialisation only (decision 96).
     let fx = Fixture::new();
@@ -2287,7 +2287,10 @@ fn place_mention_through_an_array_index_conflicts_with_no_loan() {
     );
     mir.assign(bb0, local(i), use_int(0));
     mir.assign(bb0, local(m), mutable(local(a)));
-    mir.stmt(bb0, StatementKind::PlaceMention(local(a).index(i)));
+    mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, local(a)),
+    );
     mir.assign(bb0, deref(m).index(i), use_int(2));
     mir.finish_unit(bb0);
     fx.assert_clean(&mir.finish());
@@ -2295,7 +2298,7 @@ fn place_mention_through_an_array_index_conflicts_with_no_loan() {
 
 /// `fn F(s: &mut [i32]) { let m = &mut [borrowed]; let _ = (*s)[i]; *m.. = 2; }`, with
 /// `borrowed` the slice `*s` (`element: false`) or its element `(*s)[j]`.
-fn slice_mention_while_borrowed(element: bool) -> (Fixture, Body, Span, Span, Span) {
+fn slice_bounds_check_while_borrowed(element: bool) -> (Fixture, Body, Span, Span, Span) {
     let fx = Fixture::new();
     let slice = Ty::Slice(Box::new(Ty::I32));
     let mut mir = BodyBuilder::new(&fx);
@@ -2313,7 +2316,10 @@ fn slice_mention_while_borrowed(element: bool) -> (Fixture, Body, Span, Span, Sp
     mir.assign(bb0, local(i), use_int(0));
     mir.assign(bb0, local(j), use_int(0));
     let borrow = mir.assign(bb0, local(m), mutable(borrowed));
-    let mention = mir.stmt(bb0, StatementKind::PlaceMention(deref(s).index(i)));
+    let mention = mir.stmt(
+        bb0,
+        StatementKind::FakeRead(FakeReadCause::ForIndex, deref(s)),
+    );
     let later = if element {
         mir.assign(bb0, deref(m), use_int(2))
     } else {
@@ -2324,10 +2330,10 @@ fn slice_mention_while_borrowed(element: bool) -> (Fixture, Body, Span, Span, Sp
 }
 
 #[test]
-fn place_mention_through_a_slice_index_reads_the_length() {
+fn slice_bounds_check_reads_the_length() {
     // A slice's length is read for the bounds check (rustc's `&raw const (fake) *s`): a
     // `&mut *s` that is still live conflicts with it (E0503).
-    let (fx, body, borrow, mention, later) = slice_mention_while_borrowed(false);
+    let (fx, body, borrow, mention, later) = slice_bounds_check_while_borrowed(false);
     let diags = fx.check(&body);
     assert_eq!(
         diags.iter().map(render).collect::<Vec<_>>(),
@@ -2344,10 +2350,10 @@ fn place_mention_through_a_slice_index_reads_the_length() {
 }
 
 #[test]
-fn place_mention_through_a_slice_index_ignores_a_loan_of_an_element() {
+fn slice_bounds_check_ignores_a_loan_of_an_element() {
     // let m = &mut (*s)[j]; let _ = (*s)[i]; *m = 2;  -- the length is no part of an
     // element, and the element itself is only mentioned.
-    let (fx, body, ..) = slice_mention_while_borrowed(true);
+    let (fx, body, ..) = slice_bounds_check_while_borrowed(true);
     fx.assert_clean(&body);
 }
 

@@ -1,0 +1,256 @@
+[E0406] Error: borrow of moved value: `t`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:58:13 ]
+    │
+ 56 │     let m = t;
+    │             ┬  
+    │             ╰── value moved here
+    │ 
+ 58 │     let r = &t.0.X; //~ ERROR E0406 borrow of moved value: `t`
+    │             ───┬──  
+    │                ╰──── value borrowed here after move
+    │ 
+    │ Note: move occurs because `t` has type `(S, i32)`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `t`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:66:13 ]
+    │
+ 62 │     let m = t;
+    │             ┬  
+    │             ╰── value moved here
+    │ 
+ 66 │     let r = &t.0.X; //~ ERROR E0406 borrow of moved value: `t`
+    │             ───┬──  
+    │                ╰──── value borrowed here after move
+    │ 
+    │ Note: move occurs because `t` has type `(S, i32)`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `t.0`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:71:13 ]
+    │
+ 70 │     let m = t;
+    │             ┬  
+    │             ╰── value moved here
+ 71 │     let r = &t.0[Idx()].X; //~ ERROR E0406 borrow of moved value: `t.0`
+    │             ──────┬──────  
+    │                   ╰──────── value borrowed here after move
+    │ 
+    │ Note: move occurs because `t` has type `([S; 2], i32)`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `t.0`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:76:13 ]
+    │
+ 75 │     let m = t;
+    │             ┬  
+    │             ╰── value moved here
+ 76 │     let _ = t.0[Idx()]; //~ ERROR E0406 use of moved value: `t.0`
+    │             ─────┬────  
+    │                  ╰────── value used here after move
+    │ 
+    │ Note: move occurs because `t` has type `([S; 2], i32)`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `t.0.0`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:81:13 ]
+    │
+ 80 │     let m = t;
+    │             ┬  
+    │             ╰── value moved here
+ 81 │     let r = &t.0.0[Idx()]; //~ ERROR E0406 borrow of moved value: `t.0.0`
+    │             ──────┬──────  
+    │                   ╰──────── value borrowed here after move
+    │ 
+    │ Note: move occurs because `t` has type `(([S; 2], i32), i32)`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `p`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:86:13 ]
+    │
+ 85 │     Take(p);
+    │          ┬  
+    │          ╰── value moved here
+ 86 │     let r = &p.A.B; //~ ERROR E0406 borrow of moved value: `p`
+    │             ───┬──  
+    │                ╰──── value borrowed here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: use of moved value: `t`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:91:13 ]
+    │
+ 90 │     let m = t;
+    │             ┬  
+    │             ╰── value moved here
+ 91 │     let x = t.0.0.X; //~ ERROR E0406 use of moved value: `t`
+    │             ───┬───  
+    │                ╰───── value used here after move
+    │ 
+    │ Note: move occurs because `t` has type `((S, i32), i32)`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `q.S`
+    ╭─[ tests/ui/borrowck/move_path_naming.sabi:96:13 ]
+    │
+ 95 │     let m = q.S;
+    │             ─┬─  
+    │              ╰─── value moved here
+ 96 │     let r = &q.S.X; //~ ERROR E0406 borrow of moved value: `q.S`
+    │             ───┬──  
+    │                ╰──── value borrowed here after move
+    │ 
+    │ Note: move occurs because `q.S` has type `S`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: borrow of moved value: `q`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:103:13 ]
+     │
+ 101 │     TakeQ(q);
+     │           ┬  
+     │           ╰── value moved here
+     │ 
+ 103 │     let r = &q.T.X; //~ ERROR E0406 borrow of moved value: `q`
+     │             ───┬──  
+     │                ╰──── value borrowed here after move
+     │ 
+     │ Note: move occurs because `q` has type `Q`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: use of moved value: `t`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:108:12 ]
+     │
+ 107 │     let m = t;
+     │             ┬  
+     │             ╰── value moved here
+ 108 │     if let S { X: 1, .. } = t.0 {} //~ ERROR E0406 use of moved value: `t`
+     │            ───────┬──────  
+     │                   ╰──────── value used here after move
+     │ 
+     │ Note: move occurs because `t` has type `(S, i32)`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: use of moved value: `t`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:113:13 ]
+     │
+ 112 │     let m = t;
+     │             ┬  
+     │             ╰── value moved here
+ 113 │     let S { X, .. } = t.0; //~ ERROR E0406 use of moved value: `t`
+     │             ┬  
+     │             ╰── value used here after move
+     │ 
+     │ Note: move occurs because `t` has type `(S, i32)`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: borrow of moved value: `t`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:119:13 ]
+     │
+ 117 │     let m = t;
+     │             ┬  
+     │             ╰── value moved here
+     │ 
+ 119 │     let r = &t.0.Y; //~ ERROR E0406 borrow of moved value: `t`
+     │             ───┬──  
+     │                ╰──── value borrowed here after move
+     │ 
+     │ Note: move occurs because `t` has type `(S, i32)`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign to part of moved value: `p`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:124:5 ]
+     │
+ 123 │     Take(p);
+     │          ┬  
+     │          ╰── value moved here
+ 124 │     p.A.B = 1; //~ ERROR E0406 assign to part of moved value: `p`
+     │     ────┬────  
+     │         ╰────── value partially assigned here after move
+     │ 
+     │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign to part of moved value: `q.S`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:129:5 ]
+     │
+ 128 │     let m = q.S;
+     │             ─┬─  
+     │              ╰─── value moved here
+ 129 │     q.S.X = 1; //~ ERROR E0406 assign to part of moved value: `q.S`
+     │     ────┬────  
+     │         ╰────── value partially assigned here after move
+     │ 
+     │ Note: move occurs because `q.S` has type `S`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign to part of moved value: `t`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:134:5 ]
+     │
+ 133 │     let m = t;
+     │             ┬  
+     │             ╰── value moved here
+ 134 │     t.0.X = 1; //~ ERROR E0406 assign to part of moved value: `t`
+     │     ────┬────  
+     │         ╰────── value partially assigned here after move
+     │ 
+     │ Note: move occurs because `t` has type `(S, i32)`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: borrow of partially moved value: `t`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:139:13 ]
+     │
+ 138 │     let m = t.0;
+     │             ─┬─  
+     │              ╰─── value partially moved here
+ 139 │     let r = &t; //~ ERROR E0406 borrow of partially moved value: `t`
+     │             ─┬  
+     │              ╰── value borrowed here after partial move
+     │ 
+     │ Note: partial move occurs because `t.0` has type `S`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: borrow of partially moved value: `t.0`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:144:13 ]
+     │
+ 143 │     let m = t.0.0;
+     │             ──┬──  
+     │               ╰──── value partially moved here
+ 144 │     let r = &t.0; //~ ERROR E0406 borrow of partially moved value: `t.0`
+     │             ──┬─  
+     │               ╰─── value borrowed here after partial move
+     │ 
+     │ Note: partial move occurs because `t.0.0` has type `S`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign of moved value: `g`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:149:5 ]
+     │
+ 148 │     TakeG(g);
+     │           ┬  
+     │           ╰── value moved here
+ 149 │     g.X = 1; //~ ERROR E0406 assign of moved value: `g`
+     │     ───┬───  
+     │        ╰───── value assigned here after move
+     │ 
+     │ Note: move occurs because `g` has type `G`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign of moved value: `h.G`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:154:5 ]
+     │
+ 153 │     TakeH(h);
+     │           ┬  
+     │           ╰── value moved here
+ 154 │     h.G.X = 1; //~ ERROR E0406 assign of moved value: `h.G`
+     │     ────┬────  
+     │         ╰────── value assigned here after move
+     │ 
+     │ Note: move occurs because `h` has type `H`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign of moved value: `h.G`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:159:5 ]
+     │
+ 158 │     TakeG(h.G);
+     │           ─┬─  
+     │            ╰─── value moved here
+ 159 │     h.G.X = 1; //~ ERROR E0406 assign of moved value: `h.G`
+     │     ────┬────  
+     │         ╰────── value assigned here after move
+     │ 
+     │ Note: move occurs because `h.G` has type `G`, which does not implement the `Copy` trait
+─────╯
+[E0406] Error: assign to part of moved value: `h`
+     ╭─[ tests/ui/borrowck/move_path_naming.sabi:164:5 ]
+     │
+ 163 │     TakeH(h);
+     │           ┬  
+     │           ╰── value moved here
+ 164 │     h.Y = 1; //~ ERROR E0406 assign to part of moved value: `h`
+     │     ───┬───  
+     │        ╰───── value partially assigned here after move
+     │ 
+     │ Note: move occurs because `h` has type `H`, which does not implement the `Copy` trait
+─────╯

@@ -20,7 +20,7 @@ fn Conditional(flag: bool) {
     if flag {
         Take(p);
     }
-    Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+    Read(p.X); //~ ERROR E0406 use of moved value: `p`
 }
 
 fn BothBranches(flag: bool) {
@@ -62,6 +62,6 @@ fn MovedReference(r: &mut P) {
 fn OnlyOnce() {
     let p = P { X: 1 };
     Take(p);
-    Read(p.X); //~ ERROR E0406 use of moved value: `p.X`
+    Read(p.X); //~ ERROR E0406 use of moved value: `p`
     Read(p.X);
 }

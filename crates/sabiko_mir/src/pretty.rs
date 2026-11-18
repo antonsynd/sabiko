@@ -21,8 +21,8 @@ use sabiko_resolve::ResolveResults;
 use sabiko_types::TypeckResults;
 
 use crate::{
-    AggregateKind, Body, CleanupDrop, Local, Operand, Place, PlaceElem, Rvalue, StatementKind,
-    TerminatorKind,
+    AggregateKind, Body, CleanupDrop, FakeReadCause, Local, Operand, Place, PlaceElem, Rvalue,
+    StatementKind, TerminatorKind,
 };
 
 /// Prints every body, separated by blank lines.
@@ -345,6 +345,13 @@ impl Printer<'_> {
             StatementKind::StorageLive(l) => format!("StorageLive(_{})", l.0),
             StatementKind::StorageDead(l) => format!("StorageDead(_{})", l.0),
             StatementKind::PlaceMention(place) => format!("PlaceMention({})", self.place(place)),
+            StatementKind::FakeRead(cause, place) => {
+                let cause = match cause {
+                    FakeReadCause::ForIndex => "ForIndex",
+                    FakeReadCause::ForMatchTest => "ForMatchTest",
+                };
+                format!("FakeRead({cause}, {})", self.place(place))
+            }
             StatementKind::Nop => "nop".to_owned(),
         }
     }
