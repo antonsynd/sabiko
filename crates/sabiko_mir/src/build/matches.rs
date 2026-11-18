@@ -1134,7 +1134,7 @@ impl Builder<'_> {
     ) -> GuardEffects {
         let mut effects = GuardEffects::default();
         // The places tested candidates' guards moved from, with their arms.
-        let mut moved: Vec<(usize, &Place)> = Vec::new();
+        let mut earlier_moves: Vec<(usize, &Place)> = Vec::new();
         for (index, guard) in guards.iter().enumerate() {
             let arm = arm_starts.partition_point(|&start| start <= index);
             let blocks = std::iter::once(guard.block.index()).chain(guard.first..guard.end);
@@ -1193,11 +1193,11 @@ impl Builder<'_> {
             if guard.tested {
                 effects.tested_moves |= moves;
                 effects.tested_rewrites |= written.iter().any(|w| {
-                    moved
+                    earlier_moves
                         .iter()
                         .any(|&(earlier, m)| earlier < arm && overlaps(w, m))
                 });
-                moved.extend(moves_here.into_iter().map(|m| (arm, m)));
+                earlier_moves.extend(moves_here.into_iter().map(|m| (arm, m)));
             }
         }
         effects
