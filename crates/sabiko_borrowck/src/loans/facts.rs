@@ -976,9 +976,15 @@ pub fn places_conflict(
     if kind == AccessKind::SliceLen && borrowed.projection.len() > access.projection.len() {
         return false;
     }
-    // The loan's projections past the access's (none when the loan's place is no longer).
-    let mut rest = borrowed.projection.iter().skip(access.projection.len());
-    if kind.is_shallow() && rest.any(|elem| *elem == PlaceElem::Deref) {
+    // A shallow access stops at a dereference in the loan's projections past its own (there
+    // are none when the loan's place is no longer).
+    if kind.is_shallow()
+        && borrowed
+            .projection
+            .iter()
+            .skip(access.projection.len())
+            .any(|elem| *elem == PlaceElem::Deref)
+    {
         return false;
     }
     kind.conflicts_with(loan_mutability)

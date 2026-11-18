@@ -1,0 +1,7 @@
+// A tuple holds the references of an array inside it.
+fn Main() {
+    let mut x = 1;
+    let t: ([&i32; 1], i32) = ([&x], 0);
+    x = 2;
+    PrintLine(*t.0[0]);
+}

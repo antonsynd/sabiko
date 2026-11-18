@@ -140,15 +140,15 @@ impl Reporter<'_> {
         let reported: HashSet<(Point, Loan)> = errors.iter().map(|&(_, p, l)| (p, l)).collect();
         // Places reported as accessed at a span: one report each, the first loan's, as
         // rustc's `access_place_error_reported` (an inclusive range's two comparisons).
-        // An access that conflicts with several loans is reported once: `&mut m` in a
-        // guard over `*m` with the fake borrows of `*m` and of `m`, `r == { let t = r; t }`
-        // with the reborrow `&*r` and the shallow borrow of `r` (the reborrow's, made
-        // first). Those fake borrows conflict with writes, moves and mutable borrows, of
-        // which a statement makes at most one (MIR building writes a borrow, a call's
-        // result or an operand into a temporary first), so no further deduplication is
-        // needed for them (decision 99). Distinct places at one point are distinct
-        // errors, as in rustc: a `return` ends the storage of each parameter it returns a
-        // loan of.
+        // An access of one place that conflicts with several loans is reported once:
+        // `&mut m` in a guard over `*m` with the fake borrows of `*m` and of `m`,
+        // `r == { let t = r; t }` with the reborrow `&*r` and the shallow borrow of `r`
+        // (the reborrow's, made first). Accesses of distinct places at one point are
+        // distinct errors, as in rustc (decision 99): a call that activates two two-phase
+        // borrows, each conflicting with a guard's or a comparison's fake borrow, and a
+        // `return` that ends the storage of two parameters it returns loans of. Two loans
+        // of one place returned together (`(&a, &a)`) are one report here, two in rustc
+        // (#174).
         let mut accessed: HashSet<(Span, Place)> = HashSet::default();
         for (location, point, loan) in errors {
             if self.repeats_reservation_error(point, loan, &reported) {

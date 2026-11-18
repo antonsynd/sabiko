@@ -1665,23 +1665,27 @@ deferred check reports an elaboration cut short (E0900) as the eager one does.
 
 Update (2026-11-17), the `sabiko_borrowck` survivors of nightly runs 27 to 32 (#166): the
 crate scored 92.4% against 93 with 32 survivors, 11 of them from #141, #148 and #154. Tests
-kill 7: two were soundness holes under the mutant (a header pattern over an array of
+kill 17. Two were soundness holes under the mutant (a header pattern over an array of
 references, `impl<T> Wrap<T> for [T; 1]`, and a tuple literal of references only, whose
-loans were dropped), two pin the dataflow cursor's incremental seek and one the
-initialisation analysis' untracked temporaries, and two unit tests reach
-`bound_region_links`' internal errors (a proof one block past the recursion limit, generic
-arguments without their region types). Eleven were dead code and are gone: the loan
-reporter's per-point guard and shallow-borrow deduplications, which #148's per-place one
-subsumes (decision 99), `link_pattern`'s arm for parts without references (its `!=`
-mutant was a real hole, now a differential test), a fast path in `write_dest`, an unused
-`switchInt` use count, a length comparison and a redundant destination check. Fourteen are
-equivalent and excluded in `.cargo/mutants.toml`, each argued in `docs/TESTING.md`.
-`sabiko_codegen`'s one survivor, `intrinsic_call`'s guard, is now a pattern of
-`FailDebug`'s overloads. A targeted run on the result (the seven and every mutant on a line
-changed since the nightly's commit, 58) misses none, and the whole crate, measured locally,
-scores 100.0% (393 caught, 4 timeouts, 0 missed of 397 viable). Found on the way: for
-`p.A.B = 1` after `p` moved, Sabiko names `p.A` where rustc names `p` (rustc reports the
-shortest moved prefix); the wording is pinned by
+loans were dropped); two more change diagnostics (naming a parameter place that
+dereferences a tuple field panicked without the field's type, and a partial assignment
+after moves on both branches lost an error); the rest are unit tests for the dataflow
+cursor, the initialisation analysis, `bound_region_links`' internal errors, the region
+types of types without references, implied bounds and a two-phase reservation at a
+block's start. Five were a fix: the loan reporter's per-point guard and shallow-borrow
+deduplications dropped real errors when one call activates two two-phase borrows, and
+without them the error count matches rustc's (decision 99; two loans of one place
+returned together still differ, #174). Eight were dead or redundant code and are gone:
+`link_pattern`'s arm for parts without references (its `!=` mutant was a real hole, now a
+differential test), a fast path in `write_dest`, an unused `switchInt` use count, a length
+comparison, a redundant destination check and two guards on instances. Two are equivalent
+and excluded in `.cargo/mutants.toml`, argued in `docs/TESTING.md`. `sabiko_codegen`'s one
+survivor, `intrinsic_call`'s guard, is now a pattern of `FailDebug`'s overloads. Measured
+locally, the whole crate scores 100.0% (400 caught, 4 timeouts, 0 missed of 404 viable; the
+three `holds_ref` arms the removed guards left reachable only through tuples were missed
+in the full run and killed by four differential programs).
+Found on the way: for `p.A.B = 1` after `p` moved, Sabiko names `p.A` where rustc names `p`
+(rustc reports the shortest moved prefix); the wording is pinned by
 `partial_assign_to_a_nested_field_of_a_moved_value`. The threshold stays at 93.
 
 Status (2026-11-11): reborrow or move of a `&mut` decided as rustc does (#132, decision

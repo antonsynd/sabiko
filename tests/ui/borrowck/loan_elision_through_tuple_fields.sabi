@@ -1,0 +1,21 @@
+// Sabiko codes for rustc's: E0415 for "lifetime may not live long enough".
+// The error names the parameter place behind each origin. Its path from the parameter can
+// dereference a tuple field (`[Field(0), Deref, Field(1)]` for `(*t.0).1`), so naming it
+// needs the field's type to type the dereference after it.
+fn F(t: (&(i32, &i32), i32), o: &mut &i32) {
+    *o = (*t.0).1; //~ ERROR E0415 lifetime may not live long enough
+}
+
+fn G(t: (i32, &(i32, (i32, &i32))), o: &mut &i32) {
+    *o = (*t.1).1.1; //~ ERROR E0415 lifetime may not live long enough
+}
+
+fn H(t: (i32, &mut &i32), o: &i32) {
+    *t.1 = o; //~ ERROR E0415 lifetime may not live long enough
+}
+
+fn K(t: (i32, &mut (i32, &i32)), o: &i32) {
+    (*t.1).1 = o; //~ ERROR E0415 lifetime may not live long enough
+}
+
+fn Main() {}

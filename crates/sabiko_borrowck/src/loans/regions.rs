@@ -632,7 +632,8 @@ impl<'a> Params<'a> {
             Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
                 RegionTy::Tuple(vec![self.fresh(elem, supply)])
             }
-            Ty::Adt(def, args) if self.holds_ref(ty) => {
+            // `RegionTy::adt` is `Other` when no argument holds a reference.
+            Ty::Adt(def, args) => {
                 let args = args.iter().map(|a| self.fresh(a, supply)).collect();
                 RegionTy::adt(*def, args, self.items)
             }
@@ -655,7 +656,8 @@ impl<'a> Params<'a> {
             Ty::Array(elem, _) | Ty::Slice(elem) if self.holds_ref(ty) => {
                 RegionTy::Tuple(vec![self.uniform(elem, origin)])
             }
-            Ty::Adt(def, args) if self.holds_ref(ty) => {
+            // `RegionTy::adt` is `Other` when no argument holds a reference.
+            Ty::Adt(def, args) => {
                 let args = args.iter().map(|a| self.uniform(a, origin)).collect();
                 RegionTy::adt(*def, args, self.items)
             }

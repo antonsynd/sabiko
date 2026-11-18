@@ -1,0 +1,41 @@
+[E0406] Error: assign to part of moved value: `p`
+    ╭─[ tests/ui/borrowck/partial_assign_after_moves_on_both_branches.sabi:21:9 ]
+    │
+ 20 │         Take(p);
+    │              ┬  
+    │              ╰── value moved here
+ 21 │         p.A = A { B: 0 }; //~ ERROR E0406 assign to part of moved value: `p`
+    │         ────────┬───────  
+    │                 ╰───────── value partially assigned here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: assign to part of moved value: `p`
+    ╭─[ tests/ui/borrowck/partial_assign_after_moves_on_both_branches.sabi:24:9 ]
+    │
+ 23 │         Take(p);
+    │              ┬  
+    │              ╰── value moved here
+ 24 │         p.A = A { B: 1 }; //~ ERROR E0406 assign to part of moved value: `p`
+    │         ────────┬───────  
+    │                 ╰───────── value partially assigned here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯
+[E0406] Error: assign to part of moved value: `p`
+    ╭─[ tests/ui/borrowck/partial_assign_after_moves_on_both_branches.sabi:26:5 ]
+    │
+ 20 │         Take(p);
+    │              ┬  
+    │              ╰── value moved here
+    │ 
+ 23 │         Take(p);
+    │              ┬  
+    │              ╰── value moved here
+    │ 
+ 26 │     p.A.B = 1; //~ ERROR E0406 assign to part of moved value: `p`
+    │     ────┬────  
+    │         ╰────── value partially assigned here after move
+    │ 
+    │ Note: move occurs because `p` has type `P`, which does not implement the `Copy` trait
+────╯

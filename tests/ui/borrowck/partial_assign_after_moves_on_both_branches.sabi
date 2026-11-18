@@ -1,0 +1,29 @@
+// Sabiko codes for rustc's: E0406 for E0382.
+// Each branch moves `p` and assigns `p.A` again, so `p.A` is initialised after the `if`
+// while `p` itself is still moved (by either branch). The assignment to `p.A.B` must look
+// past the initialised base `p.A` and report the maybe-moved `p`, as rustc does: three
+// errors, the last with both moves. Its move sites differ from each earlier error's, so it
+// is no repeat of one.
+struct A {
+    B: i32,
+}
+
+struct P {
+    A: A,
+    C: i32,
+}
+
+fn Take(p: P) {}
+
+fn F(c: bool, mut p: P) {
+    if c {
+        Take(p);
+        p.A = A { B: 0 }; //~ ERROR E0406 assign to part of moved value: `p`
+    } else {
+        Take(p);
+        p.A = A { B: 1 }; //~ ERROR E0406 assign to part of moved value: `p`
+    }
+    p.A.B = 1; //~ ERROR E0406 assign to part of moved value: `p`
+}
+
+fn Main() {}

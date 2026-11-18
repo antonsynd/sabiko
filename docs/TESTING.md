@@ -1355,7 +1355,7 @@ first eight, run again with `cargo mutants --re`, were all still missed, and eve
 maps to a mutant of today's code. Programs were checked against rustc 1.99 and, for each
 mutant whose effect was unclear, against a `sabikoc` built with the mutant.
 
-- Killed by tests (7):
+- Killed by tests (17):
   - `ResultsCursor::seek_before`'s incremental guard as `false` (replaying the block from
     its entry state every time gives the same state) and `applied + i` as `*` (the
     location passed to `apply_statement`, which neither analysis reads): the dataflow test
@@ -1380,20 +1380,47 @@ mutant whose effect was unclear, against a `sabikoc` built with the mutant.
     whose every element is a reference became `Other`, so `let t = (&a, &b); a = 3; use
     t` was accepted (rustc: E0506). No test had a tuple of references only, used after
     a conflicting write (`differential/loans/err_tuple_of_refs_only_keeps_loans`).
-- Dead code removed (11):
-  - `Reporter::report_errors`' guard and shallow deduplications (`is_guard`, `is_shallow`,
-    the `guarded` and `real` sets; 5 mutants), decision 99. The `accessed` set of #148
-    (one report per place and span, rustc's `access_place_error_reported`) subsumes them:
-    both candidate programs of #166 (`&mut m` in a guard over `*m`, `r == { let t = r; t
-    }`) are already UI tests (`guard_assigns_deref_scrutinee_ref`,
-    `loan_compare_reassign_operand`), and in both the two loans are invalidated by one
-    access of one place. Fake borrows conflict only with writes, moves and mutable borrows
-    (a guard's not with moves), and a statement makes at most one of those on a place a
-    loan covers: MIR building puts a borrow, an operand and a call's result into a
-    temporary first, and a compound assignment reads and writes the same place. Where one
-    point does have errors on two places, a `return` of loans of two parameters, rustc
-    reports both and so does Sabiko; `is_guard -> true` would have reported one
-    (`borrowck/return_loans_of_two_parameters`). No `.stderr` changed.
+  - `Reporter::universal_place`'s `Ty::Tuple` arm deleted: the mutant panics (`deref of
+    non-reference type Error` in `Place::ty`). A site path can dereference a tuple field
+    (`[Field(0), Deref, Field(1)]` for `(*t.0).1` of `t: (&(i32, &i32), i32)`), and typing
+    that `Deref` needs the field's type. The UI test
+    `borrowck/loan_elision_through_tuple_fields` names such places in E0415 (rustc:
+    "lifetime may not live long enough").
+  - `MoveChecker::check_write`'s `kind == UseKind::Use` as `!=`, which stops a partial
+    assignment's walk at the innermost base: the mutant loses an error. When both
+    branches move `p` and write `p.A` again, `p.A` is initialised after the `if` while
+    `p` may be moved, so `p.A.B = 1` must look past `p.A` to report `p`. Its error has
+    both moves, unlike each branch's, so no earlier error covers it
+    (`borrowck/partial_assign_after_moves_on_both_branches`, three errors as rustc's
+    three E0382; the mutant gives two).
+  - `Params::holds_ref` as `true`, and the guards of `Params::fresh` and `Params::uniform`
+    on tuples and arrays as `true` (5): a tuple or array without references became a
+    tuple of `Other` instead of `Other`. Every reader treats a region type without origins
+    as `Other`, so no program tells; the unit test
+    `types_without_references_have_no_region_structure` pins the documented shape.
+  - `SigRegions::implied_bounds` as `vec![]` and its `walk` as `()` (2): no signature
+    without named lifetimes needs an implied bound (`'b: 'a` inside `&'a &'b T`; the
+    Phase 9 hook of the 2026-10-22 list), so the unit test
+    `implied_bounds_relate_each_referent_to_its_reference` checks them on `fn F(x: &&i32,
+    t: (i32, &&i32), b: B<&&i32>)`.
+  - `LoanData::is_reserved_at`'s `statement_index + 1` as `- 1`: a two-phase borrow at a
+    block's first statement underflows (`two_phase_reservation_at_the_start_of_a_block`).
+- Fixed, with changed output (5): `Reporter::report_errors`' per-point guard and shallow
+  deduplications (`is_guard`, `is_shallow`, the `guarded` and `real` sets), decision 99.
+  They were older than the `accessed` set of #148 (one report per place and span, rustc's
+  `access_place_error_reported`), which covers both candidate programs of #166 (`&mut m`
+  in a guard over `*m`, `r == { let t = r; t }`, the UI tests
+  `guard_assigns_deref_scrutinee_ref` and `loan_compare_reassign_operand`, whose `.stderr`
+  stay the same). They were not dead: a call that activates several two-phase borrows
+  accesses several places at one point, and the per-point sets kept only the first. `G(r,
+  s)` in two nested guards over `*r` and `*s` gave E0419 for `*r` only (rustc: E0510 for
+  both, `borrowck/guard_call_activates_two_borrows`); `r.Bump(o)` inside `r == { .. }`
+  gave E0408 for `*o` only (rustc: E0502 for `r` and `*o`,
+  `borrowck/call_activates_two_conflicting_borrows`). Both now give rustc's count, as
+  does a `return` of loans of two parameters (`borrowck/return_loans_of_two_parameters`).
+  Two loans of one place returned together (`(&a, &a)`) still give one error where rustc
+  gives two (#174).
+- Dead code removed (6, plus 2 redundant guards):
   - `link_pattern`'s `(pat, RegionTy::Other)` arm (2 mutants: the arm deleted, and `q ==
     p` as `!=`). It bound the parameters inside a part without references to `Other`,
     which an unbound parameter becomes anyway; every occurrence of a parameter has a region
@@ -1406,50 +1433,37 @@ mutant whose effect was unclear, against a `sabikoc` built with the mutant.
     kills, the loans of the local, which `places_conflict` with a `Move` access gives for
     those places too.
   - `operand_uses`' `SwitchInt` arm: the uses only find the activation of a two-phase
-    borrow, whose temporary is a reference, never a discriminant.
+    borrow, whose temporary is a reference, never a discriminant (a MIR-building
+    invariant).
   - `places_conflict`'s `>` before the shallow access' tail (`>=` inspected an empty
     tail): the tail is now `skip`ped, which is empty when the loan's place is no longer.
   - `is_mut_ref_moved_into_call`'s `!dest.is_local() || kind != Temp` (`||` as `&&`):
-    call arguments are always temporaries, so a destination some call moves is one, and
-    `let s = r;` into a binding is `is_plain_let_of_mut_ref`'s, asked first. (#166's
-    reading, a generic parameter against an inferred type, is the reborrow-or-move
-    decision of #132, which the 41 programs of `differential/moves/reborrow/` cover.)
-- Equivalent, excluded in `.cargo/mutants.toml` (14):
-  - `Params::holds_ref` as `true`, and its six guards in `Params::fresh` and
-    `Params::uniform` as `true` (7): a tuple, array or instance without references
-    becomes a tuple (or an instance) of `Other` instead of `Other`. Every reader treats a
-    region type without origins as `Other`: `relate` relates origins only, `origins` and
-    `sites` find none, `project` yields origin-free parts, `RegionTy::adt` of origin-free
-    arguments has origin-free fields, and `link_pattern` binds nothing that carries an
-    origin. (The run-20 argument above, for the older `RegionTy::fresh` and `uniform`.)
-  - `SigRegions::implied_bounds` as `vec![]` and its `walk` as `()` (2): an implied bound
-    (`'b: 'a` inside `&'a &'b T`) only excuses a flow from a parameter's inner region into
-    its outer one, and without named lifetimes nothing else has the outer region: a
-    return type takes `self`'s origin (whose referent, `Self`, holds no reference) or the
-    one parameter origin, and a parameter writing two references has two. The Phase 9
-    hook of the 2026-10-22 list.
+    call arguments are always temporaries (a MIR-building invariant), so a destination
+    some call moves is one, and `let s = r;` into a binding is
+    `is_plain_let_of_mut_ref`'s, asked first. (#166's reading, a generic parameter against
+    an inferred type, is the reborrow-or-move decision of #132, which the 41 programs of
+    `differential/moves/reborrow/` cover.)
+  - The `holds_ref` guards of `Params::fresh` and `Params::uniform` on instances (2
+    survivors as `true`): `RegionTy::adt` already returns `Other` when no argument has an
+    origin, so the arms run unguarded. That left `holds_ref`'s arms reached only through
+    the tuple and array guards, and the full run below found three of their mutants
+    missed (the `Param` arm deleted or its `!` deleted, the `Adt` arm deleted). Each lost
+    a loan, a soundness hole under the mutant: `differential/loans/` now has a generic
+    parameter inside a tuple parameter (`err_generic_parameter_in_tuple_keeps_loan`) and a
+    tuple holding a struct instance, a tuple and an array of references
+    (`err_instance_in_tuple_keeps_loan`, `err_nested_tuple_keeps_loan`,
+    `err_array_in_tuple_keeps_loan`), all E0506 in rustc.
+- Equivalent, excluded in `.cargo/mutants.toml` (2):
   - `Generator::universal_regions`' placeholder loan `self.loans.len() + universal.len()`
     as `*`: Polonius reads `placeholder` only in its location-insensitive pass
     (`placeholder_loan`, `known_contains`), which `Algorithm::DatafrogOpt` does not run;
     its `subset_errors` come from the origins (`placeholder_origin`). The other `+` of
     the function, the parameter's local, names the place in E0415's message and is caught.
-  - `LoanData::is_reserved_at`'s `statement_index + 1` as `- 1` and `* 1` (2): they also
-    count the reservation statement itself and the one before it as reserved. Only reads
-    ask (`access_except`), and neither point reads: the statement before is the
-    temporary's `StorageLive` (MIR building takes the temporary right before the borrow),
-    and the reservation's own accesses are the reservation and the write of its temporary.
-  - `Reporter::universal_place`'s `Ty::Tuple` arm deleted: it types a tuple field of a
-    signature place, which `describe_place` never reads. A site path enters a tuple
-    through `Field` and an instance only through `Arg`, where the walk stops, so a field's
-    type is only consulted to name a struct field, and every field on the path is a tuple's
-    (named by index).
-  - `MoveChecker::check_write`'s `kind == UseKind::Use` as `!=`, which stops a partial
-    assignment's walk at the innermost base and continues a write through a reference or
-    an index outwards. Moving a place marks its descendants moved too, so an outer base
-    is moved while an inner one is not only after the inner one was written again, and
-    that write was reported with the same move sites and the same outer base, which
-    `move_errors` keeps once. (Writing this found a wording difference: for `p.A.B = 1`
-    after `let q = p;` Sabiko names `p.A`, rustc the shortest moved prefix, `p`.)
+  - `LoanData::is_reserved_at`'s `statement_index + 1` as `* 1`: it also counts the
+    reservation statement itself as reserved. Only reads ask (`access_except`), and the
+    reservation's own accesses are the borrow and the write of its temporary, since MIR
+    building writes a two-phase borrow into a temporary of its own (a MIR-building
+    invariant, like those of the `SwitchInt` arm and the call-argument check above).
 
 `sabiko_codegen`, the survivor of runs 28 to 32: `intrinsic_call`'s guard
 `p.int_bits().is_some() || *p == PrimTy::Bool` as `true` (#135). `PanicDebug<T: Debug>` is
@@ -1461,17 +1475,18 @@ runtime lacks if `Debug` ever gained them, silently in a release build. Deleting
 fails every `unwrap` of an `Err` in the run-time programs. When `Debug` gains `char`, floats
 or `&str` (#117), add the overload and its pattern together.
 
-Verified with `scripts/mutants.sh sabiko_borrowck` and `--re` on the final tree: the seven
-killed survivors and every mutant on a line changed since `c3dd241` (`cargo mutants
---in-diff`, #168's and this triage's), 58 mutants: 54 caught, 4 unviable, none missed, in
-14 minutes. The changes remove 23 mutants (the 11 survivors above and 12 caught ones) and
-add 2 (both caught), and `.cargo/mutants.toml` excludes 14 more. Listed with and without
-`--no-config`, the crate's mutants differ in exactly those 14 and the 15 older patterns'.
-The whole crate, run locally on the branch before merging #172 (`scripts/mutants.sh --shard
-k/2 sabiko_borrowck`, then `--score --shards 2`, 88 minutes): 462 mutants, 393 caught, 0
-missed, 4 timeouts (the four fixpoint hangs above, real hangs), 65 unviable, 100.0%. The
-threshold stays at 93; by the rule in `scripts/mutants.sh` (just under the score
-achieved) it could rise, which is left to a decision of its own.
+Verified with `scripts/mutants.sh --shard k/2 sabiko_borrowck`, then `--score --shards 2`,
+on the tree after the review round (70 minutes): 472 mutants, 397 caught, 3 missed, 4
+timeouts (the four fixpoint hangs above, real hangs), 68 unviable, 99.2%. The three missed
+were `holds_ref`'s arms above, which the four differential programs then killed (`--re
+Params`: all 27 mutants of `Params` caught or unviable), so the crate stands at 100.0%
+(400 caught and 4 timeouts of 404 viable, the 3 re-run on the final tree). Listed with and
+without `--no-config`, the crate's mutants differ in exactly the 2 exclusions above and
+the 15 older patterns'. (A first pass had excluded 14 mutants as equivalent; review found
+two of them not equivalent, `universal_place`'s `Tuple` arm and `check_write`'s `!=`, and
+seven more reachable by unit tests, so they are tests now.) The threshold stays at 93; by
+the rule in `scripts/mutants.sh` (just under the score achieved) it could rise, which is
+left to a decision of its own.
 
 ## Interop
 

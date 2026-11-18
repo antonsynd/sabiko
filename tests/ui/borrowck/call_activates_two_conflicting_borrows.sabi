@@ -1,0 +1,27 @@
+// Sabiko codes for rustc's: E0408 for E0502.
+// `r.Bump(o)` activates two two-phase borrows. The one of `r` conflicts with the shared
+// borrow `==` holds of its left operand, the one of `*o` with `q`. The call is one access
+// but conflicts at two places, so it gets two errors, as in rustc (decision 99).
+trait Bump {
+    fn Bump(&mut self, other: &mut i32);
+}
+
+impl<T> Bump for T {
+    fn Bump(&mut self, other: &mut i32) {}
+}
+
+fn F(x: i32, mut y: i32) -> bool {
+    let mut r = &x;
+    let o = &mut y;
+    let q = &*o;
+    let same = r == {
+        r.Bump(o);
+        //~^ ERROR E0408 cannot borrow `r` as mutable because it is also borrowed as immutable
+        //~^^ ERROR E0408 cannot borrow `*o` as mutable because it is also borrowed as immutable
+        r
+    };
+    PrintLine(*q);
+    same
+}
+
+fn Main() {}

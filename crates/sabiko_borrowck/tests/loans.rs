@@ -7,7 +7,9 @@
 
 use std::fmt::Write as _;
 
-use sabiko_borrowck::loans::regions::{bound_region_links, OriginSupply, RegionTy};
+use sabiko_borrowck::loans::regions::{
+    bound_region_links, signature_regions, Origin, OriginSupply, RegionTy,
+};
 use sabiko_borrowck::loans::{check_loans, check_signatures};
 use sabiko_diagnostics::{Diagnostic, DiagnosticSink};
 use sabiko_mir::{
@@ -2544,4 +2546,99 @@ fn bound_links_reject_generic_arguments_without_their_region_types() {
         let err = chain_links(1, regions).expect_err("mismatched generic arguments");
         assert!(err.contains("generic arguments"), "{err}");
     }
+}
+
+#[test]
+fn types_without_references_have_no_region_structure() {
+    // A tuple, an array or a struct of plain values holds no origin: `Other`, as a
+    // primitive is, both with fresh origins and with the elided return type's one.
+    let fx = Fixture::new();
+    let items = &fx.typeck.items;
+    let plain = [
+        Ty::Tuple(Box::new(vec![Ty::I32, Ty::I32])),
+        Ty::Array(Box::new(Ty::I32), 2),
+        Ty::adt(fx.point),
+    ];
+    for ty in &plain {
+        let mut supply = OriginSupply::default();
+        assert_eq!(
+            RegionTy::fresh(ty, items, &mut supply),
+            RegionTy::Other,
+            "{ty:?}"
+        );
+        assert_eq!(supply.fresh(), Origin(0), "{ty:?} took an origin");
+        assert_eq!(
+            RegionTy::uniform(ty, Origin(7), items),
+            RegionTy::Other,
+            "{ty:?}"
+        );
+    }
+    // With a reference among the elements, a tuple and an array keep their shape.
+    let shared = |origin| RegionTy::Ref(Mutability::Not, origin, Box::new(RegionTy::Other));
+    let tuple = Ty::Tuple(Box::new(vec![Ty::I32, Ty::shared_ref(Ty::I32)]));
+    let expected = RegionTy::Tuple(vec![RegionTy::Other, shared(Origin(0))]);
+    let mut supply = OriginSupply::default();
+    assert_eq!(RegionTy::fresh(&tuple, items, &mut supply), expected);
+    assert_eq!(RegionTy::uniform(&tuple, Origin(0), items), expected);
+    let array = Ty::Array(Box::new(Ty::shared_ref(Ty::I32)), 2);
+    let expected = RegionTy::Tuple(vec![shared(Origin(0))]);
+    let mut supply = OriginSupply::default();
+    assert_eq!(RegionTy::fresh(&array, items, &mut supply), expected);
+    assert_eq!(RegionTy::uniform(&array, Origin(0), items), expected);
+}
+
+#[test]
+fn implied_bounds_relate_each_referent_to_its_reference() {
+    // `&'0 &'1 i32` implies `'1: '0`, wherever the reference sits: at the top, in a
+    // tuple, in a generic argument.
+    let src = "struct B<T> {\n    T: T,\n}\n\nfn F(x: &&i32, t: (i32, &&i32), b: B<&&i32>) {}\n";
+    let mut sink = DiagnosticSink::new();
+    let mut ast = sabiko_parser::parse_file(FileId(0), src, &mut sink);
+    let resolve = sabiko_resolve::resolve(&mut ast, &mut sink);
+    let typeck = sabiko_types::typeck(&ast, &resolve, &mut sink);
+    assert!(!sink.has_errors(), "{:?}", sink.diagnostics());
+    let f = resolve
+        .defs_of_kind(DefKind::Fn)
+        .find(|&d| resolve.def(d).name == "F")
+        .unwrap();
+    let items = &typeck.items;
+    let sig = signature_regions(items.fn_sig(f), &[], items, &mut OriginSupply::default());
+    assert_eq!(
+        sig.implied_bounds(),
+        [
+            (Origin(1), Origin(0)),
+            (Origin(3), Origin(2)),
+            (Origin(5), Origin(4)),
+        ]
+    );
+}
+
+#[test]
+fn two_phase_reservation_at_the_start_of_a_block() {
+    // `p.Add(p.X)` with the reservation as its block's first statement: the read after it
+    // is inside the reservation.
+    let fx = Fixture::new();
+    let mut mir = BodyBuilder::new(&fx);
+    let p = mir.user("p", fx.point_ty(), Mutability::Mut);
+    let t = mir.temp(Ty::mut_ref(fx.point_ty()));
+    let n = mir.temp(Ty::I32);
+    let bb0 = mir.block();
+    let bb1 = mir.block();
+    let bb2 = mir.block();
+    mir.live(bb0, p);
+    mir.assign(bb0, local(p), point_aggregate(&fx));
+    mir.live(bb0, t);
+    mir.live(bb0, n);
+    mir.goto(bb0, bb1);
+    mir.assign(bb1, local(t), two_phase(local(p)));
+    mir.assign(bb1, local(n), use_copy(x_of(p)));
+    mir.call(
+        bb1,
+        fx.add,
+        vec![mv(local(t)), copy(local(n))],
+        local(Local::RETURN),
+        bb2,
+    );
+    mir.finish_unit(bb2);
+    fx.assert_clean(&mir.finish());
 }
