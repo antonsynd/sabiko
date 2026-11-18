@@ -2139,9 +2139,9 @@ is a place no longer counts as diverging: its arms are lowered and entered after
 bounds check, as in rustc, so `match e[i] { _ => 3 }` compiles and panics on the check,
 a move in such an arm is E0406 (it was accepted; rustc's E0382), and `match e[i] {}` ends
 in `unreachable`. A match whose arms all have guards, or that has none, now reads its
-scrutinee where no arm matched, as rustc does: `let v: Void; match v {}` and a `!` local
-that may be uninitialised under `match x {}` are E0405 (rustc's E0381); both were accepted,
-and the second reached `unreachable` at run time. About 140 programs were compared with rustc 1.99 (the PR has the
+scrutinee where no arm matched, as rustc does: `let v: Void; match v {}` is E0405 (rustc's
+E0381; it was accepted), and a `!` local that may be uninitialised under `match x {}` stays
+E0405 now that a `!` place is not copied. About 150 programs were compared with rustc 1.99 (the PR has the
 table); new tests: differential `never/ok_uninhabited_variants_omitted`,
 `never/rej_uninhabited_payload_behind_reference`, `never/ok_never_place_scrutinee`,
 `never/err_never_place_scrutinee`, `enums/ok_empty_payloads_omitted`,
