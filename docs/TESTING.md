@@ -27,7 +27,13 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
 - Compile-time verdicts (`crates/sabiko_driver/tests/differential.rs`): every program under
   `tests/differential/` except `run/` is compiled by both; the verdicts must agree: accept,
   or a borrow-family error. Any other error on either side fails the test. `ok_` files must
-  be accepted and `err_` files rejected by both.
+  be accepted and `err_` files rejected by both. rustc's exit status and stderr are cached
+  under `target/tmp/differential-rustc/<rustc>/`, keyed by the rustc binary's path, `rustc
+  -vV`, the arguments, the crate name and the whole program (all compared on a hit), so a
+  rerun with the same rustc only runs it on programs that changed; each run removes the
+  entries it did not use and other rustcs' directories. `SABIKO_DIFFERENTIAL_RUSTC_CACHE=0`
+  turns the cache off, as a rustc wrapper that changes rustc's behaviour should (decision
+  108).
 - Run-time behaviour (`crates/sabikoc/tests/differential_run.rs`): programs under
   `tests/differential/run/` are built as executables by both compilers (in release mode,
   wrapping arithmetic, for a program with a `//@ release` line) and run; stdout and
@@ -687,6 +693,25 @@ of #165): since #153 (decision 98) a `sabiko_types` mutant's test command (`carg
 sabiko_types -p sabiko_driver -p sabiko_mir -- --test-threads=2`) takes 91 to 109 s on the
 development machine under load, against 151 to 167 s before; the shard counts are judged
 after the next nightly.
+
+The time budget, again (2026-11-25, decision 108). Nightly runs 34 to 39 cancelled all
+eight `sabiko_types` shards at the limit every night: #186 to #188 brought the crate to
+2577 mutants (322 per shard), of which 68 to 72% finished. Over run 39's finished
+mutants a shard spent 19.3 runner-hours, so the whole crate needed about 27 against the
+20 that eight shards of 150 minutes give. Most of it was tests, not builds or timeouts:
+1543 caught mutants took 756 minutes of tests (median 23 s, but 60% of them ran 50 to
+90 s, killed only by a late test binary), 107 missed ones 121 minutes, and the 17
+timeouts 85 minutes. Cargo runs the test binaries one after another, and three of them
+compiled their whole corpus on one thread: `no_panic`'s `unmodified_corpus_never_panics`
+(1705 files, twice each: 45 s of the 85), `differential` (rustc on 799 programs, then
+Sabiko on them, 19.5 s) and `run_corpus` (8.7 s). They now compile in parallel
+(`parallel_map` in `crates/sabiko_driver/tests/common`), and `differential` caches
+rustc's answers (Oracles, above), which cannot change under a mutant. Measured on the
+development machine (four cores), the mutant test command takes 34 s where it took 85 s
+(`no_panic` 11 s, `differential` 2.2 s with a warm cache and 6.8 s cold, `run_corpus`
+2.5 s). `sabiko_types` now runs as twelve shards and its test timeout is 150 s, still
+four times the slowest passing run measured on a runner. The `sabiko_borrowck` mutants
+run the same `sabiko_driver` suites and get faster too.
 
 The first sharded run (run 20, 2026-11-06, on `1ede489`) took 7 to 17 minutes per
 `sabiko_borrowck` shard, 28 to 39 per `sabiko_codegen` shard and 41 to 69 per `sabiko_types`

@@ -1849,6 +1849,16 @@ generator writes `let q = r;`, `let q = GenId(r);`, `let q = GenBox { Value: r
 scope model, and `let q: &mut T = GenId(r);` (now and then `(r)`), which reborrows, and
 passes `&mut` locals to `GenFirst(r)` plainly.
 
+Update (2026-11-25), the nightly mutation time budget (#165, decision 108): nightly runs
+34 to 39 still cancelled every `sabiko_types` shard at 150 minutes, the crate having grown
+to 2577 mutants (about 27 runner-hours, of 20). The suites its mutants run compiled their
+corpora on one thread; `no_panic`, `differential` and `run_corpus` now compile in
+parallel and `differential` caches rustc's answers, so the mutant test command takes 34 s
+instead of 85 s on the development machine. `sabiko_types` runs as twelve shards with a
+150 s test timeout. Open until a nightly confirms it: whether every shard now finishes.
+The crate's score on the partial results is 93.5% against a minimum of 98% (#166), so it
+is expected to fail on its survivors once it is judged.
+
 Update (2026-11-11), after review of #141: the side tables of adjustments
 (`BodyTypes::coercions`, `reborrows`) are keyed by the expression inside any parentheses
 and read only through `BodyTypes::coercion`/`reborrow`, which strip them. A reader keyed

@@ -8,6 +8,8 @@
 //! rejects a valid program (a trait impl no longer selected, an inference no longer made)
 //! is caught here (#125).
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use sabiko_driver::{compile_str, AllowedLints, Emit, Lint, Options, OutputKind};
@@ -58,23 +60,32 @@ fn run_time_programs_compile() {
     collect(&root.join("tests/run-pass"), &mut files);
     files.sort();
     assert!(files.len() > 400, "found only {} programs", files.len());
-    let mut failures = Vec::new();
-    for path in &files {
+    // In parallel (`common::parallel_map`, #165); the failures stay in file order.
+    // A panic is caught and reported as that file's failure.
+    let failures: Vec<String> = common::parallel_map(&files, |path| {
         let rel = path.strip_prefix(&root).unwrap().display().to_string();
         let src = std::fs::read_to_string(path).unwrap();
-        let compilation = compile_str(&rel, &src, options(&src));
-        let stray = compilation.diagnostics_only_in_prelude();
-        assert!(
-            stray.is_empty(),
-            "{rel}: diagnostics pointing only into the prelude: {stray:?}"
-        );
-        if compilation.has_errors() || compilation.output.is_empty() {
-            failures.push(format!(
-                "{rel}:\n{}",
-                compilation.render_diagnostics(sabiko_diagnostics::Format::HumanPlain)
-            ));
+        let checked = std::panic::catch_unwind(|| {
+            let compilation = compile_str(&rel, &src, options(&src));
+            let stray = compilation.diagnostics_only_in_prelude();
+            assert!(
+                stray.is_empty(),
+                "diagnostics pointing only into the prelude: {stray:?}"
+            );
+            (compilation.has_errors() || compilation.output.is_empty())
+                .then(|| compilation.render_diagnostics(sabiko_diagnostics::Format::HumanPlain))
+        });
+        match checked {
+            Ok(failure) => failure.map(|diagnostics| format!("{rel}:\n{diagnostics}")),
+            Err(payload) => Some(format!(
+                "{rel}: panicked: {}",
+                common::panic_message(&*payload)
+            )),
         }
-    }
+    })
+    .into_iter()
+    .flatten()
+    .collect();
     assert!(
         failures.is_empty(),
         "{} of {} run-time programs no longer compile:\n\n{}",

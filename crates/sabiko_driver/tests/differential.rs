@@ -4,9 +4,14 @@
 //! errors only, or, for a `rej_` file, rejected by both with other errors. See
 //! `tests/differential/README.md`.
 
+mod common;
+
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::hash::{Hash as _, Hasher as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use sabiko_diagnostics::Severity;
@@ -152,7 +157,26 @@ fn classify_rustc(success: bool, stderr: &str) -> Outcome {
     )
 }
 
-fn run_rustc(rustc: &Path, tmp: &Path, rel: &str, src: &str) -> Outcome {
+/// The rustc that judges the corpus: its path and `rustc -vV`, which names its exact
+/// commit and so keys [`RustcCache`].
+struct Rustc {
+    path: PathBuf,
+    version: String,
+}
+
+/// The arguments rustc gets for every program (with `--crate-name`, `--out-dir` and the
+/// file added).
+const RUSTC_ARGS: &[&str] = &[
+    "--edition",
+    "2024",
+    "--crate-type",
+    "lib",
+    "--emit=metadata",
+    "-A",
+    "warnings",
+];
+
+fn run_rustc(rustc: &Rustc, cache: &RustcCache, tmp: &Path, rel: &str, src: &str) -> Outcome {
     // One crate per program; the crate name must be an identifier.
     let crate_name: String = rel
         .trim_end_matches(".sabi")
@@ -160,29 +184,145 @@ fn run_rustc(rustc: &Path, tmp: &Path, rel: &str, src: &str) -> Outcome {
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
     let crate_name = format!("d_{crate_name}");
-    let rs = tmp.join(format!("{crate_name}.rs"));
-    std::fs::write(&rs, format!("{RUSTC_PRELUDE}{src}")).unwrap();
-    let output = Command::new(rustc)
-        .args([
-            "--edition",
-            "2024",
-            "--crate-type",
-            "lib",
-            "--emit=metadata",
-            "-A",
-            "warnings",
-        ])
-        .arg("--crate-name")
-        .arg(&crate_name)
-        .arg("--out-dir")
-        .arg(tmp)
-        .arg(&rs)
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run {}: {e}", rustc.display()));
-    classify_rustc(
-        output.status.success(),
-        &String::from_utf8_lossy(&output.stderr),
-    )
+    let program = format!("{RUSTC_PRELUDE}{src}");
+    let key = format!(
+        "{}\n{}\n{}\n--crate-name {crate_name}\n{program}",
+        rustc.path.display(),
+        rustc.version,
+        RUSTC_ARGS.join(" ")
+    );
+    let (success, stderr) = cache.get(&key).unwrap_or_else(|| {
+        let rs = tmp.join(format!("{crate_name}.rs"));
+        std::fs::write(&rs, &program).unwrap();
+        let output = Command::new(&rustc.path)
+            .args(RUSTC_ARGS)
+            .arg("--crate-name")
+            .arg(&crate_name)
+            .arg("--out-dir")
+            .arg(tmp)
+            .arg(&rs)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run {}: {e}", rustc.path.display()));
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        cache.put(&key, output.status.success(), &stderr);
+        (output.status.success(), stderr)
+    });
+    classify_rustc(success, &stderr)
+}
+
+/// rustc's exit status and stderr for each program, kept under the target directory
+/// (`CARGO_TARGET_TMPDIR`) so that a rerun with the same rustc only compiles the programs
+/// that changed. The suite reruns once per `sabiko_types` and `sabiko_borrowck` mutant,
+/// where rustc's 800 compilations took half its 20 s (#165). An entry is keyed by
+/// everything rustc's answer depends on: the rustc binary's path and `rustc -vV` (its
+/// exact commit), the arguments, the crate name and the program text, all stored in the
+/// entry and compared in full on a hit, so a hash collision or a stale entry is a miss,
+/// never a wrong verdict. A rustc wrapper that changes rustc's behaviour behind the same
+/// path and `-vV` should run with the cache off: `SABIKO_DIFFERENTIAL_RUSTC_CACHE=0`.
+/// The entries live in a directory per rustc (path and version), and [`RustcCache::prune`]
+/// removes the other rustcs' directories and the entries this run did not use, so the
+/// cache holds one entry per corpus program. The cached stderr names the scratch
+/// directory of the run that filled it, which only diagnostics shown on a failure print.
+struct RustcCache {
+    dir: Option<PathBuf>,
+    /// The entry files this run read or wrote, kept by [`RustcCache::prune`].
+    used: Mutex<BTreeSet<PathBuf>>,
+    /// Numbers the temporary files of [`RustcCache::put`], unique across threads.
+    writes: AtomicUsize,
+}
+
+fn hash_hex(text: &str) -> String {
+    let mut hasher = std::hash::DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+impl RustcCache {
+    fn new(rustc: &Rustc) -> Self {
+        let off = std::env::var_os("SABIKO_DIFFERENTIAL_RUSTC_CACHE").is_some_and(|v| v == "0");
+        let dir = (!off)
+            .then(|| {
+                let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+                    .join("differential-rustc")
+                    .join(hash_hex(&format!(
+                        "{}\n{}",
+                        rustc.path.display(),
+                        rustc.version
+                    )));
+                std::fs::create_dir_all(&dir).is_ok().then_some(dir)
+            })
+            .flatten();
+        RustcCache {
+            dir,
+            used: Mutex::new(BTreeSet::new()),
+            writes: AtomicUsize::new(0),
+        }
+    }
+
+    fn file(&self, key: &str) -> Option<PathBuf> {
+        let file = self.dir.as_ref()?.join(hash_hex(key));
+        self.used.lock().unwrap().insert(file.clone());
+        Some(file)
+    }
+
+    /// An entry is `<0|1>\n<key length in bytes>\n<key><stderr>`.
+    fn get(&self, key: &str) -> Option<(bool, String)> {
+        let entry = std::fs::read_to_string(self.file(key)?).ok()?;
+        let (success, rest) = entry.split_once('\n')?;
+        let (len, rest) = rest.split_once('\n')?;
+        let stored_key = rest.get(..len.parse::<usize>().ok()?)?;
+        if stored_key != key {
+            return None;
+        }
+        let success = match success {
+            "0" => false,
+            "1" => true,
+            _ => return None,
+        };
+        Some((success, rest[stored_key.len()..].to_owned()))
+    }
+
+    /// Writes through a temporary file (unique to the process and the write) and a
+    /// rename, so a reader sees the whole entry or none. A failure only loses the entry.
+    fn put(&self, key: &str, success: bool, stderr: &str) {
+        let Some(file) = self.file(key) else { return };
+        let n = self.writes.fetch_add(1, Ordering::Relaxed);
+        let tmp = file.with_extension(format!("tmp{}-{n}", std::process::id()));
+        let entry = format!("{}\n{}\n{key}{stderr}", u8::from(success), key.len());
+        if std::fs::write(&tmp, entry).is_err() || std::fs::rename(&tmp, &file).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+
+    /// Removes what this run did not use: the directories of other rustcs, and in this
+    /// one the entries of programs that are gone or changed and any temporary file left
+    /// by an interrupted run. Called once every case has run.
+    fn prune(&self) {
+        let Some(dir) = &self.dir else { return };
+        let used = self.used.lock().unwrap();
+        let remove = |path: &Path| {
+            let _ = if path.is_dir() {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_file(path)
+            };
+        };
+        let siblings = dir
+            .parent()
+            .and_then(|parent| std::fs::read_dir(parent).ok());
+        for entry in siblings.into_iter().flatten().flatten() {
+            if entry.path() != *dir {
+                remove(&entry.path());
+            }
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if !used.contains(&entry.path()) {
+                    remove(&entry.path());
+                }
+            }
+        }
+    }
 }
 
 fn corpus_root() -> PathBuf {
@@ -209,18 +349,19 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// The `rustc` to use: `$RUSTC`, else `rustc` on `PATH`. `None` when it cannot be run.
-fn find_rustc() -> Option<PathBuf> {
-    let rustc = std::env::var_os("RUSTC").map_or_else(|| PathBuf::from("rustc"), PathBuf::from);
-    let version = Command::new(&rustc).arg("--version").output().ok()?;
+fn find_rustc() -> Option<Rustc> {
+    let path = std::env::var_os("RUSTC").map_or_else(|| PathBuf::from("rustc"), PathBuf::from);
+    let version = Command::new(&path).arg("-vV").output().ok()?;
     if !version.status.success() {
         return None;
     }
+    let version = String::from_utf8_lossy(&version.stdout).trim().to_owned();
     eprintln!(
         "differential: using {} ({})",
-        rustc.display(),
-        String::from_utf8_lossy(&version.stdout).trim()
+        path.display(),
+        version.lines().next().unwrap_or_default()
     );
-    Some(rustc)
+    Some(Rustc { path, version })
 }
 
 /// Removes the scratch directory when dropped, so a panic mid-test does not leak it.
@@ -258,40 +399,28 @@ struct Result_ {
     rustc: Outcome,
 }
 
-/// Runs rustc over all cases on a small thread pool and Sabiko on the current thread.
-fn run_all(rustc: &Path, tmp: &Path, cases: &[Case]) -> Vec<Result_> {
-    let next = Mutex::new(0usize);
-    let rustc_outcomes: Mutex<Vec<Option<Outcome>>> =
-        Mutex::new(cases.iter().map(|_| None).collect());
-    let workers = std::thread::available_parallelism()
-        .map_or(4, std::num::NonZeroUsize::get)
-        .clamp(1, 8);
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = {
-                    let mut n = next.lock().unwrap();
-                    let i = *n;
-                    *n += 1;
-                    i
-                };
-                let Some(case) = cases.get(i) else { break };
-                let outcome = run_rustc(rustc, tmp, &case.rel, &case.src);
-                rustc_outcomes.lock().unwrap()[i] = Some(outcome);
-            });
-        }
-    });
-    let rustc_outcomes = rustc_outcomes.into_inner().unwrap();
-    cases
-        .iter()
-        .zip(rustc_outcomes)
-        .map(|(case, rustc)| Result_ {
+/// Runs both compilers over all cases, one case per thread at a time
+/// (`common::parallel_map`). A case whose run panics (Sabiko's prelude-diagnostics
+/// assertion, a compiler panic) is an `Err` naming the file.
+fn run_all(rustc: &Rustc, tmp: &Path, cases: &[Case]) -> Vec<Result<Result_, String>> {
+    let cache = RustcCache::new(rustc);
+    let results = common::parallel_map(cases, |case| {
+        std::panic::catch_unwind(|| Result_ {
             rel: case.rel.clone(),
             src: case.src.clone(),
             sabiko: run_sabiko(&case.rel, &case.src),
-            rustc: rustc.expect("every case gets a rustc outcome"),
+            rustc: run_rustc(rustc, &cache, tmp, &case.rel, &case.src),
         })
-        .collect()
+        .map_err(|payload| {
+            format!(
+                "{}:\n  panicked: {}",
+                case.rel,
+                common::panic_message(&*payload)
+            )
+        })
+    });
+    cache.prune();
+    results
 }
 
 /// Sabiko codes that are never the rejection a `rej_` file pins: syntax or codegen not
@@ -440,6 +569,14 @@ fn differential() {
 
     let mut failures = Vec::new();
     for r in &results {
+        let r = match r {
+            Ok(r) => r,
+            Err(panicked) => {
+                eprintln!("FAIL {panicked}");
+                failures.push(panicked.clone());
+                continue;
+            }
+        };
         let mark = if r.sabiko.verdict == r.rustc.verdict {
             "ok  "
         } else {
