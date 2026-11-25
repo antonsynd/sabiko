@@ -96,17 +96,21 @@ minimum_score() {
         sabiko_types) echo 98 ;;
     esac
 }
-# Seconds, per mutant's test run. The slowest test packages, codegen's (sabikoc's suites
-# compile and run programs with both compilers), take about 2.5 minutes at
-# --test-threads=2 on a loaded four-core machine and less on an idle runner, so a slow but
-# passing suite is not mistaken for a hang. A real hang costs the full limit.
+# Seconds, per mutant's test run, so that a slow but passing suite is not mistaken for a
+# hang; a real hang costs the full limit. The slowest test packages, codegen's (sabikoc's
+# suites compile and run programs with both compilers), take about 2.5 minutes at
+# --test-threads=2 on a loaded four-core machine and less on an idle runner. sabiko_types'
+# take 34 s on the development machine since #165 (85 s before; the slowest passing
+# mutant on a runner took 97 s), so its 150 s keeps a factor of four while each of its
+# 17 to 19 spinning mutants costs half what it did.
 test_timeout() {
     if [ -n "${MUTANTS_TEST_TIMEOUT:-}" ]; then
         echo "$MUTANTS_TEST_TIMEOUT"
         return
     fi
     case "$1" in
-        sabiko_borrowck | sabiko_codegen | sabiko_types) echo 300 ;;
+        sabiko_borrowck | sabiko_codegen) echo 300 ;;
+        sabiko_types) echo 150 ;;
     esac
 }
 

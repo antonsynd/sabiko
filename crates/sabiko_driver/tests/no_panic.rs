@@ -8,6 +8,8 @@
 //! `PROPTEST_CASES` to run far more. The libFuzzer targets in `fuzz/` cover the same
 //! ground with coverage guidance but need a nightly toolchain.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -545,19 +547,40 @@ proptest! {
 }
 
 /// The unmodified corpus goes through the same path, so a fixture that stops compiling
-/// is caught here with its name rather than through a mutation.
+/// is caught here with its name rather than through a mutation. The files are compiled
+/// in parallel (`common::parallel_map`): one after another they took 45 s of a
+/// `sabiko_types` mutant's 90 s of tests (#165). Each file's panic is caught and reported
+/// with its path, in corpus order.
 #[test]
 fn unmodified_corpus_never_panics() {
-    for (path, src) in corpus() {
-        let c = compile(src);
-        if !c.has_errors() {
+    let failures = common::parallel_map(corpus(), |(path, src)| {
+        let checked = std::panic::catch_unwind(|| {
+            let c = compile(src);
             assert!(
-                !c.output.is_empty(),
-                "accepted program produced no IL: {}",
-                path.display()
+                c.has_errors() || !c.output.is_empty(),
+                "accepted program produced no IL"
             );
-        }
-    }
+        });
+        checked
+            .err()
+            .map(|payload| format!("{}: {}", path.display(), panic_message(&*payload)))
+    });
+    let failures: Vec<String> = failures.into_iter().flatten().collect();
+    assert!(
+        failures.is_empty(),
+        "{} corpus file(s) failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The message of a caught panic: its `&str` or `String` payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
 /// Each edit kind does what its name says on a small program.
