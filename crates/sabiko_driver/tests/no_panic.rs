@@ -563,7 +563,7 @@ fn unmodified_corpus_never_panics() {
         });
         checked
             .err()
-            .map(|payload| format!("{}: {}", path.display(), panic_message(&*payload)))
+            .map(|payload| format!("{}: {}", path.display(), common::panic_message(&*payload)))
     });
     let failures: Vec<String> = failures.into_iter().flatten().collect();
     assert!(
@@ -572,15 +572,6 @@ fn unmodified_corpus_never_panics() {
         failures.len(),
         failures.join("\n")
     );
-}
-
-/// The message of a caught panic: its `&str` or `String` payload.
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|s| (*s).to_owned())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
 /// Each edit kind does what its name says on a small program.

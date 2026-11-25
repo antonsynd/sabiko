@@ -28,9 +28,12 @@ Sabiko is a syntactic subset of Rust, so `rustc` is a free second implementation
   `tests/differential/` except `run/` is compiled by both; the verdicts must agree: accept,
   or a borrow-family error. Any other error on either side fails the test. `ok_` files must
   be accepted and `err_` files rejected by both. rustc's exit status and stderr are cached
-  under `target/tmp/differential-rustc`, keyed by `rustc -vV`, the arguments and the whole
-  program (all compared on a hit), so a rerun with the same rustc only runs it on programs
-  that changed; `SABIKO_DIFFERENTIAL_RUSTC_CACHE=0` turns that off (decision 108).
+  under `target/tmp/differential-rustc/<rustc>/`, keyed by the rustc binary's path, `rustc
+  -vV`, the arguments, the crate name and the whole program (all compared on a hit), so a
+  rerun with the same rustc only runs it on programs that changed; each run removes the
+  entries it did not use and other rustcs' directories. `SABIKO_DIFFERENTIAL_RUSTC_CACHE=0`
+  turns the cache off, as a rustc wrapper that changes rustc's behaviour should (decision
+  108).
 - Run-time behaviour (`crates/sabikoc/tests/differential_run.rs`): programs under
   `tests/differential/run/` are built as executables by both compilers (in release mode,
   wrapping arithmetic, for a program with a `//@ release` line) and run; stdout and

@@ -6,10 +6,13 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::hash::{Hash as _, Hasher as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use sabiko_diagnostics::Severity;
 use sabiko_driver::{compile_str, Options};
@@ -183,7 +186,8 @@ fn run_rustc(rustc: &Rustc, cache: &RustcCache, tmp: &Path, rel: &str, src: &str
     let crate_name = format!("d_{crate_name}");
     let program = format!("{RUSTC_PRELUDE}{src}");
     let key = format!(
-        "{}\n{}\n--crate-name {crate_name}\n{program}",
+        "{}\n{}\n{}\n--crate-name {crate_name}\n{program}",
+        rustc.path.display(),
         rustc.version,
         RUSTC_ARGS.join(" ")
     );
@@ -210,30 +214,55 @@ fn run_rustc(rustc: &Rustc, cache: &RustcCache, tmp: &Path, rel: &str, src: &str
 /// (`CARGO_TARGET_TMPDIR`) so that a rerun with the same rustc only compiles the programs
 /// that changed. The suite reruns once per `sabiko_types` and `sabiko_borrowck` mutant,
 /// where rustc's 800 compilations took half its 20 s (#165). An entry is keyed by
-/// everything rustc's answer depends on: `rustc -vV` (its exact commit), the arguments,
-/// the crate name and the program text, all stored in the entry and compared in full on a
-/// hit, so a hash collision or a stale entry is a miss, never a wrong verdict. The cached
-/// stderr names the scratch directory of the run that filled it, which only diagnostics
-/// shown on a failure print. `SABIKO_DIFFERENTIAL_RUSTC_CACHE=0` turns the cache off.
+/// everything rustc's answer depends on: the rustc binary's path and `rustc -vV` (its
+/// exact commit), the arguments, the crate name and the program text, all stored in the
+/// entry and compared in full on a hit, so a hash collision or a stale entry is a miss,
+/// never a wrong verdict. A rustc wrapper that changes rustc's behaviour behind the same
+/// path and `-vV` should run with the cache off: `SABIKO_DIFFERENTIAL_RUSTC_CACHE=0`.
+/// The entries live in a directory per rustc (path and version), and [`RustcCache::prune`]
+/// removes the other rustcs' directories and the entries this run did not use, so the
+/// cache holds one entry per corpus program. The cached stderr names the scratch
+/// directory of the run that filled it, which only diagnostics shown on a failure print.
 struct RustcCache {
     dir: Option<PathBuf>,
+    /// The entry files this run read or wrote, kept by [`RustcCache::prune`].
+    used: Mutex<BTreeSet<PathBuf>>,
+    /// Numbers the temporary files of [`RustcCache::put`], unique across threads.
+    writes: AtomicUsize,
+}
+
+fn hash_hex(text: &str) -> String {
+    let mut hasher = std::hash::DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 impl RustcCache {
-    fn new() -> Self {
-        if std::env::var_os("SABIKO_DIFFERENTIAL_RUSTC_CACHE").is_some_and(|v| v == "0") {
-            return RustcCache { dir: None };
-        }
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("differential-rustc");
+    fn new(rustc: &Rustc) -> Self {
+        let off = std::env::var_os("SABIKO_DIFFERENTIAL_RUSTC_CACHE").is_some_and(|v| v == "0");
+        let dir = (!off)
+            .then(|| {
+                let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+                    .join("differential-rustc")
+                    .join(hash_hex(&format!(
+                        "{}\n{}",
+                        rustc.path.display(),
+                        rustc.version
+                    )));
+                std::fs::create_dir_all(&dir).is_ok().then_some(dir)
+            })
+            .flatten();
         RustcCache {
-            dir: std::fs::create_dir_all(&dir).is_ok().then_some(dir),
+            dir,
+            used: Mutex::new(BTreeSet::new()),
+            writes: AtomicUsize::new(0),
         }
     }
 
     fn file(&self, key: &str) -> Option<PathBuf> {
-        let mut hasher = std::hash::DefaultHasher::new();
-        key.hash(&mut hasher);
-        Some(self.dir.as_ref()?.join(format!("{:016x}", hasher.finish())))
+        let file = self.dir.as_ref()?.join(hash_hex(key));
+        self.used.lock().unwrap().insert(file.clone());
+        Some(file)
     }
 
     /// An entry is `<0|1>\n<key length in bytes>\n<key><stderr>`.
@@ -253,14 +282,45 @@ impl RustcCache {
         Some((success, rest[stored_key.len()..].to_owned()))
     }
 
-    /// Writes through a temporary file and a rename, so a concurrent reader sees the whole
-    /// entry or none. A failure to write only loses the entry.
+    /// Writes through a temporary file (unique to the process and the write) and a
+    /// rename, so a reader sees the whole entry or none. A failure only loses the entry.
     fn put(&self, key: &str, success: bool, stderr: &str) {
         let Some(file) = self.file(key) else { return };
-        let tmp = file.with_extension(format!("tmp{}", std::process::id()));
+        let n = self.writes.fetch_add(1, Ordering::Relaxed);
+        let tmp = file.with_extension(format!("tmp{}-{n}", std::process::id()));
         let entry = format!("{}\n{}\n{key}{stderr}", u8::from(success), key.len());
-        if std::fs::write(&tmp, entry).is_ok() && std::fs::rename(&tmp, &file).is_err() {
+        if std::fs::write(&tmp, entry).is_err() || std::fs::rename(&tmp, &file).is_err() {
             let _ = std::fs::remove_file(&tmp);
+        }
+    }
+
+    /// Removes what this run did not use: the directories of other rustcs, and in this
+    /// one the entries of programs that are gone or changed and any temporary file left
+    /// by an interrupted run. Called once every case has run.
+    fn prune(&self) {
+        let Some(dir) = &self.dir else { return };
+        let used = self.used.lock().unwrap();
+        let remove = |path: &Path| {
+            let _ = if path.is_dir() {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_file(path)
+            };
+        };
+        let siblings = dir
+            .parent()
+            .and_then(|parent| std::fs::read_dir(parent).ok());
+        for entry in siblings.into_iter().flatten().flatten() {
+            if entry.path() != *dir {
+                remove(&entry.path());
+            }
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if !used.contains(&entry.path()) {
+                    remove(&entry.path());
+                }
+            }
         }
     }
 }
@@ -340,15 +400,27 @@ struct Result_ {
 }
 
 /// Runs both compilers over all cases, one case per thread at a time
-/// (`common::parallel_map`).
-fn run_all(rustc: &Rustc, tmp: &Path, cases: &[Case]) -> Vec<Result_> {
-    let cache = RustcCache::new();
-    common::parallel_map(cases, |case| Result_ {
-        rel: case.rel.clone(),
-        src: case.src.clone(),
-        sabiko: run_sabiko(&case.rel, &case.src),
-        rustc: run_rustc(rustc, &cache, tmp, &case.rel, &case.src),
-    })
+/// (`common::parallel_map`). A case whose run panics (Sabiko's prelude-diagnostics
+/// assertion, a compiler panic) is an `Err` naming the file.
+fn run_all(rustc: &Rustc, tmp: &Path, cases: &[Case]) -> Vec<Result<Result_, String>> {
+    let cache = RustcCache::new(rustc);
+    let results = common::parallel_map(cases, |case| {
+        std::panic::catch_unwind(|| Result_ {
+            rel: case.rel.clone(),
+            src: case.src.clone(),
+            sabiko: run_sabiko(&case.rel, &case.src),
+            rustc: run_rustc(rustc, &cache, tmp, &case.rel, &case.src),
+        })
+        .map_err(|payload| {
+            format!(
+                "{}:\n  panicked: {}",
+                case.rel,
+                common::panic_message(&*payload)
+            )
+        })
+    });
+    cache.prune();
+    results
 }
 
 /// Sabiko codes that are never the rejection a `rej_` file pins: syntax or codegen not
@@ -497,6 +569,14 @@ fn differential() {
 
     let mut failures = Vec::new();
     for r in &results {
+        let r = match r {
+            Ok(r) => r,
+            Err(panicked) => {
+                eprintln!("FAIL {panicked}");
+                failures.push(panicked.clone());
+                continue;
+            }
+        };
         let mark = if r.sabiko.verdict == r.rustc.verdict {
             "ok  "
         } else {
